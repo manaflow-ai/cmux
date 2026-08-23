@@ -6,6 +6,7 @@ use std::{
     process::Command as ProcessCommand,
     time::{SystemTime, UNIX_EPOCH},
 };
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const LABEL: &str = "com.chatmux.relay";
 
 /// `npx` installs a package into a cache directory named `_npx`. That cache is
@@ -33,6 +34,7 @@ fn validate_autostart_executable(path: &Path) -> Result<(), String> {
 fn home() -> Result<PathBuf, String> {
     std::env::var_os("HOME").map(PathBuf::from).ok_or_else(|| "HOME is not set".into())
 }
+#[cfg(target_os = "macos")]
 fn xml_escape(v: &str) -> String {
     v.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -146,7 +148,7 @@ fn uninstall_impl() -> Result<String, String> {
         let _ = run("launchctl", &["bootout", &d, s]);
     }
     if let Err(e) = fs::remove_file(&p) {
-        if e.kind() != std::io::ErrorKind::NotFound {
+        if !matches!(e.kind(), std::io::ErrorKind::NotFound) {
             return Err(e.to_string());
         }
     }
@@ -184,6 +186,7 @@ pub fn uninstall() -> Result<String, String> {
 mod tests {
     use super::*;
     #[test]
+    #[cfg(target_os = "macos")]
     fn escapes() {
         assert_eq!(xml_escape("a<&\"' >"), "a&lt;&amp;&quot;&apos; &gt;");
     }

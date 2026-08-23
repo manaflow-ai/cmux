@@ -445,7 +445,7 @@ fn create_parent_dirs_no_symlink(path: &Path) -> Result<(), HostError> {
             }
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                std::fs::create_dir(&current)?
+                std::fs::create_dir(&current)?;
             }
             Err(error) => return Err(HostError::Io(error)),
         }
@@ -646,7 +646,7 @@ enum RunSpec<'a> {
 
 enum RunOutcome {
     Done { exit_code: i64, output: String },
-    TimedOut { tail: String },
+    TimedOut,
     Failed { message: String },
 }
 
@@ -660,13 +660,13 @@ async fn run_spec(
     let mut command = match &spec {
         RunSpec::Shell { command } => {
             #[cfg(windows)]
-            let mut shell = {
+            let shell = {
                 let mut command_line = tokio::process::Command::new("cmd.exe");
                 command_line.args(["/D", "/S", "/C", command]);
                 command_line
             };
             #[cfg(not(windows))]
-            let mut shell = {
+            let shell = {
                 let mut command_line = tokio::process::Command::new("/bin/sh");
                 command_line.arg("-c").arg(command);
                 command_line
@@ -790,15 +790,10 @@ async fn run_spec(
             }
         }
     }
-    let text = String::from_utf8_lossy(&output);
     if timed_out {
-        let tail: String = {
-            let chars: Vec<char> = text.chars().collect();
-            let start = chars.len().saturating_sub(2_000);
-            chars[start..].iter().collect()
-        };
-        return RunOutcome::TimedOut { tail };
+        return RunOutcome::TimedOut;
     }
+    let text = String::from_utf8_lossy(&output);
     RunOutcome::Done { exit_code: exited.unwrap_or(0), output: text.into_owned() }
 }
 

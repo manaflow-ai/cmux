@@ -272,20 +272,19 @@ mod unix {
                     self.shared.pending.lock().expect("control pending lock").remove(&id);
                     return None;
                 }
-                let write_ok = match tokio::time::timeout_at(deadline, write_result).await {
-                    Ok(Ok(true)) => true,
-                    _ => false,
-                };
+                let write_ok = matches!(
+                    tokio::time::timeout_at(deadline, write_result).await,
+                    Ok(Ok(true))
+                );
                 if !write_ok {
                     self.shared.pending.lock().expect("control pending lock").remove(&id);
                     return None;
                 }
-                match tokio::time::timeout_at(deadline, receiver).await {
-                    Ok(Ok(value)) => Some(value),
-                    _ => {
-                        self.shared.pending.lock().expect("control pending lock").remove(&id);
-                        None
-                    }
+                if let Ok(Ok(value)) = tokio::time::timeout_at(deadline, receiver).await {
+                    Some(value)
+                } else {
+                    self.shared.pending.lock().expect("control pending lock").remove(&id);
+                    None
                 }
             })
         }
