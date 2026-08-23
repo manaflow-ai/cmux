@@ -714,6 +714,24 @@ mod tests {
     use cmux_tui_core::resource::ResourceOperation;
 
     #[test]
+    fn capability_preflight_rejects_wrong_app_even_when_capability_is_present() {
+        let identity = json!({"app":"other", "protocol":12, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
+        assert!(validate_capability_identity(&identity).is_err());
+    }
+
+    #[test]
+    fn capability_preflight_rejects_protocol_11_even_when_capability_is_present() {
+        let identity = json!({"app":"cmux-tui", "protocol":11, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
+        assert!(validate_capability_identity(&identity).is_err());
+    }
+
+    #[test]
+    fn capability_preflight_accepts_protocol_12_identity() {
+        let identity = json!({"app":"cmux-tui", "protocol":12, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
+        assert!(validate_capability_identity(&identity).is_ok());
+    }
+
+    #[test]
     fn mutation_request_has_a_key_and_read_does_not() {
         let mutation = RequestPlan {
             operation: WireOperation::Typed(ResourceOperation::WorkspaceCreate),
