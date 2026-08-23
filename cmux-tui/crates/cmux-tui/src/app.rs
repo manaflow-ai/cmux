@@ -18450,7 +18450,12 @@ impl App {
             Action::ToggleSidebarView => self.toggle_sidebar_view(),
             Action::FocusSidebar => self.toggle_sidebar_focus(),
             Action::ProviderMenu => {
-                self.open_provider_rail_menu(1, 2);
+                if self.focus == FocusTarget::MachineSidebar {
+                    self.open_provider_rail_menu(1, 2);
+                } else {
+                    self.sidebar_compact = !self.sidebar_compact;
+                    self.sidebar_visible = true;
+                }
             }
             Action::NewPaneRight => self.new_pane_right(pane, fallback_pane, semantic_intent)?,
             Action::UndoLayout => {
