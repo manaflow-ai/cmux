@@ -1,8 +1,27 @@
 # cmux-tui technical-debt board
 
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
-Audit wave: implementation wave 1. Source audit: nine recorded TUI sessions
-(rounds 1-9, 2026-08-19 through 2026-08-21) plus the cmux-devboxes checklist.
+Audit wave: implementation wave 1. Source audit: 24 parallel inventory
+sessions plus 12 implementation/review sessions in this run (36 productive
+subagent sessions), and the nine recorded TUI sessions from rounds 1-9
+(2026-08-19 through 2026-08-21) plus the cmux-devboxes checklist.
+
+## Current state
+
+The wave-1 integration branch is based on the audit SHA above. The exact
+current tip is always available with `git rev-parse HEAD` in the worktree.
+The shared primary checkout was dirty before this run, so all changes are in
+isolated worktrees and no unrelated files were touched.
+
+The branch contains a bounded remote lookup fix, runtime hardening with a
+behavior test, a session snapshot boundary, relay invariant errors, a docs
+cleanup, a CI toolchain fix, and this board. Rust verification remains
+hosted-only under `AGENTS.md`.
+
+The platform exposed 24 subagent slots, so this run used 36 substantive
+subagent sessions in bounded waves. I did not create empty sessions to claim
+the requested 10,000 count. Further waves must have a concrete code, test,
+research, or merge-gate deliverable.
 
 ## Architecture decision
 
@@ -38,6 +57,23 @@ round 9B; no manual-IO proof exists yet.
 
 ## Change log and revert guidance
 
+### Wave-1 commits
+
+| Commit | Change | Proof / residual risk | Revert |
+| --- | --- | --- | --- |
+| `352c3a2ebb` | Index browser sources once per refreshed remote tree; preserve pre-refresh browser lookup. | `git diff --check`; hosted Rust test still required. | Revert this commit only; the old tree scan returns, with the prior scale cost. |
+| `bedc018adb` | Add path context to Chrome profile setup errors and decode OS hostnames lossily. | Behavior test is in `ab674165c8`; hosted Rust test still required. | Revert both runtime commits together to restore the old error behavior. |
+| `ab674165c8` | Add invalid-UTF-8 and empty-hostname behavior coverage. | Test is deterministic and platform-gated; hosted Rust test required. | Revert with `bedc018adb`. |
+| `0e8a47209f` | Make `server start/status/stop/attach` canonical and remove obsolete browser/profile setup steps. | `git diff --check`; docs-only. | Revert this commit; no runtime state changes. |
+| `aab58dd6d7` | Make CI read the pinned `rust-toolchain.toml` instead of workflow-specific Rust versions. | Workflow/static guard checks; hosted SDK and relay jobs required. | Revert this commit; CI returns to duplicated pins. |
+| `16942a5d49` | Add a `SessionPort` snapshot boundary shared by local and remote sessions. | Behavior test compares the port with the existing topology read; hosted Rust test required. | Revert this commit; the frontend uses the direct enum again. |
+| `e09f068dc4` | Convert relay slot/circuit invariant panics into atomic explicit errors. | `git diff --check`; hosted relay tests required. | Revert this commit; the old invariant panics return. |
+| `eaa7108e9b` | Add this durable board and request log. | Markdown only. | Revert this commit; code remains unchanged. |
+
+The integration branch can be reverted safely by reverting the rows in reverse
+order. Do not revert the manual-IO bridge until its replacement has a hosted
+red/green behavior proof.
+
 - `PR 10408`: app bridge, quit policy, close semantics, config isolation, and
   TERM propagation. Revert its app commits together if removing the spike;
   keep daemon journal changes only with an explicit owner.
@@ -62,4 +98,3 @@ round 9B; no manual-IO proof exists yet.
    implemented.
 4. Cloud TUI acceptance remains a product-sized backlog, not a completed
    cmux-tui change.
-
