@@ -7,6 +7,7 @@
 use std::io::IsTerminal as _;
 use std::path::{Path, PathBuf};
 
+use chatmux_relay::actions::validate_request_path;
 use chatmux_relay::autostart;
 use chatmux_relay::cli::{Command, parse_cli_args};
 use chatmux_relay::config::{
@@ -205,6 +206,10 @@ fn apply_allowed_roots(config: &mut Config, allow_root_args: &[String], config_p
     } else {
         if let Err(error) = validate_allowed_roots(&roots) {
             eprintln!("Invalid allowed roots: {error}");
+            return;
+        }
+        if let Some(error) = roots.iter().find_map(|root| validate_request_path(root).err()) {
+            eprintln!("Invalid allowed root: {error}");
             return;
         }
         println!("Agent access on this machine is limited to: {}", roots.join(", "));
