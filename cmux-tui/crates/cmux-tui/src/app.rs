@@ -104,8 +104,7 @@ fn read_crossterm_event(
     mut poll: impl FnMut(Duration) -> std::io::Result<bool>,
     mut read: impl FnMut() -> std::io::Result<Event>,
 ) -> std::io::Result<Option<Event>> {
-    if let Some(timeout) = timeout
-        .map(|timeout| timeout.min(Duration::from_millis(100)))
+    if let Some(timeout) = timeout.map(|timeout| timeout.min(Duration::from_millis(100)))
         && !poll(timeout)?
     {
         return Ok(None);
@@ -10863,7 +10862,9 @@ impl App {
         if !self.session.workspaces_are_provider_managed()
             && let Err(error) = self.session.mark_workspaces_provider_managed()
         {
-            self.status_message = Some(localization::catalog().sidebar.workspace_state_failed.replace("{error}", &error));
+            self.status_message = Some(
+                localization::catalog().sidebar.workspace_state_failed.replace("{error}", &error),
+            );
             return;
         }
         let (workspace_key, rename) = match mutation {
@@ -14636,10 +14637,7 @@ impl App {
                             return Ok(RenderAction::None);
                         }
                         self.status_message = Some(
-                            localization::catalog()
-                                .sidebar
-                                .layout_stale
-                                .replace("{error}", &error),
+                            localization::catalog().sidebar.layout_stale.replace("{error}", &error),
                         );
                         let refresh_stale = self.layout_refresh_retries_remaining > 0;
                         if refresh_stale {
@@ -14793,8 +14791,16 @@ impl App {
                     }
                     Err(error) => {
                         let retrying = self.schedule_background_refresh_retry();
-                        let template = if retrying { localization::catalog().sidebar.refresh_remote_tree_retrying } else { localization::catalog().sidebar.refresh_remote_tree_stopped };
-                        self.status_message = Some(template.replace("{attempts}", &BACKGROUND_REFRESH_RETRIES.to_string()).replace("{error}", &error));
+                        let template = if retrying {
+                            localization::catalog().sidebar.refresh_remote_tree_retrying
+                        } else {
+                            localization::catalog().sidebar.refresh_remote_tree_stopped
+                        };
+                        self.status_message = Some(
+                            template
+                                .replace("{attempts}", &BACKGROUND_REFRESH_RETRIES.to_string())
+                                .replace("{error}", &error),
+                        );
                         let _ = self.session.take_background_refresh_dirty();
                         false
                     }
@@ -14812,7 +14818,12 @@ impl App {
                 match result {
                     Ok(clients) => self.replace_clients(clients),
                     Err(error) => {
-                        self.status_message = Some(localization::catalog().sidebar.clients_list_failed.replace("{error}", &error));
+                        self.status_message = Some(
+                            localization::catalog()
+                                .sidebar
+                                .clients_list_failed
+                                .replace("{error}", &error),
+                        );
                     }
                 }
                 Ok(RenderAction::Draw)
@@ -17581,9 +17592,7 @@ impl App {
                 ) {
                     Ok(())
                 } else {
-                    Err(anyhow::anyhow!(
-                        localization::catalog().sidebar.file_input_not_queued
-                    ))
+                    Err(anyhow::anyhow!(localization::catalog().sidebar.file_input_not_queued))
                 }
             }
             FileCommand::OpenEditor(path) => {
@@ -17613,7 +17622,9 @@ impl App {
             Ok(()) => self
                 .sidebar_files
                 .set_message(localization::catalog().sidebar.file_sent_to_focused_pane),
-            Err(error) => self.sidebar_files.set_message(localization::catalog().sidebar.file_command_failed.replace("{error}", &error)),
+            Err(error) => self.sidebar_files.set_message(
+                localization::catalog().sidebar.file_command_failed.replace("{error}", &error),
+            ),
         }
     }
 
@@ -17741,7 +17752,9 @@ impl App {
                 return;
             }
             if let Err(error) = self.session.undo_layout(pane, Some(revision), true) {
-                self.status_message = Some(localization::catalog().sidebar.layout_undo_failed.replace("{error}", &error));
+                self.status_message = Some(
+                    localization::catalog().sidebar.layout_undo_failed.replace("{error}", &error),
+                );
             }
             return;
         }
@@ -17852,7 +17865,9 @@ impl App {
         self.cancel_pointer_interaction();
         let Some(dialog) = self.pairing_dialog.take() else { return };
         if let Err(error) = self.session.respond_pairing(dialog.challenge.id, approve) {
-            self.status_message = Some(localization::catalog().sidebar.pairing_response_failed.replace("{error}", &error));
+            self.status_message = Some(
+                localization::catalog().sidebar.pairing_response_failed.replace("{error}", &error),
+            );
         }
         self.pairing_dialog = self.pairing_queue.pop_front().map(PairingDialog::new);
     }
@@ -22975,10 +22990,10 @@ mod tests {
         DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission, DeferredInputQueue,
         DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome, FrontendJournalQueue,
         FrontendJournalWorker, GraphicIdentity, GraphicPlacement, GraphicSourceRect,
-        GraphicsSceneCache, GuardedMouseEncode, HostInputIngress, HostInputMessage, HostInputRuntime,
-        MachineActionWorker, MachineConnectRoute, MenuAction, MenuItem, MutationImpact,
-        MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession, OuterCursorSpec, PaneArea,
-        PaneAreaProjection, PaneContentGeneration, PaneEdge, PaneFocusHistory,
+        GraphicsSceneCache, GuardedMouseEncode, HostInputIngress, HostInputMessage,
+        HostInputRuntime, MachineActionWorker, MachineConnectRoute, MenuAction, MenuItem,
+        MutationImpact, MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession, OuterCursorSpec,
+        PaneArea, PaneAreaProjection, PaneContentGeneration, PaneEdge, PaneFocusHistory,
         PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
         PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
         Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
