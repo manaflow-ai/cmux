@@ -479,7 +479,17 @@ pub fn clamp_timeout(requested: Option<&Value>) -> u64 {
 
 /// Minimal, non-secret environment for spawned commands.
 pub fn scrubbed_env(base: &HashMap<String, String>) -> HashMap<String, String> {
-    let keep = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "LC_ALL"];
+    let keep = [
+        "PATH",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "TMPDIR",
+        "XDG_RUNTIME_DIR",
+        "LANG",
+        "LC_ALL",
+    ];
     let mut env = HashMap::new();
     for key in keep {
         if let Some(value) = base.get(key) {
@@ -1197,11 +1207,13 @@ mod tests {
         let base = HashMap::from([
             ("PATH".to_owned(), "/usr/bin".to_owned()),
             ("HOME".to_owned(), "/home/u".to_owned()),
+            ("XDG_RUNTIME_DIR".to_owned(), "/run/user/1000".to_owned()),
             ("OPENAI_API_KEY".to_owned(), "sekret".to_owned()),
         ]);
         let env = scrubbed_env(&base);
         assert_eq!(env.get("PATH").map(String::as_str), Some("/usr/bin"));
         assert_eq!(env.get("HOME").map(String::as_str), Some("/home/u"));
+        assert_eq!(env.get("XDG_RUNTIME_DIR").map(String::as_str), Some("/run/user/1000"));
         assert!(!env.contains_key("OPENAI_API_KEY"));
         assert_eq!(env.get("TERM").map(String::as_str), Some("dumb"));
     }
