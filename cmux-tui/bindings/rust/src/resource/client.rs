@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, TryLockError};
 use std::time::{Duration, Instant};
+use sha2::{Digest as _, Sha256};
 
 const PROTOCOL: &str = "cmux.protocol/2";
 const DEFAULT_REQUEST_BYTES: usize = 4 * 1024 * 1024;
@@ -1128,14 +1129,16 @@ mod tests {
     #[test]
     fn implicit_hashed_socket_falls_back_to_the_legacy_session_socket() {
         let id = NEXT_TEST_SOCKET.fetch_add(1, AtomicOrdering::Relaxed);
-        // Long enough to require the hashed preferred path, but short enough
-        // for the legacy Unix socket path to fit sockaddr_un.
-        let session = format!("resource-fallback-{}-{id}-{}", std::process::id(), "x".repeat(55));
-        let config =
-            Config::from_socket_path(crate::client::try_default_socket_path(&session).unwrap());
+        let session = format!("resource-fallback-{}-{id}", std::process::id());
         let dir = PathBuf::from("/tmp").join(crate::client::private_runtime_dir_name());
         std::fs::create_dir_all(&dir).unwrap();
         let legacy = SocketFile(dir.join(format!("{session}.sock")));
+        let runtime_name = crate::client::private_runtime_dir_name();
+        let uid = runtime_name.strip_prefix("cmux-tui-").unwrap();
+        let hashed_dir = PathBuf::from("/tmp").join(format!("cmux-tui-hashed-{uid}"));
+        std::fs::create_dir_all(&hashed_dir).unwrap();
+        let digest = format!("{:x}.sock", Sha256::digest(session.as_bytes()));
+        let config = Config::from_socket_path(hashed_dir.join(digest));
         assert!(
             config
                 .socket_path
