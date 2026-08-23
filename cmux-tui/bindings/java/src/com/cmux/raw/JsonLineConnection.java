@@ -1,9 +1,8 @@
 package com.cmux.raw;
 
+import com.cmux.internal.UnixSocketConnector;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.net.StandardProtocolFamily;
-import java.net.UnixDomainSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.CancelledKeyException;
 import java.nio.channels.ClosedChannelException;
@@ -57,13 +56,27 @@ final class JsonLineConnection implements AutoCloseable {
         int maxResponseBytes,
         int maxJsonDepth
     ) throws CmuxTransportException {
+        return connect(
+            socket,
+            maxRequestBytes,
+            maxResponseBytes,
+            maxJsonDepth,
+            null
+        );
+    }
+
+    static JsonLineConnection connect(
+        Path socket,
+        int maxRequestBytes,
+        int maxResponseBytes,
+        int maxJsonDepth,
+        Duration connectTimeout
+    ) throws CmuxTransportException {
         SocketChannel channel = null;
         Selector readSelector = null;
         Selector writeSelector = null;
         try {
-            channel = SocketChannel.open(StandardProtocolFamily.UNIX);
-            channel.configureBlocking(true);
-            channel.connect(UnixDomainSocketAddress.of(socket));
+            channel = UnixSocketConnector.open(socket, connectTimeout);
             channel.configureBlocking(false);
             readSelector = Selector.open();
             writeSelector = Selector.open();

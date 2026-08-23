@@ -272,7 +272,8 @@ public final class Client implements AutoCloseable {
                 transport = new UnixTransport(
                     socket,
                     builder.maxRequestBytes,
-                    builder.maxResponseBytes
+                    builder.maxResponseBytes,
+                    timeout
                 );
             } catch (IOException | UnsupportedOperationException error) {
                 throw new TransportError(

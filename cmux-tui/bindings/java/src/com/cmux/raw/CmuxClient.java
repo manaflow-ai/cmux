@@ -423,7 +423,8 @@ public final class CmuxClient extends GeneratedCmuxClient implements AutoCloseab
             socketPath,
             maxRequestBytes,
             maxResponseBytes,
-            maxJsonDepth
+            maxJsonDepth,
+            timeout
         );
     }
 
