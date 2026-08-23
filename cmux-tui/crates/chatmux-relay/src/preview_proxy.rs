@@ -48,6 +48,8 @@ const NETWORK_METHOD_MAX_UNITS: usize = 16;
 /// Most in-flight network requests remembered while their response is
 /// pending (requestWillBeSent -> responseReceived/loadingFailed join).
 const PENDING_REQUEST_CAP: usize = 512;
+/// Bound browser/devtools CDP messages before tungstenite allocates them.
+const PREVIEW_WS_MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 
 /// CDP command ids the proxy mints for its own enables; responses with
 /// these ids are swallowed instead of piped to the DevTools frontend.
@@ -540,7 +542,11 @@ fn accept_websocket(
             let socket = tokio_tungstenite::WebSocketStream::from_raw_socket(
                 io,
                 tungstenite::protocol::Role::Server,
-                None,
+                Some(
+                    tungstenite::protocol::WebSocketConfig::default()
+                        .max_message_size(Some(PREVIEW_WS_MAX_MESSAGE_BYTES))
+                        .max_frame_size(Some(PREVIEW_WS_MAX_MESSAGE_BYTES)),
+                ),
             )
             .await;
             run_peer(shared, socket, role).await;
