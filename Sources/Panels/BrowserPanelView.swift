@@ -1183,6 +1183,7 @@ struct BrowserPanelView: View {
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("BrowserToolbarAccessoryRow")
+            .layoutPriority(1)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, addressBarVerticalPadding)
