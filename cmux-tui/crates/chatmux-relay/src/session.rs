@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde_json::Value;
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 use tokio::sync::mpsc;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
@@ -203,6 +203,7 @@ async fn relay_session(
     // Outbound frame channel (exec/PTY tasks -> socket) + backpressure gauge.
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Value>();
     let pending = Arc::new(AtomicU64::new(0));
+    let action_slots = Arc::new(Semaphore::new(8));
     let auth = Arc::new(std::sync::Mutex::new(AuthSnapshot::default()));
     let workspace_runtime = Arc::clone(&runtime.workspace);
     let (workspace_tx, mut workspace_rx) = mpsc::unbounded_channel::<String>();
@@ -444,18 +445,39 @@ async fn relay_session(
                         };
                         let out = out_tx.clone();
                         let pending = Arc::clone(&pending);
+                        let action_slots = Arc::clone(&action_slots);
+                        let version = raw.get("version").cloned().unwrap_or(Value::from(1));
                         let actor = raw
                             .get("actorId")
                             .and_then(Value::as_str)
                             .unwrap_or("chatmux")
                             .to_owned();
+                        let permit = match action_slots.try_acquire_owned() {
+                            Ok(permit) => permit,
+                            Err(_) => {
+                                let result = serde_json::json!({
+                                    "type": "action_result",
+                                    "version": version,
+                                    "actionId": action_id,
+                                    "ok": false,
+                                    "code": "busy",
+                                    "message": "relay is busy; retry this action",
+                                });
+                                let size = serde_json::to_string(&result)
+                                    .map(|text| text.len() as u64).unwrap_or(0);
+                                pending.fetch_add(size, Ordering::SeqCst);
+                                let _ = out.send(result);
+                                continue;
+                            }
+                        };
                         tokio::spawn(async move {
+                            let _permit = permit;
                             let result = perform_action(&raw, &action).await;
                             let ok = result.get("ok").and_then(Value::as_bool).unwrap_or(false);
                             if ok {
                                 println!(
                                     "Ran {verb} for {actor} (action {}).",
-                                    &action_id[..action_id.len().min(8)]
+                                    action_id.chars().take(8).collect::<String>()
                                 );
                             } else {
                                 let code =
