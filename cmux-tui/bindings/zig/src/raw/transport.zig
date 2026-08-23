@@ -1,6 +1,6 @@
 const std = @import("std");
-const Sha256 = std.crypto.hash.sha2.Sha256;
 const builtin = @import("builtin");
+const Sha256 = std.crypto.hash.sha2.Sha256;
 const transport_hook_test = if (builtin.is_test)
     @import("transport_hook_test.zig")
 else
@@ -496,7 +496,10 @@ pub fn resolveSocketPath(
         "{s}/cmux-tui-{d}/{s}.sock",
         .{ base, std.posix.getuid(), session },
     );
-    if (preferred.len < 103) return preferred;
+    // sockaddr_un.sun_path includes the terminating NUL. Darwin provides 104
+    // bytes; Linux provides 108. Keep the same strict bound as the server.
+    const capacity: usize = if (builtin.os.tag == .macos) 104 else 108;
+    if (preferred.len < capacity) return preferred;
     allocator.free(preferred);
     var digest: [Sha256.digest_length]u8 = undefined;
     Sha256.hash(session, &digest, .{});

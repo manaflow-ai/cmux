@@ -31,6 +31,11 @@ $TMPDIR
 
 It appends `cmux-tui-<uid>/<session>.sock`. When that path exceeds the platform Unix-socket limit, the server uses its short `/tmp` fallback. The TUI exports the resolved path to child surfaces as `CMUX_TUI_SOCKET` and legacy `CMUX_MUX_SOCKET`. SDKs must prefer an explicit socket or `CMUX_TUI_SOCKET`, then implement the same resolution algorithm.
 
+For pathname checks, count UTF-8 bytes and include the terminating NUL: use a
+strict limit of 104 bytes on macOS (`sun_path[104]`) and 108 bytes on Linux
+(`sun_path[108]`). A path is valid only when its byte length is less than the
+platform limit. Other Unix targets must use their native `sun_path` capacity.
+
 The server validates session text before joining it into the path. A name must
 be a non-empty single path component. `.`, `..`, `/`, `\\`, NUL, control
 characters, and Unicode line separators are rejected. Existing names with
