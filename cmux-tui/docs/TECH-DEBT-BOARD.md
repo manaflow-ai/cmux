@@ -441,6 +441,7 @@ state ownership, and bound event polling and task admission.
 | `edf9ca96f7`, `585e2477dd` | Route browser, sidebar, provider, and action-status copy through the EN/JA catalog, including provider action IDs. | Known third-party provider labels remain provider-supplied; hosted compile and UI review remain required. | Revert both localization commits together. |
 | `bc3839813c` | Make raw `--session` socket resolution fallible so invalid names cannot bypass validation or hash an unsafe path. | Focused hosted run before this commit failed on the old test branch; final exact-head hosted run is required. | Revert this raw-client contract fix. |
 | `3d47d1d537` | Add Unix listener shutdown, admission-recovery, and Drop cleanup behavior tests. | Tests are formatted but not run locally; hosted Rust verification remains required. | Revert this test-only commit. |
+| pending | Share terminal-reader, gap, barrier, and writer finalization between explicit shutdown and ordinary `Mux` drop. | A `Mux` whose last owner is its journal writer cannot durably drain that writer from `Drop`; this self-thread path closes readers and hands off the join, but late queued bytes and gap markers remain best-effort. A lifecycle owner must call `shutdown` before releasing its final `Arc<Mux>` to guarantee the durable barrier. | Revert the shared finalization helper and writer-thread detection together. |
 
 The current integration branch is not a claim that every open TUI PR is safe.
 PR [#10254](https://github.com/manaflow-ai/cmux/pull/10254) still needs C++

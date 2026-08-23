@@ -303,7 +303,37 @@ enum JournalWriterOwner {
     Vacant,
     Reserved,
     Running(JournalWriter),
+    Joining(Arc<JournalWriterCompletion>),
     Closed,
+}
+
+#[derive(Default)]
+struct JournalWriterCompletion {
+    result: Mutex<Option<Result<(), String>>>,
+    changed: Condvar,
+}
+
+impl JournalWriterCompletion {
+    fn finish(&self, result: Result<(), String>) {
+        *self.result.lock().unwrap() = Some(result);
+        self.changed.notify_all();
+    }
+
+    fn wait_until(&self, deadline: Instant) -> anyhow::Result<()> {
+        let mut result = self.result.lock().unwrap();
+        while result.is_none() {
+            let wait = deadline.saturating_duration_since(Instant::now());
+            if wait.is_zero() {
+                anyhow::bail!("session journal writer did not stop before the shutdown deadline");
+            }
+            let (next, timeout) = self.changed.wait_timeout(result, wait).unwrap();
+            result = next;
+            if timeout.timed_out() && result.is_none() {
+                anyhow::bail!("session journal writer did not stop before the shutdown deadline");
+            }
+        }
+        result.clone().unwrap().map_err(anyhow::Error::msg)
+    }
 }
 
 struct JournalWriter {
@@ -321,37 +351,47 @@ impl JournalWriter {
         Ok(Self { thread, finished })
     }
 
-    fn join_until(self, deadline: Instant) -> anyhow::Result<()> {
+    fn join_until(
+        self,
+        deadline: Instant,
+        completion: Arc<JournalWriterCompletion>,
+    ) -> anyhow::Result<()> {
         let Self { thread, finished } = self;
         if thread.thread().id() == std::thread::current().id() {
-            std::thread::Builder::new()
+            let reaper_completion = completion.clone();
+            let spawn = std::thread::Builder::new()
                 .name("mux-session-journal-writer-reaper".into())
                 .spawn(move || {
-                    if thread.join().is_err() {
+                    let result = thread.join().map_err(|_| {
                         eprintln!(
                             "cmux-tui: session journal writer panicked during self-join handoff"
                         );
-                    }
-                })
-                .map(|_| ())
-                .map_err(|error| {
-                    anyhow::anyhow!(
-                        "hand off session journal writer self-join to reaper thread: {error}"
-                    )
-                })?;
+                        "session journal writer panicked during self-join handoff".to_string()
+                    });
+                    reaper_completion.finish(result);
+                });
+            if let Err(error) = spawn {
+                let error = format!(
+                    "hand off session journal writer self-join to reaper thread: {error}"
+                );
+                completion.finish(Err(error.clone()));
+                anyhow::bail!(error);
+            }
             return Ok(());
         }
         let wait = deadline.saturating_duration_since(Instant::now());
-        match finished.recv_timeout(wait) {
+        let result = match finished.recv_timeout(wait) {
             Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => thread
                 .join()
-                .map_err(|_| anyhow::anyhow!("session journal writer panicked during shutdown")),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(anyhow::anyhow!(
+                .map_err(|_| "session journal writer panicked during shutdown".to_string()),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(format!(
                 "session journal writer did not stop within {} ms; an admitted commit remains \
                  owned by the detached writer and its idempotency receipt will resolve recovery",
                 wait.as_millis()
             )),
-        }
+        };
+        completion.finish(result.clone());
+        result.map_err(anyhow::Error::msg)
     }
 }
 
@@ -667,6 +707,20 @@ impl JournalIngressSender {
         self.terminal_sender.is_some()
     }
 
+    pub(crate) fn is_current_writer_thread(&self) -> bool {
+        self.writer.lock().is_ok_and(|owner| {
+            matches!(
+                &*owner,
+                JournalWriterOwner::Running(writer)
+                    if writer.thread.thread().id() == std::thread::current().id()
+            )
+        })
+    }
+
+    pub(crate) fn is_closed(&self) -> bool {
+        self.state.closed.load(Ordering::Acquire)
+    }
+
     pub(crate) fn close_and_join(&self) -> anyhow::Result<()> {
         self.close_and_join_until(Instant::now() + JOURNAL_WRITER_SHUTDOWN_WAIT)
     }
@@ -679,18 +733,34 @@ impl JournalIngressSender {
                 Err(TrySendError::Disconnected(())) => {}
             }
         }
-        let writer = {
+        enum CloseAction {
+            Join(JournalWriter, Arc<JournalWriterCompletion>),
+            Wait(Arc<JournalWriterCompletion>),
+            Done,
+        }
+        let action = {
             let mut owner = self.writer.lock().unwrap();
             match std::mem::replace(&mut *owner, JournalWriterOwner::Closed) {
-                JournalWriterOwner::Running(writer) => Some(writer),
-                JournalWriterOwner::Vacant | JournalWriterOwner::Closed => None,
+                JournalWriterOwner::Running(writer) => {
+                    let completion = Arc::new(JournalWriterCompletion::default());
+                    *owner = JournalWriterOwner::Joining(completion.clone());
+                    CloseAction::Join(writer, completion)
+                }
+                JournalWriterOwner::Joining(completion) => {
+                    *owner = JournalWriterOwner::Joining(completion.clone());
+                    CloseAction::Wait(completion)
+                }
+                JournalWriterOwner::Vacant | JournalWriterOwner::Closed => CloseAction::Done,
                 JournalWriterOwner::Reserved => {
                     unreachable!("journal writer reservation escaped its owner lock")
                 }
             }
         };
-        let Some(writer) = writer else { return Ok(()) };
-        writer.join_until(deadline)
+        match action {
+            CloseAction::Join(writer, completion) => writer.join_until(deadline, completion),
+            CloseAction::Wait(completion) => completion.wait_until(deadline),
+            CloseAction::Done => Ok(()),
+        }
     }
 
     pub(crate) fn spawn_writer(
@@ -2346,6 +2416,48 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(1));
         release.send(()).unwrap();
         completion_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn concurrent_writer_close_waits_for_the_shared_join_result() {
+        let (sender, _receivers) = JournalIngressSender::new(true);
+        let sender = Arc::new(sender);
+        let (entered, entered_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel(1);
+        sender
+            .spawn_writer("shared-journal-close-test", move || {
+                entered.send(()).unwrap();
+                release_receiver.recv().unwrap();
+            })
+            .unwrap();
+        entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let start = Arc::new(std::sync::Barrier::new(3));
+        let (completed, completion_receiver) = sync_channel(2);
+        let closers = (0..2)
+            .map(|_| {
+                let sender = sender.clone();
+                let start = start.clone();
+                let completed = completed.clone();
+                std::thread::spawn(move || {
+                    start.wait();
+                    completed.send(sender.close_and_join()).unwrap();
+                })
+            })
+            .collect::<Vec<_>>();
+        start.wait();
+
+        assert!(
+            completion_receiver.recv_timeout(Duration::from_millis(100)).is_err(),
+            "a concurrent closer returned before the journal writer stopped"
+        );
+        release.send(()).unwrap();
+        for _ in 0..2 {
+            completion_receiver.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        }
+        for closer in closers {
+            closer.join().unwrap();
+        }
     }
 
     #[test]

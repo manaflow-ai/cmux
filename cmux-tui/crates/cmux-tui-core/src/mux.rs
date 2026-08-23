@@ -8590,6 +8590,20 @@ impl Mux {
         if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
             eprintln!("cmux-tui: journal hook workers did not stop before the shutdown deadline");
         }
+        self.finalize_terminal_journal("shutdown");
+        self.journal_kernel.shutdown();
+        if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
+            runtime.shutdown();
+        }
+    }
+
+    fn finalize_terminal_journal(&self, context: &str) {
+        if self.journal_ingress.is_closed() {
+            if let Err(error) = self.journal_ingress.close_and_join() {
+                eprintln!("cmux-tui: await session journal writer during {context}: {error:#}");
+            }
+            return;
+        }
         let surfaces = unique_surface_runtimes(&self.state.lock().unwrap());
         let terminal_reader_deadline = Instant::now() + TERMINAL_READER_SHUTDOWN_TIMEOUT;
         let mut terminal_gaps = surfaces
@@ -8598,6 +8612,19 @@ impl Mux {
             .collect::<Vec<_>>();
         for surface in surfaces {
             terminal_gaps.extend(surface.finish_terminal_reader(terminal_reader_deadline));
+        }
+        if self.journal_ingress.is_current_writer_thread() {
+            if !terminal_gaps.is_empty() {
+                eprintln!(
+                    "cmux-tui: {context} on the session journal writer could not durably record \
+                     {} terminal output gap(s)",
+                    terminal_gaps.len()
+                );
+            }
+            if let Err(error) = self.journal_ingress.close_and_join() {
+                eprintln!("cmux-tui: stop session journal writer during {context}: {error:#}");
+            }
+            return;
         }
         for gap in terminal_gaps {
             if let Err(error) = self.journal_ingress.send_durable(
@@ -8608,7 +8635,9 @@ impl Mux {
                     reason: gap.reason,
                 },
             ) {
-                eprintln!("cmux-tui: record terminal output gap during shutdown: {error:#}");
+                eprintln!(
+                    "cmux-tui: record terminal output gap during {context}: {error:#}"
+                );
             }
         }
         // Each terminal reader has drained or its journal capture gate has
@@ -8617,14 +8646,10 @@ impl Mux {
         // still owns the registry; the closed gate prevents a timed-out reader
         // from inserting output after the barrier.
         if let Err(error) = self.flush_terminal_journal() {
-            eprintln!("cmux-tui: flush terminal journal during shutdown: {error:#}");
+            eprintln!("cmux-tui: flush terminal journal during {context}: {error:#}");
         }
         if let Err(error) = self.journal_ingress.close_and_join() {
-            eprintln!("cmux-tui: stop session journal writer during shutdown: {error:#}");
-        }
-        self.journal_kernel.shutdown();
-        if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
-            runtime.shutdown();
+            eprintln!("cmux-tui: stop session journal writer during {context}: {error:#}");
         }
     }
 
@@ -15466,15 +15491,7 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 
 impl Drop for Mux {
     fn drop(&mut self) {
-        if let Ok(state) = self.state.get_mut() {
-            let deadline = Instant::now() + TERMINAL_READER_SHUTDOWN_TIMEOUT;
-            for surface in unique_surface_runtimes(state) {
-                let _ = surface.shutdown_for_daemon(deadline);
-            }
-        }
-        if let Err(error) = self.journal_ingress.close_and_join() {
-            eprintln!("cmux-tui: stop session journal writer during mux drop: {error:#}");
-        }
+        self.finalize_terminal_journal("mux drop");
         self.journal_kernel.shutdown();
         if let Ok(runtime) = self.browser_runtime.get_mut()
             && let Some(runtime) = runtime.take()
