@@ -350,14 +350,16 @@ async fn relay_session(
     // Ordered PTY frame dispatch on its own task so a slow open (daemon
     // spawn) never stalls heartbeats or other frames.
     #[cfg(unix)]
+    let manager_direct = Arc::clone(&runtime.pty);
+    #[cfg(unix)]
+    let auth_direct = Arc::clone(&auth);
+    #[cfg(unix)]
     let pty_tx = {
         let (pty_tx, mut pty_rx) = mpsc::channel::<Value>(MAX_PTY_INGRESS_FRAMES);
         let manager = Arc::clone(&runtime.pty);
-        let manager_direct = Arc::clone(&manager);
         let out = out_tx.clone();
         let pending = Arc::clone(&pending);
         let auth = Arc::clone(&auth);
-        let auth_direct = Arc::clone(&auth);
         connection_tasks.spawn(async move {
             while let Some(frame) = pty_rx.recv().await {
                 let snapshot = auth.lock().expect("auth lock").clone();
@@ -382,16 +384,32 @@ async fn relay_session(
         }
         let wake = {
             let mut guard = socket.lock().await;
-            tokio::select! {
-                frame = critical_rx.recv(), if critical_burst < 8 => Wake::Outbound(true, frame),
-                frame = watch_rx.recv() => Wake::Outbound(false, frame),
-                _ = async {
-                    match heartbeat.as_mut() {
-                        Some(interval) => interval.tick().await,
-                        None => std::future::pending().await,
-                    }
-                }, if heartbeat.is_some() => Wake::Heartbeat,
-                incoming = guard.next() => Wake::Incoming(incoming),
+            if critical_burst >= 8 {
+                critical_burst = 0;
+                tokio::select! {
+                    frame = critical_rx.recv() => Wake::Outbound(true, frame),
+                    frame = watch_rx.recv() => Wake::Outbound(false, frame),
+                    _ = async {
+                        match heartbeat.as_mut() {
+                            Some(interval) => interval.tick().await,
+                            None => std::future::pending().await,
+                        }
+                    }, if heartbeat.is_some() => Wake::Heartbeat,
+                    incoming = guard.next() => Wake::Incoming(incoming),
+                }
+            } else {
+                tokio::select! {
+                    biased;
+                    frame = critical_rx.recv() => Wake::Outbound(true, frame),
+                    frame = watch_rx.recv() => Wake::Outbound(false, frame),
+                    _ = async {
+                        match heartbeat.as_mut() {
+                            Some(interval) => interval.tick().await,
+                            None => std::future::pending().await,
+                        }
+                    }, if heartbeat.is_some() => Wake::Heartbeat,
+                    incoming = guard.next() => Wake::Incoming(incoming),
+                }
             }
         };
         match wake {
