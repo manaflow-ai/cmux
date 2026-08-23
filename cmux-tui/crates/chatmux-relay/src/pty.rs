@@ -547,6 +547,12 @@ impl Inner {
                 return;
             }
         };
+        if let Some(value) = frame.get("cwd") {
+            if !value.is_null() && !value.is_string() {
+                fail("bad_request", "cwd must be a string");
+                return;
+            }
+        }
         let cwd = match scoped_cwd(
             frame.get("cwd").and_then(Value::as_str),
             &self.home,
