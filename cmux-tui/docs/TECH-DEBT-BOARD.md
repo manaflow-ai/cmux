@@ -2,8 +2,9 @@
 
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
-Integration branch: `feat-tui-tech-debt-wave1-clean`.
-Current integration code tip: `eae4eacba991f30980547fbf2181fdfaf35722cb`.
+Integration branch: `aggregate-final`.
+Current integration code tip before this documentation commit: `e33d0a1057306b3ec0ff1a056a00543be4f24faa`.
+Exact worktree HEAD: run `git rev-parse HEAD` (documentation commits change this value).
 The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
 The current integration sequence includes the hosted formatter and verification
 fixes through `66e83c808f`, the replay preflight correction `c867048c1d`, the
@@ -11,10 +12,12 @@ safe scoped-attach series through `dfa4ef3b6a`, manifest and socket-contract
 hardening, Unix/Admin task ownership, browser guard coverage, and localization
 through `638e536f03`. Localization recovery is recorded in `01c4a2de8d`,
 `638e536f03`, and `f04c5409a0`. The aggregate tail adds legacy hashed-socket
-fallbacks for Python, TypeScript, Rust, Java, Zig, and C++, bounded Unix JSON
+fallbacks for Python, TypeScript, Rust, Java, Zig, Go, and C++, bounded Unix JSON
 readers, wire-identity preflight, independent config-section recovery,
 localization recovery, and systemd quoting fixes through the exact current HEAD
-`eae4eacba991f30980547fbf2181fdfaf35722cb`.
+`e33d0a1057306b3ec0ff1a056a00543be4f24faa`. The final tail also includes
+Go fallback-state minimization, C++ attachment errno handling, path-bound Rust
+errors, and trailing-whitespace cleanup.
 
 Subagent ledger: at least 180 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
@@ -23,6 +26,30 @@ reviews, and merge gates. It excludes empty or duplicate turns. The requested
 inflate the count. New turns must have a named deliverable.
 
 ## Current state
+
+The latest tail is `e33d0a1057`. It is a compatibility and documentation
+update. The issues below remain open.
+
+### Open issue inventory
+
+| Issue | Evidence and acceptance |
+| --- | --- |
+| [#10395](https://github.com/manaflow-ai/cmux/issues/10395) | `eprintln!` can corrupt TUI frames. Route diagnostics through the client log and prove raw-terminal bytes stay unchanged during attach, resize, and close. |
+| [#10431](https://github.com/manaflow-ai/cmux/issues/10431) | OSC-11 heredoc smoke input can drop bytes. Reproduce under parallel load and prove byte-for-byte paste delivery with bounded writes. |
+| [#10384](https://github.com/manaflow-ai/cmux/issues/10384) | SSH timeout kill/reap flakes in full suites. Prove process-group kill, reap, and no-child-leak behavior repeatedly. |
+| [#10426](https://github.com/manaflow-ai/cmux/issues/10426) | Paint-before-pointer flakes on cold parallel runs. Make ordering deterministic without hiding a rendering race. |
+| [#7126](https://github.com/manaflow-ai/cmux/issues/7126) | Cmd-V can send one character. Prove complete Unicode paste in bracketed and non-bracketed modes. |
+| [#8346](https://github.com/manaflow-ai/cmux/issues/8346) | Open-file-in-editor feature request. Define launch, focus, save/close, and reconnect behavior first. |
+| [#10034](https://github.com/manaflow-ai/cmux/issues/10034) | `preferredEditor` can leak editor and Node children. Prove process-group cleanup on success, cancel, crash, and app exit. |
+| [#4890](https://github.com/manaflow-ai/cmux/issues/4890), [#4733](https://github.com/manaflow-ai/cmux/issues/4733) | SSH loss/reconnect can leak mouse, focus, or Kitty bytes. Prove protocol-state reset on both paths. |
+| [#8285](https://github.com/manaflow-ai/cmux/issues/8285) | Width shrinks but may not widen. Prove bidirectional resize through daemon, PTY, and TUI under rapid changes. |
+| [#2688](https://github.com/manaflow-ai/cmux/issues/2688) | Crossterm startup can block on DSR. Define timeout/cancellation and prove startup without a reply. |
+| [#1059](https://github.com/manaflow-ai/cmux/issues/1059) | OSC-11 is not passed through. Prove request/reply forwarding and missing-color behavior. |
+| [#5490](https://github.com/manaflow-ai/cmux/issues/5490) | CSI 996/997/2031 theme protocol is missing. Add protocol behavior tests before claiming support. |
+| [#2396](https://github.com/manaflow-ai/cmux/issues/2396) | Large `cmux send` can freeze. Bound admission and prove completion under backpressure and bracketed paste. |
+| [#3051](https://github.com/manaflow-ai/cmux/issues/3051) | Scrollbar changes can oscillate PTY size. Prove resize coalescing and stable dimensions. |
+| [#2588](https://github.com/manaflow-ai/cmux/issues/2588) | Child PTYs may miss terminal size. Prove `TIOCSWINSZ` at spawn and after resize. |
+| [#5138](https://github.com/manaflow-ai/cmux/issues/5138) | Large multiline paste can lose its middle. Prove complete bounded buffering or surfaced rejection. |
 
 The exact current tip is always available with `git rev-parse HEAD` in the
 worktree. The shared primary checkout was dirty before this run. One
@@ -222,10 +249,10 @@ complexity and host-state publication findings beyond its compile fixes.
 | [#10537](https://github.com/manaflow-ai/cmux/pull/10537) | dkta0 | External author branch. Candidate fix `65d19bc694` cannot be pushed to the external fork. | Do not push outside `manaflow-ai`; use an in-org re-cut only if the semantic fix is redesigned. |
 | [#10600](https://github.com/manaflow-ai/cmux/pull/10600) | Lawrence Chen | Merged at `1e1800db80` after exact-head checks and clean canonical review. | Done. |
 | [#10601](https://github.com/manaflow-ai/cmux/pull/10601) | Lawrence Chen | Merged after exact-head checks and clean canonical autoreview. | Done. |
-| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Local integration tip `585e2477dd` is not yet pushed to the PR head. | Push, run exact-head hosted checks, run canonical review, then merge if clean, unless aggregate #10603 is merged first. |
-| [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Aggregate relay head `a193cf2456` is green, but it lacks the replay and safe attach deltas. | Port the missing deltas deliberately, then review and merge the aggregate. |
-| [#10522](https://github.com/manaflow-ai/cmux/pull/10522) | Lawrence Chen | Provider-menu fixes are pushed at `af69eae746`; new checks are pending. | Run exact-head checks and canonical review, then merge if green. |
-| [#10254](https://github.com/manaflow-ai/cmux/pull/10254) | Lawrence Chen | Cross-SDK work is at `0dc661ef65`; canonical review still finds C++ parity and legacy fallback compatibility gaps. | Do not merge until every SDK follows one contract and exact-head review is clean. |
+| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Open, head `67b7e6814f8355235e3930a6f3360a58dc0ba3c0`; overlaps aggregate #10603. | Treat as superseded if #10603 contains its deltas; otherwise run exact-head checks and review. |
+| [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Open, head `c9d9474282c7813d2ffcf1310583a1f9645b0224`; aggregate relay and TUI hardening. | Port missing replay/safe-attach deltas, then exact-head checks and review. |
+| [#10522](https://github.com/manaflow-ai/cmux/pull/10522) | Lawrence Chen | Open, head `fd96383ca2450279b94360e9e69637b65250f41d`; provider-menu rail fixes. | Run exact-head checks and canonical review, then merge only if green. |
+| [#10254](https://github.com/manaflow-ai/cmux/pull/10254) | Lawrence Chen | Open, head `e9c177d1c6bf38e89f51ce652003f8c4cf3f9d84`; cross-SDK socket validation. | Resolve C++ attachment and ordered legacy-fallback parity, then review. |
 
 Do not merge stale or high-risk branches [#10131](https://github.com/manaflow-ai/cmux/pull/10131), [#10571](https://github.com/manaflow-ai/cmux/pull/10571), [#9022](https://github.com/manaflow-ai/cmux/pull/9022), [#9003](https://github.com/manaflow-ai/cmux/pull/9003), [#8999](https://github.com/manaflow-ai/cmux/pull/8999), [#9061](https://github.com/manaflow-ai/cmux/pull/9061), [#9062](https://github.com/manaflow-ai/cmux/pull/9062), or superseded stacks [#9922](https://github.com/manaflow-ai/cmux/pull/9922), [#10249](https://github.com/manaflow-ai/cmux/pull/10249), [#10254](https://github.com/manaflow-ai/cmux/pull/10254), and [#10259](https://github.com/manaflow-ai/cmux/pull/10259) without a fresh rebase and exact-head review.
 
@@ -408,3 +435,15 @@ parity and an ordered legacy fallback probe. PR [#10522](https://github.com/mana
 has a pushed provider-menu fix awaiting exact-head checks and review. Aggregate
 PR [#10603](https://github.com/manaflow-ai/cmux/pull/10603) has unowned relay
 tasks that need a lifecycle decision before merge.
+
+## Simplification audit and residual risks
+
+The audit removes duplicate socket fallback branches, keeps one bounded path
+validator per client, and keeps one shared terminal log boundary. Go now retains
+minimal fallback state, C++ attachment reports classified errno failures, and
+Rust fallback errors carry path context. These are principled contract
+reductions, not timing workarounds. Remaining risks are unchanged: no local
+Rust compile evidence, no manual-IO end-to-end proof, incomplete cancellation
+and child reaping, unresolved PTY resize and paste issues, and stale GitHub
+status snapshots. The issue and PR rows above do not claim those items are
+fixed.
