@@ -550,12 +550,18 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         agent_browser_provider: false,
     };
     let mut args = args.into_iter().peekable();
-    if let Some("attach") = args.peek().map(|s| s.as_str()) {
-        out.attach = true;
-        args.next();
-    }
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            // Accept the attach verb wherever startup options are accepted.
+            // This matches the usual CLI convention that global options may
+            // precede a subcommand, while preserving the existing
+            // `cmux attach ...` spelling.
+            "attach" => {
+                if out.attach {
+                    return Err("attach may be supplied only once".to_string());
+                }
+                out.attach = true;
+            }
             "--session" => {
                 out.session = args.next().ok_or_else(|| "--session needs a value".to_string())?;
             }
@@ -3467,6 +3473,13 @@ mod tests {
         assert_eq!(parsed.terminal.as_deref(), Some(terminal));
         assert!(parse_args_result(["--terminal".into(), terminal.into()]).is_err());
         assert!(parse_args_result(["attach".into(), "--terminal".into()]).is_err());
+    }
+
+    #[test]
+    fn attach_verb_can_follow_global_startup_options() {
+        let parsed = args(&["--session", "agents", "attach"]);
+        assert!(parsed.attach);
+        assert_eq!(parsed.session, "agents");
     }
 
     #[test]
