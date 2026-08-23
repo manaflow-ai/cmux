@@ -291,6 +291,9 @@ impl Scope {
             if list.iter().any(|root| root.is_empty()) {
                 return Err(Refusal::path_forbidden("allowed roots cannot contain empty paths"));
             }
+            for root in list {
+                validate_request_path(root).map_err(Refusal::path_forbidden)?;
+            }
             lexical_roots.push(list.iter().map(|root| expand_path(root, &home, &home)).collect());
         }
         let mut canonical_roots = Vec::new();
