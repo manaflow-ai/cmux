@@ -371,9 +371,8 @@ impl JournalWriter {
                     reaper_completion.finish(result);
                 });
             if let Err(error) = spawn {
-                let error = format!(
-                    "hand off session journal writer self-join to reaper thread: {error}"
-                );
+                let error =
+                    format!("hand off session journal writer self-join to reaper thread: {error}");
                 completion.finish(Err(error.clone()));
                 anyhow::bail!(error);
             }

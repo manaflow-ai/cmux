@@ -8635,9 +8635,7 @@ impl Mux {
                     reason: gap.reason,
                 },
             ) {
-                eprintln!(
-                    "cmux-tui: record terminal output gap during {context}: {error:#}"
-                );
+                eprintln!("cmux-tui: record terminal output gap during {context}: {error:#}");
             }
         }
         // Each terminal reader has drained or its journal capture gate has
