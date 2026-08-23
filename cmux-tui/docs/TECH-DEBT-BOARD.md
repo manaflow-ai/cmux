@@ -3,9 +3,10 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `feat-tui-tech-debt-wave1-clean`.
-Current integration code tip: `14bf092017`.
+Current integration code tip: `ec21e4d847`.
 The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
-The combined review PR is `https://github.com/manaflow-ai/cmux/pull/10602`.
+The current integration sequence is `1094385e7f`, `647e9721aa`, `229eddbe5d`,
+`35132cda6c`, and `ec21e4d847`.
 
 Subagent ledger: at least 120 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
@@ -234,3 +235,31 @@ complete short writes, bounded queues, cooperative cancellation with awaited
 shutdown, immediate-mode rendering from durable state, and bounded journal
 decompression. They do not justify copying a 60 FPS template or adding a
 second state store.
+
+## Wave-5 integration findings
+
+| Commit | Change | Proof / residual risk |
+| --- | --- | --- |
+| `1094385e7f` | Import the private TUI test helpers through their supported module path. | Resolves hosted test import failures; hosted compile remains the authority. |
+| `647e9721aa` | Localize the remaining TUI status-error strings. | English and Japanese keys are present; audit future status paths for bare literals. |
+| `229eddbe5d` | Bound host input polling during shutdown. | Removes an unbounded wait from the close path; cancellation and host-loss coverage remain required. |
+| `35132cda6c` | Localize browser-pane status copy. | Browser status now uses the shared localization table; verify every browser state in UI review. |
+| `ec21e4d847` | Cover bounded host-input polling with a deterministic test. | Test exercises the timeout boundary; hosted compile and focused test are still required. |
+
+The hosted compile failure was an import-resolution problem in the private test
+helper, not a runtime protocol failure. The helper import is now explicit in
+`1094385e7f`; rerun the exact-head hosted job before calling the sequence green.
+The event-loop row is now bounded at shutdown, while normal input ownership is
+still centralized in the shared reader. Localization is partial by design: the
+recent status and browser paths are covered, but new UI copy must still enter
+the localization table.
+
+## Session findings
+
+Recent `~/.claude` and `~/.codex` sessions confirm three durable requests:
+hosted compile failures must report the first failing import and the resolved
+module path; localization must cover status and browser state copy in every
+supported language; and event-loop shutdown must use a bounded, cancellable
+poll with deterministic behavior coverage. No session evidence proves full
+session restore, cloud-TUI lifecycle completion, or manual-IO replacement, so
+those remain open requests above.
