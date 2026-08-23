@@ -239,7 +239,8 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
             _ = notified => None,
         };
         let mut burst = first.into_iter().collect::<Vec<_>>();
-        if burst.is_empty() && !overflowed.load(Ordering::Acquire) {
+        let has_latched_error = latched_error.lock().map(|error| error.is_some()).unwrap_or(false);
+        if burst.is_empty() && !overflowed.load(Ordering::Acquire) && !has_latched_error {
             break;
         }
         drain_burst(&mut event_rx, &mut burst).await;
@@ -294,6 +295,7 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
             .unwrap_or_else(|_| String::new());
             if outbound.try_watch_text(frame).is_err() {
                 overflowed.store(true, Ordering::Release);
+                overflow_notify.notify_one();
             }
         }
         if saw_ignore_file {
