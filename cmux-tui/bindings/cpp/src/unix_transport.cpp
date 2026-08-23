@@ -114,6 +114,22 @@ using Clock = std::chrono::steady_clock;
     return base;
 }
 
+[[nodiscard]] std::string runtime_path(
+    std::string_view base_view,
+    std::string_view directory,
+    std::string_view leaf) {
+    std::string path(base_view.empty() ? std::string_view("/tmp") : base_view);
+    if (path.back() != '/') {
+        path.push_back('/');
+    }
+    path.append(directory);
+    if (!leaf.empty()) {
+        path.push_back('/');
+        path.append(leaf);
+    }
+    return path;
+}
+
 [[nodiscard]] bool decode_utf8(
     std::string_view text,
     std::size_t& offset,
@@ -327,10 +343,13 @@ using Clock = std::chrono::steady_clock;
     return result;
 }
 
-[[nodiscard]] std::string hashed_session_socket_path(std::string_view session) {
-    return std::string("/tmp/cmux-tui-hashed-") +
-        std::to_string(static_cast<unsigned long>(::getuid())) + "/" +
-        sha256_hex(session) + ".sock";
+[[nodiscard]] std::string hashed_session_socket_path(
+    std::string_view base,
+    std::string_view session) {
+    const auto directory = std::string("cmux-tui-hashed-") +
+        std::to_string(static_cast<unsigned long>(::getuid()));
+    const auto leaf = sha256_hex(session) + ".sock";
+    return runtime_path(base, directory, leaf);
 }
 
 [[nodiscard]] std::string invalid_session_socket_path_in_runtime_dir(
@@ -594,7 +613,11 @@ Result<std::string> try_default_socket_path(std::string_view session) {
     if (runtime_socket_path_fits(fallback_base, session)) {
         return runtime_socket_path(fallback_base, session);
     }
-    auto hashed = hashed_session_socket_path(session);
+    auto hashed = hashed_session_socket_path(preferred_base, session);
+    if (unix_socket_path_fits(hashed)) {
+        return hashed;
+    }
+    hashed = hashed_session_socket_path(fallback_base, session);
     if (!unix_socket_path_fits(hashed)) {
         return make_error(ErrorCode::invalid_argument, "derived Unix socket path is too long");
     }

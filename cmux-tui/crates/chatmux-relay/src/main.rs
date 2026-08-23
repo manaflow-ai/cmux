@@ -7,6 +7,7 @@
 use std::io::IsTerminal as _;
 use std::path::{Path, PathBuf};
 
+use chatmux_relay::autostart;
 use chatmux_relay::cli::{Command, parse_cli_args};
 use chatmux_relay::config::{Config, default_config_path, load_config, save_config};
 use chatmux_relay::enrollment::load_managed_enrollment_file;
@@ -212,21 +213,25 @@ fn persist(config: &Config, config_path: &Path) {
     }
 }
 
-fn offer_autostart(code_mode: bool) {
+fn offer_autostart(code_mode: bool, config_path: &Path) {
     let env = env_string("CHATMUX_RELAY_AUTOSTART").or_else(|| env_string("CMUX_RELAY_AUTOSTART"));
     if env.as_deref() == Some("0") {
         return;
     }
     if env.as_deref() == Some("1") {
-        // Autostart install is a later slice (README: port plan).
-        eprintln!(
-            "Autostart install is not implemented in this relay build yet; run `npx cmux-relay \
-             --autostart` (npm build) to install it meanwhile."
-        );
+        let result = std::env::current_exe()
+            .map_err(|error| format!("could not locate relay executable: {error}"))
+            .and_then(|path| chatmux_relay::autostart::install(&path, config_path));
+        match result {
+            Ok(message) => println!("Autostart installed: {message}"),
+            Err(message) => {
+                eprintln!("Autostart install failed: {message}. Continuing without it.")
+            }
+        }
         return;
     }
     if !code_mode {
-        println!("Tip: `npx cmux-relay --autostart` keeps this machine online after reboots.");
+        println!("Tip: `cmux-relay --autostart` keeps this machine online after sign-in.");
     }
 }
 
@@ -269,7 +274,7 @@ async fn onboard_with_url(runtime: &Runtime) -> Result<Config, RelayError> {
                 )
                 .await;
                 persist(&config, &runtime.config_path);
-                offer_autostart(false);
+                offer_autostart(false, &runtime.config_path);
                 return Ok(config);
             }
             Err(RelayError::PairingExpired { .. }) => {
@@ -338,7 +343,7 @@ async fn onboard_with_code(runtime: &Runtime) -> Result<Config, RelayError> {
     persist(&config, &runtime.config_path);
 
     // 5. autostart (opt-in)
-    offer_autostart(true);
+    offer_autostart(true, &runtime.config_path);
     Ok(config)
 }
 
@@ -434,11 +439,14 @@ Usage:
   npx cmux-relay --code        Offline fallback: QR + chatmux:// link and a
                                6-digit mutual verification ceremony
   npx cmux-relay --status      Show local pairing state
-  npx cmux-relay --autostart   Install autostart (reconnect on sign-in)
+  npx cmux-relay --autostart   Install autostart (reconnect on sign-in).
+                               npx's temporary cache is refused; use a
+                               global install or a persistent project install.
   npx cmux-relay --uninstall   Remove autostart files (keeps pairing)
   npx cmux-relay --no-onboard  Scripted use: no prompts; answers come from
                                the environment or defaults
   npx cmux-relay --backend <url>  Worker base URL (staging/dev)
+  npx cmux-relay --config <path>  Config file path (overrides CHATMUX_RELAY_CONFIG)
   npx cmux-relay --allow-root <path>  Limit agent file access and command
                                working directories to this path prefix
                                (repeatable; persisted; run with none to
@@ -517,8 +525,12 @@ async fn main() {
         .unwrap_or_else(|| "https://chatmux.dev".to_owned())
         .trim_end_matches('/')
         .to_owned();
-    let config_path =
-        env_string("CHATMUX_RELAY_CONFIG").map(PathBuf::from).unwrap_or_else(default_config_path);
+    let config_path = parsed
+        .config_path
+        .clone()
+        .map(PathBuf::from)
+        .or_else(|| env_string("CHATMUX_RELAY_CONFIG").map(PathBuf::from))
+        .unwrap_or_else(default_config_path);
     // Legacy QR/SAS ceremony prompts only run on a real terminal.
     let interactive =
         !parsed.no_onboard && std::io::stdout().is_terminal() && std::io::stdin().is_terminal();
@@ -533,15 +545,29 @@ async fn main() {
             std::process::exit(0);
         }
         Some(Command::Status) => print_status(&config_path),
-        Some(Command::Uninstall) | Some(Command::Autostart) => {
-            // Autostart install/uninstall is a later slice (README: port
-            // plan). The npm build still owns this surface.
-            eprintln!(
-                "Autostart is not implemented in this relay build yet; use the npm cmux-relay \
-                 for --autostart/--uninstall."
-            );
-            std::process::exit(1);
-        }
+        Some(Command::Uninstall) => match autostart::uninstall() {
+            Ok(message) => {
+                println!("{message}");
+                std::process::exit(0);
+            }
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        },
+        Some(Command::Autostart) => match std::env::current_exe()
+            .map_err(|e| e.to_string())
+            .and_then(|path| autostart::install(&path, &config_path))
+        {
+            Ok(message) => {
+                println!("{message}");
+                std::process::exit(0);
+            }
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        },
         Some(Command::Pair) | None => {}
     }
 

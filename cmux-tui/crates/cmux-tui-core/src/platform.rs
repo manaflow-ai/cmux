@@ -164,11 +164,23 @@ pub fn fallback_runtime_dir() -> PathBuf {
     PathBuf::from("/tmp").join(format!("cmux-tui-{}", user_id_component()))
 }
 
-/// Shared short root for socket paths that need a fixed-length digest leaf.
+/// Preferred root for socket paths that need a fixed-length digest leaf.
 /// Every SDK uses this root when the configured runtime directory cannot fit
-/// a Unix-domain socket path.
+/// a normal session leaf.
 pub fn hashed_runtime_dir() -> PathBuf {
-    PathBuf::from("/tmp").join(format!("cmux-tui-hashed-{}", user_id_component()))
+    hashed_runtime_dir_for_base(&runtime_base_dir())
+}
+
+/// Short fallback root for digest socket paths when the preferred runtime root
+/// is still too long for the platform Unix-domain socket limit.
+pub fn fallback_hashed_runtime_dir() -> PathBuf {
+    hashed_runtime_dir_for_base(Path::new("/tmp"))
+}
+
+/// Construct the digest root below an explicit runtime base. This keeps the
+/// path resolver testable without mutating process environment.
+pub fn hashed_runtime_dir_for_base(base: &Path) -> PathBuf {
+    base.join(format!("cmux-tui-hashed-{}", user_id_component()))
 }
 
 /// Private root for compatibility paths produced from invalid session text.

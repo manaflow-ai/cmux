@@ -16,7 +16,7 @@ on:
           - focused
           - full
       test_filter:
-        description: "Rust test-name substring; required in focused mode"
+        description: "Rust test-name substring; use chatmux_relay for the relay package"
         required: false
         default: ""
         type: string
@@ -434,6 +434,13 @@ jobs:
               target/cmux-tui-core-test-binaries.jsonl \
               crates/cmux-tui-core
             cargo test -p cmux-tui-core --doc --locked
+            exit 0
+          fi
+          if [[ "$TEST_FILTER" == "chatmux_relay" || "$TEST_FILTER" == "chatmux-relay" ]]; then
+            # Cargo test names do not include their package name. Keep this
+            # explicit selector so focused verification can exercise the
+            # relay crate instead of silently selecting zero tests.
+            cargo test -p chatmux-relay --locked
             exit 0
           fi
           cargo test --workspace --locked "$TEST_FILTER" -- --list \

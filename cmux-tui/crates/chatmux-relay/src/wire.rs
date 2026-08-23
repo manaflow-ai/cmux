@@ -19,13 +19,9 @@ use serde_json::Value;
 
 use crate::config::ManagedIdentity;
 
-/// Relay wire dialect this build ADVERTISES. The full JS relay speaks v5
-/// (exec + PTY + credential frames); this build implements the v2 core
-/// (hello negotiation, heartbeats, trust) and therefore advertises v2 so
-/// the Worker never dispatches verbs it cannot run — the server's designed
-/// degrade for older relays. Slice 3 (PTY) raises this to 4; slice 4
-/// (exec verbs) to 5.
-pub const ADVERTISED_PROTOCOL_VERSION: u64 = 2;
+/// Relay wire dialect this build advertises. Workspace/watch/preview frames
+/// use v6; lower dialect features remain capability-gated.
+pub const ADVERTISED_PROTOCOL_VERSION: u64 = 6;
 /// Frame dialect marker (`RelayFrameVersion`, >= 2) on every sent frame.
 pub const FRAME_VERSION: u64 = 2;
 /// Verbs exist from this dialect on.
@@ -112,11 +108,11 @@ pub enum ServerFrame {
     ActionRequest {
         action_id: String,
         verb: String,
+        raw: Value,
     },
     Pty {
         frame_type: String,
-        pty_id: Option<String>,
-        request_id: Option<String>,
+        raw: Value,
     },
     Error {
         code: String,
@@ -176,16 +172,13 @@ pub fn parse_server_frame(raw: &str) -> Option<ServerFrame> {
         "action_request" => Some(ServerFrame::ActionRequest {
             action_id: get_str(&frame, "actionId")?,
             verb: get_str(&frame, "verb")?,
+            raw: frame,
         }),
         "workspace_request" | "fs_watch_open" | "fs_watch_close" => {
             Some(ServerFrame::Workspace { frame })
         }
         "pty_open" | "pty_input" | "pty_resize" | "pty_flow" | "pty_close" | "surface_list" => {
-            Some(ServerFrame::Pty {
-                frame_type,
-                pty_id: get_str(&frame, "ptyId"),
-                request_id: get_str(&frame, "requestId"),
-            })
+            Some(ServerFrame::Pty { frame_type, raw: frame })
         }
         "error" => Some(ServerFrame::Error {
             code: get_str(&frame, "code")?,

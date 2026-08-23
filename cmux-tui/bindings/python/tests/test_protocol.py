@@ -140,6 +140,54 @@ class GeneratedProtocolTests(unittest.TestCase):
                 f"/temporary/cmux-tui-{os.getuid()}/sdk.sock",
             )
 
+    def test_long_session_hash_prefers_runtime_base_and_falls_back_to_tmp(self) -> None:
+        session = "legacy-" + "x" * 200
+        digest = "e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2"
+        with patch.dict(
+            os.environ,
+            {"XDG_RUNTIME_DIR": "/run/user/501", "TMPDIR": ""},
+            clear=True,
+        ):
+            self.assertEqual(
+                default_socket_path(session),
+                f"/run/user/501/cmux-tui-hashed-{os.getuid()}/{digest}.sock",
+            )
+
+        with patch.dict(
+            os.environ,
+            {"XDG_RUNTIME_DIR": "/tmp/" + "x" * 200},
+            clear=True,
+        ):
+            self.assertEqual(
+                default_socket_path(session),
+                f"/tmp/cmux-tui-hashed-{os.getuid()}/{digest}.sock",
+            )
+
+    def test_non_ascii_long_session_hash_uses_utf8_bytes(self) -> None:
+        session = "名前" * 100
+        digest = "0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3"
+        with patch.dict(os.environ, {"XDG_RUNTIME_DIR": "/run/user/501"}, clear=True):
+            self.assertEqual(
+                default_socket_path(session),
+                f"/run/user/501/cmux-tui-hashed-{os.getuid()}/{digest}.sock",
+            )
+
+    def test_empty_socket_environment_values_are_ignored(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "CMUX_TUI_SOCKET": "",
+                "CMUX_MUX_SOCKET": "",
+                "XDG_RUNTIME_DIR": "/runtime",
+            },
+            clear=True,
+        ):
+            self.assertIsNone(env_socket_path())
+            self.assertEqual(
+                default_socket_path("sdk"),
+                f"/runtime/cmux-tui-{os.getuid()}/sdk.sock",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

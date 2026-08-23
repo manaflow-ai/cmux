@@ -65,6 +65,8 @@ export function defaultSocketPath(session = "main"): string {
   const fallback = path.join("/tmp", `cmux-tui-${uid}`, fileName);
   if (unixSocketPathFits(fallback)) return fallback;
   const digest = createHash("sha256").update(session, "utf8").digest("hex");
+  const hashed = path.join(base, `cmux-tui-hashed-${uid}`, `${digest}.sock`);
+  if (unixSocketPathFits(hashed)) return hashed;
   return path.join("/tmp", `cmux-tui-hashed-${uid}`, `${digest}.sock`);
 }
 

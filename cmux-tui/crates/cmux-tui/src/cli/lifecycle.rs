@@ -40,12 +40,24 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     let expected_session = global.session.clone();
     let socket = match super::wire::resolve_socket(&global) {
         Ok(socket) => socket,
-        Err(_) => {
-            return local_error(
-                "server.invalid_session",
-                crate::localization::catalog().local_server.invalid_session,
+        Err(error) => {
+            if let Some(session) = global.session.as_deref()
+                && cmux_tui_core::server::validate_session_name(session).is_err()
+            {
+                return local_error_with_details(
+                    "usage.invalid",
+                    crate::localization::catalog().local_server.invalid_session,
+                    json!({"reason": error.to_string()}),
+                    global.output,
+                    2,
+                );
+            }
+            return local_error_with_details(
+                "server.unavailable",
+                crate::localization::catalog().local_server.connect_failed,
+                json!({"reason": error.to_string()}),
                 global.output,
-                2,
+                3,
             );
         }
     };
@@ -398,8 +410,18 @@ fn usage_error(message: &str, output: OutputMode) -> i32 {
 }
 
 fn local_error(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {
+    local_error_with_details(code, message, json!({}), output, exit_code)
+}
+
+fn local_error_with_details(
+    code: &str,
+    message: &str,
+    details: Value,
+    output: OutputMode,
+    exit_code: i32,
+) -> i32 {
     super::wire::print_local_error(
-        &json!({"code":code,"message":message,"details":{},"retryable":false}),
+        &json!({"code":code,"message":message,"details":details,"retryable":false}),
         output,
         exit_code,
     )

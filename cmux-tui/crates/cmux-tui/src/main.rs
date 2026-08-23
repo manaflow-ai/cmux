@@ -1947,14 +1947,14 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
-    let pending_server =
-        match cmux_tui_core::server::serve_paused(mux.clone(), Some(socket_path.clone())) {
-            Ok(server) => server,
-            Err(error) => {
-                mux.shutdown();
-                return Err(error);
-            }
-        };
+    let pending_server = match cmux_tui_core::server::serve_paused(mux.clone(), args.socket.clone())
+    {
+        Ok(server) => server,
+        Err(error) => {
+            mux.shutdown();
+            return Err(error);
+        }
+    };
 
     #[cfg(unix)]
     let remote_runtime = if args.remote {

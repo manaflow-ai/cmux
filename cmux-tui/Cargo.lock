@@ -553,8 +553,11 @@ dependencies = [
 name = "chatmux-relay"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "async-trait",
  "base64",
  "bytes",
+ "cmux-pty",
  "futures-util",
  "getrandom 0.3.4",
  "http",

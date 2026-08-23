@@ -461,14 +461,14 @@ func TestSocketResolutionPreservesLegacySafeSessionNames(t *testing.T) {
 func TestLongSessionSocketPathUsesBindableDigestFallback(t *testing.T) {
 	t.Setenv("CMUX_TUI_SOCKET", "")
 	t.Setenv("CMUX_MUX_SOCKET", "")
-	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/501")
 	session := "legacy-" + strings.Repeat("x", 200)
 	path, err := ResolveSocketPath("", session)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := filepath.Join(
-		"/tmp",
+		"/run/user/501",
 		fmt.Sprintf("cmux-tui-hashed-%d", os.Getuid()),
 		"e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2.sock",
 	)
@@ -504,19 +504,37 @@ func TestLongSessionSocketPathUsesBindableDigestFallback(t *testing.T) {
 func TestNonASCIILongSessionUsesSharedUTF8SHA256Digest(t *testing.T) {
 	t.Setenv("CMUX_TUI_SOCKET", "")
 	t.Setenv("CMUX_MUX_SOCKET", "")
-	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/501")
 	session := strings.Repeat("名前", 100)
 	path, err := ResolveSocketPath("", session)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := filepath.Join(
-		"/tmp",
+		"/run/user/501",
 		fmt.Sprintf("cmux-tui-hashed-%d", os.Getuid()),
 		"0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3.sock",
 	)
 	if path != want {
 		t.Fatalf("non-ASCII long session path = %q, want %q", path, want)
+	}
+}
+
+func TestHashedSessionFallsBackToTmpWhenRuntimeBaseIsTooLong(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/tmp/"+strings.Repeat("x", 200))
+	session := "legacy-" + strings.Repeat("x", 200)
+	path, err := ResolveSocketPath("", session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPrefix := filepath.Join(
+		"/tmp",
+		fmt.Sprintf("cmux-tui-hashed-%d", os.Getuid()),
+	) + string(filepath.Separator)
+	if !strings.HasPrefix(path, wantPrefix) {
+		t.Fatalf("hashed fallback path = %q, want prefix %q", path, wantPrefix)
 	}
 }
 

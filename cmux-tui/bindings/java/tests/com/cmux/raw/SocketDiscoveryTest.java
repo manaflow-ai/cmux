@@ -18,6 +18,7 @@ public final class SocketDiscoveryTest {
         rejectsUnsafeSessionNames();
         preservesLegacySafeSessionNames();
         longSessionUsesBindableDigestFallback();
+        hashedSessionFallsBackToTmpWhenRuntimeBaseIsTooLong();
         nonAsciiLongSessionUsesSharedUtf8Sha256Digest();
     }
 
@@ -120,11 +121,11 @@ public final class SocketDiscoveryTest {
         Path resolved = SocketDiscovery.resolve(
             null,
             session,
-            Map.of("XDG_RUNTIME_DIR", "/run/user/501"),
+            Map.of("XDG_RUNTIME_DIR", "/run/u/501"),
             "501"
         );
         Path expected = Path.of(
-            "/tmp",
+            "/run/u/501",
             "cmux-tui-hashed-501",
             "e538a84493067947f7376110a6f695dd3"
                 + "db062b67eee939c3660c07f3f47dce2.sock"
@@ -159,16 +160,30 @@ public final class SocketDiscoveryTest {
         }
     }
 
+    private static void hashedSessionFallsBackToTmpWhenRuntimeBaseIsTooLong() {
+        String session = "legacy-" + "x".repeat(200);
+        Path resolved = SocketDiscovery.resolve(
+            null,
+            session,
+            Map.of("XDG_RUNTIME_DIR", "/tmp/" + "x".repeat(200)),
+            "501"
+        );
+        check(
+            resolved.getParent().equals(Path.of("/tmp", "cmux-tui-hashed-501")),
+            "long runtime hash falls back to /tmp"
+        );
+    }
+
     private static void nonAsciiLongSessionUsesSharedUtf8Sha256Digest() {
         String session = "\u540D\u524D".repeat(100);
         Path resolved = SocketDiscovery.resolve(
             null,
             session,
-            Map.of("XDG_RUNTIME_DIR", "/run/user/501"),
+            Map.of("XDG_RUNTIME_DIR", "/run/u/501"),
             "501"
         );
         Path expected = Path.of(
-            "/tmp",
+            "/run/u/501",
             "cmux-tui-hashed-501",
             "0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3.sock"
         );

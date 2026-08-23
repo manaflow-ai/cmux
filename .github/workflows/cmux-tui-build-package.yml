@@ -240,6 +240,7 @@ jobs:
           fi
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
+          cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
 
       - name: Build cmux-tui (Linux cross)
         if: matrix.cross == true && runner.os == 'Linux'
@@ -261,6 +262,7 @@ jobs:
           fi
           cargo zigbuild -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
           cargo zigbuild -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
+          cargo zigbuild -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
 
       - name: Build cmux-tui (macOS cross)
         if: matrix.cross == true && runner.os == 'macOS'
@@ -282,6 +284,7 @@ jobs:
           fi
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
+          cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
 
       - name: Stage binary
         shell: bash
@@ -293,6 +296,7 @@ jobs:
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui${{ matrix.ext }}" "$binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui-hook${{ matrix.ext }}" "$hook_binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-relay${{ matrix.ext }}" "$relay_binary"
+          cp "cmux-tui/target/${{ matrix.target }}/release/chatmux-relay${{ matrix.ext }}" "dist/chatmux-relay-${{ matrix.target }}${{ matrix.ext }}"
           if [[ -n "${{ matrix.compatibility_target }}" ]]; then
             cp "$binary" "dist/cmux-tui-${{ matrix.compatibility_target }}${{ matrix.ext }}"
             cp "$hook_binary" "dist/cmux-tui-hook-${{ matrix.compatibility_target }}${{ matrix.ext }}"
@@ -350,6 +354,13 @@ jobs:
         with:
           name: cmux-relay-${{ matrix.target }}
           path: dist/cmux-relay-*${{ matrix.ext }}
+          if-no-files-found: error
+
+      - name: Upload chatmux relay binary artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chatmux-relay-${{ matrix.target }}
+          path: dist/chatmux-relay-*${{ matrix.ext }}
           if-no-files-found: error
 
   cloudflare-relay:
@@ -480,6 +491,8 @@ jobs:
           zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
           cd ../cmux-tui
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target x86_64-pc-windows-gnu
+          cargo build -p cmux-relay --bin cmux-relay --release --locked --target x86_64-pc-windows-gnu
+          cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target x86_64-pc-windows-gnu
 
       - name: Verify long Windows state path
         shell: bash
@@ -523,6 +536,8 @@ jobs:
           mkdir -p dist
           cp "cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe" "dist/cmux-tui-x86_64-pc-windows-gnu.exe"
           cp "cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui-hook.exe" "dist/cmux-tui-hook-x86_64-pc-windows-gnu.exe"
+          cp "cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-relay.exe" "dist/cmux-relay-x86_64-pc-windows-gnu.exe"
+          cp "cmux-tui/target/x86_64-pc-windows-gnu/release/chatmux-relay.exe" "dist/chatmux-relay-x86_64-pc-windows-gnu.exe"
           ls -la dist
 
       - name: Upload binary artifact
@@ -532,12 +547,22 @@ jobs:
           path: |
             dist/cmux-tui-x86_64-pc-windows-gnu.exe
             dist/cmux-tui-hook-x86_64-pc-windows-gnu.exe
+            dist/cmux-relay-x86_64-pc-windows-gnu.exe
+            dist/chatmux-relay-x86_64-pc-windows-gnu.exe
           if-no-files-found: error
 
   package:
     name: package distributions
-    needs: build
-    if: inputs.package_npm || inputs.package_pypi
+    needs:
+      - build
+      - build-windows
+    if: >-
+      ${{
+        always() &&
+        (inputs.package_npm || inputs.package_pypi) &&
+        needs.build.result == 'success' &&
+        (!inputs.include_windows || needs.build-windows.result == 'success')
+      }}
     runs-on: ${{ inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     permissions:
@@ -583,12 +608,27 @@ jobs:
           name: cmux-tui-aarch64-unknown-linux-musl
           path: dist/binaries
 
+      - name: Download chatmux relay binaries
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: chatmux-relay-*
+          path: dist/binaries
+          merge-multiple: true
+
+      - name: Download Windows x64 binary
+        if: inputs.include_windows
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-tui-x86_64-pc-windows-gnu
+          path: dist/binaries
+
       - name: Build npm package directories
         if: inputs.package_npm
         run: |
           python3 cmux-tui/dist/scripts/package_npm.py \
             --binaries-dir dist/binaries \
             --version "$NPM_VERSION" \
+            ${{ inputs.include_windows && '--include-windows' || '' }} \
             --out dist/npm-packages
 
       - name: Build PyPI wheels
@@ -601,41 +641,24 @@ jobs:
 
       - name: Smoke verify npm packages
         if: inputs.package_npm
+        env:
+          INCLUDE_WINDOWS: ${{ inputs.include_windows }}
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import json
-          import os
-          import pathlib
-          import stat
-          import sys
-
-          version = os.environ["NPM_VERSION"]
-          root = pathlib.Path("dist/npm-packages")
-          platforms = {
-              "cmux-tui-darwin-arm64": ("darwin", "arm64"),
-              "cmux-tui-darwin-x64": ("darwin", "x64"),
-              "cmux-tui-linux-x64": ("linux", "x64"),
-              "cmux-tui-linux-arm64": ("linux", "arm64"),
-          }
-          launcher = json.loads((root / "cmux" / "package.json").read_text())
-          deps = launcher.get("optionalDependencies", {})
-          if deps != {name: version for name in platforms}:
-              print(f"optionalDependencies mismatch: {deps}", file=sys.stderr)
-              raise SystemExit(1)
-          for name, (os_name, cpu) in platforms.items():
-              package_json = json.loads((root / name / "package.json").read_text())
-              if package_json["version"] != version:
-                  raise SystemExit(f"{name}: version mismatch")
-              if package_json["os"] != [os_name] or package_json["cpu"] != [cpu]:
-                  raise SystemExit(f"{name}: os/cpu mismatch")
-              binary = root / name / "bin" / "cmux-tui"
-              if not binary.stat().st_mode & stat.S_IXUSR:
-                  raise SystemExit(f"{binary} is not executable")
-              hook = root / name / "bin" / "cmux-tui-hook"
-              if not hook.stat().st_mode & stat.S_IXUSR:
-                  raise SystemExit(f"{hook} is not executable")
-          PY
+          case "$(uname -m)" in
+            x86_64|amd64) install_target=cmux-tui-linux-x64 ;;
+            aarch64|arm64) install_target=cmux-tui-linux-arm64 ;;
+            *) echo "unsupported package runner architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          contract_args=(
+            --npm-packages dist/npm-packages
+            --version "$NPM_VERSION"
+            --install-npm-package "$install_target"
+          )
+          if [[ "$INCLUDE_WINDOWS" == "true" ]]; then
+            contract_args+=(--include-windows)
+          fi
+          python3 cmux-tui/dist/scripts/validate_package_contract.py "${contract_args[@]}"
           chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
           dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version >/tmp/cmux-tui-version.txt 2>&1 || \
             dist/binaries/cmux-tui-x86_64-unknown-linux-musl --help >/tmp/cmux-tui-version.txt 2>&1
@@ -662,6 +685,31 @@ jobs:
               raise SystemExit(
                   f"binary npm bootstrap version {probe.get('npm_bootstrap_version')!r} != {expected!r}"
               )
+          PY
+
+      - name: Smoke verify chatmux relay npm packages
+        if: inputs.package_npm
+        env:
+          INCLUDE_WINDOWS: ${{ inputs.include_windows }}
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, stat
+          import os
+          root = pathlib.Path('dist/npm-packages')
+          suffix = ['-win32-x64'] if os.environ['INCLUDE_WINDOWS'] == 'true' else []
+          expected = {
+              f'cmux-relay-{platform}'
+              for platform in ('darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64')
+          }
+          expected.update(f'cmux-relay{item}' for item in suffix)
+          launcher = json.loads((root / 'cmux-relay' / 'package.json').read_text())
+          assert launcher['bin']['cmux-relay'] == 'bin/cmux-relay.js'
+          assert set(launcher['optionalDependencies']) == expected
+          assert (root / 'cmux-relay' / 'bin/cmux-relay.js').stat().st_mode & stat.S_IXUSR
+          for name in launcher['optionalDependencies']:
+              manifest = json.loads((root / name / 'package.json').read_text())
+              assert manifest['version'] == launcher['version']
+              assert (root / name / 'bin' / ('cmux-relay.exe' if 'win32' in name else 'cmux-relay')).stat().st_mode & stat.S_IXUSR
           PY
 
       - name: Archive npm package directories with executable modes

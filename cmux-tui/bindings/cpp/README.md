@@ -75,7 +75,8 @@ the lowercase SHA-256 digest of the session's UTF-8 bytes, matching the other
 SDKs. Use `try_default_socket_path()` for any path that will be opened.
 Explicit socket paths and environment overrides remain authoritative.
 Long valid names that exceed the Unix socket limit use a full SHA-256 leaf in
-the shared `/tmp/cmux-tui-hashed-<uid>` directory.
+`<runtime-base>/cmux-tui-hashed-<uid>` when it fits, and use the shared
+`/tmp/cmux-tui-hashed-<uid>` directory only when the runtime base is too long.
 
 Every resource factory also accepts `Selector<Id>::by_id(id)`,
 `Selector<Id>::current()`, or `Selector<Id>::exact_name(name)`. Child factories

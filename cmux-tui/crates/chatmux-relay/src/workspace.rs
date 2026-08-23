@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc::UnboundedSender};
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::preview_proxy::PreviewRegistry;
 use crate::relay_wire as wire;
@@ -47,14 +47,6 @@ pub const MAX_PATH_CHARS: usize = 4_096;
 /// 120s; the relay tolerates up to the v3 exec ceiling).
 const MIN_TIMEOUT_MS: i64 = 1_000;
 const MAX_TIMEOUT_MS: i64 = 300_000;
-/// Maximum number of in-flight workspace operations a single socket may
-/// hold. Completed task handles are pruned on admission, but without an
-/// admission cap a peer could keep arbitrarily many slow requests pending.
-const MAX_PENDING_REQUESTS: usize = 64;
-/// Global admission bound for filesystem and Git calls. Tokio cannot abort a
-/// `spawn_blocking` closure after it starts, so keep the non-abortable work
-/// set bounded across sockets and reconnects.
-const MAX_BLOCKING_OPERATIONS: usize = 8;
 
 /// A typed machine-side refusal (one `WorkspaceErrorCode` on the wire).
 #[derive(Debug)]
@@ -411,6 +403,75 @@ fn write_bytes_no_follow(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     file.sync_all()
 }
 
+/// Create the parent directory chain without accepting a symlink in any
+/// existing component. `resolve` checks this chain before the operation, but
+/// `create_dir_all` otherwise follows a swapped-in symlink and can write
+/// outside the scoped roots.
+fn create_parent_dirs_no_symlink(path: &Path) -> Result<(), Refusal> {
+    let Some(parent) = path.parent() else { return Ok(()) };
+    let mut missing = Vec::new();
+    let mut cursor = parent.to_path_buf();
+    loop {
+        match std::fs::symlink_metadata(&cursor) {
+            Ok(meta) => {
+                if meta.file_type().is_symlink() {
+                    return Err(Refusal::path_forbidden(format!(
+                        "parent {} is a symlink",
+                        cursor.display()
+                    )));
+                }
+                if !meta.is_dir() {
+                    return Err(Refusal::failed(format!(
+                        "parent {} is not a directory",
+                        cursor.display()
+                    )));
+                }
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let Some(name) = cursor.file_name().map(std::ffi::OsStr::to_os_string) else {
+                    return Err(Refusal::failed("parent has no name"));
+                };
+                missing.push(name);
+                let Some(next) = cursor.parent() else {
+                    return Err(Refusal::failed("parent has no resolvable ancestor"));
+                };
+                cursor = next.to_path_buf();
+            }
+            Err(error) => {
+                return Err(Refusal::failed(format!(
+                    "could not inspect {}: {error}",
+                    cursor.display()
+                )));
+            }
+        }
+    }
+    for name in missing.iter().rev() {
+        cursor.push(name);
+        match std::fs::create_dir(&cursor) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                let meta = std::fs::symlink_metadata(&cursor).map_err(|e| {
+                    Refusal::failed(format!("could not inspect {}: {e}", cursor.display()))
+                })?;
+                if meta.file_type().is_symlink() || !meta.is_dir() {
+                    return Err(Refusal::path_forbidden(format!(
+                        "parent {} is not a directory",
+                        cursor.display()
+                    )));
+                }
+            }
+            Err(error) => {
+                return Err(Refusal::failed(format!(
+                    "could not create {}: {error}",
+                    cursor.display()
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Gitignore-aware walker shared by fs_tree and fs_search (`rg --files`
 /// semantics: .gitignore/.ignore/.git/info/exclude respected, hidden files
 /// listed, `.git` itself always excluded).
@@ -542,10 +603,7 @@ fn run_write(scope: &Scope, op: &wire::FsWriteOp) -> Result<wire::WorkspaceResul
             });
         }
     }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|error| Refusal::failed(format!("could not create {}: {error}", op.path)))?;
-    }
+    create_parent_dirs_no_symlink(&path)?;
     write_bytes_no_follow(&path, op.content.as_bytes())
         .map_err(|error| Refusal::failed(format!("could not write {}: {error}", op.path)))?;
     Ok(wire::WorkspaceResultBody::FsWrite(wire::FsWriteResult {
@@ -571,11 +629,7 @@ fn run_rename(scope: &Scope, op: &wire::FsRenameOp) -> Result<wire::WorkspaceRes
             format!("{} already exists", op.to_path),
         ));
     }
-    if let Some(parent) = to.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| {
-            Refusal::failed(format!("could not create {}: {error}", op.to_path))
-        })?;
-    }
+    create_parent_dirs_no_symlink(&to)?;
     std::fs::rename(&from, &to).map_err(|error| {
         Refusal::failed(format!("could not rename {} -> {}: {error}", op.from_path, op.to_path))
     })?;
@@ -937,16 +991,11 @@ pub struct SharedRuntime {
     pub preview: PreviewRegistry,
     /// This machine's own `--allow-root` scoping (config authority).
     pub local_roots: Option<Vec<String>>,
-    blocking: Arc<Semaphore>,
 }
 
 impl SharedRuntime {
     pub fn new(local_roots: Option<Vec<String>>) -> SharedRuntime {
-        SharedRuntime {
-            preview: PreviewRegistry::new(),
-            local_roots,
-            blocking: Arc::new(Semaphore::new(MAX_BLOCKING_OPERATIONS)),
-        }
+        SharedRuntime { preview: PreviewRegistry::new(), local_roots }
     }
 }
 
@@ -962,7 +1011,7 @@ pub struct Connection {
     /// Request tasks are owned by the socket connection. Dropping the
     /// connection must stop in-flight work instead of letting it outlive the
     /// outbound queue and the relay session that created it.
-    requests: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    requests: std::sync::Mutex<tokio::task::JoinSet<()>>,
 }
 
 impl Connection {
@@ -973,7 +1022,7 @@ impl Connection {
             outbound,
             local_observe: Arc::new(AtomicBool::new(false)),
             watches,
-            requests: std::sync::Mutex::new(Vec::new()),
+            requests: std::sync::Mutex::new(tokio::task::JoinSet::new()),
         }
     }
 
@@ -1027,44 +1076,35 @@ impl Connection {
     }
 
     fn spawn_request(&self, request: wire::RelayWorkspaceRequest) {
-        let request_id = request.request_id.clone();
-        let Ok(mut requests) = self.requests.lock() else {
-            let refusal = Refusal::failed("workspace request registry is unavailable");
-            let _ = self.outbound.send(error_frame(&request_id, &refusal));
-            return;
-        };
-        // Completed handles retain their allocation until awaited or dropped.
-        // Prune them before admission, then refuse excess pending work so the
-        // per-connection registry and task set remain bounded.
-        requests.retain(|task| !task.is_finished());
-        if requests.len() >= MAX_PENDING_REQUESTS {
-            let refusal = Refusal::failed(format!(
-                "too many pending workspace requests (limit {MAX_PENDING_REQUESTS})"
-            ));
-            let _ = self.outbound.send(error_frame(&request_id, &refusal));
-            return;
-        }
         let runtime = Arc::clone(&self.runtime);
         let outbound = self.outbound.clone();
         let local_observe = Arc::clone(&self.local_observe);
-        let task = tokio::spawn(async move {
+        let task = async move {
+            let request_id = request.request_id.clone();
             let outcome = execute(&runtime, &local_observe, request).await;
             let text = match outcome {
                 Ok(body) => ok_frame(&request_id, body),
                 Err(refusal) => error_frame(&request_id, &refusal),
             };
             let _ = outbound.send(text);
-        });
-        requests.push(task);
+        };
+        if let Ok(mut requests) = self.requests.lock() {
+            // JoinSet removes completed tasks without rescanning every
+            // in-flight request. This keeps admission proportional to the
+            // number of completions since the previous frame.
+            while requests.try_join_next().is_some() {}
+            requests.spawn(task);
+        } else {
+            // The task has not been spawned yet, so a poisoned registry does
+            // not leak work beyond this connection.
+        }
     }
 }
 
 impl Drop for Connection {
     fn drop(&mut self) {
         if let Ok(mut requests) = self.requests.lock() {
-            for task in requests.drain(..) {
-                task.abort();
-            }
+            requests.abort_all();
         }
     }
 }
@@ -1121,90 +1161,26 @@ async fn run_op(
     runtime: &Arc<SharedRuntime>,
     request: wire::RelayWorkspaceRequest,
 ) -> Result<wire::WorkspaceResultBody, Refusal> {
-    let frame_roots = request.allowed_roots;
+    let scope = Scope::build(request.allowed_roots.as_deref(), runtime.local_roots.as_deref())?;
     match request.op {
-        wire::WorkspaceOp::FsTree(op) => {
-            blocking_scoped(runtime, frame_roots, move |scope| run_tree(scope, &op)).await
-        }
-        wire::WorkspaceOp::FsRead(op) => {
-            blocking_scoped(runtime, frame_roots, move |scope| run_read(scope, &op)).await
-        }
-        wire::WorkspaceOp::FsWrite(op) => {
-            blocking_scoped(runtime, frame_roots, move |scope| run_write(scope, &op)).await
-        }
-        wire::WorkspaceOp::FsRename(op) => {
-            blocking_scoped(runtime, frame_roots, move |scope| run_rename(scope, &op)).await
-        }
-        wire::WorkspaceOp::FsDelete(op) => {
-            blocking_scoped(runtime, frame_roots, move |scope| run_delete(scope, &op)).await
-        }
-        wire::WorkspaceOp::FsSearch(op) => {
-            blocking_scoped(runtime, frame_roots, move |scope| run_search(scope, &op)).await
-        }
-        wire::WorkspaceOp::GitStatus(_) => {
-            let (scope, _permit) = admitted_scope(runtime, frame_roots).await?;
-            run_git_status(&scope).await
-        }
-        wire::WorkspaceOp::GitDiff(op) => {
-            let (scope, _permit) = admitted_scope(runtime, frame_roots).await?;
-            run_git_diff(&scope, &op).await
-        }
+        wire::WorkspaceOp::FsTree(op) => blocking(move || run_tree(&scope, &op)).await,
+        wire::WorkspaceOp::FsRead(op) => blocking(move || run_read(&scope, &op)).await,
+        wire::WorkspaceOp::FsWrite(op) => blocking(move || run_write(&scope, &op)).await,
+        wire::WorkspaceOp::FsRename(op) => blocking(move || run_rename(&scope, &op)).await,
+        wire::WorkspaceOp::FsDelete(op) => blocking(move || run_delete(&scope, &op)).await,
+        wire::WorkspaceOp::FsSearch(op) => blocking(move || run_search(&scope, &op)).await,
+        wire::WorkspaceOp::GitStatus(_) => run_git_status(&scope).await,
+        wire::WorkspaceOp::GitDiff(op) => run_git_diff(&scope, &op).await,
         wire::WorkspaceOp::PreviewOpen(op) => runtime.preview.open(op.target_port).await,
         wire::WorkspaceOp::PreviewConsoleTail(op) => runtime.preview.tail(op.max_events),
     }
 }
 
-async fn acquire_blocking(runtime: &Arc<SharedRuntime>) -> Result<OwnedSemaphorePermit, Refusal> {
-    runtime
-        .blocking
-        .clone()
-        .acquire_owned()
-        .await
-        .map_err(|_| Refusal::failed("workspace blocking worker pool is unavailable"))
-}
-
-/// Build and validate a scope on the blocking pool after admission. The
-/// returned permit stays live for async subprocess work that uses the scope.
-/// If this future is cancelled during scope construction, the closure still
-/// owns the permit until its non-abortable filesystem work finishes.
-async fn admitted_scope(
-    runtime: &Arc<SharedRuntime>,
-    frame_roots: Option<Vec<String>>,
-) -> Result<(Scope, OwnedSemaphorePermit), Refusal> {
-    let local_roots = runtime.local_roots.clone();
-    let permit = acquire_blocking(runtime).await?;
-    match tokio::task::spawn_blocking(move || {
-        let scope = Scope::build(frame_roots.as_deref(), local_roots.as_deref());
-        (scope, permit)
-    })
-    .await
-    {
-        Ok((scope, permit)) => Ok((scope?, permit)),
-        Err(join_error) => Err(Refusal::failed(format!("workspace op crashed: {join_error}"))),
-    }
-}
-
-async fn blocking_scoped<F>(
-    runtime: &Arc<SharedRuntime>,
-    frame_roots: Option<Vec<String>>,
-    body: F,
-) -> Result<wire::WorkspaceResultBody, Refusal>
+async fn blocking<F>(body: F) -> Result<wire::WorkspaceResultBody, Refusal>
 where
-    F: FnOnce(&Scope) -> Result<wire::WorkspaceResultBody, Refusal> + Send + 'static,
+    F: FnOnce() -> Result<wire::WorkspaceResultBody, Refusal> + Send + 'static,
 {
-    let local_roots = runtime.local_roots.clone();
-    // Waiting for admission is cancellable when the connection drops. Once
-    // admitted, the permit is moved into the closure and held until the
-    // blocking call really finishes, since Tokio cannot abort it.
-    let permit = acquire_blocking(runtime).await?;
-    match tokio::task::spawn_blocking(move || {
-        let outcome = Scope::build(frame_roots.as_deref(), local_roots.as_deref())
-            .and_then(|scope| body(&scope));
-        drop(permit);
-        outcome
-    })
-    .await
-    {
+    match tokio::task::spawn_blocking(body).await {
         Ok(outcome) => outcome,
         Err(join_error) => Err(Refusal::failed(format!("workspace op crashed: {join_error}"))),
     }
@@ -1301,19 +1277,6 @@ mod tests {
             .resolve(&inside_b_only.to_string_lossy(), false)
             .expect_err("outside the server echo");
         assert_eq!(refusal.code, wire::WorkspaceErrorCode::PathForbidden);
-    }
-
-    #[tokio::test]
-    async fn admitted_scope_holds_shared_permit_until_subprocess_work_finishes() {
-        let root = scratch("admitted-scope");
-        let roots = vec![root.to_string_lossy().into_owned()];
-        let runtime = Arc::new(SharedRuntime::new(Some(roots.clone())));
-
-        let (_scope, permit) = admitted_scope(&runtime, Some(roots)).await.expect("scope");
-        assert_eq!(runtime.blocking.available_permits(), MAX_BLOCKING_OPERATIONS - 1);
-
-        drop(permit);
-        assert_eq!(runtime.blocking.available_permits(), MAX_BLOCKING_OPERATIONS);
     }
 
     // --- fs ops ----------------------------------------------------------
@@ -1525,6 +1488,40 @@ mod tests {
         assert_eq!(std::fs::read_to_string(root.join("deep/dir/new.txt")).expect("read"), "x\n");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn write_and_rename_refuse_symlinked_parent_directories() {
+        let root = scratch("symlink-parent");
+        let outside = scratch("symlink-parent-outside");
+        std::os::unix::fs::symlink(&outside, root.join("link")).expect("symlink");
+        let scope = scope_for(&root);
+        let write_refusal = run_write(
+            &scope,
+            &wire::FsWriteOp {
+                op: wire::TagFsWrite::FsWrite,
+                path: "link/escape.txt".to_owned(),
+                content: "nope".to_owned(),
+                base_sha256: None,
+            },
+        )
+        .expect_err("symlinked parent must be refused");
+        assert_eq!(write_refusal.code, wire::WorkspaceErrorCode::PathForbidden);
+        write(&root, "source.txt", "source");
+        let rename_refusal = run_rename(
+            &scope,
+            &wire::FsRenameOp {
+                op: wire::TagFsRename::FsRename,
+                from_path: "source.txt".to_owned(),
+                to_path: "link/moved.txt".to_owned(),
+                overwrite: None,
+            },
+        )
+        .expect_err("symlinked parent must be refused");
+        assert_eq!(rename_refusal.code, wire::WorkspaceErrorCode::PathForbidden);
+        assert!(!outside.join("escape.txt").exists());
+        assert!(!outside.join("moved.txt").exists());
+    }
+
     #[test]
     fn rename_moves_and_refuses_typed() {
         let root = scratch("rename");
@@ -1725,6 +1722,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dispatch_keeps_multiple_in_flight_requests_independent() {
+        let root = scratch("dispatch-concurrent");
+        write(&root, "a.txt", "a\n");
+        write(&root, "b.txt", "b\n");
+        let roots = vec![root.to_string_lossy().into_owned()];
+        let runtime = Arc::new(SharedRuntime::new(Some(roots.clone())));
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let connection = Connection::new(runtime, tx);
+
+        for (request_id, path) in [("req_a", "a.txt"), ("req_b", "b.txt")] {
+            let mut request = request_json(
+                serde_json::json!({"op": "fs_read", "path": path, "maxBytes": 1000}),
+                "supervised",
+            );
+            request["requestId"] = Value::String(request_id.to_owned());
+            request["allowedRoots"] = serde_json::json!(roots.clone());
+            connection.handle_frame(request);
+        }
+
+        let mut ids = [
+            tokio::time::timeout(std::time::Duration::from_secs(15), rx.recv())
+                .await
+                .expect("first request timed out")
+                .expect("channel closed"),
+            tokio::time::timeout(std::time::Duration::from_secs(15), rx.recv())
+                .await
+                .expect("second request timed out")
+                .expect("channel closed"),
+        ]
+        .map(|text| serde_json::from_str::<Value>(&text).expect("valid json"));
+        ids.sort_by_key(|frame| frame["requestId"].as_str().unwrap().to_owned());
+        assert_eq!(ids[0]["requestId"], "req_a");
+        assert_eq!(ids[1]["requestId"], "req_b");
+        assert!(ids.iter().all(|frame| frame["ok"] == true));
+    }
+
+    #[tokio::test]
     async fn dispatch_answers_the_wire_shape_and_gates_trust() {
         let root = scratch("dispatch");
         write(&root, "file.txt", "content\n");
@@ -1765,27 +1799,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dispatch_refuses_requests_past_the_per_connection_pending_cap() {
-        let runtime = Arc::new(SharedRuntime::new(None));
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-        let connection = Connection::new(runtime, tx);
-        {
-            let mut requests = connection.requests.lock().expect("request registry");
-            for _ in 0..MAX_PENDING_REQUESTS {
-                requests.push(tokio::spawn(std::future::pending::<()>()));
-            }
-        }
-        connection.handle_frame(request_json(
-            serde_json::json!({"op": "fs_read", "path": "missing", "maxBytes": 1000}),
-            "supervised",
-        ));
-        let answer: Value = serde_json::from_str(&rx.recv().await.expect("refusal frame")).unwrap();
-        assert_eq!(answer["ok"], false);
-        assert_eq!(answer["code"], "failed");
-        assert!(answer["message"].as_str().unwrap().contains("too many pending"));
-    }
-
-    #[tokio::test]
     async fn dispatch_times_out_typed() {
         let root = scratch("dispatch-timeout");
         // A 1ms-clamped timeout with a blocking op that cannot finish is
@@ -1793,20 +1806,5 @@ mod tests {
         assert_eq!(clamp_i64(0, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS), MIN_TIMEOUT_MS);
         assert_eq!(clamp_i64(999_999, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS), MAX_TIMEOUT_MS);
         let _ = root;
-    }
-
-    #[tokio::test]
-    async fn blocking_worker_pool_is_explicitly_bounded() {
-        let runtime = SharedRuntime::new(None);
-        assert_eq!(runtime.blocking.available_permits(), MAX_BLOCKING_OPERATIONS);
-        let permits = runtime
-            .blocking
-            .clone()
-            .acquire_many_owned(MAX_BLOCKING_OPERATIONS as u32)
-            .await
-            .expect("pool permits");
-        assert_eq!(runtime.blocking.available_permits(), 0);
-        drop(permits);
-        assert_eq!(runtime.blocking.available_permits(), MAX_BLOCKING_OPERATIONS);
     }
 }

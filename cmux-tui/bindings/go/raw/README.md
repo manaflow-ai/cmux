@@ -41,8 +41,9 @@ Unicode line separators, and malformed UTF-8. Spaces, Unicode, punctuation,
 and long legacy-safe names remain valid. The source-compatible
 `DefaultSocketPath` helper returns a deterministic SHA-256 leaf in a separate
 invalid-session directory, but it is not a connector route.
-Valid names that exceed the Unix socket limit use the same digest in the
-separate `/tmp/cmux-tui-hashed-<uid>` directory used by the server.
+Valid names that exceed the Unix socket limit use the same digest in
+`<runtime-base>/cmux-tui-hashed-<uid>` when it fits, with
+`/tmp/cmux-tui-hashed-<uid>` as the length-only fallback used by the server.
 
 Every command method accepts `context.Context`. The client serializes commands
 on one connection. Subscribe and attach streams own dedicated connections, so

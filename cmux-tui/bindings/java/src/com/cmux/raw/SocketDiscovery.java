@@ -51,11 +51,12 @@ public final class SocketDiscovery {
         if (fitsUnixSocket(fallback)) {
             return fallback;
         }
-        return Path.of(
-            "/tmp",
-            "cmux-tui-hashed-" + uid,
-            sessionDigest(session) + ".sock"
-        );
+        String digest = sessionDigest(session) + ".sock";
+        Path hashed = Path.of(root, "cmux-tui-hashed-" + uid, digest);
+        if (fitsUnixSocket(hashed)) {
+            return hashed;
+        }
+        return Path.of("/tmp", "cmux-tui-hashed-" + uid, digest);
     }
 
     public static Path defaultSocketPath(String session) {

@@ -531,7 +531,13 @@ fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> Pa
             return fallback;
         }
         let digest = format!("{:x}", Sha256::digest(session.as_bytes()));
-        return platform::hashed_runtime_dir().join(format!("{digest}.sock"));
+        let preferred_base = runtime_dir.parent().unwrap_or_else(|| Path::new("/tmp"));
+        let hashed =
+            platform::hashed_runtime_dir_for_base(preferred_base).join(format!("{digest}.sock"));
+        if unix_socket_path_fits(&hashed) {
+            return hashed;
+        }
+        return platform::fallback_hashed_runtime_dir().join(format!("{digest}.sock"));
     }
     preferred
 }
@@ -4738,6 +4744,61 @@ impl Drop for PendingServer {
     }
 }
 
+/// Prepare the daemon-owned runtime directory without accepting a symlink or
+/// an existing directory controlled by another user. The final metadata check
+/// also confirms that tightening permissions did not change the object type.
+fn prepare_runtime_socket_directory(dir: &Path) -> anyhow::Result<()> {
+    match std::fs::symlink_metadata(dir) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() {
+                anyhow::bail!("runtime socket directory must not be a symlink: {}", dir.display());
+            }
+            if !metadata.is_dir() {
+                anyhow::bail!("runtime socket path parent is not a directory: {}", dir.display());
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            std::fs::create_dir_all(dir)?;
+        }
+        Err(error) => return Err(error.into()),
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let metadata = std::fs::symlink_metadata(dir)?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            anyhow::bail!("runtime socket directory changed during creation: {}", dir.display());
+        }
+        // The effective user must own the directory before we chmod it. This
+        // prevents an inherited path from being used to mutate another user's
+        // runtime directory.
+        if metadata.uid() != unsafe { libc::geteuid() } {
+            anyhow::bail!(
+                "runtime socket directory is not owned by the effective user: {}",
+                dir.display()
+            );
+        }
+        if metadata.permissions().mode() & 0o077 != 0 {
+            platform::restrict_directory(dir)?;
+        }
+        let verified = std::fs::symlink_metadata(dir)?;
+        if verified.file_type().is_symlink()
+            || !verified.is_dir()
+            || verified.uid() != unsafe { libc::geteuid() }
+            || verified.permissions().mode() & 0o077 != 0
+        {
+            anyhow::bail!("runtime socket directory is not private: {}", dir.display());
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        platform::restrict_directory(dir)?;
+    }
+    Ok(())
+}
+
 /// Bind the socket and accept protocol clients before lifecycle readiness.
 pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
     let path = match path {
@@ -4745,8 +4806,7 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
         None => try_default_socket_path(&mux.session)?,
     };
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-        platform::restrict_directory(dir)?;
+        prepare_runtime_socket_directory(dir)?;
     }
     // Refuse to clobber a live socket; remove a stale one.
     if path.exists() {
@@ -13089,6 +13149,70 @@ mod tests {
         );
         assert!(unix_socket_path_fits(&path));
         assert_ne!(path.parent(), Some(Path::new("/tmp")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn default_socket_path_hash_prefers_runtime_base_and_falls_back_to_tmp() {
+        let session = format!("legacy-{}", "x".repeat(200));
+        let preferred_runtime = PathBuf::from("/run/user/501/cmux-tui-501");
+        let preferred = default_socket_path_in_runtime_dir(&session, preferred_runtime);
+        assert_eq!(
+            preferred,
+            platform::hashed_runtime_dir_for_base(Path::new("/run/user/501"))
+                .join("e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2.sock",)
+        );
+        assert!(unix_socket_path_fits(&preferred));
+
+        let long_base = PathBuf::from("/tmp").join("x".repeat(200));
+        let fallback =
+            default_socket_path_in_runtime_dir(&session, long_base.join("cmux-tui-test-user"));
+        assert!(fallback.starts_with(platform::fallback_hashed_runtime_dir()));
+        assert!(unix_socket_path_fits(&fallback));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn runtime_socket_directory_rejects_symlinks_and_non_directories() {
+        use std::os::unix::fs::symlink;
+
+        let root = TestSocketDir::create("runtime-directory-security");
+        let target = root.path().join("target");
+        std::fs::create_dir(&target).unwrap();
+        let alias = root.path().join("alias");
+        symlink(&target, &alias).unwrap();
+        assert!(prepare_runtime_socket_directory(&alias).is_err());
+
+        let file = root.path().join("file");
+        std::fs::write(&file, b"not a directory").unwrap();
+        assert!(prepare_runtime_socket_directory(&file).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn runtime_socket_directory_tightens_existing_owned_directory() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = TestSocketDir::create("runtime-directory-mode");
+        let directory = root.path().join("runtime");
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755)).unwrap();
+        prepare_runtime_socket_directory(&directory).unwrap();
+        assert_eq!(std::fs::metadata(&directory).unwrap().permissions().mode() & 0o777, 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn serve_paused_rejects_explicit_symlink_socket_parent() {
+        use std::os::unix::fs::symlink;
+
+        let root = TestSocketDir::create("explicit-runtime-directory-security");
+        let target = root.path().join("target");
+        std::fs::create_dir(&target).unwrap();
+        let alias = root.path().join("alias");
+        symlink(&target, &alias).unwrap();
+        let result = serve_paused(test_mux(), Some(alias.join("mux.sock")));
+        assert!(result.is_err());
     }
 
     #[cfg(unix)]
