@@ -892,6 +892,11 @@ impl Inner {
                 waiter.expect("shell waiter").await;
                 continue;
             }
+            if self.shell_sessions.lock().expect("shell lock").len() >= self.max_ptys {
+                starting.remove(session);
+                notify.notify_waiters();
+                return Err(format!("this relay caps persistent shells at {}", self.max_ptys));
+            }
             let mut reservation = ShellStartReservation {
                 inner: Arc::clone(&self),
                 session: session.to_owned(),
