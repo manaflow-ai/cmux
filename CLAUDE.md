@@ -26,7 +26,7 @@ The user's daily driver is **`/Applications/cmux-oss.app`**: the tagged Debug bu
 ditto "$HOME/Library/Developer/Xcode/DerivedData/cmux-<slug>/Build/Products/Debug/cmux DEV <slug>.app" ~/Downloads/cmux-oss.app
 ```
 
-Then set `CFBundleName=cmux-oss` and `CFBundleIdentifier=com.cmuxterm.app.debug.oss` in `~/Downloads/cmux-oss.app/Contents/Info.plist` (the `oss` bundle ID owns the socket the running instance listens on, so it must match exactly). Also rename `Contents/MacOS/cmux DEV` → `cmux-oss`, set `CFBundleExecutable=cmux-oss`, rename the matching `*.debug.dylib`, and fix its rpath reference with `install_name_tool -change "@rpath/cmux DEV.debug.dylib" "@rpath/cmux-oss.debug.dylib"`. Then re-sign ad-hoc with `codesign --force --sign -` and verify with `codesign -dvv`: `Signature=adhoc`, `TeamIdentifier=not set`.
+Then set `CFBundleName=cmux-oss` and `CFBundleIdentifier=com.cmuxterm.app.debug.oss` in `~/Downloads/cmux-oss.app/Contents/Info.plist` (the `oss` bundle ID owns the socket the running instance listens on, so it must match exactly). Also rename `Contents/MacOS/cmux DEV` → `cmux-oss`, set `CFBundleExecutable=cmux-oss`, rename the matching `*.debug.dylib`, and fix its rpath reference with `install_name_tool -change "@rpath/cmux DEV.debug.dylib" "@rpath/cmux-oss.debug.dylib"`. Then re-sign ad-hoc with `codesign --force --sign -` and verify with `codesign -dvv`: `Signature=adhoc`, `TeamIdentifier=not set`. **Do not test by running the binary directly** — the app refuses a second instance of the same bundle ID and exits silently; verify with `open ~/Downloads/cmux-oss.app` instead.
 
 ## Shared Mac fleet capacity
 
