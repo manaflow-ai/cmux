@@ -483,15 +483,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let keyboardTransitionID = host?.debugKeyboardTransitionID
             ?? (keyboardPresentationTransitionActive ? 1 : -1)
         let keyboardTransitionTarget = pointValue(host?.debugKeyboardTargetHeight ?? keyboardHeight)
-        let keyboardDockTargetTop = pointValue(host?.debugKeyboardTargetTop ?? bottomDockContainer.frame.maxY)
+        let keyboardDockTargetTop = pointValue(
+            host?.debugKeyboardTargetTop ?? bottomDockContainer.frame.maxY
+        )
         let keyboardDockSource = host?.debugUsesNotificationKeyboardDock == true
             ? "notification"
             : "layoutGuide"
-        let terminalDockPresentationGap = pointValue(
-            host?.debugTerminalDockPresentationGap ?? 0
+        let terminalViewportDockPresentationGap = pointValue(
+            host?.debugTerminalViewportDockPresentationGap ?? 0
         )
-        let maximumTerminalDockPresentationGap = pointValue(
-            host?.debugMaximumTerminalDockPresentationGap ?? 0
+        let maximumTerminalViewportDockPresentationGap = pointValue(
+            host?.debugMaximumTerminalViewportDockPresentationGap ?? 0
         )
         return [
             "chromeHidden=\(chromeHidden ? 1 : 0)",
@@ -510,8 +512,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "toolbarMaxY=\(toolbarMaxY)",
             "dockInternalPresentationGap=\(internalPresentationGap)",
             "dockMaxInternalPresentationGap=\(maximumInternalPresentationGap)",
-            "terminalDockPresentationGap=\(terminalDockPresentationGap)",
-            "terminalDockMaxPresentationGap=\(maximumTerminalDockPresentationGap)",
+            "terminalViewportDockPresentationGap=\(terminalViewportDockPresentationGap)",
+            "terminalViewportDockMaxPresentationGap=\(maximumTerminalViewportDockPresentationGap)",
             "screenScale=\(pointValue(preferredScreenScale))",
             "bottomSafeArea=\(pointValue(safeAreaInsetsBottom))",
             "keyboardGuideTop=\(keyboardDockTargetTop)",
@@ -1129,6 +1131,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         updateDockedToolbarVisibility()
     }
 
+    /// Clears the host-owned freeze if the view leaves a window mid-animation.
+    /// UIKit can remove the host without delivering the keyboard completion block.
+    func cancelHostedKeyboardTransition(resetKeyboardState: Bool = false) {
+        keyboardPresentationTransitionActive = false
+        if resetKeyboardState {
+            keyboardHeight = 0
+            keyboardVisible = false
+            inputProxy.setKeyboardShown(false)
+        }
+        setNeedsGeometrySync()
+    }
+
     /// The host reads the system keyboard layout guide outside iOS 27 and publishes
     /// its settled overlap to the renderer model. UIKit still owns the guide-backed
     /// dock constraint; this only schedules one geometry negotiation after a change.
@@ -1141,8 +1155,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         setNeedsGeometrySync()
     }
 
-    /// Folds the host's presentation translation into the renderer model at
-    /// the exact settled dock edge, then allows grid negotiation to resume.
+    /// Folds the host's settled presentation into the renderer model before
+    /// grid negotiation resumes.
     func finishHostedKeyboardTransition(
         keyboardHeight: CGFloat,
         terminalBottom: CGFloat
@@ -1154,6 +1168,34 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pinHostedTerminalRenderBottom(terminalBottom, snapshot: snapshot)
         layoutZoomOverlay()
         setNeedsGeometrySync()
+    }
+
+    /// Returns the old render's desired bottom while the host's clip reaches
+    /// `targetTerminalBottom`. Blank rows below the cursor absorb the keyboard
+    /// before visible content moves.
+    func hostedKeyboardTransitionRenderBottom(to targetTerminalBottom: CGFloat) -> CGFloat {
+        guard !lastRenderRect.isEmpty else { return targetTerminalBottom }
+        return TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: targetTerminalBottom,
+            targetViewportMaxY: targetTerminalBottom,
+            viewportMinY: lastRenderRect.minY,
+            renderHeight: lastRenderRect.height,
+            holdsProvisionalPin: true,
+            cursorBottomInRender: cursorBottomInRenderPoints()
+        )
+    }
+
+    /// Transfers a live wrapper translation into the render rect before an
+    /// interrupted transition removes the wrapper animation.
+    func foldHostedKeyboardPresentationTranslation(_ translationY: CGFloat) {
+        guard abs(translationY) > 0.001, !lastRenderRect.isEmpty else { return }
+        lastRenderRect.origin.y += translationY
+        syncRendererLayerFrame(scale: preferredScreenScale, renderRect: lastRenderRect)
+        let snapshot = viewportSnapshot()
+        updateLetterboxBorder(
+            renderRect: lastRenderRect,
+            isLetterboxed: snapshot.isLetterboxed(renderSize: lastRenderRect.size)
+        )
     }
 
     private func pinHostedTerminalRenderBottom(
@@ -1178,7 +1220,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func sampleHostedKeyboardPresentation() {
-        (bottomDockHostView as? GhosttySurfaceHostView)?.sampleTerminalDockPresentationGap()
+        (bottomDockHostView as? GhosttySurfaceHostView)?.sampleTerminalViewportDockPresentationGap()
         #if DEBUG
         sampleInternalDockPresentationGap()
         #endif
@@ -1254,6 +1296,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return dockBottom
     }
 
+    /// Replaces the host-owned dock constraint when the host switches from its
+    /// temporary bottom anchor to UIKit's keyboard layout guide.
+    func setHostedBottomDockBottomConstraint(_ constraint: NSLayoutConstraint) {
+        if let previous = bottomDockToKeyboardConstraint,
+           let index = bottomDockHostConstraints.firstIndex(where: { $0 === previous }) {
+            bottomDockHostConstraints[index] = constraint
+        }
+        bottomDockToKeyboardConstraint = constraint
+    }
+
     var hostedBottomDockTopAnchor: NSLayoutYAxisAnchor {
         bottomDockContainer.topAnchor
     }
@@ -1288,22 +1340,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             )
     }
 
-    func hostedTerminalPresentationBottom(in host: UIView) -> CGFloat? {
-        let hostLayer = host.layer.presentation() ?? host.layer
-        if let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer) {
-            let source = renderer.presentation() ?? renderer
-            return source.convert(
-                CGPoint(x: source.bounds.midX, y: source.bounds.maxY),
-                to: hostLayer
-            ).y
-        }
-        let source = layer.presentation() ?? layer
-        return source.convert(
-            CGPoint(x: bounds.midX, y: hostedTerminalRenderBottom),
-            to: hostLayer
-        ).y
-    }
-
     func hostedBottomDockPresentationTop(in host: UIView) -> CGFloat? {
         guard bottomDockContainer.superview != nil else { return nil }
         let source = bottomDockContainer.layer.presentation() ?? bottomDockContainer.layer
@@ -1324,9 +1360,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         ).y
     }
 
-    /// The host has already folded the dock's presentation position into its
-    /// constraint. Removing only this container's old position animation lets the
-    /// next host-owned transaction restart the dock and terminal at the same edge.
     func removeHostedBottomDockAnimations() {
         bottomDockContainer.layer.removeAllAnimations()
     }

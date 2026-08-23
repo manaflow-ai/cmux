@@ -8532,18 +8532,18 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
-    private func assertTerminalPresentationPinnedToDock(
+    private func assertTerminalViewportPinnedToDock(
         _ dock: [String: String],
         context: String,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        guard let currentGap = dock["terminalDockPresentationGap"].flatMap(Double.init),
-              let maximumGap = dock["terminalDockMaxPresentationGap"].flatMap(Double.init),
+        guard let currentGap = dock["terminalViewportDockPresentationGap"].flatMap(Double.init),
+              let maximumGap = dock["terminalViewportDockMaxPresentationGap"].flatMap(Double.init),
               let screenScale = dock["screenScale"].flatMap(Double.init),
               screenScale > 0 else {
             XCTFail(
-                "Missing terminal presentation-to-dock geometry for \(context). dock=\(dock)",
+                "Missing terminal viewport-to-dock geometry for \(context). dock=\(dock)",
                 file: file,
                 line: line
             )
@@ -8553,14 +8553,14 @@ final class cmuxUITests: XCTestCase {
         XCTAssertLessThanOrEqual(
             currentGap,
             twoPhysicalPixels,
-            "The rendered terminal edge detached from the dock for \(context). dock=\(dock)",
+            "The visible terminal viewport detached from the dock for \(context). dock=\(dock)",
             file: file,
             line: line
         )
         XCTAssertLessThanOrEqual(
             maximumGap,
             twoPhysicalPixels,
-            "The rendered terminal edge detached from the dock during \(context). dock=\(dock)",
+            "The visible terminal viewport detached from the dock during \(context). dock=\(dock)",
             file: file,
             line: line
         )
@@ -9045,7 +9045,7 @@ final class cmuxUITests: XCTestCase {
             keyboard: initialKeyboard,
             context: "rapid-reversal baseline"
         )
-        assertTerminalPresentationPinnedToDock(
+        assertTerminalViewportPinnedToDock(
             surfaceDock(in: app),
             context: "keyboard-visible baseline"
         )
@@ -9093,7 +9093,7 @@ final class cmuxUITests: XCTestCase {
                 1,
                 "Shortcut and Composer bars separated during rapid reversal \(cycle). dock=\(dock)"
             )
-            assertTerminalPresentationPinnedToDock(
+            assertTerminalViewportPinnedToDock(
                 dock,
                 context: "rapid reversal \(cycle)"
             )
@@ -9104,7 +9104,7 @@ final class cmuxUITests: XCTestCase {
         let hiddenDock = waitForDock(in: app, describe: "keyboard-hidden terminal presentation settled") {
             $0["keyboardUp"] == "0" && $0["keyboardTransitionID"] == "-1"
         }
-        assertTerminalPresentationPinnedToDock(
+        assertTerminalViewportPinnedToDock(
             hiddenDock,
             context: "keyboard-hidden settle"
         )
@@ -9114,13 +9114,12 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
-    /// A second tap at the keyboard-control's original screen coordinate can land
-    /// while its first hide animation is still moving the dock. This is distinct from
-    /// a terminal tap reversal because it exercises the same control's hit target
-    /// through an A→B→A keyboard sequence. The host must rebase the clip, dock, and
-    /// terminal wrapper from one presentation edge before beginning the return leg.
+    /// Two taps at the keyboard control's original screen coordinate can land
+    /// while its first dismissal is still moving. This exercises a genuine
+    /// A→B→A retarget through one hit target instead of waiting for a terminal
+    /// refocus gesture to serialize after the keyboard settles.
     @MainActor
-    func testTerminalDockStaysPinnedForInPlaceKeyboardControlReversals() async throws {
+    func testTerminalViewportStaysPinnedForInPlaceKeyboardControlReversals() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
         defer { server.stop() }
@@ -9152,8 +9151,7 @@ final class cmuxUITests: XCTestCase {
         )
 
         for cycle in 1...10 {
-            controlPoint.tap()
-            controlPoint.tap()
+            controlPoint.doubleTap()
 
             guard let keyboard = waitForSoftwareKeyboardKeyPlane(
                 in: app,
@@ -9167,7 +9165,7 @@ final class cmuxUITests: XCTestCase {
                 keyboard: keyboard,
                 context: "in-place reversal \(cycle)"
             )
-            assertTerminalPresentationPinnedToDock(
+            assertTerminalViewportPinnedToDock(
                 dock,
                 context: "in-place reversal \(cycle)"
             )

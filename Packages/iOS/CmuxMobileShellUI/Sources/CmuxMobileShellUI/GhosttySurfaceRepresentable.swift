@@ -162,7 +162,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
-        (uiView as? GhosttySurfaceHostView)?.surfaceView.prepareForDismantle()
+        (uiView as? GhosttySurfaceHostView)?.prepareForDismantle()
         coordinator.tearDownArtifactChip()
         coordinator.tearDownComposer()
         coordinator.detach()
