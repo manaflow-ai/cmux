@@ -104,6 +104,13 @@ fn attach_liveness_interval() -> Duration {
 const REMOTE_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 #[cfg(test)]
 const REMOTE_REQUEST_TIMEOUT: Duration = Duration::from_millis(100);
+// Liveness probes share the serialized response reader with terminal
+// snapshots. A busy daemon can therefore delay an identify response longer
+// than the normal interactive request budget without being dead.
+#[cfg(not(test))]
+const REMOTE_LIVENESS_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+#[cfg(test)]
+const REMOTE_LIVENESS_REQUEST_TIMEOUT: Duration = Duration::from_millis(300);
 #[cfg(not(test))]
 const REMOTE_ATTACH_IDLE_TIMEOUT: Duration = Duration::from_secs(10);
 #[cfg(test)]
@@ -161,7 +168,13 @@ pub(crate) fn spawn_attach_liveness_monitor(session: &Arc<RemoteSession>, interv
             if session.shutdown.load(Ordering::Acquire) {
                 return;
             }
-            if session.request(json!({"cmd": "identify"})).is_err() {
+            if session
+                .request_with_deadline(
+                    json!({"cmd": "identify"}),
+                    RequestDeadline::Fixed(REMOTE_LIVENESS_REQUEST_TIMEOUT),
+                )
+                .is_err()
+            {
                 if session.shutdown.load(Ordering::Acquire) {
                     // Normal teardown raced the probe; nothing to report.
                     return;
