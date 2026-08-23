@@ -37,7 +37,7 @@ struct ResizableHSplit: View {
     @ViewBuilder
     private func column(_ node: RenderNode?) -> some View {
         if let node {
-            ScrollView {
+            ScrollView(.vertical, showsIndicators: false) {
                 RenderNodeView(node: node)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .padding(8)

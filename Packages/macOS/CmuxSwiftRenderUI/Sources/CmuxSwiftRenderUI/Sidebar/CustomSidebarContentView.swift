@@ -99,7 +99,7 @@ public struct CustomSidebarContentView: View {
     /// host's edge-fade mask rather than clipping against it. This mirrors the
     /// default workspace sidebar's scroll treatment.
     private func scrollWrap(_ view: some View) -> some View {
-        ScrollView {
+        ScrollView(.vertical, showsIndicators: false) {
             view
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .padding(.horizontal, 12)
