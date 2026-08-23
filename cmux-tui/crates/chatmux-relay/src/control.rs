@@ -247,10 +247,7 @@ mod unix {
             written: Option<oneshot::Sender<bool>>,
         ) -> bool {
             self.writer_tx
-                .send(OutboundLine {
-                    bytes: Self::encode_line(id, cmd, params),
-                    written,
-                })
+                .send(OutboundLine { bytes: Self::encode_line(id, cmd, params), written })
                 .is_ok()
         }
     }
@@ -269,8 +266,7 @@ mod unix {
                 let id = self.next_id.fetch_add(1, Ordering::SeqCst);
                 let (sender, receiver) = oneshot::channel();
                 self.shared.pending.lock().expect("control pending lock").insert(id, sender);
-                let deadline =
-                    tokio::time::Instant::now() + Duration::from_millis(self.timeout_ms);
+                let deadline = tokio::time::Instant::now() + Duration::from_millis(self.timeout_ms);
                 let (written, write_result) = oneshot::channel();
                 if !self.enqueue_line(id, &cmd, params, Some(written)) {
                     self.shared.pending.lock().expect("control pending lock").remove(&id);
@@ -343,10 +339,8 @@ mod tests {
 
     #[tokio::test]
     async fn writer_queue_preserves_complete_fifo_lines() {
-        let socket_path = std::env::temp_dir().join(format!(
-            "chatmux-relay-control-{}.sock",
-            std::process::id()
-        ));
+        let socket_path =
+            std::env::temp_dir().join(format!("chatmux-relay-control-{}.sock", std::process::id()));
         let _ = std::fs::remove_file(&socket_path);
         let listener = UnixListener::bind(&socket_path).expect("bind control test socket");
         let (accepted_tx, accepted_rx) = oneshot::channel();
@@ -374,9 +368,8 @@ mod tests {
             lines
         });
 
-        let control = connect_control(&socket_path, 3_000)
-            .await
-            .expect("connect control test socket");
+        let control =
+            connect_control(&socket_path, 3_000).await.expect("connect control test socket");
         accepted_rx.await.expect("wait for control test server");
         let payload = "x".repeat(128 * 1024);
         for index in 0..8 {
@@ -384,10 +377,7 @@ mod tests {
         }
         release_tx.send(()).expect("release control test reader");
         let response = control.request("probe", json!({})).await;
-        assert_eq!(
-            response.and_then(|value| value.get("ok").and_then(Value::as_bool)),
-            Some(true)
-        );
+        assert_eq!(response.and_then(|value| value.get("ok").and_then(Value::as_bool)), Some(true));
 
         let lines = server.await.expect("join control test server");
         assert!(lines.iter().all(|line| line.ends_with('\n')));

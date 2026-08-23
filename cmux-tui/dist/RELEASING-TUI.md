@@ -40,8 +40,8 @@ Before upload, the package contract validator checks the exact five npm package
 trees, including both the TUI binary and hook, then runs `npm pack` and an
 offline install of the matching Linux package. It checks the exact six PyPI
 wheels, their platform tags, metadata, `RECORD` hashes, and executable modes.
-The Windows binary and hook are raw release artifacts only. They are not in the
-npm or PyPI package set.
+When `include_windows` is enabled, npm publishes the Windows TUI binary and
+hook and the Windows relay binary as platform packages. PyPI remains Unix-only.
 
 ## One-time registry setup
 

@@ -13,8 +13,7 @@ const LABEL: &str = "com.chatmux.relay";
 /// binary below it would silently stop working. Keep this refusal in the
 /// relay as well as in the npm launcher: callers can invoke the native binary
 /// directly and must get the same safe result.
-const EPHEMERAL_NPX_AUTOSTART_MESSAGE: &str =
-    "autostart needs a durable relay executable; this command is running from npx's temporary cache. Install cmux-relay globally (npm install --global cmux-relay) or in a persistent project, then run cmux-relay --autostart.";
+const EPHEMERAL_NPX_AUTOSTART_MESSAGE: &str = "autostart needs a durable relay executable; this command is running from npx's temporary cache. Install cmux-relay globally (npm install --global cmux-relay) or in a persistent project, then run cmux-relay --autostart.";
 
 fn is_ephemeral_npx_path(path: &Path) -> bool {
     // Split both separators so this check is testable on every host and also
