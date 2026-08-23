@@ -250,9 +250,11 @@ async fn relay_session(
     let pty_tx = {
         let (pty_tx, mut pty_rx) = mpsc::channel::<Value>(MAX_PTY_INGRESS_FRAMES);
         let manager = Arc::clone(&runtime.pty);
+        let manager_direct = Arc::clone(&manager);
         let out = out_tx.clone();
         let pending = Arc::clone(&pending);
         let auth = Arc::clone(&auth);
+        let auth_direct = Arc::clone(&auth);
         connection_tasks.spawn(async move {
             while let Some(frame) = pty_rx.recv().await {
                 let snapshot = auth.lock().expect("auth lock").clone();
@@ -537,6 +539,15 @@ async fn relay_session(
                         {
                             let is_slow =
                                 matches!(frame_type.as_str(), "pty_open" | "surface_list");
+                            if frame_type == "pty_close" {
+                                // Close must always release its attachment, even when the
+                                // bounded work queue is saturated. The manager close path is
+                                // synchronous and short, so this cannot create an unbounded wait.
+                                let snapshot = auth_direct.lock().expect("auth lock").clone();
+                                let context = make_context(&out_tx, &pending, &snapshot);
+                                manager_direct.handle_frame(&raw, &context).await;
+                                continue;
+                            }
                             match pty_tx.try_send(raw.clone()) {
                                 Ok(()) => {}
                                 Err(mpsc::error::TrySendError::Closed(_)) => break Ok(connected),
