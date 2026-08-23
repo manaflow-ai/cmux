@@ -11083,6 +11083,7 @@ impl App {
                     // session. The rail keeps its create and connect rows.
                     self.machine_presented = None;
                     self.machine_selection_intent = None;
+                    self.machine_deleted_rail_index = None;
                     update.session_available = false;
                 }
             }
@@ -42087,6 +42088,7 @@ mod tests {
             machine_selection_intent: None,
             machine_selection_generation: 0,
             machine_presented: None,
+            machine_deleted_rail_index: None,
             machine_provider_reconnect_attempts: 0,
             machine_provider_reconnect_retry_at: None,
             pending_machine_replacement: None,
