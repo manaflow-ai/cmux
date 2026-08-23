@@ -83,9 +83,9 @@ pub trait PtyControl: Send + Sync {
 }
 
 /// A spawned PTY's output: the manager subscribes exactly one (data, exit)
-/// sink. The source calls the sink synchronously as bytes arrive (a real PTY
-/// from its reader thread; a test fake directly), buffering anything that
-/// arrives before `subscribe`, so no early prompt bytes are lost.
+/// sink. The source serializes sink calls as bytes arrive (a real PTY from its
+/// reader thread; a test fake directly), buffering anything that arrives
+/// before `subscribe`, so no early prompt bytes are lost.
 pub trait PtyOutput: Send + Sync {
     fn subscribe(&self, on_data: DataSink, on_exit: ExitSink);
 }
