@@ -154,7 +154,7 @@ fn resolve_socket_with_env(
     // ahead of environment fallbacks so `--session` cannot route raw requests
     // through a stale socket inherited from the shell.
     if let Some(session) = &global.session {
-        return cmux_tui_core::server::default_socket_path(session);
+        return Ok(cmux_tui_core::server::default_socket_path(session));
     }
     for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
         if let Some(path) = env(name)

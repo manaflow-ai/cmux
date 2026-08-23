@@ -10863,7 +10863,10 @@ impl App {
             && let Err(error) = self.session.mark_workspaces_provider_managed()
         {
             self.status_message = Some(
-                localization::catalog().sidebar.workspace_state_failed.replace("{error}", &error),
+                localization::catalog()
+                    .sidebar
+                    .workspace_state_failed
+                    .replace("{error}", &error.to_string()),
             );
             return;
         }
@@ -14626,7 +14629,7 @@ impl App {
                                 localization::catalog()
                                     .sidebar
                                     .layout_refresh_failed
-                                    .replace("{error}", &error),
+                                    .replace("{error}", &error.to_string()),
                             );
                         }
                         self.session.invalidate_remote_tree();
@@ -14637,7 +14640,10 @@ impl App {
                             return Ok(RenderAction::None);
                         }
                         self.status_message = Some(
-                            localization::catalog().sidebar.layout_stale.replace("{error}", &error),
+                            localization::catalog()
+                                .sidebar
+                                .layout_stale
+                                .replace("{error}", &error.to_string()),
                         );
                         let refresh_stale = self.layout_refresh_retries_remaining > 0;
                         if refresh_stale {
@@ -14799,7 +14805,7 @@ impl App {
                         self.status_message = Some(
                             template
                                 .replace("{attempts}", &BACKGROUND_REFRESH_RETRIES.to_string())
-                                .replace("{error}", &error),
+                                .replace("{error}", &error.to_string()),
                         );
                         let _ = self.session.take_background_refresh_dirty();
                         false
@@ -14822,7 +14828,7 @@ impl App {
                             localization::catalog()
                                 .sidebar
                                 .clients_list_failed
-                                .replace("{error}", &error),
+                                .replace("{error}", &error.to_string()),
                         );
                     }
                 }
@@ -17623,7 +17629,10 @@ impl App {
                 .sidebar_files
                 .set_message(localization::catalog().sidebar.file_sent_to_focused_pane),
             Err(error) => self.sidebar_files.set_message(
-                localization::catalog().sidebar.file_command_failed.replace("{error}", &error),
+                localization::catalog()
+                    .sidebar
+                    .file_command_failed
+                    .replace("{error}", &error.to_string()),
             ),
         }
     }
@@ -17753,7 +17762,10 @@ impl App {
             }
             if let Err(error) = self.session.undo_layout(pane, Some(revision), true) {
                 self.status_message = Some(
-                    localization::catalog().sidebar.layout_undo_failed.replace("{error}", &error),
+                    localization::catalog()
+                        .sidebar
+                        .layout_undo_failed
+                        .replace("{error}", &error.to_string()),
                 );
             }
             return;
@@ -17866,7 +17878,10 @@ impl App {
         let Some(dialog) = self.pairing_dialog.take() else { return };
         if let Err(error) = self.session.respond_pairing(dialog.challenge.id, approve) {
             self.status_message = Some(
-                localization::catalog().sidebar.pairing_response_failed.replace("{error}", &error),
+                localization::catalog()
+                    .sidebar
+                    .pairing_response_failed
+                    .replace("{error}", &error.to_string()),
             );
         }
         self.pairing_dialog = self.pairing_queue.pop_front().map(PairingDialog::new);
