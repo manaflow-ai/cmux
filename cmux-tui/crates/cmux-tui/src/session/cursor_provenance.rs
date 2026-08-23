@@ -66,11 +66,11 @@ impl CursorStyleProvenance {
 
     fn step(&mut self, byte: u8) {
         match self.state {
-            State::Ground => {
-                if byte == 0x1b {
-                    self.state = State::Escape;
-                }
-            }
+            State::Ground => match byte {
+                0x1b => self.state = State::Escape,
+                0x90 | 0x98 | 0x9b | 0x9d | 0x9e | 0x9f => self.dispatch_c1(byte),
+                _ => {}
+            },
             State::Escape => self.dispatch_escape(byte),
             State::Csi(csi) => self.step_csi(csi, byte),
             State::StringBody => match byte {
@@ -101,6 +101,20 @@ impl CursorStyleProvenance {
                 self.state = State::Ground;
             }
             0x1b => {}
+            _ => self.dispatch_c1(byte),
+        }
+    }
+
+    /// Dispatch the single-byte C1 forms of the sequence introducers.
+    ///
+    /// ECMA-48 defines these controls alongside their 7-bit `ESC` forms:
+    /// `CSI` is 0x9B, while DCS/SOS/OSC/PM/APC are 0x90/0x98/0x9D/0x9E/0x9F.
+    /// Keeping this mapping in one place prevents the streaming parser from
+    /// treating an 8-bit sequence opener as ordinary payload.
+    fn dispatch_c1(&mut self, byte: u8) {
+        match byte {
+            0x9b => self.state = State::Csi(CsiState::default()),
+            0x90 | 0x98 | 0x9d | 0x9e | 0x9f => self.state = State::StringBody,
             _ => self.state = State::Ground,
         }
     }
