@@ -83,6 +83,8 @@ export function defaultSocketPaths(session = "main"): string[] {
 }
 
 function unixSocketPathFits(socketPath: string): boolean {
+  // Node implements IPC paths as named pipes on Windows, not sockaddr_un.
+  if (process.platform === "win32") return true;
   const capacity = process.platform === "darwin" ? 104 : 108;
   return Buffer.byteLength(socketPath) < capacity;
 }
