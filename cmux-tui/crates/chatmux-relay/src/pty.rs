@@ -244,6 +244,7 @@ struct ViewerSink {
 /// fans output out to every attachment (multi-viewer, tmux-style).
 struct ShellSession {
     control: Arc<dyn PtyControl>,
+    cwd: PathBuf,
     inner: Mutex<ShellInner>,
     banner: Option<Vec<u8>>,
 }
@@ -734,20 +735,30 @@ impl Inner {
                 .connect_control(&ensured.socket_path)
                 .await
                 .map_err(|_| "cannot inspect existing daemon cwd".to_owned())?;
-            let listed = control
-                .request("list-workspaces", json!({}))
-                .await
-                .map_err(|_| "cannot inspect existing daemon surfaces".to_owned())?;
+            let Some(listed) = control.request("list-workspaces", json!({})).await else {
+                control.end();
+                return Err("cannot inspect existing daemon surfaces".to_owned());
+            };
+            if listed.get("ok").and_then(Value::as_bool) != Some(true) {
+                control.end();
+                return Err("cannot inspect existing daemon surfaces".to_owned());
+            }
             let tabs = collect_pty_tabs(listed.get("data"));
             if tabs.is_empty() || tabs.len() > MAX_ENUM_TERMINALS {
                 control.end();
                 return Err("cannot prove existing daemon cwd is within allowed roots".to_owned());
             }
             for tab in tabs {
-                let info = control
-                    .request("process-info", json!({ "surface": tab.surface_id }))
-                    .await
-                    .map_err(|_| "cannot inspect existing surface cwd".to_owned())?;
+                let Some(info) =
+                    control.request("process-info", json!({ "surface": tab.surface_id })).await
+                else {
+                    control.end();
+                    return Err("cannot inspect existing surface cwd".to_owned());
+                };
+                if info.get("ok").and_then(Value::as_bool) != Some(true) {
+                    control.end();
+                    return Err("cannot inspect existing surface cwd".to_owned());
+                }
                 let actual = info
                     .get("data")
                     .and_then(|v| v.get("cwd"))
@@ -809,6 +820,11 @@ impl Inner {
             if let Some(existing) =
                 self.shell_sessions.lock().expect("shell lock").get(session).cloned()
             {
+                if context.local_roots.as_deref().is_some_and(|r| !r.is_empty())
+                    && existing.cwd != cwd
+                {
+                    return Err("existing shell cwd does not match scoped cwd".to_owned());
+                }
                 existing.control.resize(cols, rows);
                 break existing;
             }
@@ -853,6 +869,7 @@ impl Inner {
                 let PtyHandle { control, output, banner } = handle;
                 let shell_session = Arc::new(ShellSession {
                     control,
+                    cwd: cwd.to_path_buf(),
                     banner,
                     inner: Mutex::new(ShellInner {
                         ring: VecDeque::new(),
