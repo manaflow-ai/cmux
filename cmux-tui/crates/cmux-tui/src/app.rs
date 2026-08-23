@@ -98,6 +98,20 @@ use crate::ui::{
 };
 
 const DEFERRED_INPUT_CAPACITY: usize = 512;
+
+fn read_crossterm_event(
+    timeout: Option<Duration>,
+    mut poll: impl FnMut(Duration) -> std::io::Result<bool>,
+    mut read: impl FnMut() -> std::io::Result<Event>,
+) -> std::io::Result<Option<Event>> {
+    if let Some(timeout) = timeout
+        && !poll(timeout)?
+    {
+        return Ok(None);
+    }
+    read().map(Some)
+}
+
 const DEFERRED_INPUT_FIXED_BYTES: usize = 64;
 const BRACKETED_PASTE_MARKER_BYTES: usize = 12;
 const MAX_DEFERRED_INPUT_BYTES: usize = 4 * 1024 * 1024;
@@ -8770,28 +8784,16 @@ fn run_with_machine_updates_inner(
         }
         let mut graphics_responses = GraphicsResponseFilter::new(graphics_fence_notifier);
         'input: loop {
-            let events = if let Some(timeout) = graphics_responses.time_until_expiry() {
-                match crossterm::event::poll(timeout) {
-                    Ok(true) => match crossterm::event::read() {
-                        Ok(event) => graphics_responses.filter(event),
-                        Err(error) => {
-                            input.fail(error.to_string());
-                            break 'input;
-                        }
-                    },
-                    Ok(false) => graphics_responses.take_expired(),
-                    Err(error) => {
-                        input.fail(error.to_string());
-                        break 'input;
-                    }
-                }
-            } else {
-                match crossterm::event::read() {
-                    Ok(event) => graphics_responses.filter(event),
-                    Err(error) => {
-                        input.fail(error.to_string());
-                        break 'input;
-                    }
+            let events = match read_crossterm_event(
+                graphics_responses.time_until_expiry(),
+                crossterm::event::poll,
+                crossterm::event::read,
+            ) {
+                Ok(Some(event)) => graphics_responses.filter(event),
+                Ok(None) => graphics_responses.take_expired(),
+                Err(error) => {
+                    input.fail(error.to_string());
+                    break 'input;
                 }
             };
             for event in events {
@@ -22887,6 +22889,58 @@ fn browser_character_code(character: char) -> (&'static str, u32) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn crossterm_reader_polls_only_for_timed_reads() {
+        let event = crossterm::event::Event::Resize(80, 24);
+        let mut poll_calls = 0;
+        let mut read_calls = 0;
+
+        let blocking = super::read_crossterm_event(
+            None,
+            |_| {
+                poll_calls += 1;
+                Ok(false)
+            },
+            || {
+                read_calls += 1;
+                Ok(event.clone())
+            },
+        )
+        .unwrap();
+        assert_eq!(blocking, Some(event.clone()));
+        assert_eq!((poll_calls, read_calls), (0, 1));
+
+        let timed_out = super::read_crossterm_event(
+            Some(std::time::Duration::from_millis(10)),
+            |_| {
+                poll_calls += 1;
+                Ok(false)
+            },
+            || {
+                read_calls += 1;
+                Ok(event.clone())
+            },
+        )
+        .unwrap();
+        assert_eq!(timed_out, None);
+        assert_eq!((poll_calls, read_calls), (1, 1));
+
+        let ready = super::read_crossterm_event(
+            Some(std::time::Duration::from_millis(10)),
+            |_| {
+                poll_calls += 1;
+                Ok(true)
+            },
+            || {
+                read_calls += 1;
+                Ok(event.clone())
+            },
+        )
+        .unwrap();
+        assert_eq!(ready, Some(event));
+        assert_eq!((poll_calls, read_calls), (2, 2));
+    }
+
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
         DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission, DeferredInputQueue,
