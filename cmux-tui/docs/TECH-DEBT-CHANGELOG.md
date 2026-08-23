@@ -1,6 +1,6 @@
 # cmux-tui aggregate change log
 
-Snapshot: 2026-08-23. Aggregate branch: `aggregate-final`, final code tip before this documentation commit [`e8df21eed2`](https://github.com/manaflow-ai/cmux/commit/e8df21eed2866eba03b2548e790ba8a5a887b5da). `e8df21eed2` is 442 commits ahead of `origin/main` and 0 behind it (`git rev-list` counts). The documented accepted tail is every commit in [`b61f1bada6..e8df21eed2`](https://github.com/manaflow-ai/cmux/compare/b61f1bada6498ee9d6549f4550f9a062f327f22c...e8df21eed2866eba03b2548e790ba8a5a887b5da), 48 commits including two merges.
+Snapshot: 2026-08-23. Aggregate branch: `aggregate-final`, final code tip before this documentation commit [`ace9e5f57f`](https://github.com/manaflow-ai/cmux/commit/ace9e5f57fb7e98d45aa8a22cdf2efa0fac09ec6). `ace9e5f57f` is 459 commits ahead of `origin/main` and 0 behind it (`git rev-list` counts). The prior accepted tip was [`e8df21eed2`](https://github.com/manaflow-ai/cmux/commit/e8df21eed2866eba03b2548e790ba8a5a887b5da). This update records all 17 commits in [`e8df21eed2..ace9e5f57f`](https://github.com/manaflow-ai/cmux/compare/e8df21eed2866eba03b2548e790ba8a5a887b5da...ace9e5f57fb7e98d45aa8a22cdf2efa0fac09ec6).
 
 Earlier aggregate rows retained for history:
 
@@ -80,6 +80,32 @@ test claim.
 | [`4b12ef9e070558bd3caa50fe8f6407319231863e`](https://github.com/manaflow-ai/cmux/commit/4b12ef9e070558bd3caa50fe8f6407319231863e) | Place connection-progress capability in the summary. | Docs/spec diff check; capability runtime remains unverified. | `git revert 4b12ef9e070558bd3caa50fe8f6407319231863e` |
 | [`e8df21eed2866eba03b2548e790ba8a5a887b5da`](https://github.com/manaflow-ai/cmux/commit/e8df21eed2866eba03b2548e790ba8a5a887b5da) | Apply rustfmt to the preview saturation guard. | Formatter-only; hosted exact-head compile and relay tests remain required. | `git revert e8df21eed2866eba03b2548e790ba8a5a887b5da` |
 
+## Final accepted tail from `e8df21eed2` to `ace9e5f57f`
+
+This table records every commit after the previous documented tip. Revert
+commands use full object IDs. “Hosted” means the focused check must run on the
+hosted builder; this documentation worktree makes no local Rust test claim.
+
+| Commit | Change | Tests / residual risk | Exact revert |
+| --- | --- | --- | --- |
+| [`c906a2ff62b73968b32d00e48072f5afe15d5351`](https://github.com/manaflow-ai/cmux/commit/c906a2ff62b73968b32d00e48072f5afe15d5351) | Reap the relay child process on every credential failure. | Hosted remote-provider failure test required; process-group and descendant cleanup remain open. | `git revert c906a2ff62b73968b32d00e48072f5afe15d5351` |
+| [`fb3ac754c5d55869f968289e3906e3b6b6b0872e`](https://github.com/manaflow-ai/cmux/commit/fb3ac754c5d55869f968289e3906e3b6b6b0872e) | Own the journal-writer lifecycle in the TUI core. | Hosted journal/mux shutdown tests required; reducer ownership and restart recovery remain open. | `git revert fb3ac754c5d55869f968289e3906e3b6b6b0872e` |
+| [`42b776a327c17386d131ef1b1f8a382b02683954`](https://github.com/manaflow-ai/cmux/commit/42b776a327c17386d131ef1b1f8a382b02683954) | Record the Wave 24 SDK and overflow tail in the board. | Docs-only, `git diff --check`; no runtime proof. | `git revert 42b776a327c17386d131ef1b1f8a382b02683954` |
+| [`cef7c71460f72444e874f7c9f26100e9259874c1`](https://github.com/manaflow-ai/cmux/commit/cef7c71460f72444e874f7c9f26100e9259874c1) | Record the aggregate changelog at the prior tip. | Docs-only, `git diff --check`; superseded by this final-tip update. | `git revert cef7c71460f72444e874f7c9f26100e9259874c1` |
+| [`ab2b944ab81a2ebf09a0c595b185344665f9c74f`](https://github.com/manaflow-ai/cmux/commit/ab2b944ab81a2ebf09a0c595b185344665f9c74f) | Hand journal-writer self-join back to the owner. | Hosted journal shutdown test required; cross-owner cancellation ordering remains open. | `git revert ab2b944ab81a2ebf09a0c595b185344665f9c74f` |
+| [`5f6bf91e760c1feb97671aa19f800e3e4f80674d`](https://github.com/manaflow-ai/cmux/commit/5f6bf91e760c1feb97671aa19f800e3e4f80674d) | Use bindable legacy fallback sessions in the Rust SDK. | Hosted Rust SDK socket tests required; legacy path and long-name compatibility remain open. | `git revert 5f6bf91e760c1feb97671aa19f800e3e4f80674d` |
+| [`8523b8f7151bdb032d011cb512a32e878fc813da`](https://github.com/manaflow-ai/cmux/commit/8523b8f7151bdb032d011cb512a32e878fc813da) | Name the Zig resolved connection result consistently. | Hosted Zig compile/tests required; cross-SDK result-shape parity remains open. | `git revert 8523b8f7151bdb032d011cb512a32e878fc813da` |
+| [`5f8860398ee30e255f37cc5e8633159fb0058aa1`](https://github.com/manaflow-ai/cmux/commit/5f8860398ee30e255f37cc5e8633159fb0058aa1) | Coordinate journal finalization across ingress and mux. | Hosted journal finalization/restart tests required; append ownership and idempotency remain open. | `git revert 5f8860398ee30e255f37cc5e8633159fb0058aa1` |
+| [`09190e6da92b60a60000913b9cbf9931ea4b94c7`](https://github.com/manaflow-ai/cmux/commit/09190e6da92b60a60000913b9cbf9931ea4b94c7) | Apply hosted formatting to journal finalization. | Formatter-only; hosted journal compile remains required. | `git revert 09190e6da92b60a60000913b9cbf9931ea4b94c7` |
+| [`782fba0f2abe4f41c74a060caffa36a9c3efc73d`](https://github.com/manaflow-ai/cmux/commit/782fba0f2abe4f41c74a060caffa36a9c3efc73d) | Create missing parent directories for explicit sockets. | Hosted server socket tests required; permissions and symlink/TOCTOU policy remain open. | `git revert 782fba0f2abe4f41c74a060caffa36a9c3efc73d` |
+| [`f5fdf26ccd8f931623adabe711b898b47665d722`](https://github.com/manaflow-ai/cmux/commit/f5fdf26ccd8f931623adabe711b898b47665d722) | Clean Unix sockets synchronously when the remote server drops. | Hosted remote drop/cleanup tests required; crash recovery and cross-platform parity remain open. | `git revert f5fdf26ccd8f931623adabe711b898b47665d722` |
+| [`80fd1621fa8dfa5b25b5767f9711c8afa15e5b65`](https://github.com/manaflow-ai/cmux/commit/80fd1621fa8dfa5b25b5767f9711c8afa15e5b65) | Retain the socket lease until the listener task drops. | Hosted listener lifecycle tests required; abandoned-task cleanup remains open. | `git revert 80fd1621fa8dfa5b25b5767f9711c8afa15e5b65` |
+| [`c8ec5be775352f54acb0707abc13efa6e4be163b`](https://github.com/manaflow-ai/cmux/commit/c8ec5be775352f54acb0707abc13efa6e4be163b) | Construct hashed fallback endpoints safely in Rust SDK clients. | Hosted Rust SDK fallback tests required; cross-language long-path parity remains open. | `git revert c8ec5be775352f54acb0707abc13efa6e4be163b` |
+| [`44a2f0513465da2e81c484319f2e44827a0491d8`](https://github.com/manaflow-ai/cmux/commit/44a2f0513465da2e81c484319f2e44827a0491d8) | Apply hosted Rust formatting to SDK fallback changes. | Formatter-only; hosted SDK compile remains required. | `git revert 44a2f0513465da2e81c484319f2e44827a0491d8` |
+| [`11c309d7013a5be96a9bc0d00a44f7b75e850399`](https://github.com/manaflow-ai/cmux/commit/11c309d7013a5be96a9bc0d00a44f7b75e850399) | Preserve executable mode for relay and cmux npm launchers. | Package artifact mode/smoke checks required; registry-install and platform matrix remain open. | `git revert 11c309d7013a5be96a9bc0d00a44f7b75e850399` |
+| [`c56afcad5fe8ba0c1583e9b8f53335faaeeb4e3a`](https://github.com/manaflow-ai/cmux/commit/c56afcad5fe8ba0c1583e9b8f53335faaeeb4e3a) | Add coverage for 8-bit C1 cursor controls. | Focused cursor-provenance test; hosted TUI parser suite remains required. | `git revert c56afcad5fe8ba0c1583e9b8f53335faaeeb4e3a` |
+| [`ace9e5f57fb7e98d45aa8a22cdf2efa0fac09ec6`](https://github.com/manaflow-ai/cmux/commit/ace9e5f57fb7e98d45aa8a22cdf2efa0fac09ec6) | Parse 8-bit C1 cursor controls in the TUI session parser. | Focused cursor-provenance test from the prior commit; hosted parser and compatibility tests remain required. | `git revert ace9e5f57fb7e98d45aa8a22cdf2efa0fac09ec6` |
+
 ## User-session intent audit
 
 The following intents were mined from local `~/.codex` and `~/.claude` session
@@ -112,6 +138,15 @@ entry is not completion evidence unless the stated behavior is exercised.
   Iroh teardown can wait through a long pre-auth timeout.
 - The 25-file integration merge needs exact-head Rust, SDK, relay, and UI
   checks. No local Rust compile or end-to-end hosted result is claimed here.
+- Journal finalization and self-join handoff now have explicit owners, but
+  restart recovery, abort races, and durable outcome receipts still need an
+  end-to-end hosted test.
+- Explicit socket parent creation, synchronous unlink, and lease retention
+  improve cleanup, but permissions, symlink/TOCTOU behavior, crash recovery,
+  and abandoned listener tasks remain open.
+- The npm executable-mode fix and C1 cursor parser tests cover narrow artifact
+  and parser paths only. Registry installation, platform parity, and complete
+  terminal escape compatibility remain unverified.
 
 Session ledger honesty: the board's lower bound is at least 180 substantive
 agent turns, including audits, research, session mining, fixes, reviews, and
