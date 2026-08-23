@@ -647,7 +647,8 @@ public final class MobileIrohRuntimeComposition:
         guard self.runtime === runtime else { return [] }
         let candidates = await routeCatalog.liveMacCandidates(
             preferredTag: tag,
-            compatibleWith: discoveryCompatibilityPolicy
+            compatibleWith: discoveryCompatibilityPolicy,
+            limit: 4
         )
         recordDiscoveryOutcome(candidateCount: candidates.count)
         return candidates
@@ -2357,8 +2358,8 @@ public final class MobileIrohRuntimeComposition:
         for policy: MobileMacBuildCompatibilityPolicy?
     ) -> [String]? {
         switch policy {
-        case let .development(expectedInstanceTag, additionalInstanceTags):
-            [expectedInstanceTag] + additionalInstanceTags.sorted()
+        case .development:
+            nil
         case .official:
             ["default", "nightly"]
         case nil:

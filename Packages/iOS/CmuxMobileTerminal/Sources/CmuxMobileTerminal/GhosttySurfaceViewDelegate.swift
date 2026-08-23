@@ -31,6 +31,11 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// (sign = direction), `col`/`row` is the grid cell under the finger (so
     /// alt-screen mouse-wheel reports at the right cell). Optional.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int)
+    /// Whether the phone owns primary-screen scrolling for this surface: the
+    /// same confirmed-primary screen-anchored condition that suppresses the
+    /// Mac scroll RPC. Gates the local mirror's pixel-precise scroll path.
+    /// Optional.
+    func ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(_ surfaceView: GhosttySurfaceView) -> Bool
     /// Resolves immediate input ownership from a generation-stamped artifact cache.
     /// Hosts defer when the cache is missing, stale, or contains a candidate.
     func ghosttySurfaceView(
@@ -111,6 +116,8 @@ public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didChangeWindowAttachment isAttached: Bool) {}
     /// Default no-op so hosts without remote scroll forwarding can ignore it.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {}
+    /// Default false so hosts without screen-anchored sessions keep line units.
+    func ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(_ surfaceView: GhosttySurfaceView) -> Bool { false }
     /// Default to immediate input for hosts without artifact-path interception.
     func ghosttySurfaceView(
         _ surfaceView: GhosttySurfaceView,
