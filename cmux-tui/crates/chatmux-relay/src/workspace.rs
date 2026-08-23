@@ -439,7 +439,10 @@ fn create_parent_dirs_no_symlink(path: &Path) -> Result<(), Refusal> {
                 cursor = next.to_path_buf();
             }
             Err(error) => {
-                return Err(Refusal::failed(format!("could not inspect {}: {error}", cursor.display())));
+                return Err(Refusal::failed(format!(
+                    "could not inspect {}: {error}",
+                    cursor.display()
+                )));
             }
         }
     }
@@ -452,10 +455,18 @@ fn create_parent_dirs_no_symlink(path: &Path) -> Result<(), Refusal> {
                     Refusal::failed(format!("could not inspect {}: {e}", cursor.display()))
                 })?;
                 if meta.file_type().is_symlink() || !meta.is_dir() {
-                    return Err(Refusal::path_forbidden(format!("parent {} is not a directory", cursor.display())));
+                    return Err(Refusal::path_forbidden(format!(
+                        "parent {} is not a directory",
+                        cursor.display()
+                    )));
                 }
             }
-            Err(error) => return Err(Refusal::failed(format!("could not create {}: {error}", cursor.display()))),
+            Err(error) => {
+                return Err(Refusal::failed(format!(
+                    "could not create {}: {error}",
+                    cursor.display()
+                )));
+            }
         }
     }
     Ok(())

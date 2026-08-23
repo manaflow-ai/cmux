@@ -20,6 +20,6 @@ pub mod pty;
 pub mod pty_deps;
 pub mod session;
 pub mod trust;
-pub mod wire;
 pub mod watch;
+pub mod wire;
 pub mod workspace;

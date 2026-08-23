@@ -312,11 +312,7 @@ impl PtyDeps for RealPtyDeps {
         .await
         .unwrap_or_else(|_| {
             output.push_exit(1);
-            PtyHandle {
-            control: Arc::new(DeadControl),
-            output,
-            banner: None,
-            }
+            PtyHandle { control: Arc::new(DeadControl), output, banner: None }
         })
     }
 
@@ -393,7 +389,9 @@ impl PtyDeps for RealPtyDeps {
                 // Probe a control round-trip before declaring readiness.
                 while Instant::now() < deadline {
                     match connect_control(&socket_path, CONTROL_TIMEOUT_MS).await {
-                        Ok(control) if control.request("list", serde_json::Value::Null).await.is_some() => {
+                        Ok(control)
+                            if control.request("list", serde_json::Value::Null).await.is_some() =>
+                        {
                             return Ok(EnsureDaemon { created: true, socket_path });
                         }
                         _ => tokio::time::sleep(Duration::from_millis(50)).await,

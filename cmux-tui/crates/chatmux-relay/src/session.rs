@@ -20,8 +20,8 @@ use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde_json::Value;
-use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 use tokio::sync::mpsc;
+use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -464,7 +464,8 @@ async fn relay_session(
                                     "message": "relay is busy; retry this action",
                                 });
                                 let size = serde_json::to_string(&result)
-                                    .map(|text| text.len() as u64).unwrap_or(0);
+                                    .map(|text| text.len() as u64)
+                                    .unwrap_or(0);
                                 pending.fetch_add(size, Ordering::SeqCst);
                                 let _ = out.send(result);
                                 continue;

@@ -7,8 +7,8 @@
 use std::io::IsTerminal as _;
 use std::path::{Path, PathBuf};
 
-use chatmux_relay::cli::{Command, parse_cli_args};
 use chatmux_relay::autostart;
+use chatmux_relay::cli::{Command, parse_cli_args};
 use chatmux_relay::config::{Config, default_config_path, load_config, save_config};
 use chatmux_relay::enrollment::load_managed_enrollment_file;
 use chatmux_relay::error::RelayError;
@@ -224,7 +224,9 @@ fn offer_autostart(code_mode: bool) {
             .and_then(|path| chatmux_relay::autostart::install(&path));
         match result {
             Ok(message) => println!("Autostart installed: {message}"),
-            Err(message) => eprintln!("Autostart install failed: {message}. Continuing without it."),
+            Err(message) => {
+                eprintln!("Autostart install failed: {message}. Continuing without it.")
+            }
         }
         return;
     }
@@ -536,8 +538,29 @@ async fn main() {
             std::process::exit(0);
         }
         Some(Command::Status) => print_status(&config_path),
-        Some(Command::Uninstall) => match autostart::uninstall() { Ok(message) => { println!("{message}"); std::process::exit(0); }, Err(message) => { eprintln!("{message}"); std::process::exit(1); } },
-        Some(Command::Autostart) => match std::env::current_exe().map_err(|e| e.to_string()).and_then(|path| autostart::install(&path)) { Ok(message) => { println!("{message}"); std::process::exit(0); }, Err(message) => { eprintln!("{message}"); std::process::exit(1); } },
+        Some(Command::Uninstall) => match autostart::uninstall() {
+            Ok(message) => {
+                println!("{message}");
+                std::process::exit(0);
+            }
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        },
+        Some(Command::Autostart) => match std::env::current_exe()
+            .map_err(|e| e.to_string())
+            .and_then(|path| autostart::install(&path))
+        {
+            Ok(message) => {
+                println!("{message}");
+                std::process::exit(0);
+            }
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        },
         Some(Command::Pair) | None => {}
     }
 

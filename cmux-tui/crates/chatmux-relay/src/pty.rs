@@ -209,7 +209,9 @@ struct OpeningReservation {
 }
 impl Drop for OpeningReservation {
     fn drop(&mut self) {
-        if self.active { self.inner.opening_ids.lock().expect("opening lock").remove(&self.id); }
+        if self.active {
+            self.inner.opening_ids.lock().expect("opening lock").remove(&self.id);
+        }
     }
 }
 
@@ -346,12 +348,16 @@ impl Inner {
             return;
         }
         if self.attachments.lock().expect("attach lock").len() + opening.len() >= self.max_ptys {
-            fail("session_limit", &format!("this relay caps concurrent terminals at {}", self.max_ptys));
+            fail(
+                "session_limit",
+                &format!("this relay caps concurrent terminals at {}", self.max_ptys),
+            );
             return;
         }
         opening.insert(pty_id.clone());
         drop(opening);
-        let mut reservation = OpeningReservation { inner: Arc::clone(&self), id: pty_id.clone(), active: true };
+        let mut reservation =
+            OpeningReservation { inner: Arc::clone(&self), id: pty_id.clone(), active: true };
 
         let session = frame.get("session").and_then(Value::as_str).unwrap_or_default().to_owned();
         let (Some(cols), Some(rows)) = (clamp_dim(frame.get("cols")), clamp_dim(frame.get("rows")))
@@ -750,10 +756,19 @@ impl Inner {
                 });
                 (banner, replay, inner.alive)
             };
-            if let Some(banner) = banner { on_data(Bytes::from(banner)); }
-            if let Some(replay) = replay { on_data(Bytes::from(replay)); }
-            if released.load(Ordering::SeqCst) { return; }
-            if !alive { on_exit(0); return; }
+            if let Some(banner) = banner {
+                on_data(Bytes::from(banner));
+            }
+            if let Some(replay) = replay {
+                on_data(Bytes::from(replay));
+            }
+            if released.load(Ordering::SeqCst) {
+                return;
+            }
+            if !alive {
+                on_exit(0);
+                return;
+            }
             let mut inner = start_session.inner.lock().expect("shell inner lock");
             if !released.load(Ordering::SeqCst) && inner.alive {
                 inner.viewers.push(ViewerSink { id: viewer_id, on_data, on_exit });
@@ -855,11 +870,13 @@ impl TerminalStream {
             }
             None => {
                 let remaining = RAW_ATTACH_BACKLOG_CAP.saturating_sub(state.backlog_bytes);
-                if remaining == 0 { return; }
+                if remaining == 0 {
+                    return;
+                }
                 let chunk = if chunk.len() > remaining { chunk.slice(..remaining) } else { chunk };
                 state.backlog_bytes += chunk.len();
                 state.backlog.push(chunk);
-            },
+            }
         }
     }
 
@@ -1141,7 +1158,9 @@ impl Inner {
         // Inner terminals per session (W86), best-effort.
         let home = self.home.display().to_string();
         for session in &sessions {
-            if surfaces.len() >= MAX_ENUM_SURFACES { break; }
+            if surfaces.len() >= MAX_ENUM_SURFACES {
+                break;
+            }
             surfaces.push(json!({
                 "kind": "session",
                 "id": session,
@@ -1150,7 +1169,9 @@ impl Inner {
             }));
             let socket_path = socket_dir.join(format!("{session}.sock"));
             for terminal in self.list_session_terminals(&socket_path, &home).await {
-                if surfaces.len() >= MAX_ENUM_SURFACES { break; }
+                if surfaces.len() >= MAX_ENUM_SURFACES {
+                    break;
+                }
                 surfaces.push(json!({
                     "kind": "terminal",
                     "id": format!("{session}:{}", terminal.0),
@@ -1162,7 +1183,9 @@ impl Inner {
         {
             let shell_sessions = self.shell_sessions.lock().expect("shell lock");
             for (name, session) in shell_sessions.iter() {
-                if surfaces.len() >= MAX_ENUM_SURFACES { break; }
+                if surfaces.len() >= MAX_ENUM_SURFACES {
+                    break;
+                }
                 let alive = session.inner.lock().expect("shell inner lock").alive;
                 if !alive || seen.contains(name) {
                     continue;
