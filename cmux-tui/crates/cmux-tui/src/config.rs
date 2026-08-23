@@ -2902,9 +2902,6 @@ impl Keys {
                 } else {
                     name.clone()
                 };
-            if normalized == "provider-menu" {
-                self.provider_menu_overridden = true;
-            }
             match action_definitions().iter().find(|definition| {
                 definition.config_key == normalized.as_str()
                     || (definition.action == Action::RenameTab && name == "rename-pane")
@@ -2912,8 +2909,12 @@ impl Keys {
             }) {
                 Some(definition) => {
                     self.bindings.retain(|(_, action)| *action != definition.action);
+                    let mut provider_menu_override_valid = false;
                     for raw_chord in key_values(value) {
                         if raw_chord.eq_ignore_ascii_case("none") {
+                            if definition.action == Action::ProviderMenu {
+                                provider_menu_override_valid = true;
+                            }
                             continue;
                         }
                         let Some(chord) = parse_chord(raw_chord) else {
@@ -2930,8 +2931,14 @@ impl Keys {
                             );
                             continue;
                         }
+                        if definition.action == Action::ProviderMenu {
+                            provider_menu_override_valid = true;
+                        }
                         self.bindings.retain(|(existing, _)| existing != &chord);
                         self.bindings.push((chord, definition.action));
+                    }
+                    if definition.action == Action::ProviderMenu {
+                        self.provider_menu_overridden = provider_menu_override_valid;
                     }
                 }
                 None => crate::client_log::stderr_log!(
@@ -8002,6 +8009,22 @@ mod tests {
                 Some(action),
                 "{name} did not parse"
             );
+        }
+    }
+
+    #[test]
+    fn provider_menu_override_requires_a_valid_chord_or_none() {
+        let cases = [
+            (Value::String("not a chord".to_string()), false),
+            (Value::String("ctrl+b".to_string()), false),
+            (Value::String("none".to_string()), true),
+            (Value::String("x".to_string()), true),
+            (Value::Bool(true), false),
+        ];
+        for (value, expected) in cases {
+            let mut keys = Keys::default();
+            keys.apply(&HashMap::from([("provider-menu".to_string(), value)]));
+            assert_eq!(keys.provider_menu_overridden, expected);
         }
     }
 
