@@ -1705,6 +1705,64 @@ mod tests {
 
         assert!(error.to_string().contains("Unix listener task failed"), "{error}");
     }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unix_server_shutdown_aborts_active_handlers() {
+        let directory = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(state.path(), "active-unix-shutdown", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("link.sock");
+        let server = serve_unix(daemon, &socket, 65_535).await.unwrap();
+
+        // A connected peer with no protocol prelude keeps daemon.accept in its
+        // handshake read. JoinSet::shutdown must abort that handler.
+        let _peer = tokio::net::UnixStream::connect(&socket).await.unwrap();
+        tokio::task::yield_now().await;
+        tokio::time::timeout(Duration::from_secs(1), server.shutdown())
+            .await
+            .expect("Unix shutdown hung with an active handler")
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unix_server_connection_admission_recovers_after_handlers_finish() {
+        let directory = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "admission-unix", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("link.sock");
+        let server = serve_unix(daemon, &socket, 65_535).await.unwrap();
+
+        // Fill the bounded handler set, then close every peer. A later peer
+        // must still be admitted after the finished handlers release permits.
+        let mut peers = Vec::with_capacity(MAX_UNIX_CONNECTIONS);
+        for _ in 0..MAX_UNIX_CONNECTIONS {
+            peers.push(tokio::net::UnixStream::connect(&socket).await.unwrap());
+        }
+        drop(peers);
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        let recovered = tokio::net::UnixStream::connect(&socket).await;
+        assert!(recovered.is_ok(), "Unix admission did not recover: {recovered:?}");
+        server.shutdown().await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unix_server_drop_removes_socket_path() {
+        let directory = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "drop-unix", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("link.sock");
+        let server = serve_unix(daemon, &socket, 65_535).await.unwrap();
+        assert!(socket.exists());
+        drop(server);
+        assert!(!socket.exists(), "dropping UnixServer left its socket path behind");
+    }
     use crate::connection::{ClientConnection, ClientConnectionConfig, LinkReady, ReconnectPolicy};
     use crate::crypto::{
         AuthRequest, ClientAuthMode, ClientHandshake, ServerAuthenticator, StaticIdentity,
