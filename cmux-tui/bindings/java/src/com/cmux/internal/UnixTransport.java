@@ -101,6 +101,11 @@ public final class UnixTransport implements Transport {
                 readBuffer.clear();
                 int count = channel.read(readBuffer);
                 if (count < 0) {
+                    // A negative read is the channel's end-of-stream signal.
+                    // Retire the transport as well, so later operations fail
+                    // deterministically instead of repeatedly touching an EOF
+                    // channel (and so a client cannot accidentally reuse it).
+                    close();
                     throw new IOException("session socket closed");
                 }
                 readBuffer.flip();

@@ -245,6 +245,7 @@ public final class UnixTransportTest {
                 "session socket closed".equals(error.getMessage()),
                 "EOF reports a closed session socket"
             );
+            check(!channel.isOpen(), "EOF closes transport channel");
         }
     }
 
