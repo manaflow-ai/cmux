@@ -777,7 +777,12 @@ fn local_hostname() -> Option<String> {
         return None;
     }
     let end = hostname.iter().position(|byte| *byte == 0).unwrap_or(hostname.len());
-    let hostname = String::from_utf8_lossy(&hostname[..end]);
+    decode_local_hostname(&hostname[..end])
+}
+
+#[cfg(unix)]
+fn decode_local_hostname(bytes: &[u8]) -> Option<String> {
+    let hostname = String::from_utf8_lossy(bytes);
     (!hostname.is_empty()).then(|| hostname.into_owned())
 }
 
@@ -1062,5 +1067,12 @@ mod tests {
         );
         assert_eq!(terminal_pwd_to_local_path("/tmp/plain"), Some(PathBuf::from("/tmp/plain")));
         assert_eq!(terminal_pwd_to_local_path("file://remote.invalid/tmp/nope"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_hostname_decoder_accepts_non_utf8_os_bytes() {
+        assert_eq!(decode_local_hostname(b"host\xff"), Some("host�".to_string()));
+        assert_eq!(decode_local_hostname(b""), None);
     }
 }
