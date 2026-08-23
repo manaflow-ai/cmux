@@ -9,6 +9,8 @@ import tempfile
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 VALIDATOR = ROOT / "cmux-tui/dist/scripts/validate_package_contract.py"
@@ -153,12 +155,11 @@ def test_host_npm_target_rejects_unknown_architecture() -> None:
         with mock.patch.object(platform, "system", return_value=system), mock.patch.object(
             platform, "machine", return_value="riscv64"
         ):
-            try:
+            with pytest.raises(
+                RuntimeError,
+                match=rf"^unsupported test host: {system.lower()}-riscv64$",
+            ):
                 host_npm_target()
-            except RuntimeError as error:
-                assert str(error) == f"unsupported test host: {system.lower()}-riscv64"
-            else:
-                raise AssertionError("unknown host architecture must raise RuntimeError")
 
 
 def test_npm_contract_rejects_missing_hook(tmp_path: Path) -> None:

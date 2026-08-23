@@ -600,7 +600,7 @@ jobs:
 
       - name: Set up Node.js for npm package contract
         if: inputs.package_npm
-        uses: actions/setup-node@48b55a011bda49bbe596cd826c3c89aef350131 # v6.4.0
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22.14.0"
 
