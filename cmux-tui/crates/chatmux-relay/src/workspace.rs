@@ -1011,7 +1011,7 @@ pub struct Connection {
     /// Request tasks are owned by the socket connection. Dropping the
     /// connection must stop in-flight work instead of letting it outlive the
     /// outbound queue and the relay session that created it.
-    requests: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    requests: std::sync::Mutex<tokio::task::JoinSet<()>>,
 }
 
 impl Connection {
@@ -1022,7 +1022,7 @@ impl Connection {
             outbound,
             local_observe: Arc::new(AtomicBool::new(false)),
             watches,
-            requests: std::sync::Mutex::new(Vec::new()),
+            requests: std::sync::Mutex::new(tokio::task::JoinSet::new()),
         }
     }
 
@@ -1079,7 +1079,7 @@ impl Connection {
         let runtime = Arc::clone(&self.runtime);
         let outbound = self.outbound.clone();
         let local_observe = Arc::clone(&self.local_observe);
-        let task = tokio::spawn(async move {
+        let task = async move {
             let request_id = request.request_id.clone();
             let outcome = execute(&runtime, &local_observe, request).await;
             let text = match outcome {
@@ -1087,16 +1087,16 @@ impl Connection {
                 Err(refusal) => error_frame(&request_id, &refusal),
             };
             let _ = outbound.send(text);
-        });
+        };
         if let Ok(mut requests) = self.requests.lock() {
-            // Completed handles retain their allocation until awaited or
-            // dropped. Prune them on every admission so a busy connection
-            // cannot grow its task registry without bound.
-            requests.retain(|task| !task.is_finished());
-            requests.push(task);
-            requests.retain(|task| !task.is_finished());
+            // JoinSet removes completed tasks without rescanning every
+            // in-flight request. This keeps admission proportional to the
+            // number of completions since the previous frame.
+            while requests.try_join_next().is_some() {}
+            requests.spawn(task);
         } else {
-            task.abort();
+            // The task has not been spawned yet, so a poisoned registry does
+            // not leak work beyond this connection.
         }
     }
 }
@@ -1104,9 +1104,7 @@ impl Connection {
 impl Drop for Connection {
     fn drop(&mut self) {
         if let Ok(mut requests) = self.requests.lock() {
-            for task in requests.drain(..) {
-                task.abort();
-            }
+            requests.abort_all();
         }
     }
 }
@@ -1721,6 +1719,43 @@ mod tests {
             .expect("no answer within 15s")
             .expect("channel open");
         serde_json::from_str(&text).expect("valid json frame")
+    }
+
+    #[tokio::test]
+    async fn dispatch_keeps_multiple_in_flight_requests_independent() {
+        let root = scratch("dispatch-concurrent");
+        write(&root, "a.txt", "a\n");
+        write(&root, "b.txt", "b\n");
+        let roots = vec![root.to_string_lossy().into_owned()];
+        let runtime = Arc::new(SharedRuntime::new(Some(roots.clone())));
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let connection = Connection::new(runtime, tx);
+
+        for (request_id, path) in [("req_a", "a.txt"), ("req_b", "b.txt")] {
+            let mut request = request_json(
+                serde_json::json!({"op": "fs_read", "path": path, "maxBytes": 1000}),
+                "supervised",
+            );
+            request["requestId"] = Value::String(request_id.to_owned());
+            request["allowedRoots"] = serde_json::json!(roots.clone());
+            connection.handle_frame(request);
+        }
+
+        let mut ids = [
+            tokio::time::timeout(std::time::Duration::from_secs(15), rx.recv())
+                .await
+                .expect("first request timed out")
+                .expect("channel closed"),
+            tokio::time::timeout(std::time::Duration::from_secs(15), rx.recv())
+                .await
+                .expect("second request timed out")
+                .expect("channel closed"),
+        ]
+        .map(|text| serde_json::from_str::<Value>(&text).expect("valid json"));
+        ids.sort_by_key(|frame| frame["requestId"].as_str().unwrap().to_owned());
+        assert_eq!(ids[0]["requestId"], "req_a");
+        assert_eq!(ids[1]["requestId"], "req_b");
+        assert!(ids.iter().all(|frame| frame["ok"] == true));
     }
 
     #[tokio::test]
