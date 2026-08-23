@@ -213,7 +213,7 @@ fn persist(config: &Config, config_path: &Path) {
     }
 }
 
-fn offer_autostart(code_mode: bool) {
+fn offer_autostart(code_mode: bool, config_path: &Path) {
     let env = env_string("CHATMUX_RELAY_AUTOSTART").or_else(|| env_string("CMUX_RELAY_AUTOSTART"));
     if env.as_deref() == Some("0") {
         return;
@@ -221,7 +221,7 @@ fn offer_autostart(code_mode: bool) {
     if env.as_deref() == Some("1") {
         let result = std::env::current_exe()
             .map_err(|error| format!("could not locate relay executable: {error}"))
-            .and_then(|path| chatmux_relay::autostart::install(&path));
+            .and_then(|path| chatmux_relay::autostart::install(&path, config_path));
         match result {
             Ok(message) => println!("Autostart installed: {message}"),
             Err(message) => {
@@ -274,7 +274,7 @@ async fn onboard_with_url(runtime: &Runtime) -> Result<Config, RelayError> {
                 )
                 .await;
                 persist(&config, &runtime.config_path);
-                offer_autostart(false);
+                offer_autostart(false, &runtime.config_path);
                 return Ok(config);
             }
             Err(RelayError::PairingExpired { .. }) => {
@@ -343,7 +343,7 @@ async fn onboard_with_code(runtime: &Runtime) -> Result<Config, RelayError> {
     persist(&config, &runtime.config_path);
 
     // 5. autostart (opt-in)
-    offer_autostart(true);
+    offer_autostart(true, &runtime.config_path);
     Ok(config)
 }
 
@@ -444,6 +444,7 @@ Usage:
   npx cmux-relay --no-onboard  Scripted use: no prompts; answers come from
                                the environment or defaults
   npx cmux-relay --backend <url>  Worker base URL (staging/dev)
+  npx cmux-relay --config <path>  Config file path (overrides CHATMUX_RELAY_CONFIG)
   npx cmux-relay --allow-root <path>  Limit agent file access and command
                                working directories to this path prefix
                                (repeatable; persisted; run with none to
@@ -522,8 +523,12 @@ async fn main() {
         .unwrap_or_else(|| "https://chatmux.dev".to_owned())
         .trim_end_matches('/')
         .to_owned();
-    let config_path =
-        env_string("CHATMUX_RELAY_CONFIG").map(PathBuf::from).unwrap_or_else(default_config_path);
+    let config_path = parsed
+        .config_path
+        .clone()
+        .map(PathBuf::from)
+        .or_else(|| env_string("CHATMUX_RELAY_CONFIG").map(PathBuf::from))
+        .unwrap_or_else(default_config_path);
     // Legacy QR/SAS ceremony prompts only run on a real terminal.
     let interactive =
         !parsed.no_onboard && std::io::stdout().is_terminal() && std::io::stdin().is_terminal();
@@ -550,7 +555,7 @@ async fn main() {
         },
         Some(Command::Autostart) => match std::env::current_exe()
             .map_err(|e| e.to_string())
-            .and_then(|path| autostart::install(&path))
+            .and_then(|path| autostart::install(&path, &config_path))
         {
             Ok(message) => {
                 println!("{message}");

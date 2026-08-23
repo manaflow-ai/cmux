@@ -54,12 +54,13 @@ fn run(p: &str, a: &[&str]) -> Result<(), String> {
     s.success().then_some(()).ok_or_else(|| format!("{p} failed with {s}"))
 }
 #[cfg(target_os = "macos")]
-fn install_impl(e: &Path) -> Result<String, String> {
+fn install_impl(e: &Path, config: &Path) -> Result<String, String> {
     let p = home()?.join("Library/LaunchAgents").join(format!("{LABEL}.plist"));
     let x = e.to_str().ok_or("executable path is not valid UTF-8")?;
+    let c = config.to_str().ok_or("config path is not valid UTF-8")?;
     let b = format!(
-        "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>Label</key><string>{LABEL}</string><key>ProgramArguments</key><array><string>{}</string><string>--no-onboard</string></array><key>RunAtLoad</key><true/><key>KeepAlive</key><true/></dict></plist>\n",
-        xml_escape(x)
+        "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>Label</key><string>{LABEL}</string><key>ProgramArguments</key><array><string>{}</string><string>--no-onboard</string><string>--config</string><string>{}</string></array><key>RunAtLoad</key><true/><key>KeepAlive</key><true/></dict></plist>\n",
+        xml_escape(x), xml_escape(c)
     );
     atomic_write(&p, &b)?;
     let d = format!("gui/{}", unsafe { libc::getuid() });
@@ -69,14 +70,15 @@ fn install_impl(e: &Path) -> Result<String, String> {
     Ok(format!("installed {}", p.display()))
 }
 #[cfg(target_os = "linux")]
-fn install_impl(e: &Path) -> Result<String, String> {
+fn install_impl(e: &Path, config: &Path) -> Result<String, String> {
     let p = home()?.join(".config/systemd/user/chatmux-relay.service");
     let x = e.to_str().ok_or("executable path is not valid UTF-8")?;
+    let c = config.to_str().ok_or("config path is not valid UTF-8")?;
     atomic_write(
         &p,
         &format!(
-            "[Unit]\nDescription=chatmux relay\n[Service]\nExecStart={} --no-onboard\nRestart=on-failure\nRestartSec=5\n[Install]\nWantedBy=default.target\n",
-            shell_quote(x)
+            "[Unit]\nDescription=chatmux relay\n[Service]\nExecStart={} --no-onboard --config {}\nRestart=on-failure\nRestartSec=5\n[Install]\nWantedBy=default.target\n",
+            shell_quote(x), shell_quote(c)
         ),
     )?;
     run("systemctl", &["--user", "daemon-reload"])?;
@@ -84,8 +86,9 @@ fn install_impl(e: &Path) -> Result<String, String> {
     Ok(format!("installed {}", p.display()))
 }
 #[cfg(target_os = "windows")]
-fn install_impl(e: &Path) -> Result<String, String> {
+fn install_impl(e: &Path, config: &Path) -> Result<String, String> {
     let x = e.to_str().ok_or("executable path is not valid UTF-8")?;
+    let c = config.to_str().ok_or("config path is not valid UTF-8")?;
     run(
         "schtasks",
         &[
@@ -96,18 +99,18 @@ fn install_impl(e: &Path) -> Result<String, String> {
             "/TN",
             LABEL,
             "/TR",
-            &format!("\"{}\" --no-onboard", x),
+            &format!("\"{}\" --no-onboard --config \"{}\"", x, c),
         ],
     )?;
     run("schtasks", &["/Run", "/TN", LABEL])?;
     Ok(format!("installed Windows task {LABEL}"))
 }
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-fn install_impl(_: &Path) -> Result<String, String> {
+fn install_impl(_: &Path, _: &Path) -> Result<String, String> {
     Err("autostart is unsupported on this platform".into())
 }
-pub fn install(e: &Path) -> Result<String, String> {
-    install_impl(e)
+pub fn install(e: &Path, config: &Path) -> Result<String, String> {
+    install_impl(e, config)
 }
 pub fn uninstall() -> Result<String, String> {
     #[cfg(target_os = "macos")]
