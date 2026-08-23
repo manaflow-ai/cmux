@@ -809,6 +809,13 @@ func (c *Client) write(
 			return written, false, err
 		}
 		count, err := c.conn.Write(encoded)
+		if count < 0 || count > len(encoded) {
+			c.framingUnsafe = true
+			return written, false, &TransportError{
+				Operation: operation,
+				Err:       errors.New("transport returned an invalid write count"),
+			}
+		}
 		written = written || count > 0
 		encoded = encoded[count:]
 		if len(encoded) == 0 && onDispatched != nil {
@@ -1258,6 +1265,12 @@ func (c *Client) writeUntrackedStreamCancel(
 	encoded = append(encoded, '\n')
 	for len(encoded) > 0 {
 		count, writeErr := c.conn.Write(encoded)
+		if count < 0 || count > len(encoded) {
+			return &TransportError{
+				Operation: wirev2.StreamCancel.Name,
+				Err:       errors.New("transport returned an invalid write count"),
+			}
+		}
 		encoded = encoded[count:]
 		if writeErr != nil {
 			return &TransportError{

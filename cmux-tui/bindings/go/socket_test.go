@@ -4,12 +4,34 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+type invalidCountConn struct{}
+
+func (invalidCountConn) Read([]byte) (int, error)         { return 0, io.EOF }
+func (invalidCountConn) Write([]byte) (int, error)        { return -1, nil }
+func (invalidCountConn) Close() error                     { return nil }
+func (invalidCountConn) LocalAddr() net.Addr              { return nil }
+func (invalidCountConn) RemoteAddr() net.Addr             { return nil }
+func (invalidCountConn) SetDeadline(time.Time) error      { return nil }
+func (invalidCountConn) SetReadDeadline(time.Time) error  { return nil }
+func (invalidCountConn) SetWriteDeadline(time.Time) error { return nil }
+
+func TestWriteRejectsInvalidWriteCount(t *testing.T) {
+	c := &Client{conn: invalidCountConn{}, timeout: time.Second, maxRequestBytes: 1024, writer: make(chan struct{}, 1), done: make(chan struct{})}
+	c.writer <- struct{}{}
+	mayHaveSent, fullyWritten, err := c.write(context.Background(), "test", map[string]any{"x": 1}, nil)
+	if mayHaveSent || fullyWritten || err == nil || !strings.Contains(err.Error(), "invalid write count") {
+		t.Fatalf("write result = (%v, %v, %v), want invalid count without send", mayHaveSent, fullyWritten, err)
+	}
+}
 
 func TestHighLevelClientRejectsUnsafeSessionBeforeDial(t *testing.T) {
 	t.Setenv("CMUX_TUI_SOCKET", "")
