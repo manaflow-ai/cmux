@@ -12513,7 +12513,8 @@ impl App {
         if self.sidebar_plugin_surface == Some(surface) {
             self.session.invalidate_sidebar_plugin_sync();
             self.sidebar_plugin_surface = None;
-            self.sidebar_plugin_error = Some(localization::catalog().sidebar.plugin_exited.to_string());
+            self.sidebar_plugin_error =
+                Some(localization::catalog().sidebar.plugin_exited.to_string());
             if self.config.sidebar.plugin.is_some() {
                 self.leave_workspace_sidebar();
             }
@@ -17443,9 +17444,19 @@ impl App {
             .enumerate()
             .map(|(index, action)| MenuItem::LabeledAction {
                 label: if action.destructive {
-                    format!("⚠ {}", action.label)
+                    format!(
+                        "⚠ {}",
+                        localization::catalog()
+                            .sidebar
+                            .provider_action_label(&action.id)
+                            .unwrap_or(action.label.as_str())
+                    )
                 } else {
-                    action.label.clone()
+                    localization::catalog()
+                        .sidebar
+                        .provider_action_label(&action.id)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| action.label.clone())
                 },
                 action: MenuAction::InvokeProviderAction(index),
             })
@@ -17470,7 +17481,11 @@ impl App {
             [] => self.stage_provider_action(index, None),
             [field] => {
                 self.prompt = Some(Prompt::new(
-                    field.label.clone(),
+                    localization::catalog()
+                        .sidebar
+                        .provider_action_field_label(&action.id, &field.id)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| field.label.clone()),
                     String::new(),
                     PromptTarget::ProviderAction(index),
                 ));
@@ -18712,7 +18727,8 @@ impl App {
 
     fn enqueue_active_browser_command(&mut self, kind: BrowserInputKind) {
         let Some((surface_id, surface)) = self.active_surface_with_handle() else {
-            self.status_message = Some(localization::catalog().browser.no_active_surface.to_string());
+            self.status_message =
+                Some(localization::catalog().browser.no_active_surface.to_string());
             return;
         };
         if surface.kind() != SurfaceKind::Browser {
