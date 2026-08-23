@@ -844,7 +844,11 @@ impl TerminalStreamSupervisor {
                     Err(error) => {
                         attempt = attempt.saturating_add(1);
                         if attempt >= TERMINAL_RECONNECT_MAX_ATTEMPTS {
-                            set_client_status(&state, &updates, format!("reconnect-failed: {error}"));
+                            set_client_status(
+                                &state,
+                                &updates,
+                                format!("reconnect-failed: {error}"),
+                            );
                             closed.store(true, Ordering::Release);
                             close_notify.notify_waiters();
                             return;
@@ -852,7 +856,9 @@ impl TerminalStreamSupervisor {
                         set_client_status(
                             &state,
                             &updates,
-                            format!("reconnect {attempt}/{TERMINAL_RECONNECT_MAX_ATTEMPTS}: {error}"),
+                            format!(
+                                "reconnect {attempt}/{TERMINAL_RECONNECT_MAX_ATTEMPTS}: {error}"
+                            ),
                         );
                         tokio::select! {
                             _ = tokio::time::sleep(terminal_reconnect_delay(&terminal_id, attempt)) => {}
@@ -989,17 +995,19 @@ fn start_terminal_tasks(
         state.resize_delivery = Some(resize_delivery.clone());
         state.resize_acknowledgement = None;
     }
-    let receiver_task = runtime.spawn(TerminalStreamSupervisor {
-        multiplexer,
-        terminal_id: terminal_id.clone(),
-        initial_stream: stream,
-        streams: streams.clone(),
-        closed: closed.clone(),
-        close_notify: close_notify.clone(),
-        state: state.clone(),
-        updates: updates.clone(),
-    }
-    .run());
+    let receiver_task = runtime.spawn(
+        TerminalStreamSupervisor {
+            multiplexer,
+            terminal_id: terminal_id.clone(),
+            initial_stream: stream,
+            streams: streams.clone(),
+            closed: closed.clone(),
+            close_notify: close_notify.clone(),
+            state: state.clone(),
+            updates: updates.clone(),
+        }
+        .run(),
+    );
     let (command_sender, mut commands) = tokio::sync::mpsc::channel::<Bytes>(256);
     let command_state = state.clone();
     let command_updates = updates.clone();
