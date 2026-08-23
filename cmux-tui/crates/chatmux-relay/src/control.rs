@@ -14,6 +14,7 @@ use serde_json::Value;
 
 /// Per-request budget on a cmux-tui control connection.
 pub const CONTROL_TIMEOUT_MS: u64 = 3_000;
+const MAX_CONTROL_LINE_BYTES: usize = 1_048_576;
 
 pub type EventHandler = Box<dyn Fn(&Value) + Send + Sync>;
 pub type CloseHandler = Box<dyn Fn() + Send + Sync>;
@@ -119,7 +120,6 @@ mod unix {
 
     async fn read_loop(mut reader: OwnedReadHalf, shared: Arc<Shared>) {
         let mut buffer: Vec<u8> = Vec::new();
-        const MAX_CONTROL_LINE_BYTES: usize = 1 << 20;
         let mut chunk = [0_u8; 16_384];
         loop {
             while shared.paused.load(Ordering::SeqCst) {
@@ -131,10 +131,8 @@ mod unix {
             };
             buffer.extend_from_slice(&chunk[..count]);
             if buffer.len() > MAX_CONTROL_LINE_BYTES {
-                // A peer that never terminates a line must not grow memory
-                // without bound. Drop the partial frame and keep the socket.
-                buffer.clear();
-                continue;
+                // A peer that withholds a newline must not grow relay memory.
+                break;
             }
             while let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') {
                 let line: Vec<u8> = buffer.drain(..=newline).collect();

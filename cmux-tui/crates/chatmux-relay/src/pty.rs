@@ -351,11 +351,13 @@ impl Inner {
 
         // Owner-side trust floor: observe-trust machines admit only their
         // OWNER's terminal. Any trust level admits the owner.
-        let trust = if context.trust.is_empty() {
-            frame.get("trust").and_then(Value::as_str).unwrap_or("supervised").to_owned()
-        } else {
-            context.trust.clone()
-        };
+        // Only locally established trust is authoritative. Missing local
+        // state fails closed; the untrusted frame cannot elevate access.
+        let trust = context.trust.clone();
+        if trust.is_empty() {
+            fail("trust_refused", "terminal trust is not established");
+            return;
+        }
         let owner = context.owner_user_id.as_deref();
         let actor = frame.get("actorId").and_then(Value::as_str).unwrap_or_default();
         if trust == "observe" && (owner.is_none() || Some(actor) != owner) {

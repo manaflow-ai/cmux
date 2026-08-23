@@ -399,6 +399,10 @@ fn write_utf8_no_follow(
 ) -> Result<(), HostError> {
     use std::io::Write as _;
     let parent = path.parent().unwrap_or(Path::new("."));
+    // Check the requested parent before creating anything. Creating an
+    // untrusted directory tree first can mutate paths outside the allowed
+    // roots, even when the final file check rejects the write.
+    enforce_canonical_roots(parent, roots).map_err(HostError::Refusal)?;
     std::fs::create_dir_all(parent)?;
     let canonical_parent = std::fs::canonicalize(parent)?;
     let file_name = path.file_name().map(std::ffi::OsStr::to_os_string).unwrap_or_default();
@@ -629,7 +633,7 @@ async fn run_spec(
     command.process_group(0);
     let mut child = match command.spawn() {
         Ok(child) => child,
-        Err(error) => return RunOutcome::Failed { message: error.to_string() },
+        Err(_) => return RunOutcome::Failed { message: "process failed to start".to_owned() },
     };
     let pid = child.id();
     // Collect a little past the char cap (bytes over-approximate chars).
@@ -882,8 +886,10 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
     let scoped = |raw: &str, allow_missing: bool| {
         resolve_scoped_host_path(raw, &root_lists, &home, &workdir, allow_missing)
     };
+    // Host paths and OS errors can contain private filesystem details. Keep
+    // those details in local diagnostics, never in the remote action result.
     let io_fail =
-        |error: std::io::Error| fail_result(version, &action_id, "failed", &error.to_string());
+        |_error: std::io::Error| fail_result(version, &action_id, "failed", "operation failed");
 
     match verb.as_str() {
         "read" => {
