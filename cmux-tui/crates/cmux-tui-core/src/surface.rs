@@ -2105,7 +2105,7 @@ impl Surface {
         opts: SurfaceOptions,
         mux: Weak<Mux>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let cell_pixels =
+        let mut cell_pixels =
             mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
         Self::spawn_auxiliary_at_cell_pixels(id, opts, mux, cell_pixels)
     }
@@ -6412,6 +6412,8 @@ impl PtySurface {
     /// retaining the exited surface as a stable, snapshot-renderable tab.
     fn finish_hosted_exit(&self) {
         let mut term = self.term.lock().unwrap();
+        self.host_connection_state
+            .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
         if self.dead.swap(true, Ordering::AcqRel) {
             return;
         }

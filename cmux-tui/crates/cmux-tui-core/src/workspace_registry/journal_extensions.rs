@@ -252,25 +252,7 @@ impl JournalContentBlob {
     /// Bounded decompression of already-verified content, re-checked against
     /// the reference length and digest.
     pub(crate) fn uncompressed(&self) -> anyhow::Result<Vec<u8>> {
-        let expected_bytes = usize::try_from(self.reference.uncompressed_bytes)?;
-        anyhow::ensure!(
-            expected_bytes <= MAX_CHECKPOINT_CONTENT_UNCOMPRESSED_BYTES,
-            "checkpoint content exceeds the uncompressed size limit"
-        );
-        let decoder = flate2::read::GzDecoder::new(self.compressed.as_slice());
-        let mut uncompressed = Vec::new();
-        decoder
-            .take(u64::try_from(expected_bytes)?.saturating_add(1))
-            .read_to_end(&mut uncompressed)?;
-        anyhow::ensure!(
-            uncompressed.len() == expected_bytes,
-            "checkpoint content length does not match its reference"
-        );
-        anyhow::ensure!(
-            Sha256::digest(&uncompressed).as_slice() == self.digest.as_slice(),
-            "checkpoint content digest does not match its reference"
-        );
-        Ok(uncompressed)
+        decompress_verified_journal_content_blob(self)
     }
 }
 
@@ -2818,7 +2800,7 @@ fn operation_receipt(
     }))
 }
 
-fn encode_hex(bytes: &[u8]) -> String {
+pub(crate) fn encode_hex(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut encoded = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
@@ -2839,7 +2821,7 @@ fn decode_sha256(value: &str) -> anyhow::Result<[u8; 32]> {
     Ok(decoded)
 }
 
-fn verify_journal_content_blob(blob: &JournalContentBlob) -> anyhow::Result<()> {
+fn decompress_verified_journal_content_blob(blob: &JournalContentBlob) -> anyhow::Result<Vec<u8>> {
     anyhow::ensure!(
         blob.reference.format == "cmux.vt-replay.v1" && blob.reference.codec == "gzip",
         "checkpoint content format or codec is unsupported"
@@ -2870,6 +2852,11 @@ fn verify_journal_content_blob(blob: &JournalContentBlob) -> anyhow::Result<()> 
         Sha256::digest(&uncompressed).as_slice() == blob.digest.as_slice(),
         "checkpoint content digest does not match its reference"
     );
+    Ok(uncompressed)
+}
+
+fn verify_journal_content_blob(blob: &JournalContentBlob) -> anyhow::Result<()> {
+    let _ = decompress_verified_journal_content_blob(blob)?;
     Ok(())
 }
 
