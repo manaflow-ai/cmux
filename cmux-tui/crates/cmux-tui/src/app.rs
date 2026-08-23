@@ -12692,8 +12692,53 @@ impl App {
         canonical.unwrap_or_else(|| self.host_mouse_capture_applied.unwrap_or(false))
     }
 
+    /// A scoped attach client mirrors the inner terminal's input modes onto
+    /// the host terminal, but the host can silently drop those modes without
+    /// the client ever seeing it: app-side session restore can write a reset
+    /// into the Ghostty surface after the client's capture-on burst, or the
+    /// host can re-initialize the surface on relaunch. The per-frame capture
+    /// (and cursor) sync is edge-triggered on the last applied state, so a
+    /// dropped mode is never re-asserted and the bridge tab loses mouse input
+    /// until the inner application happens to toggle modes (btop never does).
+    ///
+    /// Focus-in and resize are the two host-visible signals that the host may
+    /// have re-initialized: Ghostty emits a focus-in report on every window
+    /// re-activation and app reopen, and the reattached surface is resized to
+    /// the new window's geometry. Clearing the applied host bookkeeping on
+    /// those events forces the next frame to re-derive the canonical inner
+    /// state and re-emit it, recovering any mode the host silently dropped.
+    /// Scoped clients only: a full TUI owns the whole host surface and
+    /// re-emits its modes through its own lifecycle.
+    fn reassert_scoped_host_terminal_state(&mut self) {
+        if self.surface_only.is_none() {
+            return;
+        }
+        // Keep the last applied state when the inner terminal cannot be
+        // probed. Clearing it here would make the next frame guess `false`
+        // and release host capture during a transient lock/contention.
+        let probe_available = self
+            .surface_only
+            .and_then(|surface_id| self.session.surface(surface_id))
+            .and_then(|surface| surface.try_pointer_semantics())
+            .is_some_and(|probe| matches!(probe, PointerSemanticProbe::Ready(_)));
+        if probe_available {
+            self.host_mouse_capture_applied = None;
+        }
+        self.applied_outer_cursor = None;
+    }
+
     pub(crate) fn reset_frame_cursor_spec(&mut self) {
-        self.desired_outer_cursor = OuterCursorSpec::Reset;
+        // Scoped attach is transparent to the host cursor. Do not schedule a
+        // reset merely because a frame starts; only an inner application that
+        // authored DECSCUSR may cause pane drawing to replace the host cursor.
+        if self.surface_only.is_none()
+            || self
+                .surface_only
+                .and_then(|surface_id| self.session.surface(surface_id))
+                .is_some_and(|surface| surface.cursor_style_authored())
+        {
+            self.desired_outer_cursor = OuterCursorSpec::Reset;
+        }
     }
 
     pub(crate) fn use_terminal_cursor_spec(
@@ -36866,6 +36911,27 @@ mod tests {
             );
         }
 
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn scoped_frame_cursor_reset_preserves_host_cursor_without_inner_authorship() {
+        let mux = Mux::new("scoped-cursor-preserve-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+        app.desired_outer_cursor = OuterCursorSpec::Terminal {
+            color: Rgb { r: 1, g: 2, b: 3 },
+            shape: CursorShape::Bar,
+            blinking: true,
+        };
+
+        app.reset_frame_cursor_spec();
+        assert!(matches!(app.desired_outer_cursor, OuterCursorSpec::Terminal { .. }));
+
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[3 q"));
+        app.reset_frame_cursor_spec();
+        assert_eq!(app.desired_outer_cursor, OuterCursorSpec::Reset);
         mux.close_surface(surface.id).unwrap();
     }
 
