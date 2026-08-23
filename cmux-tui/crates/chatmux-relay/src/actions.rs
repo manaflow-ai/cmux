@@ -225,7 +225,10 @@ fn is_eloop(error: &std::io::Error) -> bool {
     }
     #[cfg(not(unix))]
     {
-        error.kind() == std::io::ErrorKind::FilesystemLoop
+        // `FilesystemLoop` is unstable on Windows. Symlink races are
+        // rejected by the metadata checks and O_NOFOLLOW where available.
+        let _ = error;
+        false
     }
 }
 
@@ -869,7 +872,7 @@ fn run_reply(
     let limit = limit.or(default_value.as_ref());
     match outcome {
         RunOutcome::Failed { message } => fail_result(version, action_id, "failed", &message),
-        RunOutcome::TimedOut { .. } => {
+        RunOutcome::TimedOut => {
             let seconds = (timeout_ms as f64 / 1000.0).round() as u64;
             fail_result(
                 version,
