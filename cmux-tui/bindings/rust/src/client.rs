@@ -821,7 +821,7 @@ fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> Pa
     preferred
 }
 
-fn private_runtime_dir_name() -> String {
+pub(crate) fn private_runtime_dir_name() -> String {
     format!("cmux-tui-{}", current_uid_component())
 }
 
@@ -1003,9 +1003,12 @@ mod tests {
     fn implicit_hashed_socket_falls_back_to_the_legacy_session_socket() {
         let id = NEXT_TEST_SOCKET.fetch_add(1, AtomicOrdering::Relaxed);
         let session = format!("raw-fallback-{}-{id}-{}", std::process::id(), "x".repeat(160));
-        let mut config = ClientConfig::from_socket_path(try_default_socket_path(&session).unwrap());
-        let legacy = SocketFile(temp_socket("hashed-fallback-legacy"));
+        let config = ClientConfig::from_socket_path(try_default_socket_path(&session).unwrap());
+        let dir = PathBuf::from("/tmp").join(private_runtime_dir_name());
+        std::fs::create_dir_all(&dir).unwrap();
+        let legacy = SocketFile(dir.join(format!("{session}.sock")));
         assert!(is_hashed_socket(&config.socket_path));
+        assert_eq!(hashed_socket_legacy_path(&config.socket_path), Some(legacy.0.clone()));
         let listener = UnixListener::bind(&legacy.0).unwrap();
 
         let client = CmuxClient::connect(config).unwrap();
