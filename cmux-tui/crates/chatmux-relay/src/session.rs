@@ -23,7 +23,8 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 use tokio::task::JoinSet;
-use tokio_tungstenite::connect_async;
+use tokio_tungstenite::connect_async_with_config;
+use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Error as TungsteniteError, Message};
 
 use crate::actions::{ActionContext, perform_action, process_env_snapshot, scrubbed_env};
@@ -185,9 +186,14 @@ async fn relay_session(
     }
     let socket_url =
         websocket_url(&format!("{}/v2/relays/{}/socket", config.backend, config.device_id));
-    let (socket, _response) = connect_async(socket_url.as_str())
-        .await
-        .map_err(|error| RelayError::transient(error.to_string()))?;
+    // Reject oversized websocket messages during framing, before JSON parsing.
+    let websocket_config = WebSocketConfig::default()
+        .max_message_size(Some(MAX_INBOUND_FRAME_BYTES))
+        .max_frame_size(Some(MAX_INBOUND_FRAME_BYTES));
+    let (socket, _response) =
+        connect_async_with_config(socket_url.as_str(), Some(websocket_config), true)
+            .await
+            .map_err(|error| RelayError::transient(error.to_string()))?;
     let socket = Arc::new(AsyncMutex::new(socket));
 
     let local_roots = config.allowed_roots.clone().filter(|roots| !roots.is_empty());
