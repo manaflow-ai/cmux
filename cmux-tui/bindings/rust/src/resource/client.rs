@@ -286,19 +286,17 @@ impl Client {
         );
         if let Err(Error::ConnectionIo { kind, .. }) = &connection
             && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
+            && let Some(legacy) = config.legacy_socket_path.clone()
+            && unix_socket_path_fits(&legacy)
+            && let Ok(candidate) = JsonLineConnection::connect(
+                &legacy,
+                config.timeout,
+                config.timeout,
+                config.max_response_bytes,
+            )
         {
-            if let Some(legacy) = config.legacy_socket_path.clone()
-                && unix_socket_path_fits(&legacy)
-                && let Ok(candidate) = JsonLineConnection::connect(
-                    &legacy,
-                    config.timeout,
-                    config.timeout,
-                    config.max_response_bytes,
-                )
-            {
-                config.socket_path = legacy;
-                connection = Ok(candidate);
-            }
+            config.socket_path = legacy;
+            connection = Ok(candidate);
         }
         let connection = connection?;
         Ok(Self {
