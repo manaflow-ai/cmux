@@ -188,10 +188,7 @@ impl ClientConfig {
     /// and bypasses session derivation. Callers handling user input should use
     /// [`Self::try_from_env_or_default_session`] to receive the validation error.
     pub fn from_env_or_default_session(session: &str) -> Self {
-        Self::from_socket_path(compatibility_socket_path_for_session(
-            session,
-            env_socket_path(),
-        ))
+        Self::from_socket_path(compatibility_socket_path_for_session(session, env_socket_path()))
     }
 
     /// Builds a configuration from the environment or a named session.
