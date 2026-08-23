@@ -43,7 +43,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         Err(_) => {
             return local_error(
                 "server.invalid_session",
-                crate::localization::catalog().machine_agent.invalid_session,
+                crate::localization::catalog().local_server.invalid_session,
                 global.output,
                 2,
             );
