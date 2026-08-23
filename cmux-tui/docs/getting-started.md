@@ -25,7 +25,7 @@ Press `Ctrl-b` to reveal the active prefix commands in the bottom bar. Press `Ct
 
 Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; the terminal runtime also honors `CMUX_TUI_TERM` when no CLI value is supplied, with `CMUX_MUX_TERM` retained as a legacy fallback.
 
-## Headless server and attach
+## Durable server and attach
 
 `server start` starts only the mux backend and control socket. `server status`
 checks it, `server stop` stops it, and `attach` opens a TUI on the session.
