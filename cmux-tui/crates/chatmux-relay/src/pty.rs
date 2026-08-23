@@ -528,6 +528,7 @@ impl Inner {
                     &cwd,
                     &env,
                     &pty_id,
+                    server_roots.as_deref(),
                     context,
                 )
                 .await
@@ -707,13 +708,11 @@ impl Inner {
         cwd: &Path,
         env: &HashMap<String, String>,
         pty_id: &str,
+        server_roots: Option<&[String]>,
         context: &FrameContext,
     ) -> Result<Opened, String> {
         let socket_dir = self.deps.socket_dir();
         let ensured = self.deps.ensure_daemon(cmux_tui, session, &socket_dir, cwd, env).await?;
-        if !ensured.created {
-            return Err("cannot prove existing surface cwd is within allowed roots".to_owned());
-        }
         let mut args = cmux_tui.prefix.clone();
         args.extend([
             "attach".to_owned(),
@@ -1252,6 +1251,21 @@ impl Inner {
                 "terminal \"{surface_ref}\" not found in session \"{session}\" (it may have been closed)"
             ));
         };
+
+        if !ensured.created {
+            let info = control.request("process-info", json!({ "surface": surface_id })).await;
+            let actual = info
+                .as_ref()
+                .filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true))
+                .and_then(|v| v.get("data"))
+                .and_then(|v| v.get("cwd"))
+                .and_then(Value::as_str);
+            let Some(actual) = actual else {
+                control.end();
+                return Err("cannot prove existing surface cwd is within allowed roots".to_owned());
+            };
+            scoped_cwd(Some(actual), &self.home, context.local_roots.as_deref(), server_roots)?;
+        }
 
         let stream = Arc::new(TerminalStream::new());
         let event_stream = Arc::clone(&stream);
