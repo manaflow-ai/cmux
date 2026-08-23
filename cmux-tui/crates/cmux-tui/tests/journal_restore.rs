@@ -20,6 +20,15 @@ use cmux_tui_core::terminal_host_runtime::{
 };
 use serde_json::{Value, json};
 
+fn test_timeout(timeout: Duration) -> Duration {
+    let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(1)
+        .clamp(1, 16);
+    timeout.saturating_mul(scale)
+}
+
 fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_cmux-tui")
 }
@@ -66,7 +75,7 @@ impl RestoreHarness {
             .spawn()
             .unwrap();
         self.child = Some(child);
-        let deadline = Instant::now() + Duration::from_secs(30);
+        let deadline = Instant::now() + test_timeout(Duration::from_secs(30));
         while Instant::now() < deadline {
             if transport::connect(&self.socket).is_ok() {
                 return;
@@ -92,7 +101,7 @@ impl RestoreHarness {
             let _ = unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) };
         }
         for (path, record) in &records {
-            let deadline = Instant::now() + Duration::from_secs(5);
+            let deadline = Instant::now() + test_timeout(Duration::from_secs(5));
             while terminal_host_record_liveness(path, record).ok()
                 != Some(TerminalHostLiveness::Dead)
             {
@@ -172,7 +181,7 @@ fn request(path: &Path, value: Value) -> Value {
 }
 
 fn wait_for_host_records(root: &Path, expected: usize) {
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
     loop {
         let records = load_terminal_host_records(root).unwrap_or_default();
         if records.len() == expected {
@@ -188,7 +197,7 @@ fn wait_for_host_records(root: &Path, expected: usize) {
 }
 
 fn wait_for_all_terminals_exited(harness: &RestoreHarness, expected: usize) -> Value {
-    let deadline = Instant::now() + Duration::from_secs(30);
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(30));
     loop {
         let snapshot = harness.snapshot();
         let terminals = snapshot["terminals"].as_array().unwrap();

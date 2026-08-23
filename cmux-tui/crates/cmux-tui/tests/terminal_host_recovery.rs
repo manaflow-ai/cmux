@@ -3083,14 +3083,23 @@ fn daemon_restart_preserves_dead_host_topology_without_respawn() {
     assert_eq!(write["ok"], false);
     assert!(write["error"].as_str().unwrap().contains("unknown surface"));
     let _ = surface;
+    let rejected = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":8,"cmd":"close-terminal","terminal_id":terminal_id,
+            "terminal_incarnation":"wrong-incarnation",
+        }),
+    );
+    assert_eq!(rejected["ok"], false);
+    assert!(rejected["error"].as_str().unwrap().contains("incarnation"));
     request(
         &harness.socket,
         serde_json::json!({
-            "id":6,"cmd":"close-terminal","terminal_id":terminal_id,
+            "id":9,"cmd":"close-terminal","terminal_id":terminal_id,
             "terminal_incarnation":incarnation,
         }),
     );
-    let closed = request(&harness.socket, serde_json::json!({"id":7,"cmd":"list-workspaces"}));
+    let closed = request(&harness.socket, serde_json::json!({"id":10,"cmd":"list-workspaces"}));
     let workspace = closed["workspaces"]
         .as_array()
         .unwrap()
