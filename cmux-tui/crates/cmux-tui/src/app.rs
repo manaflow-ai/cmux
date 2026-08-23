@@ -17118,7 +17118,7 @@ impl App {
                     machine.select_rail_target(target);
                 }
                 None
-            } else if self.config.keys.action_for(key) == Some(Action::ProviderMenu) {
+            } else if key.modifiers == KeyModifiers::NONE && key.code == KeyCode::Char('m') {
                 // Keyboard twin of right-clicking "+ new vm" or the rail
                 // pad: provider scope switching and provider actions. Plain
                 // `m` only: Alt/Ctrl-m keep their normal routing (Ctrl-m is
