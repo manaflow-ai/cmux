@@ -403,6 +403,64 @@ fn write_bytes_no_follow(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     file.sync_all()
 }
 
+/// Create the parent directory chain without accepting a symlink in any
+/// existing component. `resolve` checks this chain before the operation, but
+/// `create_dir_all` otherwise follows a swapped-in symlink and can write
+/// outside the scoped roots.
+fn create_parent_dirs_no_symlink(path: &Path) -> Result<(), Refusal> {
+    let Some(parent) = path.parent() else { return Ok(()) };
+    let mut missing = Vec::new();
+    let mut cursor = parent.to_path_buf();
+    loop {
+        match std::fs::symlink_metadata(&cursor) {
+            Ok(meta) => {
+                if meta.file_type().is_symlink() {
+                    return Err(Refusal::path_forbidden(format!(
+                        "parent {} is a symlink",
+                        cursor.display()
+                    )));
+                }
+                if !meta.is_dir() {
+                    return Err(Refusal::failed(format!(
+                        "parent {} is not a directory",
+                        cursor.display()
+                    )));
+                }
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let Some(name) = cursor.file_name().map(std::ffi::OsStr::to_os_string) else {
+                    return Err(Refusal::failed("parent has no name"));
+                };
+                missing.push(name);
+                let Some(next) = cursor.parent() else {
+                    return Err(Refusal::failed("parent has no resolvable ancestor"));
+                };
+                cursor = next.to_path_buf();
+            }
+            Err(error) => {
+                return Err(Refusal::failed(format!("could not inspect {}: {error}", cursor.display())));
+            }
+        }
+    }
+    for name in missing.iter().rev() {
+        cursor.push(name);
+        match std::fs::create_dir(&cursor) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                let meta = std::fs::symlink_metadata(&cursor).map_err(|e| {
+                    Refusal::failed(format!("could not inspect {}: {e}", cursor.display()))
+                })?;
+                if meta.file_type().is_symlink() || !meta.is_dir() {
+                    return Err(Refusal::path_forbidden(format!("parent {} is not a directory", cursor.display())));
+                }
+            }
+            Err(error) => return Err(Refusal::failed(format!("could not create {}: {error}", cursor.display()))),
+        }
+    }
+    Ok(())
+}
+
 /// Gitignore-aware walker shared by fs_tree and fs_search (`rg --files`
 /// semantics: .gitignore/.ignore/.git/info/exclude respected, hidden files
 /// listed, `.git` itself always excluded).
@@ -534,10 +592,7 @@ fn run_write(scope: &Scope, op: &wire::FsWriteOp) -> Result<wire::WorkspaceResul
             });
         }
     }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|error| Refusal::failed(format!("could not create {}: {error}", op.path)))?;
-    }
+    create_parent_dirs_no_symlink(&path)?;
     write_bytes_no_follow(&path, op.content.as_bytes())
         .map_err(|error| Refusal::failed(format!("could not write {}: {error}", op.path)))?;
     Ok(wire::WorkspaceResultBody::FsWrite(wire::FsWriteResult {
@@ -563,11 +618,7 @@ fn run_rename(scope: &Scope, op: &wire::FsRenameOp) -> Result<wire::WorkspaceRes
             format!("{} already exists", op.to_path),
         ));
     }
-    if let Some(parent) = to.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| {
-            Refusal::failed(format!("could not create {}: {error}", op.to_path))
-        })?;
-    }
+    create_parent_dirs_no_symlink(&to)?;
     std::fs::rename(&from, &to).map_err(|error| {
         Refusal::failed(format!("could not rename {} -> {}: {error}", op.from_path, op.to_path))
     })?;
@@ -1396,6 +1447,40 @@ mod tests {
             .is_ok()
         );
         assert_eq!(std::fs::read_to_string(root.join("deep/dir/new.txt")).expect("read"), "x\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_and_rename_refuse_symlinked_parent_directories() {
+        let root = scratch("symlink-parent");
+        let outside = scratch("symlink-parent-outside");
+        std::os::unix::fs::symlink(&outside, root.join("link")).expect("symlink");
+        let scope = scope_for(&root);
+        let write_refusal = run_write(
+            &scope,
+            &wire::FsWriteOp {
+                op: wire::TagFsWrite::FsWrite,
+                path: "link/escape.txt".to_owned(),
+                content: "nope".to_owned(),
+                base_sha256: None,
+            },
+        )
+        .expect_err("symlinked parent must be refused");
+        assert_eq!(write_refusal.code, wire::WorkspaceErrorCode::PathForbidden);
+        write(&root, "source.txt", "source");
+        let rename_refusal = run_rename(
+            &scope,
+            &wire::FsRenameOp {
+                op: wire::TagFsRename::FsRename,
+                from_path: "source.txt".to_owned(),
+                to_path: "link/moved.txt".to_owned(),
+                overwrite: None,
+            },
+        )
+        .expect_err("symlinked parent must be refused");
+        assert_eq!(rename_refusal.code, wire::WorkspaceErrorCode::PathForbidden);
+        assert!(!outside.join("escape.txt").exists());
+        assert!(!outside.join("moved.txt").exists());
     }
 
     #[test]
