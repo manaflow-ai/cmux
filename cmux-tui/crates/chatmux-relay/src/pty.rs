@@ -25,10 +25,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
 use bytes::Bytes;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use crate::actions::{expand_path, scrubbed_env};
 use crate::control::ControlHandle;
@@ -69,9 +69,43 @@ pub fn surface_ref_ok(value: &str) -> bool {
         && value.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'))
 }
 
+/// Resolve a PTY working directory and enforce every configured root list.
+/// Canonicalization closes symlink escapes before the path reaches spawn.
+fn scoped_cwd(
+    requested: Option<&str>,
+    home: &Path,
+    local_roots: Option<&[String]>,
+    server_roots: Option<&[String]>,
+) -> Result<PathBuf, String> {
+    let raw = requested.filter(|value| !value.is_empty()).unwrap_or_else(|| {
+        local_roots
+            .and_then(|roots| roots.first().map(String::as_str))
+            .or_else(|| server_roots.and_then(|roots| roots.first().map(String::as_str)))
+            .unwrap_or("~")
+    });
+    let path = expand_path(raw, home, home);
+    let canonical = std::fs::canonicalize(&path)
+        .map_err(|error| format!("cwd {} is not accessible: {error}", path.display()))?;
+    for roots in [local_roots, server_roots].into_iter().flatten() {
+        if !roots.iter().map(|root| expand_path(root, home, home)).any(|root| {
+            std::fs::canonicalize(root).map(|root| canonical.starts_with(root)).unwrap_or(false)
+        }) {
+            return Err(format!("cwd {} is outside the allowed roots", canonical.display()));
+        }
+    }
+    if !canonical.is_dir() {
+        return Err(format!("cwd {} is not a directory", canonical.display()));
+    }
+    Ok(canonical)
+}
+
 fn clamp_dim(value: Option<&Value>) -> Option<u16> {
     let number = value.and_then(Value::as_i64)?;
-    if (1..=10_000).contains(&number) { u16::try_from(number).ok() } else { None }
+    if (1..=10_000).contains(&number) {
+        u16::try_from(number).ok()
+    } else {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -418,13 +452,17 @@ impl Inner {
             .get("allowedRoots")
             .and_then(Value::as_array)
             .map(|roots| roots.iter().filter_map(Value::as_str).map(str::to_owned).collect());
-        let first_roots = [context.local_roots.as_deref(), server_roots.as_deref()]
-            .into_iter()
-            .flatten()
-            .find(|roots| !roots.is_empty());
-        let cwd = match first_roots.and_then(|roots| roots.first()) {
-            Some(root) => expand_path(root, &self.home, &self.home),
-            None => self.home.clone(),
+        let cwd = match scoped_cwd(
+            frame.get("cwd").and_then(Value::as_str),
+            &self.home,
+            context.local_roots.as_deref(),
+            server_roots.as_deref(),
+        ) {
+            Ok(cwd) => cwd,
+            Err(message) => {
+                fail("bad_request", &message);
+                return;
+            }
         };
         let env = pty_env(&self.env);
 
