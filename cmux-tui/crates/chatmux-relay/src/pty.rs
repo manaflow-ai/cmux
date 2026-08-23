@@ -836,12 +836,6 @@ fn decode_b64_field(event: &Value, field: &str) -> Option<Bytes> {
         .map(Bytes::from)
 }
 
-/// An event accepted by the control-stream callback or close callback.
-enum TerminalEvent {
-    Output(Bytes),
-    Exit(i64),
-}
-
 /// Buffers control-stream output until start() attaches the live sinks, then
 /// drains one FIFO queue (vt-state/output precede the attach response, and
 /// pty_opened must precede all output).
@@ -852,8 +846,9 @@ struct TerminalStream {
 struct TerminalStreamState {
     live_data: Option<Arc<dyn Fn(Bytes) + Send + Sync>>,
     live_exit: Option<Arc<dyn Fn(i64) + Send + Sync>>,
-    backlog: VecDeque<TerminalEvent>,
+    backlog: VecDeque<Bytes>,
     backlog_bytes: usize,
+    pending_exit: Option<i64>,
     delivering: bool,
     ended: bool,
 }
@@ -866,6 +861,7 @@ impl TerminalStream {
                 live_exit: None,
                 backlog: VecDeque::new(),
                 backlog_bytes: 0,
+                pending_exit: None,
                 delivering: false,
                 ended: false,
             }),
@@ -875,7 +871,7 @@ impl TerminalStream {
     /// Mark the queue as owned by a drainer, if the live sinks are installed.
     fn start_delivery(state: &mut TerminalStreamState) -> bool {
         if state.delivering
-            || state.backlog.is_empty()
+            || (state.backlog.is_empty() && state.pending_exit.is_none())
             || state.live_data.is_none()
             || state.live_exit.is_none()
         {
@@ -892,19 +888,24 @@ impl TerminalStream {
         loop {
             let next = {
                 let mut state = self.state.lock().expect("terminal stream lock");
-                let Some(event) = state.backlog.pop_front() else {
+                if let Some(chunk) = state.backlog.pop_front() {
+                    Some((Some(chunk), None, state.live_data.clone(), state.live_exit.clone()))
+                } else if let Some(code) = state.pending_exit.take() {
+                    Some((None, Some(code), state.live_data.clone(), state.live_exit.clone()))
+                } else {
                     state.delivering = false;
                     return;
-                };
-                (event, state.live_data.clone(), state.live_exit.clone())
+                }
             };
-            match next {
-                (TerminalEvent::Output(chunk), Some(on_data), _) => on_data(chunk),
-                (TerminalEvent::Exit(code), _, Some(on_exit)) => on_exit(code),
-                // `start_delivery` only runs after both sinks are installed.
-                // Keep this branch defensive if a future caller changes that
-                // invariant.
-                (TerminalEvent::Output(_), None, _) | (TerminalEvent::Exit(_), _, None) => {}
+            let (chunk, exit, on_data, on_exit) = next;
+            if let Some(chunk) = chunk {
+                if let Some(on_data) = on_data {
+                    on_data(chunk);
+                }
+            } else if let Some(code) = exit {
+                if let Some(on_exit) = on_exit {
+                    on_exit(code);
+                }
             }
         }
     }
@@ -923,7 +924,7 @@ impl TerminalStream {
             } else {
                 chunk
             };
-            state.backlog.push_back(TerminalEvent::Output(chunk));
+            state.backlog.push_back(chunk);
             Self::start_delivery(&mut state)
         };
         if should_drain {
@@ -938,7 +939,7 @@ impl TerminalStream {
                 return;
             }
             state.ended = true;
-            state.backlog.push_back(TerminalEvent::Exit(code));
+            state.pending_exit = Some(code);
             Self::start_delivery(&mut state)
         };
         if should_drain {

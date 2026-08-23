@@ -26,12 +26,6 @@ use crate::pty::{
 
 const DAEMON_SOCKET_WAIT_MS: u64 = 5_000;
 
-/// An event accepted by the PTY reader or wait thread.
-enum SourceEvent {
-    Data(Bytes),
-    Exit(i64),
-}
-
 /// Buffers output until the manager subscribes, then drains one FIFO queue.
 /// Only one caller drains at a time. This keeps bytes buffered before
 /// `subscribe` ahead of bytes accepted while the backlog is being replayed.
@@ -39,7 +33,8 @@ enum SourceEvent {
 struct SourceState {
     on_data: Option<DataSink>,
     on_exit: Option<ExitSink>,
-    backlog: VecDeque<SourceEvent>,
+    backlog: VecDeque<Bytes>,
+    pending_exit: Option<i64>,
     delivering: bool,
     exited: bool,
 }
@@ -56,7 +51,7 @@ impl ThreadOutput {
     /// Mark the queue as owned by a drainer, if a subscriber is ready.
     fn start_delivery(state: &mut SourceState) -> bool {
         if state.delivering
-            || state.backlog.is_empty()
+            || (state.backlog.is_empty() && state.pending_exit.is_none())
             || state.on_data.is_none()
             || state.on_exit.is_none()
         {
@@ -73,19 +68,24 @@ impl ThreadOutput {
         loop {
             let next = {
                 let mut state = self.state.lock().expect("source lock");
-                let Some(event) = state.backlog.pop_front() else {
+                if let Some(chunk) = state.backlog.pop_front() {
+                    Some((Some(chunk), None, state.on_data.clone(), state.on_exit.clone()))
+                } else if let Some(code) = state.pending_exit.take() {
+                    Some((None, Some(code), state.on_data.clone(), state.on_exit.clone()))
+                } else {
                     state.delivering = false;
                     return;
-                };
-                (event, state.on_data.clone(), state.on_exit.clone())
+                }
             };
-            match next {
-                (SourceEvent::Data(chunk), Some(on_data), _) => on_data(chunk),
-                (SourceEvent::Exit(code), _, Some(on_exit)) => on_exit(code),
-                // `start_delivery` only runs after both sinks are installed.
-                // Keep this branch defensive if a future caller changes that
-                // invariant.
-                (SourceEvent::Data(_), None, _) | (SourceEvent::Exit(_), _, None) => {}
+            let (chunk, exit, on_data, on_exit) = next;
+            if let Some(chunk) = chunk {
+                if let Some(on_data) = on_data {
+                    on_data(chunk);
+                }
+            } else if let Some(code) = exit {
+                if let Some(on_exit) = on_exit {
+                    on_exit(code);
+                }
             }
         }
     }
@@ -93,7 +93,7 @@ impl ThreadOutput {
     fn push_data(&self, chunk: Bytes) {
         let should_drain = {
             let mut state = self.state.lock().expect("source lock");
-            state.backlog.push_back(SourceEvent::Data(chunk));
+            state.backlog.push_back(chunk);
             Self::start_delivery(&mut state)
         };
         if should_drain {
@@ -108,7 +108,7 @@ impl ThreadOutput {
                 return;
             }
             state.exited = true;
-            state.backlog.push_back(SourceEvent::Exit(code));
+            state.pending_exit = Some(code);
             Self::start_delivery(&mut state)
         };
         if should_drain {
