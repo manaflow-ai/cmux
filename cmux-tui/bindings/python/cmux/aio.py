@@ -68,6 +68,7 @@ async def _await_cleanup(awaitable: Any) -> Any:
             # Retrying a completed cancelled task would otherwise spin.
             if task.done():
                 result = task.result()
+                cancelled = True
                 break
             cancelled = True
             continue
