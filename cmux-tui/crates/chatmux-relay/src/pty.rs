@@ -812,6 +812,10 @@ impl Inner {
                 control.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             }
+            if !workspace_shape_valid(listed.get("data")) {
+                control.end();
+                return Err("cannot inspect existing daemon surfaces".to_owned());
+            }
             let tabs = collect_pty_tabs(listed.get("data"));
             if tabs.len() > MAX_ENUM_TERMINALS || (tabs.is_empty() && !ensured.created) {
                 control.end();
@@ -1323,6 +1327,28 @@ fn collect_pty_tabs(data: Option<&Value>) -> Vec<PtyTab> {
         }
     }
     tabs
+}
+
+fn workspace_shape_valid(data: Option<&Value>) -> bool {
+    let Some(workspaces) = data.and_then(|d| d.get("workspaces")).and_then(Value::as_array) else {
+        return false;
+    };
+    workspaces.iter().all(|workspace| {
+        workspace.get("screens").and_then(Value::as_array).is_some_and(|screens| {
+            screens.iter().all(|screen| {
+                screen.get("panes").and_then(Value::as_array).is_some_and(|panes| {
+                    panes.iter().all(|pane| {
+                        pane.get("tabs").and_then(Value::as_array).is_some_and(|tabs| {
+                            tabs.iter().all(|tab| {
+                                tab.get("kind").and_then(Value::as_str) == Some("pty")
+                                    || tab.get("kind").and_then(Value::as_str).is_some()
+                            })
+                        })
+                    })
+                })
+            })
+        })
+    })
 }
 
 /// Compact cwd for picker subtitles: $HOME -> ~, keep the last two parts.
