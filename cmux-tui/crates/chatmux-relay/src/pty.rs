@@ -97,6 +97,13 @@ fn scoped_cwd(
 
     let raw_owned;
     let raw = if let Some(value) = requested.filter(|value| !value.is_empty()) {
+        if !Path::new(value).is_absolute()
+            && value != "~"
+            && !value.starts_with("~/")
+            && !value.starts_with("~\\")
+        {
+            return Err("cwd must be absolute or home-relative".to_owned());
+        }
         value
     } else {
         raw_owned =
