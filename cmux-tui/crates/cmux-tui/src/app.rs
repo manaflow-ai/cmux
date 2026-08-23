@@ -10985,6 +10985,11 @@ impl App {
         // never route into it, whatever else is queued or in flight.
         let presented_deleted =
             self.machine_presented.is_some_and(|presented| !machine_usable(&update, presented));
+        if !presented_deleted {
+            // A deferred deletion can recover before failover runs. Do not
+            // carry its old slot into a later, unrelated deletion.
+            self.machine_deleted_rail_index = None;
+        }
         if presented_deleted {
             if self.machine_deleted_rail_index.is_none()
                 && let Some(presented) = self.machine_presented
