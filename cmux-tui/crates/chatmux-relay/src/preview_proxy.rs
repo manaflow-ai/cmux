@@ -836,15 +836,16 @@ async fn forward_plain(
         .await
     {
         Ok(collected) => collected.to_bytes(),
-        Err(error) => {
+        Err(error) if error.downcast_ref::<http_body_util::LengthLimitError>().is_some() => {
             return text_response(
                 502,
                 &format!(
-                    "target HTML response exceeds the {} byte limit: {error}",
+                    "target HTML response exceeds the {} byte limit",
                     PREVIEW_HTML_MAX_BODY_BYTES
                 ),
             );
         }
+        Err(error) => return text_response(502, &format!("target body failed: {error}")),
     };
     let injected = inject_into_html(&collected);
     parts.headers.remove(hyper::header::CONTENT_LENGTH);

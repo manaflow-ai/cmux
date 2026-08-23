@@ -182,7 +182,7 @@ async fn prepare_existing_trust(config: &mut Config, config_path: &Path, interac
 }
 
 /// Path scoping: `--allow-root <path>` (repeatable) or
-/// `CHATMUX_RELAY_ALLOWED_ROOTS` (colon-separated; empty string clears).
+/// `CHATMUX_RELAY_ALLOWED_ROOTS` (platform path-list separated; empty string clears).
 /// Persisted in the local config and advertised in the hello so the server
 /// records it on the machine.
 fn apply_allowed_roots(config: &mut Config, allow_root_args: &[String], config_path: &Path) {
@@ -190,13 +190,8 @@ fn apply_allowed_roots(config: &mut Config, allow_root_args: &[String], config_p
     if allow_root_args.is_empty() && from_env.is_none() {
         return;
     }
-    let mut roots: Vec<String> = if allow_root_args.is_empty() {
-        from_env
-            .unwrap_or_default()
-            .split(':')
-            .filter(|root| !root.is_empty())
-            .map(str::to_owned)
-            .collect()
+    let roots: Vec<String> = if allow_root_args.is_empty() {
+        parse_allowed_roots_environment(from_env.as_deref().unwrap_or_default())
     } else {
         allow_root_args.to_vec()
     };
@@ -216,6 +211,22 @@ fn apply_allowed_roots(config: &mut Config, allow_root_args: &[String], config_p
         config.allowed_roots = Some(roots);
     }
     persist(config, config_path);
+}
+
+/// Parse the environment form with the platform path-list separator. Using
+/// `split(':')` breaks Windows drive-letter roots such as `C:\\work`.
+/// An empty value intentionally returns no roots so callers can clear the
+/// persisted scope.
+fn parse_allowed_roots_environment(value: &str) -> Vec<String> {
+    if value.is_empty() {
+        return Vec::new();
+    }
+    std::env::split_paths(std::ffi::OsStr::new(value))
+        .filter_map(|root| {
+            let root = root.to_string_lossy().into_owned();
+            (!root.is_empty()).then_some(root)
+        })
+        .collect()
 }
 
 fn persist(config: &Config, config_path: &Path) {
@@ -641,4 +652,32 @@ async fn main() {
         SessionState { first_connect: true, first_run, managed: false },
     )
     .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_allowed_roots_environment;
+
+    #[test]
+    fn empty_allowed_roots_environment_clears_scope() {
+        assert!(parse_allowed_roots_environment("").is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_allowed_roots_use_colon_separator() {
+        assert_eq!(
+            parse_allowed_roots_environment("/srv/one:/srv/two"),
+            vec!["/srv/one", "/srv/two"]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_allowed_roots_keep_drive_letters() {
+        assert_eq!(
+            parse_allowed_roots_environment(r"C:\work;D:\src"),
+            vec![r"C:\work", r"D:\src"]
+        );
+    }
 }
