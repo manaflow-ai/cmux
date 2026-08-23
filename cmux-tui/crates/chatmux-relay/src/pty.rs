@@ -1037,8 +1037,7 @@ impl Inner {
     ) -> Result<Option<Opened>, String> {
         let socket_dir = self.deps.socket_dir();
         let ensured = self.deps.ensure_daemon(cmux_tui, session, &socket_dir, cwd, env).await?;
-        let socket_path = socket_dir.join(format!("{session}.sock"));
-        let control = match self.deps.connect_control(&socket_path).await {
+        let control = match self.deps.connect_control(&ensured.socket_path).await {
             Ok(control) => control,
             Err(_) => return Ok(None), // degrade to the whole-session attach
         };
@@ -1369,6 +1368,7 @@ mod tests {
     struct Recorded {
         spawned: Vec<FakePty>,
         daemons: Vec<(String, PathBuf)>,
+        connected: Vec<PathBuf>,
     }
 
     struct FakeDeps {
@@ -1377,6 +1377,7 @@ mod tests {
         resolve: Option<CmuxTui>,
         socket_dir: PathBuf,
         read_dir: Option<Vec<String>>,
+        ensure_socket_path: Option<PathBuf>,
     }
 
     #[async_trait]
@@ -1409,15 +1410,20 @@ mod tests {
                 .unwrap()
                 .daemons
                 .push((session.to_owned(), socket_dir.to_path_buf()));
+            let socket_path = self
+                .ensure_socket_path
+                .clone()
+                .unwrap_or_else(|| socket_dir.join(format!("{session}.sock")));
             Ok(EnsureDaemon {
                 created: true,
-                socket_path: socket_dir.join(format!("{session}.sock")),
+                socket_path,
             })
         }
         async fn connect_control(
             &self,
-            _socket_path: &Path,
+            socket_path: &Path,
         ) -> Result<Arc<dyn ControlHandle>, String> {
+            self.recorded.lock().unwrap().connected.push(socket_path.to_path_buf());
             Err("no control socket in tests unless injected".to_owned())
         }
         async fn read_dir(&self, _path: &Path) -> Result<Vec<String>, ()> {
@@ -1448,6 +1454,14 @@ mod tests {
     }
 
     fn harness(resolve: Option<CmuxTui>, read_dir: Option<Vec<String>>) -> Harness {
+        harness_with_socket_path(resolve, read_dir, None)
+    }
+
+    fn harness_with_socket_path(
+        resolve: Option<CmuxTui>,
+        read_dir: Option<Vec<String>>,
+        ensure_socket_path: Option<PathBuf>,
+    ) -> Harness {
         let recorded = Arc::new(StdMutex::new(Recorded::default()));
         let socket_dir = PathBuf::from("/run/cmux-tui-501");
         let deps = Arc::new(FakeDeps {
@@ -1456,6 +1470,7 @@ mod tests {
             resolve,
             socket_dir,
             read_dir,
+            ensure_socket_path,
         });
         let manager = PtyManager::with_limits(
             deps,
@@ -1528,6 +1543,9 @@ mod tests {
         }
         fn daemons(&self) -> Vec<(String, PathBuf)> {
             self.recorded.lock().unwrap().daemons.clone()
+        }
+        fn connected(&self) -> Vec<PathBuf> {
+            self.recorded.lock().unwrap().connected.clone()
         }
     }
 
@@ -1679,6 +1697,7 @@ mod tests {
             resolve: None,
             socket_dir: PathBuf::from("/run/cmux-tui-501"),
             read_dir: None,
+            ensure_socket_path: None,
         });
         let manager = PtyManager::with_limits(
             deps,
@@ -1792,6 +1811,28 @@ mod tests {
         let viewer = h.spawned()[0].clone();
         h.frame(serde_json::json!({ "type": "pty_close", "ptyId": "p1" })).await;
         assert!(viewer.state.lock().unwrap().killed);
+    }
+
+    #[tokio::test]
+    async fn raw_surface_attach_uses_daemon_returned_socket_path() {
+        let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
+        let daemon_socket = PathBuf::from("/private/cmux/custom.sock");
+        let h = harness_with_socket_path(Some(cmux), None, Some(daemon_socket.clone()));
+        h.open(
+            "p1",
+            "work",
+            serde_json::json!({ "surface": "terminal-7" }),
+            "supervised",
+            h.owner.clone(),
+        )
+        .await;
+
+        // The fake control connector refuses the connection, so open falls
+        // back to the whole-session viewer. Its recorded path still proves
+        // that raw attach used EnsureDaemon.socket_path, rather than deriving
+        // a second path from socket_dir and session.
+        assert_eq!(h.connected(), vec![daemon_socket]);
+        assert_eq!(h.sent()[0]["type"], "pty_opened");
     }
 
     #[tokio::test]
