@@ -16,7 +16,7 @@
 //!   of concurrent viewers (0.0.10 multi-viewer).
 //!
 //! Discipline: trust re-checked here (observe = owner-only); cwd scoped to
-//! the first allowed root; env scrubbed; per-pty buffered output capped; no
+//! every non-empty allowed root list; env scrubbed; per-pty buffered output capped; no
 //! empty frames; unknown ptyIds tolerated; refusals answer pty_error.
 
 use std::collections::{HashMap, VecDeque};
@@ -31,7 +31,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use bytes::Bytes;
 use serde_json::{Value, json};
 
-use crate::actions::{expand_path, scrubbed_env};
+use crate::actions::{expand_path, scrubbed_env, validate_request_path};
 use crate::control::ControlHandle;
 
 pub const PTY_PROTOCOL_VERSION: u64 = 4;
@@ -78,6 +78,21 @@ fn scoped_cwd(
     local_roots: Option<&[String]>,
     server_roots: Option<&[String]>,
 ) -> Result<PathBuf, String> {
+    // Keep PTY paths on the same wire policy as file actions. The relay sends
+    // this error to the peer, so the validator only returns policy text and
+    // filesystem failures below are deliberately redacted.
+    let validate = |value: &str, kind: &str| {
+        validate_request_path(value).map_err(|message| format!("invalid {kind}: {message}"))
+    };
+    if let Some(value) = requested.filter(|value| !value.is_empty()) {
+        validate(value, "cwd")?;
+    }
+    for roots in [local_roots, server_roots].into_iter().flatten() {
+        for root in roots {
+            validate(root, "allowed root")?;
+        }
+    }
+
     let raw_owned;
     let raw = if let Some(value) = requested.filter(|value| !value.is_empty()) {
         value
@@ -112,8 +127,7 @@ fn scoped_cwd(
         &raw_owned
     };
     let path = expand_path(raw, home, home);
-    let canonical = std::fs::canonicalize(&path)
-        .map_err(|error| format!("cwd {} is not accessible: {error}", path.display()))?;
+    let canonical = std::fs::canonicalize(&path).map_err(|_| "cwd is not accessible".to_owned())?;
     for roots in [local_roots.filter(|r| !r.is_empty()), server_roots.filter(|r| !r.is_empty())]
         .into_iter()
         .flatten()
@@ -121,11 +135,11 @@ fn scoped_cwd(
         if !roots.iter().map(|root| expand_path(root, home, home)).any(|root| {
             std::fs::canonicalize(root).map(|root| canonical.starts_with(root)).unwrap_or(false)
         }) {
-            return Err(format!("cwd {} is outside the allowed roots", canonical.display()));
+            return Err("cwd is outside the allowed roots".to_owned());
         }
     }
     if !canonical.is_dir() {
-        return Err(format!("cwd {} is not a directory", canonical.display()));
+        return Err("cwd is not a directory".to_owned());
     }
     Ok(canonical)
 }
@@ -493,8 +507,8 @@ impl Inner {
             return;
         }
 
-        // cwd discipline: first allowed root (local config first, then the
-        // server-echoed list), else $HOME.
+        // cwd discipline: the local config and server-echoed root lists both
+        // apply when present, else $HOME.
         let server_roots: Option<Vec<String>> = frame
             .get("allowedRoots")
             .and_then(Value::as_array)
