@@ -7,6 +7,8 @@ on:
     paths:
       - "cmux-tui/**"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/workflows/cmux-tui-build-package.yml"
+      - ".github/workflows/cmux-tui.yml"
       - ".github/workflows/cmux-tui-nightly.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
@@ -28,6 +30,8 @@ on:
     paths:
       - "cmux-tui/**"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/workflows/cmux-tui-build-package.yml"
+      - ".github/workflows/cmux-tui.yml"
       - ".github/workflows/cmux-tui-nightly.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
