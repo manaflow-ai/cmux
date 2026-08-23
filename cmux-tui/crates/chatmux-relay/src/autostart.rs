@@ -45,7 +45,7 @@ pub fn install(exe: &Path) -> Result<String, String> { install_impl(exe) }
 
 pub fn uninstall() -> Result<String, String> {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
-    { let path = if cfg!(target_os = "macos") { home()?.join("Library/LaunchAgents").join(format!("{LABEL}.plist")) } else { home()?.join(".config/systemd/user/chatmux-relay.service") }; match fs::remove_file(&path) { Ok(()) | Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(format!("removed {}", path.display())), Err(e) => Err(format!("remove {}: {e}", path.display())) } }
+    { let path = if cfg!(target_os = "macos") { home()?.join("Library/LaunchAgents").join(format!("{LABEL}.plist")) } else { home()?.join(".config/systemd/user/chatmux-relay.service") }; match fs::remove_file(&path) { Ok(()) => Ok(format!("removed {}", path.display())), Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(format!("removed {}", path.display())), Err(e) => Err(format!("remove {}: {e}", path.display())) } }
     #[cfg(target_os = "windows")] { Err("Windows autostart is not supported by this build (schtasks integration is pending).".to_owned()) }
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))] { Err("autostart is unsupported on this platform".to_owned()) }
 }
