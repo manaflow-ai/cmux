@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"unicode"
 	"unicode/utf8"
 )
@@ -34,4 +36,11 @@ func Validate(session string) error {
 func Digest(session string) string {
 	digest := sha256.Sum256([]byte(session))
 	return hex.EncodeToString(digest[:])
+}
+
+// FallbackSocketPath returns the bounded, deterministic Unix-socket leaf used
+// when a runtime directory plus the session name exceeds sun_path. Keep this
+// in the shared package so raw and high-level clients use the same contract.
+func FallbackSocketPath(session string, uid uint32) string {
+	return filepath.Join("/tmp", fmt.Sprintf("cmux-tui-%d", uid), Digest(session)+".sock")
 }

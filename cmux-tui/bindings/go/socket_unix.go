@@ -54,7 +54,7 @@ func defaultSocketPathForSession(session string) string {
 	if unixSocketPathFits(preferred) {
 		return preferred
 	}
-	return filepath.Join("/tmp", "cmux-tui-"+strconv.Itoa(os.Getuid()), sessionpath.Digest(session)+".sock")
+	return sessionpath.FallbackSocketPath(session, uint32(os.Getuid()))
 }
 
 // invalidSessionSocketPath keeps the unexported compatibility helper
