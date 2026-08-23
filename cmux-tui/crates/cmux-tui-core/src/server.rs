@@ -4803,6 +4803,37 @@ fn prepare_runtime_socket_directory(dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Create missing parents for an explicitly selected socket path without
+/// changing the permissions or ownership of an existing directory. Explicit
+/// paths may point at a caller-managed location, but the final parent must
+/// still be a real directory rather than a symlink or other file.
+fn prepare_explicit_socket_directory(path: &Path) -> anyhow::Result<()> {
+    let Some(dir) = path.parent() else { return Ok(()) };
+    if dir.as_os_str().is_empty() {
+        return Ok(());
+    }
+
+    match std::fs::symlink_metadata(dir) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                anyhow::bail!("explicit socket path parent is not a directory: {}", dir.display());
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            std::fs::create_dir_all(dir)?;
+            let metadata = std::fs::symlink_metadata(dir)?;
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                anyhow::bail!(
+                    "explicit socket path parent changed to a non-directory: {}",
+                    dir.display()
+                );
+            }
+        }
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
 /// Bind the socket and accept protocol clients before lifecycle readiness.
 pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
     let (path, is_derived) = match path {
@@ -4816,6 +4847,8 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
         if let Some(dir) = path.parent() {
             prepare_runtime_socket_directory(dir)?;
         }
+    } else {
+        prepare_explicit_socket_directory(&path)?;
     }
     // Refuse to clobber a live socket; remove a stale one.
     if path.exists() {
@@ -13231,6 +13264,17 @@ mod tests {
         let pending = serve_paused(test_mux(), Some(directory.join("mux.sock"))).unwrap();
         drop(pending);
         assert_eq!(std::fs::metadata(&directory).unwrap().permissions().mode() & 0o777, 0o755);
+    }
+
+    #[test]
+    fn serve_paused_creates_missing_explicit_socket_parent() {
+        let root = TestSocketDir::create("explicit-runtime-directory-missing");
+        let directory = root.path().join("missing").join("nested");
+        let socket = directory.join("mux.sock");
+        let pending = serve_paused(test_mux(), Some(socket.clone())).unwrap();
+        drop(pending);
+        assert!(directory.is_dir());
+        assert!(!socket.exists());
     }
 
     #[cfg(unix)]
