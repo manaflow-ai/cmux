@@ -430,13 +430,7 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
     }
   ],
   "browser": {
-    "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "mode": "headful",
-    "cdp_url": "http://127.0.0.1:9222",
-    "discover": false,
-    "discover_ports": [9222, 9223],
-    "user_data_dir": "/Users/me/Library/Application Support/cmux-tui/chrome-profile",
-    "ephemeral": false,
+    "cdp_url": null,
     "max_capture_megapixels": 2.0,
     "capture_scale": null
   },
