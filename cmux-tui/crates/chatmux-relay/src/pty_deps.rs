@@ -79,14 +79,10 @@ impl ThreadOutput {
                 }
             };
             let (chunk, exit, on_data, on_exit) = next;
-            if let Some(chunk) = chunk {
-                if let Some(on_data) = on_data {
-                    on_data(chunk);
-                }
-            } else if let Some(code) = exit {
-                if let Some(on_exit) = on_exit {
-                    on_exit(code);
-                }
+            match (chunk, exit, on_data, on_exit) {
+                (Some(chunk), _, Some(on_data), _) => on_data(chunk),
+                (None, Some(code), _, Some(on_exit)) => on_exit(code),
+                _ => {}
             }
         }
     }
