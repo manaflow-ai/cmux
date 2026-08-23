@@ -188,12 +188,10 @@ impl ClientConfig {
     /// and bypasses session derivation. Callers handling user input should use
     /// [`Self::try_from_env_or_default_session`] to receive the validation error.
     pub fn from_env_or_default_session(session: &str) -> Self {
-        let environment = env_socket_path();
-        let config = Self::from_socket_path(compatibility_socket_path_for_session(
+        Self::from_socket_path(compatibility_socket_path_for_session(
             session,
-            environment.clone(),
-        ));
-        config
+            env_socket_path(),
+        ))
     }
 
     /// Builds a configuration from the environment or a named session.
@@ -205,8 +203,7 @@ impl ClientConfig {
     /// uses an isolated, deterministic path only through the path-only
     /// compatibility helper.
     pub fn try_from_env_or_default_session(session: &str) -> Result<Self> {
-        let environment = env_socket_path();
-        let socket_path = socket_path_for_session(session, environment.clone())?;
+        let socket_path = socket_path_for_session(session, env_socket_path())?;
         Ok(Self::from_socket_path(socket_path))
     }
 
@@ -536,10 +533,6 @@ pub(crate) fn hashed_socket_legacy_path(path: &Path) -> Option<PathBuf> {
         }
     }
     None
-}
-
-pub(crate) fn legacy_socket_path_for_session(session: &str) -> PathBuf {
-    PathBuf::from("/tmp").join(private_runtime_dir_name()).join(format!("{session}.sock"))
 }
 
 impl Drop for CmuxClient {
