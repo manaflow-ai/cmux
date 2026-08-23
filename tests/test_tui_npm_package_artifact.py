@@ -210,6 +210,16 @@ def test_publish_workflows_restore_the_mode_preserving_archive() -> None:
         assert "--archive dist/npm-packages.tar.gz" in workflow
 
 
+def test_pypi_build_runs_full_wheel_contract_before_smoke() -> None:
+    build = (ROOT / ".github/workflows/cmux-tui-build-package.yml").read_text()
+    validator = "python3 cmux-tui/dist/scripts/validate_package_contract.py"
+    assert validator in build
+    contract = build.index("--pypi-wheels dist/pypi-wheels")
+    smoke = build.index("for wheel in dist/pypi-wheels/*.whl")
+    assert contract < smoke
+    assert '--version \"$PYPI_VERSION\"' in build
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as directory:
         test_archive_round_trip_preserves_package_executables(Path(directory))

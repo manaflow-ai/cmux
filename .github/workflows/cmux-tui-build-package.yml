@@ -723,6 +723,9 @@ jobs:
         if: inputs.package_pypi
         run: |
           set -euo pipefail
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --pypi-wheels dist/pypi-wheels \
+            --version "$PYPI_VERSION"
           for wheel in dist/pypi-wheels/*.whl; do
             python3 -m zipfile -l "$wheel" >"/tmp/$(basename "$wheel").list"
           done
