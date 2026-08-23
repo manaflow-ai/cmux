@@ -235,7 +235,7 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
         return;
     }
     let mut matcher = build_ignore_matcher(root);
-    loop {
+    'watch: loop {
         let notified = overflow_notify.notified();
         let first = tokio::select! {
             event = event_rx.recv() => event,
@@ -297,8 +297,11 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
             })
             .unwrap_or_else(|_| String::new());
             if outbound.try_watch_text(frame).is_err() {
-                overflowed.store(true, Ordering::Release);
-                overflow_notify.notify_one();
+                // The outbound sink is saturated or closed. Retrying by
+                // latching overflow would wake this loop immediately and
+                // spin forever while producing no observable frame. The
+                // event is explicitly lost, so terminate this watch task.
+                break 'watch;
             }
         }
         if saw_ignore_file {
