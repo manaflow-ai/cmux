@@ -52,6 +52,34 @@ def write_executable(path: Path, output: str = "cmux-tui 1.2.3") -> None:
     path.chmod(0o755)
 
 
+def write_relay_launcher_fixture(path: Path) -> None:
+    """Write a small launcher with the same npx autostart safety rule."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        r'''#!/usr/bin/env node
+"use strict";
+
+function isEphemeralNpxPath(value) {
+  return value
+    .split(/[\\/]+/)
+    .some((component) => component.toLowerCase() === "_npx");
+}
+
+const executable = process.env.CMUX_RELAY_FIXTURE_EXECUTABLE || __filename;
+if (process.argv.slice(2).includes("--autostart") && isEphemeralNpxPath(executable)) {
+  console.error(
+    "Install cmux-relay globally (npm install --global cmux-relay) before --autostart.",
+  );
+  process.exit(2);
+}
+process.stdout.write("cmux relay launcher 1.2.3\n");
+''',
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
 def make_npm_packages(root: Path) -> None:
     root.mkdir()
     for name, (os_name, cpu) in NPM_TARGETS.items():
@@ -126,7 +154,7 @@ def make_npm_packages(root: Path) -> None:
         )
         + "\n"
     )
-    write_executable(relay_launcher / "bin/cmux-relay.js", "cmux relay launcher 1.2.3")
+    write_relay_launcher_fixture(relay_launcher / "bin/cmux-relay.js")
 
 
 def make_pypi_wheels(tmp_path: Path) -> Path:
