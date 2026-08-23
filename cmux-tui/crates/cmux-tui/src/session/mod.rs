@@ -908,11 +908,6 @@ impl Session {
         }
     }
 
-    /// Read the current topology through the frontend session boundary.
-    pub(crate) fn snapshot(&self) -> TreeView {
-        <Self as SessionPort>::snapshot(self)
-    }
-
     pub fn agents(&self) -> Vec<AgentInfo> {
         <Self as SessionPort>::agents(self)
     }
@@ -3002,7 +2997,8 @@ mod tests {
 
     #[test]
     fn session_port_snapshot_matches_existing_tree_read() {
-        let session = Session::Local(Mux::new("session-port-snapshot-test", SurfaceOptions::default()));
+        let session =
+            Session::Local(Mux::new("session-port-snapshot-test", SurfaceOptions::default()));
         let direct = session.tree();
         let port: &dyn SessionPort = &session;
         let snapshot = port.snapshot();
@@ -3014,7 +3010,8 @@ mod tests {
 
     #[test]
     fn session_port_agents_matches_existing_agent_read() {
-        let session = Session::Local(Mux::new("session-port-agents-test", SurfaceOptions::default()));
+        let session =
+            Session::Local(Mux::new("session-port-agents-test", SurfaceOptions::default()));
         let direct = session.agents_impl();
         let port: &dyn SessionPort = &session;
         assert_eq!(port.agents(), direct);
