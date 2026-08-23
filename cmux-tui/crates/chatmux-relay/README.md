@@ -71,6 +71,9 @@ release have completed.
    implementation; they are Rust-first by decision.
 5. **Autostart (DONE)** — launchd, systemd, and Windows Task Scheduler
    install/uninstall (`--autostart` / `--uninstall`) use the platform binary.
+   Autostart requires a durable executable path. The npm launcher refuses
+   `--autostart` when `npx` resolved the relay from its disposable `_npx`
+   cache; install `cmux-relay` globally or in a persistent project first.
 
 ### Intentional divergences from the JS relay (still open)
 
@@ -137,8 +140,12 @@ change nothing but the version:
   linux-x64, linux-arm64, win32-x64) each ship one static binary, wired as
   `optionalDependencies` of `cmux-relay` — the same scheme the `cmux` /
   `cmux-tui` packages use.
-- The `cmux-relay` wrapper's bin shim resolves the platform package (env
-  override → optionalDependency → PATH fallback) and `exec`s the binary.
+- The `cmux-relay` wrapper's bin shim resolves the platform package from its
+  optional dependency and launches the native binary with the same arguments.
+- Do not use `npx cmux-relay --autostart`: `npx` may place the binary in a
+  disposable `_npx` cache. Use `npm install --global cmux-relay` (or install
+  it in a persistent project) and then run `cmux-relay --autostart`. The
+  launcher and the native binary both refuse an ephemeral `_npx` path.
 The release workflows build the machine binary and platform packages for
 darwin-arm64, darwin-x64, linux-arm64, linux-x64, and win32-x64. The package
 name remains `cmux-relay`; the sibling circuit-relay binary and artifacts use

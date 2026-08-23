@@ -439,7 +439,9 @@ Usage:
   npx cmux-relay --code        Offline fallback: QR + chatmux:// link and a
                                6-digit mutual verification ceremony
   npx cmux-relay --status      Show local pairing state
-  npx cmux-relay --autostart   Install autostart (reconnect on sign-in)
+  npx cmux-relay --autostart   Install autostart (reconnect on sign-in).
+                               npx's temporary cache is refused; use a
+                               global install or a persistent project install.
   npx cmux-relay --uninstall   Remove autostart files (keeps pairing)
   npx cmux-relay --no-onboard  Scripted use: no prompts; answers come from
                                the environment or defaults

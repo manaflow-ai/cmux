@@ -26,6 +26,12 @@ scripts receive `--version`, so cutting a stable TUI release is just creating a
   `cmux-relay-win32-x64` before enabling that input.
 - PyPI `cmux`: platform wheels for `uvx cmux` / `pipx run cmux`.
 
+Relay autostart needs a durable native executable. `npx cmux-relay
+--autostart` is refused when npm resolves the relay from its disposable
+`_npx` cache, because npm can remove that directory after the command exits.
+Install the package globally (`npm install --global cmux-relay`) or in a
+persistent project, then run `cmux-relay --autostart`.
+
 Linux packages contain static musl binaries that run on both glibc and musl
 distributions. PyPI publishes each Linux binary under matching manylinux and
 musllinux wheel tags so installers on both runtime families can resolve it.

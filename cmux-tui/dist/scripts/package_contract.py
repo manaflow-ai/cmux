@@ -139,6 +139,31 @@ def _require_executable(path: Path, label: str) -> None:
         raise _error(f"{label} is not executable: {path}")
 
 
+def _require_relay_autostart_guard(path: Path) -> None:
+    """Keep the npm launcher aligned with the native autostart safety rule.
+
+    An npm package can be launched through ``npx`` from a disposable ``_npx``
+    cache. The launcher must refuse ``--autostart`` in that case instead of
+    writing a login service that points at a path npm may delete.
+    """
+
+    try:
+        source = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise _error(f"cmux-relay launcher cannot be read: {path}: {error}") from error
+    required_markers = (
+        '"--autostart"',
+        '"_npx"',
+        "npm install --global cmux-relay",
+    )
+    missing = [marker for marker in required_markers if marker not in source]
+    if missing:
+        raise _error(
+            "cmux-relay launcher is missing the ephemeral-npx autostart guard: "
+            + ", ".join(missing)
+        )
+
+
 def _read_json(path: Path) -> dict:
     try:
         value = json.loads(path.read_text())
@@ -294,6 +319,7 @@ def validate_npm_tree(
             f"found {relay_launcher_metadata.get('optionalDependencies')}"
         )
     _require_executable(relay_launcher_dir / "bin/cmux-relay.js", "cmux-relay launcher")
+    _require_relay_autostart_guard(relay_launcher_dir / "bin/cmux-relay.js")
 
     for target in targets:
         _validate_package_files(

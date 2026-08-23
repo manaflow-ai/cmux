@@ -7,6 +7,30 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 const LABEL: &str = "com.chatmux.relay";
+
+/// `npx` installs a package into a cache directory named `_npx`. That cache is
+/// allowed to be removed at any time, so a login service that points at a
+/// binary below it would silently stop working. Keep this refusal in the
+/// relay as well as in the npm launcher: callers can invoke the native binary
+/// directly and must get the same safe result.
+const EPHEMERAL_NPX_AUTOSTART_MESSAGE: &str =
+    "autostart needs a durable relay executable; this command is running from npx's temporary cache. Install cmux-relay globally (npm install --global cmux-relay) or in a persistent project, then run cmux-relay --autostart.";
+
+fn is_ephemeral_npx_path(path: &Path) -> bool {
+    // Split both separators so this check is testable on every host and also
+    // handles a Windows path passed through a Unix-side wrapper.
+    path.to_string_lossy()
+        .split(['/', '\\'])
+        .any(|component| component.eq_ignore_ascii_case("_npx"))
+}
+
+fn validate_autostart_executable(path: &Path) -> Result<(), String> {
+    if is_ephemeral_npx_path(path) {
+        return Err(EPHEMERAL_NPX_AUTOSTART_MESSAGE.to_owned());
+    }
+    Ok(())
+}
+
 fn home() -> Result<PathBuf, String> {
     std::env::var_os("HOME").map(PathBuf::from).ok_or_else(|| "HOME is not set".into())
 }
@@ -112,6 +136,7 @@ fn install_impl(_: &Path, _: &Path) -> Result<String, String> {
     Err("autostart is unsupported on this platform".into())
 }
 pub fn install(e: &Path, config: &Path) -> Result<String, String> {
+    validate_autostart_executable(e)?;
     install_impl(e, config)
 }
 #[cfg(target_os = "macos")]
@@ -166,5 +191,29 @@ mod tests {
     #[test]
     fn quotes() {
         assert_eq!(shell_quote("/tmp/a'b"), "'/tmp/a'\\''b'");
+    }
+
+    #[test]
+    fn rejects_npx_cache_paths_but_allows_persistent_installs() {
+        assert!(is_ephemeral_npx_path(Path::new(
+            "/Users/example/.npm/_npx/4f3/node_modules/cmux-relay-darwin-arm64/bin/cmux-relay",
+        )));
+        assert!(is_ephemeral_npx_path(Path::new(
+            r"C:\\Users\\example\\AppData\\Local\\npm-cache\\_npx\\4f3\\node_modules\\cmux-relay-win32-x64\\bin\\cmux-relay.exe",
+        )));
+        assert!(!is_ephemeral_npx_path(Path::new(
+            "/usr/local/lib/node_modules/cmux-relay-linux-x64/bin/cmux-relay",
+        )));
+        assert!(!is_ephemeral_npx_path(Path::new(
+            "/work/project/node_modules/cmux-relay-linux-x64/bin/cmux-relay",
+        )));
+    }
+
+    #[test]
+    fn npx_autostart_refusal_explains_the_durable_install_requirement() {
+        let error = validate_autostart_executable(Path::new("/tmp/_npx/abc/bin/cmux-relay"))
+            .expect_err("ephemeral npx path must be refused");
+        assert!(error.contains("durable relay executable"));
+        assert!(error.contains("npm install --global cmux-relay"));
     }
 }
