@@ -251,6 +251,13 @@ struct ProxyRuntime {
     task: tokio::task::JoinHandle<()>,
 }
 
+impl Drop for ProxyRuntime {
+    fn drop(&mut self) {
+        let _ = self.shutdown.send(true);
+        self.task.abort();
+    }
+}
+
 impl Default for PreviewRegistry {
     fn default() -> PreviewRegistry {
         PreviewRegistry::new()
@@ -293,17 +300,15 @@ impl PreviewRegistry {
     /// graceful relay shutdown.
     pub async fn shutdown(&self) {
         let mut proxies = self.proxies.lock().await;
-        let tasks = proxies
+        let runtimes = proxies
             .drain()
-            .map(|(_, runtime)| {
-                let _ = runtime.shutdown.send(true);
-                runtime.task
-            })
+            .map(|(_, runtime)| runtime)
             .collect::<Vec<_>>();
         drop(proxies);
-        for task in tasks {
-            task.abort();
-            let _ = task.await;
+        for mut runtime in runtimes {
+            let _ = runtime.shutdown.send(true);
+            runtime.task.abort();
+            let _ = (&mut runtime.task).await;
         }
     }
 
