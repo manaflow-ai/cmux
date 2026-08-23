@@ -198,6 +198,17 @@ async fn relay_session(
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Value>();
     let pending = Arc::new(AtomicU64::new(0));
     let auth = Arc::new(std::sync::Mutex::new(AuthSnapshot::default()));
+    let workspace_runtime = Arc::new(crate::workspace::SharedRuntime::new(local_roots.clone()));
+    let (workspace_tx, mut workspace_rx) = mpsc::unbounded_channel::<String>();
+    let workspace = crate::workspace::Connection::new(workspace_runtime, workspace_tx);
+    let workspace_out = out_tx.clone();
+    tokio::spawn(async move {
+        while let Some(text) = workspace_rx.recv().await {
+            if let Ok(frame) = serde_json::from_str::<Value>(&text) {
+                let _ = workspace_out.send(frame);
+            }
+        }
+    });
 
     // Ordered PTY frame dispatch on its own task so a slow open (daemon
     // spawn) never stalls heartbeats or other frames.
@@ -494,6 +505,13 @@ async fn relay_session(
                             if let Some(reply) = reply {
                                 let _ = out_tx.send(reply);
                             }
+                        }
+                    }
+                    ServerFrame::Workspace { frame } => {
+                        if negotiated_version >= crate::workspace::WORKSPACE_FRAME_VERSION as u64 {
+                            let snapshot = auth.lock().expect("auth lock").clone();
+                            workspace.set_local_observe(snapshot.trust == "observe");
+                            workspace.handle_frame(frame);
                         }
                     }
                     ServerFrame::Error { code, message } => {
