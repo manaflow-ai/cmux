@@ -654,7 +654,11 @@ fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
     let remote_help = lifecycle_cli(&["remote", "--help"]);
     assert_success(&remote_help);
     let remote_help = String::from_utf8(remote_help.stdout).unwrap();
-    assert!(remote_help.contains("cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [OPTIONS]"), "{remote_help}");
+    assert!(
+        remote_help
+            .contains("cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [OPTIONS]"),
+        "{remote_help}"
+    );
     assert!(!remote_help.contains("known-daemons <OPTIONS>"), "{remote_help}");
     assert!(remote_help.contains("cmux remote stop"), "{remote_help}");
     assert!(remote_help.contains("cmux remote connect"), "{remote_help}");
