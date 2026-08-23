@@ -802,6 +802,14 @@ impl Inner {
                 control.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             }
+            let Some(data) = listed.get("data").and_then(Value::as_object) else {
+                control.end();
+                return Err("cannot inspect existing daemon surfaces".to_owned());
+            };
+            if !data.get("workspaces").is_some_and(Value::is_array) {
+                control.end();
+                return Err("cannot inspect existing daemon surfaces".to_owned());
+            }
             let tabs = collect_pty_tabs(listed.get("data"));
             if tabs.len() > MAX_ENUM_TERMINALS || (tabs.is_empty() && !ensured.created) {
                 control.end();
