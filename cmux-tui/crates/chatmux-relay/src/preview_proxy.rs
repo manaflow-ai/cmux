@@ -347,6 +347,7 @@ struct Peer {
     id: u64,
     tx: tokio::sync::mpsc::Sender<tungstenite::Message>,
     queued_bytes: Arc<std::sync::atomic::AtomicUsize>,
+    cancel: tokio::sync::watch::Sender<bool>,
 }
 
 struct ProxyShared {
@@ -550,7 +551,8 @@ fn accept_websocket(
                 Some(
                     tungstenite::protocol::WebSocketConfig::default()
                         .max_message_size(Some(PREVIEW_WS_MAX_MESSAGE_BYTES))
-                        .max_frame_size(Some(PREVIEW_WS_MAX_MESSAGE_BYTES)),
+                        .max_frame_size(Some(PREVIEW_WS_MAX_MESSAGE_BYTES))
+                        .max_write_buffer_size(PREVIEW_WS_QUEUE_BYTES),
                 ),
             )
             .await;
@@ -639,14 +641,17 @@ async fn run_peer<S>(
     let (mut sink, mut stream) = socket.split();
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Message>(PREVIEW_WS_QUEUE_CAPACITY);
     let queued_bytes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (cancel, mut cancelled) = tokio::sync::watch::channel(false);
     let peer_id = shared.next_peer_id.fetch_add(1, Ordering::Relaxed);
     if let Ok(mut slot) = peer_slot(&shared, role).lock()
         && let Some(previous) = slot.replace(Peer {
             id: peer_id,
             tx: tx.clone(),
             queued_bytes: Arc::clone(&queued_bytes),
+            cancel: cancel.clone(),
         })
     {
+        let _ = previous.cancel.send(true);
         let _ = previous.tx.try_send(Message::Close(Some(tungstenite::protocol::CloseFrame {
             code: REPLACED_CLOSE_CODE.into(),
             reason: "replaced by a newer connection".into(),
@@ -662,9 +667,10 @@ async fn run_peer<S>(
             let _ = enqueue_message(&tx, &queued_bytes, message);
         }
     }
+    let writer_queued_bytes = Arc::clone(&queued_bytes);
     let writer = tokio::spawn(async move {
         while let Some(message) = rx.recv().await {
-            queued_bytes.fetch_sub(message_len(&message), Ordering::AcqRel);
+            writer_queued_bytes.fetch_sub(message_len(&message), Ordering::AcqRel);
             let closing = matches!(message, Message::Close(_));
             if sink.send(message).await.is_err() || closing {
                 break;
@@ -672,7 +678,13 @@ async fn run_peer<S>(
         }
         let _ = sink.close().await;
     });
-    while let Some(Ok(message)) = stream.next().await {
+    loop {
+        let Some(Ok(message)) = (tokio::select! {
+            _ = cancelled.changed() => break,
+            message = stream.next() => message,
+        }) else {
+            break;
+        };
         match message {
             Message::Text(text) => {
                 let text = text.as_str().to_owned();
