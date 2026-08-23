@@ -753,6 +753,10 @@ async fn run_peer<S>(
 
 const INJECT_TAG: &[u8] = b"<script src=\"/__chatmux__/target.js\"></script>";
 const NO_INJECT_HEADER: &str = "x-chatmux-no-inject";
+/// HTML responses are buffered only for injection, so bound both memory and
+/// time spent waiting on a target that never finishes its response.
+const PREVIEW_HTML_BODY_MAX_BYTES: usize = 8 * 1024 * 1024;
+const PREVIEW_HTML_BODY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 async fn connect_target(
     shared: &ProxyShared,
@@ -833,9 +837,11 @@ async fn forward_plain(
     }
     let (mut parts, body) = response.into_parts();
     use http_body_util::BodyExt as _;
-    let collected = match body.collect().await {
-        Ok(collected) => collected.to_bytes(),
-        Err(error) => return text_response(502, &format!("target body failed: {error}")),
+    let limited = http_body_util::Limited::new(body, PREVIEW_HTML_BODY_MAX_BYTES);
+    let collected = match tokio::time::timeout(PREVIEW_HTML_BODY_TIMEOUT, limited.collect()).await {
+        Ok(Ok(collected)) => collected.to_bytes(),
+        Ok(Err(error)) => return text_response(502, &format!("target body failed: {error}")),
+        Err(_) => return text_response(502, "target HTML body timed out"),
     };
     let injected = inject_into_html(&collected);
     parts.headers.remove(hyper::header::CONTENT_LENGTH);
@@ -954,6 +960,17 @@ mod tests {
                 tokio::spawn(async move {
                     let io = hyper_util::rt::TokioIo::new(stream);
                     let service = hyper::service::service_fn(|request| async move {
+                        if request.uri().path() == "/oversized" {
+                            let mut response = hyper::Response::new(full_body(vec![
+                                b'x';
+                                PREVIEW_HTML_BODY_MAX_BYTES + 1
+                            ]));
+                            response.headers_mut().insert(
+                                hyper::header::CONTENT_TYPE,
+                                hyper::header::HeaderValue::from_static("text/html"),
+                            );
+                            return Ok::<_, std::convert::Infallible>(response);
+                        }
                         let (body, content_type, opt_out) = match request.uri().path() {
                             "/body-only" => ("<body><p>hi</p></body>", "text/html", false),
                             "/plain" => ("no tags here", "text/plain", false),
@@ -1039,6 +1056,10 @@ mod tests {
 
         let (_, _, body) = http_get(proxy, "/opt-out", &[]).await;
         assert!(!body.contains(tag), "response header opts out");
+
+        let (status, _, body) = http_get(proxy, "/oversized", &[]).await;
+        assert_eq!(status, 502);
+        assert!(body.contains("length limit exceeded"));
 
         let (_, _, body) = http_get(proxy, "/", &[(NO_INJECT_HEADER, "1")]).await;
         assert!(!body.contains(tag), "request header opts out");
