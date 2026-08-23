@@ -1162,7 +1162,9 @@ mod tests {
     #[test]
     fn implicit_hashed_socket_falls_back_to_the_legacy_session_socket() {
         let id = NEXT_TEST_SOCKET.fetch_add(1, AtomicOrdering::Relaxed);
-        let session = format!("resource-fallback-{}-{id}-{}", std::process::id(), "x".repeat(160));
+        // Long enough to require the hashed preferred path, but short enough
+        // for the legacy Unix socket path to fit sockaddr_un.
+        let session = format!("resource-fallback-{}-{id}-{}", std::process::id(), "x".repeat(55));
         let config =
             Config::from_socket_path(crate::client::try_default_socket_path(&session).unwrap());
         let dir = PathBuf::from("/tmp").join(crate::client::private_runtime_dir_name());
@@ -1175,11 +1177,11 @@ mod tests {
                 .and_then(std::path::Path::file_name)
                 .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
         );
+        let listener = UnixListener::bind(&legacy.0).unwrap();
         assert_eq!(
             crate::client::hashed_socket_legacy_path(&config.socket_path),
             Some(legacy.0.clone())
         );
-        let listener = UnixListener::bind(&legacy.0).unwrap();
 
         let client = Client::connect_with_legacy_fallback(config).unwrap();
         assert_eq!(client.config().socket_path, legacy.0);
