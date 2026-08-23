@@ -223,6 +223,7 @@ class Client:
         )
         self._closed = False
         self._closing = False
+        self._close_task: Optional[asyncio.Task[None]] = None
         self._streams: Set[ResourceStream[Any]] = set()
 
     @property
@@ -255,32 +256,37 @@ class Client:
         )
 
     async def close(self) -> None:
-        if self._closed or self._closing:
+        if self._closed:
             return
-        self._closing = True
-        async def cleanup() -> None:
-            streams = tuple(self._streams)
-            if streams:
-                await asyncio.gather(
-                    *(stream.cancel() for stream in streams),
-                    return_exceptions=True,
-                )
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self._sync.close)
-            await loop.run_in_executor(
-                None,
-                functools.partial(self._executor.shutdown, wait=True),
-            )
+        if self._close_task is not None and self._close_task.done():
+            # A failed cleanup is retryable. A successful one sets _closed.
+            self._close_task = None
+        if self._close_task is None:
+            self._closing = True
 
-        try:
-            await _await_cleanup(cleanup())
-        except asyncio.CancelledError:
-            self._closed = True
-            self._closing = False
-            raise
-        else:
-            self._closed = True
-            self._closing = False
+            async def cleanup() -> None:
+                try:
+                    streams = tuple(self._streams)
+                    if streams:
+                        await asyncio.gather(
+                            *(stream.cancel() for stream in streams),
+                            return_exceptions=True,
+                        )
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(None, self._sync.close)
+                    await loop.run_in_executor(
+                        None,
+                        functools.partial(self._executor.shutdown, wait=True),
+                    )
+                except BaseException:
+                    self._closing = False
+                    raise
+                else:
+                    self._closed = True
+                    self._closing = False
+
+            self._close_task = asyncio.create_task(cleanup())
+        await _await_cleanup(self._close_task)
 
     async def __aenter__(self) -> "Client":
         return self
