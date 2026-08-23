@@ -21,6 +21,7 @@ use serde_json::Value;
 use sha2::{Digest as _, Sha256};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc::UnboundedSender};
 
+use crate::actions::validate_request_path as validate_action_path;
 use crate::preview_proxy::PreviewRegistry;
 use crate::relay_wire as wire;
 use crate::watch::WatchRegistry;
@@ -122,28 +123,7 @@ fn validate_request_path(raw: &str) -> Result<(), String> {
     if raw.is_empty() {
         return Err("path is empty".to_owned());
     }
-    if raw.chars().count() > MAX_PATH_CHARS {
-        return Err(format!("path exceeds {MAX_PATH_CHARS} characters"));
-    }
-    if raw.chars().any(|c| c.is_control()) {
-        return Err("path contains a control character".to_owned());
-    }
-    let lower = raw.to_ascii_lowercase();
-    for encoded in ["%00", "%25", "%2e", "%2f", "%5c"] {
-        if lower.contains(encoded) {
-            return Err("percent-encoded path syntax is not accepted".to_owned());
-        }
-    }
-    if raw.starts_with("//") || raw.starts_with("\\\\") {
-        return Err("ambiguous leading path separators are not accepted".to_owned());
-    }
-    // A backslash is a filename character on POSIX but a separator on
-    // Windows; refuse the ambiguous spelling so one request cannot acquire
-    // different authority after crossing hosts.
-    if std::path::MAIN_SEPARATOR == '/' && raw.contains('\\') {
-        return Err("use '/' as the path separator on this machine".to_owned());
-    }
-    Ok(())
+    validate_action_path(raw)
 }
 
 fn relative_path_escapes(raw: &str) -> bool {
