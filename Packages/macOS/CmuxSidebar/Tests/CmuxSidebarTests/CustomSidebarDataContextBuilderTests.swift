@@ -28,7 +28,8 @@ struct CustomSidebarDataContextBuilderTests {
     private func minimalWorkspace(
         id: UUID = UUID(),
         index: Int = 0,
-        surfaces: [CustomSidebarSurfaceSnapshot] = []
+        surfaces: [CustomSidebarSurfaceSnapshot] = [],
+        panes: [CustomSidebarWorkspaceSnapshot.Pane] = []
     ) -> CustomSidebarWorkspaceSnapshot {
         CustomSidebarWorkspaceSnapshot(
             id: id,
@@ -40,6 +41,7 @@ struct CustomSidebarDataContextBuilderTests {
             listeningPorts: [],
             unreadCount: 0,
             surfaces: surfaces,
+            panes: panes,
             surfaceCount: surfaces.count,
             customDescription: nil,
             customColor: nil,
@@ -51,6 +53,64 @@ struct CustomSidebarDataContextBuilderTests {
             latestSubmittedMessage: nil,
             latestSubmittedAt: nil,
             remote: nil
+        )
+    }
+
+    @Test("Pane fields preserve spatial and tab-strip order")
+    func paneFields() throws {
+        let firstPaneId = UUID()
+        let secondPaneId = UUID()
+        let visible = CustomSidebarSurfaceSnapshot(
+            panelId: UUID(),
+            title: "Visible",
+            isFocused: false,
+            isSelected: true,
+            isPinned: false,
+            directory: nil,
+            gitBranch: nil,
+            gitIsDirty: false,
+            listeningPorts: []
+        )
+        let sibling = minimalSurface()
+        let focused = CustomSidebarSurfaceSnapshot(
+            panelId: UUID(),
+            title: "Focused",
+            isFocused: true,
+            isSelected: true,
+            isPinned: false,
+            directory: nil,
+            gitBranch: nil,
+            gitIsDirty: false,
+            listeningPorts: []
+        )
+        let workspace = minimalWorkspace(
+            surfaces: [visible, sibling, focused],
+            panes: [
+                .init(id: firstPaneId, index: 0, isFocused: false, surfaces: [visible, sibling]),
+                .init(id: secondPaneId, index: 1, isFocused: true, surfaces: [focused]),
+            ]
+        )
+
+        let value = CustomSidebarDataContextBuilder().workspaceValue(workspace)
+        let panes = try #require(value.member("panes")?.iterationValues)
+        let firstTabs = try #require(panes[0].member("tabs")?.iterationValues)
+        let flatTabs = try #require(value.member("tabs")?.iterationValues)
+
+        #expect(value.member("paneCount") == .int(2))
+        #expect(
+            panes.map { $0.member("id") } == [
+                .string(firstPaneId.uuidString), .string(secondPaneId.uuidString),
+            ]
+        )
+        #expect(panes.map { $0.member("index") } == [.int(0), .int(1)])
+        #expect(panes.map { $0.member("focused") } == [.bool(false), .bool(true)])
+        #expect(panes.map { $0.member("tabCount") } == [.int(2), .int(1)])
+        #expect(firstTabs.map { $0.member("title") } == [.string("Visible"), .string("shell")])
+        #expect(firstTabs.map { $0.member("selected") } == [.bool(true), .bool(false)])
+        #expect(
+            flatTabs.map { $0.member("title") } == [
+                .string("Visible"), .string("shell"), .string("Focused"),
+            ]
         )
     }
 
@@ -285,6 +345,7 @@ struct CustomSidebarDataContextBuilderTests {
             panelId: id,
             title: "editor",
             isFocused: true,
+            isSelected: true,
             isPinned: true,
             directory: "/src",
             gitBranch: "feat",
@@ -297,6 +358,7 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(value.member("id") == .string(id.uuidString))
         #expect(value.member("title") == .string("editor"))
         #expect(value.member("focused") == .bool(true))
+        #expect(value.member("selected") == .bool(true))
         #expect(value.member("pinned") == .bool(true))
         #expect(value.member("directory") == .string("/src"))
         #expect(value.member("branch") == .string("feat"))

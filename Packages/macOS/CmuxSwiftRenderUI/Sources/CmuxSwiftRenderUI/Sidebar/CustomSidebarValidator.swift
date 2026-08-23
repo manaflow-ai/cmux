@@ -150,8 +150,34 @@ public struct CustomSidebarValidator {
                 "ports": .array([.int(3000)]),
                 "portCount": .int(1),
                 "unread": .int(0),
-                "tabs": .array([]),
-                "tabCount": .int(0),
+                "tabs": .array([
+                    .object([
+                        "id": .string("surface-sample"),
+                        "title": .string("Terminal"),
+                        "focused": .bool(true),
+                        "selected": .bool(true),
+                        "pinned": .bool(false),
+                    ])
+                ]),
+                "tabCount": .int(1),
+                "panes": .array([
+                    .object([
+                        "id": .string("pane-sample"),
+                        "index": .int(0),
+                        "focused": .bool(true),
+                        "tabs": .array([
+                            .object([
+                                "id": .string("surface-sample"),
+                                "title": .string("Terminal"),
+                                "focused": .bool(true),
+                                "selected": .bool(true),
+                                "pinned": .bool(false),
+                            ])
+                        ]),
+                        "tabCount": .int(1),
+                    ])
+                ]),
+                "paneCount": .int(1),
                 "description": .string(""),
                 "color": .string(""),
                 "branch": .string("main"),

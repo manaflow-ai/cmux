@@ -26,9 +26,8 @@ public struct CustomSidebarDataContextBuilder {
 
     /// Projects the snapshot into the top-level interpreter data dictionary.
     ///
-    /// Mirrors the original `customSidebarDataContext(now:)` output exactly:
-    /// `workspaces`, `workspaceCount`, `selectedTitle`, `selectedId`,
-    /// `unreadTotal`, and `clock`.
+    /// Preserves the original top-level output while enriching each workspace
+    /// with pane-grouped surface data.
     public func dataContext(for snapshot: CustomSidebarContextSnapshot) -> [String: SwiftValue] {
         let workspaces: [SwiftValue] = snapshot.workspaces.map(workspaceValue(_:))
         let components = calendar.dateComponents(
@@ -73,6 +72,8 @@ public struct CustomSidebarDataContextBuilder {
             "unread": .int(workspace.unreadCount),
             "tabs": .array(workspace.surfaces.map(surfaceValue(_:))),
             "tabCount": .int(workspace.surfaceCount),
+            "panes": .array(workspace.panes.map(paneValue(_:))),
+            "paneCount": .int(workspace.panes.count),
         ]
         if let description = workspace.customDescription, !description.isEmpty {
             fields["description"] = .string(description)
@@ -114,6 +115,17 @@ public struct CustomSidebarDataContextBuilder {
         return .object(fields)
     }
 
+    /// Projects one pane snapshot with its tabs in tab-strip order.
+    public func paneValue(_ pane: CustomSidebarWorkspaceSnapshot.Pane) -> SwiftValue {
+        .object([
+            "id": .string(pane.id.uuidString),
+            "index": .int(pane.index),
+            "focused": .bool(pane.isFocused),
+            "tabs": .array(pane.surfaces.map(surfaceValue(_:))),
+            "tabCount": .int(pane.surfaces.count),
+        ])
+    }
+
     /// Projects one surface snapshot into the interpreter value tree, enriched
     /// with per-surface directory, pin, git, and ports where available.
     public func surfaceValue(_ surface: CustomSidebarSurfaceSnapshot) -> SwiftValue {
@@ -121,6 +133,7 @@ public struct CustomSidebarDataContextBuilder {
             "id": .string(surface.panelId.uuidString),
             "title": .string(surface.title),
             "focused": .bool(surface.isFocused),
+            "selected": .bool(surface.isSelected),
             "pinned": .bool(surface.isPinned),
         ]
         if let directory = surface.directory, !directory.isEmpty {

@@ -61,8 +61,9 @@ cmux sidebar validate mine && cmux sidebar select mine
 
 ## Live data context (read-only, refreshes ~1s)
 
-- `workspaces`: `id`, `title`, `selected`, `pinned`, `index`, `directory`, `ports` + `portCount`, `unread`, `tabs` + `tabCount`; when present also `description`, `color`, `branch` + `dirty`, `pr` / `prs` (`{number, label, url, status, stale, branch}`), `progress` (`{value, label}`), `latestMessage`, `latestPrompt`, `latestAt`, `remote` (`{target, state, connected}`).
-- `workspaces[i].tabs`: `id`, `title`, `focused`, `pinned`; plus `directory`, `branch` + `dirty`, `ports` when available.
+- `workspaces`: `id`, `title`, `selected`, `pinned`, `index`, `directory`, `ports` + `portCount`, `unread`, flat `tabs` + `tabCount`, spatially ordered `panes` + `paneCount`; when present also `description`, `color`, `branch` + `dirty`, `pr` / `prs` (`{number, label, url, status, stale, branch}`), `progress` (`{value, label}`), `latestMessage`, `latestPrompt`, `latestAt`, `remote` (`{target, state, connected}`).
+- `workspaces[i].panes`: `id`, `index`, `focused`, nested `tabs` + `tabCount`; tabs stay in tab-strip order.
+- Surface values in flat or nested `tabs`: `id`, `title`, `focused`, `selected` (visible in its pane), `pinned`; plus `directory`, `branch` + `dirty`, `ports` when available.
 - `clock`: `{time, hour, minute, second, weekday, epoch}`.
 - Scalars: `workspaceCount`, `selectedTitle`, `selectedId`, `unreadTotal`.
 

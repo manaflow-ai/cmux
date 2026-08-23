@@ -135,7 +135,8 @@ with:
 
 - `workspaces` — array, one per workspace. Always present: `id`, `title`,
   `selected` (Bool), `pinned` (Bool), `index` (Int), `directory`, `ports`
-  (array of Int) + `portCount`, `unread` (Int notifications), `tabs` + `tabCount`.
+  (array of Int) + `portCount`, `unread` (Int notifications), `tabs` + `tabCount`,
+  and `panes` + `paneCount`.
   Present when the workspace has them (use `if let` / ternary): `description`,
   `color` (hex), `branch` + `dirty` (Bool) from git, `pr`
   (`{ number, label, url, status: open|merged|closed, stale, branch }`, the
@@ -144,9 +145,13 @@ with:
   `progress` (`{ value: 0..1, label }`), `latestMessage` (last agent message),
   `latestPrompt` (last submitted prompt), `latestAt` (epoch), `remote`
   (`{ target, state, connected }`).
-- `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
-  `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
-  `dirty`, `ports` (array of Int).
+- `panes` (per workspace) — array in spatial order (left/top before
+  right/bottom). Always: `id`, `index`, `focused` (Bool), `tabs` + `tabCount`.
+  Pane `tabs` stay in tab-strip order.
+- `tabs` (flat per-workspace compatibility array and nested per-pane array) —
+  surfaces with `id`, `title`, `focused` (keyboard-focused surface), `selected`
+  (currently visible tab in its pane), and `pinned`. When available:
+  `directory`, `branch` + `dirty`, `ports` (array of Int).
 - `workspaceCount` — Int. `selectedTitle` — active workspace's title.
   `selectedId` — its id. `unreadTotal` — total unread notifications.
 - `clock` — `{ time ("HH:mm:ss"), hour, minute, second, weekday, epoch }`. The

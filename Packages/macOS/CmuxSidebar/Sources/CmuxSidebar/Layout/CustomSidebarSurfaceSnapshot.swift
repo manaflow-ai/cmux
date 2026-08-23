@@ -14,6 +14,8 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
     public let title: String
     /// Whether this surface is the workspace's focused panel (`tabs[i].focused`).
     public let isFocused: Bool
+    /// Whether this surface is the selected, visible tab in its pane (`tabs[i].selected`).
+    public let isSelected: Bool
     /// Whether the surface's panel is pinned (`tabs[i].pinned`).
     public let isPinned: Bool
     /// The surface's working directory, or `nil`/empty when unknown
@@ -32,6 +34,7 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
         panelId: UUID,
         title: String,
         isFocused: Bool,
+        isSelected: Bool = false,
         isPinned: Bool,
         directory: String?,
         gitBranch: String?,
@@ -41,6 +44,7 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
         self.panelId = panelId
         self.title = title
         self.isFocused = isFocused
+        self.isSelected = isSelected
         self.isPinned = isPinned
         self.directory = directory
         self.gitBranch = gitBranch

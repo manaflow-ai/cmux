@@ -1,3 +1,4 @@
+import Bonsplit
 import CmuxSidebar
 import Foundation
 
@@ -20,6 +21,7 @@ extension Workspace {
                 isConnected: remoteConnectionState == .connected
             )
         }
+        let panes = customSidebarPaneSnapshots(focusedPanelId: focusedPanelId)
         return CustomSidebarWorkspaceSnapshot(
             id: id,
             title: customTitle ?? title,
@@ -29,7 +31,8 @@ extension Workspace {
             directory: presentedCurrentDirectory ?? "",
             listeningPorts: listeningPorts,
             unreadCount: unreadCount,
-            surfaces: customSidebarSurfaceSnapshots(focusedPanelId: focusedPanelId),
+            surfaces: panes.flatMap(\.surfaces),
+            panes: panes,
             surfaceCount: bonsplitController.allPaneIds.reduce(0) {
                 $0 + bonsplitController.tabs(inPane: $1).count
             },
@@ -46,26 +49,38 @@ extension Workspace {
         )
     }
 
-    private func customSidebarSurfaceSnapshots(focusedPanelId: UUID?) -> [CustomSidebarSurfaceSnapshot] {
-        var surfaces: [CustomSidebarSurfaceSnapshot] = []
-        for paneId in bonsplitController.allPaneIds {
-            for tab in bonsplitController.tabs(inPane: paneId) {
-                guard let panelId = panelIdFromSurfaceId(tab.id) else { continue }
-                let git = reportedPanelGitBranch(panelId: panelId)
-                surfaces.append(
-                    CustomSidebarSurfaceSnapshot(
-                        panelId: panelId,
-                        title: tab.title,
-                        isFocused: panelId == focusedPanelId,
-                        isPinned: pinnedPanelIds.contains(panelId),
-                        directory: reportedPanelDirectory(panelId: panelId),
-                        gitBranch: git?.branch,
-                        gitIsDirty: git?.isDirty ?? false,
-                        listeningPorts: surfaceListeningPorts[panelId] ?? []
-                    )
-                )
-            }
+    private func customSidebarPaneSnapshots(
+        focusedPanelId: UUID?
+    ) -> [CustomSidebarWorkspaceSnapshot.Pane] {
+        let spatialIds = spatiallyOrderedPaneIds
+        let paneIds = spatialIds.isEmpty ? bonsplitController.allPaneIds.map(\.id) : spatialIds
+        return paneIds.enumerated().map { index, paneUUID in
+            let paneId = PaneID(id: paneUUID)
+            let selectedTabId = bonsplitController.selectedTabId(inPane: paneId)
+            let surfaces: [CustomSidebarSurfaceSnapshot] =
+                bonsplitController
+                    .tabs(inPane: paneId)
+                    .compactMap { tab -> CustomSidebarSurfaceSnapshot? in
+                        guard let panelId = panelIdFromSurfaceId(tab.id) else { return nil }
+                        let git = reportedPanelGitBranch(panelId: panelId)
+                        return CustomSidebarSurfaceSnapshot(
+                            panelId: panelId,
+                            title: tab.title,
+                            isFocused: panelId == focusedPanelId,
+                            isSelected: tab.id == selectedTabId,
+                            isPinned: pinnedPanelIds.contains(panelId),
+                            directory: reportedPanelDirectory(panelId: panelId),
+                            gitBranch: git?.branch,
+                            gitIsDirty: git?.isDirty ?? false,
+                            listeningPorts: surfaceListeningPorts[panelId] ?? []
+                        )
+                    }
+            return CustomSidebarWorkspaceSnapshot.Pane(
+                id: paneUUID,
+                index: index,
+                isFocused: bonsplitController.focusedPaneId == paneId,
+                surfaces: surfaces
+            )
         }
-        return surfaces
     }
 }

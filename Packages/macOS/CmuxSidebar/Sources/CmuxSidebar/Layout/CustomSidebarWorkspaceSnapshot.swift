@@ -9,6 +9,31 @@ public import Foundation
 /// `nil` when absent so interpreted `if let` / ternary truthiness behaves, and
 /// empty strings on the optional text fields are treated the same as `nil`.
 public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
+    /// One Bonsplit pane projected to `workspaces[i].panes[j]`.
+    public struct Pane: Sendable, Equatable {
+        /// The live pane identifier (`panes[j].id`).
+        public let id: UUID
+        /// The zero-based spatial position (`panes[j].index`).
+        public let index: Int
+        /// Whether this is the workspace's focused pane (`panes[j].focused`).
+        public let isFocused: Bool
+        /// Surfaces in tab-strip order (`panes[j].tabs`).
+        public let surfaces: [CustomSidebarSurfaceSnapshot]
+
+        /// Creates a pane projection.
+        public init(
+            id: UUID,
+            index: Int,
+            isFocused: Bool,
+            surfaces: [CustomSidebarSurfaceSnapshot]
+        ) {
+            self.id = id
+            self.index = index
+            self.isFocused = isFocused
+            self.surfaces = surfaces
+        }
+    }
+
     /// Progress projected to the `workspaces[i].progress` object.
     public struct Progress: Sendable, Equatable {
         /// The fractional progress value (`progress.value`).
@@ -58,6 +83,8 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
     public let unreadCount: Int
     /// Surfaces in pane order (`workspaces[i].tabs`).
     public let surfaces: [CustomSidebarSurfaceSnapshot]
+    /// Panes in spatial order (`workspaces[i].panes`).
+    public let panes: [Pane]
     /// Total surface count across panes (`workspaces[i].tabCount`).
     public let surfaceCount: Int
     /// Custom description; omitted when `nil`/empty (`workspaces[i].description`).
@@ -96,6 +123,7 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
         listeningPorts: [Int],
         unreadCount: Int,
         surfaces: [CustomSidebarSurfaceSnapshot],
+        panes: [Pane] = [],
         surfaceCount: Int,
         customDescription: String?,
         customColor: String?,
@@ -117,6 +145,7 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
         self.listeningPorts = listeningPorts
         self.unreadCount = unreadCount
         self.surfaces = surfaces
+        self.panes = panes
         self.surfaceCount = surfaceCount
         self.customDescription = customDescription
         self.customColor = customColor
