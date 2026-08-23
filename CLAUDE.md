@@ -19,14 +19,14 @@ Other variants: `reloadp.sh` (Release), `reloads.sh` (Release as isolated "cmux 
 
 ## Handing the user a drop-in OSS build
 
-The user's daily driver is the **OSS tagged Debug build** ("cmux DEV", ad-hoc signed, `com.cmuxterm.app.debug*` bundle ID). When the user asks for a build to replace it manually, the OSS build is the only thing to hand over — never a Release/Developer-ID build: that switches the keychain access group and forces a re-login, and it cannot carry the passkey entitlement on this Mac.
+The user's daily driver is **`/Applications/cmux-oss.app`**: the tagged Debug build with `CFBundleName=cmux-oss` and `CFBundleIdentifier=com.cmuxterm.app.debug.oss`, ad-hoc signed. When the user asks for a build to replace it manually, this OSS build is the only thing to hand over — never a Release/Developer-ID build: that switches the keychain access group and forces a re-login, and it cannot carry the passkey entitlement on this Mac.
 
 ```bash
-./scripts/reload.sh --tag <slug>            # produce the OSS Debug build
-ditto "$HOME/Library/Developer/Xcode/DerivedData/cmux-<slug>/Build/Products/Debug/cmux DEV <slug>.app" ~/Downloads/cmux.app
+./scripts/reload.sh --tag <slug>            # produce the tagged Debug build
+ditto "$HOME/Library/Developer/Xcode/DerivedData/cmux-<slug>/Build/Products/Debug/cmux DEV <slug>.app" ~/Downloads/cmux-oss.app
 ```
 
-Then set `CFBundleName` back to `cmux DEV` in `~/Downloads/cmux.app/Contents/Info.plist` (leave the tagged `CFBundleIdentifier` alone — it owns the tag's socket, so it cannot collide with the running instance), and verify with `codesign -dvv`: `Signature=adhoc`, `TeamIdentifier=not set`.
+Then set `CFBundleName=cmux-oss` and `CFBundleIdentifier=com.cmuxterm.app.debug.oss` in `~/Downloads/cmux-oss.app/Contents/Info.plist` (the `oss` bundle ID owns the socket the running instance listens on, so it must match exactly), re-sign ad-hoc with `codesign --force --sign -`, and verify with `codesign -dvv`: `Signature=adhoc`, `TeamIdentifier=not set`.
 
 ## Shared Mac fleet capacity
 
