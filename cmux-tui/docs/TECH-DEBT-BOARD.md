@@ -3,13 +3,14 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `feat-tui-tech-debt-wave1-clean`.
-Current integration code tip: `3d47d1d537`.
+Current integration code tip: `638e536f03`.
 The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
 The current integration sequence includes the hosted formatter and verification
 fixes through `66e83c808f`, the replay preflight correction `c867048c1d`, the
 safe scoped-attach series through `dfa4ef3b6a`, manifest and socket-contract
 hardening, Unix/Admin task ownership, browser guard coverage, and localization
-through `3d47d1d537`.
+through `638e536f03`. Localization recovery is recorded in `01c4a2de8d`
+and `638e536f03`.
 
 Subagent ledger: at least 180 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
@@ -278,6 +279,47 @@ those remain open requests above.
 | `737e78dd1d`, `e054417774`, `13436a1515`, `dac3c2c33b`, `dfa4ef3b6a` | Reassert host mouse and cursor state after focus or resize, and clear stale cursor state on DECSCUSR reset. | Tests cover focus, resize, normal-frame reset, and cursor provenance. A P2 remains for any future non-daemon surface replacement path. | Revert the reassert and cursor lifecycle commits together. |
 | `0316d6bb42` | Cover resolved cursor colors without treating daemon colors as application-authored. | Behavior test added, hosted Rust verification required. | Revert this test-only commit. |
 | `1c9bcf58a7`, `6f44e4201a`, `8e0040116e` | Localize remaining menu labels, client actions, copy toasts, and rename prompts in English and Japanese. | Static string audit leaves only test assertions. Hosted compile remains required. | Revert the localization commits together if catalog compatibility requires a staged migration. |
+
+## Wave-8 current state and audit inventory (2026-08-23)
+
+The integration tip is `638e536f03`. Localization recovery is a two-commit
+chain: `01c4a2de8d` restores the missing catalog/source entries and
+`638e536f03` restores the mux-recovery status path. Keep both commits together
+until English and Japanese runtime coverage is green.
+
+### PR inventory and supersession
+
+| PR | Audit result | Action |
+| --- | --- | --- |
+| [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Aggregate relay stack; supersedes [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Prefer #10603 after replay and safe-attach deltas are present; close #10602 when verified. |
+| [#10254](https://github.com/manaflow-ai/cmux/pull/10254) | Cross-SDK stack; superseded by [#10249](https://github.com/manaflow-ai/cmux/pull/10249) and [#10239](https://github.com/manaflow-ai/cmux/pull/10239) | Do not merge the stale aggregate; review the two replacement stacks independently. |
+| [#10268](https://github.com/manaflow-ai/cmux/pull/10268) | Superseded by [#10267](https://github.com/manaflow-ai/cmux/pull/10267) | Close #10268 after confirming #10267 contains its intended fix. |
+| [#10131](https://github.com/manaflow-ai/cmux/pull/10131) | Superseded by [#9922](https://github.com/manaflow-ai/cmux/pull/9922) | Keep #10131 closed; no cherry-pick without a fresh audit. |
+| [#10413](https://github.com/manaflow-ai/cmux/pull/10413) | Earlier journal stack; follows sequentially into [#10521](https://github.com/manaflow-ai/cmux/pull/10521) | Land and validate in order, 10413 then 10521, or explicitly port the dependency. |
+| [#10136](https://github.com/manaflow-ai/cmux/pull/10136) and [#10259](https://github.com/manaflow-ai/cmux/pull/10259) | Mutual overlap in lifecycle/session ownership | Select one design and close the duplicate; do not merge both. |
+| Release stack PRs | Overlapping release, packaging, and verification changes | Keep one linear release stack; rebase each child and rerun exact-head checks before merge. |
+
+### Mined intents and acceptance
+
+| Intent | Evidence path | Acceptance |
+| --- | --- | --- |
+| PTY ownership must have one writer and explicit lifecycle ownership. | `~/.claude/paste-cache/18bda3edc0facc99.txt`; `cmux-tui/crates/cmux-tui/src/pty.rs`; `cmux-tui/crates/cmux-tui/src/app.rs` | One owner handles writes, resize, close, and cancellation; short writes are complete; shutdown awaits the owner; no nested attach PTY. |
+| Linux terminals need a built cmux-tui backend selected by `CMUX_TUI_BINARY`. | `~/.claude/paste-cache/18bda3edc0facc99.txt`; `cmux-tui/docs/remote.md`; launcher/config paths under `cmux-tui/` | A clean Linux install resolves the configured binary, reports a clear missing-binary error, and renders attach, input, resize, and reconnect. |
+| SSH aggregation needs machine-rail host add/edit and remote TUI attach. | `~/.codex/sessions/2026/08/04/rollout-2026-08-04T17-17-26-019fcf48-3fce-73f0-b5f6-8626631c8cb5.jsonl`; `~/.codex/sessions/2026/07/25/rollout-2026-07-25T20-51-15-019f9c8c-684c-7070-ad8d-3960d8e8f0f8.jsonl` | Credentials and host keys stay in the host boundary; add/edit, authenticated attach, reconnect/close, and per-machine/per-window focus each have behavior tests. |
+| Scrollbar parity must match native terminal behavior. | `cmux-tui/crates/cmux-tui/src/ui/`; `cmux-tui/docs/`; session-mining records in `~/.claude` | Scroll thumb tracks durable scrollback, wheel/drag/page keys agree, resize preserves position, and accessibility exposes the same actions. |
+
+### Current-state change log and revert
+
+On 2026-08-23 this board moved its declared tip from `3d47d1d537` to
+`638e536f03`, documented the localization recovery chain, and added the audit
+supersession and mined-intent tables. This is documentation only. Revert this
+board change as one commit if the integration tip or audit conclusions change;
+do not revert either localization commit independently from a tested replacement.
+
+Residual risks remain: hosted exact-head verification is still required, manual
+IO is not implemented, PTY and SSH ownership boundaries are incomplete, and
+scrollbar parity has no end-to-end evidence. The PR inventory is an audit
+snapshot, so statuses can become stale when GitHub heads change.
 | `6828f9fa9d` | Explain the common top-level `command` config mistake and point to `commands`. | The guidance matches current serde validation. Error wording matching is a small residual risk. | Revert this diagnostic-only commit. |
 
 The debug PTY tap from [PR 10428](https://github.com/manaflow-ai/cmux/pull/10428)
