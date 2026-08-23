@@ -121,7 +121,11 @@ fn connect_with_budget(
 #[derive(Clone, Debug)]
 pub struct Config {
     pub socket_path: PathBuf,
-    legacy_socket_path: Option<PathBuf>,
+    /// Optional legacy socket path tried when the primary path is unavailable.
+    ///
+    /// This is public so callers that construct `Config` with a struct literal
+    /// can preserve compatibility when configuring the legacy fallback.
+    pub legacy_socket_path: Option<PathBuf>,
     pub timeout: Duration,
     pub max_request_bytes: usize,
     pub max_response_bytes: usize,

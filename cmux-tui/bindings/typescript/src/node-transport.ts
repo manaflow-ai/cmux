@@ -77,8 +77,12 @@ export function defaultSocketPaths(session = "main"): string[] {
   if (unixSocketPathFits(hashedFallback) && !candidates.includes(hashedFallback)) candidates.push(hashedFallback);
   // Legacy raw path is valid only when canonical path is hashed.
   if (candidates.length && candidates[0].includes("-hashed-")) {
-    candidates.push(path.join(base, `cmux-tui-${uid}`, fileName));
-    candidates.push(path.join("/tmp", `cmux-tui-${uid}`, fileName));
+    const legacy = path.join(base, `cmux-tui-${uid}`, fileName);
+    if (unixSocketPathFits(legacy) && !candidates.includes(legacy)) candidates.push(legacy);
+    const legacyFallback = path.join("/tmp", `cmux-tui-${uid}`, fileName);
+    if (unixSocketPathFits(legacyFallback) && !candidates.includes(legacyFallback)) {
+      candidates.push(legacyFallback);
+    }
   }
   return candidates;
 }

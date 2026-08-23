@@ -56,14 +56,14 @@ class JsonLineConnection:
                 self._fail_connect(path, fallback_error)
 
     def _fail_connect(self, path: str, error: OSError) -> None:
-            self._socket.close()
-            self._wake_read.close()
-            self._wake_write.close()
-            self._wake_read_closed = True
-            self._closed = True
-            raise CmuxConnectionError(
-                f"cannot connect to session socket {path}: {error}"
-            ) from error
+        self._socket.close()
+        self._wake_read.close()
+        self._wake_write.close()
+        self._wake_read_closed = True
+        self._closed = True
+        raise CmuxConnectionError(
+            f"cannot connect to session socket {path}: {error}"
+        ) from error
 
     @property
     def closed(self) -> bool:
