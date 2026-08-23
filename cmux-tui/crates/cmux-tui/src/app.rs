@@ -17142,7 +17142,9 @@ impl App {
                 }
                 None
             } else if self.config.keys.action_for(key) == Some(Action::ProviderMenu)
-                || (key.modifiers == KeyModifiers::NONE && key.code == KeyCode::Char('m'))
+                || (!self.config.keys.provider_menu_overridden
+                    && key.modifiers == KeyModifiers::NONE
+                    && key.code == KeyCode::Char('m'))
             {
                 // Keyboard twin of right-clicking "+ new vm" or the rail
                 // pad. This rail-local route uses the configured prefix-key
@@ -18485,9 +18487,6 @@ impl App {
             Action::ProviderMenu => {
                 if self.focus == FocusTarget::MachineRail {
                     self.open_provider_rail_menu(1, 2);
-                } else {
-                    self.sidebar_compact = !self.sidebar_compact;
-                    self.sidebar_visible = true;
                 }
             }
             Action::NewPaneRight => self.new_pane_right(pane, fallback_pane, semantic_intent)?,

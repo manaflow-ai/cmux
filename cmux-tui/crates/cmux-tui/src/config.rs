@@ -2651,6 +2651,7 @@ pub struct Keys {
     /// macOS Option mode instead of guessing from each event.
     pub macos_option_as_alt: bool,
     bindings: Vec<(Chord, Action)>,
+    pub(crate) provider_menu_overridden: bool,
 }
 
 impl Default for Keys {
@@ -2738,6 +2739,7 @@ impl Default for Keys {
                 bind(KeyCode::Char('?'), Action::ShowShortcuts),
                 bind(KeyCode::Char('d'), Action::Detach),
             ],
+            provider_menu_overridden: false,
         }
     }
 }
@@ -2900,6 +2902,9 @@ impl Keys {
                 } else {
                     name.clone()
                 };
+            if normalized == "provider-menu" {
+                self.provider_menu_overridden = true;
+            }
             match action_definitions().iter().find(|definition| {
                 definition.config_key == normalized.as_str()
                     || (definition.action == Action::RenameTab && name == "rename-pane")
