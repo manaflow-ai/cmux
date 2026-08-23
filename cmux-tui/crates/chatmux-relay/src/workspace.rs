@@ -442,38 +442,20 @@ fn read_bytes_no_follow(path: &Path, max_bytes: usize) -> std::io::Result<Vec<u8
     Ok(bytes)
 }
 
-struct BoundedRead {
-    prefix: Vec<u8>,
-    sha256: String,
-    size: u64,
-    truncated: bool,
-}
-
-fn read_bounded_no_follow(path: &Path, max_bytes: usize) -> std::io::Result<BoundedRead> {
+/// Read at most `max_bytes + 1` bytes, without following a final symlink.
+/// The extra byte is only used to detect truncation. This keeps both memory
+/// use and hashing work bounded by the response cap.
+fn read_bounded_no_follow(path: &Path, max_bytes: usize) -> std::io::Result<(Vec<u8>, bool, u64)> {
     use std::io::Read as _;
-    let mut file = open_no_follow(path)?;
-    let mut hasher = Sha256::new();
-    let mut prefix = Vec::with_capacity(max_bytes);
-    let mut buf = [0u8; 64 * 1024];
-    let mut size = 0u64;
-    loop {
-        let count = file.read(&mut buf)?;
-        if count == 0 {
-            break;
-        }
-        hasher.update(&buf[..count]);
-        size = size.saturating_add(count as u64);
-        if prefix.len() < max_bytes {
-            let take = (max_bytes - prefix.len()).min(count);
-            prefix.extend_from_slice(&buf[..take]);
-        }
+    let file = open_no_follow(path)?;
+    let size = file.metadata()?.len();
+    let mut bytes = Vec::with_capacity(max_bytes.min(64 * 1024));
+    file.take(max_bytes.saturating_add(1) as u64).read_to_end(&mut bytes)?;
+    let truncated = bytes.len() > max_bytes;
+    if truncated {
+        bytes.truncate(max_bytes);
     }
-    Ok(BoundedRead {
-        prefix,
-        sha256: sha256_hex(&hasher.finalize()),
-        size,
-        truncated: size > max_bytes as u64,
-    })
+    Ok((bytes, truncated, size))
 }
 
 fn write_bytes_no_follow(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -625,34 +607,32 @@ fn run_tree(scope: &Scope, op: &wire::FsTreeOp) -> Result<wire::WorkspaceResultB
 fn run_read(scope: &Scope, op: &wire::FsReadOp) -> Result<wire::WorkspaceResultBody, Refusal> {
     let path = scope.resolve(&op.path, false)?;
     let max = usize::try_from(clamp_i64(op.max_bytes, 1, READ_MAX_BYTES)).unwrap_or(1);
-    let read = read_bounded_no_follow(&path, max).map_err(|error| {
+    let (bytes, truncated, size) = read_bounded_no_follow(&path, max).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             Refusal::not_found(format!("{} does not exist", op.path))
         } else {
             Refusal::failed(format!("could not read {}: {error}", op.path))
         }
     })?;
-    let truncated = read.truncated;
-    let slice = &read.prefix;
-    let (content, encoding) = match std::str::from_utf8(slice) {
+    let (content, encoding) = match std::str::from_utf8(&bytes) {
         Ok(text) => (text.to_owned(), wire::FsContentEncoding::Utf8),
         Err(error) if truncated && error.error_len().is_none() && error.valid_up_to() > 0 => {
             // The byte cap cut a multi-byte character; trim to the last
             // whole character instead of downgrading the file to base64.
             let valid = error.valid_up_to();
-            match std::str::from_utf8(&slice[..valid]) {
+            match std::str::from_utf8(&bytes[..valid]) {
                 Ok(text) => (text.to_owned(), wire::FsContentEncoding::Utf8),
-                Err(_) => (base64_encode(slice), wire::FsContentEncoding::Base64),
+                Err(_) => (base64_encode(&bytes), wire::FsContentEncoding::Base64),
             }
         }
-        Err(_) => (base64_encode(slice), wire::FsContentEncoding::Base64),
+        Err(_) => (base64_encode(&bytes), wire::FsContentEncoding::Base64),
     };
     Ok(wire::WorkspaceResultBody::FsRead(wire::FsReadResult {
         op: wire::TagFsRead::FsRead,
         content,
         encoding,
-        sha256: read.sha256,
-        size: i64::try_from(read.size).unwrap_or(i64::MAX),
+        sha256: sha256_hex(&bytes),
+        size: i64::try_from(size).unwrap_or(i64::MAX),
         truncated,
     }))
 }
@@ -1529,7 +1509,8 @@ mod tests {
         let cut = read(5);
         assert_eq!(cut.content, "hello");
         assert!(cut.truncated);
-        assert_eq!(cut.sha256, full.sha256, "hash always covers the full file");
+        assert_eq!(cut.sha256, sha256_hex(b"hello"), "truncated reads hash only the bounded prefix");
+        assert_eq!(cut.size, 16, "size comes from metadata without scanning the file");
         let missing = run_read(
             &scope,
             &wire::FsReadOp {
