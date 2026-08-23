@@ -29,7 +29,7 @@ const DEBOUNCE_QUIET: Duration = Duration::from_millis(150);
 const DEBOUNCE_MAX_LATENCY: Duration = Duration::from_millis(500);
 const MAX_PENDING_NOTIFY_EVENTS: usize = 1024;
 
-type Sessions = Arc<Mutex<HashMap<String, (u64, tokio::task::JoinHandle<()>)>>>;
+type Sessions = Arc<Mutex<HashMap<String, (u64, Option<tokio::task::JoinHandle<()>>)>>>;
 
 pub struct WatchRegistry {
     outbound: OutboundSink,
@@ -43,7 +43,9 @@ impl Drop for WatchRegistry {
         // on the next connection.
         if let Ok(mut sessions) = self.sessions.lock() {
             for (_, (_, task)) in sessions.drain() {
-                task.abort();
+                if let Some(task) = task {
+                    task.abort();
+                }
             }
         }
     }
@@ -78,7 +80,9 @@ impl WatchRegistry {
         if let Ok(mut sessions) = self.sessions.lock()
             && let Some(task) = sessions.remove(watch_id)
         {
-            task.1.abort();
+            if let Some(task) = task.1 {
+                task.abort();
+            }
         }
     }
 
@@ -101,27 +105,13 @@ impl WatchRegistry {
         })
         .unwrap_or_else(|_| String::new());
         let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
-        let outbound = self.outbound.clone();
-        let sessions = Arc::clone(&self.sessions);
-        let task_id = watch_id.clone();
-        let task = tokio::spawn(async move {
-            run_watch(&task_id, &root, &outbound).await;
-            if let Ok(mut sessions) = sessions.lock() {
-                if sessions.get(&task_id).is_some_and(|entry| entry.0 == generation) {
-                    sessions.remove(&task_id);
-                }
-            }
-        });
         let previous = match self.sessions.lock() {
             Ok(mut sessions)
                 if sessions.contains_key(&watch_id) || sessions.len() < WATCH_MAX_SESSIONS =>
             {
-                Ok(sessions.insert(watch_id.clone(), (generation, task)))
+                Ok(sessions.insert(watch_id.clone(), (generation, None)))
             }
-            Ok(_) | Err(_) => {
-                task.abort();
-                Err(())
-            }
+            Ok(_) | Err(_) => Err(()),
         };
         let previous = match previous {
             Ok(previous) => previous,
@@ -135,7 +125,28 @@ impl WatchRegistry {
             }
         };
         let _ = self.outbound.try_critical_text(opened);
-        if let Some((_, previous)) = previous {
+        let outbound = self.outbound.clone();
+        let sessions = Arc::clone(&self.sessions);
+        let task_id = watch_id.clone();
+        let task = tokio::spawn(async move {
+            run_watch(&task_id, &root, &outbound).await;
+            if let Ok(mut sessions) = sessions.lock() {
+                if sessions
+                    .get(&task_id)
+                    .is_some_and(|entry| entry.0 == generation && entry.1.is_some())
+                {
+                    sessions.remove(&task_id);
+                }
+            }
+        });
+        if let Ok(mut sessions) = self.sessions.lock() {
+            if let Some(entry) = sessions.get_mut(&watch_id) {
+                if entry.0 == generation {
+                    entry.1 = Some(task);
+                }
+            }
+        }
+        if let Some((_, Some(previous))) = previous {
             previous.abort();
         }
     }
