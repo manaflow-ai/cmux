@@ -862,6 +862,15 @@ async fn forward_plain(
     let limited = http_body_util::Limited::new(body, PREVIEW_HTML_BODY_MAX_BYTES);
     let collected = match tokio::time::timeout(PREVIEW_HTML_BODY_TIMEOUT, limited.collect()).await {
         Ok(Ok(collected)) => collected.to_bytes(),
+        Ok(Err(error)) if error.downcast_ref::<http_body_util::LengthLimitError>().is_some() => {
+            return text_response(
+                502,
+                &format!(
+                    "target HTML response exceeds the {} byte limit",
+                    PREVIEW_HTML_BODY_MAX_BYTES
+                ),
+            );
+        }
         Ok(Err(error)) => return text_response(502, &format!("target body failed: {error}")),
         Err(_) => return text_response(502, "target HTML body timed out"),
     };
@@ -1085,7 +1094,7 @@ mod tests {
 
         let (status, _, body) = http_get(proxy, "/oversized", &[]).await;
         assert_eq!(status, 502);
-        assert!(body.contains("length limit exceeded"));
+        assert!(body.contains("target HTML response exceeds"));
 
         let (_, _, body) = http_get(proxy, "/", &[(NO_INJECT_HEADER, "1")]).await;
         assert!(!body.contains(tag), "request header opts out");
