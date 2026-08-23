@@ -1942,7 +1942,7 @@ fn run_server(
             }
         });
     let pending_server =
-        match cmux_tui_core::server::serve_paused(mux.clone(), Some(socket_path.clone())) {
+        match cmux_tui_core::server::serve_paused(mux.clone(), args.socket.clone()) {
             Ok(server) => server,
             Err(error) => {
                 mux.shutdown();
