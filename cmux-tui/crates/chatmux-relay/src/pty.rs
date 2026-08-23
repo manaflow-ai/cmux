@@ -26,10 +26,10 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 
 use async_trait::async_trait;
-use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
 use bytes::Bytes;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use crate::actions::{expand_path, scrubbed_env, validate_request_path};
 use crate::control::ControlHandle;
@@ -156,7 +156,11 @@ fn scoped_cwd(
 
 fn clamp_dim(value: Option<&Value>) -> Option<u16> {
     let number = value.and_then(Value::as_i64)?;
-    if (1..=10_000).contains(&number) { u16::try_from(number).ok() } else { None }
+    if (1..=10_000).contains(&number) {
+        u16::try_from(number).ok()
+    } else {
+        None
+    }
 }
 
 fn parse_allowed_roots(frame: &Value) -> Result<Option<Vec<String>>, &'static str> {
@@ -812,8 +816,13 @@ impl Inner {
                 control.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             }
-            let tabs = collect_pty_tabs_strict(listed.get("data"))
-                .map_err(|_| "cannot inspect existing daemon surfaces".to_owned())?;
+            let tabs = match collect_pty_tabs_strict(listed.get("data")) {
+                Ok(tabs) => tabs,
+                Err(_) => {
+                    control.end();
+                    return Err("cannot inspect existing daemon surfaces".to_owned());
+                }
+            };
             if tabs.len() > MAX_ENUM_TERMINALS || (tabs.is_empty() && !ensured.created) {
                 control.end();
                 return Err("cannot prove existing daemon cwd is within allowed roots".to_owned());
