@@ -14,6 +14,9 @@
 #include <sstream>
 #include <stdexcept>
 #include <utility>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
 
 #if defined(CMUX_CPP_TESTING)
 #include "resource_test_hooks.hpp"
