@@ -339,6 +339,7 @@ mod tests {
     use serde_json::json;
     use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _};
     use tokio::net::UnixListener;
+    use tokio::sync::oneshot;
 
     #[tokio::test]
     async fn writer_queue_preserves_complete_fifo_lines() {
@@ -348,13 +349,16 @@ mod tests {
         ));
         let _ = std::fs::remove_file(&socket_path);
         let listener = UnixListener::bind(&socket_path).expect("bind control test socket");
+        let (accepted_tx, accepted_rx) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel();
         let server = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.expect("accept control test socket");
             let (read_half, mut write_half) = stream.into_split();
-            // Hold the reader briefly while the client queues several large
-            // lines. This exercises the writer's backpressure path without
-            // relying on a platform-specific socket buffer size.
-            tokio::time::sleep(Duration::from_millis(25)).await;
+            accepted_tx.send(()).expect("tell client that socket is accepted");
+            // Hold the reader while the client queues several large lines.
+            // This exercises the writer's backpressure path without relying
+            // on a platform-specific socket buffer size.
+            release_rx.await.expect("release control test reader");
             let mut reader = tokio::io::BufReader::new(read_half);
             let mut lines = Vec::new();
             for _ in 0..9 {
@@ -373,10 +377,12 @@ mod tests {
         let control = connect_control(&socket_path, 3_000)
             .await
             .expect("connect control test socket");
+        accepted_rx.await.expect("wait for control test server");
         let payload = "x".repeat(128 * 1024);
         for index in 0..8 {
             control.send("send", json!({ "index": index, "payload": payload.clone() }));
         }
+        release_tx.send(()).expect("release control test reader");
         let response = control.request("probe", json!({})).await;
         assert_eq!(
             response.and_then(|value| value.get("ok").and_then(Value::as_bool)),
