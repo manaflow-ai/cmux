@@ -1,3 +1,5 @@
+import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -18,10 +20,57 @@ import {
   utf8ByteLength,
 } from "./transport-limits.js";
 
+/**
+ * Validates the session component used by the default Unix socket path.
+ *
+ * Session names may contain legacy spaces, Unicode, punctuation, and long
+ * text. They must remain one non-empty path component and cannot contain
+ * separators, NUL, control characters, or Unicode line separators.
+ */
+export function validateSessionName(session: string): void {
+  const invalid =
+    session.length === 0
+    || session === "."
+    || session === ".."
+    || [...session].some((character) => {
+      const codePoint = character.codePointAt(0)!;
+      return (
+        character === "/"
+        || character === "\\"
+        || character === "\u0000"
+        || codePoint <= 0x1f
+        || (codePoint >= 0x7f && codePoint <= 0x9f)
+        || codePoint === 0x85
+        || codePoint === 0x2028
+        || codePoint === 0x2029
+        || (codePoint >= 0xd800 && codePoint <= 0xdfff)
+      );
+    });
+  if (invalid) {
+    throw new TypeError(
+      "session name must be a non-empty path component "
+      + "without separators or control characters",
+    );
+  }
+}
+
 /** Resolves the default Unix socket path for a session. */
 export function defaultSocketPath(session = "main"): string {
-  const base = process.env.TMPDIR || os.tmpdir();
-  return path.join(base, `cmux-tui-${process.getuid?.() ?? 0}`, `${session}.sock`);
+  validateSessionName(session);
+  const uid = process.getuid?.() ?? 0;
+  const base = process.env.XDG_RUNTIME_DIR || process.env.TMPDIR || os.tmpdir();
+  const fileName = `${session}.sock`;
+  const preferred = path.join(base, `cmux-tui-${uid}`, fileName);
+  if (unixSocketPathFits(preferred)) return preferred;
+  const fallback = path.join("/tmp", `cmux-tui-${uid}`, fileName);
+  if (unixSocketPathFits(fallback)) return fallback;
+  const digest = createHash("sha256").update(session, "utf8").digest("hex");
+  return path.join("/tmp", `cmux-tui-hashed-${uid}`, `${digest}.sock`);
+}
+
+function unixSocketPathFits(socketPath: string): boolean {
+  const capacity = process.platform === "darwin" ? 104 : 108;
+  return Buffer.byteLength(socketPath) < capacity;
 }
 
 /** Reads the current or legacy cmux-tui socket environment variable. */

@@ -4,14 +4,14 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.Map;
 import java.util.Objects;
-import java.util.regex.Pattern;
 
 /** Normative Unix socket discovery shared by the client and tests. */
 public final class SocketDiscovery {
-    private static final Pattern SESSION = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,63}");
-
     private SocketDiscovery() {}
 
     public static Path resolve(Path explicitSocket, String session) {
@@ -47,7 +47,15 @@ public final class SocketDiscovery {
         if (fitsUnixSocket(preferred)) {
             return preferred;
         }
-        return Path.of("/tmp", "cmux-tui-" + uid, fileName);
+        Path fallback = Path.of("/tmp", "cmux-tui-" + uid, fileName);
+        if (fitsUnixSocket(fallback)) {
+            return fallback;
+        }
+        return Path.of(
+            "/tmp",
+            "cmux-tui-hashed-" + uid,
+            sessionDigest(session) + ".sock"
+        );
     }
 
     public static Path defaultSocketPath(String session) {
@@ -56,12 +64,38 @@ public final class SocketDiscovery {
 
     public static void validateSession(String session) {
         Objects.requireNonNull(session, "session");
-        if (!SESSION.matcher(session).matches()
-                || session.equals(".")
-                || session.equals("..")) {
-            throw new IllegalArgumentException(
-                "session must match [A-Za-z0-9][A-Za-z0-9._-]{0,63} and not be . or .."
-            );
+        if (session.isEmpty() || session.equals(".") || session.equals("..")) {
+            throw invalidSession();
+        }
+        for (int offset = 0; offset < session.length();) {
+            int codePoint = session.codePointAt(offset);
+            offset += Character.charCount(codePoint);
+            if (codePoint == '/' || codePoint == '\\' || codePoint == 0
+                    || Character.isISOControl(codePoint)
+                    || codePoint == 0x0085
+                    || codePoint == 0x2028
+                    || codePoint == 0x2029
+                    || (codePoint >= Character.MIN_SURROGATE
+                        && codePoint <= Character.MAX_SURROGATE)) {
+                throw invalidSession();
+            }
+        }
+    }
+
+    private static IllegalArgumentException invalidSession() {
+        return new IllegalArgumentException(
+            "session name must be a non-empty path component "
+                + "without separators or control characters"
+        );
+    }
+
+    private static String sessionDigest(String session) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                .digest(session.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException error) {
+            throw new IllegalStateException("SHA-256 is unavailable", error);
         }
     }
 
