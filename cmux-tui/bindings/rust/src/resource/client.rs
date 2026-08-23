@@ -1143,7 +1143,11 @@ mod tests {
         let session = format!("resource-fallback-{}-{id}-{}", std::process::id(), "x".repeat(160));
         let mut config =
             Config::from_socket_path(crate::client::try_default_socket_path(&session).unwrap());
-        config.legacy_socket_path = Some(crate::client::legacy_socket_path_for_session(&session));
+        let legacy = SocketFile(std::env::temp_dir().join(format!(
+            "cmux-resource-hashed-fallback-legacy-{}-{id}.sock",
+            std::process::id()
+        )));
+        config.legacy_socket_path = Some(legacy.0.clone());
         assert!(
             config
                 .socket_path
@@ -1151,8 +1155,6 @@ mod tests {
                 .and_then(std::path::Path::file_name)
                 .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
         );
-        let legacy = SocketFile(config.legacy_socket_path.clone().unwrap());
-        std::fs::create_dir_all(legacy.0.parent().unwrap()).unwrap();
         let listener = UnixListener::bind(&legacy.0).unwrap();
 
         let client = Client::connect(config).unwrap();

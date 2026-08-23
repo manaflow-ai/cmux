@@ -982,10 +982,9 @@ mod tests {
         let id = NEXT_TEST_SOCKET.fetch_add(1, AtomicOrdering::Relaxed);
         let session = format!("raw-fallback-{}-{id}-{}", std::process::id(), "x".repeat(160));
         let mut config = ClientConfig::from_socket_path(try_default_socket_path(&session).unwrap());
-        config.legacy_socket_path = Some(legacy_socket_path_for_session(&session));
+        let legacy = SocketFile(temp_socket("hashed-fallback-legacy"));
+        config.legacy_socket_path = Some(legacy.0.clone());
         assert!(is_hashed_socket(&config.socket_path));
-        let legacy = SocketFile(config.legacy_socket_path.clone().unwrap());
-        std::fs::create_dir_all(legacy.0.parent().unwrap()).unwrap();
         let listener = UnixListener::bind(&legacy.0).unwrap();
 
         let client = CmuxClient::connect(config).unwrap();
