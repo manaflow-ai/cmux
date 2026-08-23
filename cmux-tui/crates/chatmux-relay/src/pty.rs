@@ -26,10 +26,10 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 
 use async_trait::async_trait;
-use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
 use bytes::Bytes;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use crate::actions::{expand_path, scrubbed_env, validate_request_path};
 use crate::control::ControlHandle;
@@ -48,6 +48,8 @@ pub const OUTPUT_BUFFER_CAP: u64 = 1024 * 1024;
 const CONTROL_MIN_PROTOCOL: i64 = 5;
 /// Inner terminals listed per session (surface_list stays bounded).
 const MAX_ENUM_TERMINALS: usize = 8;
+const MAX_ALLOWED_ROOTS: usize = 32;
+const MAX_ALLOWED_ROOT_BYTES: usize = 16 * 1024;
 const MAX_ENUM_SURFACES: usize = 8;
 const RAW_ATTACH_BACKLOG_CAP: usize = 1024 * 1024;
 
@@ -146,7 +148,11 @@ fn scoped_cwd(
 
 fn clamp_dim(value: Option<&Value>) -> Option<u16> {
     let number = value.and_then(Value::as_i64)?;
-    if (1..=10_000).contains(&number) { u16::try_from(number).ok() } else { None }
+    if (1..=10_000).contains(&number) {
+        u16::try_from(number).ok()
+    } else {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -509,10 +515,26 @@ impl Inner {
 
         // cwd discipline: the local config and server-echoed root lists both
         // apply when present, else $HOME.
-        let server_roots: Option<Vec<String>> = frame
-            .get("allowedRoots")
-            .and_then(Value::as_array)
-            .map(|roots| roots.iter().filter_map(Value::as_str).map(str::to_owned).collect());
+        let server_roots: Option<Vec<String>> =
+            frame.get("allowedRoots").and_then(Value::as_array).map(|roots| {
+                if roots.len() > MAX_ALLOWED_ROOTS
+                    || roots.iter().filter_map(Value::as_str).map(str::len).sum::<usize>()
+                        > MAX_ALLOWED_ROOT_BYTES
+                    || roots.iter().any(|root| !root.is_string())
+                {
+                    return Vec::new();
+                }
+                roots.iter().map(|root| root.as_str().unwrap().to_owned()).collect()
+            });
+        if frame.get("allowedRoots").and_then(Value::as_array).is_some_and(|roots| {
+            roots.len() > MAX_ALLOWED_ROOTS
+                || roots.iter().filter_map(Value::as_str).map(str::len).sum::<usize>()
+                    > MAX_ALLOWED_ROOT_BYTES
+                || roots.iter().any(|root| !root.is_string())
+        }) {
+            fail("bad_request", "invalid allowedRoots");
+            return;
+        }
         let cwd = match scoped_cwd(
             frame.get("cwd").and_then(Value::as_str),
             &self.home,
@@ -748,7 +770,7 @@ impl Inner {
         let ensured = self.deps.ensure_daemon(cmux_tui, session, &socket_dir, cwd, env).await?;
         let roots_scoped = context.local_roots.as_deref().is_some_and(|r| !r.is_empty())
             || server_roots.is_some_and(|r| !r.is_empty());
-        if roots_scoped && !ensured.created {
+        if roots_scoped {
             let control = self
                 .deps
                 .connect_control(&ensured.socket_path)
@@ -763,7 +785,7 @@ impl Inner {
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             }
             let tabs = collect_pty_tabs(listed.get("data"));
-            if tabs.is_empty() || tabs.len() > MAX_ENUM_TERMINALS {
+            if tabs.len() > MAX_ENUM_TERMINALS || (tabs.is_empty() && !ensured.created) {
                 control.end();
                 return Err("cannot prove existing daemon cwd is within allowed roots".to_owned());
             }
