@@ -355,7 +355,15 @@ struct QueuedEvent {
 
 impl EventQueue {
     fn new() -> Self {
-        Self { state: Mutex::new(EventQueueState::default()) }
+        // The ingress queue is hard-capped at this size. Preallocate the
+        // ring buffer once so a burst of small events does not repeatedly
+        // grow and copy its backing storage while the reader is draining it.
+        Self {
+            state: Mutex::new(EventQueueState {
+                events: VecDeque::with_capacity(CDP_INGRESS_EVENT_CAPACITY),
+                ..EventQueueState::default()
+            }),
+        }
     }
 
     fn push(&self, event: CdpEvent) -> Result<(), ()> {
