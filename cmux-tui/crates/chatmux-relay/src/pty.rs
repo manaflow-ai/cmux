@@ -836,8 +836,14 @@ fn decode_b64_field(event: &Value, field: &str) -> Option<Bytes> {
         .map(Bytes::from)
 }
 
+/// An event accepted by the control-stream callback or close callback.
+enum TerminalEvent {
+    Output(Bytes),
+    Exit(i64),
+}
+
 /// Buffers control-stream output until start() attaches the live sinks, then
-/// flushes in order (vt-state/output precede the attach response, and
+/// drains one FIFO queue (vt-state/output precede the attach response, and
 /// pty_opened must precede all output).
 struct TerminalStream {
     state: Mutex<TerminalStreamState>,
@@ -846,9 +852,9 @@ struct TerminalStream {
 struct TerminalStreamState {
     live_data: Option<Arc<dyn Fn(Bytes) + Send + Sync>>,
     live_exit: Option<Arc<dyn Fn(i64) + Send + Sync>>,
-    backlog: Vec<Bytes>,
+    backlog: VecDeque<TerminalEvent>,
     backlog_bytes: usize,
-    pending_exit: Option<i64>,
+    delivering: bool,
     ended: bool,
 }
 
@@ -858,47 +864,85 @@ impl TerminalStream {
             state: Mutex::new(TerminalStreamState {
                 live_data: None,
                 live_exit: None,
-                backlog: Vec::new(),
+                backlog: VecDeque::new(),
                 backlog_bytes: 0,
-                pending_exit: None,
+                delivering: false,
                 ended: false,
             }),
         }
     }
 
-    fn push_output(&self, chunk: Bytes) {
-        let mut state = self.state.lock().expect("terminal stream lock");
-        match &state.live_data {
-            Some(sink) => {
-                let sink = Arc::clone(sink);
-                drop(state);
-                sink(chunk);
+    /// Mark the queue as owned by a drainer, if the live sinks are installed.
+    fn start_delivery(state: &mut TerminalStreamState) -> bool {
+        if state.delivering
+            || state.backlog.is_empty()
+            || state.live_data.is_none()
+            || state.live_exit.is_none()
+        {
+            return false;
+        }
+        state.delivering = true;
+        true
+    }
+
+    /// Deliver queued events serially, without holding the stream mutex while
+    /// user code runs. Events accepted during a callback stay behind the
+    /// events already queued for replay.
+    fn drain(&self) {
+        loop {
+            let next = {
+                let mut state = self.state.lock().expect("terminal stream lock");
+                let Some(event) = state.backlog.pop_front() else {
+                    state.delivering = false;
+                    return;
+                };
+                (event, state.live_data.clone(), state.live_exit.clone())
+            };
+            match next {
+                (TerminalEvent::Output(chunk), Some(on_data), _) => on_data(chunk),
+                (TerminalEvent::Exit(code), _, Some(on_exit)) => on_exit(code),
+                // `start_delivery` only runs after both sinks are installed.
+                // Keep this branch defensive if a future caller changes that
+                // invariant.
+                (TerminalEvent::Output(_), None, _) | (TerminalEvent::Exit(_), _, None) => {}
             }
-            None => {
+        }
+    }
+
+    fn push_output(&self, chunk: Bytes) {
+        let should_drain = {
+            let mut state = self.state.lock().expect("terminal stream lock");
+            let chunk = if state.live_data.is_none() {
                 let remaining = RAW_ATTACH_BACKLOG_CAP.saturating_sub(state.backlog_bytes);
                 if remaining == 0 {
                     return;
                 }
                 let chunk = if chunk.len() > remaining { chunk.slice(..remaining) } else { chunk };
                 state.backlog_bytes += chunk.len();
-                state.backlog.push(chunk);
-            }
+                chunk
+            } else {
+                chunk
+            };
+            state.backlog.push_back(TerminalEvent::Output(chunk));
+            Self::start_delivery(&mut state)
+        };
+        if should_drain {
+            self.drain();
         }
     }
 
     fn finish_exit(&self, code: i64) {
-        let mut state = self.state.lock().expect("terminal stream lock");
-        if state.ended {
-            return;
-        }
-        state.ended = true;
-        match &state.live_exit {
-            Some(sink) => {
-                let sink = Arc::clone(sink);
-                drop(state);
-                sink(code);
+        let should_drain = {
+            let mut state = self.state.lock().expect("terminal stream lock");
+            if state.ended {
+                return;
             }
-            None => state.pending_exit = Some(code),
+            state.ended = true;
+            state.backlog.push_back(TerminalEvent::Exit(code));
+            Self::start_delivery(&mut state)
+        };
+        if should_drain {
+            self.drain();
         }
     }
 
@@ -907,17 +951,15 @@ impl TerminalStream {
         on_data: Arc<dyn Fn(Bytes) + Send + Sync>,
         on_exit: Arc<dyn Fn(i64) + Send + Sync>,
     ) {
-        let (backlog, pending_exit) = {
+        let should_drain = {
             let mut state = self.state.lock().expect("terminal stream lock");
             state.live_data = Some(Arc::clone(&on_data));
             state.live_exit = Some(Arc::clone(&on_exit));
-            (std::mem::take(&mut state.backlog), state.pending_exit.take())
+            state.backlog_bytes = 0;
+            Self::start_delivery(&mut state)
         };
-        for chunk in backlog {
-            on_data(chunk);
-        }
-        if let Some(code) = pending_exit {
-            on_exit(code);
+        if should_drain {
+            self.drain();
         }
     }
 }
@@ -1298,7 +1340,8 @@ impl Inner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex as StdMutex;
+    use std::sync::{Arc as TestArc, Barrier, Mutex as StdMutex};
+    use std::thread;
 
     /// A fake PTY: emit() calls the subscribed sink synchronously, like the
     /// JS fakePty. Records writes/resizes/pause/kill for assertions.
@@ -1872,5 +1915,52 @@ mod tests {
         assert!(!env.contains_key("OPENAI_API_KEY"));
         assert_eq!(env.get("PATH").map(String::as_str), Some("/usr/bin"));
         assert_eq!(env.get("TERM").map(String::as_str), Some("xterm-256color"));
+    }
+
+    #[test]
+    fn go_live_replay_stays_ahead_of_concurrent_output_and_exit() {
+        let stream = TestArc::new(TerminalStream::new());
+        stream.push_output(Bytes::from_static(b"buffered"));
+
+        let seen = TestArc::new(StdMutex::new(Vec::<String>::new()));
+        let invocations = TestArc::new(StdMutex::new(0_usize));
+        let entered = TestArc::new(Barrier::new(2));
+        let release = TestArc::new(Barrier::new(2));
+
+        let callback_seen = TestArc::clone(&seen);
+        let callback_invocations = TestArc::clone(&invocations);
+        let callback_entered = TestArc::clone(&entered);
+        let callback_release = TestArc::clone(&release);
+        let on_data: TestArc<dyn Fn(Bytes) + Send + Sync> = TestArc::new(move |chunk| {
+            let value = String::from_utf8_lossy(&chunk).into_owned();
+            let invocation = {
+                let mut count = callback_invocations.lock().expect("invocation lock");
+                *count += 1;
+                *count
+            };
+            if invocation == 1 {
+                callback_entered.wait();
+                callback_release.wait();
+            }
+            callback_seen.lock().expect("seen lock").push(value);
+        });
+        let callback_seen = TestArc::clone(&seen);
+        let on_exit: TestArc<dyn Fn(i64) + Send + Sync> = TestArc::new(move |code| {
+            callback_seen.lock().expect("seen lock").push(format!("exit:{code}"));
+        });
+
+        let start_stream = TestArc::clone(&stream);
+        let join = thread::spawn(move || start_stream.go_live(on_data, on_exit));
+
+        entered.wait();
+        stream.push_output(Bytes::from_static(b"live"));
+        stream.finish_exit(11);
+        release.wait();
+        join.join().expect("go_live thread");
+
+        assert_eq!(
+            *seen.lock().expect("seen lock"),
+            vec!["buffered", "live", "exit:11"]
+        );
     }
 }

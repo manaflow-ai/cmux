@@ -8,7 +8,7 @@
 
 #![cfg(unix)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -26,14 +26,21 @@ use crate::pty::{
 
 const DAEMON_SOCKET_WAIT_MS: u64 = 5_000;
 
-/// Buffers output until the manager subscribes, then calls the sink directly
-/// from the reader/wait threads. One sink; the manager fans out itself.
+/// An event accepted by the PTY reader or wait thread.
+enum SourceEvent {
+    Data(Bytes),
+    Exit(i64),
+}
+
+/// Buffers output until the manager subscribes, then drains one FIFO queue.
+/// Only one caller drains at a time. This keeps bytes buffered before
+/// `subscribe` ahead of bytes accepted while the backlog is being replayed.
 #[derive(Default)]
 struct SourceState {
     on_data: Option<DataSink>,
     on_exit: Option<ExitSink>,
-    backlog: Vec<Bytes>,
-    pending_exit: Option<i64>,
+    backlog: VecDeque<SourceEvent>,
+    delivering: bool,
     exited: bool,
 }
 
@@ -46,56 +53,80 @@ impl ThreadOutput {
         Arc::new(ThreadOutput { state: Mutex::new(SourceState::default()) })
     }
 
-    fn push_data(&self, chunk: Bytes) {
-        let sink = {
-            let mut state = self.state.lock().expect("source lock");
-            match state.on_data.clone() {
-                Some(sink) => Some(sink),
-                None => {
-                    state.backlog.push(chunk.clone());
-                    None
-                }
+    /// Mark the queue as owned by a drainer, if a subscriber is ready.
+    fn start_delivery(state: &mut SourceState) -> bool {
+        if state.delivering
+            || state.backlog.is_empty()
+            || state.on_data.is_none()
+            || state.on_exit.is_none()
+        {
+            return false;
+        }
+        state.delivering = true;
+        true
+    }
+
+    /// Deliver queued events serially, without holding the source mutex while
+    /// user code runs. Producers that arrive during a callback append to the
+    /// same queue and are picked up by this drainer before it releases it.
+    fn drain(&self) {
+        loop {
+            let next = {
+                let mut state = self.state.lock().expect("source lock");
+                let Some(event) = state.backlog.pop_front() else {
+                    state.delivering = false;
+                    return;
+                };
+                (event, state.on_data.clone(), state.on_exit.clone())
+            };
+            match next {
+                (SourceEvent::Data(chunk), Some(on_data), _) => on_data(chunk),
+                (SourceEvent::Exit(code), _, Some(on_exit)) => on_exit(code),
+                // `start_delivery` only runs after both sinks are installed.
+                // Keep this branch defensive if a future caller changes that
+                // invariant.
+                (SourceEvent::Data(_), None, _) | (SourceEvent::Exit(_), _, None) => {}
             }
+        }
+    }
+
+    fn push_data(&self, chunk: Bytes) {
+        let should_drain = {
+            let mut state = self.state.lock().expect("source lock");
+            state.backlog.push_back(SourceEvent::Data(chunk));
+            Self::start_delivery(&mut state)
         };
-        if let Some(sink) = sink {
-            sink(chunk);
+        if should_drain {
+            self.drain();
         }
     }
 
     fn push_exit(&self, code: i64) {
-        let sink = {
+        let should_drain = {
             let mut state = self.state.lock().expect("source lock");
             if state.exited {
                 return;
             }
             state.exited = true;
-            match state.on_exit.clone() {
-                Some(sink) => Some(sink),
-                None => {
-                    state.pending_exit = Some(code);
-                    None
-                }
-            }
+            state.backlog.push_back(SourceEvent::Exit(code));
+            Self::start_delivery(&mut state)
         };
-        if let Some(sink) = sink {
-            sink(code);
+        if should_drain {
+            self.drain();
         }
     }
 }
 
 impl PtyOutput for ThreadOutput {
     fn subscribe(&self, on_data: DataSink, on_exit: ExitSink) {
-        let (backlog, pending_exit) = {
+        let should_drain = {
             let mut state = self.state.lock().expect("source lock");
             state.on_data = Some(Arc::clone(&on_data));
             state.on_exit = Some(Arc::clone(&on_exit));
-            (std::mem::take(&mut state.backlog), state.pending_exit.take())
+            Self::start_delivery(&mut state)
         };
-        for chunk in backlog {
-            on_data(chunk);
-        }
-        if let Some(code) = pending_exit {
-            on_exit(code);
+        if should_drain {
+            self.drain();
         }
     }
 }
@@ -222,10 +253,9 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
 }
 
 fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
-    let shell = spec.env.get("SHELL").cloned().unwrap_or_else(|| "/bin/sh".to_owned());
     let output = ThreadOutput::new();
-    let mut command = std::process::Command::new(&shell);
-    command.arg("-i").current_dir(&spec.cwd).env_clear();
+    let mut command = std::process::Command::new(&spec.file);
+    command.args(&spec.args).current_dir(&spec.cwd).env_clear();
     for (key, value) in &spec.env {
         command.env(key, value);
     }
@@ -235,10 +265,10 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
     command.stderr(std::process::Stdio::piped());
     let banner = format!(
         "[cmux-relay] PTY allocation failed ({reason}); running {} without a TTY.\r\n",
-        Path::new(&shell)
+        Path::new(&spec.file)
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| shell.clone()),
+            .unwrap_or_else(|| spec.file.clone()),
     );
     match command.spawn() {
         Ok(mut child) => {
@@ -368,7 +398,14 @@ impl PtyDeps for RealPtyDeps {
             .map_err(|error| format!("control socket directory permissions failed: {error}"))?;
         let socket_path = socket_dir.join(format!("{session}.sock"));
         if socket_exists(&socket_path).await {
-            return Ok(EnsureDaemon { created: false, socket_path });
+            let ready = match connect_control(&socket_path, CONTROL_TIMEOUT_MS).await {
+                Ok(control) => control.request("list", serde_json::Value::Null).await.is_some(),
+                Err(_) => false,
+            };
+            if ready {
+                return Ok(EnsureDaemon { created: false, socket_path });
+            }
+            return Err(format!("cmux-tui daemon for \"{session}\" is not control-ready"));
         }
         let mut args = cmux_tui.prefix.clone();
         args.extend(["--headless".to_owned(), "--session".to_owned(), session.to_owned()]);
@@ -446,4 +483,58 @@ async fn is_executable(path: &Path) -> bool {
 /// Session-name validity is re-exported so the daemon path can reject early.
 pub fn valid_session(name: &str) -> bool {
     session_name_ok(name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex};
+    use std::thread;
+
+    #[test]
+    fn subscribe_replay_stays_ahead_of_concurrent_output_and_exit() {
+        let output = ThreadOutput::new();
+        output.push_data(Bytes::from_static(b"buffered"));
+
+        let seen = TestArc::new(TestMutex::new(Vec::<String>::new()));
+        let invocations = TestArc::new(TestMutex::new(0_usize));
+        let entered = TestArc::new(Barrier::new(2));
+        let release = TestArc::new(Barrier::new(2));
+
+        let callback_seen = TestArc::clone(&seen);
+        let callback_invocations = TestArc::clone(&invocations);
+        let callback_entered = TestArc::clone(&entered);
+        let callback_release = TestArc::clone(&release);
+        let on_data: DataSink = TestArc::new(move |chunk| {
+            let value = String::from_utf8_lossy(&chunk).into_owned();
+            let invocation = {
+                let mut count = callback_invocations.lock().expect("invocation lock");
+                *count += 1;
+                *count
+            };
+            if invocation == 1 {
+                callback_entered.wait();
+                callback_release.wait();
+            }
+            callback_seen.lock().expect("seen lock").push(value);
+        });
+        let callback_seen = TestArc::clone(&seen);
+        let on_exit: ExitSink = TestArc::new(move |code| {
+            callback_seen.lock().expect("seen lock").push(format!("exit:{code}"));
+        });
+
+        let subscribe_output = TestArc::clone(&output);
+        let join = thread::spawn(move || subscribe_output.subscribe(on_data, on_exit));
+
+        entered.wait();
+        output.push_data(Bytes::from_static(b"live"));
+        output.push_exit(7);
+        release.wait();
+        join.join().expect("subscribe thread");
+
+        assert_eq!(
+            *seen.lock().expect("seen lock"),
+            vec!["buffered", "live", "exit:7"]
+        );
+    }
 }
