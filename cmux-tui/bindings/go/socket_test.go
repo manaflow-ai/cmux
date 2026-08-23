@@ -6,7 +6,18 @@ import (
 	"net"
 	"strings"
 	"testing"
+
+	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/sessionpath"
 )
+
+func TestHighLevelValidationPreservesCause(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	_, err := resolveSocketPath("", string([]byte{'b', 0xff, 'd'}))
+	if !errors.Is(err, ErrInvalidArgument) || !errors.Is(err, sessionpath.ErrInvalid) {
+		t.Fatalf("error = %v, want invalid argument and sessionpath cause", err)
+	}
+}
 
 func TestHighLevelClientRejectsUnsafeSessionBeforeDial(t *testing.T) {
 	t.Setenv("CMUX_TUI_SOCKET", "")

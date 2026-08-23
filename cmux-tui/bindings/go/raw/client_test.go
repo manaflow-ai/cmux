@@ -16,7 +16,19 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/sessionpath"
 )
+
+func TestValidateSessionPreservesCauseForMalformedUTF8(t *testing.T) {
+	err := ValidateSession(string([]byte{'o', 0xff, 'k'}))
+	if !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("error = %v, want ErrInvalidArgument", err)
+	}
+	if !errors.Is(err, sessionpath.ErrInvalid) {
+		t.Fatalf("error = %v, want sessionpath.ErrInvalid cause", err)
+	}
+}
 
 func TestGeneratedInventoryHasTypedMethodForEveryCommand(t *testing.T) {
 	commands := AllCommandMetadata()

@@ -224,7 +224,7 @@ func ResolveSocketPath(explicit, session string) (string, error) {
 // directory or carry control text into the socket path.
 func ValidateSession(session string) error {
 	if err := sessionpath.Validate(session); err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidArgument, err)
+		return fmt.Errorf("%w: %w", ErrInvalidArgument, err)
 	}
 	return nil
 }

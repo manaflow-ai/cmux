@@ -33,7 +33,8 @@ screen, err := client.ReadScreen(ctx, surface.Surface)
 the server's short-path fallback when the preferred Unix socket path exceeds
 the platform limit. An explicit `Options.SocketPath` has highest precedence.
 Session-derived paths reject empty, `.`, `..`, separators, NUL, Unicode
-control characters, Unicode line separators, and malformed UTF-8. Spaces,
+control characters, Unicode line separators, and malformed UTF-8 byte
+sequences (including lone UTF-16 surrogate encodings). Spaces,
 Unicode, punctuation, and long legacy-safe names remain valid. `ResolveSocketPath`
 returns `ErrInvalidArgument` before any dial. The source-compatible
 `DefaultSocketPath` helper returns a deterministic SHA-256 leaf in a separate
