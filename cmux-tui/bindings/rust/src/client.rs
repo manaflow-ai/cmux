@@ -271,6 +271,7 @@ pub struct ServerInfo {
 pub struct CmuxClient {
     config: ClientConfig,
     connection: JsonLineConnection,
+    allow_legacy_fallback: bool,
     next_id: u64,
     server: Option<ServerInfo>,
     buffered_events: VecDeque<Event>,
@@ -278,6 +279,14 @@ pub struct CmuxClient {
 
 impl CmuxClient {
     pub fn connect(config: ClientConfig) -> Result<Self> {
+        Self::connect_inner(config, false)
+    }
+
+    pub fn connect_with_legacy_fallback(config: ClientConfig) -> Result<Self> {
+        Self::connect_inner(config, true)
+    }
+
+    fn connect_inner(config: ClientConfig, allow_legacy_fallback: bool) -> Result<Self> {
         if config.max_queued_events == 0 {
             return Err(CmuxError::InvalidArgument(
                 "max_queued_events must be greater than zero".to_string(),
@@ -294,7 +303,7 @@ impl CmuxClient {
             && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
             && matches!(config.authority, SocketAuthority::Derived)
             && is_hashed_socket(&config.socket_path)
-            && env_socket_path().as_ref() != Some(&config.socket_path)
+            && allow_legacy_fallback
         {
             let Some(legacy) = hashed_socket_legacy_path(&config.socket_path) else {
                 return match connection {
@@ -313,7 +322,14 @@ impl CmuxClient {
             }
         }
         let connection = connection?;
-        Ok(Self { config, connection, next_id: 1, server: None, buffered_events: VecDeque::new() })
+        Ok(Self {
+            config,
+            connection,
+            allow_legacy_fallback,
+            next_id: 1,
+            server: None,
+            buffered_events: VecDeque::new(),
+        })
     }
 
     pub fn config(&self) -> &ClientConfig {
