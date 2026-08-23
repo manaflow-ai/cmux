@@ -156,6 +156,13 @@ impl std::error::Error for CmuxError {
 }
 
 #[derive(Debug, Clone)]
+enum SocketAuthority {
+    Explicit,
+    Derived,
+}
+
+#[non_exhaustive]
+#[derive(Debug, Clone)]
 pub struct ClientConfig {
     pub socket_path: PathBuf,
     pub timeout: Duration,
@@ -166,6 +173,7 @@ pub struct ClientConfig {
     /// This is disabled by default. Control, frontend, and local-admin
     /// commands remain enabled.
     pub allow_provider_authority: bool,
+    authority: SocketAuthority,
 }
 
 impl ClientConfig {
@@ -176,7 +184,14 @@ impl ClientConfig {
             max_frame_bytes: 32 * 1024 * 1024,
             max_queued_events: 1_024,
             allow_provider_authority: false,
+            authority: SocketAuthority::Explicit,
         }
+    }
+
+    fn from_derived_socket_path(socket_path: PathBuf) -> Self {
+        let mut config = Self::from_socket_path(socket_path);
+        config.authority = SocketAuthority::Derived;
+        config
     }
 
     /// Builds a configuration from the environment or a named session.
@@ -189,7 +204,7 @@ impl ClientConfig {
     /// [`Self::try_from_env_or_default_session`] to receive the validation error.
     pub fn from_env_or_default_session(session: &str) -> Self {
         let environment = env_socket_path();
-        let config = Self::from_socket_path(compatibility_socket_path_for_session(
+        let config = Self::from_derived_socket_path(compatibility_socket_path_for_session(
             session,
             environment.clone(),
         ));
@@ -207,7 +222,7 @@ impl ClientConfig {
     pub fn try_from_env_or_default_session(session: &str) -> Result<Self> {
         let environment = env_socket_path();
         let socket_path = socket_path_for_session(session, environment.clone())?;
-        Ok(Self::from_socket_path(socket_path))
+        Ok(Self::from_derived_socket_path(socket_path))
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
@@ -269,6 +284,7 @@ impl CmuxClient {
         );
         if let Err(CmuxError::ConnectionIo { kind, .. }) = &connection
             && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
+            && matches!(config.authority, SocketAuthority::Derived)
             && is_hashed_socket(&config.socket_path)
             && env_socket_path().as_ref() != Some(&config.socket_path)
         {
