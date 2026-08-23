@@ -583,19 +583,14 @@ fn send_to_slot(shared: &ProxyShared, role: PeerRole, text: String) {
     if let Ok(mut slot) = peer_slot(shared, role).lock()
         && let Some(peer) = slot.as_ref()
     {
-        let message = tungstenite::Message::text(text);
-        match enqueue_message(&peer.tx, &peer.queued_bytes, message) {
-            Ok(()) => {}
-            // Drop the peer on saturation. This closes its bounded channel
-            // and lets the writer terminate after draining at most the cap.
-            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-                let _ = slot.take();
+        if enqueue_message(&peer.tx, &peer.queued_bytes, tungstenite::Message::text(text)).is_err() {
+            // A saturated peer is no longer coherent. Remove it instead of
+            // silently dropping a CDP frame, then let its writer terminate.
+            let _ = slot.take();
+            if role == PeerRole::Page {
                 if role == PeerRole::Page {
                     shared.target_connected.store(false, Ordering::Relaxed);
                 }
-            }
-            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                let _ = slot.take();
             }
         }
     }
@@ -670,7 +665,15 @@ async fn run_peer<S>(
         for method in ["Runtime.enable", "Network.enable", "Page.enable"] {
             let id = shared.next_cdp_id.fetch_add(1, Ordering::Relaxed);
             let message = Message::text(format!("{{\"id\":{id},\"method\":\"{method}\"}}"));
-            let _ = enqueue_message(&tx, &queued_bytes, message);
+            if enqueue_message(&tx, &queued_bytes, message).is_err() {
+                if let Ok(mut slot) = peer_slot(&shared, role).lock()
+                    && slot.as_ref().is_some_and(|peer| peer.id == peer_id)
+                {
+                    *slot = None;
+                }
+                shared.target_connected.store(false, Ordering::Relaxed);
+                return;
+            }
         }
     }
     let writer_queued_bytes = Arc::clone(&queued_bytes);
@@ -706,7 +709,9 @@ async fn run_peer<S>(
                 }
             }
             Message::Ping(payload) => {
-                let _ = enqueue_message(&tx, &queued_bytes, Message::Pong(payload));
+                if enqueue_message(&tx, &queued_bytes, Message::Pong(payload)).is_err() {
+                    break;
+                }
             }
             Message::Close(_) => break,
             _ => {}
