@@ -22,12 +22,18 @@ private struct FixedEditor: PreferredEditorReading {
 @Suite("PreferredEditorService")
 @MainActor
 struct PreferredEditorServiceTests {
-    @Test(arguments: ["nvim", "/opt/homebrew/bin/nvim", "env nvim", "vim --clean"])
+    @Test(arguments: [
+        "nvim", "/opt/homebrew/bin/nvim", "env nvim", "/usr/bin/env nvim",
+        "env FOO=1 nvim", "env -u TERM nvim", "vim --clean"
+    ])
     func terminalEditorsAreDetected(command: String) {
         #expect(PreferredEditorService.isTerminalEditorCommand(command))
     }
 
-    @Test(arguments: ["code", "/Applications/Zed.app/Contents/MacOS/zed", "my-nvim-wrapper"])
+    @Test(arguments: [
+        "code", "/Applications/Zed.app/Contents/MacOS/zed", "my-nvim-wrapper",
+        "env FOO=1 code", "env -u TERM /Applications/Zed.app/Contents/MacOS/zed"
+    ])
     func graphicalEditorsAreNotDetected(command: String) {
         #expect(!PreferredEditorService.isTerminalEditorCommand(command))
     }

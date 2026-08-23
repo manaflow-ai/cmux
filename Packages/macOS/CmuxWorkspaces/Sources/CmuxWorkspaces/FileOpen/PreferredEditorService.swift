@@ -33,9 +33,17 @@ public struct PreferredEditorService: FileOpening {
 
     static func isTerminalEditorCommand(_ command: String) -> Bool {
         let tokens = command.split { $0 == " " || $0 == "\t" }
-        guard var executable = tokens.first else { return false }
-        if executable == "env", tokens.count > 1 {
-            executable = tokens[1]
+        guard let first = tokens.first else { return false }
+        var executable = first
+        if URL(fileURLWithPath: String(executable)).lastPathComponent == "env" {
+            // `/usr/bin/env`, assignments, and options all precede the actual
+            // command. This handles forms such as `env FOO=1 nvim` and
+            // `env -u TERM nvim` without attempting to parse shell syntax.
+            guard let resolved = tokens.dropFirst().first(where: { token in
+                let value = String(token)
+                return !value.hasPrefix("-") && !value.contains("=")
+            }) else { return false }
+            executable = resolved
         }
         return terminalEditorNames.contains(
             URL(fileURLWithPath: String(executable)).lastPathComponent
