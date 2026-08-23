@@ -24,7 +24,11 @@ from ..errors import (
     ProtocolError,
     TimeoutError,
 )
-from ..client_defaults import default_socket_path, env_socket_path, legacy_raw_socket_path
+from ..client_defaults import (
+    _legacy_raw_socket_fallback_path,
+    default_socket_path,
+    env_socket_path,
+)
 from ..transport import DEFAULT_MAX_LINE_BYTES, JsonLineConnection
 
 
@@ -215,7 +219,7 @@ class CmuxClient(GeneratedClientMixin):
         explicit = socket_path or env_socket_path()
         self.socket_path = explicit or default_socket_path(session)
         self._fallback_socket_path = (
-            legacy_raw_socket_path(session)
+            _legacy_raw_socket_fallback_path(session)
             if not explicit and "cmux-tui-hashed-" in self.socket_path
             else None
         )

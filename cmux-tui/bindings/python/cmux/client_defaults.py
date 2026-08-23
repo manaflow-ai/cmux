@@ -69,6 +69,11 @@ def legacy_raw_socket_path(session: str) -> str:
     return os.path.join("/tmp", f"cmux-tui-{os.getuid()}", f"{session}.sock")
 
 
+def _legacy_raw_socket_fallback_path(session: str) -> Optional[str]:
+    path = legacy_raw_socket_path(session)
+    return path if _unix_socket_path_fits(path) else None
+
+
 def env_socket_path() -> Optional[str]:
     return os.environ.get("CMUX_TUI_SOCKET") or os.environ.get("CMUX_MUX_SOCKET") or None
 

@@ -23,7 +23,11 @@ from typing import (
 
 from ._operations import Operation, Operations
 from ._protocol import ProtocolConnection, ResourceStream
-from .client_defaults import default_socket_path, env_socket_path, legacy_raw_socket_path
+from .client_defaults import (
+    _legacy_raw_socket_fallback_path,
+    default_socket_path,
+    env_socket_path,
+)
 from .errors import (
     CancelledError,
     CmuxConnectionError,
@@ -2239,7 +2243,7 @@ class Client:
         self.socket_path = explicit or default_socket_path(session)
         self.timeout = timeout
         fallback = (
-            legacy_raw_socket_path(session)
+            _legacy_raw_socket_fallback_path(session)
             if not explicit and "cmux-tui-hashed-" in self.socket_path
             else None
         )

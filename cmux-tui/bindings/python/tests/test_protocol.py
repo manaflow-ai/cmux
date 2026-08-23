@@ -2,10 +2,16 @@ from __future__ import annotations
 
 import inspect
 import os
+import sys
 import unittest
 from unittest.mock import patch
 
+from cmux.client_defaults import (
+    _legacy_raw_socket_fallback_path,
+    legacy_raw_socket_path,
+)
 from cmux.raw import (
+    CmuxClient,
     MISSING,
     MUX_PROTOCOL,
     UnknownEvent,
@@ -171,6 +177,23 @@ class GeneratedProtocolTests(unittest.TestCase):
                 default_socket_path(session),
                 f"/run/user/501/cmux-tui-hashed-{os.getuid()}/{digest}.sock",
             )
+
+    def test_overlong_legacy_path_is_not_configured_as_fallback(self) -> None:
+        session = "legacy-" + "x" * 200
+
+        self.assertGreaterEqual(
+            len(os.fsencode(legacy_raw_socket_path(session))),
+            104 if sys.platform == "darwin" else 108,
+        )
+        self.assertIsNone(_legacy_raw_socket_fallback_path(session))
+        self.assertEqual(
+            _legacy_raw_socket_fallback_path("sdk"),
+            legacy_raw_socket_path("sdk"),
+        )
+        with patch("cmux.raw.client.JsonLineConnection") as connection:
+            CmuxClient(session=session)
+
+        self.assertIsNone(connection.call_args.kwargs["fallback_path"])
 
     def test_empty_socket_environment_values_are_ignored(self) -> None:
         with patch.dict(
