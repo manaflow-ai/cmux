@@ -14611,9 +14611,12 @@ impl App {
                         }
                         self.layout_refresh_retries_remaining = LAYOUT_REFRESH_RETRIES;
                         if let Some(error) = error {
-                            self.status_message = Some(format!(
-                                "session changed, but its layout refresh failed: {error}"
-                            ));
+                            self.status_message = Some(
+                                localization::catalog()
+                                    .sidebar
+                                    .layout_refresh_failed
+                                    .replace("{error}", &error),
+                            );
                         }
                         self.session.invalidate_remote_tree();
                         self.session.refresh_remote_tree_if_stale();
@@ -14622,9 +14625,12 @@ impl App {
                         if !self.accept_refresh_sequence(refresh_sequence) {
                             return Ok(RenderAction::None);
                         }
-                        self.status_message = Some(format!(
-                            "session changed, but its layout is still stale: {error}"
-                        ));
+                        self.status_message = Some(
+                            localization::catalog()
+                                .sidebar
+                                .layout_stale
+                                .replace("{error}", &error),
+                        );
                         let refresh_stale = self.layout_refresh_retries_remaining > 0;
                         if refresh_stale {
                             self.layout_refresh_retries_remaining -= 1;
@@ -17551,11 +17557,13 @@ impl App {
             }
             FileCommand::Cd(path) => {
                 let Some(surface_id) = self.active_surface() else {
-                    self.sidebar_files.set_message("no focused pane");
+                    self.sidebar_files
+                        .set_message(localization::catalog().sidebar.file_no_focused_pane);
                     return;
                 };
                 let Some(surface) = self.session.surface(surface_id) else {
-                    self.sidebar_files.set_message("focused surface is unavailable");
+                    self.sidebar_files
+                        .set_message(localization::catalog().sidebar.file_surface_unavailable);
                     return;
                 };
                 let quoted = shell_single_quote(&path.to_string_lossy());
@@ -17568,7 +17576,9 @@ impl App {
                 ) {
                     Ok(())
                 } else {
-                    Err(anyhow::anyhow!("input was not queued"))
+                    Err(anyhow::anyhow!(
+                        localization::catalog().sidebar.file_input_not_queued
+                    ))
                 }
             }
             FileCommand::OpenEditor(path) => {
@@ -17595,7 +17605,9 @@ impl App {
             ),
         };
         match result {
-            Ok(()) => self.sidebar_files.set_message("sent to focused pane"),
+            Ok(()) => self
+                .sidebar_files
+                .set_message(localization::catalog().sidebar.file_sent_to_focused_pane),
             Err(error) => self.sidebar_files.set_message(error.to_string()),
         }
     }
