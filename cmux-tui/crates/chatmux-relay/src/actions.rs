@@ -583,7 +583,7 @@ pub fn command_with_process_files(command: &str, files: &[RuntimeFile]) -> Strin
     setup.push(format!("__chatmux_cleanup() {{ {cleanup_body}; }}"));
     setup.push("trap __chatmux_cleanup EXIT".to_owned());
     setup.push("trap 'exit 143' HUP INT TERM".to_owned());
-    setup.push(format!("( bash -lc {} )", shell_quote(command)));
+    setup.push(format!("( /bin/sh -c {} )", shell_quote(command)));
     setup.push("__chatmux_status=$?".to_owned());
     setup.push("__chatmux_cleanup".to_owned());
     setup.push("trap - EXIT HUP INT TERM".to_owned());
@@ -686,6 +686,10 @@ async fn run_spec(
                 }
             }
             status = child.wait(), if exited.is_none() => {
+                // The child is gone. Do not let a pending escalation signal
+                // fire against a PID that the OS may reuse while descendants
+                // keep the output pipes open.
+                kill_deadline = None;
                 exited = Some(match status {
                     Ok(status) => status.code().map(i64::from).unwrap_or(1),
                     Err(_) => 1,
