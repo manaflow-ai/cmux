@@ -18450,7 +18450,7 @@ impl App {
             Action::ToggleSidebarView => self.toggle_sidebar_view(),
             Action::FocusSidebar => self.toggle_sidebar_focus(),
             Action::ProviderMenu => {
-                if self.focus == FocusTarget::MachineSidebar {
+                if self.focus == FocusTarget::MachineRail {
                     self.open_provider_rail_menu(1, 2);
                 } else {
                     self.sidebar_compact = !self.sidebar_compact;
