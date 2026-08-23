@@ -4362,6 +4362,7 @@ pub struct MenuLevel {
     pub items: Arc<[MenuItem]>,
     all_items: Arc<[MenuItem]>,
     pub selected: usize,
+    pub selection_active: bool,
     pub scroll_offset: usize,
     visible_rows: usize,
     fitted_rows: Option<usize>,
@@ -4391,6 +4392,7 @@ impl MenuLevel {
             all_items: items.clone(),
             items,
             selected,
+            selection_active: true,
             scroll_offset: 0,
             visible_rows,
             fitted_rows: None,
@@ -4433,7 +4435,7 @@ impl MenuLevel {
     }
 
     fn ensure_selection_visible(&mut self) {
-        if self.visible_rows == 0 || self.items.is_empty() {
+        if !self.selection_active || self.visible_rows == 0 || self.items.is_empty() {
             self.scroll_offset = 0;
             return;
         }
@@ -4485,6 +4487,7 @@ impl MenuLevel {
         self.all_items = items.clone();
         self.items = items;
         self.selected = self.items.iter().position(MenuItem::selectable).unwrap_or(0);
+        self.selection_active = true;
         self.scroll_offset = 0;
         self.visible_rows = self.items.len();
         self.fitted_rows = None;
@@ -4772,6 +4775,9 @@ impl ContextMenu {
 
     fn selected_action(&self) -> Option<MenuAction> {
         let level = self.levels.last()?;
+        if !level.selection_active {
+            return None;
+        }
         level.items.get(level.selected).and_then(MenuItem::action)
     }
 
@@ -4859,8 +4865,9 @@ impl ContextMenu {
         if !level.items.get(item).is_some_and(MenuItem::selectable) {
             return false;
         }
-        let changed = level.selected != item || had_deeper_level;
+        let changed = !level.selection_active || level.selected != item || had_deeper_level;
         level.selected = item;
+        level.selection_active = true;
         level.ensure_selection_visible();
         self.levels.truncate(depth + 1);
         self.open_selected_submenu();
@@ -4878,6 +4885,14 @@ impl ContextMenu {
 
     fn select_previous(&mut self) {
         let Some(level) = self.levels.last_mut() else { return };
+        if !level.selection_active {
+            if let Some(index) = level.items.iter().rposition(MenuItem::selectable) {
+                level.selected = index;
+                level.selection_active = true;
+                level.ensure_selection_visible();
+            }
+            return;
+        }
         if let Some(index) = level
             .items
             .get(..level.selected)
@@ -4892,6 +4907,14 @@ impl ContextMenu {
 
     fn select_next(&mut self) {
         let Some(level) = self.levels.last_mut() else { return };
+        if !level.selection_active {
+            if let Some(index) = level.items.iter().position(MenuItem::selectable) {
+                level.selected = index;
+                level.selection_active = true;
+                level.ensure_selection_visible();
+            }
+            return;
+        }
         let start = level.selected.saturating_add(1);
         if let Some(offset) =
             level.items.get(start..).and_then(|items| items.iter().position(MenuItem::selectable))
@@ -17118,11 +17141,13 @@ impl App {
                     machine.select_rail_target(target);
                 }
                 None
-            } else if key.modifiers == KeyModifiers::NONE && key.code == KeyCode::Char('m') {
+            } else if self.config.keys.action_for(key) == Some(Action::ProviderMenu)
+                || (key.modifiers == KeyModifiers::NONE && key.code == KeyCode::Char('m'))
+            {
                 // Keyboard twin of right-clicking "+ new vm" or the rail
-                // pad: provider scope switching and provider actions. Plain
-                // `m` only: Alt/Ctrl-m keep their normal routing (Ctrl-m is
-                // an Enter equivalent in terminal input).
+                // pad. This rail-local route uses the configured prefix-key
+                // chord without requiring the prefix while the rail owns
+                // direct input. Modeless chords resolve before this handler.
                 Some(MachineRailCommand::ProviderMenu)
             } else if let Some(MachineRailTarget::Machine(machine_key)) =
                 targets.get(current).copied()
@@ -17434,6 +17459,7 @@ impl App {
         if scopes.is_empty() && actions.is_empty() {
             return false;
         }
+        let has_scopes = !scopes.is_empty();
         let mut groups = Vec::new();
         if !scopes.is_empty() {
             groups.push(scopes);
@@ -17446,6 +17472,13 @@ impl App {
         if let (Some(level), Some(selected)) = (menu.levels.first_mut(), selected_scope) {
             level.selected = selected;
             level.ensure_selection_visible();
+        } else if !has_scopes {
+            // One scope is not a switch choice. Keep the combined menu inert
+            // until the user moves or clicks, so Enter cannot invoke its
+            // first provider action as a side effect of opening the menu.
+            if let Some(level) = menu.levels.first_mut() {
+                level.selection_active = false;
+            }
         }
         self.menu = Some(menu);
         self.capture_menu_resources();
@@ -37341,6 +37374,35 @@ mod tests {
         assert!(app.menu.is_none(), "Alt-m must not open the provider menu");
         app.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::CONTROL)).unwrap();
         assert!(app.menu.is_none(), "Ctrl-m must not open the provider menu");
+    }
+
+    #[test]
+    fn configured_provider_menu_binding_opens_from_the_machine_rail() {
+        let mux = Mux::new("provider-menu-configured-key-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.config.keys.apply_for_test(&HashMap::from([(
+            "provider-menu".to_string(),
+            Value::String("x".to_string()),
+        )]));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)).unwrap();
+        assert!(app.menu.is_some(), "configured provider-menu chord must open on the rail");
+    }
+
+    #[test]
+    fn single_provider_scope_menu_starts_inert() {
+        let mux = Mux::new("provider-menu-single-scope-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = provider_controls_ui();
+        ui.provider.as_mut().unwrap().scopes.truncate(1);
+        app.machine_ui = Some(ui);
+
+        assert!(app.open_provider_rail_menu(1, 2));
+        let menu = app.menu.as_ref().unwrap();
+        assert!(!menu.levels[0].selection_active);
+        assert_eq!(menu.selected_action(), None);
     }
 
     #[test]
