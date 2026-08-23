@@ -3,7 +3,7 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `aggregate-final`.
-Current integration code tip before this documentation commit: `4efcee9a19f55322bc16cde24e2e54dade445ae9` (`fix(tui): bound journal protocol compatibility`).
+Current integration code tip before this documentation commit: `643dbfe2e5d688f07f633b92d758e7990ad55e31` (`Wake watch loop for latched errors and send failures`).
 Exact worktree HEAD: run `git rev-parse HEAD` (documentation commits change this value).
 The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
 The current integration sequence includes the hosted formatter and verification
@@ -14,11 +14,11 @@ through `638e536f03`. Localization recovery is recorded in `01c4a2de8d`,
 `638e536f03`, and `f04c5409a0`. The aggregate tail adds legacy hashed-socket
 fallbacks for Python, TypeScript, Rust, Java, Zig, Go, and C++, bounded Unix JSON
 readers, wire-identity preflight, independent config-section recovery,
-localization recovery, and systemd quoting fixes through the current code tip
-`4efcee9a19`. The final tail also includes
-Go fallback-state minimization and joined fallback errors, C++ attachment errno
-handling, path-bound Rust errors and tests, trailing-whitespace cleanup, and
-literal-percent escaping for systemd paths.
+localization recovery, and systemd quoting fixes. The current tail also bounds
+relay and remote queues, validates relay frame versions, joins Python cleanup,
+uses one Go fallback deadline, guards TypeScript transport callbacks, bounds
+Iroh result delivery, and hardens filesystem-watch admission and overflow
+wakeup through `643dbfe2e5`.
 
 Subagent ledger: at least 180 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
@@ -28,8 +28,8 @@ inflate the count. New turns must have a named deliverable.
 
 ## Current state
 
-The latest code tail is `4efcee9a19`. It is a compatibility, lifecycle, and
-documentation update. The issues below remain open.
+The latest code tail is `643dbfe2e5`. It is a compatibility, lifecycle, and
+queue-ownership update. The issues below remain open.
 
 ### Open issue inventory
 
@@ -684,3 +684,64 @@ absolute/home-relative contract.
 | [https://github.com/manaflow-ai/cmux/pull/10607](https://github.com/manaflow-ai/cmux/pull/10607) | Lawrence Chen | Open, head `126d772a131ce71f245ae56c3048aa99f3607d17` | Superseded by [https://github.com/manaflow-ai/cmux/pull/10603](https://github.com/manaflow-ai/cmux/pull/10603), which contains its identity-shape and protocol fixes. |
 | [https://github.com/manaflow-ai/cmux/pull/10609](https://github.com/manaflow-ai/cmux/pull/10609) | Lawrence Chen | Open, head `bdcbb8c8049eb552a0d646cdce78d58d294b7b82` | Needs review for action-result queue ownership, saturation, cancellation, and retry behavior. |
 | [https://github.com/manaflow-ai/cmux/pull/10612](https://github.com/manaflow-ai/cmux/pull/10612) | Lawrence Chen | Open, clean head `1a7f82c9d59755db3b00f27040b37a4aeb10c7b4` | Needs review. Inherited Greptile finding: `theme.chrome=auto` documentation says unavailable OSC 11 always falls back to dark, while startup uses the configured-background fallback. Resolve the documentation/runtime mismatch before merge. |
+
+## Wave 22 bounded transport tail
+
+The exact aggregate code tip immediately before this board commit is
+`643dbfe2e5d688f07f633b92d758e7990ad55e31`. The companion
+`TECH-DEBT-CHANGELOG.md` is a historical snapshot at an older tip. This table
+is the current revert map. A bound at one ingress edge is not a claim of global
+backpressure or complete remote-session recovery.
+
+| Commit | Change | Evidence and residual risk | Revert chain |
+| --- | --- | --- | --- |
+| [`30419a1ad9`](https://github.com/manaflow-ai/cmux/commit/30419a1ad9943ead006239aa46358227fdb21f8e) and [`7f8c8c3f11`](https://github.com/manaflow-ai/cmux/commit/7f8c8c3f11e2ff6563993f72e6f2f494f7ec2071) | Bound remote stream chunk channels and add saturation, reset-drain, and permit-release tests. | `try_send` resets a full stream and releases its budget. Hosted cross-client reset and retry behavior remain open. | Revert the channel change and its tests together. |
+| [`70ac436947`](https://github.com/manaflow-ai/cmux/commit/70ac43694725ed14abf1a01ab42b62141abc9853), [`33c5804900`](https://github.com/manaflow-ai/cmux/commit/33c58049008f71fedfef2ca5845bd9733a9d2594), [`b233104b30`](https://github.com/manaflow-ai/cmux/commit/b233104b3036275c1a359d8d83b9ba717a6fa637), and [`aadd1c8da8`](https://github.com/manaflow-ai/cmux/commit/aadd1c8da8b83b480aebb1f720e5322b8f335a93) | Bound preview WebSocket queues by message count and bytes, cancel replaced peers, admit a complete PTY frame before the output cap, and bound displaced-peer writer cleanup. | Slow peers now fail closed or receive a bounded close. The one-second flush policy and raw attach backlog truncation still need behavior tests. | Revert the preview queue, cancellation, PTY admission, and cleanup commits as one peer-lifecycle chain. |
+| [`35a3aaa104`](https://github.com/manaflow-ai/cmux/commit/35a3aaa10454b7206f54f8259bac1bf43622f06c) | Reject oversized critical frames and limit critical-frame priority bursts so watch traffic gets service. | Queue fairness is explicit. Global producer ownership and retry semantics remain open. | Revert this outbound scheduling change independently. |
+| [`80d5a5393c`](https://github.com/manaflow-ai/cmux/commit/80d5a5393cc5654d00d254adc9c9b78c4e1573df), [`8c9e530326`](https://github.com/manaflow-ai/cmux/commit/8c9e530326af78ff0e2f256835746bb87d44c714), and [`9a887a2e05`](https://github.com/manaflow-ai/cmux/commit/9a887a2e05917572be7b7a79ec94e2ccdb5f81c) | Validate known relay frame versions, bound Iroh accept-result buffering, and make watch replacement and overflow signaling generation-safe. | Malformed known versions fail closed. Hosted cross-version, Iroh shutdown, and filesystem-watch cancellation tests remain required. | Revert protocol parsing separately; revert Iroh and watch admission together with their lifecycle tests. |
+| [`c7e66ee6ac`](https://github.com/manaflow-ai/cmux/commit/c7e66ee6ac4e7e42798faba2635869337801cbb6) | Reserve filesystem-watch capacity before spawning and announce an opened watch before event delivery. | Prevents duplicate admission during a race. Synchronous filesystem work, parent-directory TOCTOU, and cancellation after disconnect remain open. | Revert this watch ownership change with the watch replacement chain. |
+| [`2ac781a18e`](https://github.com/manaflow-ai/cmux/commit/2ac781a18ef25a019bb5cb22d65b6b02688dca5f), [`e7a931766a`](https://github.com/manaflow-ai/cmux/commit/e7a931766adc6709f3f5422d2f0ee3acb616c731), and [`643dbfe2e5`](https://github.com/manaflow-ai/cmux/commit/643dbfe2e5d688f07f633b92d758e7990ad55e31) | Install watch tasks only for the current generation, latch watcher errors when the bounded event queue is full, and wake the loop for latched errors or outbound send failure. | Overflow and watcher errors now reach the loop instead of waiting indefinitely. Cancellation after disconnect, synchronous filesystem work, and parent-directory TOCTOU remain open. | Revert these three watch wakeup and lifecycle commits together with the watch admission chain. |
+| [`c30f737369`](https://github.com/manaflow-ai/cmux/commit/c30f7373694abfe39f52aa58330ffe011139f7fd), [`dc8f116bfd`](https://github.com/manaflow-ai/cmux/commit/dc8f116bfda28021670b4668f37a7c693b4b84e8), and [`41a1bebf4c`](https://github.com/manaflow-ai/cmux/commit/41a1bebf4c77299ef7d271462e732aba37d9576d) | Guard TypeScript data callbacks, share one Go fallback deadline, and make concurrent Python close callers await one cleanup task. | The callback no longer escapes through `EventEmitter`; fallback no longer multiplies the timeout; Python cleanup is joinable. Long Unicode socket paths and hosted multi-language cancellation tests remain open. | Revert each binding fix with its focused test; do not revert the shared protocol contract. |
+
+## Open user intents mined from `~/.claude` and `~/.codex`
+
+These records are requests, not completion evidence. Every row remains open
+unless its acceptance column says that a narrow implementation slice exists.
+
+| Intent | Evidence path and lines | Acceptance and current status |
+| --- | --- | --- |
+| Session catalog, device identity, and one canonical session across devices. | `/Users/lawrence/.codex/history.jsonl:18409,18422,18428`; `/Users/lawrence/.claude/history.jsonl:20261,20280` | A fresh TUI starts with one session, workspace, screen, and terminal. A catalog exposes stable device and session IDs. macOS and iPhone attach to the same canonical session, and a multi-device rail can reorder without creating duplicates. Open. |
+| PTY ownership and persistence across cmux restart, plus one terminal worker per workspace. | `/Users/lawrence/.codex/sessions/2026/07/16/rollout-2026-07-16T21-13-34-019f6e47-9ae4-7073-a6b6-d441ebf6a707.jsonl:9,103,133,212,697,718,772`; `/Users/lawrence/.codex/history.jsonl:17607-17614` | A stable host or cmux-tui owner keeps the PTY and process alive across Swift or renderer restart. One helper process serves one workspace, with one terminal process per workspace as the ownership contract, not one shared PTY for unrelated sessions. No duplicate PTY readers, dropped startup commands, or output overtaking. Open. |
+| cmux-tui backend IPC and state contract, with measured render and PTY isolation. | `/Users/lawrence/.codex/sessions/2026/07/16/rollout-2026-07-16T21-13-34-019f6e47-9ae4-7073-a6b6-d441ebf6a707.jsonl:617,943,1010,1596,1679,1828,2124,2142` | Define versioned input, resize, focus, semantic-state, frame-sequence, launch-token, and restart messages. Prove PID ownership, frame latency, CPU, and memory separately for renderer and PTY paths. The transcript reports a fallback worker and no valid performance result, so this is open. |
+| Stale pane and surface self-heal. | `/Users/lawrence/.codex/history.jsonl:18517-18518,17151,17163,17176`; `/Users/lawrence/.claude/history.jsonl:88931,88938,89986`; `/Users/lawrence/.codex/sessions/2026/07/16/rollout-2026-07-16T21-13-34-019f6e47-9ae4-7073-a6b6-d441ebf6a707.jsonl:1828,2124,2142` | Detect missing or stale references, refresh the authoritative catalog, close dead viewers, and reattach without duplicate viewers or orphan PTYs. Reconnect must report a bounded, actionable error when the host or relay is stale. Open. |
+| Journal-first persistence and restart recovery. | `/Users/lawrence/.codex/history.jsonl:17607-17614,17620,17623`; `/Users/lawrence/.claude/history.jsonl:89427,89528,89886` | Provider hooks append events. A deterministic reducer rebuilds projections and idempotency receipts in one SQLite transaction. The live PTY owner handles detach and mux restart. Host reboot recovery needs explicit policy and journaled intent and outcome. Do not treat a snapshot or a process restart as proof of recovery. Open. |
+| npm and PyPI packaging with executable smoke checks. | `/Users/lawrence/.codex/history.jsonl:18401,18484,18569-18572`; `/Users/lawrence/.claude/history.jsonl:89295,89298`; `.github/workflows/cmux-tui-build-package.yml:625-750`; `tests/test_tui_npm_package_artifact.py:213-218` | Build npm directories and exactly six version-matched wheels, validate `RECORD` and hook mode, install offline, run `cmux --help`, and test Linux x64 and arm64 entrypoints. The validator is now called before wheel smoke checks. Hosted publish and registry-install proof remain open. |
+| Versioned socket and WebSocket API. | `/Users/lawrence/.codex/history.jsonl:15355,15358-15360`; `/Users/lawrence/.claude/history.jsonl:87965`; `/Users/lawrence/.codex/sessions/2026/07/16/rollout-2026-07-16T18-27-37-019f6daf-ad64-7063-b9dd-af12d63e945b.jsonl:131` | Unix socket, SSH, WebSocket, and Iroh transports must share one authenticated workspace contract. Subscribe-before-snapshot, attach-surface, ordered events, bounded frames, reconnect, and close behavior must be tested on each transport. Open. |
+| Remote attach and Iroh discovery. | `/Users/lawrence/.codex/history.jsonl:15355,16276,16290-16294,17151,17153,17163,17176`; `/Users/lawrence/.claude/history.jsonl:87548-87549,87765-87766,87776,87802` | Authenticated devices discover peers without a hidden polling dependency. Remote attach must prove PTY ownership, direct versus relay path, latency, reconnect, and cleanup. Existing Iroh preflight reports a closed host and missing socket, so no success claim is allowed. Open. |
+| Cloud snapshot no-go for live PTY persistence. | `/Users/lawrence/.codex/history.jsonl:18564,18569-18572`; `/Users/lawrence/.claude/history.jsonl:87599,89270,89295,89298` | A provider snapshot may package cmux-tui and tools in a base image. It must not be treated as the journal, a live PTY owner, or a restart guarantee. Measure snapshot and resume times separately, and reject a cloud integration until provider restore semantics and secret boundaries are proven. Explicit no-go for inferring persistence from a snapshot. |
+| Semantic colors and cross-platform parity. | `/Users/lawrence/.codex/history.jsonl:18402,18410,18423-18424,18461,18472`; `/Users/lawrence/.claude/history.jsonl:87551,87950,87970`; [PR #10612](https://github.com/manaflow-ai/cmux/pull/10612) | Compare semantic ANSI, OSC, theme-query, cursor, and font behavior against Ghostty on macOS, Linux, Windows, and remote clients. Include light and dark backgrounds, 256-color output, Kitty graphics, and screenshot or pixel evidence. The current review mismatch for `theme.chrome=auto` is unresolved. Open. |
+
+## Residual risks after Wave 22
+
+- Several queues now have byte and count caps, but a workspace producer can
+  still outlive its consumer across disconnect, retry, and shutdown. Ownership,
+  cancellation, and permit release need an end-to-end behavior test.
+- PTY output admission checks a complete frame at one boundary. Raw attach
+  backlog truncation, late output after close, and every other producer path
+  still need an explicit rejection or loss contract.
+- Synchronous canonicalization and filesystem work can block a request path.
+  Validation and later use still have a parent-directory TOCTOU window.
+- Relative PTY cwd migration needs a documented absolute or home-relative
+  contract. Existing rejection is safer, but it can break old callers.
+- Iroh connection teardown can wait for a long pre-auth timeout. Tie link
+  shutdown to connection cancellation before claiming prompt cleanup.
+- The renderer transcript has no live worker PID or completed IOSurface proof.
+  No render or PTY performance result is claimed.
+- No local Rust compile or end-to-end hosted result is claimed in this board.
+  Cross-language packaging, relay, restore, and remote attach remain open.
+- Java connect-timeout and strict-tab cleanup are recorded as addressed in
+  Wave 21. Do not re-list them as current defects without a new reproduction.
+
+The ledger remains an honest lower bound of at least 180 substantive agent
+turns. It is not an exact session-file count. The requested 10,000-session
+target is not reached, and no empty sessions were created to inflate it.
