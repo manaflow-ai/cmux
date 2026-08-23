@@ -684,14 +684,6 @@ impl RemoteSurface {
         let mut fresh = Terminal::new(cols, rows, 10_000, Callbacks::default())?;
         fresh.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
         fresh.apply_vt_replay_parts(replay, replay_aliases, replay_state)?;
-        if daemon_replay {
-            // Daemons without the replay mouse-format suffix serialize the
-            // extended-coordinate mode flags in numeric order, losing the
-            // last-set-wins active encoding (SGR replayed before urxvt).
-            // Prefer SGR when the replay left both flagged, so forwarded
-            // clicks stay parseable by the inner app (btop reads only SGR).
-            fresh.normalize_replayed_mouse_format();
-        }
         if let Some(colors) = colors {
             apply_terminal_colors(&mut fresh, colors);
         }
@@ -4554,14 +4546,8 @@ mod tests {
         );
     }
 
-    /// Older daemons serialize mouse DECSETs as a numeric flag dump
-    /// (1002, 1006, 1015), losing last-set-wins. A client attached to such a
-    /// daemon must still prefer SGR over urxvt when both are flagged: every
-    /// known app that enables both sets SGR last and parses only SGR.
-    /// The SGR-preference fallback must not override an application that
-    /// deliberately set urxvt last: a fixed daemon's replay carries only the
-    /// active selector, so both flags are never left set together and the
-    /// fallback stays inert.
+    /// A fixed daemon appends the active selector after its numeric flag dump,
+    /// so an application that deliberately selected urxvt last keeps it.
     #[test]
     fn daemon_replay_keeps_a_deliberate_urxvt_choice() {
         let mut host = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
@@ -4589,8 +4575,12 @@ mod tests {
         );
     }
 
+    /// Older daemons serialize mouse DECSETs as a numeric flag dump and lose
+    /// the original last-set order. Both SGR-last and urxvt-last applications
+    /// can produce these bytes, so the client must apply them as written. A
+    /// guessed preference would corrupt one of the two valid meanings.
     #[test]
-    fn legacy_flag_dump_replay_still_forwards_sgr_clicks() {
+    fn ambiguous_legacy_flag_dump_preserves_replayed_mouse_format() {
         let (_session, surface) = test_unleased_view_surface(14);
         surface
             .apply_stream_resize_with_colors(
@@ -4605,8 +4595,8 @@ mod tests {
 
         assert_eq!(
             forwarded_left_press_bytes(&surface),
-            b"\x1b[<0;36;21M",
-            "legacy numeric flag-dump replay must fall back to SGR, not urxvt"
+            b"\x1b[32;36;21M",
+            "ambiguous legacy replay must preserve its last selector instead of guessing SGR"
         );
     }
 

@@ -3172,23 +3172,6 @@ impl Terminal {
         suffix
     }
 
-    /// Repair the active mouse format after applying a replay that was
-    /// serialized by a daemon without [`Self::mouse_format_replay_suffix`]:
-    /// such replays dump the format flags in numeric order, so urxvt (1015)
-    /// always lands after SGR (1006) and steals the active slot. Every known
-    /// application that enables both prefers SGR and sets it last (and btop
-    /// parses only SGR), so when both flags survived a replay, re-assert SGR.
-    /// Replays from fixed daemons never leave both flags set, so this cannot
-    /// misfire on an application that deliberately chose urxvt.
-    pub fn normalize_replayed_mouse_format(&mut self) {
-        if self.mode(1006, false)
-            && self.mode(1015, false)
-            && self.active_mouse_format != MouseWireFormat::Sgr
-        {
-            self.vt_write(b"\x1b[?1006h");
-        }
-    }
-
     fn vt_replay_bounded_with_palette(
         &mut self,
         max_bytes: usize,
