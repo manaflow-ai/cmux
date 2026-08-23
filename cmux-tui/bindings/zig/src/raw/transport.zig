@@ -376,7 +376,7 @@ pub fn connectResolvedWithLegacyFallback(
     session: []const u8,
     timeout_ms: ?u32,
 ) !ResolvedConnection {
-    const connection = connectUnixWithTimeout(allocator, path, timeout_ms) catch |failure| {
+    var connection = connectUnixWithTimeout(allocator, path, timeout_ms) catch |failure| {
         if (failure != error.FileNotFound and failure != error.ConnectionRefused) return failure;
         if (!isHashedSocketPath(path)) return failure;
         const legacy = try sessionSocketPath(allocator, "/tmp", session);
