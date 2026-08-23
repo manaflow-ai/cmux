@@ -40,6 +40,8 @@ use crate::wire::{
     ServerFrame, advertised_protocol, heartbeat_frame, parse_server_frame, set_trust_frame,
 };
 
+const MAX_OUTBOUND_FRAMES: usize = 256;
+
 pub struct SessionState {
     pub first_connect: bool,
     pub first_run: bool,
@@ -143,7 +145,7 @@ fn save(config: &Config, config_path: &Path) {
 
 /// Build a per-frame FrameContext reading the current reconciled auth.
 fn make_context(
-    out: &mpsc::UnboundedSender<Value>,
+    out: &mpsc::Sender<Value>,
     pending: &Arc<AtomicU64>,
     auth: &AuthSnapshot,
 ) -> FrameContext {
@@ -154,7 +156,10 @@ fn make_context(
         send: Arc::new(move |frame: Value| {
             let size = serde_json::to_string(&frame).map(|text| text.len() as u64).unwrap_or(0);
             pending_send.fetch_add(size, Ordering::SeqCst);
-            let _ = sender.send(frame);
+            if sender.try_send(frame).is_err() {
+                eprintln!("Dropping relay outbound frame because its bounded queue is full");
+                pending_send.fetch_sub(size.min(pending_send.load(Ordering::SeqCst)), Ordering::SeqCst);
+            }
         }),
         buffered_amount: Arc::new(move || pending_probe.load(Ordering::SeqCst)),
         trust: auth.trust.clone(),
@@ -202,7 +207,7 @@ async fn relay_session(
         .map_err(|error| RelayError::transient(error.to_string()))?;
 
     // Outbound frame channel (exec/PTY tasks -> socket) + backpressure gauge.
-    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Value>();
+    let (out_tx, mut out_rx) = mpsc::channel::<Value>(MAX_OUTBOUND_FRAMES);
     let pending = Arc::new(AtomicU64::new(0));
     let action_slots = Arc::new(Semaphore::new(8));
     let auth = Arc::new(std::sync::Mutex::new(AuthSnapshot::default()));
@@ -214,7 +219,9 @@ async fn relay_session(
     connection_tasks.spawn(async move {
         while let Some(text) = workspace_rx.recv().await {
             if let Ok(frame) = serde_json::from_str::<Value>(&text) {
-                let _ = workspace_out.send(frame);
+                if workspace_out.try_send(frame).is_err() {
+                    eprintln!("Dropping relay workspace frame because its bounded queue is full");
+                }
             }
         }
     });
@@ -469,7 +476,7 @@ async fn relay_session(
                                     .map(|text| text.len() as u64)
                                     .unwrap_or(0);
                                 pending.fetch_add(size, Ordering::SeqCst);
-                                let _ = out.send(result);
+                                let _ = out.send(result).await;
                                 continue;
                             }
                         };
@@ -491,7 +498,7 @@ async fn relay_session(
                                 .map(|text| text.len() as u64)
                                 .unwrap_or(0);
                             pending.fetch_add(size, Ordering::SeqCst);
-                            let _ = out.send(result);
+                            let _ = out.send(result).await;
                         });
                     }
                     ServerFrame::Pty { frame_type, raw } => {
@@ -534,7 +541,7 @@ async fn relay_session(
                                 _ => None,
                             };
                             if let Some(reply) = reply {
-                                let _ = out_tx.send(reply);
+                                let _ = out_tx.send(reply).await;
                             }
                         }
                     }
