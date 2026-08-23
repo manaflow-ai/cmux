@@ -3,11 +3,11 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `feat-tui-tech-debt-wave1-clean`.
-Current integration tip: `31a8df3561` (PR head `31a8df3561d56e5ede737eaedee1671467ed1fef`).
+Current integration tip: `86ebb29994` (PR head `86ebb29994017b0ec0ca1ca1bc5ea0aaf99466af`).
 The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
 The combined review PR is `https://github.com/manaflow-ai/cmux/pull/10602`.
 
-Subagent ledger: at least 64 substantive agent turns are complete in this
+Subagent ledger: at least 100 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
 reviews, and merge gates. It excludes empty or duplicate turns. The requested
 10,000-session target is not reached. I will not create empty sessions to
@@ -16,8 +16,10 @@ inflate the count. New turns must have a named deliverable.
 ## Current state
 
 The exact current tip is always available with `git rev-parse HEAD` in the
-worktree. The shared primary checkout was dirty before this run, so all
-changes are in isolated worktrees and no unrelated files were touched.
+worktree. The shared primary checkout was dirty before this run. One
+pre-existing primary-checkout smoke-script commit (`9a23d9a4f1`) was preserved
+and cherry-picked as `b2f1d149fd`; no primary changes were discarded. Current
+integration work is isolated in this worktree.
 
 The branch contains browser lookup and pending-enrollment bounds, runtime and
 relay error hardening, a `SessionPort` projection boundary, resize coalescing,
@@ -107,6 +109,13 @@ red/green behavior proof.
    implemented.
 4. Cloud TUI acceptance remains a product-sized backlog, not a completed
    cmux-tui change.
+5. `AdminServer` and `UnixServer` still detach accepted connection tasks;
+   explicit shutdown awaits listeners but not all admitted work. A future
+   cancellation-token design must thread through dispatch and WebSocket
+   upgrades before claiming deterministic shutdown.
+6. The final exact-head hosted run must include the SDK MSRV job, relay request
+   cap, parser flush, diagnostics logging, SSH reaping, and per-binary manifest
+   changes. Run `32638599661` is an earlier pre-final-tip run.
 
 ## Wave-2 change log
 
@@ -133,21 +142,45 @@ red/green behavior proof.
 | `f0b88fd72e`, `f9098ab8f6` | Negotiate connection progress capability and accept `attach` after global CLI options. | CLI and schema checks are covered by the current PR; exact-head rerun required. | Revert both compatibility fixes. |
 | `b2f1d149fd` | Use monotonic deadlines in the TUI smoke script. | Script-level change; no local Rust test run. | Revert this test-harness change. |
 
+## Wave-4 change log
+
+| Commit | Change | Proof / residual risk | Revert |
+| --- | --- | --- | --- |
+| `029866fc51` | Apply the hosted Rust formatter output to the integration tip. | Hosted artifact identified the exact formatting delta; `git diff --check` passed. | Revert this style-only commit. |
+| `64aa7df959` | Cap pending chatmux-relay workspace requests at 64 per connection and refuse excess work with the existing typed `failed` code. | Behavioral cap test and diff check; hosted Rust test required. A fixed cap can refuse legitimate bursts, so clients must retry. | Revert this commit to restore unbounded task admission. |
+| `ff1095b6ed` | Replace the global artifact glibc claim with `runtimeByBinary` OS, architecture, and libc metadata while preserving checksum maps. | No in-org consumer reads the old field. External consumers may need migration. | Revert this workflow commit and restore the old manifest contract only with a consumer plan. |
+| `60fcf83ef6` | Route runtime diagnostics through the bounded client log so raw-terminal ownership is not corrupted by `eprintln!`. | Diff check passed; hosted TUI runtime coverage remains required. | Revert this app logging commit. |
+| `1c7910a717` | Flush terminal query replies after every parser command, including resize, defaults, clear-history, and drain. | Diff check passed; a capture-writer parser-loop test is still needed. | Revert this parser flush commit. |
+| `737bd68689` | Bound SSH bootstrap child reaping to a two-second cleanup grace period after kill. | Diff check passed; hosted remote timeout test required. | Revert this cleanup bound. |
+| `5b5de3f648` | Stop cancelling an active exact-commit TUI verification run when a newer request is queued. | `actionlint` passed; hosted workflow run required. Release workflows intentionally keep their own cancellation policy. | Revert this workflow guard. |
+| `4b054f4eb8` | Add a dedicated Rust 1.88 MSRV job for public SDK crates and examples while keeping the workspace toolchain checks. | PyYAML and diff checks passed; hosted SDK run required. | Revert this CI coverage addition, which would permit MSRV drift. |
+| `86ebb29994` | Correct `docs/remote.md` to describe static musl Linux packages instead of an incorrect glibc floor. | Docs-only; package contract and release docs agree. | Revert this documentation correction. |
+
+Rejected or deferred after review: PTY resize error handling was already fixed
+by `80f40831dac`; Kitty transient-status suppression is already present as
+`96fdc46b8d` and `cacbc23b06`; the TypeScript socket proposal `866e94d5d2`
+would remove the current digest fallback; detached admin and Unix connection
+tasks need a cancellation design, not a blind `JoinSet`; PR #10513's liveness
+fix depends on its unmerged feature stack; PR #10521 still has journal-scan
+complexity and host-state publication findings beyond its compile fixes.
+
 ## Merge and review board
 
 | PR | Author | State on 2026-08-23 | Required action |
 | --- | --- | --- | --- |
 | [#9935](https://github.com/manaflow-ai/cmux/pull/9935) | Lawrence Chen | Merged as `ab4633e5612280a348f8e9a0a9626a3bfb527fe1`; exact-head autoreview clean and all checks green. | Done. |
-| [#10244](https://github.com/manaflow-ai/cmux/pull/10244) | Lawrence Chen | Fixes `42f7e93c55`, `c0b8dd5107`; autoreview clean. Seven-language conformance was still running when audited. | Wait for exact-head checks, then rerun merge gate. |
-| [#10270](https://github.com/manaflow-ai/cmux/pull/10270) | Lawrence Chen | Head `fe31e6c6dc`; autoreview clean. Hosted full run `32634504590` was queued. | Confirm exact checks and merge only after the contract run is green. |
-| [#10413](https://github.com/manaflow-ai/cmux/pull/10413) | Lawrence Chen | Head `891544e0ab`; autoreview clean. Hosted run `32634176420` later reported a conformance failure in the inventory audit. | Fix the exact failed check before merge. |
+| [#10244](https://github.com/manaflow-ai/cmux/pull/10244) | Lawrence Chen | Merged; exact head `c0b8dd5107`, checks and canonical autoreview passed. | Done. |
+| [#10270](https://github.com/manaflow-ai/cmux/pull/10270) | Lawrence Chen | Head `30c5ff60a2`; dirty with conflicts in eight workflow/spec files and overlaps merged #10244. | Rebase only if a distinct socket fix remains; otherwise close as superseded. |
+| [#10413](https://github.com/manaflow-ai/cmux/pull/10413) | Lawrence Chen | Head `891544e0ab`; superseded by the newer #10521 stack and still fails conformance compilation. | Close as superseded after #10521 lands. |
 | [#10428](https://github.com/manaflow-ai/cmux/pull/10428) | Lawrence Chen | Rebasing and cursor test landed at `076d648a2c`; hosted run `32634173482` pending. | Refresh checks and run the exact-head merge gate. |
-| [#10513](https://github.com/manaflow-ai/cmux/pull/10513) | Lawrence Chen | Progress-aware fix `55caae646e`; no targeted CI and the old branch was dirty. | Rebase, add deadline behavior coverage, and run hosted verification. |
-| [#10521](https://github.com/manaflow-ai/cmux/pull/10521) | Lawrence Chen | Rebased head `087bb3496a`; larger journal-scan and durable-exit findings remain. | Do not merge until the remaining review findings are resolved. |
+| [#10513](https://github.com/manaflow-ai/cmux/pull/10513) | Lawrence Chen | Stacked head `55caae646e`; dedicated heartbeat fix `18b05775d8` and dead idle-state cleanup `d599fd89e0` are prepared on the in-org stack, but the branch is dirty. | Land the foundational stack with hosted coverage before merging the liveness fixes. |
+| [#10521](https://github.com/manaflow-ai/cmux/pull/10521) | Lawrence Chen | Head `087bb3496a`; compile fixes pushed as `392bb50b92`, hosted run `32638928481` pending. Complexity and host-state race findings remain. | Do not merge until those findings have an explicit design resolution. |
 | [#10537](https://github.com/manaflow-ai/cmux/pull/10537) | dkta0 | External author branch. Candidate fix `65d19bc694` cannot be pushed to the external fork. | Do not push outside `manaflow-ai`; use an in-org re-cut only if the semantic fix is redesigned. |
-| [#10600](https://github.com/manaflow-ai/cmux/pull/10600) | Lawrence Chen | SessionPort agent projection is included in this integration branch. | Treat as redundant unless its exact branch has a separate required artifact. |
-| [#10601](https://github.com/manaflow-ai/cmux/pull/10601) | Lawrence Chen | CI trigger guard is included in this integration branch. | Treat as redundant unless its exact branch has a separate required artifact. |
-| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Combined branch, current tip `31a8df3561`; `protocol contract` and `inventory` checks failed on the current head, while guard and review checks passed. | Fix the two failed checks, rerun exact-head verification, then merge only with the authorized merge directive. |
+| [#10600](https://github.com/manaflow-ai/cmux/pull/10600) | Lawrence Chen | Head `296aa5170f`; clean GitHub state but canonical review found an unused `Session::snapshot` and formatter failures. | Fix or close as redundant after #10602; do not merge the current head. |
+| [#10601](https://github.com/manaflow-ai/cmux/pull/10601) | Lawrence Chen | Merged after exact-head checks and clean canonical autoreview. | Done. |
+| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Combined branch, current tip `86ebb29994`; exact hosted run `32638599661` covers the earlier `ff1095b6ed` tip and a final rerun is required after later commits. | Wait for final exact-head hosted checks and canonical review, then merge. |
+| [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Wording lint fixed at `9e0fe12be4`; protocol and inventory scripts pass, canonical review pending. | Merge only after required checks and canonical review pass. |
+| [#10522](https://github.com/manaflow-ai/cmux/pull/10522) | Lawrence Chen | Head `347193a886`; configurable provider-menu action added after review P2, checks rerunning. | Verify plain `m` and prefixed `Ctrl-b m` behavior before merge. |
 
 Do not merge stale or high-risk branches [#10131](https://github.com/manaflow-ai/cmux/pull/10131), [#10571](https://github.com/manaflow-ai/cmux/pull/10571), [#9022](https://github.com/manaflow-ai/cmux/pull/9022), [#9003](https://github.com/manaflow-ai/cmux/pull/9003), [#8999](https://github.com/manaflow-ai/cmux/pull/8999), [#9061](https://github.com/manaflow-ai/cmux/pull/9061), [#9062](https://github.com/manaflow-ai/cmux/pull/9062), or superseded stacks [#9922](https://github.com/manaflow-ai/cmux/pull/9922), [#10249](https://github.com/manaflow-ai/cmux/pull/10249), [#10254](https://github.com/manaflow-ai/cmux/pull/10254), and [#10259](https://github.com/manaflow-ai/cmux/pull/10259) without a fresh rebase and exact-head review.
 
@@ -161,6 +194,13 @@ Do not merge stale or high-risk branches [#10131](https://github.com/manaflow-ai
 | `~/.claude/.../f759472e-9be3-4e5b-9933-3a044314ccd5.jsonl`, 2026-08-06 | Bundle cmux-tui in cmux-relay, auto-pair from iPhone, and preinstall in provider images. | Merge with the cloud snapshot row; no completion evidence. |
 | `~/.codex/sessions/2026/08/07/rollout-2026-08-07T19-41-07-019fdf6a-eb48-7882-94f9-40afee69fc68.jsonl` | Hosted verification must require an exact pushed SHA, Blacksmith Linux/macOS, Windows coverage, focused filters, artifacts, and no local Rust or Zig. | Workflow and guardrails are implemented in this wave. Full release and Windows confidence remain blocked by hosted checks. |
 | `~/.codex/sessions/2026/08/09/rollout-2026-08-09T16-23-14-019fe8d6-6e4c-7d53-8dde-4135e325a281.jsonl` | Azure startup benchmark and Windows GNU exact-head correction. | Historical incomplete benchmark. Keep as a release and CI follow-up, not a runtime patch. |
+| `~/.codex/sessions/2026/08/23/rollout-2026-08-23T05-00-38-01a02e7e-82ab-7151-abfc-6f90686a6eb8.jsonl` | Runtime diagnostics must use the client log while the TUI owns the raw terminal. | Implemented in `60fcf83ef6`; hosted runtime verification remains. |
+| `~/.codex/sessions/2026/08/23/rollout-2026-08-23T05-00-59-01a02e7e-d498-7d03-a93c-bf6ae4f80660.jsonl` | Flush Ghostty query replies after parser commands that produce no PTY output. | Implemented in `1c7910a717`; capture-writer behavior test remains. |
+| `~/.codex/sessions/2026/08/23/rollout-2026-08-23T05-01-18-01a02e7f-224f-7172-a90b-f278473c70de.jsonl` | Exact-commit verification requests must queue instead of cancelling active runs. | Implemented in `5b5de3f648`; hosted workflow verification remains. |
+| `~/.codex/sessions/2026/07/25/rollout-2026-07-25T20-51-15-019f9c8c-684c-7070-ad8d-3960d8e8f0f8.jsonl` | `ssh cmux.cloud` should provide authenticated VM and workspace sidebars with a TUI pane and reconnect. | Unfinished cloud product request; public-key authentication failed in the evidence session. |
+| `~/.codex/sessions/2026/07/26/rollout-2026-07-26T20-57-20-019fa1b8-55e1-79b3-8448-f0b7ce2b4aba.jsonl` | Agents should create interactive TUI controls through stable SDK/CLI APIs without source edits. | Unfinished programmable UI/SDK request. |
+| `~/.codex/sessions/2026/07/25/rollout-2026-07-25T16-00-36-019f9b82-4e89-78d1-be5c-27ba09784768.jsonl` | Replace the 511 kernel PTY ceiling with a userspace terminal model while preserving shell/job-control compatibility and multiplexing. | Unimplemented architecture proposal; needs a stress and compatibility design before code. |
+| `~/.codex/sessions/2026/07/25/rollout-2026-07-25T20-51-15-019f9c8c-684c-7070-ad8d-3960d8e8f0f8.jsonl` | Every cloud TUI text input needs a visible cursor, word deletion, paste, mouse editing, and resize coverage. | Unverified acceptance detail for the cloud shell row. |
 
 ## Official pattern references
 
