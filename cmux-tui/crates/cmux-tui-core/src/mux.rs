@@ -19652,10 +19652,7 @@ mod tests {
         assert!(
             !events.try_iter().any(|event| matches!(
                 event,
-                MuxEvent::GraphicsStatus(GraphicsStatus::KittyImageBudgetUpdateFailed {
-                    retry_exhausted: false,
-                    ..
-                })
+                MuxEvent::GraphicsStatus(GraphicsStatus::KittyImageBudgetUpdateFailed { .. })
             )),
             "transient Kitty quota failures must stay out of the status bar"
         );
