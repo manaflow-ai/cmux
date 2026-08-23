@@ -193,7 +193,13 @@ func NewClient(options Options) (*Client, error) {
 			legacy = ""
 		}
 	}
-	conn, effective, err := dialJSONWithFallback(socketPath, legacy, maxRequestBytes, maxResponseBytes)
+	conn, effective, err := dialJSONWithFallback(
+		socketPath,
+		legacy,
+		maxRequestBytes,
+		maxResponseBytes,
+		timeout,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -747,6 +753,7 @@ func (c *Client) openStream(
 		"",
 		c.requestLimit(),
 		c.responseLimit(),
+		c.timeout,
 	)
 	if err != nil {
 		return nil, err
@@ -874,8 +881,11 @@ func dialJSON(
 	socketPath string,
 	maxRequestBytes int,
 	maxResponseBytes int,
+	timeout time.Duration,
 ) (*jsonLineConn, error) {
-	conn, err := net.Dial("unix", socketPath)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
 	if err != nil {
 		return nil, &connectionError{cause: err, msg: fmt.Sprintf(
 			"cannot connect to session socket %s: %v",
@@ -891,15 +901,19 @@ func dialJSON(
 	}, nil
 }
 
-func dialJSONWithFallback(path, legacy string, req, resp int) (*jsonLineConn, string, error) {
-	conn, err := dialJSON(path, req, resp)
+func dialJSONWithFallback(
+	path, legacy string,
+	req, resp int,
+	timeout time.Duration,
+) (*jsonLineConn, string, error) {
+	conn, err := dialJSON(path, req, resp, timeout)
 	if err == nil {
 		return conn, path, nil
 	}
 	if legacy == "" || (!errors.Is(err, syscall.ENOENT) && !errors.Is(err, syscall.ECONNREFUSED)) {
 		return nil, path, err
 	}
-	conn, fallbackErr := dialJSON(legacy, req, resp)
+	conn, fallbackErr := dialJSON(legacy, req, resp, timeout)
 	if fallbackErr != nil {
 		return nil, path, fallbackErr
 	}
