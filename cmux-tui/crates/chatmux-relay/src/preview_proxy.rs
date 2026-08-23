@@ -301,7 +301,7 @@ impl PreviewRegistry {
 
 struct Peer {
     id: u64,
-    tx: tokio::sync::mpsc::UnboundedSender<tungstenite::Message>,
+    tx: tokio::sync::mpsc::Sender<tungstenite::Message>,
 }
 
 struct ProxyShared {
@@ -521,7 +521,10 @@ fn send_to_slot(shared: &ProxyShared, role: PeerRole, text: String) {
     if let Ok(slot) = peer_slot(shared, role).lock()
         && let Some(peer) = slot.as_ref()
     {
-        let _ = peer.tx.send(tungstenite::Message::text(text));
+        // A stalled browser must not turn proxy forwarding into an unbounded
+        // allocation. Dropping a frame is safe because the peer can reload
+        // and re-establish the DevTools/page state.
+        let _ = peer.tx.try_send(tungstenite::Message::text(text));
     }
 }
 
@@ -535,12 +538,13 @@ async fn run_peer<S>(
     use futures_util::{SinkExt as _, StreamExt as _};
     use tokio_tungstenite::tungstenite::Message;
     let (mut sink, mut stream) = socket.split();
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
+    const PEER_QUEUE_CAPACITY: usize = 256;
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Message>(PEER_QUEUE_CAPACITY);
     let peer_id = shared.next_peer_id.fetch_add(1, Ordering::Relaxed);
     if let Ok(mut slot) = peer_slot(&shared, role).lock()
         && let Some(previous) = slot.replace(Peer { id: peer_id, tx: tx.clone() })
     {
-        let _ = previous.tx.send(Message::Close(Some(tungstenite::protocol::CloseFrame {
+        let _ = previous.tx.try_send(Message::Close(Some(tungstenite::protocol::CloseFrame {
             code: REPLACED_CLOSE_CODE.into(),
             reason: "replaced by a newer connection".into(),
         })));
@@ -551,7 +555,7 @@ async fn run_peer<S>(
         // frontend connects; responses to these ids are swallowed.
         for method in ["Runtime.enable", "Network.enable", "Page.enable"] {
             let id = shared.next_cdp_id.fetch_add(1, Ordering::Relaxed);
-            let _ = tx.send(Message::text(format!("{{\"id\":{id},\"method\":\"{method}\"}}")));
+            let _ = tx.try_send(Message::text(format!("{{\"id\":{id},\"method\":\"{method}\"}}")));
         }
     }
     let writer = tokio::spawn(async move {
@@ -578,7 +582,7 @@ async fn run_peer<S>(
                 }
             }
             Message::Ping(payload) => {
-                let _ = tx.send(Message::Pong(payload));
+                let _ = tx.try_send(Message::Pong(payload));
             }
             Message::Close(_) => break,
             _ => {}
