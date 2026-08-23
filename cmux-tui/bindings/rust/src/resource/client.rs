@@ -167,9 +167,10 @@ impl Config {
     /// [`Self::try_from_env_or_default_session`] to receive the error.
     pub fn from_env_or_default_session(session: &str) -> Self {
         let env = crate::client::env_socket_path();
-        let mut config = Self::from_socket_path(
-            crate::client::compatibility_socket_path_for_session(session, env.clone()),
-        );
+        let config = Self::from_socket_path(crate::client::compatibility_socket_path_for_session(
+            session,
+            env.clone(),
+        ));
         config
     }
 
@@ -178,8 +179,7 @@ impl Config {
     pub fn try_from_env_or_default_session(session: &str) -> Result<Self> {
         let socket_path =
             crate::client::socket_path_for_session(session, crate::client::env_socket_path())?;
-        let mut config = Self::from_socket_path(socket_path);
-        Ok(config)
+        Ok(Self::from_socket_path(socket_path))
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
@@ -276,6 +276,7 @@ impl Client {
         );
         if let Err(Error::ConnectionIo { kind, .. }) = &connection
             && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
+            && crate::client::env_socket_path().as_ref() != Some(&config.socket_path)
         {
             if let Some(legacy) = crate::client::hashed_socket_legacy_path(&config.socket_path)
                 && let Ok(candidate) = JsonLineConnection::connect(

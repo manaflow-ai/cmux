@@ -189,11 +189,10 @@ impl ClientConfig {
     /// [`Self::try_from_env_or_default_session`] to receive the validation error.
     pub fn from_env_or_default_session(session: &str) -> Self {
         let environment = env_socket_path();
-        let mut config = Self::from_socket_path(compatibility_socket_path_for_session(
+        let config = Self::from_socket_path(compatibility_socket_path_for_session(
             session,
             environment.clone(),
         ));
-        if environment.is_none() {}
         config
     }
 
@@ -208,9 +207,7 @@ impl ClientConfig {
     pub fn try_from_env_or_default_session(session: &str) -> Result<Self> {
         let environment = env_socket_path();
         let socket_path = socket_path_for_session(session, environment.clone())?;
-        let mut config = Self::from_socket_path(socket_path);
-        if environment.is_none() {}
-        Ok(config)
+        Ok(Self::from_socket_path(socket_path))
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
@@ -273,6 +270,7 @@ impl CmuxClient {
         if let Err(CmuxError::ConnectionIo { kind, .. }) = &connection
             && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
             && is_hashed_socket(&config.socket_path)
+            && env_socket_path().as_ref() != Some(&config.socket_path)
         {
             let Some(legacy) = hashed_socket_legacy_path(&config.socket_path) else {
                 return match connection {
