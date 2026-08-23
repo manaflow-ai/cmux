@@ -1089,11 +1089,10 @@ impl TerminalHostConnectionState {
 const TERMINAL_HOST_RECONNECT_MAX_FAILURES: u8 = 16;
 #[cfg(unix)]
 const TERMINAL_HOST_RECONNECT_MAX_DELAY: Duration = Duration::from_secs(1);
-const TERMINAL_HOST_LIVENESS_IDLE_DEADLINE: Duration = Duration::from_secs(60);
 const TERMINAL_HOST_LIVENESS_MAX_DEADLINE: Duration = Duration::from_secs(10 * 60);
 
 #[cfg(unix)]
-fn terminal_host_liveness_deadlines() -> (Duration, Duration) {
+fn terminal_host_liveness_deadline() -> Duration {
     fn env_duration(name: &str, fallback: Duration) -> Duration {
         std::env::var(name)
             .ok()
@@ -1101,10 +1100,7 @@ fn terminal_host_liveness_deadlines() -> (Duration, Duration) {
             .map(Duration::from_millis)
             .unwrap_or(fallback)
     }
-    (
-        env_duration("CMUX_TUI_HOST_LIVENESS_IDLE_MS", TERMINAL_HOST_LIVENESS_IDLE_DEADLINE),
-        env_duration("CMUX_TUI_HOST_LIVENESS_MAX_MS", TERMINAL_HOST_LIVENESS_MAX_DEADLINE),
-    )
+    env_duration("CMUX_TUI_HOST_LIVENESS_MAX_MS", TERMINAL_HOST_LIVENESS_MAX_DEADLINE)
 }
 
 #[cfg(unix)]
@@ -3473,9 +3469,8 @@ impl Surface {
                     }
 
                     let mut retry = TerminalHostReconnectBackoff::default();
-                    let (liveness_idle, liveness_max) = terminal_host_liveness_deadlines();
+                    let liveness_max = terminal_host_liveness_deadline();
                     let reconnect_started = Instant::now();
-                    let mut last_progress = reconnect_started;
                     let mut warned_live_unreachable = false;
                     loop {
                         if pty.owner_detaching.load(Ordering::Acquire) {
@@ -3557,9 +3552,7 @@ impl Surface {
                                             Ordering::Release,
                                         );
                                         retry.rearm_at_max_delay();
-                                        if last_progress.elapsed() >= liveness_idle
-                                            || reconnect_started.elapsed() >= liveness_max
-                                        {
+                                        if reconnect_started.elapsed() >= liveness_max {
                                             give_up_hosted_reconnect(
                                                 &surface,
                                                 &mux,
