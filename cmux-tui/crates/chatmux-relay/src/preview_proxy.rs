@@ -50,6 +50,10 @@ const NETWORK_METHOD_MAX_UNITS: usize = 16;
 const PENDING_REQUEST_CAP: usize = 512;
 /// Bound browser/devtools CDP messages before tungstenite allocates them.
 const PREVIEW_WS_MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
+/// Limit queued frames per peer. A browser/devtools socket that stops
+/// reading must not make the relay retain an unbounded stream of CDP data.
+const PREVIEW_WS_QUEUE_CAPACITY: usize = 64;
+const PREVIEW_WS_QUEUE_BYTES: usize = 64 * 1024 * 1024;
 
 /// CDP command ids the proxy mints for its own enables; responses with
 /// these ids are swallowed instead of piped to the DevTools frontend.
@@ -341,7 +345,8 @@ impl PreviewRegistry {
 
 struct Peer {
     id: u64,
-    tx: tokio::sync::mpsc::UnboundedSender<tungstenite::Message>,
+    tx: tokio::sync::mpsc::Sender<tungstenite::Message>,
+    queued_bytes: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 struct ProxyShared {
@@ -571,10 +576,54 @@ fn peer_slot(shared: &ProxyShared, role: PeerRole) -> &Mutex<Option<Peer>> {
 }
 
 fn send_to_slot(shared: &ProxyShared, role: PeerRole, text: String) {
-    if let Ok(slot) = peer_slot(shared, role).lock()
+    if let Ok(mut slot) = peer_slot(shared, role).lock()
         && let Some(peer) = slot.as_ref()
     {
-        let _ = peer.tx.send(tungstenite::Message::text(text));
+        let message = tungstenite::Message::text(text);
+        match enqueue_message(&peer.tx, &peer.queued_bytes, message) {
+            Ok(()) => {}
+            // Drop the peer on saturation. This closes its bounded channel
+            // and lets the writer terminate after draining at most the cap.
+            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                let _ = slot.take();
+                if role == PeerRole::Page {
+                    shared.target_connected.store(false, Ordering::Relaxed);
+                }
+            }
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                let _ = slot.take();
+            }
+        }
+    }
+}
+
+fn message_len(message: &tungstenite::Message) -> usize {
+    match message {
+        tungstenite::Message::Text(v) => v.len(),
+        tungstenite::Message::Binary(v)
+        | tungstenite::Message::Ping(v)
+        | tungstenite::Message::Pong(v) => v.len(),
+        _ => 64,
+    }
+}
+
+fn enqueue_message(
+    tx: &tokio::sync::mpsc::Sender<tungstenite::Message>,
+    queued: &std::sync::atomic::AtomicUsize,
+    message: tungstenite::Message,
+) -> Result<(), tokio::sync::mpsc::error::TrySendError<tungstenite::Message>> {
+    let bytes = message_len(&message);
+    let prior = queued.fetch_add(bytes, Ordering::AcqRel);
+    if prior.saturating_add(bytes) > PREVIEW_WS_QUEUE_BYTES {
+        queued.fetch_sub(bytes, Ordering::AcqRel);
+        return Err(tokio::sync::mpsc::error::TrySendError::Full(message));
+    }
+    match tx.try_send(message) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            queued.fetch_sub(bytes, Ordering::AcqRel);
+            Err(error)
+        }
     }
 }
 
@@ -588,12 +637,17 @@ async fn run_peer<S>(
     use futures_util::{SinkExt as _, StreamExt as _};
     use tokio_tungstenite::tungstenite::Message;
     let (mut sink, mut stream) = socket.split();
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Message>(PREVIEW_WS_QUEUE_CAPACITY);
+    let queued_bytes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let peer_id = shared.next_peer_id.fetch_add(1, Ordering::Relaxed);
     if let Ok(mut slot) = peer_slot(&shared, role).lock()
-        && let Some(previous) = slot.replace(Peer { id: peer_id, tx: tx.clone() })
+        && let Some(previous) = slot.replace(Peer {
+            id: peer_id,
+            tx: tx.clone(),
+            queued_bytes: Arc::clone(&queued_bytes),
+        })
     {
-        let _ = previous.tx.send(Message::Close(Some(tungstenite::protocol::CloseFrame {
+        let _ = previous.tx.try_send(Message::Close(Some(tungstenite::protocol::CloseFrame {
             code: REPLACED_CLOSE_CODE.into(),
             reason: "replaced by a newer connection".into(),
         })));
@@ -604,11 +658,13 @@ async fn run_peer<S>(
         // frontend connects; responses to these ids are swallowed.
         for method in ["Runtime.enable", "Network.enable", "Page.enable"] {
             let id = shared.next_cdp_id.fetch_add(1, Ordering::Relaxed);
-            let _ = tx.send(Message::text(format!("{{\"id\":{id},\"method\":\"{method}\"}}")));
+            let message = Message::text(format!("{{\"id\":{id},\"method\":\"{method}\"}}"));
+            let _ = enqueue_message(&tx, &queued_bytes, message);
         }
     }
     let writer = tokio::spawn(async move {
         while let Some(message) = rx.recv().await {
+            queued_bytes.fetch_sub(message_len(&message), Ordering::AcqRel);
             let closing = matches!(message, Message::Close(_));
             if sink.send(message).await.is_err() || closing {
                 break;
@@ -631,7 +687,7 @@ async fn run_peer<S>(
                 }
             }
             Message::Ping(payload) => {
-                let _ = tx.send(Message::Pong(payload));
+                let _ = enqueue_message(&tx, &queued_bytes, Message::Pong(payload));
             }
             Message::Close(_) => break,
             _ => {}
