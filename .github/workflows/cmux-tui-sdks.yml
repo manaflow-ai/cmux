@@ -479,7 +479,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust 1.88 MSRV toolchain
-        run: rustup toolchain install 1.88.0 --profile minimal --component clippy rustfmt
+        run: rustup toolchain install 1.88.0 --profile minimal --component clippy --component rustfmt
 
       - name: Test public Rust SDK crates and examples on MSRV
         run: |
