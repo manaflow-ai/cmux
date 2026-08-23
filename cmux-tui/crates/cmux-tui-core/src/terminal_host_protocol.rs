@@ -881,7 +881,7 @@ mod tests {
         let mut frame = Frame::new(MessageKind::Output, b"\x1b[31mCafe ".to_vec());
         frame.payload.extend_from_slice("é\x1b[0m".as_bytes());
         let encoded = encode_frame(&frame).unwrap();
-        let pump = PipeBytePump::new(3);
+        let mut pump = PipeBytePump::new(3);
         let tx = pump.tx.as_ref().unwrap();
         tx.send(encoded[..3].to_vec()).unwrap();
         tx.send(encoded[3..HEADER_LEN + 1].to_vec()).unwrap();
