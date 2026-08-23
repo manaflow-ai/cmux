@@ -107,8 +107,16 @@ impl OutboundSink {
 
     pub(crate) async fn critical_text(&self, text: String) -> Result<(), ()> {
         let bytes = u32::try_from(text.len()).map_err(|_| ())?;
+        if bytes as usize > MAX_OUTBOUND_BYTES {
+            self.critical_overflow.store(true, Ordering::Release);
+            return Err(());
+        }
         let permit = Arc::clone(&self.bytes).acquire_many_owned(bytes).await.map_err(|_| ())?;
-        self.critical.send(OutboundFrame { text, _bytes: permit }).await.map_err(|_| ())
+        let result = self.critical.send(OutboundFrame { text, _bytes: permit }).await.map_err(|_| ());
+        if result.is_err() {
+            self.critical_overflow.store(true, Ordering::Release);
+        }
+        result
     }
 
     pub(crate) fn try_watch_value(&self, frame: Value) -> Result<(), ()> {
@@ -120,6 +128,9 @@ impl OutboundSink {
         let result = (|| {
             let text = Self::encode(frame).ok_or(())?;
             let bytes = u32::try_from(text.len()).map_err(|_| ())?;
+            if bytes as usize > MAX_OUTBOUND_BYTES {
+                return Err(());
+            }
             let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
             self.critical.try_send(OutboundFrame { text, _bytes: permit }).map_err(|_| ())
         })();
@@ -132,6 +143,9 @@ impl OutboundSink {
     pub(crate) fn try_critical_text(&self, text: String) -> Result<(), ()> {
         let result = (|| {
             let bytes = u32::try_from(text.len()).map_err(|_| ())?;
+            if bytes as usize > MAX_OUTBOUND_BYTES {
+                return Err(());
+            }
             let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
             self.critical.try_send(OutboundFrame { text, _bytes: permit }).map_err(|_| ())
         })();
@@ -343,19 +357,20 @@ async fn relay_session(
     let mut negotiated_version: u64 = 0;
     let mut unknown_types: HashSet<String> = HashSet::new();
     let mut heartbeat: Option<tokio::time::Interval> = None;
+    let mut critical_burst = 0_u8;
 
     let result = loop {
         enum Wake {
             Heartbeat,
-            Outbound(Option<OutboundFrame>),
+            Outbound(bool, Option<OutboundFrame>),
             Incoming(Option<Result<Message, TungsteniteError>>),
         }
         let wake = {
             let mut guard = socket.lock().await;
             tokio::select! {
                 biased;
-                frame = critical_rx.recv() => Wake::Outbound(frame),
-                frame = watch_rx.recv() => Wake::Outbound(frame),
+                frame = critical_rx.recv(), if critical_burst < 8 => Wake::Outbound(true, frame),
+                frame = watch_rx.recv() => Wake::Outbound(false, frame),
                 _ = async {
                     match heartbeat.as_mut() {
                         Some(interval) => interval.tick().await,
@@ -372,7 +387,8 @@ async fn relay_session(
                     break Ok(connected);
                 }
             }
-            Wake::Outbound(Some(frame)) => {
+            Wake::Outbound(is_critical, Some(frame)) => {
+                if is_critical { critical_burst += 1; } else { critical_burst = 0; }
                 let text = frame.text;
                 let size = text.len() as u64;
                 let sent = socket.lock().await.send(Message::Text(text.into())).await;
@@ -381,7 +397,7 @@ async fn relay_session(
                     break Ok(connected);
                 }
             }
-            Wake::Outbound(None) => {}
+            Wake::Outbound(_, None) => { critical_burst = 0; }
             Wake::Incoming(incoming) => {
                 let message = match incoming {
                     Some(Ok(message)) => message,
