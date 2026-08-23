@@ -52,4 +52,3 @@ avoid unnecessary work when the order is represented by an index, but it does
 not make repeated application-level decompression free. Tokio's stream model
 supports an owned asynchronous iterator with state between `next` calls; the
 same ownership rule applies to this synchronous SQLite cursor.
-
