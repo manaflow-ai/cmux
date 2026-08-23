@@ -1524,6 +1524,47 @@ mod tests {
         )
     }
 
+    #[tokio::test]
+    async fn stream_chunk_queue_is_bounded_and_reset_drains_capacity() {
+        let (sender, receiver) = mpsc::channel(STREAM_CHUNK_CHANNEL_CAPACITY);
+        let mut stream_receiver = StreamReceiver {
+            chunks: receiver,
+            failure_changed: watch::channel(None).1,
+            remote_finished_delivered: false,
+        };
+        let chunk = || StreamChunk {
+            lane: Lane::Control,
+            sequence: 1,
+            payload: Bytes::new(),
+            finished: false,
+            reset: false,
+            budget: None,
+        };
+        for _ in 0..STREAM_CHUNK_CHANNEL_CAPACITY {
+            sender.try_send(chunk()).expect("queue accepts up to its configured cap");
+        }
+        assert!(sender.try_send(chunk()).is_err(), "queue must reject saturation");
+        drop(sender);
+        drain_failed_receiver(&mut stream_receiver);
+        assert!(stream_receiver.chunks.is_empty());
+    }
+
+    #[test]
+    fn stream_budget_permits_release_when_chunk_is_reset_or_consumed() {
+        let budget = IncomingBudget::new(8);
+        let mut chunk = StreamChunk {
+            lane: Lane::Interactive,
+            sequence: 1,
+            payload: Bytes::from_static(b"1234"),
+            finished: false,
+            reset: false,
+            budget: budget.try_acquire(Lane::Interactive, 4),
+        };
+        assert_eq!(budget.total.available_permits(), 4);
+        drop(chunk.take_budget());
+        assert_eq!(budget.total.available_permits(), 8);
+    }
+
     struct ClosedEndpoint {
         generation: watch::Sender<u64>,
     }
