@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <filesystem>
 #include <mutex>
 #include <utility>
 #include <sys/un.h>
@@ -10,6 +9,7 @@
 #include <vector>
 
 #include "cmux/raw/generated/commands.hpp"
+#include "socket_path_internal.hpp"
 
 namespace cmux::raw {
 namespace detail {
@@ -269,11 +269,8 @@ Result<ClientCore> ClientCore::connect(ClientOptions options) {
         }
         auto resolved_path = std::move(path).value();
         const bool implicit_path = options.socket_path.empty() && socket_path_from_environment().empty();
-        const auto socket = std::filesystem::path(resolved_path);
-        const auto parent = socket.parent_path().filename().string();
-        const std::string hashed_component =
-            "cmux-tui-hashed-" + std::to_string(static_cast<unsigned long>(::getuid()));
-        const bool hashed_path = parent == hashed_component;
+        const bool hashed_path = ::cmux::detail::is_hashed_socket_path_for_uid(
+            resolved_path, static_cast<unsigned long>(::getuid()));
         std::string legacy_path;
         if (implicit_path && hashed_path) {
             legacy_path = "/tmp/cmux-tui-" +

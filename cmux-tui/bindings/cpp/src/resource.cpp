@@ -22,6 +22,8 @@
 #include "resource_test_hooks.hpp"
 #endif
 
+#include "socket_path_internal.hpp"
+
 #if defined(__APPLE__)
 #include <stdlib.h>
 #elif defined(__linux__)
@@ -1709,7 +1711,8 @@ Result<Client> Client::connect(ClientOptions options) {
         auto resolved_path = std::move(path).value();
         const bool implicit = options.socket_path.empty() && socket_path_from_environment().empty();
         std::string legacy;
-        if (implicit && resolved_path.find("/cmux-tui-hashed-") != std::string::npos) {
+        if (implicit && ::cmux::detail::is_hashed_socket_path_for_uid(
+                resolved_path, static_cast<unsigned long>(::getuid()))) {
             legacy = "/tmp/cmux-tui-" + std::to_string(static_cast<unsigned long>(::getuid())) + "/" + options.session + ".sock";
             if (legacy.size() >= sizeof(sockaddr_un{}.sun_path)) legacy.clear();
         }

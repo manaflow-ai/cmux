@@ -24,10 +24,24 @@
 
 #include "cmux/resource.hpp"
 #include "cmux/transport.hpp"
+#include "socket_path_internal.hpp"
 
 namespace {
 
 std::mutex environment_mutex;
+
+TEST("hashed socket detection requires the exact parent component and uid") {
+    constexpr unsigned long uid = 501;
+
+    CHECK(cmux::detail::is_hashed_socket_path_for_uid(
+        "/tmp/cmux-tui-hashed-501/session.sock", uid));
+    CHECK(!cmux::detail::is_hashed_socket_path_for_uid(
+        "/tmp/cmux-tui-hashed-marker/cmux-tui-hashed-501.sock", uid));
+    CHECK(!cmux::detail::is_hashed_socket_path_for_uid(
+        "/tmp/cmux-tui-hashed-501-marker/session.sock", uid));
+    CHECK(!cmux::detail::is_hashed_socket_path_for_uid(
+        "/tmp/cmux-tui-hashed-502/session.sock", uid));
+}
 
 struct ScopedEnvironment {
     struct Saved {

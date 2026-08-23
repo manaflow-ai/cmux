@@ -15,6 +15,8 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include "socket_path_internal.hpp"
+
 namespace cmux::raw {
 namespace {
 
@@ -87,8 +89,8 @@ using Clock = std::chrono::steady_clock;
         auto resolved_path = std::move(path).value();
         const bool implicit_path = options.socket_path.empty() &&
             socket_path_from_environment().empty();
-        const bool hashed_path =
-            resolved_path.find("/cmux-tui-hashed-") != std::string::npos;
+        const bool hashed_path = ::cmux::detail::is_hashed_socket_path_for_uid(
+            resolved_path, static_cast<unsigned long>(::getuid()));
         std::string legacy_path;
         if (implicit_path && hashed_path) {
             legacy_path = "/tmp/cmux-tui-" +
