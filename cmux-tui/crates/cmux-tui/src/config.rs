@@ -1679,7 +1679,6 @@ pub(crate) enum ActionExecution {
     ToggleSidebarView,
     FocusSidebar,
     ProviderMenu,
-    ProviderMenu,
     NewPaneRight,
     UndoLayout,
     FocusLeft,
