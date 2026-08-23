@@ -437,6 +437,21 @@ test("Unix resource transport drops a read that expires before connect", async (
   }
 });
 
+test("Unix transport close suppresses queued connect errors", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cmux-tui-close-"));
+  try {
+    const transport = new UnixSocketTransport(join(directory, "missing.sock"));
+    const errors: Error[] = [];
+    transport.onError((error) => errors.push(error));
+    const closed = new Promise<void>((resolve) => transport.onClose(resolve));
+    transport.close();
+    await closed;
+    assert.deepEqual(errors, []);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("Unix resource transport keeps a queued mutation timeout determinate", async () => {
   const fixture = await delayedUnixFixture();
   const client = new Client({

@@ -160,6 +160,7 @@ export class UnixSocketTransport implements Transport {
   private pendingBytes = 0;
   private flushing = false;
   private connected = false;
+  private closing = false;
   private closed = false;
 
   constructor(public socketPath: string, options: UnixSocketTransportOptions = {}) {
@@ -231,6 +232,8 @@ export class UnixSocketTransport implements Transport {
       // Ignore events from that stale EventEmitter, as they do not describe
       // the active connection.
       if (socket !== this.socket) return;
+      // destroy() may emit a queued error after an intentional close.
+      if (this.closing || this.closed) return;
       if (!this.connected && (error.code === "ENOENT" || error.code === "ECONNREFUSED") && this.fallbackIndex < this.fallbackSocketPaths.length) {
         const next = this.fallbackSocketPaths[this.fallbackIndex++];
         socket.destroy();
@@ -267,7 +270,7 @@ export class UnixSocketTransport implements Transport {
     onDispatched: OnDispatched,
     dispatchGuard?: DispatchGuard,
   ): Unsubscribe {
-    if (this.closed) throw new CmuxConnectionError("session socket closed");
+    if (this.closing || this.closed) throw new CmuxConnectionError("session socket closed");
     const bytes = utf8ByteLength(json);
     if (bytes > this.maxOutboundMessageBytes) {
       throw new CmuxConnectionError(
@@ -315,7 +318,8 @@ export class UnixSocketTransport implements Transport {
   }
 
   close(): void {
-    if (!this.closed) {
+    if (!this.closing && !this.closed) {
+      this.closing = true;
       this.inbound.dispose();
       this.socket.destroy();
     }
