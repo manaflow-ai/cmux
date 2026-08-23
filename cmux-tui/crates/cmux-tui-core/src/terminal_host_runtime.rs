@@ -4969,6 +4969,19 @@ mod unix {
         thread::Builder::new().name("terminal-host-parser".into()).spawn(move || {
             let mut last_colors = initial_colors;
             let mut last_pwd = None;
+            // Ghostty can answer terminal queries without producing a parser
+            // frame. Flush those answers after every parser command, not only
+            // after PTY output, so lifecycle operations (for example resize
+            // during a Pi reload) cannot leave replies queued in memory and
+            // deliver them to a later TUI write.
+            let flush_pending_responses = || {
+                let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
+                if !responses.is_empty() {
+                    let mut writer = parser_host.writer.lock().unwrap();
+                    let _ = writer.write_all(&responses);
+                    let _ = writer.flush();
+                }
+            };
             while let Ok(command) = parser_command_receiver.recv() {
                 match command {
                     ParserCommand::Output { bytes, source_cursor, accounted_bytes } => {
@@ -5014,12 +5027,7 @@ mod unix {
                         if bell.swap(false, Ordering::AcqRel) {
                             parser_host.broadcast(MessageKind::Bell, Vec::new());
                         }
-                        let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
-                        if !responses.is_empty() {
-                            let mut writer = parser_host.writer.lock().unwrap();
-                            let _ = writer.write_all(&responses);
-                            let _ = writer.flush();
-                        }
+                        flush_pending_responses();
                     }
                     ParserCommand::Resize {
                         cols,
@@ -5038,11 +5046,13 @@ mod unix {
                             targeted_ack,
                             cell_pixels,
                         );
+                        flush_pending_responses();
                         let _ = response.send(result);
                     }
                     ParserCommand::SetDefaults { colors, source_cursor, response } => {
                         let colors = *colors;
                         last_colors = parser_host.apply_parser_defaults(colors, source_cursor);
+                        flush_pending_responses();
                         let _ = response.send(());
                     }
                     ParserCommand::ClearHistory { fallback_key, response } => {
@@ -5053,6 +5063,7 @@ mod unix {
                             parser_host.note_parser_progress();
                             parser_host.stream_progress.notify();
                         }
+                        flush_pending_responses();
                         let _ = response.send(result);
                     }
                     ParserCommand::Drain => {
@@ -5060,6 +5071,7 @@ mod unix {
                         // the PTY reader has reached the authoritative parser.
                         parser_host.mark_pty_drained();
                         parser_host.publish_exit_if_drained();
+                        flush_pending_responses();
                         break;
                     }
                 }
