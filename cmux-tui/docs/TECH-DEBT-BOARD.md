@@ -3,7 +3,7 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `aggregate-final`.
-Current integration code tip before this documentation commit: `eaf23dfb83dfb2e260e7a6be8c0e81e5f4ae3df7` (`validate action allowed root paths`).
+Current integration code tip before this documentation commit: `cc374f8af6bea658945d6436cb412e58adc085df` (`fix(relay): bound filesystem watch event ingress`).
 Exact worktree HEAD: run `git rev-parse HEAD` (documentation commits change this value).
 The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
 The current integration sequence includes the hosted formatter and verification
@@ -15,7 +15,7 @@ through `638e536f03`. Localization recovery is recorded in `01c4a2de8d`,
 fallbacks for Python, TypeScript, Rust, Java, Zig, Go, and C++, bounded Unix JSON
 readers, wire-identity preflight, independent config-section recovery,
 localization recovery, and systemd quoting fixes through the current code tip
-`eaf23dfb83`. The final tail also includes
+`cc374f8af6`. The final tail also includes
 Go fallback-state minimization and joined fallback errors, C++ attachment errno
 handling, path-bound Rust errors and tests, trailing-whitespace cleanup, and
 literal-percent escaping for systemd paths.
@@ -28,7 +28,7 @@ inflate the count. New turns must have a named deliverable.
 
 ## Current state
 
-The latest code tail is `eaf23dfb83`. It is a compatibility, lifecycle, and
+The latest code tail is `cc374f8af6`. It is a compatibility, lifecycle, and
 documentation update. The issues below remain open.
 
 ### Open issue inventory
@@ -564,3 +564,91 @@ product request.
 The ledger remains an honest lower bound of at least 180 substantive agent
 turns. It does not represent an exact session-file count, and the requested
 10,000-session target is not reached.
+
+## GitHub TUI PR inventory, read-only snapshot 2026-08-23
+
+This inventory comes from the GitHub open-PR search for cmux-tui-related work
+and direct PR reads. “Merge candidate” means the change may be merged after the
+listed checks. It is not merge authorization. No PR was closed or merged while
+making this snapshot. Every entry has a full URL and the current author.
+
+### Merge candidates
+
+| PR | Author | Classification and required gate |
+| --- | --- | --- |
+| [https://github.com/manaflow-ai/cmux/pull/10607](https://github.com/manaflow-ai/cmux/pull/10607) | Lawrence Chen | Merge candidate after exact-head capability-shape, wire-identity, and protocol-compatibility checks. |
+| [https://github.com/manaflow-ai/cmux/pull/9922](https://github.com/manaflow-ai/cmux/pull/9922) | Lawrence Chen | Merge candidate for the trusted startup benchmark. Re-run the benchmark and hosted workflow on its current head. |
+| [https://github.com/manaflow-ai/cmux/pull/10251](https://github.com/manaflow-ai/cmux/pull/10251) | Lawrence Chen | Merge candidate for binary/distribution version parity after package-contract and release checks. |
+| [https://github.com/manaflow-ai/cmux/pull/10239](https://github.com/manaflow-ai/cmux/pull/10239) | Lawrence Chen | Merge candidate for unsafe session-name rejection after SDK matrix and exact-head review. |
+| [https://github.com/manaflow-ai/cmux/pull/10249](https://github.com/manaflow-ai/cmux/pull/10249) | Lawrence Chen | Merge candidate for the replacement SDK session-name contract; keep ordered with the other SDK changes. |
+
+### Superseded or duplicate stacks
+
+| PR | Author | Classification and replacement |
+| --- | --- | --- |
+| [https://github.com/manaflow-ai/cmux/pull/9933](https://github.com/manaflow-ai/cmux/pull/9933) | Lawrence Chen | Superseded by the benchmark contract in [https://github.com/manaflow-ai/cmux/pull/9922](https://github.com/manaflow-ai/cmux/pull/9922). |
+| [https://github.com/manaflow-ai/cmux/pull/10228](https://github.com/manaflow-ai/cmux/pull/10228) | Lawrence Chen | Superseded by merged color-environment work in [https://github.com/manaflow-ai/cmux/pull/10429](https://github.com/manaflow-ai/cmux/pull/10429). |
+| [https://github.com/manaflow-ai/cmux/pull/9890](https://github.com/manaflow-ai/cmux/pull/9890) | Lawrence Chen | Superseded by the merged rolling-log and close/liveness fixes in [https://github.com/manaflow-ai/cmux/pull/10486](https://github.com/manaflow-ai/cmux/pull/10486). |
+| [https://github.com/manaflow-ai/cmux/pull/10254](https://github.com/manaflow-ai/cmux/pull/10254) | Lawrence Chen | Superseded by the replacement SDK stacks [https://github.com/manaflow-ai/cmux/pull/10239](https://github.com/manaflow-ai/cmux/pull/10239) and [https://github.com/manaflow-ai/cmux/pull/10249](https://github.com/manaflow-ai/cmux/pull/10249). |
+| [https://github.com/manaflow-ai/cmux/pull/9876](https://github.com/manaflow-ai/cmux/pull/9876) | Lawrence Chen | Superseded by the trusted benchmark line in [https://github.com/manaflow-ai/cmux/pull/9922](https://github.com/manaflow-ai/cmux/pull/9922). |
+| [https://github.com/manaflow-ai/cmux/pull/10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Superseded when the aggregate implementation in [https://github.com/manaflow-ai/cmux/pull/10603](https://github.com/manaflow-ai/cmux/pull/10603) contains all unique deltas. |
+| [https://github.com/manaflow-ai/cmux/pull/10131](https://github.com/manaflow-ai/cmux/pull/10131) | Lawrence Chen | Superseded by [https://github.com/manaflow-ai/cmux/pull/9922](https://github.com/manaflow-ai/cmux/pull/9922); retain no benchmark fork without a fresh audit. |
+| [https://github.com/manaflow-ai/cmux/pull/9821](https://github.com/manaflow-ai/cmux/pull/9821) | Lawrence Chen | Superseded by the journal and liveness stack in [https://github.com/manaflow-ai/cmux/pull/10413](https://github.com/manaflow-ai/cmux/pull/10413) and [https://github.com/manaflow-ai/cmux/pull/10521](https://github.com/manaflow-ai/cmux/pull/10521). |
+| [https://github.com/manaflow-ai/cmux/pull/9819](https://github.com/manaflow-ai/cmux/pull/9819) | Lawrence Chen | Superseded by the newer journal attachment-state design in [https://github.com/manaflow-ai/cmux/pull/10413](https://github.com/manaflow-ai/cmux/pull/10413). |
+| [https://github.com/manaflow-ai/cmux/pull/9813](https://github.com/manaflow-ai/cmux/pull/9813) | Lawrence Chen | Superseded by the durable restore stack in [https://github.com/manaflow-ai/cmux/pull/10521](https://github.com/manaflow-ai/cmux/pull/10521). |
+| [https://github.com/manaflow-ai/cmux/pull/9806](https://github.com/manaflow-ai/cmux/pull/9806) | Lawrence Chen | Superseded by the journal projection and restore sequence now carried by [https://github.com/manaflow-ai/cmux/pull/10521](https://github.com/manaflow-ai/cmux/pull/10521). |
+| [https://github.com/manaflow-ai/cmux/pull/9647](https://github.com/manaflow-ai/cmux/pull/9647) | Lawrence Chen | Superseded by the daemon-backed attach direction in [https://github.com/manaflow-ai/cmux/pull/10408](https://github.com/manaflow-ai/cmux/pull/10408) and aggregate [https://github.com/manaflow-ai/cmux/pull/10603](https://github.com/manaflow-ai/cmux/pull/10603). |
+| [https://github.com/manaflow-ai/cmux/pull/9818](https://github.com/manaflow-ai/cmux/pull/9818) | Lawrence Chen | Superseded by the current durable-proof and liveness stack in [https://github.com/manaflow-ai/cmux/pull/10513](https://github.com/manaflow-ai/cmux/pull/10513). |
+| [https://github.com/manaflow-ai/cmux/pull/9816](https://github.com/manaflow-ai/cmux/pull/9816) | Lawrence Chen | Superseded by the journal effect workflow in [https://github.com/manaflow-ai/cmux/pull/10521](https://github.com/manaflow-ai/cmux/pull/10521). |
+| [https://github.com/manaflow-ai/cmux/pull/9815](https://github.com/manaflow-ai/cmux/pull/9815) | Lawrence Chen | Superseded by the later journal state machine and restore stack in [https://github.com/manaflow-ai/cmux/pull/10521](https://github.com/manaflow-ai/cmux/pull/10521). |
+| [https://github.com/manaflow-ai/cmux/pull/8503](https://github.com/manaflow-ai/cmux/pull/8503) | Lawrence Chen | Superseded by merged terminal color/font parity work in [https://github.com/manaflow-ai/cmux/pull/10429](https://github.com/manaflow-ai/cmux/pull/10429). |
+| [https://github.com/manaflow-ai/cmux/pull/10413](https://github.com/manaflow-ai/cmux/pull/10413) | Lawrence Chen | Superseded by the newer restore-apply sequence in [https://github.com/manaflow-ai/cmux/pull/10521](https://github.com/manaflow-ai/cmux/pull/10521). |
+| [https://github.com/manaflow-ai/cmux/pull/10571](https://github.com/manaflow-ai/cmux/pull/10571) | Lawrence Chen | Superseded by aggregate relay work in [https://github.com/manaflow-ai/cmux/pull/10603](https://github.com/manaflow-ai/cmux/pull/10603). |
+| [https://github.com/manaflow-ai/cmux/pull/10408](https://github.com/manaflow-ai/cmux/pull/10408) | Lawrence Chen | Superseded spike; use the safe daemon/attach subset carried by [https://github.com/manaflow-ai/cmux/pull/10603](https://github.com/manaflow-ai/cmux/pull/10603). |
+
+### Unsafe or not mergeable without redesign
+
+| PR | Author | Classification and reason |
+| --- | --- | --- |
+| [https://github.com/manaflow-ai/cmux/pull/10428](https://github.com/manaflow-ai/cmux/pull/10428) | Lawrence Chen | Unsafe: the diagnostic PTY tap can block writes and signal forwarding. Do not merge without nonblocking I/O, process-group handling, and permission tests. |
+| [https://github.com/manaflow-ai/cmux/pull/9061](https://github.com/manaflow-ai/cmux/pull/9061) | Wolfie | Unsafe/stale: nested bracketed-paste stripping changes terminal bytes without a current protocol proof. Keep closed unless re-cut and reviewed. |
+| [https://github.com/manaflow-ai/cmux/pull/9062](https://github.com/manaflow-ai/cmux/pull/9062) | Wolfie | Unsafe/stale: browser-tab key documentation is detached from the current command contract. Re-cut only with current schema and behavior evidence. |
+
+### Needs review
+
+| PR | Author | Classification and review focus |
+| --- | --- | --- |
+| [https://github.com/manaflow-ai/cmux/pull/9785](https://github.com/manaflow-ai/cmux/pull/9785) | Lawrence Chen | Needs review: large native Swift frontend scope and state-ownership impact. |
+| [https://github.com/manaflow-ai/cmux/pull/9022](https://github.com/manaflow-ai/cmux/pull/9022) | iarbpairs | Needs review: external scrollback fix requires current replay and bounded-memory tests. |
+| [https://github.com/manaflow-ai/cmux/pull/9783](https://github.com/manaflow-ai/cmux/pull/9783) | Lawrence Chen | Needs review: persistent Pi sessions need a current durable-state and process-lifecycle design. |
+| [https://github.com/manaflow-ai/cmux/pull/10321](https://github.com/manaflow-ai/cmux/pull/10321) | Lawrence Chen | Needs review: cloud TUI product scope, provider lifecycle, auth, and reconnect acceptance remain incomplete. |
+| [https://github.com/manaflow-ai/cmux/pull/8769](https://github.com/manaflow-ai/cmux/pull/8769) | Lawrence Chen | Needs review: stale-server cleanup must define ownership, locking, and safe process selection. |
+| [https://github.com/manaflow-ai/cmux/pull/9593](https://github.com/manaflow-ai/cmux/pull/9593) | Abdulaziz Albahar | Needs review: broker-gated iroh transport needs auth, shutdown, and dependency-boundary review. |
+| [https://github.com/manaflow-ai/cmux/pull/9682](https://github.com/manaflow-ai/cmux/pull/9682) | Lawrence Chen | Needs review: Windows SSH support needs hosted Windows protocol, path, and process coverage. |
+| [https://github.com/manaflow-ai/cmux/pull/10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Needs review: aggregate integration candidate; exact-head checks, replay/safe-attach parity, queue ownership, and child lifecycle remain required. |
+| [https://github.com/manaflow-ai/cmux/pull/10513](https://github.com/manaflow-ai/cmux/pull/10513) | Lawrence Chen | Needs review: heartbeat and host-loss stack is dirty and depends on foundational attach work. |
+| [https://github.com/manaflow-ai/cmux/pull/9524](https://github.com/manaflow-ai/cmux/pull/9524) | Abdulaziz Albahar | Needs review: iroh sidecar stage needs transport security, packaging, and failure-mode evidence. |
+| [https://github.com/manaflow-ai/cmux/pull/10521](https://github.com/manaflow-ai/cmux/pull/10521) | Lawrence Chen | Needs review: restore scan complexity, lifecycle ordering, and privacy findings remain unresolved. |
+| [https://github.com/manaflow-ai/cmux/pull/4017](https://github.com/manaflow-ai/cmux/pull/4017) | Austin Wang | Needs review: fullscreen TUI behavior must be reconciled with current Ghostty and resize ownership. |
+| [https://github.com/manaflow-ai/cmux/pull/9606](https://github.com/manaflow-ai/cmux/pull/9606) | Lawrence Chen | Needs review: persistent Daytona lifecycle and TUI reconnect need current cloud contracts. |
+| [https://github.com/manaflow-ai/cmux/pull/7578](https://github.com/manaflow-ai/cmux/pull/7578) | Lawrence Chen | Needs review: VM onboarding TUI needs current CLI, auth, and provider acceptance. |
+| [https://github.com/manaflow-ai/cmux/pull/7591](https://github.com/manaflow-ai/cmux/pull/7591) | Austin Wang | Needs review: extension installation and marketplace trust boundaries need current consent and pinning checks. |
+
+### Recent merged TUI work
+
+| PR | Author | Status |
+| --- | --- | --- |
+| [https://github.com/manaflow-ai/cmux/pull/10611](https://github.com/manaflow-ai/cmux/pull/10611) | Lawrence Chen | Merged, `91b991496de2667a22e65176a8f11f715e6c089b`. |
+| [https://github.com/manaflow-ai/cmux/pull/10608](https://github.com/manaflow-ai/cmux/pull/10608) | Lawrence Chen | Merged, `2ee1e355c0a9b405ada3e2b812b0cec5e2ae4278`. |
+| [https://github.com/manaflow-ai/cmux/pull/10606](https://github.com/manaflow-ai/cmux/pull/10606) | Lawrence Chen | Merged, `8af5331e27b832eb517bb5c1892391348b5cb6e9`. |
+| [https://github.com/manaflow-ai/cmux/pull/10605](https://github.com/manaflow-ai/cmux/pull/10605) | Lawrence Chen | Merged, `51294051938830a1e3d3013a256d851ad4cfa1d3`. |
+| [https://github.com/manaflow-ai/cmux/pull/10604](https://github.com/manaflow-ai/cmux/pull/10604) | Lawrence Chen | Merged, `1956d7f440add80ba35e585d83697d9dae44d3e2`. |
+| [https://github.com/manaflow-ai/cmux/pull/10522](https://github.com/manaflow-ai/cmux/pull/10522) | Lawrence Chen | Merged, `409e9dc1620d47489313752f6cae4b5987d7b274`. |
+| [https://github.com/manaflow-ai/cmux/pull/10601](https://github.com/manaflow-ai/cmux/pull/10601) | Lawrence Chen | Merged, `74c2d71c7ea58949a744e1545f49c72329d0e53e`. |
+| [https://github.com/manaflow-ai/cmux/pull/10600](https://github.com/manaflow-ai/cmux/pull/10600) | Lawrence Chen | Merged, `1e1800db80e54d7f63e02ae5a30bbd1b2f7cb3d0`. |
+| [https://github.com/manaflow-ai/cmux/pull/10559](https://github.com/manaflow-ai/cmux/pull/10559) | Lawrence Chen | Merged, `393300048360183b18d28396ba343cecfe88fa49`. |
+| [https://github.com/manaflow-ai/cmux/pull/10501](https://github.com/manaflow-ai/cmux/pull/10501) | Lawrence Chen | Merged, `a4a2af086fdcc42816efb3b2bac4961b8b01c8b7`. |
+| [https://github.com/manaflow-ai/cmux/pull/10486](https://github.com/manaflow-ai/cmux/pull/10486) | Lawrence Chen | Merged, `35cbaa63ce5c2768a0f64af2cf1eeb06d719232d`. |
+| [https://github.com/manaflow-ai/cmux/pull/10429](https://github.com/manaflow-ai/cmux/pull/10429) | Lawrence Chen | Merged, `23f0c002883bfd4d22721ef670b1666143f7fdbb`. |
+| [https://github.com/manaflow-ai/cmux/pull/10331](https://github.com/manaflow-ai/cmux/pull/10331) | Lawrence Chen | Merged, `1c33f4b93b3cbefe9aebcac5ca12484c59cefff6`. |
+| [https://github.com/manaflow-ai/cmux/pull/10244](https://github.com/manaflow-ai/cmux/pull/10244) | Lawrence Chen | Merged, `b71f27ffef49d53b5b9b0a3d05e53e41d2454d9b`. |
