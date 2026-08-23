@@ -18726,14 +18726,27 @@ mod tests {
             } else {
                 request["delta_y_px"] = json!(3.0);
             }
+            request["frame_seq"] = Value::Null;
             let request =
                 serde_json::from_value::<Request>(request).expect("legacy schema must parse");
-            let error = handle_command(&test_mux(), 0, request.cmd, &test_writer())
-                .unwrap_err()
-                .to_string();
+            let mux = test_mux();
+            let writer = test_writer();
+            let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+            assert!(handle_message(
+                &mux,
+                client,
+                &json!({
+                    "id": 1,
+                    "cmd": "set-client-info",
+                    "capabilities": [GUARDED_BROWSER_POINTER_CAPABILITY],
+                })
+                .to_string(),
+                &writer,
+            ));
+            let error = handle_command(&mux, client, request.cmd, &writer).unwrap_err().to_string();
             assert!(
                 error.contains("requires a frame guard"),
-                "{cmd} must fail closed before surface lookup: {error}"
+                "{cmd} with a null frame_seq must fail closed before surface lookup: {error}"
             );
         }
     }
