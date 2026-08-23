@@ -650,6 +650,7 @@ async fn run_spec(
     let mut stderr_open = stderr.is_some();
     let mut exited: Option<i64> = None;
     let mut kill_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
+    let mut drain_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     loop {
         if exited.is_some() && !stdout_open && !stderr_open {
             break;
@@ -690,6 +691,11 @@ async fn run_spec(
                 // fire against a PID that the OS may reuse while descendants
                 // keep the output pipes open.
                 kill_deadline = None;
+                if timed_out {
+                    drain_deadline = Some(Box::pin(tokio::time::sleep(
+                        std::time::Duration::from_millis(250),
+                    )));
+                }
                 exited = Some(match status {
                     Ok(status) => status.code().map(i64::from).unwrap_or(1),
                     Err(_) => 1,
@@ -717,6 +723,16 @@ async fn run_spec(
             }, if kill_deadline.is_some() => {
                 signal_process_tree(pid, true);
                 kill_deadline = None;
+            }
+            () = async {
+                match drain_deadline.as_mut() {
+                    Some(timer) => timer.as_mut().await,
+                    None => std::future::pending().await,
+                }
+            }, if drain_deadline.is_some() => {
+                stdout_open = false;
+                stderr_open = false;
+                drain_deadline = None;
             }
         }
     }
@@ -804,18 +820,13 @@ fn run_reply(
     let limit = limit.or(default_value.as_ref());
     match outcome {
         RunOutcome::Failed { message } => fail_result(version, action_id, "failed", &message),
-        RunOutcome::TimedOut { tail } => {
-            let suffix = if tail.trim().is_empty() {
-                String::new()
-            } else {
-                format!("; output tail:\n{tail}")
-            };
+        RunOutcome::TimedOut { .. } => {
             let seconds = (timeout_ms as f64 / 1000.0).round() as u64;
             fail_result(
                 version,
                 action_id,
                 "timeout",
-                &format!("command timed out after {seconds}s{suffix}"),
+                &format!("command timed out after {seconds}s"),
             )
         }
         RunOutcome::Done { exit_code, output } => {

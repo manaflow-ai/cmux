@@ -397,9 +397,9 @@ impl PtyDeps for RealPtyDeps {
                         _ => tokio::time::sleep(Duration::from_millis(50)).await,
                     }
                 }
-                // Soft gate: socket exists but the probe verb never answered
-                // (an older cmux-tui). Attach anyway.
-                return Ok(EnsureDaemon { created: true, socket_path });
+                return Err(format!(
+                    "cmux-tui daemon for \"{session}\" did not become control-ready"
+                ));
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
