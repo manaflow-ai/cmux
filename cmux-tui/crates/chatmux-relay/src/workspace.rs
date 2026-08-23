@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc::UnboundedSender};
 
 use crate::preview_proxy::PreviewRegistry;
 use crate::relay_wire as wire;
@@ -388,11 +388,11 @@ fn open_no_follow(path: &Path) -> std::io::Result<std::fs::File> {
 
 /// Read a scoped file without following a final-component symlink swapped
 /// in after the canonical check (actions.mjs readUtf8NoFollow).
-fn read_bytes_no_follow(path: &Path) -> std::io::Result<Vec<u8>> {
+fn read_bytes_no_follow(path: &Path, max_bytes: usize) -> std::io::Result<Vec<u8>> {
     use std::io::Read as _;
     let mut file = open_no_follow(path)?;
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
+    let mut bytes = Vec::with_capacity(max_bytes.saturating_add(1));
+    file.take(max_bytes.saturating_add(1) as u64).read_to_end(&mut bytes)?;
     Ok(bytes)
 }
 
@@ -544,14 +544,14 @@ fn run_tree(scope: &Scope, op: &wire::FsTreeOp) -> Result<wire::WorkspaceResultB
 
 fn run_read(scope: &Scope, op: &wire::FsReadOp) -> Result<wire::WorkspaceResultBody, Refusal> {
     let path = scope.resolve(&op.path, false)?;
-    let bytes = read_bytes_no_follow(&path).map_err(|error| {
+    let max = usize::try_from(clamp_i64(op.max_bytes, 1, READ_MAX_BYTES)).unwrap_or(1);
+    let bytes = read_bytes_no_follow(&path, max).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             Refusal::not_found(format!("{} does not exist", op.path))
         } else {
             Refusal::failed(format!("could not read {}: {error}", op.path))
         }
     })?;
-    let max = usize::try_from(clamp_i64(op.max_bytes, 1, READ_MAX_BYTES)).unwrap_or(1);
     let truncated = bytes.len() > max;
     let slice = if truncated { &bytes[..max] } else { &bytes[..] };
     let (content, encoding) = match std::str::from_utf8(slice) {
@@ -590,7 +590,7 @@ fn run_write(scope: &Scope, op: &wire::FsWriteOp) -> Result<wire::WorkspaceResul
         ));
     }
     let path = scope.resolve(&op.path, true)?;
-    let existing = match read_bytes_no_follow(&path) {
+    let existing = match read_bytes_no_follow(&path, WRITE_MAX_BYTES) {
         Ok(bytes) => Some(bytes),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(error) => {
@@ -714,7 +714,9 @@ fn run_search(scope: &Scope, op: &wire::FsSearchOp) -> Result<wire::WorkspaceRes
             continue;
         }
         let Ok(relative) = entry.path().strip_prefix(&root) else { continue };
-        let Ok(bytes) = read_bytes_no_follow(entry.path()) else { continue };
+        let Ok(bytes) = read_bytes_no_follow(entry.path(), READ_MAX_BYTES as usize) else {
+            continue;
+        };
         // Binary files are skipped (ripgrep's default behavior).
         let Ok(text) = std::str::from_utf8(&bytes) else { continue };
         let path = slash_path(relative);
@@ -1019,6 +1021,7 @@ pub struct Connection {
     /// connection must stop in-flight work instead of letting it outlive the
     /// outbound queue and the relay session that created it.
     requests: std::sync::Mutex<tokio::task::JoinSet<()>>,
+    admission: Arc<Semaphore>,
 }
 
 impl Connection {
@@ -1030,6 +1033,7 @@ impl Connection {
             local_observe: Arc::new(AtomicBool::new(false)),
             watches,
             requests: std::sync::Mutex::new(tokio::task::JoinSet::new()),
+            admission: Arc::new(Semaphore::new(MAX_IN_FLIGHT_WORKSPACE_REQUESTS)),
         }
     }
 
@@ -1086,10 +1090,18 @@ impl Connection {
         let runtime = Arc::clone(&self.runtime);
         let outbound = self.outbound.clone();
         let local_observe = Arc::clone(&self.local_observe);
+        let permit = match self.admission.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => {
+                let refusal = Refusal::failed("workspace request limit reached; retry later");
+                let _ = self.outbound.send(error_frame(&request.request_id, &refusal));
+                return;
+            }
+        };
         let request_id = request.request_id.clone();
         let task = async move {
             let request_id = request.request_id.clone();
-            let outcome = execute(&runtime, &local_observe, request).await;
+            let outcome = execute(&runtime, &local_observe, request, permit).await;
             let text = match outcome {
                 Ok(body) => ok_frame(&request_id, body),
                 Err(refusal) => error_frame(&request_id, &refusal),
@@ -1101,11 +1113,6 @@ impl Connection {
             // in-flight request. This keeps admission proportional to the
             // number of completions since the previous frame.
             while requests.try_join_next().is_some() {}
-            if !admit_workspace_request(requests.len()) {
-                let refusal = Refusal::failed("workspace request limit reached; retry later");
-                let _ = self.outbound.send(error_frame(&request_id, &refusal));
-                return;
-            }
             requests.spawn(task);
         } else {
             // The task has not been spawned yet, so a poisoned registry does
@@ -1150,6 +1157,7 @@ async fn execute(
     runtime: &Arc<SharedRuntime>,
     local_observe: &AtomicBool,
     request: wire::RelayWorkspaceRequest,
+    permit: OwnedSemaphorePermit,
 ) -> Result<wire::WorkspaceResultBody, Refusal> {
     if is_mutating(&request.op)
         && (request.trust == wire::TrustLevel::Observe || local_observe.load(Ordering::Relaxed))
@@ -1161,7 +1169,7 @@ async fn execute(
     }
     let timeout_ms = clamp_i64(request.timeout_ms, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS);
     let deadline = std::time::Duration::from_millis(timeout_ms.unsigned_abs());
-    match tokio::time::timeout(deadline, run_op(runtime, request)).await {
+    match tokio::time::timeout(deadline, run_op(runtime, request, permit)).await {
         Ok(outcome) => outcome,
         Err(_) => Err(Refusal::new(
             wire::WorkspaceErrorCode::Timeout,
@@ -1173,15 +1181,16 @@ async fn execute(
 async fn run_op(
     runtime: &Arc<SharedRuntime>,
     request: wire::RelayWorkspaceRequest,
+    permit: OwnedSemaphorePermit,
 ) -> Result<wire::WorkspaceResultBody, Refusal> {
     let scope = Scope::build(request.allowed_roots.as_deref(), runtime.local_roots.as_deref())?;
     match request.op {
-        wire::WorkspaceOp::FsTree(op) => blocking(move || run_tree(&scope, &op)).await,
-        wire::WorkspaceOp::FsRead(op) => blocking(move || run_read(&scope, &op)).await,
-        wire::WorkspaceOp::FsWrite(op) => blocking(move || run_write(&scope, &op)).await,
-        wire::WorkspaceOp::FsRename(op) => blocking(move || run_rename(&scope, &op)).await,
-        wire::WorkspaceOp::FsDelete(op) => blocking(move || run_delete(&scope, &op)).await,
-        wire::WorkspaceOp::FsSearch(op) => blocking(move || run_search(&scope, &op)).await,
+        wire::WorkspaceOp::FsTree(op) => blocking(move || run_tree(&scope, &op), permit).await,
+        wire::WorkspaceOp::FsRead(op) => blocking(move || run_read(&scope, &op), permit).await,
+        wire::WorkspaceOp::FsWrite(op) => blocking(move || run_write(&scope, &op), permit).await,
+        wire::WorkspaceOp::FsRename(op) => blocking(move || run_rename(&scope, &op), permit).await,
+        wire::WorkspaceOp::FsDelete(op) => blocking(move || run_delete(&scope, &op), permit).await,
+        wire::WorkspaceOp::FsSearch(op) => blocking(move || run_search(&scope, &op), permit).await,
         wire::WorkspaceOp::GitStatus(_) => run_git_status(&scope).await,
         wire::WorkspaceOp::GitDiff(op) => run_git_diff(&scope, &op).await,
         wire::WorkspaceOp::PreviewOpen(op) => runtime.preview.open(op.target_port).await,
@@ -1189,11 +1198,19 @@ async fn run_op(
     }
 }
 
-async fn blocking<F>(body: F) -> Result<wire::WorkspaceResultBody, Refusal>
+async fn blocking<F>(
+    body: F,
+    permit: OwnedSemaphorePermit,
+) -> Result<wire::WorkspaceResultBody, Refusal>
 where
     F: FnOnce() -> Result<wire::WorkspaceResultBody, Refusal> + Send + 'static,
 {
-    match tokio::task::spawn_blocking(body).await {
+    match tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        body()
+    })
+    .await
+    {
         Ok(outcome) => outcome,
         Err(join_error) => Err(Refusal::failed(format!("workspace op crashed: {join_error}"))),
     }
