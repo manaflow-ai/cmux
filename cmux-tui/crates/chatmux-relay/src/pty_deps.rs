@@ -534,7 +534,7 @@ mod tests {
 
         assert_eq!(
             *seen.lock().expect("seen lock"),
-            vec!["buffered", "live", "exit:7"]
+            vec!["buffered".to_owned(), "live".to_owned(), "exit:7".to_owned()]
         );
     }
 }
