@@ -547,6 +547,7 @@ jobs:
             dist/cmux-tui-x86_64-pc-windows-gnu.exe
             dist/cmux-tui-hook-x86_64-pc-windows-gnu.exe
             dist/cmux-relay-x86_64-pc-windows-gnu.exe
+            dist/chatmux-relay-x86_64-pc-windows-gnu.exe
           if-no-files-found: error
 
   package:
@@ -631,6 +632,8 @@ jobs:
 
       - name: Smoke verify npm packages
         if: inputs.package_npm
+        env:
+          INCLUDE_WINDOWS: ${{ inputs.include_windows }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -648,6 +651,8 @@ jobs:
               "cmux-tui-linux-x64": ("linux", "x64"),
               "cmux-tui-linux-arm64": ("linux", "arm64"),
           }
+          if os.environ["INCLUDE_WINDOWS"] == "true":
+              platforms["cmux-tui-win32-x64"] = ("win32", "x64")
           launcher = json.loads((root / "cmux" / "package.json").read_text())
           deps = launcher.get("optionalDependencies", {})
           if deps != {name: version for name in platforms}:
@@ -659,10 +664,11 @@ jobs:
                   raise SystemExit(f"{name}: version mismatch")
               if package_json["os"] != [os_name] or package_json["cpu"] != [cpu]:
                   raise SystemExit(f"{name}: os/cpu mismatch")
-              binary = root / name / "bin" / "cmux-tui"
+              extension = ".exe" if os_name == "win32" else ""
+              binary = root / name / "bin" / f"cmux-tui{extension}"
               if not binary.stat().st_mode & stat.S_IXUSR:
                   raise SystemExit(f"{binary} is not executable")
-              hook = root / name / "bin" / "cmux-tui-hook"
+              hook = root / name / "bin" / f"cmux-tui-hook{extension}"
               if not hook.stat().st_mode & stat.S_IXUSR:
                   raise SystemExit(f"{hook} is not executable")
           PY
