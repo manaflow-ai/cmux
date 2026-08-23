@@ -240,6 +240,7 @@ jobs:
           fi
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
+          cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
 
       - name: Build cmux-tui (Linux cross)
         if: matrix.cross == true && runner.os == 'Linux'
@@ -261,6 +262,7 @@ jobs:
           fi
           cargo zigbuild -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
           cargo zigbuild -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
+          cargo zigbuild -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
 
       - name: Build cmux-tui (macOS cross)
         if: matrix.cross == true && runner.os == 'macOS'
@@ -282,6 +284,7 @@ jobs:
           fi
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
+          cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
 
       - name: Stage binary
         shell: bash
@@ -293,6 +296,7 @@ jobs:
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui${{ matrix.ext }}" "$binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui-hook${{ matrix.ext }}" "$hook_binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-relay${{ matrix.ext }}" "$relay_binary"
+          cp "cmux-tui/target/${{ matrix.target }}/release/chatmux-relay${{ matrix.ext }}" "dist/chatmux-relay-${{ matrix.target }}${{ matrix.ext }}"
           if [[ -n "${{ matrix.compatibility_target }}" ]]; then
             cp "$binary" "dist/cmux-tui-${{ matrix.compatibility_target }}${{ matrix.ext }}"
             cp "$hook_binary" "dist/cmux-tui-hook-${{ matrix.compatibility_target }}${{ matrix.ext }}"
@@ -479,6 +483,8 @@ jobs:
           zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
           cd ../cmux-tui
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target x86_64-pc-windows-gnu
+          cargo build -p cmux-relay --bin cmux-relay --release --locked --target x86_64-pc-windows-gnu
+          cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target x86_64-pc-windows-gnu
 
       - name: Verify long Windows state path
         shell: bash
@@ -522,6 +528,8 @@ jobs:
           mkdir -p dist
           cp "cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe" "dist/cmux-tui-x86_64-pc-windows-gnu.exe"
           cp "cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui-hook.exe" "dist/cmux-tui-hook-x86_64-pc-windows-gnu.exe"
+          cp "cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-relay.exe" "dist/cmux-relay-x86_64-pc-windows-gnu.exe"
+          cp "cmux-tui/target/x86_64-pc-windows-gnu/release/chatmux-relay.exe" "dist/chatmux-relay-x86_64-pc-windows-gnu.exe"
           ls -la dist
 
       - name: Upload binary artifact
@@ -531,6 +539,7 @@ jobs:
           path: |
             dist/cmux-tui-x86_64-pc-windows-gnu.exe
             dist/cmux-tui-hook-x86_64-pc-windows-gnu.exe
+            dist/cmux-relay-x86_64-pc-windows-gnu.exe
           if-no-files-found: error
 
   package:
@@ -582,12 +591,20 @@ jobs:
           name: cmux-tui-aarch64-unknown-linux-musl
           path: dist/binaries
 
+      - name: Download Windows x64 binary
+        if: inputs.include_windows
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-tui-x86_64-pc-windows-gnu
+          path: dist/binaries
+
       - name: Build npm package directories
         if: inputs.package_npm
         run: |
           python3 cmux-tui/dist/scripts/package_npm.py \
             --binaries-dir dist/binaries \
             --version "$NPM_VERSION" \
+            ${{ inputs.include_windows && '--include-windows' || '' }} \
             --out dist/npm-packages
 
       - name: Build PyPI wheels

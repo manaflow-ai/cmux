@@ -15,7 +15,14 @@ EXECUTABLES = (
     "cmux-tui-darwin-x64/bin/cmux-tui",
     "cmux-tui-linux-x64/bin/cmux-tui",
     "cmux-tui-linux-arm64/bin/cmux-tui",
+    "cmux-tui-win32-x64/bin/cmux-tui.exe",
+    "cmux-relay-darwin-arm64/bin/cmux-relay",
+    "cmux-relay-darwin-x64/bin/cmux-relay",
+    "cmux-relay-linux-x64/bin/cmux-relay",
+    "cmux-relay-linux-arm64/bin/cmux-relay",
+    "cmux-relay-win32-x64/bin/cmux-relay.exe",
     "cmux/bin/cmux.js",
+    "cmux-relay/bin/cmux-relay.js",
 )
 MAX_MEMBERS = 1_024
 MAX_EXPANDED_BYTES = 512 * 1024 * 1024

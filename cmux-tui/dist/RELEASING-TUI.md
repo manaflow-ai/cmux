@@ -19,6 +19,8 @@ scripts receive `--version`, so cutting a stable TUI release is just creating a
 - npm `cmux-tui-darwin-x64`: macOS x64 binary package.
 - npm `cmux-tui-linux-x64`: Linux x64 binary package.
 - npm `cmux-tui-linux-arm64`: Linux arm64 binary package.
+- npm `cmux-relay`: launcher for the remote relay.
+- npm `cmux-relay-*`: platform relay binary packages (including Windows x64).
 - PyPI `cmux`: platform wheels for `uvx cmux` / `pipx run cmux`.
 
 Linux packages contain static musl binaries that run on both glibc and musl
@@ -27,7 +29,7 @@ musllinux wheel tags so installers on both runtime families can resolve it.
 
 ## One-time registry setup
 
-Add npm Trusted Publishers for all five npm package names:
+Add npm Trusted Publishers for all cmux and cmux-relay package names:
 
 - `cmux`
 - `cmux-tui-darwin-arm64`
