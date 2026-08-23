@@ -960,10 +960,28 @@ mod tests {
         path: &str,
     ) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>
     {
-        let (socket, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}{path}"))
-            .await
-            .expect("ws connect");
-        socket
+        // The proxy publishes its port before the accept task is scheduled.
+        // On Linux, a first connect can therefore observe an incomplete
+        // WebSocket handshake. Retry only that startup race; other protocol
+        // errors remain test failures.
+        let url = format!("ws://127.0.0.1:{port}{path}");
+        for attempt in 0..20 {
+            match tokio_tungstenite::connect_async(&url).await {
+                Ok((socket, _)) => return socket,
+                Err(error)
+                    if matches!(
+                        error,
+                        tokio_tungstenite::tungstenite::Error::Protocol(
+                            tokio_tungstenite::tungstenite::error::ProtocolError::HandshakeIncomplete
+                        )
+                    ) && attempt < 19 =>
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+                Err(error) => panic!("ws connect: {error}"),
+            }
+        }
+        unreachable!("websocket connect retry loop exhausted")
     }
 
     async fn next_text<S>(socket: &mut S, what: &str) -> String
