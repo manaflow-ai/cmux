@@ -1199,7 +1199,9 @@ impl Connection {
     fn send_critical(&self, text: String) {
         let outbound = self.outbound.clone();
         if let Ok(mut requests) = self.requests.lock() {
-            requests.spawn(async move { let _ = outbound.critical_text(text).await; });
+            requests.spawn(async move {
+                let _ = outbound.critical_text(text).await;
+            });
         }
     }
 }

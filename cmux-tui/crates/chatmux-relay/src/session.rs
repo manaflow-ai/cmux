@@ -81,7 +81,8 @@ pub(crate) struct OutboundSink {
 }
 
 impl OutboundSink {
-    pub(crate) fn channels() -> (OutboundSink, mpsc::Receiver<OutboundFrame>, mpsc::Receiver<OutboundFrame>) {
+    pub(crate) fn channels()
+    -> (OutboundSink, mpsc::Receiver<OutboundFrame>, mpsc::Receiver<OutboundFrame>) {
         let (critical, critical_rx) = mpsc::channel(MAX_OUTBOUND_FRAMES);
         let (watch, watch_rx) = mpsc::channel(MAX_WATCH_OUTBOUND_FRAMES);
         (
@@ -112,7 +113,8 @@ impl OutboundSink {
             return Err(());
         }
         let permit = Arc::clone(&self.bytes).acquire_many_owned(bytes).await.map_err(|_| ())?;
-        let result = self.critical.send(OutboundFrame { text, _bytes: permit }).await.map_err(|_| ());
+        let result =
+            self.critical.send(OutboundFrame { text, _bytes: permit }).await.map_err(|_| ());
         if result.is_err() {
             self.critical_overflow.store(true, Ordering::Release);
         }
@@ -252,11 +254,7 @@ fn save(config: &Config, config_path: &Path) {
 }
 
 /// Build a per-frame FrameContext reading the current reconciled auth.
-fn make_context(
-    out: &OutboundSink,
-    pending: &Arc<AtomicU64>,
-    auth: &AuthSnapshot,
-) -> FrameContext {
+fn make_context(out: &OutboundSink, pending: &Arc<AtomicU64>, auth: &AuthSnapshot) -> FrameContext {
     let sender = out.clone();
     let pending_send = Arc::clone(pending);
     let pending_probe = Arc::clone(pending);
@@ -264,11 +262,21 @@ fn make_context(
         send: Arc::new(move |frame: Value| {
             let size = serde_json::to_string(&frame).map(|text| text.len() as u64).unwrap_or(0);
             pending_send.fetch_add(size, Ordering::SeqCst);
-            let critical = matches!(frame.get("type").and_then(Value::as_str),
-                Some("pty_opened" | "pty_error" | "pty_exit" | "pty_closed" | "surface_list_result"));
-            let result = if critical { sender.try_critical_value(frame) } else { sender.try_watch_value(frame) };
+            let critical = matches!(
+                frame.get("type").and_then(Value::as_str),
+                Some(
+                    "pty_opened" | "pty_error" | "pty_exit" | "pty_closed" | "surface_list_result"
+                )
+            );
+            let result = if critical {
+                sender.try_critical_value(frame)
+            } else {
+                sender.try_watch_value(frame)
+            };
             if result.is_err() {
-                eprintln!("Dropping relay outbound frame because its bounded queue is full; mandatory={critical}");
+                eprintln!(
+                    "Dropping relay outbound frame because its bounded queue is full; mandatory={critical}"
+                );
                 pending_send
                     .fetch_sub(size.min(pending_send.load(Ordering::SeqCst)), Ordering::SeqCst);
             }
@@ -388,7 +396,11 @@ async fn relay_session(
                 }
             }
             Wake::Outbound(is_critical, Some(frame)) => {
-                if is_critical { critical_burst += 1; } else { critical_burst = 0; }
+                if is_critical {
+                    critical_burst += 1;
+                } else {
+                    critical_burst = 0;
+                }
                 let text = frame.text;
                 let size = text.len() as u64;
                 let sent = socket.lock().await.send(Message::Text(text.into())).await;
@@ -397,7 +409,9 @@ async fn relay_session(
                     break Ok(connected);
                 }
             }
-            Wake::Outbound(_, None) => { critical_burst = 0; }
+            Wake::Outbound(_, None) => {
+                critical_burst = 0;
+            }
             Wake::Incoming(incoming) => {
                 let message = match incoming {
                     Some(Ok(message)) => message,
