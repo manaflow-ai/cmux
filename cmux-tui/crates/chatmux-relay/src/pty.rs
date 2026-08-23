@@ -826,13 +826,14 @@ impl Inner {
                     control.end();
                     return Err("cannot inspect existing surface cwd".to_owned());
                 }
-                let actual = info
-                    .get("data")
-                    .and_then(|v| v.get("cwd"))
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| {
+                let Some(actual) =
+                    info.get("data").and_then(|v| v.get("cwd")).and_then(Value::as_str)
+                else {
+                    control.end();
+                    return Err(
                         "cannot prove existing surface cwd is within allowed roots".to_owned()
-                    })?;
+                    );
+                };
                 if actual.is_empty() || !Path::new(actual).is_absolute() {
                     control.end();
                     return Err(
