@@ -317,11 +317,11 @@ impl PreviewRegistry {
                 order.push_back(target_port);
                 if order.len() > PREVIEW_PROXY_CAP
                     && let Some(evicted_port) = order.pop_front()
-                    && let Some(evicted) = proxies.remove(&evicted_port)
+                    && let Some(mut evicted) = proxies.remove(&evicted_port)
                 {
                     let _ = evicted.shutdown.send(true);
                     evicted.task.abort();
-                    let _ = evicted.task.await;
+                    let _ = (&mut evicted.task).await;
                 }
                 port
             }
@@ -705,7 +705,7 @@ async fn run_peer<S>(
         }
     }
     let writer_queued_bytes = Arc::clone(&queued_bytes);
-    let writer = tokio::spawn(async move {
+    let mut writer = tokio::spawn(async move {
         while let Some(message) = rx.recv().await {
             writer_queued_bytes.fetch_sub(message_len(&message), Ordering::AcqRel);
             let closing = matches!(message, Message::Close(_));
