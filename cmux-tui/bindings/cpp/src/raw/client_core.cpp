@@ -279,6 +279,7 @@ Result<ClientCore> ClientCore::connect(ClientOptions options) {
             }
         }
         auto effective_path = std::make_shared<std::string>(resolved_path);
+        const bool has_legacy_path = !legacy_path.empty();
         control_factory = [effective_path, legacy_path = std::move(legacy_path), timeout = options.timeout,
                            limits = options.transport_limits]() mutable -> Result<std::unique_ptr<Transport>> {
             auto first = UnixTransport::connect(*effective_path, timeout, limits);
@@ -294,11 +295,11 @@ Result<ClientCore> ClientCore::connect(ClientOptions options) {
             return fallback;
         };
         options.socket_path = resolved_path;
-        if (legacy_path.empty()) {
+        if (!has_legacy_path) {
             control_factory = unix_transport_factory(
                 std::move(resolved_path), options.timeout, options.transport_limits);
         }
-        if (!legacy_path.empty()) {
+        if (has_legacy_path) {
             auto stream_path = effective_path;
             options.stream_transport_factory = [stream_path, timeout = options.timeout,
                                                 limits = options.transport_limits]() {
