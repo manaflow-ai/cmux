@@ -554,10 +554,10 @@ async fn relay_session(
                                 manager_direct.handle_frame(&raw, &context).await;
                                 continue;
                             }
-                            match pty_tx.try_send(raw.clone()) {
+                            match pty_tx.try_send(raw) {
                                 Ok(()) => {}
                                 Err(mpsc::error::TrySendError::Closed(_)) => break Ok(connected),
-                                Err(mpsc::error::TrySendError::Full(_)) => {
+                                Err(mpsc::error::TrySendError::Full(raw)) => {
                                     // Never silently discard a server command. Slow opens/listing
                                     // have an explicit busy response; control frames use the same
                                     // typed refusal when the serialized ingress queue is saturated.
