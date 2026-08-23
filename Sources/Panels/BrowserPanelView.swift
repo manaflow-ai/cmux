@@ -1155,6 +1155,7 @@ struct BrowserPanelView: View {
             omnibarField
                 .accessibilityIdentifier("BrowserOmnibarPill")
                 .accessibilityLabel("Browser omnibar")
+                .frame(minWidth: 0, maxWidth: .infinity)
 
             HStack(spacing: browserToolbarAccessorySpacing) {
                 if shouldShowToolbarImportHintChip {
@@ -1183,6 +1184,7 @@ struct BrowserPanelView: View {
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("BrowserToolbarAccessoryRow")
+            .fixedSize(horizontal: true, vertical: false)
             .layoutPriority(1)
         }
         .padding(.horizontal, 8)
