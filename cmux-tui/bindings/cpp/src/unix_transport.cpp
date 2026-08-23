@@ -400,7 +400,23 @@ struct UnixTransport::Impl {
 
 UnixTransport::UnixTransport(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 UnixTransport::UnixTransport(UnixTransport&&) noexcept = default;
-UnixTransport& UnixTransport::operator=(UnixTransport&&) noexcept = default;
+UnixTransport& UnixTransport::operator=(UnixTransport&& other) noexcept {
+    if (this == &other) {
+        return *this;
+    }
+    // The defaulted assignment destroys the old Impl through unique_ptr. Impl
+    // does not own the descriptor, so that would leak an open socket whenever
+    // an already-connected transport is overwritten.
+    if (impl_) {
+        close();
+        if (impl_->fd >= 0) {
+            ::close(impl_->fd);
+            impl_->fd = -1;
+        }
+    }
+    impl_ = std::move(other.impl_);
+    return *this;
+}
 
 UnixTransport::~UnixTransport() {
     if (!impl_) {
