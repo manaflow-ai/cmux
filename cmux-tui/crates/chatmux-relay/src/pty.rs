@@ -19,7 +19,7 @@
 //! the first allowed root; env scrubbed; per-pty buffered output capped; no
 //! empty frames; unknown ptyIds tolerated; refusals answer pty_error.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -175,7 +175,7 @@ struct ShellSession {
 }
 
 struct ShellInner {
-    ring: Vec<Bytes>,
+    ring: VecDeque<Bytes>,
     ring_size: usize,
     alive: bool,
     viewers: Vec<ViewerSink>,
@@ -323,6 +323,10 @@ impl Inner {
             return;
         }
         let fail = |code: &str, message: &str| send_pty_error(context, &pty_id, code, message);
+        if self.attachments.lock().expect("attach lock").contains_key(&pty_id) {
+            fail("bad_request", "ptyId is already attached");
+            return;
+        }
 
         let session = frame.get("session").and_then(Value::as_str).unwrap_or_default().to_owned();
         let (Some(cols), Some(rows)) = (clamp_dim(frame.get("cols")), clamp_dim(frame.get("rows")))
@@ -437,10 +441,14 @@ impl Inner {
             }
         };
 
-        self.attachments.lock().expect("attach lock").insert(
+        let previous = self.attachments.lock().expect("attach lock").insert(
             pty_id.clone(),
             Attachment { closing: opened.closing, control: opened.control },
         );
+        if let Some(previous) = previous {
+            previous.closing.store(true, Ordering::SeqCst);
+            previous.control.kill();
+        }
         let mut opened_frame = serde_json::Map::new();
         opened_frame.insert("version".to_owned(), Value::from(PTY_PROTOCOL_VERSION));
         opened_frame.insert("type".to_owned(), Value::from("pty_opened"));
@@ -645,7 +653,7 @@ impl Inner {
                     control,
                     banner,
                     inner: Mutex::new(ShellInner {
-                        ring: Vec::new(),
+                        ring: VecDeque::new(),
                         ring_size: 0,
                         alive: true,
                         viewers: Vec::new(),
@@ -665,9 +673,9 @@ impl Inner {
                     let viewers_to_notify: Vec<Arc<dyn Fn(Bytes) + Send + Sync>> = {
                         let mut inner = data_session.inner.lock().expect("shell inner lock");
                         inner.ring_size += chunk.len();
-                        inner.ring.push(chunk.clone());
+                        inner.ring.push_back(chunk.clone());
                         while inner.ring_size > scrollback_limit && inner.ring.len() > 1 {
-                            let dropped = inner.ring.remove(0);
+                            let Some(dropped) = inner.ring.pop_front() else { break };
                             inner.ring_size -= dropped.len();
                         }
                         inner.viewers.iter().map(|viewer| Arc::clone(&viewer.on_data)).collect()
@@ -713,23 +721,22 @@ impl Inner {
 
         let start_session = Arc::clone(&shell_session);
         let start: Box<dyn FnOnce() + Send> = Box::new(move || {
+            let (banner, replay, alive) = {
+                let inner = start_session.inner.lock().expect("shell inner lock");
+                let banner = created.then(|| start_session.banner.clone()).flatten();
+                let replay = (!created && inner.ring_size > 0).then(|| {
+                    inner.ring.iter().flat_map(|c| c.iter().copied()).collect::<Vec<u8>>()
+                });
+                (banner, replay, inner.alive)
+            };
+            if let Some(banner) = banner { on_data(Bytes::from(banner)); }
+            if let Some(replay) = replay { on_data(Bytes::from(replay)); }
+            if released.load(Ordering::SeqCst) { return; }
+            if !alive { on_exit(0); return; }
             let mut inner = start_session.inner.lock().expect("shell inner lock");
-            if created {
-                if let Some(banner) = &start_session.banner {
-                    on_data(Bytes::from(banner.clone()));
-                }
-            } else if inner.ring_size > 0 {
-                let replay: Vec<u8> = inner.ring.iter().flat_map(|c| c.iter().copied()).collect();
-                on_data(Bytes::from(replay)); // scrollback replay
+            if !released.load(Ordering::SeqCst) && inner.alive {
+                inner.viewers.push(ViewerSink { id: viewer_id, on_data, on_exit });
             }
-            if released.load(Ordering::SeqCst) {
-                return; // detached while the open settled
-            }
-            if !inner.alive {
-                on_exit(0); // the session exited between open and start
-                return;
-            }
-            inner.viewers.push(ViewerSink { id: viewer_id, on_data, on_exit });
         });
 
         Ok(Opened { created, surface: None, control: proxy, closing, start })
