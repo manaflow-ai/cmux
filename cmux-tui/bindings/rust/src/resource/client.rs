@@ -123,9 +123,9 @@ fn connect_with_budget(
 /// Resource connection settings.
 #[derive(Clone, Debug)]
 pub struct Config {
-    /// Primary socket path. The client may derive an internal legacy fallback
-    /// only when this path came from the default session mapping and no
-    /// explicit socket environment override is set.
+    /// Primary socket path. This path is authoritative for `Client::connect`;
+    /// legacy fallback is available only through the explicit compatibility
+    /// constructor.
     pub socket_path: PathBuf,
     /// Maximum time to wait for a connection and each request operation.
     pub timeout: Duration,
@@ -253,10 +253,20 @@ impl std::fmt::Debug for Client {
 }
 
 impl Client {
+    /// Connects to exactly `config.socket_path`.
+    ///
+    /// This constructor never redirects to a legacy socket. Use
+    /// [`Self::connect_with_legacy_fallback`] when that compatibility behavior
+    /// is explicitly required.
     pub fn connect(config: Config) -> Result<Self> {
         Self::connect_inner(config, false)
     }
 
+    /// Connects using `config.socket_path`, then explicitly opts into trying
+    /// its legacy hashed-session socket when the primary path is unavailable.
+    ///
+    /// This is a compatibility escape hatch, not automatic routing. The
+    /// configured path remains the first and authoritative attempt.
     pub fn connect_with_legacy_fallback(config: Config) -> Result<Self> {
         Self::connect_inner(config, true)
     }
