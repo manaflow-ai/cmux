@@ -92,6 +92,10 @@ export function envSocketPath(): string | undefined {
   return process.env.CMUX_TUI_SOCKET || process.env.CMUX_MUX_SOCKET;
 }
 
+export function validateSocketPath(socketPath: string): void {
+  if (socketPath.length === 0) throw new TypeError("socketPath must be a non-empty path");
+}
+
 export interface UnixSocketTransportOptions {
   /** Additional paths to try after ENOENT/ECONNREFUSED during initial connect. */
   fallbackSocketPaths?: readonly string[];

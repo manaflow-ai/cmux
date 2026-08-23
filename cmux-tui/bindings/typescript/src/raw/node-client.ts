@@ -3,7 +3,13 @@ import {
   type CmuxClientOptions,
 } from "./client.js";
 import type { CmuxAuthority } from "./generated/metadata.js";
-import { defaultSocketPath, defaultSocketPaths, envSocketPath, UnixSocketTransport } from "../node-transport.js";
+import {
+  defaultSocketPath,
+  defaultSocketPaths,
+  envSocketPath,
+  UnixSocketTransport,
+  validateSocketPath,
+} from "../node-transport.js";
 import { validateRequestTimeout } from "../internal/request-timeout.js";
 import type { Transport } from "../transport.js";
 import { RENDER_ATTACH_MAX_ENCODED_CHARS } from "../transport-limits.js";
@@ -42,6 +48,7 @@ export class CmuxClient extends TransportCmuxClient {
     const timeoutMs = validateRequestTimeout(options.timeoutMs ?? 10_000);
     const explicit = options.socketPath ?? envSocketPath();
     const socketPath = explicit ?? defaultSocketPath(options.session ?? "main");
+    validateSocketPath(socketPath);
     const fallbackSocketPaths = explicit ? [] : defaultSocketPaths(options.session ?? "main").slice(1);
     const rawTransport = (): UnixSocketTransport => new UnixSocketTransport(socketPath, {
       fallbackSocketPaths,

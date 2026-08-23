@@ -3,6 +3,7 @@ import {
   defaultSocketPath,
   defaultSocketPaths,
   envSocketPath,
+  validateSocketPath,
   UnixSocketTransport,
   type UnixSocketTransportOptions,
 } from "./node-transport.js";
@@ -29,6 +30,7 @@ export class NodeClient extends ResourceClient {
   constructor(options: NodeClientOptions = {}) {
     const explicit = options.socketPath ?? envSocketPath();
     const socketPath = explicit ?? defaultSocketPath(options.session ?? "main");
+    validateSocketPath(socketPath);
     const fallbackSocketPaths = explicit ? [] : defaultSocketPaths(options.session ?? "main").slice(1);
     super({
       transport: new UnixSocketTransport(socketPath, { ...options, fallbackSocketPaths }),

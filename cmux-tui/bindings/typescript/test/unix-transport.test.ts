@@ -212,6 +212,16 @@ test("explicit and environment socket paths remain authoritative", () => {
   }
 });
 
+test("explicit empty socket paths fail with a typed validation error", () => {
+  const message = "socketPath must be a non-empty path";
+  assert.throws(() => new NodeClient({ socketPath: "" }), (error: unknown) =>
+    error instanceof TypeError && error.message === message,
+  );
+  assert.throws(() => new CmuxClient({ socketPath: "" }), (error: unknown) =>
+    error instanceof TypeError && error.message === message,
+  );
+});
+
 interface DelayedUnixFixture {
   readonly transport: UnixSocketTransport;
   readonly received: string[];
