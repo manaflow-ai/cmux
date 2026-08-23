@@ -3,7 +3,7 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `feat-tui-tech-debt-wave1-clean`.
-Current integration code tip: `51a66ad061`.
+Current integration code tip: `14bf092017`.
 The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
 The combined review PR is `https://github.com/manaflow-ai/cmux/pull/10602`.
 
@@ -119,9 +119,13 @@ red/green behavior proof.
 7. Over-capacity or duplicate relay `Incoming` frames are intentionally dropped
    today. The wire protocol has no bounded rejection frame, so adding one needs
    a protocol decision.
-8. The exact-head hosted run `32639615550` failed only because the hosted Rust
-   formatter found the pre-`51a66ad061` layout. Dispatch a new exact-head run
-   after the next code tip is stable.
+8. The exact-head hosted run `32640497665` is running against `14bf092017`.
+   It includes the shared Crossterm event-reader helper and its behavior test.
+9. Attach passthrough PR [#10428](https://github.com/manaflow-ai/cmux/pull/10428)
+   is not merge-ready. Its artifact downloads returned 404, and its diagnostic
+   PTY tap still has blocking I/O, process-group, and log-permission risks.
+   Rebase and remove or repair that tap before treating the PR as a base for
+   liveness work.
 
 ## Wave-2 change log
 
@@ -165,6 +169,7 @@ red/green behavior proof.
 | `6e15ea5f38` | Document the `runtimeByBinary` raw-release contract, including per-file libc and package-specific wheel tags. | Docs match the generated manifest; external consumers still need to adopt the new field. | Revert this documentation commit only. |
 | `d76bc5539b` | Admit GitStatus and GitDiff through the shared eight-permit pool and build scopes on the blocking pool before filesystem validation. | Prevents cross-connection process admission growth and async-runtime filesystem stalls. Hosted Rust verification required. | Revert this commit with `51a66ad061` to restore the prior Git/scope path. |
 | `51a66ad061` | Apply the hosted formatter output for the shared admission helper. | `git diff --check` passed; exact hosted Rust formatter rerun required. | Revert this style-only commit. |
+| `14bf092017` | Extract one injected Crossterm event-reader helper for blocking and timed input, with behavior coverage for poll/read ordering. | `git diff --check` passed; hosted run `32640497665` is required for Rust compilation and tests. | Revert this commit to restore duplicated input branches. |
 
 Rejected or deferred after review: PTY resize error handling was already fixed
 by `80f40831dac`; Kitty transient-status suppression is already present as
@@ -188,10 +193,10 @@ complexity and host-state publication findings beyond its compile fixes.
 | [#10537](https://github.com/manaflow-ai/cmux/pull/10537) | dkta0 | External author branch. Candidate fix `65d19bc694` cannot be pushed to the external fork. | Do not push outside `manaflow-ai`; use an in-org re-cut only if the semantic fix is redesigned. |
 | [#10600](https://github.com/manaflow-ai/cmux/pull/10600) | Lawrence Chen | Merged at `1e1800db80` after exact-head checks and clean canonical review. | Done. |
 | [#10601](https://github.com/manaflow-ai/cmux/pull/10601) | Lawrence Chen | Merged after exact-head checks and clean canonical autoreview. | Done. |
-| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Combined branch, current tip `51a66ad061`; run `32639615550` failed on formatting before `51a66ad061`, so it is stale. | Dispatch an exact-head hosted run, run canonical review on that head, then merge if all gates are clean. |
+| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Combined branch, current tip `14bf092017`; exact hosted run `32640497665` is running. | After the run, run canonical review on the exact head and merge only if all gates are clean. |
 | [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Wording lint fixed at `9e0fe12be4`; protocol and inventory scripts pass, canonical review pending. | Merge only after required checks and canonical review pass. |
 | [#10522](https://github.com/manaflow-ai/cmux/pull/10522) | Lawrence Chen | Head `c7d216507f`; configurable provider-menu action and focus-target correction are present, but protocol and inventory checks fail for missing `ProviderMenu` inventory. | Fix the contract inventory, rerun exact checks, then review. |
-| [#10254](https://github.com/manaflow-ai/cmux/pull/10254) | Lawrence Chen | Head `f1150fecbf`; socket fallback and override-precedence fixes are pushed, checks and exact-head review pending. | Do not merge until all SDK conformance checks and canonical review pass. |
+| [#10254](https://github.com/manaflow-ai/cmux/pull/10254) | Lawrence Chen | Head `7f94fc3826`; Rust, Go, TypeScript, Java, and Zig socket fallbacks now share the bounded SHA-256 contract. Checks and exact-head review are pending. | Do not merge until all SDK conformance checks and canonical review pass. |
 
 Do not merge stale or high-risk branches [#10131](https://github.com/manaflow-ai/cmux/pull/10131), [#10571](https://github.com/manaflow-ai/cmux/pull/10571), [#9022](https://github.com/manaflow-ai/cmux/pull/9022), [#9003](https://github.com/manaflow-ai/cmux/pull/9003), [#8999](https://github.com/manaflow-ai/cmux/pull/8999), [#9061](https://github.com/manaflow-ai/cmux/pull/9061), [#9062](https://github.com/manaflow-ai/cmux/pull/9062), or superseded stacks [#9922](https://github.com/manaflow-ai/cmux/pull/9922), [#10249](https://github.com/manaflow-ai/cmux/pull/10249), [#10254](https://github.com/manaflow-ai/cmux/pull/10254), and [#10259](https://github.com/manaflow-ai/cmux/pull/10259) without a fresh rebase and exact-head review.
 
