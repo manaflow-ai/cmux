@@ -12735,6 +12735,16 @@ impl App {
         if probe_available {
             self.host_mouse_capture_applied = None;
         }
+        // The previous frame may have applied an authored style. If the
+        // inner application reset DECSCUSR, clear the desired style now so
+        // focus or resize cannot replay stale cursor state onto the host.
+        if self
+            .surface_only
+            .and_then(|surface_id| self.session.surface(surface_id))
+            .is_some_and(|surface| !surface.cursor_style_authored())
+        {
+            self.desired_outer_cursor = OuterCursorSpec::Reset;
+        }
         self.applied_outer_cursor = None;
     }
 
@@ -36951,6 +36961,11 @@ mod tests {
 
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[3 q"));
         app.reset_frame_cursor_spec();
+        assert_eq!(app.desired_outer_cursor, OuterCursorSpec::Reset);
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[5 q"));
+        app.use_terminal_cursor_spec(Rgb { r: 1, g: 2, b: 3 }, CursorShape::Bar, true);
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[0 q"));
+        app.reassert_scoped_host_terminal_state();
         assert_eq!(app.desired_outer_cursor, OuterCursorSpec::Reset);
         mux.close_surface(surface.id).unwrap();
     }
