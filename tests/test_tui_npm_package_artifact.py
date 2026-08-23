@@ -51,6 +51,34 @@ def run_helper(*args: object) -> subprocess.CompletedProcess[str]:
     )
 
 
+def write_relay_launcher_fixture(path: Path) -> None:
+    """Write a launcher fixture with the npx autostart safety rule."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        r'''#!/usr/bin/env node
+"use strict";
+
+function isEphemeralNpxPath(value) {
+  return value
+    .split(/[\\/]+/)
+    .some((component) => component.toLowerCase() === "_npx");
+}
+
+const executable = process.env.CMUX_RELAY_FIXTURE_EXECUTABLE || __filename;
+if (process.argv.slice(2).includes("--autostart") && isEphemeralNpxPath(executable)) {
+  console.error(
+    "Install cmux-relay globally (npm install --global cmux-relay) before --autostart.",
+  );
+  process.exit(2);
+}
+process.stdout.write("cmux relay launcher 1.2.3\n");
+''',
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
 def test_archive_round_trip_preserves_package_executables(tmp_path: Path) -> None:
     packages = tmp_path / "npm-packages"
     for name, (os_name, cpu) in TARGETS.items():
@@ -133,8 +161,7 @@ def test_archive_round_trip_preserves_package_executables(tmp_path: Path) -> Non
     )
     relay_launcher_bin = relay_launcher / "bin" / "cmux-relay.js"
     relay_launcher_bin.parent.mkdir(parents=True, exist_ok=True)
-    relay_launcher_bin.write_text("#!/bin/sh\nexit 0\n")
-    relay_launcher_bin.chmod(0o755)
+    write_relay_launcher_fixture(relay_launcher_bin)
 
     archive = tmp_path / "npm-packages.tar.gz"
     created = run_helper(
