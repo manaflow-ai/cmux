@@ -3,7 +3,7 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `aggregate-final`.
-Current integration code tip before this documentation commit: `cc374f8af6bea658945d6436cb412e58adc085df` (`fix(relay): bound filesystem watch event ingress`).
+Current integration code tip before this documentation commit: `4efcee9a19f55322bc16cde24e2e54dade445ae9` (`fix(tui): bound journal protocol compatibility`).
 Exact worktree HEAD: run `git rev-parse HEAD` (documentation commits change this value).
 The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
 The current integration sequence includes the hosted formatter and verification
@@ -15,7 +15,7 @@ through `638e536f03`. Localization recovery is recorded in `01c4a2de8d`,
 fallbacks for Python, TypeScript, Rust, Java, Zig, Go, and C++, bounded Unix JSON
 readers, wire-identity preflight, independent config-section recovery,
 localization recovery, and systemd quoting fixes through the current code tip
-`cc374f8af6`. The final tail also includes
+`4efcee9a19`. The final tail also includes
 Go fallback-state minimization and joined fallback errors, C++ attachment errno
 handling, path-bound Rust errors and tests, trailing-whitespace cleanup, and
 literal-percent escaping for systemd paths.
@@ -28,7 +28,7 @@ inflate the count. New turns must have a named deliverable.
 
 ## Current state
 
-The latest code tail is `cc374f8af6`. It is a compatibility, lifecycle, and
+The latest code tail is `4efcee9a19`. It is a compatibility, lifecycle, and
 documentation update. The issues below remain open.
 
 ### Open issue inventory
@@ -470,7 +470,7 @@ fixed.
 | `ec6b4fa6c9` through `26a6ae9ad0` | Bound relay workspace admission and preserve mandatory responses under queue pressure, with shell-start waiter ownership and canonical formatting. | Queue behavior is source-reviewed; producer and consumer saturation tests are still needed. | Revert admission, response, and waiter commits together. |
 | `c3137be28c` through `91630119c6` | Scope PTY cwd to allowed roots, preserve socket authority, validate existing and restored attachments, and fail closed on scoped reattach. | CWD and attachment checks are present; relative-cwd compatibility and full reconnect coverage remain open. | Revert the cwd/reattach chain as one security contract. |
 | `ff62270c0f` through `c24f4e05ec` | Match hashed socket parents exactly and require explicit opt-in for raw legacy fallback. | Prevents ambiguous socket selection; callers relying on implicit fallback need migration. | Revert parent matching and opt-in changes together, then document the old contract. |
-| `82819f46a6` through `6076269feb` | Bound and validate allowed-root lists, workspace reads, response staging, and PTY cwd metadata; clean obsolete authority state and repair Java interruption cleanup. | Bounds are deliberate, but Java connect timeout, producer queue lifetime, and relative-cwd migration remain unresolved. | Revert the root and cwd policy commits as a staged chain, preserving the prior parser only with a replacement limit and migration test. |
+| `82819f46a6` through `6076269feb` | Bound and validate allowed-root lists, workspace reads, response staging, and PTY cwd metadata; clean obsolete authority state and repair Java interruption cleanup. | Bounds are deliberate; producer queue lifetime and relative-cwd migration remain unresolved. The later Java timeout connector is recorded in Wave 21. | Revert the root and cwd policy commits as a staged chain, preserving the prior parser only with a replacement limit and migration test. |
 
 ## PR status and classification
 
@@ -483,7 +483,7 @@ fixed.
 | [#10608](https://github.com/manaflow-ai/cmux/pull/10608) | Lawrence Chen | Merged 2026-08-23, merge `2ee1e355c0a9b405ada3e2b812b0cec5e2ae4278` | Merged cross-language socket contract docs. |
 | [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Open, head `5ce10b76303038392f4550b4f654dbd19ad50348` | Aggregate implementation. Requires exact-head hosted checks, replay/safe-attach parity, and lifecycle review. |
 | [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Open, head `67b7e6814f8355235e3930a6f3360a58dc0ba3c0` | Focused hardening stack. Treat as superseded by #10603 if all unique deltas are present. |
-| [#10607](https://github.com/manaflow-ai/cmux/pull/10607) | Lawrence Chen | Open, head `126d772a131ce71f245ae56c3048aa99f3607d17` | Identity-preflight fix. Review protocol compatibility and run hosted tests. |
+| [#10607](https://github.com/manaflow-ai/cmux/pull/10607) | Lawrence Chen | Open, head `126d772a131ce71f245ae56c3048aa99f3607d17` | Superseded by aggregate [#10603](https://github.com/manaflow-ai/cmux/pull/10603), which contains the capability-shape and protocol-compatibility fixes. |
 | [#10609](https://github.com/manaflow-ai/cmux/pull/10609) | Lawrence Chen | Open, head `bdcbb8c8049e` | Action-result enqueue refactor. Keep separate until queue ownership and backpressure tests pass. |
 | [#10611](https://github.com/manaflow-ai/cmux/pull/10611) | Lawrence Chen | Open, head `75f4192d2adc` | TypeScript empty-path validation. Review with the shared SDK fallback contract. |
 | [#10254](https://github.com/manaflow-ai/cmux/pull/10254) | Lawrence Chen | Open, head `e9c177d1c6bf38e89f51ce652003f8c4cf3f9d84` | Cross-SDK validation stack. Do not merge until C++ attachment and ordered fallback parity are complete. |
@@ -504,8 +504,6 @@ fixed.
 The following risks remain open and are not implied to be fixed by the latest
 commits:
 
-- Java Unix connection setup still needs an explicit connect timeout and a
-  behavior test for a peer that accepts but never responds.
 - PTY inbound data can still exceed a bounded lifecycle unless every producer
   has an admission limit and cancellation path.
 - Workspace producer queues now have bounds in several paths, but ownership of
@@ -543,7 +541,7 @@ product request.
 | PR | Author | Status | Decision |
 | --- | --- | --- | --- |
 | [#10611](https://github.com/manaflow-ai/cmux/pull/10611) | Lawrence Chen | Merged 2026-08-23, merge `91b991496de2667a22e65176a8f11f715e6c089b` | Keep the TypeScript empty-path validation. No further action. |
-| [#10607](https://github.com/manaflow-ai/cmux/pull/10607) | Lawrence Chen | Open, head `126d772a131ce71f245ae56c3048aa99f3607d17` | Keep separate from #10603 until capability identity shape and protocol compatibility pass exact-head hosted checks. |
+| [#10607](https://github.com/manaflow-ai/cmux/pull/10607) | Lawrence Chen | Open, head `126d772a131ce71f245ae56c3048aa99f3607d17` | Superseded by [#10603](https://github.com/manaflow-ai/cmux/pull/10603); its identity-shape and protocol-compatibility fixes are in the aggregate. |
 | [#10609](https://github.com/manaflow-ai/cmux/pull/10609) | Lawrence Chen | Open, head `bdcbb8c8049eb552a0d646cdce78d58d294b7b82` | Keep separate until action-result queue ownership, saturation, cancellation, and retry behavior have tests. |
 | [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Open, head `5ce10b76303038392f4550b4f654dbd19ad50348` | Aggregate remains the likely integration vehicle, but do not merge until the unresolved queue and child-lifecycle risks have evidence. |
 
@@ -552,9 +550,6 @@ product request.
 - Workspace producer queues have bounds in multiple paths, but a queued item
   can still outlive its producer across disconnect, retry, and shutdown. The
   ownership contract needs a behavior test, not another numeric cap.
-- Java Unix connection setup still lacks a complete connect-timeout contract.
-  Interruption cleanup is improved, but a peer that accepts and never replies
-  must terminate within a measured bound and release its task.
 - PTY inbound saturation now fails closed at one ingress boundary. Every
   producer path still needs a bounded admission decision and cancellation
   proof before claiming global backpressure safety.
@@ -576,7 +571,6 @@ making this snapshot. Every entry has a full URL and the current author.
 
 | PR | Author | Classification and required gate |
 | --- | --- | --- |
-| [https://github.com/manaflow-ai/cmux/pull/10607](https://github.com/manaflow-ai/cmux/pull/10607) | Lawrence Chen | Merge candidate after exact-head capability-shape, wire-identity, and protocol-compatibility checks. |
 | [https://github.com/manaflow-ai/cmux/pull/9922](https://github.com/manaflow-ai/cmux/pull/9922) | Lawrence Chen | Merge candidate for the trusted startup benchmark. Re-run the benchmark and hosted workflow on its current head. |
 | [https://github.com/manaflow-ai/cmux/pull/10251](https://github.com/manaflow-ai/cmux/pull/10251) | Lawrence Chen | Merge candidate for binary/distribution version parity after package-contract and release checks. |
 | [https://github.com/manaflow-ai/cmux/pull/10239](https://github.com/manaflow-ai/cmux/pull/10239) | Lawrence Chen | Merge candidate for unsafe session-name rejection after SDK matrix and exact-head review. |
@@ -586,6 +580,7 @@ making this snapshot. Every entry has a full URL and the current author.
 
 | PR | Author | Classification and replacement |
 | --- | --- | --- |
+| [https://github.com/manaflow-ai/cmux/pull/10607](https://github.com/manaflow-ai/cmux/pull/10607) | Lawrence Chen | Superseded by aggregate [https://github.com/manaflow-ai/cmux/pull/10603](https://github.com/manaflow-ai/cmux/pull/10603), which contains the capability-shape and protocol-compatibility fixes. |
 | [https://github.com/manaflow-ai/cmux/pull/9933](https://github.com/manaflow-ai/cmux/pull/9933) | Lawrence Chen | Superseded by the benchmark contract in [https://github.com/manaflow-ai/cmux/pull/9922](https://github.com/manaflow-ai/cmux/pull/9922). |
 | [https://github.com/manaflow-ai/cmux/pull/10228](https://github.com/manaflow-ai/cmux/pull/10228) | Lawrence Chen | Superseded by merged color-environment work in [https://github.com/manaflow-ai/cmux/pull/10429](https://github.com/manaflow-ai/cmux/pull/10429). |
 | [https://github.com/manaflow-ai/cmux/pull/9890](https://github.com/manaflow-ai/cmux/pull/9890) | Lawrence Chen | Superseded by the merged rolling-log and close/liveness fixes in [https://github.com/manaflow-ai/cmux/pull/10486](https://github.com/manaflow-ai/cmux/pull/10486). |
@@ -652,3 +647,40 @@ making this snapshot. Every entry has a full URL and the current author.
 | [https://github.com/manaflow-ai/cmux/pull/10429](https://github.com/manaflow-ai/cmux/pull/10429) | Lawrence Chen | Merged, `23f0c002883bfd4d22721ef670b1666143f7fdbb`. |
 | [https://github.com/manaflow-ai/cmux/pull/10331](https://github.com/manaflow-ai/cmux/pull/10331) | Lawrence Chen | Merged, `1c33f4b93b3cbefe9aebcac5ca12484c59cefff6`. |
 | [https://github.com/manaflow-ai/cmux/pull/10244](https://github.com/manaflow-ai/cmux/pull/10244) | Lawrence Chen | Merged, `b71f27ffef49d53b5b9b0a3d05e53e41d2454d9b`. |
+
+## Wave 21 change log and current protocol audit
+
+The exact aggregate code tip before this documentation commit is
+`4efcee9a19f55322bc16cde24e2e54dade445ae9`. The rows below preserve the
+pre-`cc374f8af6` ingress foundations that are part of the current tip, then
+record the workspace, metadata, cleanup, Java, and protocol commits after that
+tip. No row claims complete product-level backpressure or restore behavior.
+
+| Commit | Change | Proof / residual risk | Revert chain |
+| --- | --- | --- | --- |
+| [`ff70454aef`](https://github.com/manaflow-ai/cmux/commit/ff70454aef7dfdc3e528b569bd326479ce83ad32), [`836ec27806`](https://github.com/manaflow-ai/cmux/commit/836ec27806ad12e38de32c9194d8ce7e4e99072f), [`7a1816acf6`](https://github.com/manaflow-ai/cmux/commit/7a1816acf68fafdc1b65c4793d9753cd0e233db3) | Bound preview/websocket messages and PTY input frames before allocation. | Rejects oversized ingress at the protocol edge; the byte-bounded workspace producer bridge remains open. | Revert the ingress limits together, retaining an explicit replacement bound. |
+| [`ce4df1a352`](https://github.com/manaflow-ai/cmux/commit/ce4df1a352b01408451bc9368e0428db27db0627) | Preserve Windows named-pipe path lengths. | Avoids truncating valid pipe names; hosted Windows attach coverage remains required. | Revert this platform compatibility fix independently. |
+| [`a44378f1d8`](https://github.com/manaflow-ai/cmux/commit/a44378f1d87ca6ff4c645dae60855088621ddbdb), [`efbe0bcceb`](https://github.com/manaflow-ai/cmux/commit/efbe0bccebe1d30207b923bcf62cca0f7c56bde9) | Cap and validate persisted relay configuration size and paths, failing closed on malformed config. | Bounds config allocation and path interpretation; synchronous canonicalization and TOCTOU between validation and use remain risks. | Revert config-size and config-path checks together, then restore a bounded replacement contract. |
+| [`f4f51a4892`](https://github.com/manaflow-ai/cmux/commit/f4f51a48927ec4398bdb2b721ea35fe45a26248d), [`15ad87d339`](https://github.com/manaflow-ai/cmux/commit/15ad87d3397e84e43e0d6287316a5a63af50dcf1), [`c85545ea56`](https://github.com/manaflow-ai/cmux/commit/c85545ea56cd09819b7c1c7d4a9e6e7ed8fdf842) | Validate restored workspace metadata and close control on missing or invalid cwd metadata. | Invalid metadata now fails closed; relative-cwd migration remains an explicit compatibility task. | Revert metadata validation and close-control changes as one lifecycle chain. |
+| [`863bdb4517`](https://github.com/manaflow-ai/cmux/commit/863bdb4517b0ffc36376793ba576fe92abe3a108), [`cc374f8af6`](https://github.com/manaflow-ai/cmux/commit/cc374f8af6bea658945d6436cb412e58adc085df), [`dac788abe3`](https://github.com/manaflow-ai/cmux/commit/dac788abe37f322f284098e03f2007edbe83f401) | Share workspace path policy, bound filesystem-watch ingress, and reject excess watches before root resolution. | Watch count and ingress bytes are bounded before expensive work; producer ownership after disconnect still needs behavior coverage. | Revert path policy, watch bounds, and capacity admission together. |
+| [`fa9b8e746a`](https://github.com/manaflow-ai/cmux/commit/fa9b8e746a2f952e842caae39de84992b5101481), [`af1f9c88be`](https://github.com/manaflow-ai/cmux/commit/af1f9c88beff2c9dc139f737e34725269e40e077), [`23ef468e2e`](https://github.com/manaflow-ai/cmux/commit/23ef468e2e51c04b93574ea42c85779dc738145d) | Preflight workspace allowed roots before decoding, validate CLI root syntax, and apply canonical formatting. | Prevents malformed roots from reaching decoders; root checks still need cross-client and migration tests. | Revert preflight and CLI syntax validation together; formatting is independent. |
+| [`a04df9a79d`](https://github.com/manaflow-ai/cmux/commit/a04df9a79d30aa52c41c13607279e159f1d0a8e2), [`09ec949a23`](https://github.com/manaflow-ai/cmux/commit/09ec949a2398be1f5c53f33da2746f2006640e12), [`f2cc4e3739`](https://github.com/manaflow-ai/cmux/commit/f2cc4e37397f90b65978774f67926451129cc2d5) | Reject malformed strict PTY tab metadata, format the strict metadata path, and close control on strict-tab failure. | Strict-tab failure no longer leaves a control path open; behavior coverage remains hosted-only. | Revert the strict metadata and cleanup commits together. |
+| [`531e81ae70`](https://github.com/manaflow-ai/cmux/commit/531e81ae702523ae577a4a9585a03f8a453d3fa6) | Avoid cloning PTY ingress frames. | Removes an avoidable allocation on the hot path; bounded admission and lifetime ownership remain separate concerns. | Revert this optimization independently. |
+| [`09aedd37f4`](https://github.com/manaflow-ai/cmux/commit/09aedd37f4f0115ef00a42b4018e0f8bee805860) | Add a bounded Java Unix-socket connect timeout and connector cleanup. | The stale Java-timeout residual is closed by this change; hosted Java interruption and timeout tests remain the authority. | Revert timeout and cleanup together, retaining an explicit timeout contract. |
+| [`f6781f44da`](https://github.com/manaflow-ai/cmux/commit/f6781f44da70bc557b1ad3001c44820e40d9d93a), [`4efcee9a19`](https://github.com/manaflow-ai/cmux/commit/4efcee9a19f55322bc16cde24e2e54dade445ae9) | Reject undeclared journal protocols and bound compatibility acceptance. | Older declared protocols remain supported; undeclared or oversized compatibility paths fail closed. Hosted cross-version tests remain required. | Revert the compatibility test and implementation together. |
+
+Strict-tab cleanup and Java connect timeout are no longer residual defects in
+this board. Remaining risks are narrower: the byte-bounded workspace producer
+bridge still needs end-to-end ownership and cancellation proof; synchronous
+canonicalization can still block a request path; validation and later use can
+still have a TOCTOU window; and relative cwd migration needs a documented
+absolute/home-relative contract.
+
+## PR decisions after Wave 21
+
+| PR | Author | Status | Decision |
+| --- | --- | --- | --- |
+| [https://github.com/manaflow-ai/cmux/pull/10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Open, current head `723f2079b3a23536f0deb0d953ed6732f60fa339` | Aggregate remains the integration vehicle; exact-head checks and queue/lifecycle review are required. |
+| [https://github.com/manaflow-ai/cmux/pull/10607](https://github.com/manaflow-ai/cmux/pull/10607) | Lawrence Chen | Open, head `126d772a131ce71f245ae56c3048aa99f3607d17` | Superseded by [https://github.com/manaflow-ai/cmux/pull/10603](https://github.com/manaflow-ai/cmux/pull/10603), which contains its identity-shape and protocol fixes. |
+| [https://github.com/manaflow-ai/cmux/pull/10609](https://github.com/manaflow-ai/cmux/pull/10609) | Lawrence Chen | Open, head `bdcbb8c8049eb552a0d646cdce78d58d294b7b82` | Needs review for action-result queue ownership, saturation, cancellation, and retry behavior. |
+| [https://github.com/manaflow-ai/cmux/pull/10612](https://github.com/manaflow-ai/cmux/pull/10612) | Lawrence Chen | Open, clean head `1a7f82c9d59755db3b00f27040b37a4aeb10c7b4` | Needs review. Inherited Greptile finding: `theme.chrome=auto` documentation says unavailable OSC 11 always falls back to dark, while startup uses the configured-background fallback. Resolve the documentation/runtime mismatch before merge. |
