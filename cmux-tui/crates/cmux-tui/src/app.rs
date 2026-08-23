@@ -14410,9 +14410,11 @@ impl App {
                         self.prefix_armed = false;
                         self.session.invalidate_remote_tree();
                         self.session.refresh_remote_tree_if_stale();
-                        self.status_message = Some(format!(
-                            "Mux event backlog recovery failed; queued input was discarded while retrying: {error}"
-                        ));
+                        self.status_message = Some(
+                            format!(
+                                "Mux event backlog recovery failed; queued input was discarded while retrying: {error}"
+                            ),
+                        );
                     }
                 }
                 Ok(RenderAction::Draw)
@@ -32276,6 +32278,10 @@ mod tests {
         assert_eq!(app.mux_recovery_generation.load(Ordering::Acquire), 1);
         assert_eq!(app.deferred_input.len(), 1);
         assert!(app.session.client_refresh_generation() > client_refresh_generation);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().session.mux_subscription_recovered)
+        );
 
         app.handle(AppEvent::MuxRecoveryComplete { recovery_generation: 1 }).unwrap();
         assert_eq!(app.mux_recovery_generation.load(Ordering::Acquire), 0);
@@ -32311,7 +32317,9 @@ mod tests {
 
         assert_eq!(app.mux_recovery_generation.load(Ordering::Acquire), 0);
         assert!(app.deferred_input.is_empty());
-        assert!(app.status_message.as_deref().unwrap().contains("discarded"));
+        let expected =
+            localization::catalog().session.mux_subscription_recovery_failed("refresh failed");
+        assert_eq!(app.status_message.as_deref(), Some(expected.as_str()));
     }
 
     #[test]

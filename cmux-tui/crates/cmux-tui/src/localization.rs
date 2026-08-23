@@ -118,6 +118,14 @@ pub(crate) struct SessionMessages {
     pub operation_reconciling: &'static str,
     pub operation_failed: &'static str,
     pub operation_canceled: &'static str,
+    pub mux_subscription_recovered: &'static str,
+    mux_subscription_recovery_failed: &'static str,
+}
+
+impl SessionMessages {
+    pub(crate) fn mux_subscription_recovery_failed(&self, error: &str) -> String {
+        self.mux_subscription_recovery_failed.replace("{error}", error)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1185,6 +1193,8 @@ static ENGLISH: Catalog = Catalog {
         operation_reconciling: "Session operation may have completed; refreshing the layout",
         operation_failed: "Session operation failed",
         operation_canceled: "Session operation was canceled",
+        mux_subscription_recovered: "Mux event backlog overflowed; subscription recovered",
+        mux_subscription_recovery_failed: "Mux event backlog recovery failed; queued input was discarded while retrying: {error}",
     },
     session_reset: SessionResetMessages {
         help: "  cmux session <name> reset-state [--force --confirm-reset <token>] [--state <path>]\n    Preview or confirm a scoped saved-state reset",
@@ -1818,6 +1828,8 @@ static JAPANESE: Catalog = Catalog {
         operation_reconciling: "セッション操作が完了している可能性があります。レイアウトを更新しています",
         operation_failed: "セッション操作に失敗しました",
         operation_canceled: "セッション操作はキャンセルされました",
+        mux_subscription_recovered: "Mux イベントの滞留が上限を超えました。購読を復旧しました",
+        mux_subscription_recovery_failed: "Mux イベントの滞留から復旧できませんでした。再試行中のキュー入力を破棄しました: {error}",
     },
     session_reset: SessionResetMessages {
         help: "  cmux session <name> reset-state [--force --confirm-reset <token>] [--state <path>]\n    スコープ付き保存状態のリセットをプレビューまたは確認実行",
@@ -2418,6 +2430,14 @@ mod tests {
             "ターミナルが終了したため、入力は送信されませんでした"
         );
         assert_eq!(ENGLISH.session.operation_failed, "Session operation failed");
+        assert_eq!(
+            JAPANESE.session.mux_subscription_recovered,
+            "Mux イベントの滞留が上限を超えました。購読を復旧しました"
+        );
+        assert_eq!(
+            JAPANESE.session.mux_subscription_recovery_failed("更新失敗"),
+            "Mux イベントの滞留から復旧できませんでした。再試行中のキュー入力を破棄しました: 更新失敗"
+        );
         assert_eq!(JAPANESE.session.operation_failed, "セッション操作に失敗しました");
         assert_eq!(
             JAPANESE.attach.filtered_subscription_unavailable,
