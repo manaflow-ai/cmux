@@ -302,6 +302,53 @@ describe("after sign-in native handoff", () => {
       }
     }
   });
+
+  test("redirects verified cmux-dev-jmux handoffs on the deployed host", async () => {
+    handoffCookie = "handoff-nonce";
+    const nativeReturnTo = "cmux-dev-jmux://auth-callback?cmux_auth_state=state-jmux";
+
+    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const location = response.headers.get("location");
+    expect(location).toBeTruthy();
+    const callbackURL = new URL(location!);
+    expect(callbackURL.protocol).toBe("cmux-dev-jmux:");
+    expect(callbackURL.hostname).toBe("auth-callback");
+    expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-jmux");
+    expect(callbackURL.searchParams.get("stack_refresh")).toBe("refresh-token");
+    expect(callbackURL.searchParams.get("stack_access")).toBe(
+      JSON.stringify(["refresh-token", "access-token"]),
+    );
+  });
+
+  test("rejects unverified cmux-dev-jmux handoffs without leaking tokens", async () => {
+    handoffCookie = "different-nonce";
+    const nativeReturnTo = "cmux-dev-jmux://auth-callback?cmux_auth_state=state-jmux";
+
+    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/");
+    const body = await response.text();
+    expect(body).not.toContain("stack_refresh");
+    expect(body).not.toContain("stack_access");
+    expect(body).not.toContain("cmux-dev-jmux://");
+  });
+
+  test("rejects verified cmux-dev-other handoffs on the deployed host", async () => {
+    handoffCookie = "handoff-nonce";
+    const nativeReturnTo = "cmux-dev-other://auth-callback?cmux_auth_state=state-other";
+
+    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/");
+    const body = await response.text();
+    expect(body).not.toContain("stack_refresh");
+    expect(body).not.toContain("stack_access");
+  });
 });
 
 describe("sign out and sign back in", () => {
