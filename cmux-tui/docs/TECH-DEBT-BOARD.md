@@ -3,7 +3,7 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `aggregate-final`.
-Current integration code tip before this documentation commit: `ace9e5f57fb7e98d45aa8a22cdf2efa0fac09ec6` (`fix(cmux-tui): parse 8-bit C1 cursor controls`).
+Current integration code tip before this documentation commit: `cfb0684e75` (`style(cmux-tui): format inline global option parser`).
 Exact worktree HEAD: run `git rev-parse HEAD` (documentation commits change this value).
 The aggregate branch is `aggregate-final`; the review branch is
 `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
@@ -39,11 +39,12 @@ sessions. New turns must have a named deliverable.
 
 ## Current state
 
-The latest code tail is `ace9e5f57f`. It carries the watch compatibility,
+The latest code tail is `cfb0684e75`. It carries the watch compatibility,
 queue-ownership, fairness, timer-bound, shell-reservation, PTY overflow,
 preview saturation, SDK lifecycle, CLI grammar, capability documentation,
 credential-child reaping, journal-writer ownership/finalization, explicit
-socket cleanup, package-mode preservation, and 8-bit C1 parser fixes after the
+socket cleanup, package-mode preservation, 8-bit C1 parser fixes, and inline
+global CLI values after the
 25-file relay/TUI integration merge. The issues below remain open.
 
 ### Open issue inventory
@@ -801,6 +802,7 @@ unless its acceptance column says that a narrow implementation slice exists.
 | Remote attach and Iroh discovery. | `/Users/lawrence/.codex/history.jsonl:15355,16276,16290-16294,17151,17153,17163,17176`; `/Users/lawrence/.claude/history.jsonl:87548-87549,87765-87766,87776,87802` | Authenticated devices discover peers without a hidden polling dependency. Remote attach must prove PTY ownership, direct versus relay path, latency, reconnect, and cleanup. Existing Iroh preflight reports a closed host and missing socket, so no success claim is allowed. Open. |
 | Cloud snapshot no-go for live PTY persistence. | `/Users/lawrence/.codex/history.jsonl:18564,18569-18572`; `/Users/lawrence/.claude/history.jsonl:87599,89270,89295,89298` | A provider snapshot may package cmux-tui and tools in a base image. It must not be treated as the journal, a live PTY owner, or a restart guarantee. Measure snapshot and resume times separately, and reject a cloud integration until provider restore semantics and secret boundaries are proven. Explicit no-go for inferring persistence from a snapshot. |
 | Semantic colors and cross-platform parity. | `/Users/lawrence/.codex/history.jsonl:18402,18410,18423-18424,18461,18472`; `/Users/lawrence/.claude/history.jsonl:87551,87950,87970`; [PR #10612](https://github.com/manaflow-ai/cmux/pull/10612) | Compare semantic ANSI, OSC, theme-query, cursor, and font behavior against Ghostty on macOS, Linux, Windows, and remote clients. Include light and dark backgrounds, 256-color output, Kitty graphics, and screenshot or pixel evidence. The current review mismatch for `theme.chrome=auto` is unresolved. Open. |
+| Multilingual and emoji glyph verification fixture. | `/Users/lawrence/.codex/transcription-history.jsonl:3`, record `ccc037fb-aff5-4bb0-909b-0979d129ee41` | Define a broad corpus, render it in the TUI, and assert screenshot or cell-width invariants that reproduce the Star Wars emoji failure. Open. |
 
 ## Residual risks after Wave 25 integration
 
@@ -844,6 +846,8 @@ unless its acceptance column says that a narrow implementation slice exists.
   of that merge remains required; the merge itself is not acceptance evidence.
 - Java connect-timeout and strict-tab cleanup are recorded as addressed in
   Wave 21. Do not re-list them as current defects without a new reproduction.
+- Global CLI values now accept standard `--flag=value` syntax. Nested command
+  options retain their previous grammar and need a separate compatibility decision.
 
 The ledger remains an honest lower bound of at least 180 substantive agent
 turns. It is not an exact session-file count. The requested 10,000-session

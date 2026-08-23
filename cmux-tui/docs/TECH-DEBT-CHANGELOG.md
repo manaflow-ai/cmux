@@ -1,6 +1,6 @@
 # cmux-tui aggregate change log
 
-Snapshot: 2026-08-23. Aggregate branch: `aggregate-final`, final code tip before this documentation commit [`ace9e5f57f`](https://github.com/manaflow-ai/cmux/commit/ace9e5f57fb7e98d45aa8a22cdf2efa0fac09ec6). `ace9e5f57f` is 459 commits ahead of `origin/main` and 0 behind it (`git rev-list` counts). The prior accepted tip was [`e8df21eed2`](https://github.com/manaflow-ai/cmux/commit/e8df21eed2866eba03b2548e790ba8a5a887b5da). This update records all 17 commits in [`e8df21eed2..ace9e5f57f`](https://github.com/manaflow-ai/cmux/compare/e8df21eed2866eba03b2548e790ba8a5a887b5da...ace9e5f57fb7e98d45aa8a22cdf2efa0fac09ec6).
+Snapshot: 2026-08-23. Aggregate branch: `aggregate-final`, current code tip [`cfb0684e75`](https://github.com/manaflow-ai/cmux/commit/cfb0684e75). The prior documented code tip was [`ace9e5f57f`](https://github.com/manaflow-ai/cmux/commit/ace9e5f57fb7e98d45aa8a22cdf2efa0fac09ec6), which was 459 commits ahead of `origin/main` and 0 behind it (`git rev-list` counts). The prior accepted tip was [`e8df21eed2`](https://github.com/manaflow-ai/cmux/commit/e8df21eed2866eba03b2548e790ba8a5a887b5da). This update records the CLI simplification and the explicit user-intent board after the 17-commit tail.
 
 Earlier aggregate rows retained for history:
 
@@ -19,6 +19,14 @@ Earlier aggregate rows retained for history:
 Known residuals: no claim is made for local Rust test execution, full end-to-end relay coverage, journal/WAL latency, deterministic shutdown of every admitted task, or complete cloud-TUI acceptance. These remain open until an exact pushed SHA has hosted evidence.
 
 Session-count honesty: the accompanying board records at least 180 substantive agent turns for this run. The requested 10,000-session target was not reached, and no empty sessions were created to inflate the count.
+
+## Tail after `ace9e5f57f`
+
+| Commit | Change | Verification / residual | Revert |
+| --- | --- | --- | --- |
+| [`0917e9918f`](https://github.com/manaflow-ai/cmux/commit/0917e9918fbf56267c978d8e05d857f11204a693) | Accept standard `--socket=`, `--session=`, and `--machine=` forms, while retaining separated values and rejecting empty inline values. | `cargo fmt --check` and CLI behavior tests are present. Hosted Rust CLI coverage remains required; nested command options intentionally keep their existing grammar. | `git revert 0917e9918fbf56267c978d8e05d857f11204a693` |
+| [`cfb0684e75`](https://github.com/manaflow-ai/cmux/commit/cfb0684e75) | Apply formatter output to the inline global-option parser. | Formatting-only; no behavior change. | `git revert cfb0684e75` |
+| [`46b5d0c044`](https://github.com/manaflow-ai/cmux/commit/46b5d0c044) | Add a durable user-intent board with local-session evidence and explicit acceptance gaps. | Documentation-only. The board records a multilingual emoji fixture request and search limitations. | `git revert 46b5d0c044` |
 
 ## Final accepted tail from `b61f1bada6` to `e8df21eed2`
 
