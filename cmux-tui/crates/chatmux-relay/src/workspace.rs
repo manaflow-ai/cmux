@@ -388,6 +388,28 @@ impl Scope {
             )))
         }
     }
+
+    fn validate_git_pathspec(&self, raw: &str) -> Result<(), Refusal> {
+        validate_request_path(raw).map_err(Refusal::path_forbidden)?;
+        if is_absolute_request(raw) || relative_path_escapes(raw) {
+            return Err(Refusal::path_forbidden(
+                "git pathspec must stay within the workspace root",
+            ));
+        }
+        let lexical = expand_path(raw, &self.home, &self.workdir);
+        for roots in &self.lexical_roots {
+            if !roots.iter().any(|root| within_root(&lexical, root)) {
+                return Err(Refusal::path_forbidden(format!(
+                    "path {} is outside this machine's allowed roots",
+                    lexical.display()
+                )));
+            }
+        }
+        if !within_root(&lexical, &self.workdir) {
+            return Err(Refusal::path_forbidden("git pathspec is outside the workspace root"));
+        }
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -854,8 +876,28 @@ fn porcelain_v1_xy(xy: &str) -> String {
 
 async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refusal> {
     let root = scope.existing_workdir()?;
-    let output = git_command(&root, &["status", "--porcelain=v2", "--branch", "-z"])
-        .output()
+    let mut child = git_command(&root, &["status", "--porcelain=v2", "--branch", "-z"])
+        .spawn()
+        .map_err(|error| Refusal::failed(format!("could not run git: {error}")))?;
+    let Some(mut stdout) = child.stdout.take() else {
+        return Err(Refusal::failed("git status produced no stdout pipe"));
+    };
+    use tokio::io::AsyncReadExt as _;
+    const STATUS_MAX_BYTES: usize = 16 * 1024 * 1024;
+    let mut stdout_bytes = Vec::new();
+    let read_limit = STATUS_MAX_BYTES.saturating_add(1);
+    stdout
+        .take(read_limit as u64)
+        .read_to_end(&mut stdout_bytes)
+        .await
+        .map_err(|error| Refusal::failed(format!("could not read git status: {error}")))?;
+    let stdout_capped = stdout_bytes.len() > STATUS_MAX_BYTES;
+    if stdout_capped {
+        stdout_bytes.truncate(STATUS_MAX_BYTES);
+        let _ = child.kill().await;
+    }
+    let output = child
+        .wait_with_output()
         .await
         .map_err(|error| Refusal::failed(format!("could not run git: {error}")))?;
     if !output.status.success() {
@@ -866,9 +908,8 @@ async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refu
     let mut ahead: i64 = 0;
     let mut behind: i64 = 0;
     let mut entries: Vec<wire::GitStatusEntry> = Vec::new();
-    let mut truncated = false;
-    let mut chunks = output
-        .stdout
+    let mut truncated = stdout_capped;
+    let mut chunks = stdout_bytes
         .split(|byte| *byte == 0)
         .map(String::from_utf8_lossy)
         .collect::<Vec<_>>()
@@ -965,7 +1006,7 @@ async fn run_git_diff(
     if !paths.is_empty() {
         args.push("--");
         for path in paths {
-            validate_request_path(path).map_err(Refusal::path_forbidden)?;
+            scope.validate_git_pathspec(path)?;
             args.push(path);
         }
     }
@@ -983,7 +1024,7 @@ async fn run_git_diff(
     let mut patch = String::new();
     let mut current_file_start = 0_usize;
     let mut capped = false;
-    let mut truncated = false;
+    let mut truncated = stdout_capped;
     let mut files: i64 = 0;
     let mut additions: i64 = 0;
     let mut deletions: i64 = 0;
