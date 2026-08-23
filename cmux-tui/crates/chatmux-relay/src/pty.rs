@@ -1307,6 +1307,7 @@ impl Inner {
         cwd: &Path,
         env: &HashMap<String, String>,
         pty_id: &str,
+        server_roots: Option<&[String]>,
         context: &FrameContext,
     ) -> Result<Option<Opened>, String> {
         let socket_dir = self.deps.socket_dir();
