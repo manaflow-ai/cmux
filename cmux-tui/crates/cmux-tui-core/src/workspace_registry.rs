@@ -53,6 +53,7 @@ pub use journal_extensions::{
     JournalHookRegex, JournalHookRetry, JournalIngress, JournalProducerManifest, JournalSegment,
 };
 pub(crate) use journal_extensions::{
+    encode_hex,
     JournalCheckpointCommit, JournalCheckpointSummary, JournalContentBlob, JournalHookAttempt,
     JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
     JournalSegmentSealCommit, JournalSegmentSealStart,
