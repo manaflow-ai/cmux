@@ -92,6 +92,31 @@ export function envSocketPath(): string | undefined {
   return process.env.CMUX_TUI_SOCKET || process.env.CMUX_MUX_SOCKET;
 }
 
+/**
+ * Validate a Node Unix-socket path before asking net.createConnection to use it.
+ * Node passes this value to sockaddr_un, whose sun_path field is bounded.
+ * Linux abstract-namespace sockets use a leading NUL and are kept supported.
+ */
+export function validateUnixSocketPath(socketPath: string): void {
+  if (socketPath.length === 0) {
+    throw new TypeError("Unix socket path must be non-empty");
+  }
+  const abstract = socketPath.startsWith("\u0000");
+  if (abstract && process.platform !== "linux") {
+    throw new TypeError("abstract Unix socket paths are only supported on Linux");
+  }
+  const nulOffset = abstract ? 1 : 0;
+  if (socketPath.slice(nulOffset).includes("\u0000")) {
+    throw new TypeError("Unix socket path must not contain embedded NUL characters");
+  }
+  if (!unixSocketPathFits(socketPath)) {
+    const capacity = process.platform === "darwin" ? 104 : 108;
+    throw new RangeError(
+      `Unix socket path exceeds the ${capacity - 1}-byte platform limit`,
+    );
+  }
+}
+
 export interface UnixSocketTransportOptions {
   /** Additional paths to try after ENOENT/ECONNREFUSED during initial connect. */
   fallbackSocketPaths?: readonly string[];
@@ -129,6 +154,10 @@ export class UnixSocketTransport implements Transport {
   private closed = false;
 
   constructor(public socketPath: string, options: UnixSocketTransportOptions = {}) {
+    validateUnixSocketPath(socketPath);
+    for (const fallback of options.fallbackSocketPaths ?? []) {
+      validateUnixSocketPath(fallback);
+    }
     this.fallbackSocketPaths = [...(options.fallbackSocketPaths ?? [])].filter((p) => p !== socketPath);
     this.maxInboundMessageBytes = positiveLimit(
       "maxInboundMessageBytes",

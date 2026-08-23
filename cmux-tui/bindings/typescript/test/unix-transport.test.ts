@@ -23,6 +23,7 @@ import {
   defaultSocketPaths,
   envSocketPath,
   validateSessionName,
+  validateUnixSocketPath,
   type UnixSocketTransportOptions,
 } from "../src/node-transport.js";
 import { CmuxClient } from "../src/raw/node-client.js";
@@ -209,6 +210,30 @@ test("explicit and environment socket paths remain authoritative", () => {
     else process.env.CMUX_TUI_SOCKET = previousTui;
     if (previousMux === undefined) delete process.env.CMUX_MUX_SOCKET;
     else process.env.CMUX_MUX_SOCKET = previousMux;
+  }
+});
+
+test("explicit socket paths are rejected before Node attempts an invalid bind", () => {
+  const capacity = process.platform === "darwin" ? 104 : 108;
+  assert.doesNotThrow(() => validateUnixSocketPath("/tmp/short.sock"));
+  assert.throws(
+    () => validateUnixSocketPath(`/tmp/${"x".repeat(capacity)}.sock`),
+    /exceeds .*byte platform limit/,
+  );
+  assert.throws(
+    () => new UnixSocketTransport(`/tmp/${"x".repeat(capacity)}.sock`),
+    /exceeds .*byte platform limit/,
+  );
+});
+
+test("Linux abstract socket paths remain supported", () => {
+  if (process.platform === "linux") {
+    assert.doesNotThrow(() => validateUnixSocketPath("\u0000cmux-tui-test"));
+  } else {
+    assert.throws(
+      () => validateUnixSocketPath("\u0000cmux-tui-test"),
+      /only supported on Linux/,
+    );
   }
 });
 
