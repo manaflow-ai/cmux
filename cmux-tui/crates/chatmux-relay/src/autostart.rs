@@ -45,9 +45,9 @@ fn xml_escape(v: &str) -> String {
 #[cfg(target_os = "linux")]
 fn systemd_quote(v: &str) -> String {
     // ExecStart is parsed by systemd's unit-file lexer, not a POSIX shell.
-    // Double-quoted items preserve whitespace; only backslashes and double
-    // quotes need escaping under systemd.syntax(7).
-    format!("\"{}\"", v.replace('\\', "\\\\").replace('"', "\\\""))
+    // Double-quoted items preserve whitespace. Escape literal percent signs
+    // so systemd does not treat path components as specifiers.
+    format!("\"{}\"", v.replace('%', "%%").replace('\\', "\\\\").replace('"', "\\\""))
 }
 fn atomic_write(p: &Path, b: &str) -> Result<(), String> {
     let d = p.parent().ok_or("autostart path has no parent")?;
@@ -163,10 +163,10 @@ fn uninstall_impl() -> Result<String, String> {
 fn uninstall_impl() -> Result<String, String> {
     let p = home()?.join(".config/systemd/user/chatmux-relay.service");
     let _ = run("systemctl", &["--user", "disable", "--now", "chatmux-relay.service"]);
-    if let Err(e) = fs::remove_file(&p)
-        && e.kind() != std::io::ErrorKind::NotFound
-    {
-        return Err(e.to_string());
+    if let Err(e) = fs::remove_file(&p) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            return Err(e.to_string());
+        }
     }
     let _ = run("systemctl", &["--user", "daemon-reload"]);
     Ok(format!("removed {}", p.display()))
@@ -200,6 +200,15 @@ mod tests {
         assert_eq!(
             systemd_quote("/tmp/a'b with\\slash\"quote"),
             "\"/tmp/a'b with\\\\slash\\\"quote\""
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn quotes_systemd_percent_specifiers_as_literal_path_bytes() {
+        assert_eq!(
+            systemd_quote("/tmp/relay%2Fbin/config%name"),
+            "\"/tmp/relay%%2Fbin/config%%name\""
         );
     }
 
