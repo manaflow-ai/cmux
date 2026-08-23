@@ -12,13 +12,34 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `64b5767a6`, on the fork branch
+The submodule pinned by this branch is `fd13a3fc2`, on the fork branch
 `issue-10557-reload-config-stall`. It lets an embedded host commit app-scoped
-configuration without synchronously propagating it to every surface. The pin
+configuration without synchronously propagating it to every surface and fixes
+Fish SSH integration when only one forwarding feature is enabled. The pin
 includes the prior fork changes below, including the tokened iOS render work at
 `3da10da73`, VT formatter cursor restoration at `f76c132e5`, VT
 stream-boundary visibility at `9513174f2`, and Hangul canonical font resolution
 at `3fbdd078d`.
+
+### Fish SSH feature gating
+
+- Branch:
+  - https://github.com/manaflow-ai/ghostty/tree/issue-10557-reload-config-stall
+- Commit:
+  - `fd13a3fc2` (shell-integration: fix Fish SSH feature condition)
+- File:
+  - `src/shell-integration/fish/vendor_conf.d/ghostty-shell-integration.fish`
+- Summary:
+  - Groups the `ssh-env` and `ssh-terminfo` alternatives beneath the shared
+    `GHOSTTY_BIN` guard instead of chaining `and`/`or` commands whose final
+    `and` made the `ssh-env`-only case depend on `ssh-terminfo`.
+  - Preserves the existing per-feature forwarding flags and installs the Fish
+    `ssh` wrapper when either feature is enabled.
+- Conflict note:
+  - If upstream rewrites Fish SSH integration, retain behavior coverage for
+    `ssh-env`, `ssh-terminfo`, and the combined feature set.
+- Verification:
+  - `tests/test_issue_8093_ghostty_ssh_binary_path.py` with Fish 4.6.0.
 
 ### Incremental embedded configuration propagation
 
