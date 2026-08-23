@@ -46,7 +46,9 @@ pub const OUTPUT_BUFFER_CAP: u64 = 1024 * 1024;
 /// cmux-tui control protocol floor for attach-surface/send.
 const CONTROL_MIN_PROTOCOL: i64 = 5;
 /// Inner terminals listed per session (surface_list stays bounded).
-const MAX_ENUM_TERMINALS: usize = 32;
+const MAX_ENUM_TERMINALS: usize = 8;
+const MAX_ENUM_SURFACES: usize = 8;
+const RAW_ATTACH_BACKLOG_CAP: usize = 1024 * 1024;
 
 pub fn session_name_ok(name: &str) -> bool {
     !name.is_empty()
@@ -196,7 +198,19 @@ struct Inner {
     scrollback_limit: usize,
     output_cap: u64,
     attachments: Mutex<HashMap<String, Attachment>>,
+    opening_ids: Mutex<std::collections::HashSet<String>>,
     shell_sessions: Mutex<HashMap<String, Arc<ShellSession>>>,
+}
+
+struct OpeningReservation {
+    inner: Arc<Inner>,
+    id: String,
+    active: bool,
+}
+impl Drop for OpeningReservation {
+    fn drop(&mut self) {
+        if self.active { self.inner.opening_ids.lock().expect("opening lock").remove(&self.id); }
+    }
 }
 
 pub struct PtyManager {
@@ -214,6 +228,7 @@ impl PtyManager {
                 scrollback_limit: SCROLLBACK_LIMIT,
                 output_cap: OUTPUT_BUFFER_CAP,
                 attachments: Mutex::new(HashMap::new()),
+                opening_ids: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
             }),
         }
@@ -236,6 +251,7 @@ impl PtyManager {
                 scrollback_limit,
                 output_cap,
                 attachments: Mutex::new(HashMap::new()),
+                opening_ids: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
             }),
         }
@@ -323,10 +339,19 @@ impl Inner {
             return;
         }
         let fail = |code: &str, message: &str| send_pty_error(context, &pty_id, code, message);
-        if self.attachments.lock().expect("attach lock").contains_key(&pty_id) {
+        let mut opening = self.opening_ids.lock().expect("opening lock");
+        let attached = self.attachments.lock().expect("attach lock").contains_key(&pty_id);
+        if attached || opening.contains(&pty_id) {
             fail("bad_request", "ptyId is already attached");
             return;
         }
+        if self.attachments.lock().expect("attach lock").len() + opening.len() >= self.max_ptys {
+            fail("session_limit", &format!("this relay caps concurrent terminals at {}", self.max_ptys));
+            return;
+        }
+        opening.insert(pty_id.clone());
+        drop(opening);
+        let mut reservation = OpeningReservation { inner: Arc::clone(&self), id: pty_id.clone(), active: true };
 
         let session = frame.get("session").and_then(Value::as_str).unwrap_or_default().to_owned();
         let (Some(cols), Some(rows)) = (clamp_dim(frame.get("cols")), clamp_dim(frame.get("rows")))
@@ -364,14 +389,6 @@ impl Inner {
             fail(
                 "trust_refused",
                 "this machine is paired at observe trust; terminals are owner-only",
-            );
-            return;
-        }
-
-        if self.attachments.lock().expect("attach lock").len() >= self.max_ptys {
-            fail(
-                "session_limit",
-                &format!("this relay caps concurrent terminals at {}", self.max_ptys),
             );
             return;
         }
@@ -443,6 +460,8 @@ impl Inner {
             }
         };
 
+        reservation.active = false;
+        self.opening_ids.lock().expect("opening lock").remove(&pty_id);
         let previous = self.attachments.lock().expect("attach lock").insert(
             pty_id.clone(),
             Attachment { closing: opened.closing, control: opened.control },
@@ -807,6 +826,7 @@ struct TerminalStreamState {
     live_data: Option<Arc<dyn Fn(Bytes) + Send + Sync>>,
     live_exit: Option<Arc<dyn Fn(i64) + Send + Sync>>,
     backlog: Vec<Bytes>,
+    backlog_bytes: usize,
     pending_exit: Option<i64>,
     ended: bool,
 }
@@ -818,6 +838,7 @@ impl TerminalStream {
                 live_data: None,
                 live_exit: None,
                 backlog: Vec::new(),
+                backlog_bytes: 0,
                 pending_exit: None,
                 ended: false,
             }),
@@ -832,7 +853,13 @@ impl TerminalStream {
                 drop(state);
                 sink(chunk);
             }
-            None => state.backlog.push(chunk),
+            None => {
+                let remaining = RAW_ATTACH_BACKLOG_CAP.saturating_sub(state.backlog_bytes);
+                if remaining == 0 { return; }
+                let chunk = if chunk.len() > remaining { chunk.slice(..remaining) } else { chunk };
+                state.backlog_bytes += chunk.len();
+                state.backlog.push(chunk);
+            },
         }
     }
 
@@ -1114,6 +1141,7 @@ impl Inner {
         // Inner terminals per session (W86), best-effort.
         let home = self.home.display().to_string();
         for session in &sessions {
+            if surfaces.len() >= MAX_ENUM_SURFACES { break; }
             surfaces.push(json!({
                 "kind": "session",
                 "id": session,
@@ -1122,6 +1150,7 @@ impl Inner {
             }));
             let socket_path = socket_dir.join(format!("{session}.sock"));
             for terminal in self.list_session_terminals(&socket_path, &home).await {
+                if surfaces.len() >= MAX_ENUM_SURFACES { break; }
                 surfaces.push(json!({
                     "kind": "terminal",
                     "id": format!("{session}:{}", terminal.0),
@@ -1133,6 +1162,7 @@ impl Inner {
         {
             let shell_sessions = self.shell_sessions.lock().expect("shell lock");
             for (name, session) in shell_sessions.iter() {
+                if surfaces.len() >= MAX_ENUM_SURFACES { break; }
                 let alive = session.inner.lock().expect("shell inner lock").alive;
                 if !alive || seen.contains(name) {
                     continue;
