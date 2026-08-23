@@ -361,6 +361,29 @@ pub fn connectUnixWithTimeout(
     return Connection.from(state);
 }
 
+/// Connects an implicitly resolved socket, retrying the pre-hash /tmp raw
+/// location for hashed paths. The retry is intentionally limited to the two
+/// errors that mean the preferred endpoint is absent or stale.
+pub fn connectResolvedWithLegacyFallback(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    session: []const u8,
+    timeout_ms: ?u32,
+) !struct { connection: Connection, path: []u8 } {
+    const connection = connectUnixWithTimeout(allocator, path, timeout_ms) catch |failure| {
+        if (failure != error.FileNotFound and failure != error.ConnectionRefused) return failure;
+        if (!isHashedSocketPath(path)) return failure;
+        const legacy = try sessionSocketPath(allocator, "/tmp", session);
+        errdefer allocator.free(legacy);
+        return .{ .connection = try connectUnixWithTimeout(allocator, legacy, timeout_ms), .path = legacy };
+    };
+    return .{ .connection = connection, .path = try allocator.dupe(u8, path) };
+}
+
+fn isHashedSocketPath(path: []const u8) bool {
+    return std.mem.indexOf(u8, path, "/cmux-tui-hashed-") != null;
+}
+
 fn connectUnixStream(
     path: []const u8,
     timeout_ms: ?u32,
@@ -527,6 +550,18 @@ fn environment(
         return null;
     }
     return value;
+}
+
+pub fn hasSocketOverride() !bool {
+    for ([_][]const u8{ "CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET" }) |name| {
+        const value = std.process.getEnvVarOwned(std.heap.page_allocator, name) catch |err| switch (err) {
+            error.EnvironmentVariableNotFound => continue,
+            else => return err,
+        };
+        defer std.heap.page_allocator.free(value);
+        if (value.len != 0) return true;
+    }
+    return false;
 }
 
 fn nonEmpty(value: ?[]const u8) ?[]const u8 {
