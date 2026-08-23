@@ -3,7 +3,7 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `aggregate-final`.
-Current integration code tip before this documentation commit: `e33d0a1057306b3ec0ff1a056a00543be4f24faa`.
+Current integration code tip before this documentation commit: `7a0f71692f8be77da182bbf8a3c89871bd88636f`.
 Exact worktree HEAD: run `git rev-parse HEAD` (documentation commits change this value).
 The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
 The current integration sequence includes the hosted formatter and verification
@@ -15,9 +15,10 @@ through `638e536f03`. Localization recovery is recorded in `01c4a2de8d`,
 fallbacks for Python, TypeScript, Rust, Java, Zig, Go, and C++, bounded Unix JSON
 readers, wire-identity preflight, independent config-section recovery,
 localization recovery, and systemd quoting fixes through the exact current HEAD
-`e33d0a1057306b3ec0ff1a056a00543be4f24faa`. The final tail also includes
-Go fallback-state minimization, C++ attachment errno handling, path-bound Rust
-errors, and trailing-whitespace cleanup.
+`7a0f71692f8be77da182bbf8a3c89871bd88636f`. The final tail also includes
+Go fallback-state minimization and joined fallback errors, C++ attachment errno
+handling, path-bound Rust errors and tests, trailing-whitespace cleanup, and
+literal-percent escaping for systemd paths.
 
 Subagent ledger: at least 180 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
@@ -27,8 +28,8 @@ inflate the count. New turns must have a named deliverable.
 
 ## Current state
 
-The latest tail is `e33d0a1057`. It is a compatibility and documentation
-update. The issues below remain open.
+The latest tail is `7a0f71692f`. It is a compatibility, lifecycle, and
+documentation update. The issues below remain open.
 
 ### Open issue inventory
 
@@ -250,8 +251,8 @@ complexity and host-state publication findings beyond its compile fixes.
 | [#10600](https://github.com/manaflow-ai/cmux/pull/10600) | Lawrence Chen | Merged at `1e1800db80` after exact-head checks and clean canonical review. | Done. |
 | [#10601](https://github.com/manaflow-ai/cmux/pull/10601) | Lawrence Chen | Merged after exact-head checks and clean canonical autoreview. | Done. |
 | [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Open, head `67b7e6814f8355235e3930a6f3360a58dc0ba3c0`; overlaps aggregate #10603. | Treat as superseded if #10603 contains its deltas; otherwise run exact-head checks and review. |
-| [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Open, head `c9d9474282c7813d2ffcf1310583a1f9645b0224`; aggregate relay and TUI hardening. | Port missing replay/safe-attach deltas, then exact-head checks and review. |
-| [#10522](https://github.com/manaflow-ai/cmux/pull/10522) | Lawrence Chen | Open, head `fd96383ca2450279b94360e9e69637b65250f41d`; provider-menu rail fixes. | Run exact-head checks and canonical review, then merge only if green. |
+| [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Open, head `7a0f71692f8be77da182bbf8a3c89871bd88636f`; aggregate relay, SDK fallback, bounded-reader, identity, config, localization, and packaging hardening. | Run exact-head hosted checks and canonical review, then merge if clean. Close superseded [#10602](https://github.com/manaflow-ai/cmux/pull/10602) and [#10571](https://github.com/manaflow-ai/cmux/pull/10571) only after comparing remaining deltas. |
+| [#10522](https://github.com/manaflow-ai/cmux/pull/10522) | Lawrence Chen | Open, head `b6d1e22a3f`; provider-menu routing and deleted-slot failover fixes. | Run exact-head checks and canonical review, then merge only if green. |
 | [#10254](https://github.com/manaflow-ai/cmux/pull/10254) | Lawrence Chen | Open, head `e9c177d1c6bf38e89f51ce652003f8c4cf3f9d84`; cross-SDK socket validation. | Resolve C++ attachment and ordered legacy-fallback parity, then review. |
 
 Do not merge stale or high-risk branches [#10131](https://github.com/manaflow-ai/cmux/pull/10131), [#10571](https://github.com/manaflow-ai/cmux/pull/10571), [#9022](https://github.com/manaflow-ai/cmux/pull/9022), [#9003](https://github.com/manaflow-ai/cmux/pull/9003), [#8999](https://github.com/manaflow-ai/cmux/pull/8999), [#9061](https://github.com/manaflow-ai/cmux/pull/9061), [#9062](https://github.com/manaflow-ai/cmux/pull/9062), or superseded stacks [#9922](https://github.com/manaflow-ai/cmux/pull/9922), [#10249](https://github.com/manaflow-ai/cmux/pull/10249), [#10254](https://github.com/manaflow-ai/cmux/pull/10254), and [#10259](https://github.com/manaflow-ai/cmux/pull/10259) without a fresh rebase and exact-head review.
@@ -333,7 +334,8 @@ those remain open requests above.
 
 ## Wave-8 current state and audit inventory (2026-08-23)
 
-The integration tip is `638e536f03`. Localization recovery is a two-commit
+The integration tip for this section was `638e536f03`; the aggregate tip is
+`7a0f71692f`. Localization recovery is a two-commit
 chain: `01c4a2de8d` restores the missing catalog/source entries and
 `638e536f03` restores the mux-recovery status path. Keep both commits together
 until English and Japanese runtime coverage is green.
@@ -343,6 +345,7 @@ until English and Japanese runtime coverage is green.
 | PR | Audit result | Action |
 | --- | --- | --- |
 | [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Aggregate relay stack; supersedes [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Prefer #10603 after replay and safe-attach deltas are present; close #10602 when verified. |
+| [#10604](https://github.com/manaflow-ai/cmux/pull/10604) | Lawrence Chen | Relay cleanup and cancellation design, documentation only. | Merge after exact-head review and required checks. Keep runtime child reaping as a separate implementation task. |
 | [#10254](https://github.com/manaflow-ai/cmux/pull/10254) | Cross-SDK stack; superseded by [#10249](https://github.com/manaflow-ai/cmux/pull/10249) and [#10239](https://github.com/manaflow-ai/cmux/pull/10239) | Do not merge the stale aggregate; review the two replacement stacks independently. |
 | [#10268](https://github.com/manaflow-ai/cmux/pull/10268) | Superseded by [#10267](https://github.com/manaflow-ai/cmux/pull/10267) | Close #10268 after confirming #10267 contains its intended fix. |
 | [#10131](https://github.com/manaflow-ai/cmux/pull/10131) | Superseded by [#9922](https://github.com/manaflow-ai/cmux/pull/9922) | Keep #10131 closed; no cherry-pick without a fresh audit. |
@@ -386,9 +389,10 @@ accepted.
 | PR | Author | Current evidence | Disposition |
 | --- | --- | --- | --- |
 | [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Integration branch now contains the focused TUI fixes through `585e2477dd`; the remote head must be pushed and checked at that exact SHA. | Run hosted exact-head checks and canonical autoreview, then merge if clean. |
-| [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Aggregate relay branch is green at its current head but does not contain the replay and attach commits. | Merge only after a deliberate port of missing TUI deltas, then close superseded #10602 and #10571 if the aggregate contains them. |
+| [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Aggregate relay branch includes the current hardening through `7a0f71692f`; exact hosted verification and review are pending. | Merge after exact-head hosted checks and canonical review are clean, then close superseded [#10602](https://github.com/manaflow-ai/cmux/pull/10602) and [#10571](https://github.com/manaflow-ai/cmux/pull/10571) if no unique delta remains. |
+| [#10604](https://github.com/manaflow-ai/cmux/pull/10604) | Lawrence Chen | Documentation-only relay cleanup contract with official Tokio references; exact review is clean. | Merge after required checks. Runtime implementation remains a separate task. |
 | [#10254](https://github.com/manaflow-ai/cmux/pull/10254) | Lawrence Chen | Exact head `0dc661ef65` still has C++ parity and legacy fallback review findings. | Finish the shared contract, then run exact-head checks and canonical autoreview. |
-| [#10522](https://github.com/manaflow-ai/cmux/pull/10522) | Lawrence Chen | Provider-menu routing fixes are now pushed at `af69eae7466f548cb647142f17a45e53b4e442e6`; checks are restarting. | Run exact-head checks and canonical review, then merge if green. |
+| [#10522](https://github.com/manaflow-ai/cmux/pull/10522) | Lawrence Chen | Provider-menu routing and deleted-slot failover fixes are pushed at `b6d1e22a3f`; canonical review is running after three P2 fixes. | Run exact-head checks and canonical review, then merge if green. |
 | [#10428](https://github.com/manaflow-ai/cmux/pull/10428) | Lawrence Chen | Existing branch contains the unsafe tap and is not a clean ancestor of the safe subset. | Do not merge the tap. Close as superseded after the safe subset lands, unless the tap is redesigned and re-reviewed. |
 | [#10521](https://github.com/manaflow-ai/cmux/pull/10521) | Lawrence Chen | Journal restore still has cold-start scan, lifecycle ordering, and privacy findings. | Keep open, fix design blockers before review or merge. |
 | [#10513](https://github.com/manaflow-ai/cmux/pull/10513) | Lawrence Chen | Branch conflicts with current main and depends on the attach/liveness stack. | Rebase and resolve the heartbeat ownership design before merge. |
@@ -433,8 +437,10 @@ The current integration branch is not a claim that every open TUI PR is safe.
 PR [#10254](https://github.com/manaflow-ai/cmux/pull/10254) still needs C++
 parity and an ordered legacy fallback probe. PR [#10522](https://github.com/manaflow-ai/cmux/pull/10522)
 has a pushed provider-menu fix awaiting exact-head checks and review. Aggregate
-PR [#10603](https://github.com/manaflow-ai/cmux/pull/10603) has unowned relay
-tasks that need a lifecycle decision before merge.
+PR [#10603](https://github.com/manaflow-ai/cmux/pull/10603) has an explicit
+cleanup contract in [#10604](https://github.com/manaflow-ai/cmux/pull/10604),
+but child-process group reaping still needs a separate implementation and
+behavior test.
 
 ## Simplification audit and residual risks
 
