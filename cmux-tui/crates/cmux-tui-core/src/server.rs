@@ -532,8 +532,8 @@ fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> Pa
         }
         let digest = format!("{:x}", Sha256::digest(session.as_bytes()));
         let preferred_base = runtime_dir.parent().unwrap_or_else(|| Path::new("/tmp"));
-        let hashed = platform::hashed_runtime_dir_for_base(preferred_base)
-            .join(format!("{digest}.sock"));
+        let hashed =
+            platform::hashed_runtime_dir_for_base(preferred_base).join(format!("{digest}.sock"));
         if unix_socket_path_fits(&hashed) {
             return hashed;
         }
@@ -4775,7 +4775,10 @@ fn prepare_runtime_socket_directory(dir: &Path) -> anyhow::Result<()> {
         // prevents an inherited path from being used to mutate another user's
         // runtime directory.
         if metadata.uid() != unsafe { libc::geteuid() } {
-            anyhow::bail!("runtime socket directory is not owned by the effective user: {}", dir.display());
+            anyhow::bail!(
+                "runtime socket directory is not owned by the effective user: {}",
+                dir.display()
+            );
         }
         if metadata.permissions().mode() & 0o077 != 0 {
             platform::restrict_directory(dir)?;
@@ -13156,17 +13159,14 @@ mod tests {
         let preferred = default_socket_path_in_runtime_dir(&session, preferred_runtime);
         assert_eq!(
             preferred,
-            platform::hashed_runtime_dir_for_base(Path::new("/run/user/501")).join(
-                "e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2.sock",
-            )
+            platform::hashed_runtime_dir_for_base(Path::new("/run/user/501"))
+                .join("e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2.sock",)
         );
         assert!(unix_socket_path_fits(&preferred));
 
         let long_base = PathBuf::from("/tmp").join("x".repeat(200));
-        let fallback = default_socket_path_in_runtime_dir(
-            &session,
-            long_base.join("cmux-tui-test-user"),
-        );
+        let fallback =
+            default_socket_path_in_runtime_dir(&session, long_base.join("cmux-tui-test-user"));
         assert!(fallback.starts_with(platform::fallback_hashed_runtime_dir()));
         assert!(unix_socket_path_fits(&fallback));
     }
@@ -13198,10 +13198,7 @@ mod tests {
         std::fs::create_dir(&directory).unwrap();
         std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755)).unwrap();
         prepare_runtime_socket_directory(&directory).unwrap();
-        assert_eq!(
-            std::fs::metadata(&directory).unwrap().permissions().mode() & 0o777,
-            0o700
-        );
+        assert_eq!(std::fs::metadata(&directory).unwrap().permissions().mode() & 0o777, 0o700);
     }
 
     #[cfg(unix)]

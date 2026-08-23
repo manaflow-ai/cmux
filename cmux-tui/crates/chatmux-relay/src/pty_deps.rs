@@ -50,17 +50,16 @@ fn session_socket_path(socket_dir: &Path, uid: u32, session: &str) -> Result<Pat
     }
 
     let digest = format!("{:x}", Sha256::digest(session.as_bytes()));
-    let preferred_base = socket_dir.parent().filter(|base| !base.as_os_str().is_empty())
+    let preferred_base = socket_dir
+        .parent()
+        .filter(|base| !base.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("/tmp"));
-    let hashed = preferred_base
-        .join(format!("cmux-tui-hashed-{uid}"))
-        .join(format!("{digest}.sock"));
+    let hashed =
+        preferred_base.join(format!("cmux-tui-hashed-{uid}")).join(format!("{digest}.sock"));
     if unix_socket_path_fits(&hashed) {
         return Ok(hashed);
     }
-    Ok(Path::new("/tmp")
-        .join(format!("cmux-tui-hashed-{uid}"))
-        .join(format!("{digest}.sock")))
+    Ok(Path::new("/tmp").join(format!("cmux-tui-hashed-{uid}")).join(format!("{digest}.sock")))
 }
 
 fn unix_socket_path_fits(path: &Path) -> bool {

@@ -948,19 +948,11 @@ mod tests {
         let session = format!("legacy-{}", "x".repeat(200));
         let preferred_runtime = PathBuf::from("/run/user/501/cmux-tui-501");
         let preferred = default_socket_path_in_runtime_dir(&session, preferred_runtime);
-        assert!(
-            preferred
-                .to_string_lossy()
-                .starts_with("/run/user/501/cmux-tui-hashed-")
-        );
+        assert!(preferred.to_string_lossy().starts_with("/run/user/501/cmux-tui-hashed-"));
 
         let long_runtime = PathBuf::from("/tmp").join("x".repeat(200)).join("cmux-tui-501");
         let fallback = default_socket_path_in_runtime_dir(&session, long_runtime);
-        assert!(
-            fallback
-                .to_string_lossy()
-                .starts_with("/tmp/cmux-tui-hashed-")
-        );
+        assert!(fallback.to_string_lossy().starts_with("/tmp/cmux-tui-hashed-"));
     }
 
     #[test]
