@@ -860,10 +860,31 @@ impl WindowsJob {
     fn attach(child: &tokio::process::Child) -> Result<Self, ()> {
         use std::os::windows::io::AsRawHandle;
         use std::ptr::null_mut;
-        use windows_sys::Win32::System::JobObjects::CreateJobObjectW;
+        use windows_sys::Win32::System::JobObjects::{
+            CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+            SetInformationJobObject,
+        };
         use windows_sys::Win32::System::Threading::AssignProcessToJobObject;
         let handle = unsafe { CreateJobObjectW(null_mut(), null_mut()) };
         if handle.is_null() {
+            return Err(());
+        }
+        let mut information = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let information_size =
+            u32::try_from(std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
+                .expect("Windows job information fits in u32");
+        if unsafe {
+            SetInformationJobObject(
+                handle,
+                JobObjectExtendedLimitInformation,
+                std::ptr::from_ref(&information).cast(),
+                information_size,
+            )
+        } == 0
+        {
+            unsafe { windows_sys::Win32::Foundation::CloseHandle(handle) };
             return Err(());
         }
         let process = child.as_std().as_raw_handle() as windows_sys::Win32::Foundation::HANDLE;
