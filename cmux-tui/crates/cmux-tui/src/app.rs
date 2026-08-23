@@ -109,10 +109,8 @@ fn read_crossterm_event(
     {
         return Ok(None);
     }
-    if timeout.is_none() {
-        if !poll(Duration::from_millis(100))? {
-            return Ok(None);
-        }
+    if timeout.is_none() && !poll(Duration::from_millis(100))? {
+        return Ok(None);
     }
     read().map(Some)
 }
@@ -14981,7 +14979,7 @@ impl App {
                                 localization::catalog()
                                     .sidebar
                                     .layout_refresh_failed
-                                    .replace("{error}", &error.to_string()),
+                                    .replace("{error}", error.as_str()),
                             );
                         }
                         self.session.invalidate_remote_tree();
@@ -14995,7 +14993,7 @@ impl App {
                             localization::catalog()
                                 .sidebar
                                 .layout_stale
-                                .replace("{error}", &error.to_string()),
+                                .replace("{error}", error.as_str()),
                         );
                         let refresh_stale = self.layout_refresh_retries_remaining > 0;
                         if refresh_stale {
@@ -15157,7 +15155,7 @@ impl App {
                         self.status_message = Some(
                             template
                                 .replace("{attempts}", &BACKGROUND_REFRESH_RETRIES.to_string())
-                                .replace("{error}", &error.to_string()),
+                                .replace("{error}", error.as_str()),
                         );
                         let _ = self.session.take_background_refresh_dirty();
                         false
@@ -15180,7 +15178,7 @@ impl App {
                             localization::catalog()
                                 .sidebar
                                 .clients_list_failed
-                                .replace("{error}", &error.to_string()),
+                                .replace("{error}", error.as_str()),
                         );
                     }
                 }
@@ -17141,7 +17139,7 @@ impl App {
             let was_sidebar_focused = self.workspace_sidebar_focused();
             let keep_machine_rail_focus =
                 self.machine_sidebar_focused() && action == Action::ProviderMenu;
-            if !(was_sidebar_focused && action == Action::SendPrefix) && !keep_machine_rail_focus {
+            if !(keep_machine_rail_focus || was_sidebar_focused && action == Action::SendPrefix) {
                 self.focus = FocusTarget::Pane;
             }
             if was_sidebar_focused && action == Action::FocusSidebar {
@@ -23203,7 +23201,6 @@ fn action_is_frontend_local(action: Action) -> bool {
             | Action::FocusNextPane
             | Action::ScrollUp
             | Action::ScrollDown
-            | Action::ProviderMenu
             | Action::BrowserEditUrl
             | Action::ShowShortcuts
     )
@@ -23424,7 +23421,7 @@ fn browser_character_code(character: char) -> (&'static str, u32) {
 mod tests {
     #[test]
     fn crossterm_reader_uses_bounded_polls_for_all_reads() {
-        let event = crossterm::event::Event::Resize(80, 24);
+        let event = Event::Resize(80, 24);
         let mut poll_calls = 0;
         let mut read_calls = 0;
         let mut poll_durations = Vec::new();
@@ -23446,7 +23443,7 @@ mod tests {
         assert_eq!((poll_calls, read_calls), (1, 1));
 
         let timed_out = super::read_crossterm_event(
-            Some(std::time::Duration::from_millis(10)),
+            Some(Duration::from_millis(10)),
             |timeout| {
                 poll_calls += 1;
                 poll_durations.push(timeout);
@@ -23462,7 +23459,7 @@ mod tests {
         assert_eq!((poll_calls, read_calls), (2, 1));
 
         let ready = super::read_crossterm_event(
-            Some(std::time::Duration::from_millis(10)),
+            Some(Duration::from_millis(10)),
             |timeout| {
                 poll_calls += 1;
                 poll_durations.push(timeout);
@@ -23479,9 +23476,9 @@ mod tests {
         assert_eq!(
             poll_durations,
             vec![
-                std::time::Duration::from_millis(100),
-                std::time::Duration::from_millis(10),
-                std::time::Duration::from_millis(10),
+                Duration::from_millis(100),
+                Duration::from_millis(10),
+                Duration::from_millis(10),
             ]
         );
     }
@@ -23518,8 +23515,9 @@ mod tests {
         pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
         rebuild_pane_areas, record_surface_resize_dispatch_result, report_after_unwind,
         reset_pane_area_projection_work, run_status_command, should_claim_clear_history_shortcut,
-        start_ordered_session, swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
-        workspace_creation_selection,
+        sidebar_layout_for, sidebar_layout_for_state,
+        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock, workspace_creation_selection,
     };
     use cmux_tui_core::{FrontendFocusTarget, FrontendJournalEvent};
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -23528,6 +23526,7 @@ mod tests {
     use std::sync::mpsc::Receiver;
     use std::sync::{Arc, Barrier, Mutex};
     use std::time::{Duration, Instant};
+    use serde_json::Value;
 
     use cmux_tui_core::resource::FrontendProjectionPublicId;
     use cmux_tui_core::{

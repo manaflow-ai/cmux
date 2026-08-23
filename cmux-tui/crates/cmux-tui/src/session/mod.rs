@@ -60,17 +60,13 @@ pub enum Session {
 ///
 /// This is deliberately small: mutations and transport recovery remain on
 /// `Session` until their command and acknowledgement semantics are migrated.
-/// Both local and remote sessions therefore expose the same snapshot contract.
+/// Agent metadata is exposed through this boundary while the normal tree read
+/// remains on `Session::tree`.
 pub(crate) trait SessionPort: Send + Sync {
-    fn snapshot(&self) -> TreeView;
     fn agents(&self) -> Vec<AgentInfo>;
 }
 
 impl SessionPort for Session {
-    fn snapshot(&self) -> TreeView {
-        self.tree()
-    }
-
     fn agents(&self) -> Vec<AgentInfo> {
         self.agents_impl()
     }
@@ -907,11 +903,6 @@ impl Session {
             }
             Session::Remote(remote) => remote.cached_tree(),
         }
-    }
-
-    /// Read the current topology through the frontend session boundary.
-    pub(crate) fn snapshot(&self) -> TreeView {
-        <Self as SessionPort>::snapshot(self)
     }
 
     pub fn agents(&self) -> Vec<AgentInfo> {
@@ -3012,19 +3003,6 @@ mod tests {
 
         let error = session.set_split_ratio(999_999, 0.5).unwrap_err();
         assert_eq!(error.to_string(), "unknown split 999999");
-    }
-
-    #[test]
-    fn session_port_snapshot_matches_existing_tree_read() {
-        let session =
-            Session::Local(Mux::new("session-port-snapshot-test", SurfaceOptions::default()));
-        let direct = session.tree();
-        let port: &dyn SessionPort = &session;
-        let snapshot = port.snapshot();
-        assert_eq!(snapshot.workspace_revision, direct.workspace_revision);
-        assert_eq!(snapshot.pane_revision, direct.pane_revision);
-        assert_eq!(snapshot.active_workspace, direct.active_workspace);
-        assert_eq!(snapshot.workspaces.len(), direct.workspaces.len());
     }
 
     #[test]
