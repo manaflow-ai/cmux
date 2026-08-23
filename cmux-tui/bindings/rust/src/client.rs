@@ -678,7 +678,7 @@ pub fn try_default_socket_path(session: &str) -> Result<PathBuf> {
 
 /// Resolves a session socket path without changing the historical signature.
 ///
-/// New callers should use [`try_default_socket_path`]. If an old caller passes
+/// New callers should use `try_default_socket_path`. If an old caller passes
 /// an invalid name, this wrapper returns a per-input path below a private
 /// invalid-session directory. It is path-only compatibility behavior, not a
 /// connection route. It never joins the supplied text and cannot select a
