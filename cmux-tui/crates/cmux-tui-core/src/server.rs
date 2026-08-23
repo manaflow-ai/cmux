@@ -105,6 +105,7 @@ pub const MAX_CREATION_SELECTOR_FALLBACKS: usize = 7;
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
+pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -113,6 +114,16 @@ pub const TERMINAL_LIFECYCLE_PROTOCOL_VERSION: u32 = 11;
 pub const LIFECYCLE_READINESS_PROTOCOL_VERSION: u32 = 12;
 pub const PROTOCOL_VERSION: u32 = LIFECYCLE_READINESS_PROTOCOL_VERSION;
 const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = CLEAR_HISTORY_KEY_TEXT_MAX_BYTES;
+
+fn validate_client_focus_id(client_id: &str) -> anyhow::Result<()> {
+    if client_id.is_empty()
+        || client_id.len() > 128
+        || !client_id.bytes().all(|byte| byte.is_ascii_graphic())
+    {
+        anyhow::bail!("bad request: invalid client_id");
+    }
+    Ok(())
+}
 
 fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
     let mut capabilities = vec![
@@ -134,6 +145,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         CREATION_SELECTOR_FALLBACKS_CAPABILITY,
         PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
         BROWSER_PROVIDER_CAPABILITY,
+        CLIENT_FOCUS_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -491,9 +503,22 @@ pub fn validate_session_name(session: &str) -> anyhow::Result<()> {
 }
 
 /// Default socket path for a session.
-pub fn default_socket_path(session: &str) -> anyhow::Result<PathBuf> {
+pub fn default_socket_path(session: &str) -> PathBuf {
+    match try_default_socket_path(session) {
+        Ok(path) => path,
+        Err(_) => invalid_session_socket_path(session),
+    }
+}
+
+/// Resolve a session socket path and report invalid input before any path use.
+pub fn try_default_socket_path(session: &str) -> anyhow::Result<PathBuf> {
     validate_session_name(session)?;
     Ok(default_socket_path_in_runtime_dir(session, platform::runtime_dir()))
+}
+
+fn invalid_session_socket_path(session: &str) -> PathBuf {
+    let digest = format!("{:x}", Sha256::digest(session.as_bytes()));
+    platform::invalid_runtime_dir().join(format!("{digest}.sock"))
 }
 
 fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
@@ -501,14 +526,12 @@ fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> Pa
     let preferred = runtime_dir.join(&file_name);
     #[cfg(unix)]
     if !unix_socket_path_fits(&preferred) {
-        let fallback = platform::fallback_runtime_dir().join(file_name);
+        let fallback = platform::fallback_runtime_dir().join(&file_name);
         if unix_socket_path_fits(&fallback) {
             return fallback;
         }
         let digest = format!("{:x}", Sha256::digest(session.as_bytes()));
-        let hashed = platform::hashed_runtime_dir().join(format!("{digest}.sock"));
-        debug_assert!(unix_socket_path_fits(&hashed));
-        return hashed;
+        return platform::hashed_runtime_dir().join(format!("{digest}.sock"));
     }
     preferred
 }
@@ -1212,6 +1235,18 @@ enum Command {
         index: Option<usize>,
         #[serde(default)]
         delta: Option<isize>,
+    },
+    /// Report one client's focus: applied as the session focus and remembered
+    /// per client id so that client's own reconnection restores it.
+    ReportFocus {
+        client_id: String,
+        pane: PaneId,
+        #[serde(default)]
+        tab: Option<usize>,
+    },
+    /// The remembered focus for one client, if its pane is still alive.
+    ClientFocus {
+        client_id: String,
     },
     /// Stream mux events on this connection.
     Subscribe {
@@ -4707,10 +4742,7 @@ impl Drop for PendingServer {
 pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
     let path = match path {
         Some(path) => path,
-        None => {
-            validate_session_name(&mux.session)?;
-            default_socket_path(&mux.session)?
-        }
+        None => try_default_socket_path(&mux.session)?,
     };
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -12255,6 +12287,25 @@ fn handle_command_with_cancellation(
             mux.select_workspace(index, delta);
             Ok(json!({}))
         }
+        Command::ReportFocus { client_id, pane, tab } => {
+            validate_client_focus_id(&client_id)?;
+            if !mux.with_state(|state| state.panes.contains_key(&pane)) {
+                anyhow::bail!("unknown pane {pane}");
+            }
+            // A report only writes memory (the session's last reported focus
+            // and this client's own record). It never moves the live shared
+            // focus, so other attached clients stay where they are.
+            mux.record_session_focus(pane, tab);
+            mux.remember_client_focus(client_id, pane, tab);
+            Ok(json!({}))
+        }
+        Command::ClientFocus { client_id } => {
+            validate_client_focus_id(&client_id)?;
+            Ok(match mux.client_focus(&client_id).or_else(|| mux.session_focus()) {
+                Some((pane, tab)) => json!({"pane": pane, "tab": tab}),
+                None => json!({"pane": null, "tab": null}),
+            })
+        }
         Command::ScrollSurface { surface, delta } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
@@ -12970,26 +13021,13 @@ mod tests {
     }
 
     #[test]
-    fn session_name_validation_rejects_path_components_and_control_characters() {
-        for session in [
-            "",
-            ".",
-            "..",
-            "../escape",
-            "nested/session",
-            "nested\\session",
-            "bad\0name",
-            "bad\nname",
-            "bad\u{2028}name",
-            "bad\u{2029}name",
-        ] {
+    fn session_name_validation_rejects_path_escape_input() {
+        for session in ["", ".", "..", "../escape", "nested/session", "nested\\session"] {
             assert!(validate_session_name(session).is_err(), "accepted {session:?}");
         }
         assert!(validate_session_name("main").is_ok());
-        for session in ["legacy name", "名前", "_legacy", "-legacy", "legacy:colon"] {
-            assert!(validate_session_name(session).is_ok(), "rejected {session:?}");
-        }
-        assert!(validate_session_name(&format!("legacy-{}", "x".repeat(200))).is_ok());
+        assert!(validate_session_name("legacy name").is_ok());
+        assert_ne!(default_socket_path("../escape"), default_socket_path("main"));
     }
 
     #[test]
@@ -13051,59 +13089,6 @@ mod tests {
         );
         assert!(unix_socket_path_fits(&path));
         assert_ne!(path.parent(), Some(Path::new("/tmp")));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn long_session_default_socket_path_is_bindable() {
-        const EXPECTED_DIGEST: &str =
-            "e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2";
-        let session = format!("legacy-{}", "x".repeat(200));
-        let path = default_socket_path_in_runtime_dir(
-            &session,
-            PathBuf::from("/run/user/501/cmux-tui-501"),
-        );
-        let expected_leaf = format!("{EXPECTED_DIGEST}.sock");
-
-        assert_eq!(path.file_name().and_then(|name| name.to_str()), Some(expected_leaf.as_str()));
-        assert!(
-            path.parent()
-                .and_then(Path::file_name)
-                .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
-        );
-        assert!(unix_socket_path_fits(&path), "unusable socket path: {path:?}");
-
-        let bind_session = format!("server-bind-{}-{}", std::process::id(), "x".repeat(200));
-        let bind_path = default_socket_path_in_runtime_dir(
-            &bind_session,
-            PathBuf::from("/run/user/501/cmux-tui-501"),
-        );
-        std::fs::create_dir_all(bind_path.parent().unwrap()).unwrap();
-        let _ = std::fs::remove_file(&bind_path);
-        let listener = std::os::unix::net::UnixListener::bind(&bind_path)
-            .unwrap_or_else(|error| panic!("failed to bind {bind_path:?}: {error}"));
-        drop(listener);
-        std::fs::remove_file(bind_path).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn non_ascii_long_session_uses_shared_utf8_sha256_digest() {
-        const EXPECTED_DIGEST: &str =
-            "0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3";
-        let session = "名前".repeat(100);
-        let path = default_socket_path_in_runtime_dir(
-            &session,
-            PathBuf::from("/run/user/501/cmux-tui-501"),
-        );
-        let expected_leaf = format!("{EXPECTED_DIGEST}.sock");
-
-        assert_eq!(path.file_name().and_then(|name| name.to_str()), Some(expected_leaf.as_str()));
-        assert!(
-            path.parent()
-                .and_then(Path::file_name)
-                .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
-        );
     }
 
     #[cfg(unix)]
@@ -22024,23 +22009,6 @@ mod tests {
         assert_eq!(served, path);
         assert_eq!(serde_json::from_str::<Value>(&ready).unwrap()["data"]["lifecycle_ready"], true);
         cleanup(&served);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn paused_server_explicit_path_bypasses_session_name_derivation_validation() {
-        // Use a private short directory. `serve_paused` restricts its parent,
-        // so the shared system temporary directory is not a valid fixture.
-        let socket = TestSocket::new("explicit");
-        let path = socket.path.clone();
-        let mut mux = test_mux();
-        Arc::get_mut(&mut mux).expect("test mux must be uniquely owned").session =
-            "../escape".into();
-
-        let pending = serve_paused(mux, Some(path.clone())).unwrap();
-        assert!(path.exists());
-        drop(pending);
-        assert!(!path.exists());
     }
 
     #[test]

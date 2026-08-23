@@ -164,6 +164,19 @@ pub fn fallback_runtime_dir() -> PathBuf {
     PathBuf::from("/tmp").join(format!("cmux-tui-{}", user_id_component()))
 }
 
+/// Shared short root for socket paths that need a fixed-length digest leaf.
+/// Every SDK uses this root when the configured runtime directory cannot fit
+/// a Unix-domain socket path.
+pub fn hashed_runtime_dir() -> PathBuf {
+    PathBuf::from("/tmp").join(format!("cmux-tui-hashed-{}", user_id_component()))
+}
+
+/// Private root for compatibility paths produced from invalid session text.
+/// These paths are never opened by a fallible connector.
+pub fn invalid_runtime_dir() -> PathBuf {
+    PathBuf::from("/tmp").join(format!("cmux-tui-invalid-{}", user_id_component()))
+}
+
 /// Default root for durable workspace/session state. Runtime sockets stay in
 /// the short-lived runtime directory; canonical identities and mutation
 /// ledgers live here across daemon and machine reboots.
