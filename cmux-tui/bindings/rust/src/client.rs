@@ -1006,7 +1006,8 @@ mod tests {
         let dir = PathBuf::from("/tmp").join(private_runtime_dir_name());
         std::fs::create_dir_all(&dir).unwrap();
         let legacy = SocketFile(dir.join(format!("{session}.sock")));
-        let hashed_dir = PathBuf::from("/tmp").join(format!("cmux-tui-hashed-{}", current_uid_component()));
+        let hashed_dir =
+            PathBuf::from("/tmp").join(format!("cmux-tui-hashed-{}", current_uid_component()));
         std::fs::create_dir_all(&hashed_dir).unwrap();
         let digest = format!("{:x}.sock", Sha256::digest(session.as_bytes()));
         let config = ClientConfig::from_socket_path(hashed_dir.join(digest));
