@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import weakref
+import os
 from collections import deque
 from dataclasses import fields, is_dataclass
 from enum import Enum
@@ -220,7 +221,10 @@ class CmuxClient(GeneratedClientMixin):
         self.socket_path = explicit or default_socket_path(session)
         self._fallback_socket_path = (
             _legacy_raw_socket_fallback_path(session)
-            if not explicit and "cmux-tui-hashed-" in self.socket_path
+            if not explicit
+            and os.path.basename(os.path.dirname(self.socket_path)).startswith(
+                "cmux-tui-hashed-"
+            )
             else None
         )
         self.timeout = timeout

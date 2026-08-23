@@ -4,6 +4,7 @@ import secrets
 import math
 import base64
 import binascii
+import os
 import threading
 from dataclasses import asdict, dataclass, fields
 from typing import (
@@ -2244,7 +2245,10 @@ class Client:
         self.timeout = timeout
         fallback = (
             _legacy_raw_socket_fallback_path(session)
-            if not explicit and "cmux-tui-hashed-" in self.socket_path
+            if not explicit
+            and os.path.basename(os.path.dirname(self.socket_path)).startswith(
+                "cmux-tui-hashed-"
+            )
             else None
         )
         self._connection = ProtocolConnection(self.socket_path, timeout, fallback_path=fallback)

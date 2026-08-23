@@ -211,6 +211,16 @@ class GeneratedProtocolTests(unittest.TestCase):
                 f"/runtime/cmux-tui-{os.getuid()}/sdk.sock",
             )
 
+    def test_hashed_marker_in_runtime_directory_does_not_enable_legacy_fallback(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"XDG_RUNTIME_DIR": "/tmp/cmux-tui-hashed-marker"},
+            clear=True,
+        ), patch("cmux.raw.client.JsonLineConnection") as connection:
+            CmuxClient(session="sdk")
+
+        self.assertIsNone(connection.call_args.kwargs["fallback_path"])
+
 
 if __name__ == "__main__":
     unittest.main()
