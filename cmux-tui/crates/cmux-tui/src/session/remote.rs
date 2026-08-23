@@ -4446,6 +4446,30 @@ mod tests {
     }
 
     #[test]
+    fn resolved_output_colors_do_not_author_cursor_style() {
+        let (session, surface) = test_unleased_view_surface(12);
+
+        session.handle_line(json!({
+            "event": "output",
+            "surface": 12,
+            "data": base64::engine::general_purpose::STANDARD.encode(b"prompt"),
+            "colors": {
+                "fg": "#eeeeee",
+                "bg": "#171b2e",
+                "cursor": "#ffee00",
+                "cursor_style": "bar",
+                "cursor_blink": true,
+                "palette": {},
+            },
+        }));
+
+        assert!(
+            !surface.cursor_style_authored(),
+            "daemon-resolved cursor colors must not be treated as inner-PTY authored"
+        );
+    }
+
+    #[test]
     fn local_mirror_resize_preserves_cursor_authorship() {
         let (_session, surface) = test_unleased_view_surface(9);
         surface.scan_cursor_provenance(b"\x1b[3 q");
