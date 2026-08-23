@@ -60,7 +60,8 @@ fn install_impl(e: &Path, config: &Path) -> Result<String, String> {
     let c = config.to_str().ok_or("config path is not valid UTF-8")?;
     let b = format!(
         "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>Label</key><string>{LABEL}</string><key>ProgramArguments</key><array><string>{}</string><string>--no-onboard</string><string>--config</string><string>{}</string></array><key>RunAtLoad</key><true/><key>KeepAlive</key><true/></dict></plist>\n",
-        xml_escape(x), xml_escape(c)
+        xml_escape(x),
+        xml_escape(c)
     );
     atomic_write(&p, &b)?;
     let d = format!("gui/{}", unsafe { libc::getuid() });
@@ -78,7 +79,8 @@ fn install_impl(e: &Path, config: &Path) -> Result<String, String> {
         &p,
         &format!(
             "[Unit]\nDescription=chatmux relay\n[Service]\nExecStart={} --no-onboard --config {}\nRestart=on-failure\nRestartSec=5\n[Install]\nWantedBy=default.target\n",
-            shell_quote(x), shell_quote(c)
+            shell_quote(x),
+            shell_quote(c)
         ),
     )?;
     run("systemctl", &["--user", "daemon-reload"])?;
