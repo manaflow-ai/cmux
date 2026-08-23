@@ -21,6 +21,12 @@ const DEFAULT_STREAM_BYTES: usize = 16 * 1024 * 1024;
 const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const LOCK_POLL_INTERVAL: Duration = Duration::from_millis(1);
 
+fn is_hashed_socket(path: &std::path::Path) -> bool {
+    path.parent()
+        .and_then(std::path::Path::file_name)
+        .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
+}
+
 thread_local! {
     static REQUEST_SCOPES: RefCell<Vec<(usize, RequestOptions)>> = const {
         RefCell::new(Vec::new())
@@ -158,7 +164,7 @@ impl Config {
         let mut config = Self::from_socket_path(
             crate::client::compatibility_socket_path_for_session(session, env.clone()),
         );
-        if env.is_none() {
+        if env.is_none() && is_hashed_socket(&config.socket_path) {
             config.legacy_socket_path =
                 Some(crate::client::legacy_socket_path_for_session(session));
         }
@@ -171,7 +177,7 @@ impl Config {
         let socket_path =
             crate::client::socket_path_for_session(session, crate::client::env_socket_path())?;
         let mut config = Self::from_socket_path(socket_path);
-        if crate::client::env_socket_path().is_none() {
+        if crate::client::env_socket_path().is_none() && is_hashed_socket(&config.socket_path) {
             config.legacy_socket_path =
                 Some(crate::client::legacy_socket_path_for_session(session));
         }
