@@ -22,6 +22,10 @@ NPM_TARGETS = {
     "cmux-tui-linux-x64": ("linux", "x64"),
     "cmux-tui-linux-arm64": ("linux", "arm64"),
 }
+RELAY_TARGETS = {
+    name.replace("cmux-tui", "cmux-relay"): value
+    for name, value in NPM_TARGETS.items()
+}
 
 
 def host_npm_target() -> str:
@@ -68,6 +72,23 @@ def make_npm_packages(root: Path) -> None:
         write_executable(package / "bin/cmux-tui")
         write_executable(package / "bin/cmux-tui-hook", "cmux-tui-hook 1.2.3")
 
+    for name, (os_name, cpu) in RELAY_TARGETS.items():
+        package = root / name
+        package.mkdir()
+        (package / "package.json").write_text(
+            json.dumps(
+                {
+                    "name": name,
+                    "version": VERSION,
+                    "os": [os_name],
+                    "cpu": [cpu],
+                    "files": ["bin/cmux-relay"],
+                }
+            )
+            + "\n"
+        )
+        write_executable(package / "bin/cmux-relay", "cmux-relay 1.2.3")
+
     launcher = root / "cmux"
     launcher.mkdir()
     (launcher / "package.json").write_text(
@@ -88,6 +109,24 @@ def make_npm_packages(root: Path) -> None:
         launcher / "bin/cmux.js",
         "cmux launcher 1.2.3",
     )
+
+    relay_launcher = root / "cmux-relay"
+    relay_launcher.mkdir()
+    (relay_launcher / "package.json").write_text(
+        json.dumps(
+            {
+                "name": "cmux-relay",
+                "version": VERSION,
+                "bin": {"cmux-relay": "bin/cmux-relay.js"},
+                "files": ["bin/cmux-relay.js"],
+                "optionalDependencies": {
+                    name: VERSION for name in RELAY_TARGETS
+                },
+            }
+        )
+        + "\n"
+    )
+    write_executable(relay_launcher / "bin/cmux-relay.js", "cmux relay launcher 1.2.3")
 
 
 def make_pypi_wheels(tmp_path: Path) -> Path:

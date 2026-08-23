@@ -642,10 +642,15 @@ jobs:
             aarch64|arm64) install_target=cmux-tui-linux-arm64 ;;
             *) echo "unsupported package runner architecture: $(uname -m)" >&2; exit 1 ;;
           esac
-          python3 cmux-tui/dist/scripts/validate_package_contract.py \
-            --npm-packages dist/npm-packages \
-            --version "$NPM_VERSION" \
+          contract_args=(
+            --npm-packages dist/npm-packages
+            --version "$NPM_VERSION"
             --install-npm-package "$install_target"
+          )
+          if [[ "$INCLUDE_WINDOWS" == "true" ]]; then
+            contract_args+=(--include-windows)
+          fi
+          python3 cmux-tui/dist/scripts/validate_package_contract.py "${contract_args[@]}"
           chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
           dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version >/tmp/cmux-tui-version.txt 2>&1 || \
             dist/binaries/cmux-tui-x86_64-unknown-linux-musl --help >/tmp/cmux-tui-version.txt 2>&1

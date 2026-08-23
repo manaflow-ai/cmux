@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 
 from package_contract import (
-    NPM_PLATFORM_NAMES,
+    NPM_PLATFORM_NAMES_WITH_WINDOWS,
     PackageContractError,
     validate_npm_tree,
     validate_pypi_wheels,
@@ -24,8 +24,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--version", required=True)
     parser.add_argument(
         "--install-npm-package",
-        choices=NPM_PLATFORM_NAMES,
+        choices=NPM_PLATFORM_NAMES_WITH_WINDOWS,
         help="Pack all npm packages and install the launcher with this target.",
+    )
+    parser.add_argument(
+        "--include-windows",
+        action="store_true",
+        help="Validate the optional Windows TUI and relay packages.",
     )
     parser.add_argument("--npm", default="npm", help="npm executable")
     args = parser.parse_args()
@@ -57,8 +62,9 @@ def _pack_npm_packages(
     version: str,
     npm: str,
     install_package: str | None,
+    include_windows: bool,
 ) -> None:
-    validate_npm_tree(packages_dir, version)
+    validate_npm_tree(packages_dir, version, include_windows=include_windows)
     with tempfile.TemporaryDirectory(prefix="cmux-tui-npm-contract-") as temp:
         temp_root = Path(temp)
         packed_dir = temp_root / "packed"
@@ -72,7 +78,12 @@ def _pack_npm_packages(
             }
         )
         archives: dict[str, Path] = {}
-        for package_name in ("cmux", *NPM_PLATFORM_NAMES):
+        from package_contract import NPM_PACKAGE_NAMES, NPM_PACKAGE_NAMES_WITH_WINDOWS
+
+        package_names = (
+            NPM_PACKAGE_NAMES_WITH_WINDOWS if include_windows else NPM_PACKAGE_NAMES
+        )
+        for package_name in package_names:
             before = set(packed_dir.glob("*.tgz"))
             _run(
                 [
@@ -130,10 +141,25 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
 
     from package_contract import (
         NPM_LAUNCHER_FILES,
-        NPM_PLATFORM_FILES,
+        NPM_RELAY_LAUNCHER_FILES,
     )
 
-    expected = NPM_LAUNCHER_FILES if package_name == "cmux" else NPM_PLATFORM_FILES
+    if package_name == "cmux":
+        expected = NPM_LAUNCHER_FILES
+    elif package_name == "cmux-relay":
+        expected = NPM_RELAY_LAUNCHER_FILES
+    elif package_name.startswith("cmux-relay-"):
+        extension = ".exe" if "win32" in package_name else ""
+        expected = frozenset({"package.json", f"bin/cmux-relay{extension}"})
+    else:
+        extension = ".exe" if "win32" in package_name else ""
+        expected = frozenset(
+            {
+                "package.json",
+                f"bin/cmux-tui{extension}",
+                f"bin/cmux-tui-hook{extension}",
+            }
+        )
     expected_names = {f"package/{path}" for path in expected}
     try:
         tar = tarfile.open(archive, "r:gz")
@@ -150,9 +176,16 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
         if len(members) != len(names):
             raise PackageContractError(f"{package_name}: npm archive has non-file members")
         for member in members:
-            is_executable = member.name.endswith("/bin/cmux.js") or member.name.endswith(
-                "/bin/cmux-tui"
-            ) or member.name.endswith("/bin/cmux-tui-hook")
+            is_executable = (
+                member.name.endswith("/bin/cmux.js")
+                or member.name.endswith("/bin/cmux-relay.js")
+                or member.name.endswith("/bin/cmux-tui")
+                or member.name.endswith("/bin/cmux-tui-hook")
+                or member.name.endswith("/bin/cmux-tui.exe")
+                or member.name.endswith("/bin/cmux-tui-hook.exe")
+                or member.name.endswith("/bin/cmux-relay")
+                or member.name.endswith("/bin/cmux-relay.exe")
+            )
             expected_mode = 0o755 if is_executable else 0o644
             if member.mode != expected_mode:
                 raise PackageContractError(
@@ -170,6 +203,7 @@ def main() -> None:
                 args.version,
                 args.npm,
                 args.install_npm_package,
+                args.include_windows,
             )
         if args.pypi_wheels is not None:
             validate_pypi_wheels(args.pypi_wheels.resolve(), args.version)

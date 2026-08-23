@@ -21,6 +21,11 @@ EXECUTABLES = (
     "cmux-tui-linux-arm64/bin/cmux-tui",
     "cmux-tui-linux-arm64/bin/cmux-tui-hook",
     "cmux/bin/cmux.js",
+    "cmux-relay-darwin-arm64/bin/cmux-relay",
+    "cmux-relay-darwin-x64/bin/cmux-relay",
+    "cmux-relay-linux-x64/bin/cmux-relay",
+    "cmux-relay-linux-arm64/bin/cmux-relay",
+    "cmux-relay/bin/cmux-relay.js",
 )
 
 VERSION = "1.2.3"
@@ -29,6 +34,10 @@ TARGETS = {
     "cmux-tui-darwin-x64": ("darwin", "x64"),
     "cmux-tui-linux-x64": ("linux", "x64"),
     "cmux-tui-linux-arm64": ("linux", "arm64"),
+}
+RELAY_TARGETS = {
+    name.replace("cmux-tui", "cmux-relay"): value
+    for name, value in TARGETS.items()
 }
 
 
@@ -85,6 +94,47 @@ def test_archive_round_trip_preserves_package_executables(tmp_path: Path) -> Non
     launcher_bin.parent.mkdir(parents=True, exist_ok=True)
     launcher_bin.write_text("#!/bin/sh\nexit 0\n")
     launcher_bin.chmod(0o755)
+
+    for name, (os_name, cpu) in RELAY_TARGETS.items():
+        package = packages / name
+        package.mkdir(parents=True, exist_ok=True)
+        (package / "package.json").write_text(
+            json.dumps(
+                {
+                    "name": name,
+                    "version": VERSION,
+                    "os": [os_name],
+                    "cpu": [cpu],
+                    "files": ["bin/cmux-relay"],
+                }
+            )
+            + "\n"
+        )
+        executable = package / "bin" / "cmux-relay"
+        executable.parent.mkdir(parents=True, exist_ok=True)
+        executable.write_text("#!/bin/sh\nexit 0\n")
+        executable.chmod(0o755)
+
+    relay_launcher = packages / "cmux-relay"
+    relay_launcher.mkdir(parents=True, exist_ok=True)
+    (relay_launcher / "package.json").write_text(
+        json.dumps(
+            {
+                "name": "cmux-relay",
+                "version": VERSION,
+                "bin": {"cmux-relay": "bin/cmux-relay.js"},
+                "files": ["bin/cmux-relay.js"],
+                "optionalDependencies": {
+                    name: VERSION for name in RELAY_TARGETS
+                },
+            }
+        )
+        + "\n"
+    )
+    relay_launcher_bin = relay_launcher / "bin" / "cmux-relay.js"
+    relay_launcher_bin.parent.mkdir(parents=True, exist_ok=True)
+    relay_launcher_bin.write_text("#!/bin/sh\nexit 0\n")
+    relay_launcher_bin.chmod(0o755)
 
     archive = tmp_path / "npm-packages.tar.gz"
     created = run_helper(
