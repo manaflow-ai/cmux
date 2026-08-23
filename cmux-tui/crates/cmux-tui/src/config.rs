@@ -3899,20 +3899,44 @@ fn load_raw_config() -> RawConfig {
     let value: Value = match serde_json::from_str(&text) {
         Ok(value) => value,
         Err(e) => {
-            crate::client_log::stderr_log!("config", "cmux-tui: ignoring invalid config {}: {e}", path.display());
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring invalid config {}: {e}",
+                path.display()
+            );
             return RawConfig::default();
         }
     };
     let Some(object) = value.as_object() else {
-        crate::client_log::stderr_log!("config", "cmux-tui: ignoring invalid config {}: root must be an object", path.display());
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring invalid config {}: root must be an object",
+            path.display()
+        );
         return RawConfig::default();
     };
     const KNOWN: &[&str] = &[
-        "theme", "tabs", "sidebar", "machine_sidebar", "machine_provider", "machines",
-        "commands", "browser", "scrollbar", "pane", "status_bar", "viewport", "server", "keys",
+        "theme",
+        "tabs",
+        "sidebar",
+        "machine_sidebar",
+        "machine_provider",
+        "machines",
+        "commands",
+        "browser",
+        "scrollbar",
+        "pane",
+        "status_bar",
+        "viewport",
+        "server",
+        "keys",
     ];
     if let Some(unknown) = object.keys().find(|key| !KNOWN.contains(&key.as_str())) {
-        crate::client_log::stderr_log!("config", "cmux-tui: ignoring invalid config {}: unknown top-level field `{unknown}`", path.display());
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring invalid config {}: unknown top-level field `{unknown}`",
+            path.display()
+        );
         return RawConfig::default();
     }
     let mut raw = RawConfig::default();
@@ -3921,7 +3945,13 @@ fn load_raw_config() -> RawConfig {
             if let Some(value) = object.get($name) {
                 match serde_json::from_value(value.clone()) {
                     Ok(parsed) => raw.$field = parsed,
-                    Err(error) => crate::client_log::stderr_log!("config", "cmux-tui: ignoring invalid `{}` section in {}: {}", $name, path.display(), error),
+                    Err(error) => crate::client_log::stderr_log!(
+                        "config",
+                        "cmux-tui: ignoring invalid `{}` section in {}: {}",
+                        $name,
+                        path.display(),
+                        error
+                    ),
                 }
             }
         };
@@ -7701,10 +7731,12 @@ mod tests {
     #[test]
     fn invalid_section_does_not_discard_valid_sections() {
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
-        let dir = std::env::temp_dir().join(format!("cmux-tui-section-recovery-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("cmux-tui-section-recovery-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("cmux-tui.json");
-        std::fs::write(&path, r##"{"theme":{"sidebar_rail":42},"browser":{"mode":"stealth"}}"##).unwrap();
+        std::fs::write(&path, r##"{"theme":{"sidebar_rail":42},"browser":{"mode":"stealth"}}"##)
+            .unwrap();
         let old = std::env::var_os("CMUX_TUI_CONFIG");
         unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
         let config = load();
@@ -7717,7 +7749,8 @@ mod tests {
     #[test]
     fn unknown_top_level_field_keeps_strict_rejection() {
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
-        let dir = std::env::temp_dir().join(format!("cmux-tui-top-level-strict-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("cmux-tui-top-level-strict-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("cmux-tui.json");
         std::fs::write(&path, r##"{"theme":{"sidebar_rail":42},"future":true}"##).unwrap();

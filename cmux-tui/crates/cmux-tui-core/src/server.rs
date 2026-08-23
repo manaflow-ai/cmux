@@ -5032,10 +5032,7 @@ fn handle_connection_with_permit(
     let mut drain_accepted = true;
     loop {
         let mut line = String::new();
-        let read = match reader
-            .by_ref()
-            .take((MAX_JSON_LINE_BYTES + 1) as u64)
-            .read_line(&mut line)
+        let read = match reader.by_ref().take((MAX_JSON_LINE_BYTES + 1) as u64).read_line(&mut line)
         {
             Ok(read) => read,
             Err(_) => {
