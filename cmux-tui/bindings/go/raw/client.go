@@ -11,13 +11,14 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
+
+	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/sessionpath"
 )
 
 const (
@@ -42,8 +43,6 @@ var (
 	ErrBufferFull       = errors.New("cmux-tui stream buffer full")
 	ErrAuthority        = errors.New("cmux-tui authority denied")
 )
-
-var validSessionName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 type CommandError struct {
 	Message string
@@ -222,18 +221,18 @@ func ResolveSocketPath(explicit, session string) (string, error) {
 }
 
 // ValidateSession rejects names that could escape the private runtime
-// directory or cannot be used portably by the server.
+// directory or carry control text into the socket path.
 func ValidateSession(session string) error {
-	if !validSessionName.MatchString(session) || session == "." || session == ".." {
-		return fmt.Errorf(
-			"%w: session must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}",
-			ErrInvalidArgument,
-		)
+	if err := sessionpath.Validate(session); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidArgument, err)
 	}
 	return nil
 }
 
 func DefaultSocketPath(session string) string {
+	if err := ValidateSession(session); err != nil {
+		return invalidSessionSocketPath(session)
+	}
 	base := firstNonEmptyEnv("XDG_RUNTIME_DIR", "TMPDIR")
 	if base == "" {
 		base = "/tmp"
@@ -243,7 +242,35 @@ func DefaultSocketPath(session string) string {
 	if unixSocketPathFits(preferred) {
 		return preferred
 	}
-	return filepath.Join("/tmp", fmt.Sprintf("cmux-tui-%d", os.Getuid()), fileName)
+	fallback := filepath.Join("/tmp", fmt.Sprintf("cmux-tui-%d", os.Getuid()), fileName)
+	if unixSocketPathFits(fallback) {
+		return fallback
+	}
+	return filepath.Join(
+		"/tmp",
+		fmt.Sprintf("cmux-tui-hashed-%d", os.Getuid()),
+		sessionpath.Digest(session)+".sock",
+	)
+}
+
+// invalidSessionSocketPath is retained for source-compatible path queries.
+// It is not a connector route. New clients must use ResolveSocketPath, which
+// returns ErrInvalidArgument before any path is opened.
+func invalidSessionSocketPath(session string) string {
+	base := firstNonEmptyEnv("XDG_RUNTIME_DIR", "TMPDIR")
+	if base == "" {
+		base = "/tmp"
+	}
+	leaf := sessionpath.Digest(session) + ".sock"
+	preferred := filepath.Join(
+		base,
+		fmt.Sprintf("cmux-tui-invalid-%d", os.Getuid()),
+		leaf,
+	)
+	if unixSocketPathFits(preferred) {
+		return preferred
+	}
+	return filepath.Join("/tmp", fmt.Sprintf("cmux-tui-invalid-%d", os.Getuid()), leaf)
 }
 
 func EnvSocketPath() string {

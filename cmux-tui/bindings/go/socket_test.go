@@ -56,12 +56,12 @@ func TestHighLevelClientRejectsUnsafeSessionBeforeDial(t *testing.T) {
 	}
 }
 
-func TestDefaultSocketPathEmptySessionPreservesLegacyMain(t *testing.T) {
+func TestDefaultSocketPathEmptySessionIsolated(t *testing.T) {
 	t.Setenv("CMUX_TUI_SOCKET", "")
 	t.Setenv("CMUX_MUX_SOCKET", "")
 	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
-	if got, want := defaultSocketPath(""), defaultSocketPath("main"); got != want {
-		t.Fatalf("empty compatibility path = %q, want legacy main path %q", got, want)
+	if got, want := defaultSocketPath(""), defaultSocketPath("main"); got == want {
+		t.Fatalf("empty compatibility path = %q, must not alias main path", got)
 	}
 }
 
