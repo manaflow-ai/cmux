@@ -1,7 +1,6 @@
 import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import * as net from "node:net";
-import * as os from "node:os";
 import * as path from "node:path";
 import { CmuxConnectionError } from "./errors.js";
 import { NewlineFrameBuffer } from "./internal/newline-frame-buffer.js";
@@ -63,7 +62,7 @@ export function defaultSocketPath(session = "main"): string {
 export function defaultSocketPaths(session = "main"): string[] {
   validateSessionName(session);
   const uid = process.getuid?.() ?? 0;
-  const base = process.env.XDG_RUNTIME_DIR || process.env.TMPDIR || os.tmpdir();
+  const base = process.env.XDG_RUNTIME_DIR || process.env.TMPDIR || "/tmp";
   const fileName = `${session}.sock`;
   const preferred = path.join(base, `cmux-tui-${uid}`, fileName);
   const candidates: string[] = [];
