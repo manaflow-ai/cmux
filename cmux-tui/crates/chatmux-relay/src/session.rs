@@ -42,7 +42,8 @@ use crate::wire::{
 
 const MAX_OUTBOUND_FRAMES: usize = 256;
 const MAX_PTY_INGRESS_FRAMES: usize = 64;
-const MAX_INBOUND_FRAME_BYTES: usize = 1 << 20;
+// Keep room for the workspace fs_write 2 MiB payload plus its JSON envelope.
+const MAX_INBOUND_FRAME_BYTES: usize = 4 << 20;
 
 pub struct SessionState {
     pub first_connect: bool,
@@ -562,7 +563,18 @@ async fn relay_session(
                                             "message": "relay is busy; retry this terminal request",
                                         })));
                                     if let Some(reply) = reply {
-                                        let _ = out_tx.send(reply).await;
+                                        // This response is mandatory. Send it directly so a full
+                                        // outbound queue cannot block this loop and stop socket
+                                        // ingress from being drained.
+                                        let text = reply.to_string();
+                                        let sent = socket
+                                            .lock()
+                                            .await
+                                            .send(Message::Text(text.into()))
+                                            .await;
+                                        if sent.is_err() {
+                                            break Ok(connected);
+                                        }
                                     }
                                 }
                             }
