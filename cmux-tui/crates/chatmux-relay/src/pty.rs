@@ -718,16 +718,6 @@ impl Inner {
     }
 
     fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext) {
-        self.emit_exit_with_overflow(pty_id, code, false, context);
-    }
-
-    fn emit_exit_with_overflow(
-        &self,
-        pty_id: &str,
-        code: i64,
-        overflow: bool,
-        context: &FrameContext,
-    ) {
         let mut attachments = self.attachments.lock().expect("attach lock");
         match attachments.get(pty_id) {
             Some(attachment) if !attachment.closing.load(Ordering::SeqCst) => {}
@@ -735,19 +725,12 @@ impl Inner {
         }
         attachments.remove(pty_id);
         drop(attachments);
-        let mut frame = json!({
+        (context.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_exit",
             "ptyId": pty_id,
             "code": code,
-        });
-        if overflow {
-            frame["overflow"] = Value::Bool(true);
-            frame["error"] = Value::String(
-                "pty output backlog overflowed; reattach to continue receiving output".to_owned(),
-            );
-        }
-        (context.send)(frame);
+        }));
     }
 
     /// Detach, NOT kill: idempotent, unknown ptyId tolerated.
@@ -1605,12 +1588,17 @@ impl Inner {
         let pty_id_for_exit = pty_id.to_owned();
         let stream_for_exit = Arc::clone(&stream);
         let on_exit: ExitSink = Arc::new(move |code| {
-            relay.emit_exit_with_overflow(
-                &pty_id_for_exit,
-                code,
-                stream_for_exit.overflowed(),
-                &context_for_exit,
-            )
+            if stream_for_exit.overflowed() {
+                relay.close(&pty_id_for_exit);
+                send_pty_error(
+                    &context_for_exit,
+                    &pty_id_for_exit,
+                    "overflow",
+                    "pty output backlog overflowed; reattach to continue receiving output",
+                );
+            } else {
+                relay.emit_exit(&pty_id_for_exit, code, &context_for_exit);
+            }
         });
         let start_stream = Arc::clone(&stream);
         Ok(Some(Opened {
@@ -2490,5 +2478,20 @@ mod tests {
             Arc::new(move |code| exit_seen.lock().unwrap().push(code as usize)),
         );
         assert_eq!(*seen.lock().unwrap(), vec![RAW_ATTACH_BACKLOG_CAP, 1]);
+    }
+
+    #[test]
+    fn backlog_overflow_uses_explicit_pty_error_code() {
+        let harness = Harness::new();
+        let context = harness.context("supervised", harness.owner.clone());
+        send_pty_error(
+            &context,
+            "p1",
+            "overflow",
+            "pty output backlog overflowed; reattach to continue receiving output",
+        );
+        let frame = harness.sent().pop().unwrap();
+        assert_eq!(frame["type"], "pty_error");
+        assert_eq!(frame["code"], "overflow");
     }
 }
