@@ -253,35 +253,42 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
     Ok(Tokens { words, flags, argv })
 }
 
+/// Metadata for flags which consume no following token.
+///
+/// Keeping this as data makes the tokenizer's grammar auditable and leaves a
+/// single place to extend when a command adds a boolean option. This is the
+/// same distinction Clap models with `ArgAction::SetTrue`, while retaining
+/// cmux's custom forwarding and error text.
+const BOOLEAN_FLAGS: &[&str] = &[
+    "empty",
+    "left",
+    "right",
+    "up",
+    "down",
+    "force",
+    "confirm-close",
+    "complete",
+    "clear-name",
+    "clear-kind",
+    "clear-foreground",
+    "clear-background",
+    "clear-cursor",
+    "clear-selection-background",
+    "clear-selection-foreground",
+    "clear-cursor-style",
+    "clear-cursor-blink",
+    "clear-palette",
+    "read-only",
+    "relaunch",
+    "styled",
+    "builtin",
+    "mutation",
+    "stream",
+    "ignore-case",
+];
+
 fn is_boolean_flag(name: &str) -> bool {
-    matches!(
-        name,
-        "empty"
-            | "left"
-            | "right"
-            | "up"
-            | "down"
-            | "force"
-            | "confirm-close"
-            | "complete"
-            | "clear-name"
-            | "clear-kind"
-            | "clear-foreground"
-            | "clear-background"
-            | "clear-cursor"
-            | "clear-selection-background"
-            | "clear-selection-foreground"
-            | "clear-cursor-style"
-            | "clear-cursor-blink"
-            | "clear-palette"
-            | "read-only"
-            | "relaunch"
-            | "styled"
-            | "builtin"
-            | "mutation"
-            | "stream"
-            | "ignore-case"
-    )
+    BOOLEAN_FLAGS.contains(&name)
 }
 
 fn parse_machine(
@@ -2885,6 +2892,24 @@ mod tests {
 
     fn strings(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    #[test]
+    fn boolean_flag_metadata_matches_tokenizer_contract() {
+        for name in BOOLEAN_FLAGS {
+            assert!(is_boolean_flag(name));
+            let args = vec!["workspace".into(), "create".into(), format!("--{name}")];
+            let tokens = tokenize(&args).expect("metadata flag must tokenize");
+            assert!(tokens.flags.values.contains_key(*name));
+            assert_eq!(tokens.flags.values[*name], None);
+        }
+    }
+
+    #[test]
+    fn non_boolean_flags_still_consume_the_next_token() {
+        let tokens = tokenize(&strings(&["workspace", "create", "--name", "value"]))
+            .expect("value flag must tokenize");
+        assert_eq!(tokens.flags.values.get("name"), Some(&Some("value".to_string())));
     }
 
     fn protocol(values: &[&str]) -> RequestPlan {
