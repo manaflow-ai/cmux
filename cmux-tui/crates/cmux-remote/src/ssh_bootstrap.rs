@@ -382,16 +382,24 @@ impl SshBootstrapper {
         remote_arguments: [&str; N],
     ) -> Result<RemoteOutput, BootstrapError> {
         let mut command = Command::new(&self.config.ssh_binary);
+        self.configure_ssh_command(&mut command);
+        for argument in remote_arguments {
+            command.arg(argument);
+        }
+        command.stdin(Stdio::null());
+        self.run_child(command).await
+    }
+
+    fn configure_ssh_command(&self, command: &mut Command) {
         command.arg("-T");
         if let Some(port) = self.config.port {
             command.arg("-p").arg(port.to_string());
         }
         command.args(&self.config.extra_args).arg(&self.config.destination);
-        for argument in remote_arguments {
-            command.arg(argument);
-        }
+    }
+
+    async fn run_child(&self, mut command: Command) -> Result<RemoteOutput, BootstrapError> {
         let mut child = command
-            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
@@ -455,61 +463,9 @@ impl SshBootstrapper {
     ) -> Result<RemoteOutput, BootstrapError> {
         let source = std::fs::File::open(source).map_err(BootstrapError::Io)?;
         let mut command = Command::new(&self.config.ssh_binary);
-        command.arg("-T");
-        if let Some(port) = self.config.port {
-            command.arg("-p").arg(port.to_string());
-        }
-        command.args(&self.config.extra_args).arg(&self.config.destination).arg(remote_command);
-        let mut child = command
-            .stdin(Stdio::from(source))
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(BootstrapError::Io)?;
-        let stdout = match child.stdout.take() {
-            Some(stdout) => stdout,
-            None => {
-                terminate_and_reap(&mut child).await;
-                return Err(BootstrapError::Io(std::io::Error::other(
-                    "SSH stdout pipe is unavailable",
-                )));
-            }
-        };
-        let stderr = match child.stderr.take() {
-            Some(stderr) => stderr,
-            None => {
-                terminate_and_reap(&mut child).await;
-                return Err(BootstrapError::Io(std::io::Error::other(
-                    "SSH stderr pipe is unavailable",
-                )));
-            }
-        };
-        let started = Instant::now();
-        let completion = tokio::time::timeout(self.config.timeout, async {
-            tokio::try_join!(
-                read_bounded(stdout, "stdout"),
-                read_bounded(stderr, "stderr"),
-                async { child.wait().await.map_err(BootstrapError::Io) },
-            )
-        })
-        .await;
-        let (stdout, stderr, status) = match completion {
-            Ok(Ok(result)) => result,
-            Ok(Err(error)) => {
-                terminate_and_reap(&mut child).await;
-                return Err(if started.elapsed() >= self.config.timeout {
-                    BootstrapError::Timeout
-                } else {
-                    error
-                });
-            }
-            Err(_) => {
-                terminate_and_reap(&mut child).await;
-                return Err(BootstrapError::Timeout);
-            }
-        };
-        Ok(RemoteOutput { status: status.code().unwrap_or(255), stdout, stderr })
+        self.configure_ssh_command(&mut command);
+        command.arg(remote_command).stdin(Stdio::from(source));
+        self.run_child(command).await
     }
 }
 
