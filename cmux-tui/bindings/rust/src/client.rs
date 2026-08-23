@@ -44,6 +44,10 @@ pub enum CmuxError {
     },
     Decode(String),
     Connection(String),
+    ConnectionIo {
+        message: String,
+        kind: std::io::ErrorKind,
+    },
     Timeout(String),
     /// A caller canceled one resource operation before its response arrived.
     Cancelled(String),
@@ -99,6 +103,7 @@ impl fmt::Display for CmuxError {
             }
             Self::Decode(message)
             | Self::Connection(message)
+            | Self::ConnectionIo { message, .. }
             | Self::Timeout(message)
             | Self::Cancelled(message)
             | Self::InvalidArgument(message) => formatter.write_str(message),
@@ -249,12 +254,29 @@ impl CmuxClient {
                 "max_queued_events must be greater than zero".to_string(),
             ));
         }
-        let connection = JsonLineConnection::connect(
+        let mut config = config;
+        let mut connection = JsonLineConnection::connect(
             &config.socket_path,
             config.timeout,
             config.timeout,
             config.max_frame_bytes,
-        )?;
+        );
+        if let Err(CmuxError::ConnectionIo { kind, .. }) = &connection
+            && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
+            && is_hashed_socket(&config.socket_path)
+        {
+            let legacy = legacy_socket_path("main");
+            if let Ok(candidate) = JsonLineConnection::connect(
+                &legacy,
+                config.timeout,
+                config.timeout,
+                config.max_frame_bytes,
+            ) {
+                config.socket_path = legacy;
+                connection = Ok(candidate);
+            }
+        }
+        let connection = connection?;
         Ok(Self { config, connection, next_id: 1, server: None, buffered_events: VecDeque::new() })
     }
 
@@ -455,6 +477,16 @@ impl CmuxClient {
         self.next_id = self.next_id.wrapping_add(1).max(1);
         id
     }
+}
+
+fn is_hashed_socket(path: &Path) -> bool {
+    path.parent()
+        .and_then(Path::file_name)
+        .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
+}
+
+fn legacy_socket_path(session: &str) -> PathBuf {
+    PathBuf::from("/tmp").join(private_runtime_dir_name()).join(format!("{session}.sock"))
 }
 
 impl Drop for CmuxClient {
