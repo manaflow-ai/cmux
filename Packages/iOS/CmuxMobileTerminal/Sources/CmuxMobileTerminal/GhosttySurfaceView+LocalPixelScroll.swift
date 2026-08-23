@@ -149,7 +149,14 @@ extension GhosttySurfaceView {
             let current = min(Double(scrollbar.offset) * cellHeightPx + remainder, maxPosition)
             let next = min(max(current + deltaPixels, 0), maxPosition)
             var row = UInt64((next / cellHeightPx).rounded(.down))
-            var pixelOffset = next - Double(row) * cellHeightPx
+            // Round to whole device pixels: a fractional-pixel offset makes
+            // glyph antialiasing resample every frame (shimmer); native
+            // scrollers always move content by integral pixels.
+            var pixelOffset = (next - Double(row) * cellHeightPx).rounded()
+            if pixelOffset >= cellHeightPx {
+                row += 1
+                pixelOffset = 0
+            }
             if next >= maxPosition - 0.5 {
                 // Docked at the tail: target the absolute bottom and let
                 // Ghostty clamp the row into the active area.
