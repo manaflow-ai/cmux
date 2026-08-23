@@ -12513,7 +12513,7 @@ impl App {
         if self.sidebar_plugin_surface == Some(surface) {
             self.session.invalidate_sidebar_plugin_sync();
             self.sidebar_plugin_surface = None;
-            self.sidebar_plugin_error = Some("sidebar plugin exited".to_string());
+            self.sidebar_plugin_error = Some(localization::catalog().sidebar.plugin_exited.to_string());
             if self.config.sidebar.plugin.is_some() {
                 self.leave_workspace_sidebar();
             }
@@ -18706,17 +18706,17 @@ impl App {
                 self.status_message = None;
             }
         } else {
-            self.status_message = Some("browser is busy; command dropped".to_string());
+            self.status_message = Some(localization::catalog().browser.busy.to_string());
         }
     }
 
     fn enqueue_active_browser_command(&mut self, kind: BrowserInputKind) {
         let Some((surface_id, surface)) = self.active_surface_with_handle() else {
-            self.status_message = Some("no active surface".to_string());
+            self.status_message = Some(localization::catalog().browser.no_active_surface.to_string());
             return;
         };
         if surface.kind() != SurfaceKind::Browser {
-            self.status_message = Some("active surface is not a browser".to_string());
+            self.status_message = Some(localization::catalog().browser.not_browser.to_string());
             return;
         }
         self.dispatch_browser_control(surface_id, surface, kind);
@@ -18733,11 +18733,11 @@ impl App {
 
     fn enqueue_browser_command(&mut self, surface_id: SurfaceId, kind: BrowserInputKind) {
         let Some(surface) = self.session.surface(surface_id) else {
-            self.status_message = Some("unknown browser surface".to_string());
+            self.status_message = Some(localization::catalog().browser.unknown_surface.to_string());
             return;
         };
         if surface.kind() != SurfaceKind::Browser {
-            self.status_message = Some("active surface is not a browser".to_string());
+            self.status_message = Some(localization::catalog().browser.not_browser.to_string());
             return;
         }
         self.dispatch_browser_control(surface_id, surface, kind);

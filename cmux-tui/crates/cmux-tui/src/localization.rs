@@ -246,9 +246,17 @@ pub(crate) struct BrowserMessages {
     pub starting: &'static str,
     pub attach_unsupported: &'static str,
     pub graphics_unsupported: &'static str,
+    pub loading: &'static str,
+    pub busy: &'static str,
+    pub no_active_surface: &'static str,
+    pub not_browser: &'static str,
+    pub unknown_surface: &'static str,
 }
 
 impl BrowserMessages {
+    pub(crate) fn loading(&self, url: &str) -> String {
+        self.loading.replace("{url}", url)
+    }
     pub(crate) fn failure_message(&self, failure: BrowserFailure<'_>) -> String {
         match failure {
             BrowserFailure::NotResponding => self.not_responding.to_string(),
@@ -796,6 +804,7 @@ pub(crate) struct SidebarMessages {
     pub type_to_filter: &'static str,
     pub other_host: &'static str,
     pub personal_scope: &'static str,
+    pub plugin_exited: &'static str,
     pub team_scope: &'static str,
     pub scope: &'static str,
     pub provider_actions: &'static str,
@@ -1282,6 +1291,11 @@ edits shell files. Authenticate with the configured host before retrying.
         starting: "starting browser...",
         attach_unsupported: "browser panes are not supported over attach yet",
         graphics_unsupported: "terminal has no kitty graphics support",
+        loading: "loading {url}...",
+        busy: "browser is busy; command dropped",
+        no_active_surface: "no active surface",
+        not_browser: "active surface is not a browser",
+        unknown_surface: "unknown browser surface",
     },
     layout: LayoutMessages {
         startup_shortcuts: "  g  new 2/3 column right   U    undo layout",
@@ -1622,6 +1636,7 @@ OPTIONS:
         type_to_filter: "type to filter",
         other_host: "Add SSH host…",
         personal_scope: "personal",
+        plugin_exited: "sidebar plugin exited",
         team_scope: "team",
         scope: "scope",
         provider_actions: "actions",
@@ -1908,6 +1923,11 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         starting: "ブラウザを起動しています…",
         attach_unsupported: "アタッチ経由ではブラウザペインにまだ対応していません",
         graphics_unsupported: "ターミナルが Kitty グラフィックスに対応していません",
+        loading: "{url} を読み込んでいます…",
+        busy: "ブラウザが処理中のため、コマンドを破棄しました",
+        no_active_surface: "アクティブなサーフェスがありません",
+        not_browser: "アクティブなサーフェスはブラウザではありません",
+        unknown_surface: "不明なブラウザサーフェスです",
     },
     layout: LayoutMessages {
         startup_shortcuts: "  g  右に 2/3 幅の列を追加   U    レイアウトを元に戻す",
@@ -2245,6 +2265,7 @@ ID とセッション:
         type_to_filter: "入力して絞り込み",
         other_host: "SSH ホストを追加…",
         personal_scope: "個人",
+        plugin_exited: "サイドバープラグインが終了しました",
         team_scope: "チーム",
         scope: "スコープ",
         provider_actions: "操作",
