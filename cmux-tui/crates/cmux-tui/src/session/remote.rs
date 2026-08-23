@@ -36,6 +36,7 @@ use serde_json::{Value, json};
 use zeroize::{Zeroize, Zeroizing};
 
 use super::cursor_provenance::CursorStyleProvenance;
+use super::parse_identity_capabilities;
 #[cfg(test)]
 use super::tree::parse_tree;
 use super::tree::{TreeCapabilities, TreeView, parse_tree_with_capabilities};
@@ -148,6 +149,8 @@ fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
             "unsupported cmux-tui protocol {protocol}; this client requires protocol {SUPPORTED_PROTOCOL_VERSION}; restart the cmux-tui server"
         );
     }
+    parse_identity_capabilities(ident)
+        .map_err(|reason| anyhow::anyhow!("invalid identity capabilities: {reason}"))?;
     Ok(())
 }
 
@@ -170,14 +173,7 @@ fn remote_terminal_size(value: &Value) -> Option<(u16, u16)> {
 }
 
 fn identity_capabilities(ident: &Value) -> HashSet<String> {
-    ident
-        .get("capabilities")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(str::to_string)
-        .collect()
+    parse_identity_capabilities(ident).unwrap_or_default()
 }
 
 fn require_capability(
@@ -4307,6 +4303,16 @@ mod tests {
     #[test]
     fn protocol_12_identity_is_accepted() {
         validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 12})).unwrap();
+    }
+
+    #[test]
+    fn malformed_identity_capabilities_are_rejected() {
+        for capabilities in [json!(null), json!("clear-history-v1"), json!(["ok", 1])] {
+            assert!(validate_remote_identity(&json!({
+                "app": "cmux-tui", "protocol": 12, "capabilities": capabilities,
+            }))
+            .is_err());
+        }
     }
 
     #[test]

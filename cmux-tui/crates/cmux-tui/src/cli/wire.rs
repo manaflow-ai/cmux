@@ -176,10 +176,9 @@ fn require_server_capability(
         );
         return Err(3);
     }
-    let supported =
-        identity.get("capabilities").and_then(Value::as_array).is_some_and(|capabilities| {
-            capabilities.iter().any(|value| value.as_str() == Some(capability))
-        });
+    let supported = crate::session::parse_identity_capabilities(identity)
+        .map(|capabilities| capabilities.contains(capability))
+        .unwrap_or(false);
     if supported {
         return Ok(());
     }
@@ -207,6 +206,7 @@ fn validate_capability_identity(identity: &Value) -> Result<(), &'static str> {
     {
         return Err("unsupported server protocol");
     }
+    crate::session::parse_identity_capabilities(identity)?;
     Ok(())
 }
 
@@ -755,6 +755,16 @@ mod tests {
     fn capability_preflight_accepts_newer_protocol() {
         let identity = json!({"app":"cmux-tui", "protocol":cmux_tui_core::server::PROTOCOL_VERSION + 1, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
         assert!(validate_capability_identity(&identity).is_ok());
+    }
+
+    #[test]
+    fn capability_preflight_rejects_malformed_capabilities() {
+        for capabilities in [json!(null), json!("journal-v1"), json!(["journal-v1", false])] {
+            assert!(validate_capability_identity(&json!({
+                "app": "cmux-tui", "protocol": 12, "capabilities": capabilities,
+            }))
+            .is_err());
+        }
     }
 
     #[test]

@@ -11,6 +11,7 @@ mod cursor_provenance;
 mod remote;
 pub(crate) mod tree;
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -32,7 +33,7 @@ use ghostty_vt::{
     KeyInput, MouseInput, RenderState, Scrollbar, Terminal, TerminalPointerSemanticSnapshot,
 };
 use serde::Deserialize;
-use serde_json::{Map, json};
+use serde_json::{Map, Value, json};
 
 pub use remote::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,
@@ -42,6 +43,24 @@ pub use tree::{TabNotificationView, TreeView, WorkspaceView};
 
 pub(crate) const CLEAR_HISTORY_UNSUPPORTED_ERROR: &str =
     "remote server does not support clear-history; restart the cmux-tui server";
+
+pub(crate) fn parse_identity_capabilities(value: &Value) -> Result<HashSet<String>, &'static str> {
+    let Some(capabilities) = value.get("capabilities") else {
+        return Ok(HashSet::new());
+    };
+    let Some(capabilities) = capabilities.as_array() else {
+        return Err("capabilities must be an array of strings");
+    };
+    capabilities
+        .iter()
+        .map(|capability| {
+            capability
+                .as_str()
+                .map(str::to_owned)
+                .ok_or("capabilities must be an array of strings")
+        })
+        .collect()
+}
 
 pub(crate) fn apply_config_to_local_owner(mux: &Mux, config: &crate::config::Config) {
     mux.update_surface_options(|options| {
