@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cerrno>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -646,4 +647,31 @@ TEST("Unix transport rejects oversized frames") {
     peer.join();
     CHECK(!result);
     CHECK_EQ(result.error().code, cmux::ErrorCode::protocol);
+}
+
+TEST("Unix transport preserves missing socket errno for fallback classification") {
+    const auto path = std::string("/tmp/cmux-cpp-missing-") +
+        std::to_string(static_cast<unsigned long>(::getpid())) + ".sock";
+    std::error_code ignored;
+    std::filesystem::remove(path, ignored);
+
+    auto result = cmux::UnixTransport::connect(path, std::chrono::milliseconds(100));
+    CHECK(!result);
+    if (!result) {
+        CHECK_EQ(result.error().code, cmux::ErrorCode::connection);
+        CHECK_EQ(result.error().system_errno, ENOENT);
+    }
+}
+
+TEST("Unix transport preserves refused socket errno without treating it as missing") {
+    UnixServer server;
+    ::close(server.listener);
+    server.listener = -1;
+
+    auto result = cmux::UnixTransport::connect(server.path, std::chrono::milliseconds(100));
+    CHECK(!result);
+    if (!result) {
+        CHECK_EQ(result.error().code, cmux::ErrorCode::connection);
+        CHECK_EQ(result.error().system_errno, ECONNREFUSED);
+    }
 }
