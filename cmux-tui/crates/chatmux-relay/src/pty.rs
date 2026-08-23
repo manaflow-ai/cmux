@@ -23,6 +23,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use tokio::sync::Notify;
 
 use async_trait::async_trait;
 use base64::Engine as _;
@@ -237,6 +238,23 @@ struct Inner {
     attachments: Mutex<HashMap<String, Attachment>>,
     opening_ids: Mutex<std::collections::HashSet<String>>,
     shell_sessions: Mutex<HashMap<String, Arc<ShellSession>>>,
+    shell_starting: Mutex<HashMap<String, Arc<Notify>>>,
+}
+
+struct ShellStartReservation {
+    inner: Arc<Inner>,
+    session: String,
+    notify: Arc<Notify>,
+    active: bool,
+}
+
+impl Drop for ShellStartReservation {
+    fn drop(&mut self) {
+        if self.active {
+            self.inner.shell_starting.lock().expect("shell starting lock").remove(&self.session);
+            self.notify.notify_waiters();
+        }
+    }
 }
 
 struct OpeningReservation {
@@ -269,6 +287,7 @@ impl PtyManager {
                 attachments: Mutex::new(HashMap::new()),
                 opening_ids: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
+                shell_starting: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -292,6 +311,7 @@ impl PtyManager {
                 attachments: Mutex::new(HashMap::new()),
                 opening_ids: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
+                shell_starting: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -705,17 +725,35 @@ impl Inner {
         pty_id: &str,
         context: &FrameContext,
     ) -> Result<Opened, String> {
-        let existing = {
-            let sessions = self.shell_sessions.lock().expect("shell lock");
-            sessions.get(session).cloned()
-        };
         let mut created = false;
-        let shell_session = match existing {
-            Some(session) => {
-                session.control.resize(cols, rows);
-                session
+        let shell_session = loop {
+            if let Some(existing) =
+                self.shell_sessions.lock().expect("shell lock").get(session).cloned()
+            {
+                existing.control.resize(cols, rows);
+                break existing;
             }
-            None => {
+            let (notify, owner) = {
+                let mut starting = self.shell_starting.lock().expect("shell starting lock");
+                if let Some(notify) = starting.get(session) {
+                    (Arc::clone(notify), false)
+                } else {
+                    let notify = Arc::new(Notify::new());
+                    starting.insert(session.to_owned(), Arc::clone(&notify));
+                    (notify, true)
+                }
+            };
+            if !owner {
+                notify.notified().await;
+                continue;
+            }
+            let mut reservation = ShellStartReservation {
+                inner: Arc::clone(&self),
+                session: session.to_owned(),
+                notify,
+                active: true,
+            };
+            {
                 let shell = self.deps.shell();
                 let handle = self
                     .deps
@@ -780,8 +818,11 @@ impl Inner {
                     .lock()
                     .expect("shell lock")
                     .insert(session.to_owned(), Arc::clone(&shell_session));
+                self.shell_starting.lock().expect("shell starting lock").remove(session);
+                reservation.active = false;
+                reservation.notify.notify_waiters();
                 created = true;
-                shell_session
+                break shell_session;
             }
         };
 
