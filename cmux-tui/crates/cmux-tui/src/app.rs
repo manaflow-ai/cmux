@@ -10853,7 +10853,7 @@ impl App {
         if !self.session.workspaces_are_provider_managed()
             && let Err(error) = self.session.mark_workspaces_provider_managed()
         {
-            self.status_message = Some(error.to_string());
+            self.status_message = Some(localization::catalog().sidebar.workspace_state_failed.replace("{error}", &error));
             return;
         }
         let (workspace_key, rename) = match mutation {
@@ -14783,13 +14783,8 @@ impl App {
                     }
                     Err(error) => {
                         let retrying = self.schedule_background_refresh_retry();
-                        self.status_message = Some(if retrying {
-                            format!("refresh remote tree failed; retrying: {error}")
-                        } else {
-                            format!(
-                                "refresh remote tree failed after {BACKGROUND_REFRESH_RETRIES} attempts; automatic retries stopped, reconnect to retry: {error}"
-                            )
-                        });
+                        let template = if retrying { localization::catalog().sidebar.refresh_remote_tree_retrying } else { localization::catalog().sidebar.refresh_remote_tree_stopped };
+                        self.status_message = Some(template.replace("{attempts}", &BACKGROUND_REFRESH_RETRIES.to_string()).replace("{error}", &error));
                         let _ = self.session.take_background_refresh_dirty();
                         false
                     }
@@ -14807,7 +14802,7 @@ impl App {
                 match result {
                     Ok(clients) => self.replace_clients(clients),
                     Err(error) => {
-                        self.status_message = Some(format!("Could not list clients: {error}"));
+                        self.status_message = Some(localization::catalog().sidebar.clients_list_failed.replace("{error}", &error));
                     }
                 }
                 Ok(RenderAction::Draw)
@@ -17608,7 +17603,7 @@ impl App {
             Ok(()) => self
                 .sidebar_files
                 .set_message(localization::catalog().sidebar.file_sent_to_focused_pane),
-            Err(error) => self.sidebar_files.set_message(error.to_string()),
+            Err(error) => self.sidebar_files.set_message(localization::catalog().sidebar.file_command_failed.replace("{error}", &error)),
         }
     }
 
@@ -17736,7 +17731,7 @@ impl App {
                 return;
             }
             if let Err(error) = self.session.undo_layout(pane, Some(revision), true) {
-                self.status_message = Some(error.to_string());
+                self.status_message = Some(localization::catalog().sidebar.layout_undo_failed.replace("{error}", &error));
             }
             return;
         }
@@ -17847,7 +17842,7 @@ impl App {
         self.cancel_pointer_interaction();
         let Some(dialog) = self.pairing_dialog.take() else { return };
         if let Err(error) = self.session.respond_pairing(dialog.challenge.id, approve) {
-            self.status_message = Some(error.to_string());
+            self.status_message = Some(localization::catalog().sidebar.pairing_response_failed.replace("{error}", &error));
         }
         self.pairing_dialog = self.pairing_queue.pop_front().map(PairingDialog::new);
     }
@@ -36167,7 +36162,13 @@ mod tests {
         assert_eq!(app.deferred_input.len(), 1);
         assert_eq!(
             app.status_message.as_deref(),
-            Some("session changed, but its layout refresh failed: refresh unavailable")
+            Some(
+                localization::catalog()
+                    .sidebar
+                    .layout_refresh_failed
+                    .replace("{error}", "refresh unavailable")
+                    .as_str(),
+            )
         );
         assert!(!app.session.has_pending_mutations());
     }
