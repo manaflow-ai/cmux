@@ -116,9 +116,9 @@ impl ThreadOutput {
             let next = {
                 let mut state = self.state.lock().expect("source lock");
                 if let Some(chunk) = state.backlog.pop_front() {
-                    Some((Some(chunk), None, state.on_data.clone(), state.on_exit.clone()))
+                    (Some(chunk), None, state.on_data.clone(), state.on_exit.clone())
                 } else if let Some(code) = state.pending_exit.take() {
-                    Some((None, Some(code), state.on_data.clone(), state.on_exit.clone()))
+                    (None, Some(code), state.on_data.clone(), state.on_exit.clone())
                 } else {
                     state.delivering = false;
                     return;

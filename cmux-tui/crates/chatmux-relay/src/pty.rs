@@ -903,9 +903,9 @@ impl TerminalStream {
             let next = {
                 let mut state = self.state.lock().expect("terminal stream lock");
                 if let Some(chunk) = state.backlog.pop_front() {
-                    Some((Some(chunk), None, state.live_data.clone(), state.live_exit.clone()))
+                    (Some(chunk), None, state.live_data.clone(), state.live_exit.clone())
                 } else if let Some(code) = state.pending_exit.take() {
-                    Some((None, Some(code), state.live_data.clone(), state.live_exit.clone()))
+                    (None, Some(code), state.live_data.clone(), state.live_exit.clone())
                 } else {
                     state.delivering = false;
                     return;
