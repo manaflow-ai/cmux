@@ -944,7 +944,7 @@ impl Inner {
                 continue;
             }
             if self.shell_sessions.lock().expect("shell lock").len() >= self.max_ptys {
-                starting.remove(session);
+                self.shell_starting.lock().expect("shell starting lock").remove(session);
                 notify.notify_waiters();
                 return Err(format!("this relay caps persistent shells at {}", self.max_ptys));
             }
