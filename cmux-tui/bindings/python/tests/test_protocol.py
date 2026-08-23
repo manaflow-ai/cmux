@@ -140,6 +140,13 @@ class GeneratedProtocolTests(unittest.TestCase):
                 f"/temporary/cmux-tui-{os.getuid()}/sdk.sock",
             )
 
+    def test_socket_paths_validate_names_and_use_sha256_fallback(self) -> None:
+        with self.assertRaises(ValueError):
+            default_socket_path("nested/name")
+        with patch.dict(os.environ, {"XDG_RUNTIME_DIR": "/" + "r" * 180}, clear=True):
+            path = default_socket_path("名前")
+        self.assertRegex(path, rf"^/tmp/cmux-tui-{os.getuid()}/[0-9a-f]{{64}}\.sock$")
+
 
 if __name__ == "__main__":
     unittest.main()
