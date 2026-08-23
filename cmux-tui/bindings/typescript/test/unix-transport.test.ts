@@ -1054,6 +1054,21 @@ test("Unix framing stops coalesced delivery after reentrant disposal", () => {
   assert.deepEqual(frames, ["{\"first\":1}"]);
 });
 
+test("Unix framing reset discards a partial line without stopping decoding", () => {
+  const frames: string[] = [];
+  const framing = new NewlineFrameBuffer(
+    128,
+    (frame) => frames.push(frame),
+    (error) => assert.fail(error),
+  );
+
+  framing.push(Buffer.from('{"stale":'));
+  framing.reset();
+  framing.push(Buffer.from('{"fresh":true}\n'));
+
+  assert.deepEqual(frames, ['{"fresh":true}']);
+});
+
 test("Unix transport close stops active coalesced frame delivery", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cmux-typescript-close-"));
   const socketPath = join(directory, "session.sock");

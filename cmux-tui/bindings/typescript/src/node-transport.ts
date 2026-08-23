@@ -213,11 +213,17 @@ export class UnixSocketTransport implements Transport {
       if (!this.connected && (error.code === "ENOENT" || error.code === "ECONNREFUSED") && this.fallbackIndex < this.fallbackSocketPaths.length) {
         const next = this.fallbackSocketPaths[this.fallbackIndex++];
         socket.destroy();
+        // A connection cannot carry a partial JSON line across sockets.
+        this.inbound.reset();
         this.socketPath = next;
         this.socket = net.createConnection({ path: next });
         this.bindSocket(this.socket);
         return;
       }
+      // Node may deliver a queued error after a fallback socket replaced it.
+      // Ignore events from that stale EventEmitter, as they do not describe
+      // the active connection.
+      if (socket !== this.socket) return;
       const prefix = this.connected
         ? "socket error"
         : `cannot connect to session socket ${this.socketPath}`;
