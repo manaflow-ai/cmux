@@ -51,9 +51,16 @@ const MAX_ENUM_SURFACES: usize = 8;
 const RAW_ATTACH_BACKLOG_CAP: usize = 1024 * 1024;
 
 pub fn session_name_ok(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= 64
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    let invalid = name.is_empty()
+        || matches!(name, "." | "..")
+        || name.chars().any(|character| {
+            character == '/'
+                || character == '\\'
+                || character == '\0'
+                || character.is_control()
+                || matches!(character, '\u{0085}' | '\u{2028}' | '\u{2029}')
+        });
+    !invalid
 }
 
 pub fn surface_ref_ok(value: &str) -> bool {
@@ -620,7 +627,13 @@ impl Inner {
         let socket_dir = self.deps.socket_dir();
         let ensured = self.deps.ensure_daemon(cmux_tui, session, &socket_dir, cwd, env).await?;
         let mut args = cmux_tui.prefix.clone();
-        args.extend(["attach".to_owned(), "--session".to_owned(), session.to_owned()]);
+        args.extend([
+            "attach".to_owned(),
+            "--session".to_owned(),
+            session.to_owned(),
+            "--socket".to_owned(),
+            ensured.socket_path.to_string_lossy().into_owned(),
+        ]);
         let handle = self
             .deps
             .spawn_pty(SpawnSpec {
@@ -1190,6 +1203,10 @@ impl Inner {
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         let socket_dir = self.deps.socket_dir();
         let mut sessions: Vec<String> = Vec::new();
+        // Discovery only scans the preferred runtime directory and cannot
+        // reverse a digest socket name back to its original session. Callers
+        // must open a session explicitly when the core resolver selected a
+        // fallback directory or hashed leaf.
         if let Ok(entries) = self.deps.read_dir(&socket_dir).await {
             for name in entries {
                 let Some(id) = name.strip_suffix(".sock") else { continue };
@@ -1601,12 +1618,34 @@ mod tests {
     #[tokio::test]
     async fn bad_session_names_and_dims_answer_bad_request() {
         let h = harness(None, None);
-        h.open("p1", "bad name!", Value::Null, "supervised", h.owner.clone()).await;
+        h.open("p1", "bad/name", Value::Null, "supervised", h.owner.clone()).await;
         h.open("p2", "ok", serde_json::json!({ "cols": 0 }), "supervised", h.owner.clone()).await;
         let sent = h.sent();
         assert_eq!(ty(&sent[0]), "pty_error");
         assert_eq!(sent[0]["code"], "bad_request");
         assert_eq!(sent[1]["code"], "bad_request");
+    }
+
+    #[test]
+    fn session_name_validation_matches_core_path_component_rules() {
+        let long_name = format!("long-{}", "x".repeat(256));
+        for name in ["legacy name", "名前", "dots.and-dashes_ok", &long_name] {
+            assert!(session_name_ok(name), "rejected valid session {name:?}");
+        }
+        for name in [
+            "",
+            ".",
+            "..",
+            "nested/session",
+            "nested\\session",
+            "nul\0session",
+            "line\nfeed",
+            "next\u{0085}line",
+            "line\u{2028}separator",
+            "line\u{2029}separator",
+        ] {
+            assert!(!session_name_ok(name), "accepted invalid session {name:?}");
+        }
     }
 
     #[tokio::test]

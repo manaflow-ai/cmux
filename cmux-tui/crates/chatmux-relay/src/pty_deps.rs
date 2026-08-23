@@ -10,6 +10,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
+use std::mem::{offset_of, size_of};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -17,6 +18,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use bytes::Bytes;
 use cmux_pty::{MasterPty, PtySize};
+use sha2::{Digest, Sha256};
 
 use crate::control::{CONTROL_TIMEOUT_MS, ControlHandle, connect_control};
 use crate::pty::{
@@ -25,6 +27,50 @@ use crate::pty::{
 };
 
 const DAEMON_SOCKET_WAIT_MS: u64 = 5_000;
+
+/// Resolve the same bounded socket path that cmux-tui-core uses for a
+/// session. `socket_dir` is the preferred `<runtime-base>/cmux-tui-<uid>`
+/// directory supplied by this relay. The ordinary `/tmp` fallback is checked
+/// before a digest leaf, then the digest is kept below the preferred runtime
+/// base when that path still fits.
+fn session_socket_path(socket_dir: &Path, uid: u32, session: &str) -> Result<PathBuf, String> {
+    if !session_name_ok(session) {
+        return Err("invalid session name".to_owned());
+    }
+    let leaf = format!("{session}.sock");
+    let preferred = socket_dir.join(&leaf);
+    if unix_socket_path_fits(&preferred) {
+        return Ok(preferred);
+    }
+
+    let fallback_dir = Path::new("/tmp").join(format!("cmux-tui-{uid}"));
+    let fallback = fallback_dir.join(&leaf);
+    if unix_socket_path_fits(&fallback) {
+        return Ok(fallback);
+    }
+
+    let digest = format!("{:x}", Sha256::digest(session.as_bytes()));
+    let preferred_base = socket_dir.parent().filter(|base| !base.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("/tmp"));
+    let hashed = preferred_base
+        .join(format!("cmux-tui-hashed-{uid}"))
+        .join(format!("{digest}.sock"));
+    if unix_socket_path_fits(&hashed) {
+        return Ok(hashed);
+    }
+    Ok(Path::new("/tmp")
+        .join(format!("cmux-tui-hashed-{uid}"))
+        .join(format!("{digest}.sock")))
+}
+
+fn unix_socket_path_fits(path: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+
+    // Unix-domain socket paths include a trailing NUL in `sun_path`.
+    const SUN_PATH_CAPACITY: usize =
+        size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+    path.as_os_str().as_bytes().len() < SUN_PATH_CAPACITY
+}
 
 /// Buffers output until the manager subscribes, then drains one FIFO queue.
 /// Only one caller drains at a time. This keeps bytes buffered before
@@ -393,7 +439,7 @@ impl PtyDeps for RealPtyDeps {
         tokio::fs::set_permissions(socket_dir, permissions)
             .await
             .map_err(|error| format!("control socket directory permissions failed: {error}"))?;
-        let socket_path = socket_dir.join(format!("{session}.sock"));
+        let socket_path = session_socket_path(socket_dir, self.uid, session)?;
         if socket_exists(&socket_path).await {
             let ready = match connect_control(&socket_path, CONTROL_TIMEOUT_MS).await {
                 Ok(control) => control.request("list", serde_json::Value::Null).await.is_some(),
@@ -405,7 +451,13 @@ impl PtyDeps for RealPtyDeps {
             return Err(format!("cmux-tui daemon for \"{session}\" is not control-ready"));
         }
         let mut args = cmux_tui.prefix.clone();
-        args.extend(["--headless".to_owned(), "--session".to_owned(), session.to_owned()]);
+        args.extend([
+            "--headless".to_owned(),
+            "--session".to_owned(),
+            session.to_owned(),
+            "--socket".to_owned(),
+            socket_path.to_string_lossy().into_owned(),
+        ]);
         let mut command = tokio::process::Command::new(&cmux_tui.file);
         command.args(&args).current_dir(cwd).env_clear();
         for (key, value) in env {
@@ -488,6 +540,30 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex};
     use std::thread;
+
+    #[test]
+    fn session_socket_path_matches_core_fallback_order() {
+        let session = format!("legacy-{}", "x".repeat(200));
+        let preferred_dir = PathBuf::from("/run/user/501/cmux-tui-501");
+        let preferred = session_socket_path(&preferred_dir, 501, &session).unwrap();
+        assert_eq!(
+            preferred,
+            PathBuf::from("/run/user/501/cmux-tui-hashed-501")
+                .join("e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2.sock")
+        );
+
+        let long_dir = PathBuf::from("/tmp").join("x".repeat(200)).join("cmux-tui-501");
+        let fallback = session_socket_path(&long_dir, 501, &session).unwrap();
+        assert!(fallback.starts_with("/tmp/cmux-tui-hashed-501/"));
+        assert!(unix_socket_path_fits(&fallback));
+    }
+
+    #[test]
+    fn session_socket_path_rejects_invalid_names_before_path_use() {
+        let error = session_socket_path(Path::new("/run/cmux-tui-501"), 501, "bad/name")
+            .expect_err("path separator must be rejected");
+        assert!(error.contains("invalid session"));
+    }
 
     #[test]
     fn subscribe_replay_stays_ahead_of_concurrent_output_and_exit() {
