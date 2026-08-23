@@ -191,6 +191,10 @@ struct WorkspaceDetailView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
+            // The browser and chat surfaces scroll; without this the system
+            // minimizes the whole bar into a floating "…" pill, unlike the
+            // terminal surface, which has no system scroll view.
+            .mobilePinnedNavigationBar()
             .toolbar { workspaceDetailToolbar }
             .task(id: chatRefreshKey) { await refreshChatSessions() }
             .task(id: workspace.rpcWorkspaceID.rawValue) {
