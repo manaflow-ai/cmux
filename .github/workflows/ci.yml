@@ -252,6 +252,9 @@ jobs:
       - name: Validate release bundle stripping
         run: ./tests/test_strip_release_bundle.sh
 
+      - name: Validate bundle-wide Mach-O architecture verifier
+        run: ./tests/test_verify_macos_bundle_architectures.sh
+
       - name: Validate current GhosttyKit checksum pin
         run: ./tests/test_ci_ghosttykit_checksum_present.sh
 
