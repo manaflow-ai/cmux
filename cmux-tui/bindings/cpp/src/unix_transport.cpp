@@ -445,7 +445,11 @@ Result<std::unique_ptr<Transport>> UnixTransport::connect(
     const auto address_length =
         static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + path.size() + 1);
     if (::connect(fd, reinterpret_cast<const sockaddr*>(&address), address_length) < 0) {
-        if (errno != EINPROGRESS) {
+        // Nonblocking connect may report any of these values while the
+        // connection is still in progress. Linux documents EAGAIN for
+        // resource exhaustion and EWOULDBLOCK where it differs from
+        // EAGAIN, while POSIX specifies EINPROGRESS for this case.
+        if (errno != EINPROGRESS && errno != EAGAIN && errno != EWOULDBLOCK) {
             const auto error = system_error(
                 ErrorCode::connection, "cannot connect to Unix socket '" + path + "'");
             ::close(fd);
