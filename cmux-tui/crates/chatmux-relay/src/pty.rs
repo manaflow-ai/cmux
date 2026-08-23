@@ -733,18 +733,23 @@ impl Inner {
                 existing.control.resize(cols, rows);
                 break existing;
             }
-            let (notify, owner) = {
+            let (notify, owner, waiter) = {
                 let mut starting = self.shell_starting.lock().expect("shell starting lock");
                 if let Some(notify) = starting.get(session) {
-                    (Arc::clone(notify), false)
+                    let notify = Arc::clone(notify);
+                    // Register before releasing the map lock. The owner may
+                    // finish immediately; creating this future later could
+                    // miss `notify_waiters`.
+                    let waiter = notify.notified();
+                    (notify, false, Some(waiter))
                 } else {
                     let notify = Arc::new(Notify::new());
                     starting.insert(session.to_owned(), Arc::clone(&notify));
-                    (notify, true)
+                    (notify, true, None)
                 }
             };
             if !owner {
-                notify.notified().await;
+                waiter.expect("shell waiter").await;
                 continue;
             }
             let mut reservation = ShellStartReservation {
