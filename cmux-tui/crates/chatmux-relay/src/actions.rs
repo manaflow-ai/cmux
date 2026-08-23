@@ -869,7 +869,7 @@ fn run_reply(
     let limit = limit.or(default_value.as_ref());
     match outcome {
         RunOutcome::Failed { message } => fail_result(version, action_id, "failed", &message),
-        RunOutcome::TimedOut { .. } => {
+        RunOutcome::TimedOut => {
             let seconds = (timeout_ms as f64 / 1000.0).round() as u64;
             fail_result(
                 version,

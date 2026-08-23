@@ -160,10 +160,10 @@ fn uninstall_impl() -> Result<String, String> {
 fn uninstall_impl() -> Result<String, String> {
     let p = home()?.join(".config/systemd/user/chatmux-relay.service");
     let _ = run("systemctl", &["--user", "disable", "--now", "chatmux-relay.service"]);
-    if let Err(e) = fs::remove_file(&p) {
-        if e.kind() != std::io::ErrorKind::NotFound {
-            return Err(e.to_string());
-        }
+    if let Err(e) = fs::remove_file(&p)
+        && e.kind() != std::io::ErrorKind::NotFound
+    {
+        return Err(e.to_string());
     }
     let _ = run("systemctl", &["--user", "daemon-reload"]);
     Ok(format!("removed {}", p.display()))
