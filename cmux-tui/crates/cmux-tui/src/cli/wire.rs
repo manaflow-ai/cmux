@@ -752,9 +752,21 @@ mod tests {
     }
 
     #[test]
-    fn capability_preflight_accepts_newer_protocol() {
+    fn capability_preflight_accepts_current_protocol() {
+        let identity = json!({"app":"cmux-tui", "protocol":cmux_tui_core::server::PROTOCOL_VERSION, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
+        assert_eq!(validate_capability_identity(&identity), Ok(()));
+    }
+
+    #[test]
+    fn capability_preflight_rejects_future_protocol() {
         let identity = json!({"app":"cmux-tui", "protocol":cmux_tui_core::server::PROTOCOL_VERSION + 1, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
-        assert!(validate_capability_identity(&identity).is_ok());
+        assert_eq!(validate_capability_identity(&identity), Err("unsupported server protocol"));
+    }
+
+    #[test]
+    fn capability_preflight_rejects_max_protocol() {
+        let identity = json!({"app":"cmux-tui", "protocol":u64::MAX, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
+        assert_eq!(validate_capability_identity(&identity), Err("unsupported server protocol"));
     }
 
     #[test]
