@@ -1185,6 +1185,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F0F0CF0F0000000000000001 /* ForkParentFallbackGeneralizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F0CF0F0000000000000002 /* ForkParentFallbackGeneralizationTests.swift */; };
 		F76550030000000000000001 /* ForkParentFallbackResidualTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F76550030000000000000002 /* ForkParentFallbackResidualTests.swift */; };
 		F0F0CF0D0000000000000001 /* ForkParentFallbackSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F0CF0D0000000000000002 /* ForkParentFallbackSessionIndexTests.swift */; };
+		F97300010000000000000002 /* FreestyleInteractiveShellScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = F97300010000000000000001 /* FreestyleInteractiveShellScript.swift */; };
+		F97300010000000000000003 /* FreestyleInteractiveShellScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = F97300010000000000000001 /* FreestyleInteractiveShellScript.swift */; };
 		F17F00000000000000000003 /* FullWidthTabCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17F00000000000000000004 /* FullWidthTabCommandTests.swift */; };
 		F17F00000000000000000001 /* FullWidthTabPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17F00000000000000000002 /* FullWidthTabPersistenceTests.swift */; };
 		85510001A1B2C3D4E5F60001 /* GhosttyApp+ChildExitPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85510002A1B2C3D4E5F60001 /* GhosttyApp+ChildExitPolicy.swift */; };
@@ -4005,6 +4007,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F0F0CF0F0000000000000002 /* ForkParentFallbackGeneralizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForkParentFallbackGeneralizationTests.swift; sourceTree = "<group>"; };
 		F76550030000000000000002 /* ForkParentFallbackResidualTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForkParentFallbackResidualTests.swift; sourceTree = "<group>"; };
 		F0F0CF0D0000000000000002 /* ForkParentFallbackSessionIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForkParentFallbackSessionIndexTests.swift; sourceTree = "<group>"; };
+		F97300010000000000000001 /* FreestyleInteractiveShellScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreestyleInteractiveShellScript.swift; sourceTree = "<group>"; };
 		F17F00000000000000000004 /* FullWidthTabCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullWidthTabCommandTests.swift; sourceTree = "<group>"; };
 		F17F00000000000000000002 /* FullWidthTabPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullWidthTabPersistenceTests.swift; sourceTree = "<group>"; };
 		A5001017 /* ghostty.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ghostty.h; sourceTree = "<group>"; };
@@ -7742,6 +7745,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			children = (
 				805500000000000000000003 /* BrowserValueTextFormatter.swift */,
 				B9000001A1B2C3D4E5F60719 /* cmux.swift */,
+				F97300010000000000000001 /* FreestyleInteractiveShellScript.swift */,
 				REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */,
 				1E4DB33FA55F1B13C60EFFC8 /* SSHPTYAttachReconnectInputFilter.swift */,
 				E60610200000000000000001 /* SSHPTYAttachReconnectInputFilterControl.swift */,
@@ -11023,6 +11027,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				918100000000000000000021 /* CodexTranscriptMonitorStopReplay.swift in Sources */,
 				918100000000000000000071 /* CodexTranscriptSubagentSignals.swift in Sources */,
 				FEEDC1A50000000000000001 /* FeedEventClassifier.swift in Sources */,
+				F97300010000000000000002 /* FreestyleInteractiveShellScript.swift in Sources */,
 				C51A73B20000000000000002 /* IOSScreenshotCommandResultBox.swift in Sources */,
 				A5FB1308 /* JSONCObjectEditor+Remove.swift in Sources */,
 				A5FB1312 /* JSONCObjectEditor+Set.swift in Sources */,
@@ -11415,6 +11420,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F0F0CF0F0000000000000001 /* ForkParentFallbackGeneralizationTests.swift in Sources */,
 				F76550030000000000000001 /* ForkParentFallbackResidualTests.swift in Sources */,
 				F0F0CF0D0000000000000001 /* ForkParentFallbackSessionIndexTests.swift in Sources */,
+				F97300010000000000000003 /* FreestyleInteractiveShellScript.swift in Sources */,
 				F17F00000000000000000003 /* FullWidthTabCommandTests.swift in Sources */,
 				F17F00000000000000000001 /* FullWidthTabPersistenceTests.swift in Sources */,
 				1718C0DE1718C0DE17180002 /* GhosttyCommandShiftForwardingTests.swift in Sources */,

@@ -1,12 +1,6 @@
 import XCTest
 import Darwin
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
-
 extension CLINotifyProcessIntegrationRegressionTests {
     func testVMNewDefaultCreatesPinnedSSHDWorkspaceOverFreestyleSSH() throws {
         let cliPath = try bundledCLIPath()
@@ -589,12 +583,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
     func testDefaultFreestyleSSHAttachScopesTmuxSessionToCallerSurface() {
         let workspaceID = "11111111-1111-1111-1111-111111111111"
         let surfaceID = "33333333-3333-3333-3333-333333333333"
-        let decodedRemoteBootstrap = CMUXCLI.freestyleInteractiveShellScript(
+        let decodedRemoteBootstrap = FreestyleInteractiveShellScript(
             environment: [
                 "CMUX_WORKSPACE_ID": workspaceID,
                 "CMUX_SURFACE_ID": surfaceID,
             ]
-        )
+        ).text
         XCTAssertTrue(decodedRemoteBootstrap.contains("export CMUX_WORKSPACE_ID='\(workspaceID)'"), decodedRemoteBootstrap)
         XCTAssertTrue(decodedRemoteBootstrap.contains("export CMUX_SURFACE_ID='\(surfaceID)'"), decodedRemoteBootstrap)
         XCTAssertFalse(
