@@ -375,6 +375,10 @@ pub fn connectResolvedWithLegacyFallback(
         if (!isHashedSocketPath(path)) return failure;
         const legacy = try sessionSocketPath(allocator, "/tmp", session);
         errdefer allocator.free(legacy);
+        // A legacy session path can exceed the sockaddr_un limit even when
+        // the hashed endpoint fits. Do not probe it in that case: the
+        // resulting PathTooLong would mask the preferred endpoint failure.
+        if (!unixSocketPathFits(legacy)) return failure;
         return .{ .connection = try connectUnixWithTimeout(allocator, legacy, timeout_ms), .path = legacy };
     };
     return .{ .connection = connection, .path = try allocator.dupe(u8, path) };
@@ -750,6 +754,15 @@ test "hashed session socket path falls back to slash tmp when runtime base is to
     );
     defer std.testing.allocator.free(expected);
     try std.testing.expectEqualStrings(expected, path);
+}
+
+test "legacy fallback path is rejected before connect when session is too long" {
+    var long_name: [207]u8 = undefined;
+    @memcpy(long_name[0..7], "legacy-");
+    @memset(long_name[7..], 'x');
+    const legacy = try sessionSocketPath(std.testing.allocator, "/tmp", &long_name);
+    defer std.testing.allocator.free(legacy);
+    try std.testing.expect(!unixSocketPathFits(legacy));
 }
 
 test "empty inherited socket values are ignored" {
