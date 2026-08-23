@@ -133,6 +133,7 @@ jobs:
           python3 cmux-tui/dist/scripts/validate_package_contract.py \
             --npm-packages dist/npm-packages \
             --version "${{ needs.version.outputs.npm_version }}" \
+            --include-windows \
             --install-npm-package cmux-tui-linux-x64
 
       - name: Publish platform packages with nightly dist-tag
@@ -143,6 +144,7 @@ jobs:
             cmux-tui-darwin-x64
             cmux-tui-linux-x64
             cmux-tui-linux-arm64
+            cmux-tui-win32-x64
           )
           for package in "${packages[@]}"; do
             echo "Publishing $package"

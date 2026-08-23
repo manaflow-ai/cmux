@@ -553,8 +553,16 @@ jobs:
 
   package:
     name: package distributions
-    needs: build
-    if: inputs.package_npm || inputs.package_pypi
+    needs:
+      - build
+      - build-windows
+    if: >-
+      ${{
+        always() &&
+        (inputs.package_npm || inputs.package_pypi) &&
+        needs.build.result == 'success' &&
+        (!inputs.include_windows || needs.build-windows.result == 'success')
+      }}
     runs-on: ${{ inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     permissions:

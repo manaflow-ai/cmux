@@ -185,6 +185,7 @@ jobs:
           python3 cmux-tui/dist/scripts/validate_package_contract.py \
             --npm-packages dist/npm-packages \
             --version "${{ inputs.version }}" \
+            --include-windows \
             --install-npm-package cmux-tui-linux-x64
 
       - name: Publish platform packages
@@ -235,3 +236,6 @@ jobs:
           # Deliberately do not pass --tag: this coordinated TUI publish takes
           # over the cmux latest dist-tag from the old 0.8.3 CLI when version > 0.8.3.
           npm publish --provenance dist/npm-packages/cmux
+
+      - name: Publish cmux-relay launcher package
+        run: npm publish --provenance dist/npm-packages/cmux-relay
