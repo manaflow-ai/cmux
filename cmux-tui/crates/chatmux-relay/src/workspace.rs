@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::{Semaphore, mpsc::UnboundedSender};
 
 use crate::preview_proxy::PreviewRegistry;
 use crate::relay_wire as wire;
@@ -51,6 +51,10 @@ const MAX_TIMEOUT_MS: i64 = 300_000;
 /// hold. Completed task handles are pruned on admission, but without an
 /// admission cap a peer could keep arbitrarily many slow requests pending.
 const MAX_PENDING_REQUESTS: usize = 64;
+/// Global admission bound for filesystem and Git calls. Tokio cannot abort a
+/// `spawn_blocking` closure after it starts, so keep the non-abortable work
+/// set bounded across sockets and reconnects.
+const MAX_BLOCKING_OPERATIONS: usize = 8;
 
 /// A typed machine-side refusal (one `WorkspaceErrorCode` on the wire).
 #[derive(Debug)]
@@ -933,11 +937,16 @@ pub struct SharedRuntime {
     pub preview: PreviewRegistry,
     /// This machine's own `--allow-root` scoping (config authority).
     pub local_roots: Option<Vec<String>>,
+    blocking: Arc<Semaphore>,
 }
 
 impl SharedRuntime {
     pub fn new(local_roots: Option<Vec<String>>) -> SharedRuntime {
-        SharedRuntime { preview: PreviewRegistry::new(), local_roots }
+        SharedRuntime {
+            preview: PreviewRegistry::new(),
+            local_roots,
+            blocking: Arc::new(Semaphore::new(MAX_BLOCKING_OPERATIONS)),
+        }
     }
 }
 
@@ -1114,12 +1123,12 @@ async fn run_op(
 ) -> Result<wire::WorkspaceResultBody, Refusal> {
     let scope = Scope::build(request.allowed_roots.as_deref(), runtime.local_roots.as_deref())?;
     match request.op {
-        wire::WorkspaceOp::FsTree(op) => blocking(move || run_tree(&scope, &op)).await,
-        wire::WorkspaceOp::FsRead(op) => blocking(move || run_read(&scope, &op)).await,
-        wire::WorkspaceOp::FsWrite(op) => blocking(move || run_write(&scope, &op)).await,
-        wire::WorkspaceOp::FsRename(op) => blocking(move || run_rename(&scope, &op)).await,
-        wire::WorkspaceOp::FsDelete(op) => blocking(move || run_delete(&scope, &op)).await,
-        wire::WorkspaceOp::FsSearch(op) => blocking(move || run_search(&scope, &op)).await,
+        wire::WorkspaceOp::FsTree(op) => blocking(runtime, move || run_tree(&scope, &op)).await,
+        wire::WorkspaceOp::FsRead(op) => blocking(runtime, move || run_read(&scope, &op)).await,
+        wire::WorkspaceOp::FsWrite(op) => blocking(runtime, move || run_write(&scope, &op)).await,
+        wire::WorkspaceOp::FsRename(op) => blocking(runtime, move || run_rename(&scope, &op)).await,
+        wire::WorkspaceOp::FsDelete(op) => blocking(runtime, move || run_delete(&scope, &op)).await,
+        wire::WorkspaceOp::FsSearch(op) => blocking(runtime, move || run_search(&scope, &op)).await,
         wire::WorkspaceOp::GitStatus(_) => run_git_status(&scope).await,
         wire::WorkspaceOp::GitDiff(op) => run_git_diff(&scope, &op).await,
         wire::WorkspaceOp::PreviewOpen(op) => runtime.preview.open(op.target_port).await,
@@ -1127,11 +1136,21 @@ async fn run_op(
     }
 }
 
-async fn blocking<F>(body: F) -> Result<wire::WorkspaceResultBody, Refusal>
+async fn blocking<F>(runtime: &Arc<SharedRuntime>, body: F) -> Result<wire::WorkspaceResultBody, Refusal>
 where
     F: FnOnce() -> Result<wire::WorkspaceResultBody, Refusal> + Send + 'static,
 {
-    match tokio::task::spawn_blocking(body).await {
+    // Waiting for admission is cancellable when the connection drops. Once
+    // admitted, the permit is moved into the closure and held until the
+    // blocking call really finishes, since Tokio cannot abort it.
+    let permit = runtime.blocking.clone().acquire_owned().await.map_err(|_| {
+        Refusal::failed("workspace blocking worker pool is unavailable")
+    })?;
+    match tokio::task::spawn_blocking(move || {
+        let outcome = body();
+        drop(permit);
+        outcome
+    }).await {
         Ok(outcome) => outcome,
         Err(join_error) => Err(Refusal::failed(format!("workspace op crashed: {join_error}"))),
     }
@@ -1707,5 +1726,16 @@ mod tests {
         assert_eq!(clamp_i64(0, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS), MIN_TIMEOUT_MS);
         assert_eq!(clamp_i64(999_999, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS), MAX_TIMEOUT_MS);
         let _ = root;
+    }
+
+    #[tokio::test]
+    async fn blocking_worker_pool_is_explicitly_bounded() {
+        let runtime = SharedRuntime::new(None);
+        assert_eq!(runtime.blocking.available_permits(), MAX_BLOCKING_OPERATIONS);
+        let permits = runtime.blocking.clone().acquire_many_owned(MAX_BLOCKING_OPERATIONS as u32).await
+            .expect("pool permits");
+        assert_eq!(runtime.blocking.available_permits(), 0);
+        drop(permits);
+        assert_eq!(runtime.blocking.available_permits(), MAX_BLOCKING_OPERATIONS);
     }
 }
