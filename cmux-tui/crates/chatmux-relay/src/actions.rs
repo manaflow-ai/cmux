@@ -645,6 +645,7 @@ async fn run_spec(
     let mut stdout_open = stdout.is_some();
     let mut stderr_open = stderr.is_some();
     let mut exited: Option<i64> = None;
+    let mut kill_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     loop {
         if exited.is_some() && !stdout_open && !stderr_open {
             break;
@@ -682,8 +683,8 @@ async fn run_spec(
             }
             status = child.wait(), if exited.is_none() => {
                 exited = Some(match status {
-                    Ok(status) => i64::from(status.code().unwrap_or(0)),
-                    Err(_) => 0,
+                    Ok(status) => status.code().map(i64::from).unwrap_or(1),
+                    Err(_) => 1,
                 });
             }
             () = &mut deadline, if !timed_out => {
@@ -693,10 +694,21 @@ async fn run_spec(
                 // so the supervisor gets its EXIT cleanup, then enforce a
                 // hard bound for processes that ignore TERM.
                 signal_process_tree(pid, false);
-                tokio::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-                    signal_process_tree(pid, true);
-                });
+                // Keep the escalation timer owned by this invocation. A
+                // detached task could fire after the process exits and its
+                // PID is reused by an unrelated process.
+                kill_deadline = Some(Box::pin(tokio::time::sleep(
+                    std::time::Duration::from_millis(250),
+                )));
+            }
+            () = async {
+                match kill_deadline.as_mut() {
+                    Some(timer) => timer.as_mut().await,
+                    None => std::future::pending().await,
+                }
+            }, if kill_deadline.is_some() => {
+                signal_process_tree(pid, true);
+                kill_deadline = None;
             }
         }
     }
