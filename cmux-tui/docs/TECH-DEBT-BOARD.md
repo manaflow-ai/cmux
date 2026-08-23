@@ -3,7 +3,7 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `feat-tui-tech-debt-wave1-clean`.
-Current integration tip: `6e15ea5f38` (PR head `6e15ea5f38c7f16f0d81768b7777ddba1e71803e`).
+Current integration code tip: `6e15ea5f38`.
 The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
 The combined review PR is `https://github.com/manaflow-ai/cmux/pull/10602`.
 
