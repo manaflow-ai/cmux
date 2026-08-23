@@ -1018,7 +1018,7 @@ pub struct Connection {
     /// Request tasks are owned by the socket connection. Dropping the
     /// connection must stop in-flight work instead of letting it outlive the
     /// outbound queue and the relay session that created it.
-    requests: std::sync::Mutex<(tokio::task::JoinSet<()>, usize)>,
+    requests: std::sync::Mutex<tokio::task::JoinSet<()>>,
 }
 
 impl Connection {
@@ -1029,7 +1029,7 @@ impl Connection {
             outbound,
             local_observe: Arc::new(AtomicBool::new(false)),
             watches,
-            requests: std::sync::Mutex::new((tokio::task::JoinSet::new(), 0)),
+            requests: std::sync::Mutex::new(tokio::task::JoinSet::new()),
         }
     }
 
@@ -1100,16 +1100,13 @@ impl Connection {
             // JoinSet removes completed tasks without rescanning every
             // in-flight request. This keeps admission proportional to the
             // number of completions since the previous frame.
-            while requests.0.try_join_next().is_some() {
-                requests.1 = requests.1.saturating_sub(1);
-            }
-            if !admit_workspace_request(requests.1) {
+            while requests.try_join_next().is_some() {}
+            if !admit_workspace_request(requests.len()) {
                 let refusal = Refusal::failed("workspace request limit reached; retry later");
                 let _ = self.outbound.send(error_frame(&request_id, &refusal));
                 return;
             }
-            requests.0.spawn(task);
-            requests.1 += 1;
+            requests.spawn(task);
         } else {
             // The task has not been spawned yet, so a poisoned registry does
             // not leak work beyond this connection.
@@ -1120,7 +1117,7 @@ impl Connection {
 impl Drop for Connection {
     fn drop(&mut self) {
         if let Ok(mut requests) = self.requests.lock() {
-            requests.0.abort_all();
+            requests.abort_all();
         }
     }
 }
