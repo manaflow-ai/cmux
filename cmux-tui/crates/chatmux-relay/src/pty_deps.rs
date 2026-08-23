@@ -370,6 +370,27 @@ async fn socket_exists(path: &Path) -> bool {
     tokio::fs::metadata(path).await.is_ok()
 }
 
+/// Stop a daemon that was started by `ensure_daemon` but never became ready.
+/// The daemon is placed in its own process group, so cleanup also covers
+/// children it may have spawned before readiness failed.
+async fn cleanup_daemon(mut child: tokio::process::Child) {
+    if let Some(pid) = child.id() {
+        unsafe {
+            let _ = libc::kill(-(pid as libc::pid_t), libc::SIGTERM);
+        }
+    }
+    if tokio::time::timeout(Duration::from_millis(250), child.wait()).await.is_ok() {
+        return;
+    }
+    if let Some(pid) = child.id() {
+        unsafe {
+            let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+        }
+    }
+    let _ = child.kill().await;
+    let _ = tokio::time::timeout(Duration::from_secs(1), child.wait()).await;
+}
+
 #[async_trait]
 impl PtyDeps for RealPtyDeps {
     async fn spawn_pty(&self, spec: SpawnSpec) -> PtyHandle {
@@ -466,7 +487,9 @@ impl PtyDeps for RealPtyDeps {
         command.stdout(std::process::Stdio::null());
         command.stderr(std::process::Stdio::null());
         command.process_group(0);
-        command.spawn().map_err(|error| format!("cmux-tui daemon spawn failed: {error}"))?;
+        let child = command
+            .spawn()
+            .map_err(|error| format!("cmux-tui daemon spawn failed: {error}"))?;
 
         let deadline = Instant::now() + Duration::from_millis(DAEMON_SOCKET_WAIT_MS);
         while Instant::now() < deadline {
@@ -482,12 +505,14 @@ impl PtyDeps for RealPtyDeps {
                         _ => tokio::time::sleep(Duration::from_millis(50)).await,
                     }
                 }
+                cleanup_daemon(child).await;
                 return Err(format!(
                     "cmux-tui daemon for \"{session}\" did not become control-ready"
                 ));
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
+        cleanup_daemon(child).await;
         Err(format!("cmux-tui daemon for \"{session}\" never created {}", socket_path.display()))
     }
 
