@@ -3,12 +3,14 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `feat-tui-tech-debt-wave1-clean`.
-Current integration code tip: `ec21e4d847`.
+Current integration code tip: `dfa4ef3b6a`.
 The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
-The current integration sequence is `1094385e7f`, `647e9721aa`, `229eddbe5d`,
-`35132cda6c`, and `ec21e4d847`.
+The current integration sequence includes the hosted formatter and verification
+fixes through `66e83c808f`, the replay preflight correction `c867048c1d`, the
+safe scoped-attach series through `dfa4ef3b6a`, and the current localization
+and config diagnostics commits.
 
-Subagent ledger: at least 120 substantive agent turns are complete in this
+Subagent ledger: at least 160 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
 reviews, and merge gates. It excludes empty or duplicate turns. The requested
 10,000-session target is not reached. I will not create empty sessions to
@@ -51,7 +53,7 @@ round 9B; no manual-IO proof exists yet.
 | --- | --- | --- |
 | Tier-A daemon attach and quit/reopen survival | [PR 10408](https://github.com/manaflow-ai/cmux/pull/10408) | First pass complete. Known cuts: launchd supervision, first-tab/split coverage, cwd/env, orphan cleanup. |
 | Journal topology survives terminal exit | [PR 10413](https://github.com/manaflow-ai/cmux/pull/10413) | Complete for exit preservation. Checkpoints and agent launch specs remain open. |
-| Scoped attach mouse/cursor correctness | [PR 10428](https://github.com/manaflow-ai/cmux/pull/10428) | Complete through replay, reattach, and CI XCUITest. Focus forwarding and OSC 52 remain pre-existing gaps. |
+| Scoped attach mouse/cursor correctness | [PR 10428](https://github.com/manaflow-ai/cmux/pull/10428) | Safe host-state and cursor fixes are integrated here. The PR's diagnostic PTY tap remains excluded because its writes can block under backpressure. |
 | Checkpoint capture race | [PR 10501](https://github.com/manaflow-ai/cmux/pull/10501) | Complete for bounded, non-destructive capture. Journal growth/GC is still open. |
 | Terminal close and liveness reporting | [PR 10513](https://github.com/manaflow-ai/cmux/pull/10513) | Complete for tested host loss and daemon loss paths. Exact round-7 trigger remains unproven. |
 | Spec-only plan | [PR 10388](https://github.com/manaflow-ai/cmux/pull/10388) | Closed by direction. Specs must land with implementation. |
@@ -188,16 +190,16 @@ complexity and host-state publication findings beyond its compile fixes.
 | [#10244](https://github.com/manaflow-ai/cmux/pull/10244) | Lawrence Chen | Merged; exact head `c0b8dd5107`, checks and canonical autoreview passed. | Done. |
 | [#10270](https://github.com/manaflow-ai/cmux/pull/10270) | Lawrence Chen | Head `30c5ff60a2`; dirty with conflicts in eight workflow/spec files and overlaps merged #10244. | Rebase only if a distinct socket fix remains; otherwise close as superseded. |
 | [#10413](https://github.com/manaflow-ai/cmux/pull/10413) | Lawrence Chen | Head `891544e0ab`; superseded by the newer #10521 stack and still fails conformance compilation. | Close as superseded after #10521 lands. |
-| [#10428](https://github.com/manaflow-ai/cmux/pull/10428) | Lawrence Chen | Rebasing and cursor test landed at `076d648a2c`; hosted run `32634173482` pending. | Refresh checks and run the exact-head merge gate. |
+| [#10428](https://github.com/manaflow-ai/cmux/pull/10428) | Lawrence Chen | Head `076d648a2c`; existing branch still carries the unsafe diagnostic tap. | Do not merge the tap; use the safe subset in the integration branch or redesign the tool. |
 | [#10513](https://github.com/manaflow-ai/cmux/pull/10513) | Lawrence Chen | Stacked head `55caae646e`; dedicated heartbeat fix `18b05775d8` and dead idle-state cleanup `d599fd89e0` are prepared on the in-org stack, but the branch is dirty. | Land the foundational stack with hosted coverage before merging the liveness fixes. |
 | [#10521](https://github.com/manaflow-ai/cmux/pull/10521) | Lawrence Chen | Head `087bb3496a`; compile fixes pushed as `392bb50b92`, hosted run `32638928481` pending. Complexity and host-state race findings remain. | Do not merge until those findings have an explicit design resolution. |
 | [#10537](https://github.com/manaflow-ai/cmux/pull/10537) | dkta0 | External author branch. Candidate fix `65d19bc694` cannot be pushed to the external fork. | Do not push outside `manaflow-ai`; use an in-org re-cut only if the semantic fix is redesigned. |
 | [#10600](https://github.com/manaflow-ai/cmux/pull/10600) | Lawrence Chen | Merged at `1e1800db80` after exact-head checks and clean canonical review. | Done. |
 | [#10601](https://github.com/manaflow-ai/cmux/pull/10601) | Lawrence Chen | Merged after exact-head checks and clean canonical autoreview. | Done. |
-| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Combined branch, current tip `14bf092017`; exact hosted run `32640497665` is running. | After the run, run canonical review on the exact head and merge only if all gates are clean. |
-| [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Wording lint fixed at `9e0fe12be4`; protocol and inventory scripts pass, canonical review pending. | Merge only after required checks and canonical review pass. |
-| [#10522](https://github.com/manaflow-ai/cmux/pull/10522) | Lawrence Chen | Head `c7d216507f`; configurable provider-menu action and focus-target correction are present, but protocol and inventory checks fail for missing `ProviderMenu` inventory. | Fix the contract inventory, rerun exact checks, then review. |
-| [#10254](https://github.com/manaflow-ai/cmux/pull/10254) | Lawrence Chen | Head `7f94fc3826`; Rust, Go, TypeScript, Java, and Zig socket fallbacks now share the bounded SHA-256 contract. Checks and exact-head review are pending. | Do not merge until all SDK conformance checks and canonical review pass. |
+| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Local integration tip `dfa4ef3b6a` is not yet pushed to the PR head. | Push, run exact-head hosted checks, run canonical review, then merge if clean. |
+| [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Aggregate relay head `a193cf2456` is green, but it lacks the replay and safe attach deltas. | Port the missing deltas deliberately, then review and merge the aggregate. |
+| [#10522](https://github.com/manaflow-ai/cmux/pull/10522) | Lawrence Chen | Actual PR head is `82176e3d0b`; contract checks are restarting. | Wait for exact-head checks, then review and merge if green. |
+| [#10254](https://github.com/manaflow-ai/cmux/pull/10254) | Lawrence Chen | Head `44a26cc960`; all required SDK checks are green. | Run canonical review and merge if clean. |
 
 Do not merge stale or high-risk branches [#10131](https://github.com/manaflow-ai/cmux/pull/10131), [#10571](https://github.com/manaflow-ai/cmux/pull/10571), [#9022](https://github.com/manaflow-ai/cmux/pull/9022), [#9003](https://github.com/manaflow-ai/cmux/pull/9003), [#8999](https://github.com/manaflow-ai/cmux/pull/8999), [#9061](https://github.com/manaflow-ai/cmux/pull/9061), [#9062](https://github.com/manaflow-ai/cmux/pull/9062), or superseded stacks [#9922](https://github.com/manaflow-ai/cmux/pull/9922), [#10249](https://github.com/manaflow-ai/cmux/pull/10249), [#10254](https://github.com/manaflow-ai/cmux/pull/10254), and [#10259](https://github.com/manaflow-ai/cmux/pull/10259) without a fresh rebase and exact-head review.
 
@@ -263,3 +265,56 @@ supported language; and event-loop shutdown must use a bounded, cancellable
 poll with deterministic behavior coverage. No session evidence proves full
 session restore, cloud-TUI lifecycle completion, or manual-IO replacement, so
 those remain open requests above.
+
+## Wave-7 integration findings
+
+| Commit | Change | Proof / residual risk | Revert |
+| --- | --- | --- | --- |
+| `c867048c1d` | Reserve the mouse-format correction suffix during replay preflight. | Exact-boundary behavior test and hosted Rust verification required. | Revert this commit with the replay serializer only if the caller restores an equivalent size reservation. |
+| `97dcb1a83d` | Preserve ambiguous legacy mouse replay bytes instead of guessing SGR. | This is the only safe behavior when old daemons omit last-set metadata. Old SGR-last sessions still require a new daemon. | Revert only with a versioned replay metadata design. |
+| `b887c03675`, `5104249661`, `b485855271`, `83073b343f` | Make scoped attach transparent at startup and derive host mouse capture from canonical terminal state. | Contract tests cover startup, tracking changes, and render-projection contention. Hosted Rust tests remain required. | Revert this scoped attach chain as one unit. |
+| `737e78dd1d`, `e054417774`, `13436a1515`, `dac3c2c33b`, `dfa4ef3b6a` | Reassert host mouse and cursor state after focus or resize, and clear stale cursor state on DECSCUSR reset. | Tests cover focus, resize, normal-frame reset, and cursor provenance. A P2 remains for any future non-daemon surface replacement path. | Revert the reassert and cursor lifecycle commits together. |
+| `0316d6bb42` | Cover resolved cursor colors without treating daemon colors as application-authored. | Behavior test added, hosted Rust verification required. | Revert this test-only commit. |
+| `1c9bcf58a7`, `6f44e4201a`, `8e0040116e` | Localize remaining menu labels, client actions, copy toasts, and rename prompts in English and Japanese. | Static string audit leaves only test assertions. Hosted compile remains required. | Revert the localization commits together if catalog compatibility requires a staged migration. |
+| `6828f9fa9d` | Explain the common top-level `command` config mistake and point to `commands`. | The guidance matches current serde validation. Error wording matching is a small residual risk. | Revert this diagnostic-only commit. |
+
+The debug PTY tap from [PR 10428](https://github.com/manaflow-ai/cmux/pull/10428)
+is deliberately not in this branch. Its current implementation can block on
+PTY or stdout writes, so it can stop signal forwarding and terminal restore.
+Its logs also needed restrictive permissions and its signal path needed process
+group forwarding. The safe group and permission fixes exist in an isolated
+follow-up, but nonblocking queued I/O is still required before the tool can be
+accepted.
+
+## Wave-7 PR dispositions
+
+| PR | Author | Current evidence | Disposition |
+| --- | --- | --- | --- |
+| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Integration branch now contains the focused TUI fixes through `dfa4ef3b6a`; the remote head must be pushed and checked at that exact SHA. | Run hosted exact-head checks and canonical autoreview, then merge if clean. |
+| [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Aggregate relay branch is green at its current head but does not contain the replay and attach commits. | Merge only after a deliberate port of missing TUI deltas, then close superseded #10602 and #10571 if the aggregate contains them. |
+| [#10254](https://github.com/manaflow-ai/cmux/pull/10254) | Lawrence Chen | Exact head `44a26cc960fc7aed3c5e425de56c329b852d9be3` has all SDK checks green. | Run canonical autoreview and merge if no actionable finding remains. |
+| [#10522](https://github.com/manaflow-ai/cmux/pull/10522) | Lawrence Chen | Provider-menu inventory and route fixes are now on the actual PR branch at `82176e3d0b1c18e5c2eda89a16017eea17bc747c`. | Wait for exact-head contract checks, review, then merge if green. |
+| [#10428](https://github.com/manaflow-ai/cmux/pull/10428) | Lawrence Chen | Existing branch contains the unsafe tap and is not a clean ancestor of the safe subset. | Do not merge the tap. Close as superseded after the safe subset lands, unless the tap is redesigned and re-reviewed. |
+| [#10521](https://github.com/manaflow-ai/cmux/pull/10521) | Lawrence Chen | Journal restore still has cold-start scan, lifecycle ordering, and privacy findings. | Keep open, fix design blockers before review or merge. |
+| [#10513](https://github.com/manaflow-ai/cmux/pull/10513) | Lawrence Chen | Branch conflicts with current main and depends on the attach/liveness stack. | Rebase and resolve the heartbeat ownership design before merge. |
+
+## Wave-7 user-session findings
+
+| Evidence | Request | Status |
+| --- | --- | --- |
+| `~/.claude/paste-cache/65dcbaea177f5811.txt:100-110` | `space_open_pane` should open a terminal directly instead of requiring `enable_sandbox_terminal`. | Open simplification request. Keep the sandbox ownership boundary until a direct create-and-attach behavior test exists. |
+| `~/.claude/history.jsonl:25096` | Create a workspace and attach in one command. | Open CLI simplification request. Existing create and attach paths need one shared receipt before combining them. |
+| `~/.claude/history.jsonl:21099`, `23606`, `23635` | Reboot restore must preserve tabs, scrollback, focus, and split layout. | Open. `ensure_initial` is already idempotent, so the remaining gap is journal adoption and process restoration, not another startup mutation patch. |
+| `~/.claude/paste-cache/90358f6aa2892145.txt:1-38` | Local client focus must not unexpectedly change another attached client's workspace. | Open post-merge ownership decision after PR [#10331](https://github.com/manaflow-ai/cmux/pull/10331). |
+| `~/.claude/paste-cache/18bda3edc0facc99.txt:40-50` | Linux devbox terminal panes need a built `cmux-tui` binary via `CMUX_TUI_BINARY`. | Open packaging and launcher gap. |
+| `~/.claude/paste-cache/c85cdb5910c8fffa.txt:1-6` | Invalid `command` config should give an actionable migration message. | Implemented in `6828f9fa9d`. |
+
+## Wave-7 official references
+
+- XTerm mouse modes are mutually exclusive, and modes 1006 and 1015 are distinct: `https://xtermjs.org/docs/api/vtfeatures/` and `https://www.x.org/docs/xterm/ctlseqs.pdf`.
+- Crossterm polling guarantees that a successful poll is followed by a nonblocking read: `https://docs.rs/crossterm/latest/crossterm/event/index.html`.
+- Tokio task cancellation and ownership patterns: `https://tokio.rs/tokio/topics/shutdown` and `https://docs.rs/tokio/latest/tokio/task/struct.JoinSet.html`.
+
+These references support the current decisions: preserve ambiguous legacy bytes,
+use a versioned protocol for future explicit mouse metadata, centralize host
+state ownership, and bound event polling and task admission.
