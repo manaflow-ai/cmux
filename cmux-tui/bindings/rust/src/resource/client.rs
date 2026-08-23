@@ -89,6 +89,7 @@ fn connect_with_budget(
     config: &Config,
     operation: &str,
     budget: &CallBudget,
+    allow_legacy_fallback: bool,
 ) -> Result<JsonLineConnection> {
     let timeout = budget.remaining(operation)?;
     let poll_interval =
@@ -251,6 +252,7 @@ impl Default for Config {
 
 struct SharedClient {
     config: Config,
+    allow_legacy_fallback: bool,
     control: Mutex<Option<JsonLineConnection>>,
     next_request: AtomicU64,
     closed: AtomicBool,
@@ -277,6 +279,14 @@ impl std::fmt::Debug for Client {
 
 impl Client {
     pub fn connect(config: Config) -> Result<Self> {
+        Self::connect_inner(config, false)
+    }
+
+    pub fn connect_with_legacy_fallback(config: Config) -> Result<Self> {
+        Self::connect_inner(config, true)
+    }
+
+    fn connect_inner(config: Config, allow_legacy_fallback: bool) -> Result<Self> {
         config.validate()?;
         let mut config = config;
         let mut connection = JsonLineConnection::connect(
@@ -287,7 +297,7 @@ impl Client {
         );
         if let Err(Error::ConnectionIo { kind, .. }) = &connection
             && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
-            && crate::client::env_socket_path().as_ref() != Some(&config.socket_path)
+            && allow_legacy_fallback
         {
             if let Some(legacy) = crate::client::hashed_socket_legacy_path(&config.socket_path)
                 && let Ok(candidate) = JsonLineConnection::connect(
@@ -305,6 +315,7 @@ impl Client {
         Ok(Self {
             shared: Arc::new(SharedClient {
                 config,
+                allow_legacy_fallback,
                 control: Mutex::new(Some(connection)),
                 next_request: AtomicU64::new(1),
                 closed: AtomicBool::new(false),
@@ -431,7 +442,12 @@ impl Client {
         let params = params.id(field::STREAM_ID, &stream_id);
         let cancel_params = params.cancellation_scope(&stream_id);
         let envelope = request_envelope(&id, operation, params.into_value(), None);
-        let mut connection = connect_with_budget(&self.shared.config, operation, &budget)?;
+        let mut connection = connect_with_budget(
+            &self.shared.config,
+            operation,
+            &budget,
+            self.shared.allow_legacy_fallback,
+        )?;
         let send_timeout = budget.remaining(operation)?;
         connection.with_write_timeout(send_timeout, |connection| {
             connection.send_with_limit(&envelope, self.shared.config.max_request_bytes)
@@ -583,7 +599,12 @@ impl Client {
         }
         if connection.is_none() {
             budget.check(operation)?;
-            *connection = Some(connect_with_budget(&self.shared.config, operation, &budget)?);
+            *connection = Some(connect_with_budget(
+                &self.shared.config,
+                operation,
+                &budget,
+                self.shared.allow_legacy_fallback,
+            )?);
         }
         budget.check(operation)?;
         *dispatched = true;
@@ -1096,7 +1117,7 @@ mod tests {
         let config = Config::from_socket_path("pending-connect.sock");
 
         assert!(matches!(
-            connect_with_budget(&config, ops::SESSION_LIST, &budget),
+            connect_with_budget(&config, ops::SESSION_LIST, &budget, false),
             Err(Error::Timeout(_))
         ));
         assert_eq!(probe.polls(), 3, "the connect should span the configured poll slices");
@@ -1131,7 +1152,7 @@ mod tests {
         let config = Config::from_socket_path("cancel-pending-connect.sock");
 
         assert!(matches!(
-            connect_with_budget(&config, ops::SESSION_LIST, &budget),
+            connect_with_budget(&config, ops::SESSION_LIST, &budget, false),
             Err(Error::Cancelled(_))
         ));
         canceler.join().unwrap();
