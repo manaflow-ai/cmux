@@ -156,8 +156,7 @@ impl Config {
     /// [`Self::try_from_env_or_default_session`] to receive the error.
     pub fn from_env_or_default_session(session: &str) -> Self {
         let env = crate::client::env_socket_path();
-        let socket_path =
-            crate::client::compatibility_socket_path_for_session(session, env.clone());
+        let socket_path = crate::client::compatibility_socket_path_for_session(session, env);
         Self::from_socket_path(socket_path)
     }
 
@@ -283,18 +282,16 @@ impl Client {
         if let Err(Error::ConnectionIo { kind, .. }) = &connection
             && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
             && allow_legacy_fallback
+            && let Some(legacy) = crate::client::hashed_socket_legacy_path(&config.socket_path)
+            && let Ok(candidate) = JsonLineConnection::connect(
+                &legacy,
+                config.timeout,
+                config.timeout,
+                config.max_response_bytes,
+            )
         {
-            if let Some(legacy) = crate::client::hashed_socket_legacy_path(&config.socket_path)
-                && let Ok(candidate) = JsonLineConnection::connect(
-                    &legacy,
-                    config.timeout,
-                    config.timeout,
-                    config.max_response_bytes,
-                )
-            {
-                config.socket_path = legacy;
-                connection = Ok(candidate);
-            }
+            config.socket_path = legacy;
+            connection = Ok(candidate);
         }
         let connection = connection?;
         Ok(Self {
