@@ -88,7 +88,7 @@ struct AltScreenNoticeButton: View {
     private var explanation: String {
         L10n.string(
             "mobile.altScreenNotice.explanation",
-            defaultValue: "Full-screen mode mirrors the Mac terminal's exact size, so it may not fill this screen. Claude Code: `/tui default`. Codex: restart with `codex --no-alt-screen`."
+            defaultValue: "Full-screen mode mirrors the Mac terminal's exact size, so it may not fill this screen, and scrolling won't be as smooth. Claude Code: `/tui default`. Codex: restart with `codex --no-alt-screen`."
         )
     }
 
