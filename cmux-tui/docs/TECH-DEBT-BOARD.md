@@ -3,7 +3,7 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `feat-tui-tech-debt-wave1-clean`.
-Current integration tip: `9b656e4a0a`.
+Current integration tip: `31a8df3561` (PR head `31a8df3561d56e5ede737eaedee1671467ed1fef`).
 The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
 The combined review PR is `https://github.com/manaflow-ai/cmux/pull/10602`.
 
@@ -18,8 +18,6 @@ inflate the count. New turns must have a named deliverable.
 The exact current tip is always available with `git rev-parse HEAD` in the
 worktree. The shared primary checkout was dirty before this run, so all
 changes are in isolated worktrees and no unrelated files were touched.
-The shared primary checkout was dirty before this run, so all changes are in
-isolated worktrees and no unrelated files were touched.
 
 The branch contains browser lookup and pending-enrollment bounds, runtime and
 relay error hardening, a `SessionPort` projection boundary, resize coalescing,
@@ -125,6 +123,16 @@ red/green behavior proof.
 | `f72bd724ea` | Reserve the validated journal decompression capacity once. | Hosted journal segment run `32634820877` pending. | Revert this optimization only. |
 | `ef09c8b2c2` | Bound relay registration shutdown with a real one-second timeout assertion. | Hosted relay test pending. | Revert this test-only commit. |
 
+## Wave-3 change log
+
+| Commit | Change | Proof / residual risk | Revert |
+| --- | --- | --- | --- |
+| `e6c6982f6b` | Pin the Rust SDK runtime hash dependency. | Package checks are currently blocked by the failing protocol-contract job. | Revert this dependency correction. |
+| `0b9f15b16d`, `03a89e19e4`, `bf89159826`, `31a8df3561` | Reject derived or empty lifecycle socket sessions before dialing, cover the invalid-session behavior, and localize the new errors. | Behavior coverage is present; exact-head protocol and inventory checks currently fail. | Revert the lifecycle validation commits together, then restore the old path-only behavior. |
+| `cdac79f024`, `93b900c945` | Prune completed relay request tasks and abort detached admin listeners on drop. | Guard checks pass; hosted relay lifecycle coverage remains required. | Revert both ownership fixes together. |
+| `f0b88fd72e`, `f9098ab8f6` | Negotiate connection progress capability and accept `attach` after global CLI options. | CLI and schema checks are covered by the current PR; exact-head rerun required. | Revert both compatibility fixes. |
+| `b2f1d149fd` | Use monotonic deadlines in the TUI smoke script. | Script-level change; no local Rust test run. | Revert this test-harness change. |
+
 ## Merge and review board
 
 | PR | Author | State on 2026-08-23 | Required action |
@@ -139,7 +147,7 @@ red/green behavior proof.
 | [#10537](https://github.com/manaflow-ai/cmux/pull/10537) | dkta0 | External author branch. Candidate fix `65d19bc694` cannot be pushed to the external fork. | Do not push outside `manaflow-ai`; use an in-org re-cut only if the semantic fix is redesigned. |
 | [#10600](https://github.com/manaflow-ai/cmux/pull/10600) | Lawrence Chen | SessionPort agent projection is included in this integration branch. | Treat as redundant unless its exact branch has a separate required artifact. |
 | [#10601](https://github.com/manaflow-ai/cmux/pull/10601) | Lawrence Chen | CI trigger guard is included in this integration branch. | Treat as redundant unless its exact branch has a separate required artifact. |
-| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Combined branch, current tip `9b656e4a0a`; hosted verification is running. | Resolve every exact-head check and autoreview finding, then merge with the authorized merge directive. |
+| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Combined branch, current tip `31a8df3561`; `protocol contract` and `inventory` checks failed on the current head, while guard and review checks passed. | Fix the two failed checks, rerun exact-head verification, then merge only with the authorized merge directive. |
 
 Do not merge stale or high-risk branches [#10131](https://github.com/manaflow-ai/cmux/pull/10131), [#10571](https://github.com/manaflow-ai/cmux/pull/10571), [#9022](https://github.com/manaflow-ai/cmux/pull/9022), [#9003](https://github.com/manaflow-ai/cmux/pull/9003), [#8999](https://github.com/manaflow-ai/cmux/pull/8999), [#9061](https://github.com/manaflow-ai/cmux/pull/9061), [#9062](https://github.com/manaflow-ai/cmux/pull/9062), or superseded stacks [#9922](https://github.com/manaflow-ai/cmux/pull/9922), [#10249](https://github.com/manaflow-ai/cmux/pull/10249), [#10254](https://github.com/manaflow-ai/cmux/pull/10254), and [#10259](https://github.com/manaflow-ai/cmux/pull/10259) without a fresh rebase and exact-head review.
 
