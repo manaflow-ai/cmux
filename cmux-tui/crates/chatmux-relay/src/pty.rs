@@ -515,6 +515,12 @@ impl Inner {
 
         // cwd discipline: the local config and server-echoed root lists both
         // apply when present, else $HOME.
+        if let Some(value) = frame.get("allowedRoots") {
+            if !value.is_null() && !value.is_array() {
+                fail("bad_request", "allowedRoots must be an array");
+                return;
+            }
+        }
         let server_roots: Option<Vec<String>> =
             frame.get("allowedRoots").and_then(Value::as_array).map(|roots| {
                 if roots.len() > MAX_ALLOWED_ROOTS

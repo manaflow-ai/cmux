@@ -21,7 +21,7 @@
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 
 pub const READ_ONLY_VERBS: [&str; 4] = ["read", "ls", "grep", "find"];
 pub const ACTION_VERBS: [&str; 6] = ["exec", "read", "write", "ls", "grep", "find"];
@@ -63,7 +63,11 @@ fn lexical_resolve(base: &Path, value: &str) -> PathBuf {
             Component::Normal(part) => out.push(part),
         }
     }
-    if out.as_os_str().is_empty() { base.to_path_buf() } else { out }
+    if out.as_os_str().is_empty() {
+        base.to_path_buf()
+    } else {
+        out
+    }
 }
 
 /// Expand a leading `~` and resolve to an absolute path.
@@ -928,6 +932,11 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
     }
 
     let home = context.home.clone();
+    if let Some(value) = frame.get("allowedRoots") {
+        if !value.is_null() && !value.is_array() {
+            return fail("bad_request", "allowedRoots must be an array");
+        }
+    }
     let server_roots = frame_roots(frame);
     let root_lists: RootLists<'_> = [context.local_roots.as_deref(), server_roots.as_deref()];
     let empty_args = Map::new();
