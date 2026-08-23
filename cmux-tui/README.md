@@ -67,11 +67,12 @@ session. `server stop` is idempotent when absent and preserves saved topology.
 Shared routing options can precede the scope, as in
 `cmux --session agents server status`. Lifecycle JSON errors use stable codes
 and do not expose raw transport or server error text.
-Use `cmux remote connect|ssh|forward|rpc`, `remote enroll`, and
-`remote known-daemons` for authenticated network access. `remote stop` stops
-only a replaceable SSH sidecar. Stop a listener embedded by `server start` with
-`server stop`; this also stops its local owner and workspaces. Start the owning
-process with `server start` and explicit remote-listener flags.
+Use the `remote` command group for authenticated network access:
+`cmux remote connect|ssh|forward|rpc`, `remote enroll`, and
+`remote known-daemons`. `remote stop` stops only a replaceable SSH sidecar.
+Use `server stop` for a listener owned by `server start`; it also stops the
+local owner and its workspaces. Start the owning process with `server start`
+and explicit remote-listener flags.
 The old top-level remote commands and `remote-stop` remain compatibility
 aliases for one release cycle. Detached local startup is deferred until cmux
 has an explicit supervisor and readiness contract.
@@ -87,7 +88,7 @@ npx cmux ssh dev@buildbox --session agents
 ssh -T dev@buildbox cmux relay --session agents
 ```
 
-The Unix-only `machine-agent` shares an existing local session through one outbound SSH registration with cmux.cloud. It prints a one-time pairing code and opens no listener. The final command is a low-level raw JSON-lines diagnostic; the machine rail and `cmux ssh` use the managed remote lifecycle instead.
+The Unix-only `machine-agent` shares an existing local session through one outbound SSH registration with cmux.cloud. It prints a one-time pairing code and opens no listener. The final command is a low-level raw JSON-lines diagnostic. Use the machine rail or `cmux ssh` for the managed remote lifecycle.
 
 Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; `CMUX_TUI_TERM` can override the terminal runtime default, with `CMUX_MUX_TERM` retained as a legacy fallback.
 
