@@ -651,11 +651,15 @@ async fn run_peer<S>(
             cancel: cancel.clone(),
         })
     {
+        let _ = enqueue_message(
+            &previous.tx,
+            &previous.queued_bytes,
+            Message::Close(Some(tungstenite::protocol::CloseFrame {
+                code: REPLACED_CLOSE_CODE.into(),
+                reason: "replaced by a newer connection".into(),
+            })),
+        );
         let _ = previous.cancel.send(true);
-        let _ = previous.tx.try_send(Message::Close(Some(tungstenite::protocol::CloseFrame {
-            code: REPLACED_CLOSE_CODE.into(),
-            reason: "replaced by a newer connection".into(),
-        })));
     }
     if role == PeerRole::Page {
         shared.target_connected.store(true, Ordering::Relaxed);
@@ -678,9 +682,10 @@ async fn run_peer<S>(
         }
         let _ = sink.close().await;
     });
+    let mut replaced = false;
     loop {
         let Some(Ok(message)) = (tokio::select! {
-            _ = cancelled.changed() => break,
+            _ = cancelled.changed() => { replaced = true; break },
             message = stream.next() => message,
         }) else {
             break;
@@ -715,11 +720,18 @@ async fn run_peer<S>(
             shared.target_connected.store(false, Ordering::Relaxed);
         }
     }
-    // Abort then await the writer so its socket and channel resources are
-    // fully dropped before this peer task exits. Dropping a JoinHandle would
-    // detach the task and allow it to outlive the peer.
-    writer.abort();
-    let _ = writer.await;
+    // Give a displaced peer's queued close frame a bounded chance to flush,
+    // then abort a writer stuck behind a non-reading socket. Other exits
+    // abort immediately because the read side has already ended.
+    if replaced {
+        if tokio::time::timeout(std::time::Duration::from_secs(1), &mut writer).await.is_err() {
+            writer.abort();
+            let _ = writer.await;
+        }
+    } else {
+        writer.abort();
+        let _ = writer.await;
+    }
 }
 
 // ---------------------------------------------------------------------------

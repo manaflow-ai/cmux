@@ -697,7 +697,10 @@ impl Inner {
             return;
         }
         let buffered = (context.buffered_amount)();
-        if buffered > self.output_cap {
+        // Admit the complete frame before sending it. The socket may accept a
+        // frame exactly at the cap, but must reject one that would push the
+        // buffered amount over the cap.
+        if buffered.saturating_add(chunk.len() as u64) > self.output_cap {
             self.close(pty_id);
             send_pty_error(
                 context,
