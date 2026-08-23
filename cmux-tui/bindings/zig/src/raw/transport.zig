@@ -385,7 +385,14 @@ pub fn connectResolvedWithLegacyFallback(
 }
 
 fn isHashedSocketPath(path: []const u8) bool {
-    return std.mem.indexOf(u8, path, "/cmux-tui-hashed-") != null;
+    const parent = std.fs.path.dirname(path) orelse return false;
+    const component = std.fs.path.basename(parent);
+    const prefix = "cmux-tui-hashed-";
+    if (!std.mem.startsWith(u8, component, prefix)) return false;
+    const uid_text = component[prefix.len..];
+    if (uid_text.len == 0) return false;
+    const uid = std.fmt.parseInt(u32, uid_text, 10) catch return false;
+    return uid == std.posix.getuid();
 }
 
 fn connectUnixStream(
@@ -763,6 +770,12 @@ test "legacy fallback path is rejected before connect when session is too long" 
     const legacy = try sessionSocketPath(std.testing.allocator, "/tmp", &long_name);
     defer std.testing.allocator.free(legacy);
     try std.testing.expect(!unixSocketPathFits(legacy));
+}
+
+test "hashed socket detection ignores marker in runtime directory" {
+    try std.testing.expect(!isHashedSocketPath(
+        "/tmp/cmux-tui-hashed-marker/cmux-tui-501/main.sock",
+    ));
 }
 
 test "empty inherited socket values are ignored" {
