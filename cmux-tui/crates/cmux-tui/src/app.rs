@@ -15022,6 +15022,7 @@ impl App {
             }
             TerminalInput::FocusGained => {
                 self.advance_pointer_focus_generation();
+                self.reassert_scoped_host_terminal_state();
                 self.reassert_visible_surface_sizes();
                 Ok(RenderAction::Draw)
             }
@@ -15031,6 +15032,7 @@ impl App {
                 Ok(RenderAction::None)
             }
             TerminalInput::Resize => {
+                self.reassert_scoped_host_terminal_state();
                 if self.graphics_supported {
                     self.graphics_host_scene_reset_pending = true;
                 }
