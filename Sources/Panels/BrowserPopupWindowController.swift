@@ -205,10 +205,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             }
         }
         urlObservation = webView.observe(\.url, options: [.new]) { [weak self, weak navDel] _, change in
-            let observedDisplayURL = navDel?.activePolicyBlockedURL
-                .map { BrowserURLAllowlistBlockedPage.safeDisplayOrigin(for: $0) }
-                ?? change.newValue??.absoluteString
-                ?? ""
+            let observedDisplayURL = change.newValue??.absoluteString ?? ""
             Task { @MainActor [weak self, weak navDel] in
                 self?.urlLabel.stringValue = navDel?.activePolicyBlockedURL
                     .map { BrowserURLAllowlistBlockedPage.safeDisplayOrigin(for: $0) }
@@ -693,6 +690,12 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
+        let decisionHandler = BrowserNavigationActionDecisionHandler(
+            decisionHandler,
+            fallbackPolicy: WKNavigationActionPolicy.cancel,
+            label: "PopupNavigationDelegate.navigationAction"
+        ).closure
+
         if let url = navigationAction.request.url,
            url.scheme == "cmux-browser-action",
            url.host == "bypass-ssl" {
@@ -785,7 +788,11 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
             #if DEBUG
             cmuxDebugLog("popup.nav.insecureHTTP url=\(url.absoluteString)")
             #endif
-            controller?.presentInsecureHTTPAlert(for: url, in: webView) { policy in
+            guard let controller else {
+                decisionHandler(.cancel)
+                return
+            }
+            controller.presentInsecureHTTPAlert(for: url, in: webView) { policy in
                 if policy == .allow,
                    self.restartNavigationForUserAgentPolicyIfNeeded(
                        navigationAction,
@@ -839,7 +846,8 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         }
 
         return webView.restartNavigationForBrowserUserAgentPolicyIfNeeded(
-            navigationAction,
+            request: navigationAction.request,
+            targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame,
             decisionHandler: decisionHandler,
             startReplacement: { restartRequest in
                 controller.requestNavigation(restartRequest, in: webView)
@@ -895,6 +903,12 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         decidePolicyFor navigationResponse: WKNavigationResponse,
         decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
     ) {
+        let decisionHandler = BrowserNavigationResponseDecisionHandler(
+            decisionHandler,
+            fallbackPolicy: WKNavigationResponsePolicy.cancel,
+            label: "PopupNavigationDelegate.navigationResponse"
+        ).closure
+
         if let url = navigationResponse.response.url,
            !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
             decisionHandler(.cancel)

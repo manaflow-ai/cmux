@@ -12,11 +12,12 @@ import Testing
     }
 
     @Test func unknownKindSurvivesProjection() throws {
-        let response = try MobileSyncWorkspaceListResponse.decode(Data(#"{"workspaces":[{"id":"w","title":"W","is_selected":true,"terminals":[],"surfaces":[{"surface_id":"s","kind":"future.canvas","title":"Canvas","file_path":"/tmp/a"}]}]}"#.utf8))
+        let response = try MobileSyncWorkspaceListResponse.decode(Data(#"{"workspaces":[{"id":"w","title":"W","is_selected":true,"terminals":[],"surfaces":[{"surface_id":"s","kind":"future.canvas","title":"Canvas","file_path":"/tmp/a","is_focused":true}]}]}"#.utf8))
         let surface = try #require(MobileWorkspacePreview(remote: response.workspaces[0]).surfaces.first)
         #expect(surface.kind == .other("future.canvas"))
         #expect(surface.filePath == "/tmp/a")
         #expect(surface.todo == nil)
+        #expect(surface.isFocused)
     }
 
     @Test func todoSnapshotSurvivesLegacyWorkspaceProjection() throws {
