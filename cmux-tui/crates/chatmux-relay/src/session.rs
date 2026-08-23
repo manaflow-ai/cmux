@@ -158,7 +158,8 @@ fn make_context(
             pending_send.fetch_add(size, Ordering::SeqCst);
             if sender.try_send(frame).is_err() {
                 eprintln!("Dropping relay outbound frame because its bounded queue is full");
-                pending_send.fetch_sub(size.min(pending_send.load(Ordering::SeqCst)), Ordering::SeqCst);
+                pending_send
+                    .fetch_sub(size.min(pending_send.load(Ordering::SeqCst)), Ordering::SeqCst);
             }
         }),
         buffered_amount: Arc::new(move || pending_probe.load(Ordering::SeqCst)),
