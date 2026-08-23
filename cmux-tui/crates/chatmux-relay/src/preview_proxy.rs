@@ -392,8 +392,10 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRu
         next_cdp_id: AtomicI64::new(PROXY_CDP_ID_BASE),
     });
     let (shutdown, mut stopped) = tokio::sync::watch::channel(false);
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let task = tokio::spawn(async move {
         let mut connections = tokio::task::JoinSet::new();
+        let _ = ready_tx.send(());
         loop {
             tokio::select! {
                 _ = stopped.changed() => break,
@@ -414,6 +416,9 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRu
         connections.abort_all();
         while connections.join_next().await.is_some() {}
     });
+    // Do not publish the port until the accept loop has started. This avoids
+    // clients racing the task scheduler immediately after preview_open.
+    let _ = ready_rx.await;
     Ok(ProxyRuntime { port: proxy_port, shutdown, task })
 }
 
@@ -960,28 +965,10 @@ mod tests {
         path: &str,
     ) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>
     {
-        // The proxy publishes its port before the accept task is scheduled.
-        // On Linux, a first connect can therefore observe an incomplete
-        // WebSocket handshake. Retry only that startup race; other protocol
-        // errors remain test failures.
-        let url = format!("ws://127.0.0.1:{port}{path}");
-        for attempt in 0..20 {
-            match tokio_tungstenite::connect_async(&url).await {
-                Ok((socket, _)) => return socket,
-                Err(error)
-                    if matches!(
-                        error,
-                        tokio_tungstenite::tungstenite::Error::Protocol(
-                            tokio_tungstenite::tungstenite::error::ProtocolError::HandshakeIncomplete
-                        )
-                    ) && attempt < 19 =>
-                {
-                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                }
-                Err(error) => panic!("ws connect: {error}"),
-            }
-        }
-        unreachable!("websocket connect retry loop exhausted")
+        let (socket, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}{path}"))
+            .await
+            .expect("ws connect");
+        socket
     }
 
     async fn next_text<S>(socket: &mut S, what: &str) -> String
