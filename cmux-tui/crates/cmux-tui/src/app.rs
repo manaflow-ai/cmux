@@ -105,9 +105,15 @@ fn read_crossterm_event(
     mut read: impl FnMut() -> std::io::Result<Event>,
 ) -> std::io::Result<Option<Event>> {
     if let Some(timeout) = timeout
+        .map(|timeout| timeout.min(Duration::from_millis(100)))
         && !poll(timeout)?
     {
         return Ok(None);
+    }
+    if timeout.is_none() {
+        if !poll(Duration::from_millis(100))? {
+            return Ok(None);
+        }
     }
     read().map(Some)
 }
@@ -1049,6 +1055,10 @@ impl HostInputIngress {
     fn close(&self) {
         self.state.lock().unwrap().closed = true;
         self.space_available.notify_all();
+    }
+
+    fn is_closed(&self) -> bool {
+        self.state.lock().unwrap().closed
     }
 
     #[cfg(test)]
@@ -8784,6 +8794,9 @@ fn run_with_machine_updates_inner(
         }
         let mut graphics_responses = GraphicsResponseFilter::new(graphics_fence_notifier);
         'input: loop {
+            if input.ingress.is_closed() {
+                break 'input;
+            }
             let events = match read_crossterm_event(
                 graphics_responses.time_until_expiry(),
                 crossterm::event::poll,
