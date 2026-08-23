@@ -132,10 +132,13 @@ impl WatchRegistry {
         let mut task = Some(tokio::spawn(async move {
             run_watch(&task_id, &root, &outbound).await;
             if let Ok(mut sessions) = sessions.lock() {
-                if sessions
-                    .get(&task_id)
-                    .is_some_and(|entry| entry.0 == generation && entry.1.is_some())
-                {
+                // `tokio::spawn` starts the task immediately, so a watcher
+                // that fails during startup can finish before its handle is
+                // installed in the registry. Remove our generation's
+                // placeholder regardless of whether the handle is present;
+                // a replacement watch has a different generation and is
+                // therefore preserved.
+                if sessions.get(&task_id).is_some_and(|entry| entry.0 == generation) {
                     sessions.remove(&task_id);
                 }
             }
