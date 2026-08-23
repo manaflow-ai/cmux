@@ -713,7 +713,7 @@
       "variant": "ProviderMenu",
       "key": "provider-menu",
       "classification": "presentation-only",
-      "route": "frontend action adapter"
+      "route": "frontend machine provider menu"
     },
     {
       "variant": "ToggleSidebarView",
