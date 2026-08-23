@@ -242,6 +242,47 @@ mod tests {
     }
 
     #[test]
+    fn c1_csi_decscusr_authors_and_resets() {
+        let mut p = CursorStyleProvenance::default();
+        // CSI may be encoded as the single C1 byte 0x9B instead of ESC [.
+        p.scan(&[0x9b]);
+        p.scan(b"5 ");
+        p.scan(b"q");
+        assert!(p.authored());
+        p.scan(b"\x9b0 q");
+        assert!(!p.authored());
+    }
+
+    #[test]
+    fn c1_string_introducers_skip_payload_until_st() {
+        let mut p = CursorStyleProvenance::default();
+        // Every ECMA-48 string opener has an 8-bit C1 spelling.  Payloads
+        // can contain bytes that look like either 7-bit or 8-bit CSI, but
+        // neither is a control sequence while the string is open.
+        for opener in [0x90, 0x98, 0x9d, 0x9e, 0x9f] {
+            p.scan(&[opener]);
+            p.scan(b"payload \x9b6 q");
+            assert!(!p.authored(), "C1 string payload must not author");
+            p.scan(&[0x9c]);
+        }
+
+        p.scan(b"\x9b7 q");
+        assert!(p.authored(), "C1 ST must return the parser to ground");
+    }
+
+    #[test]
+    fn c1_string_openers_and_st_split_across_chunks() {
+        let mut p = CursorStyleProvenance::default();
+        p.scan(&[0x9d]);
+        p.scan(b"payload \x9b");
+        p.scan(b"5 q");
+        assert!(!p.authored());
+        p.scan(&[0x9c]);
+        p.scan(b"\x9b5 q");
+        assert!(p.authored());
+    }
+
+    #[test]
     fn replay_reset_clears_authorship_and_parser_state() {
         let mut p = CursorStyleProvenance::default();
         p.scan(b"\x1b[5 q\x1b[");
