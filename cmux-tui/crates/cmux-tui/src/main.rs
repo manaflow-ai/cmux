@@ -558,7 +558,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             // `cmux attach ...` spelling.
             "attach" => {
                 if out.attach {
-                    return Err("attach may be supplied only once".to_string());
+                    return Err(localization::catalog().startup.duplicate_attach.to_string());
                 }
                 out.attach = true;
             }

@@ -920,6 +920,8 @@ const fn decimal_width(mut value: u16) -> usize {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct StartupMessages {
     schema_too_new: &'static str,
+    pub invalid_session_name: &'static str,
+    pub duplicate_attach: &'static str,
     pub session_socket: &'static str,
     pub stop_newer_server: &'static str,
     pub no_server_listening: &'static str,
@@ -1034,6 +1036,8 @@ static ENGLISH: Catalog = Catalog {
     japanese: false,
     startup: StartupMessages {
         schema_too_new: "cannot open session \"{session}\" with cmux {version}: its saved state is incompatible with this build",
+        invalid_session_name: "The session name must be one path component without separators or control characters",
+        duplicate_attach: "attach may be supplied only once",
         session_socket: "session socket",
         stop_newer_server: "a newer cmux server owns this saved session; stop it before retrying:",
         no_server_listening: "no server is listening on this socket",
@@ -1626,6 +1630,8 @@ static JAPANESE: Catalog = Catalog {
     japanese: true,
     startup: StartupMessages {
         schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",
+        invalid_session_name: "セッション名には、区切り文字や制御文字を含まない 1 つのパス要素を指定してください",
+        duplicate_attach: "attach は 1 回だけ指定できます",
         session_socket: "セッションソケット",
         stop_newer_server: "新しい cmux サーバーがこの保存済みセッションを所有しています。再試行する前に停止:",
         no_server_listening: "このソケットを待ち受けているサーバーはありません",
