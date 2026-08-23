@@ -9,6 +9,8 @@ use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
 
 const SSH_BOOTSTRAP_OUTPUT_LIMIT: usize = 4_096;
+// Cleanup must not turn a bounded bootstrap timeout into an unbounded wait.
+const SSH_BOOTSTRAP_REAP_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// The version of the npm/PyPI distribution that contains this binary. Release
 /// workflows stamp it independently from the Rust crate's internal version.
@@ -585,7 +587,9 @@ async fn read_bounded(
 
 async fn terminate_and_reap(child: &mut Child) {
     let _ = child.start_kill();
-    let _ = child.wait().await;
+    // `wait` can be delayed by scheduler pressure (or a descendant retaining
+    // the stdio pipes). Keep the caller's failure path bounded as well.
+    let _ = tokio::time::timeout(SSH_BOOTSTRAP_REAP_TIMEOUT, child.wait()).await;
 }
 
 struct RemoteOutput {
