@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <mutex>
 #include <utility>
 #include <sys/un.h>
@@ -268,7 +269,11 @@ Result<ClientCore> ClientCore::connect(ClientOptions options) {
         }
         auto resolved_path = std::move(path).value();
         const bool implicit_path = options.socket_path.empty() && socket_path_from_environment().empty();
-        const bool hashed_path = resolved_path.find("/cmux-tui-hashed-") != std::string::npos;
+        const auto socket = std::filesystem::path(resolved_path);
+        const auto parent = socket.parent_path().filename().string();
+        const std::string hashed_component =
+            "cmux-tui-hashed-" + std::to_string(static_cast<unsigned long>(::getuid()));
+        const bool hashed_path = parent == hashed_component;
         std::string legacy_path;
         if (implicit_path && hashed_path) {
             legacy_path = "/tmp/cmux-tui-" +
