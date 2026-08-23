@@ -12750,14 +12750,15 @@ impl App {
 
     pub(crate) fn reset_frame_cursor_spec(&mut self) {
         // Scoped attach is transparent to the host cursor. Do not schedule a
-        // reset merely because a frame starts; only an inner application that
-        // authored DECSCUSR may cause pane drawing to replace the host cursor.
-        if self.surface_only.is_none()
-            || self
-                .surface_only
-                .and_then(|surface_id| self.session.surface(surface_id))
-                .is_some_and(|surface| surface.cursor_style_authored())
-        {
+        // reset merely because a frame starts when the host state is already
+        // the initial reset. Once a scoped inner application stops authoring
+        // DECSCUSR, however, every normal frame must derive Reset so a stale
+        // authored style cannot survive without a focus or resize event.
+        let authored = self
+            .surface_only
+            .and_then(|surface_id| self.session.surface(surface_id))
+            .is_some_and(|surface| surface.cursor_style_authored());
+        if self.surface_only.is_none() || !authored {
             self.desired_outer_cursor = OuterCursorSpec::Reset;
         }
     }
@@ -36965,6 +36966,9 @@ mod tests {
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[5 q"));
         app.use_terminal_cursor_spec(Rgb { r: 1, g: 2, b: 3 }, CursorShape::Bar, true);
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[0 q"));
+        app.reset_frame_cursor_spec();
+        assert_eq!(app.desired_outer_cursor, OuterCursorSpec::Reset);
+        app.use_terminal_cursor_spec(Rgb { r: 1, g: 2, b: 3 }, CursorShape::Bar, true);
         app.reassert_scoped_host_terminal_state();
         assert_eq!(app.desired_outer_cursor, OuterCursorSpec::Reset);
         mux.close_surface(surface.id).unwrap();
