@@ -87,7 +87,7 @@ This command emits raw JSON-lines protocol traffic, not a second TUI. It checks 
 Start a persistent local session in one terminal or service supervisor:
 
 ```bash
-npx cmux --headless --session agents
+npx cmux server start --session agents
 ```
 
 First verify Cloud host trust and authentication once, then exit back to your local shell. Use the same resolved host, user, port, and identity that the agent will use:
