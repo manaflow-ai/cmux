@@ -552,7 +552,7 @@ fn draw_browser_content(
                     .map(|tab| tab.title.clone())
             })
             .unwrap_or_else(|| "browser".to_string());
-        Some(format!("loading {}...", truncate(&url, 48)))
+        Some(localization::catalog().browser.loading(&truncate(&url, 48)))
     } else {
         None
     };
