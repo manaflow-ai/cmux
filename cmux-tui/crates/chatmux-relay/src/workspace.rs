@@ -1155,9 +1155,12 @@ async fn run_op(
 }
 
 async fn acquire_blocking(runtime: &Arc<SharedRuntime>) -> Result<OwnedSemaphorePermit, Refusal> {
-    runtime.blocking.clone().acquire_owned().await.map_err(|_| {
-        Refusal::failed("workspace blocking worker pool is unavailable")
-    })
+    runtime
+        .blocking
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|_| Refusal::failed("workspace blocking worker pool is unavailable"))
 }
 
 /// Build and validate a scope on the blocking pool after admission. The
