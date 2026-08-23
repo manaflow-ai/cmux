@@ -23,6 +23,11 @@ const MAX_BUFFERED_NON_INTERACTIVE_BYTES: usize = 28 * 1024 * 1024;
 const MAX_BUFFERED_BULK_TUNNEL_BYTES: usize = 24 * 1024 * 1024;
 const MAX_BUFFERED_BULK_BYTES: usize = 20 * 1024 * 1024;
 const MIN_BUFFERED_FRAME_ACCOUNTING_BYTES: usize = 1024;
+// Keep the queue bounded even when frames are smaller than the accounting
+// floor.  The byte budget remains the primary limit; this cap prevents a
+// stalled consumer from accumulating an unbounded number of tiny frames.
+const STREAM_CHUNK_CHANNEL_CAPACITY: usize =
+    MAX_BUFFERED_STREAM_BYTES / MIN_BUFFERED_FRAME_ACCOUNTING_BYTES;
 const _: () = assert!(MAX_BUFFERED_NON_INTERACTIVE_BYTES == MAX_BUFFERED_STREAM_BYTES * 7 / 8);
 const _: () = assert!(MAX_BUFFERED_BULK_TUNNEL_BYTES == MAX_BUFFERED_STREAM_BYTES * 3 / 4);
 const _: () = assert!(MAX_BUFFERED_BULK_BYTES == MAX_BUFFERED_STREAM_BYTES * 5 / 8);
@@ -207,7 +212,7 @@ impl TerminalCleanup {
 struct StreamRegistration {
     service: Service,
     generation: Option<u64>,
-    chunks: mpsc::UnboundedSender<StreamChunk>,
+    chunks: mpsc::Sender<StreamChunk>,
     failure: watch::Sender<Option<StreamFailure>>,
     state: Arc<AtomicU8>,
     terminal: Arc<LaneTerminalState>,
@@ -388,7 +393,7 @@ impl ServiceMultiplexer {
             .next_stream
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| value.checked_add(2))
             .map_err(|_| ServiceError::StreamIdsExhausted)?;
-        let (sender, receiver) = mpsc::unbounded_channel();
+        let (sender, receiver) = mpsc::channel(STREAM_CHUNK_CHANNEL_CAPACITY);
         let generation = generation_for_service(service, *self.generation.borrow());
         let (failure, failure_changed) = watch::channel(None);
         let state = Arc::new(AtomicU8::new(0));
@@ -604,7 +609,7 @@ fn outbound_lane_locks() -> [Mutex<()>; 4] {
 }
 
 struct StreamReceiver {
-    chunks: mpsc::UnboundedReceiver<StreamChunk>,
+    chunks: mpsc::Receiver<StreamChunk>,
     failure_changed: watch::Receiver<Option<StreamFailure>>,
     remote_finished_delivered: bool,
 }
@@ -947,7 +952,7 @@ async fn reader_loop(reader: ReaderLoop) {
                     fatal.send(Some(format!("closed stream {} was opened again", frame.stream)));
                 break;
             }
-            let (sender, receiver) = mpsc::unbounded_channel();
+            let (sender, receiver) = mpsc::channel(STREAM_CHUNK_CHANNEL_CAPACITY);
             let (failure, failure_changed) = watch::channel(None);
             let state = Arc::new(AtomicU8::new(0));
             let terminal = LaneTerminalState::new(control.0);
@@ -1146,7 +1151,7 @@ async fn reader_loop(reader: ReaderLoop) {
         } else {
             state.load(Ordering::Acquire)
         };
-        match sender.send(chunk) {
+        match sender.try_send(chunk) {
             Ok(()) if !finished => {}
             Ok(())
                 if service != Service::TcpTunnel
@@ -1157,9 +1162,19 @@ async fn reader_loop(reader: ReaderLoop) {
                 closed.lock().await.insert(frame.stream);
             }
             Ok(()) => {}
-            Err(_) => {
+            Err(mpsc::error::TrySendError::Closed(_)) => {
                 streams.lock().await.remove(&frame.stream);
                 closed.lock().await.insert(frame.stream);
+            }
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                reset_registered_stream(
+                    &streams,
+                    &closed,
+                    frame.stream,
+                    "incoming stream delivery queue was full",
+                )
+                .await;
+                cleanup.spawn(endpoint.clone(), stream_generation, frame.lane, frame.stream, None);
             }
         }
     }
