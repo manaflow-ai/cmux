@@ -566,7 +566,16 @@ impl Inner {
                         .await
                 } else {
                     self.clone()
-                        .open_shell(&session, cols, rows, &cwd, &env, &pty_id, context)
+                        .open_shell(
+                            &session,
+                            cols,
+                            rows,
+                            &cwd,
+                            &env,
+                            &pty_id,
+                            server_roots.as_deref(),
+                            context,
+                        )
                         .await
                 };
                 match result {
@@ -813,6 +822,7 @@ impl Inner {
         cwd: &Path,
         env: &HashMap<String, String>,
         pty_id: &str,
+        server_roots: Option<&[String]>,
         context: &FrameContext,
     ) -> Result<Opened, String> {
         let mut created = false;
@@ -821,9 +831,9 @@ impl Inner {
                 self.shell_sessions.lock().expect("shell lock").get(session).cloned()
             {
                 if context.local_roots.as_deref().is_some_and(|r| !r.is_empty())
-                    && existing.cwd != cwd
+                    || server_roots.is_some_and(|r| !r.is_empty())
                 {
-                    return Err("existing shell cwd does not match scoped cwd".to_owned());
+                    return Err("cannot reattach existing shell under scoped roots".to_owned());
                 }
                 existing.control.resize(cols, rows);
                 break existing;
