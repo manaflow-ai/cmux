@@ -3,7 +3,7 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `aggregate-final`.
-Current integration code tip before this documentation commit: `cfb0684e75` (`style(cmux-tui): format inline global option parser`).
+Current integration code tip before this documentation commit: `2b0e717d638bc0cd66caea6db940e00593852113` (`fix(python): preserve caller cancellation after cleanup`).
 Exact worktree HEAD: run `git rev-parse HEAD` (documentation commits change this value).
 The aggregate branch is `aggregate-final`; the review branch is
 `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
@@ -25,12 +25,14 @@ reservation cleanup, explicit PTY overflow, preview saturation disconnect,
 cross-language transport cleanup, CLI metadata, capability documentation,
 credential-child reaping, journal-writer ownership/finalization, explicit socket
 parent and lease cleanup, package-mode preservation, and C1 parser support
-through `ace9e5f57f`. Documentation-only bridge commits are
+through `2b0e717d63`. The exact-head tail adds bounded preview and Windows
+process cleanup, safe socket fallback precedence, Python cancellation
+propagation, and the Rust fallback-test contract. Documentation-only bridge commits are
 [`42b776a327`](https://github.com/manaflow-ai/cmux/commit/42b776a327c17386d131ef1b1f8a382b02683954)
 and [`cef7c71460`](https://github.com/manaflow-ai/cmux/commit/cef7c71460f72444e874f7c9f26100e9259874c1).
 The 25-file relay/TUI integration merge is `05c0b30277`.
 
-Subagent ledger: at least 180 substantive agent turns are complete in this
+Subagent ledger: at least 190 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
 reviews, and merge gates. It excludes empty or duplicate turns. The requested
 10,000-session target is not reached. I will not create empty sessions to
@@ -39,12 +41,13 @@ sessions. New turns must have a named deliverable.
 
 ## Current state
 
-The latest code tail is `cfb0684e75`. It carries the watch compatibility,
+The latest code tail is `2b0e717d63`. It carries the watch compatibility,
 queue-ownership, fairness, timer-bound, shell-reservation, PTY overflow,
 preview saturation, SDK lifecycle, CLI grammar, capability documentation,
 credential-child reaping, journal-writer ownership/finalization, explicit
 socket cleanup, package-mode preservation, 8-bit C1 parser fixes, and inline
-global CLI values after the
+global CLI values, bounded preview and process cleanup, safe socket fallback
+precedence, and cancellation propagation after the
 25-file relay/TUI integration merge. The issues below remain open.
 
 ### Open issue inventory
@@ -848,6 +851,17 @@ unless its acceptance column says that a narrow implementation slice exists.
   Wave 21. Do not re-list them as current defects without a new reproduction.
 - Global CLI values now accept standard `--flag=value` syntax. Nested command
   options retain their previous grammar and need a separate compatibility decision.
+- Preview target listeners are capped at 32 with LRU eviction, duplicate CDP
+  request IDs no longer grow the order deque, and injected HTML is limited to
+  8 MiB and 30 seconds. Hosted relay behavior still needs exact-head proof.
+- Windows relay exec now uses a Job Object with kill-on-close and a bounded
+  final wait. Hosted Windows compile and descendant cleanup evidence remain.
+- Go and TypeScript no longer probe a raw `/tmp` socket when a fitting runtime
+  path exists. TypeScript package compilation was unavailable locally because
+  `tsc` is not installed; hosted SDK checks remain required.
+- Python cleanup propagates cancellation of its shared task without spinning.
+  The focused and full Python suites pass, but hosted cross-language checks
+  remain required.
 
 The ledger remains an honest lower bound of at least 180 substantive agent
 turns. It is not an exact session-file count. The requested 10,000-session

@@ -2,6 +2,8 @@
 
 Audit date: 2026-08-23. This board records the GitHub search and exact check
 state used for the aggregate merge. A mergeable label is not acceptance proof.
+The aggregate branch currently includes the seven exact-head autoreview fixes;
+the reviewer must be rerun at the final pushed head.
 All URLs point to `manaflow-ai/cmux`; authors are included for merge decisions.
 
 ## Aggregate

@@ -1,6 +1,6 @@
 # cmux-tui aggregate change log
 
-Snapshot: 2026-08-23. Aggregate branch: `aggregate-final`, current code tip [`cfb0684e75`](https://github.com/manaflow-ai/cmux/commit/cfb0684e75). The prior documented code tip was [`ace9e5f57f`](https://github.com/manaflow-ai/cmux/commit/ace9e5f57fb7e98d45aa8a22cdf2efa0fac09ec6), which was 459 commits ahead of `origin/main` and 0 behind it (`git rev-list` counts). The prior accepted tip was [`e8df21eed2`](https://github.com/manaflow-ai/cmux/commit/e8df21eed2866eba03b2548e790ba8a5a887b5da). This update records the CLI simplification and the explicit user-intent board after the 17-commit tail.
+Snapshot: 2026-08-23. Aggregate branch: `aggregate-final`, current code tip [`2b0e717d63`](https://github.com/manaflow-ai/cmux/commit/2b0e717d638bc0cd66caea6db940e00593852113). The prior documented code tip was [`cfb0684e75`](https://github.com/manaflow-ai/cmux/commit/cfb0684e75). This update records seven exact-head autoreview fixes: bounded Windows process cleanup, preview listener and request bounds, HTML body limits, safe socket fallback precedence, Python cancellation propagation, and an explicit Rust legacy-fallback test.
 
 Earlier aggregate rows retained for history:
 
@@ -18,7 +18,7 @@ Earlier aggregate rows retained for history:
 
 Known residuals: no claim is made for local Rust test execution, full end-to-end relay coverage, journal/WAL latency, deterministic shutdown of every admitted task, or complete cloud-TUI acceptance. These remain open until an exact pushed SHA has hosted evidence.
 
-Session-count honesty: the accompanying board records at least 180 substantive agent turns for this run. The requested 10,000-session target was not reached, and no empty sessions were created to inflate the count.
+Session-count honesty: the accompanying board records at least 190 substantive agent turns for this run. The requested 10,000-session target was not reached, and no empty sessions were created to inflate the count.
 
 ## Tail after `ace9e5f57f`
 
@@ -27,6 +27,18 @@ Session-count honesty: the accompanying board records at least 180 substantive a
 | [`0917e9918f`](https://github.com/manaflow-ai/cmux/commit/0917e9918fbf56267c978d8e05d857f11204a693) | Accept standard `--socket=`, `--session=`, and `--machine=` forms, while retaining separated values and rejecting empty inline values. | `cargo fmt --check` and CLI behavior tests are present. Hosted Rust CLI coverage remains required; nested command options intentionally keep their existing grammar. | `git revert 0917e9918fbf56267c978d8e05d857f11204a693` |
 | [`cfb0684e75`](https://github.com/manaflow-ai/cmux/commit/cfb0684e75) | Apply formatter output to the inline global-option parser. | Formatting-only; no behavior change. | `git revert cfb0684e75` |
 | [`46b5d0c044`](https://github.com/manaflow-ai/cmux/commit/46b5d0c044) | Add a durable user-intent board with local-session evidence and explicit acceptance gaps. | Documentation-only. The board records a multilingual emoji fixture request and search limitations. | `git revert 46b5d0c044` |
+
+## Exact-head autoreview fixes after `cfb0684e75`
+
+| Commit | Change | Verification / residual | Revert |
+| --- | --- | --- | --- |
+| [`23c90f2f48`](https://github.com/manaflow-ai/cmux/commit/23c90f2f48) | Remove duplicate CDP request IDs before re-adding them to the pending-order deque. | Focused unit test; the deque is capped and each update is O(n) within 512 entries. | `git revert 23c90f2f48` |
+| [`ad0830d63d`](https://github.com/manaflow-ai/cmux/commit/ad0830d63d) | Limit injected HTML collection to 8 MiB and 30 seconds. | Focused oversized-response test; hosted relay test remains required. The timeout uses Tokio's clock. | `git revert ad0830d63d` |
+| [`f0056da912`](https://github.com/manaflow-ai/cmux/commit/f0056da912) | Use the explicit legacy-fallback API in the Rust SDK fallback test. | Source contract now matches the legacy-only socket fixture; hosted Rust SDK test remains required. | `git revert f0056da912` |
+| [`192c67a2f4`](https://github.com/manaflow-ai/cmux/commit/192c67a2f4) and [`f5ae9729d6`](https://github.com/manaflow-ai/cmux/commit/f5ae9729d6) | Probe raw `/tmp` only after a preferred socket path does not fit, and cover runtime-path precedence in Go and TypeScript. | Go tests pass; TypeScript package build is unavailable in this checkout because `tsc` is not installed. Hosted SDK checks remain required. | `git revert 192c67a2f4 f5ae9729d6` |
+| [`40120911dc`](https://github.com/manaflow-ai/cmux/commit/40120911dc) and [`2b0e717d63`](https://github.com/manaflow-ai/cmux/commit/2b0e717d63) | Propagate cancellation of a shared Python cleanup task without retry spin, while preserving caller cancellation. | Python suite: 107 passed, 421 subtests. | `git revert 40120911dc 2b0e717d63` |
+| [`946d7b5a21`](https://github.com/manaflow-ai/cmux/commit/946d7b5a21) | Cap preview listeners at 32 target ports with LRU eviction and awaited task cleanup. | Focused async test and diff/format checks; hosted relay test remains required. Eviction can close an active preview after the cap. | `git revert 946d7b5a21` |
+| [`4a23b30a82`](https://github.com/manaflow-ai/cmux/commit/4a23b30a82), [`ff04cd9ea3`](https://github.com/manaflow-ai/cmux/commit/ff04cd9ea3), and [`cb52a7910e`](https://github.com/manaflow-ai/cmux/commit/cb52a7910e) | Terminate Windows exec process trees with a Job Object, kill-on-close, bounded final wait, and Tokio's `raw_handle` API. | Windows source path follows existing repository Job Object code; hosted Windows compile/runtime proof remains required. | `git revert 4a23b30a82 ff04cd9ea3 cb52a7910e` |
 
 ## Final accepted tail from `b61f1bada6` to `e8df21eed2`
 
