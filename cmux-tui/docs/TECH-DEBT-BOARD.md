@@ -3,7 +3,7 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `aggregate-final`.
-Current integration code tip before this documentation commit: `e8df21eed2866eba03b2548e790ba8a5a887b5da` (`style: format preview saturation guard`).
+Current integration code tip before this documentation commit: `ace9e5f57fb7e98d45aa8a22cdf2efa0fac09ec6` (`fix(cmux-tui): parse 8-bit C1 cursor controls`).
 Exact worktree HEAD: run `git rev-parse HEAD` (documentation commits change this value).
 The aggregate branch is `aggregate-final`; the review branch is
 `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
@@ -22,8 +22,13 @@ Iroh result delivery, and hardens filesystem-watch admission and overflow
 wakeup through `643dbfe2e5`. The final formatting pass is `b61f1bada6`, followed
 by socket-send simplification, heartbeat bounds, fairness accounting, shell
 reservation cleanup, explicit PTY overflow, preview saturation disconnect,
-cross-language transport cleanup, CLI metadata, and capability documentation
-through `e8df21eed2`. The 25-file relay/TUI integration merge is `05c0b30277`.
+cross-language transport cleanup, CLI metadata, capability documentation,
+credential-child reaping, journal-writer ownership/finalization, explicit socket
+parent and lease cleanup, package-mode preservation, and C1 parser support
+through `ace9e5f57f`. Documentation-only bridge commits are
+[`42b776a327`](https://github.com/manaflow-ai/cmux/commit/42b776a327c17386d131ef1b1f8a382b02683954)
+and [`cef7c71460`](https://github.com/manaflow-ai/cmux/commit/cef7c71460f72444e874f7c9f26100e9259874c1).
+The 25-file relay/TUI integration merge is `05c0b30277`.
 
 Subagent ledger: at least 180 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
@@ -34,11 +39,12 @@ sessions. New turns must have a named deliverable.
 
 ## Current state
 
-The latest code tail is `e8df21eed2`. It carries the watch compatibility,
+The latest code tail is `ace9e5f57f`. It carries the watch compatibility,
 queue-ownership, fairness, timer-bound, shell-reservation, PTY overflow,
-preview saturation, SDK lifecycle, CLI grammar, and capability-documentation
-fixes after the 25-file relay/TUI integration merge. The issues below remain
-open.
+preview saturation, SDK lifecycle, CLI grammar, capability documentation,
+credential-child reaping, journal-writer ownership/finalization, explicit
+socket cleanup, package-mode preservation, and 8-bit C1 parser fixes after the
+25-file relay/TUI integration merge. The issues below remain open.
 
 ### Open issue inventory
 
@@ -175,9 +181,9 @@ red/green behavior proof.
 10. This aggregate has no local Rust compile or test evidence. Treat every
     Rust behavior claim above as pending hosted verification, even where a
     focused source or diff check passed.
-11. Relay child cancellation and reaping are still incomplete for generic
-    timeout paths. The current changes do not provide a durable cancellation
-    token and awaited child ownership for every relay child.
+11. Credential-command failures now kill and reap their child on every error
+    path. Generic relay child timeout and cancellation paths still lack a
+    durable cancellation token and awaited ownership for every relay child.
 12. Durable Objects integration is not implemented. Cloud TUI lifecycle,
     persistence, and reconnect claims must not be inferred from the local
     relay and SDK hardening in this branch.
@@ -441,7 +447,7 @@ state ownership, and bound event polling and task admission.
 | `edf9ca96f7`, `585e2477dd` | Route browser, sidebar, provider, and action-status copy through the EN/JA catalog, including provider action IDs. | Known third-party provider labels remain provider-supplied; hosted compile and UI review remain required. | Revert both localization commits together. |
 | `bc3839813c` | Make raw `--session` socket resolution fallible so invalid names cannot bypass validation or hash an unsafe path. | Focused hosted run before this commit failed on the old test branch; final exact-head hosted run is required. | Revert this raw-client contract fix. |
 | `3d47d1d537` | Add Unix listener shutdown, admission-recovery, and Drop cleanup behavior tests. | Tests are formatted but not run locally; hosted Rust verification remains required. | Revert this test-only commit. |
-| pending | Share terminal-reader, gap, barrier, and writer finalization between explicit shutdown and ordinary `Mux` drop. | A `Mux` whose last owner is its journal writer cannot durably drain that writer from `Drop`; this self-thread path closes readers and hands off the join, but late queued bytes and gap markers remain best-effort. A lifecycle owner must call `shutdown` before releasing its final `Arc<Mux>` to guarantee the durable barrier. | Revert the shared finalization helper and writer-thread detection together. |
+| [`fb3ac754c5`](https://github.com/manaflow-ai/cmux/commit/fb3ac754c5d55869f968289e3906e3b6b6b0872e), [`ab2b944ab8`](https://github.com/manaflow-ai/cmux/commit/ab2b944ab81a2ebf09a0c595b185344665f9c74f), [`5f8860398e`](https://github.com/manaflow-ai/cmux/commit/5f8860398ee30e255f37cc5e8633159fb0058aa1), and [`09190e6da9`](https://github.com/manaflow-ai/cmux/commit/09190e6da92b60a60000913b9cbf9931ea4b94c7) | Share terminal-reader, gap, barrier, and writer finalization between explicit shutdown and ordinary `Mux` drop, including self-join handoff and shared completion state. | Duplicate writers are rejected before spawn and concurrent closers share one join result. A lifecycle owner should still call `shutdown` before releasing its final `Arc<Mux>` when durable gap delivery is required; late self-drop bytes remain best-effort. | Revert the finalization and writer-state commits together. |
 
 The current integration branch is not a claim that every open TUI PR is safe.
 PR [#10254](https://github.com/manaflow-ai/cmux/pull/10254) still needs C++
@@ -752,6 +758,30 @@ provider contract. They do not prove cross-platform release or restore parity.
 | [`41c5e637a5`](https://github.com/manaflow-ai/cmux/commit/41c5e637a587c2a7db84d0ddfcb2083894cedb73), [`db18624a11`](https://github.com/manaflow-ai/cmux/commit/db18624a11397629d8219e4530516fa7009e5526), and [`9d0d631694`](https://github.com/manaflow-ai/cmux/commit/9d0d631694852ec75eb33a1e15c2be44abcafb55) | Remove a watch registry entry even when startup exits before handle installation, await relay cleanup after abort, and test cancellation-safe Python close joining. | Early watcher failure and cancellation now have explicit cleanup paths. Shutdown ordering across all producers and SDKs remains open. | Revert these cleanup and test commits as one lifecycle chain. |
 | [`b94e6fd14b`](https://github.com/manaflow-ai/cmux/commit/b94e6fd14b9d847bfdc272d90a2827f0781581db) and [`4b12ef9e07`](https://github.com/manaflow-ai/cmux/commit/4b12ef9e070558bd3caa50fe8f6407319231863e) | Document optional `connection-progress-v1` capability negotiation and place the capability note in the provider summary. | Providers may emit advisory progress only after negotiation. Legacy clients, unknown capability filtering, and live progress ordering still need behavior tests. | Revert the two documentation placements together; retain the protocol contract only if separately versioned. |
 
+## Wave 25 lifecycle, socket, packaging, and C1 tail
+
+The exact aggregate code tip immediately before this documentation commit is
+`ace9e5f57fb7e98d45aa8a22cdf2efa0fac09ec6`. The rows below follow Wave 24 and
+record child ownership, journal finalization, socket cleanup, SDK fallback
+tests, package executable bits, and 8-bit terminal control parsing. The
+documentation-only bridge commits
+[`42b776a327`](https://github.com/manaflow-ai/cmux/commit/42b776a327c17386d131ef1b1f8a382b02683954)
+and [`cef7c71460`](https://github.com/manaflow-ai/cmux/commit/cef7c71460f72444e874f7c9f26100e9259874c1)
+preserve the prior board and changelog evidence and make no runtime claim.
+
+| Commit | Change | Evidence and residual risk | Revert chain |
+| --- | --- | --- | --- |
+| [`c906a2ff62`](https://github.com/manaflow-ai/cmux/commit/c906a2ff62b73968b32d00e48072f5afe15d5351) | Kill and await the credential command on missing stdout, read failure, and timeout. | Every credential-command error path now reaps its child instead of relying on `kill_on_drop`. Generic relay child timeout and cancellation paths still need a durable cancellation token and awaited ownership. | Revert this credential-child lifecycle fix with its error-path coverage. |
+| [`fb3ac754c5`](https://github.com/manaflow-ai/cmux/commit/fb3ac754c5d55869f968289e3906e3b6b6b0872e) | Reserve journal-writer ownership before spawn and make `Mux` drop close and join the writer. | Duplicate writers cannot start and the owner state is explicit. Durable gap delivery still depends on a lifecycle owner calling `shutdown` before releasing the final `Arc<Mux>`. | Revert the writer owner-state and `Mux` drop changes together. |
+| [`ab2b944ab8`](https://github.com/manaflow-ai/cmux/commit/ab2b944ab81a2ebf09a0c595b185344665f9c74f) | Hand a journal writer self-join to a reaper thread. | A writer that drops the last `Mux` owner no longer deadlocks waiting on itself. Reaper creation and panic reporting still need hosted shutdown coverage. | Revert the self-join handoff and its behavior test together. |
+| [`5f8860398e`](https://github.com/manaflow-ai/cmux/commit/5f8860398ee30e255f37cc5e8633159fb0058aa1) and [`09190e6da9`](https://github.com/manaflow-ai/cmux/commit/09190e6da92b60a60000913b9cbf9931ea4b94c7) | Coordinate journal finalization through shared completion state and apply the hosted formatter output. | Concurrent closers wait for one join result, and terminal-reader drain, gap emission, and writer close share one path. Late queued bytes during self-drop remain best-effort until the lifecycle owner calls `shutdown`. | Revert finalization and formatting as one writer-lifecycle chain. |
+| [`5f6bf91e76`](https://github.com/manaflow-ai/cmux/commit/5f6bf91e760c1feb97671aa19f800e3e4f80674d) and [`c8ec5be775`](https://github.com/manaflow-ai/cmux/commit/c8ec5be775352f54acb0707abc13efa6e4be163b), [`44a2f05134`](https://github.com/manaflow-ai/cmux/commit/44a2f0513465da2e81c484319f2e44827a0491d8) | Make Rust SDK hashed-to-legacy fallback tests bindable, construct hashed endpoints in a safe runtime directory, and apply hosted formatting. | Tests no longer depend on an overlong legacy socket path or an unbound endpoint. Cross-language fallback, long-path, and hosted Rust verification remain required. | Revert the fallback test and formatting commits together. |
+| [`8523b8f715`](https://github.com/manaflow-ai/cmux/commit/8523b8f7151bdb032d011cb512a32e878fc813da) | Give Zig fallback results an explicit `ResolvedConnection` type. | The connection and owned path contract is named at the API boundary. Zig allocator and cross-platform fallback tests remain required. | Revert the Zig type-naming change independently. |
+| [`782fba0f2a`](https://github.com/manaflow-ai/cmux/commit/782fba0f2abe4f41c74a060caffa36a9c3efc73d) | Create missing parents for an explicit socket path and reject symlink or non-directory parents. | Explicit custom paths now work in a new nested directory without changing existing directory permissions. Parent replacement races and later bind authority checks remain open. | Revert explicit-parent preparation and its behavior test together. |
+| [`f5fdf26ccd`](https://github.com/manaflow-ai/cmux/commit/f5fdf26ccd8f931623adabe711b898b47665d722) and [`80fd1621fa`](https://github.com/manaflow-ai/cmux/commit/80fd1621fa8dfa5b25b5767f9711c8afa15e5b65) | Unlink Unix sockets synchronously on server-wrapper drop, verify the published inode, and retain the path lease until the listener task drops. | A dropped wrapper no longer leaves a stale pathname while its accept task is pending, and replacement sockets are not unlinked by an old owner. Accepted-task shutdown and multi-process path races remain open. | Revert synchronous cleanup and lease retention together. |
+| [`11c309d701`](https://github.com/manaflow-ai/cmux/commit/11c309d7013a5be96a9bc0d00a44f7b75e850399) | Preserve executable mode for npm relay and client launchers during packaging. | The package script restores execute bits in generated output, and checked-in launchers carry mode `100755`. Registry-install and offline smoke evidence remain required. | Revert the package-mode guard and launcher mode changes together. |
+| [`c56afcad5f`](https://github.com/manaflow-ai/cmux/commit/c56afcad5fe8ba0c1583e9b8f53335faaeeb4e3a) and [`ace9e5f57f`](https://github.com/manaflow-ai/cmux/commit/ace9e5f57fb7e98d45aa8a22cdf2efa0fac09ec6) | Test and parse 8-bit C1 CSI and string introducers in cursor provenance, including split chunks and C1 ST termination. | C1 forms no longer pass through as ordinary payload, so cursor authorship and reset behavior match their 7-bit forms. Full ECMA-48, cross-platform rendering, and Ghostty parity remain unverified. | Revert the C1 parser and focused tests together. |
+
 ## Open user intents mined from `~/.claude` and `~/.codex`
 
 These records are requests, not completion evidence. Every row remains open
@@ -772,15 +802,15 @@ unless its acceptance column says that a narrow implementation slice exists.
 | Cloud snapshot no-go for live PTY persistence. | `/Users/lawrence/.codex/history.jsonl:18564,18569-18572`; `/Users/lawrence/.claude/history.jsonl:87599,89270,89295,89298` | A provider snapshot may package cmux-tui and tools in a base image. It must not be treated as the journal, a live PTY owner, or a restart guarantee. Measure snapshot and resume times separately, and reject a cloud integration until provider restore semantics and secret boundaries are proven. Explicit no-go for inferring persistence from a snapshot. |
 | Semantic colors and cross-platform parity. | `/Users/lawrence/.codex/history.jsonl:18402,18410,18423-18424,18461,18472`; `/Users/lawrence/.claude/history.jsonl:87551,87950,87970`; [PR #10612](https://github.com/manaflow-ai/cmux/pull/10612) | Compare semantic ANSI, OSC, theme-query, cursor, and font behavior against Ghostty on macOS, Linux, Windows, and remote clients. Include light and dark backgrounds, 256-color output, Kitty graphics, and screenshot or pixel evidence. The current review mismatch for `theme.chrome=auto` is unresolved. Open. |
 
-## Residual risks after Wave 24 integration
+## Residual risks after Wave 25 integration
 
 - Several queues now have byte and count caps, but a workspace producer can
   still outlive its consumer across disconnect, retry, and shutdown. Ownership,
   cancellation, and permit release need an end-to-end behavior test.
 - PTY output admission checks a complete frame at one boundary. Raw attach
-  backlog still truncates oversized chunks without an explicit rejection or
-  loss signal. Late output after close and every other producer path still need
-  an explicit contract.
+  backlog overflow now emits `pty_error` code `overflow` and closes the
+  affected attachment, but replay, process-group cleanup, client reattach, and
+  loss reporting still need an end-to-end contract.
 - Synchronous canonicalization and filesystem work can block a request path.
   Validation and later use still have a parent-directory TOCTOU window. The
   workspace path bounds do not make that parent immutable between check and use.
@@ -792,13 +822,23 @@ unless its acceptance column says that a narrow implementation slice exists.
   No render or PTY performance result is claimed.
 - No local Rust compile or end-to-end hosted result is claimed in this board.
   Cross-language packaging, relay, restore, and remote attach remain open.
-- Journal ingress ownership remains unresolved. Hooks and providers need one
-  append boundary, one reducer owner, idempotency receipts, and explicit
-  shutdown ordering. The intent audit does not prove those invariants in the
-  current integration.
-- The new Java, Zig, Go, C++, and TypeScript changes have focused evidence only.
-  No local Rust compile is claimed, and hosted SDK, MSRV, reconnect, and
-  cross-language behavior results remain required.
+- Journal writer ownership and finalization now have explicit reservation,
+  joining, self-join handoff, and shared-completion states. Hooks and providers
+  still need one append boundary, one reducer owner, idempotency receipts, and
+  explicit shutdown ordering. Late self-drop gaps remain best-effort, and the
+  intent audit does not prove restart recovery.
+- The new Java, Zig, Go, C++, TypeScript, and Rust SDK fallback changes have
+  focused evidence only. No local Rust compile is claimed, and hosted SDK,
+  MSRV, reconnect, packaging, and cross-language behavior results remain
+  required.
+- Unix socket cleanup now checks device and inode and retains the lease through
+  listener-task drop. Parent-directory replacement, accepted-task shutdown,
+  and multi-process races remain open.
+- The C1 parser handles the covered CSI and string forms, but complete terminal
+  control parity and measured renderer behavior remain open.
+- Credential-command failures now reap children on all listed error paths.
+  Generic relay and Git child timeout paths still need explicit cancellation
+  and awaited process-group cleanup.
 - The 25-file merge includes resolved TypeScript transport conflicts and broad
   native session/UI changes. Exact-head compile, protocol, and behavior review
   of that merge remains required; the merge itself is not acceptance evidence.
