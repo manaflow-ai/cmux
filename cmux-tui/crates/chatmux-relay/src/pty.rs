@@ -1200,12 +1200,21 @@ impl TerminalStream {
     fn push_output(&self, chunk: Bytes) {
         let should_drain = {
             let mut state = self.state.lock().expect("terminal stream lock");
+            // A raw attach cannot replay an unbounded pre-open stream.  Keep
+            // the bytes already accepted, but terminate the stream explicitly
+            // when the first complete chunk would exceed the cap.  Returning
+            // here used to discard bytes with no wire-visible indication,
+            // leaving the client with a corrupted terminal that looked live.
+            if state.ended {
+                return;
+            }
             let chunk = if state.live_data.is_none() {
                 let remaining = RAW_ATTACH_BACKLOG_CAP.saturating_sub(state.backlog_bytes);
-                if remaining == 0 {
+                if chunk.len() > remaining {
+                    state.ended = true;
+                    state.pending_exit = Some(1);
                     return;
                 }
-                let chunk = if chunk.len() > remaining { chunk.slice(..remaining) } else { chunk };
                 state.backlog_bytes += chunk.len();
                 chunk
             } else {
