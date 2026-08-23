@@ -1136,7 +1136,10 @@ async fn run_op(
     }
 }
 
-async fn blocking<F>(runtime: &Arc<SharedRuntime>, body: F) -> Result<wire::WorkspaceResultBody, Refusal>
+async fn blocking<F>(
+    runtime: &Arc<SharedRuntime>,
+    body: F,
+) -> Result<wire::WorkspaceResultBody, Refusal>
 where
     F: FnOnce() -> Result<wire::WorkspaceResultBody, Refusal> + Send + 'static,
 {
@@ -1150,7 +1153,9 @@ where
         let outcome = body();
         drop(permit);
         outcome
-    }).await {
+    })
+    .await
+    {
         Ok(outcome) => outcome,
         Err(join_error) => Err(Refusal::failed(format!("workspace op crashed: {join_error}"))),
     }
@@ -1732,7 +1737,11 @@ mod tests {
     async fn blocking_worker_pool_is_explicitly_bounded() {
         let runtime = SharedRuntime::new(None);
         assert_eq!(runtime.blocking.available_permits(), MAX_BLOCKING_OPERATIONS);
-        let permits = runtime.blocking.clone().acquire_many_owned(MAX_BLOCKING_OPERATIONS as u32).await
+        let permits = runtime
+            .blocking
+            .clone()
+            .acquire_many_owned(MAX_BLOCKING_OPERATIONS as u32)
+            .await
             .expect("pool permits");
         assert_eq!(runtime.blocking.available_permits(), 0);
         drop(permits);
