@@ -429,6 +429,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Frame counter + one-shot latch for the scripted headless scroll
     /// (`Debug/GhosttySurfaceView+ScrollScriptDebug.swift`).
     var debugScrollScriptFrame = 0
+    /// Scroll-smoothness audit: aggregates display-link cadence while a scroll
+    /// gesture or its deceleration is active, logging one summary per second.
+    struct DebugScrollFrameRateStats {
+        var windowStart: CFTimeInterval = 0
+        var lastTick: CFTimeInterval = 0
+        var ticks = 0
+        var missed = 0
+        var maxGapMs: Double = 0
+        var loggedDisplayInfo = false
+    }
+    var debugScrollFrameRateStats = DebugScrollFrameRateStats()
+    /// Whether a scroll gesture or its deceleration currently owns the
+    /// scroll mechanics view (narrow seam for the frame-rate audit).
+    var scrollInteractionActive: Bool {
+        scrollMechanicsView.isTracking
+            || scrollMechanicsView.isDragging
+            || scrollMechanicsView.isDecelerating
+    }
     var debugScrollScriptDone = false
 
     /// The live `key=value;…` description of the bottom dock, read by
@@ -3552,6 +3570,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         #if DEBUG
         debugStepScrollScriptIfNeeded()
+        debugRecordScrollFrameRateTick(now: now)
         #endif
         #if DEBUG
         // Main-thread liveness heartbeat + presented-surface state. Time-gated,
@@ -3832,12 +3851,31 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlight = true
         renderInFlightSince = CACurrentMediaTime()
         let enqueuedAt = CACurrentMediaTime()
-        outputQueue.async { [weak self] in
+        let workQueue = outputQueue
+        workQueue.async { [weak self] in
             let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
             if lagMs > 150 { MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms") }
             switch submission.kind {
             case .ordinary, .localScroll:
+                #if DEBUG
+                let renderStartedAt = CACurrentMediaTime()
+                #endif
                 ghostty_surface_render_now_with_token(submission.surface, submission.token)
+                #if DEBUG
+                // Scroll-smoothness audit: the draw shares this serial queue
+                // with VT applies and scroll batches, so a slow frame
+                // stretches everything behind it.
+                let renderMs = (CACurrentMediaTime() - renderStartedAt) * 1000
+                if renderMs > 8 {
+                    let perfNow = CACurrentMediaTime()
+                    if perfNow - workQueue.lastRenderPerfLogTime >= 0.25 {
+                        workQueue.lastRenderPerfLogTime = perfNow
+                        MobileDebugLog.anchormux(
+                            "perf.render_now ms=\(Int(renderMs)) kind=\(String(describing: submission.kind))"
+                        )
+                    }
+                }
+                #endif
             case .verifiedReplay:
                 guard let read = submission.verifiedReplayRead else {
                     ghostty_surface_render_now_with_token(
