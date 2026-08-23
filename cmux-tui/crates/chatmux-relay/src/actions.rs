@@ -856,6 +856,9 @@ fn frame_roots(frame: &Value) -> Result<Option<Vec<String>>, &'static str> {
     if roots.len() > 32 || roots.iter().any(|root| !root.is_string() || root.as_str() == Some("")) {
         return Err("invalid allowedRoots");
     }
+    if roots.iter().any(|root| validate_request_path(root.as_str().unwrap()).is_err()) {
+        return Err("invalid allowedRoots");
+    }
     if roots.iter().map(|root| root.as_str().unwrap().len()).sum::<usize>() > 16 * 1024 {
         return Err("invalid allowedRoots");
     }
