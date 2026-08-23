@@ -17143,21 +17143,20 @@ impl App {
                 .rail_target()
                 .and_then(|selected| targets.iter().position(|target| *target == selected))
                 .unwrap_or_default();
-            if let Some(next) = rail_navigation_index(key, current, targets.len(), page) {
+            let provider_menu = self.config.keys.action_for(key) == Some(Action::ProviderMenu)
+                || (!self.config.keys.provider_menu_overridden
+                    && key.modifiers == KeyModifiers::NONE
+                    && key.code == KeyCode::Char('m'));
+            if provider_menu {
+                // Resolve the configured action before the built-in movement
+                // keys. A valid provider-menu binding may intentionally use
+                // j, k, h, l, or an arrow key.
+                Some(MachineRailCommand::ProviderMenu)
+            } else if let Some(next) = rail_navigation_index(key, current, targets.len(), page) {
                 if let Some(target) = targets.get(next).copied() {
                     machine.select_rail_target(target);
                 }
                 None
-            } else if self.config.keys.action_for(key) == Some(Action::ProviderMenu)
-                || (!self.config.keys.provider_menu_overridden
-                    && key.modifiers == KeyModifiers::NONE
-                    && key.code == KeyCode::Char('m'))
-            {
-                // Keyboard twin of right-clicking "+ new vm" or the rail
-                // pad. This rail-local route uses the configured prefix-key
-                // chord without requiring the prefix while the rail owns
-                // direct input. Modeless chords resolve before this handler.
-                Some(MachineRailCommand::ProviderMenu)
             } else if let Some(MachineRailTarget::Machine(machine_key)) =
                 targets.get(current).copied()
             {
@@ -37395,6 +37394,22 @@ mod tests {
 
         app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)).unwrap();
         assert!(app.menu.is_some(), "configured provider-menu chord must open on the rail");
+    }
+
+    #[test]
+    fn configured_provider_menu_navigation_chord_wins_over_rail_navigation() {
+        let mux = Mux::new("provider-menu-navigation-key-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 16));
+        app.config.keys.apply_for_test(&HashMap::from([(
+            "provider-menu".to_string(),
+            Value::String("j".to_string()),
+        )]));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)).unwrap();
+        assert!(app.menu.is_some(), "configured navigation chord must open the provider menu");
     }
 
     #[test]
