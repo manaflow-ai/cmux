@@ -225,7 +225,10 @@ fn is_eloop(error: &std::io::Error) -> bool {
     }
     #[cfg(not(unix))]
     {
-        error.kind() == std::io::ErrorKind::FilesystemLoop
+        // `FilesystemLoop` is unstable on Windows. Symlink races are
+        // rejected by the metadata checks and O_NOFOLLOW where available.
+        let _ = error;
+        false
     }
 }
 
