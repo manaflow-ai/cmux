@@ -122,8 +122,15 @@ mod unix {
         let mut buffer: Vec<u8> = Vec::new();
         let mut chunk = [0_u8; 16_384];
         loop {
-            while shared.paused.load(Ordering::SeqCst) {
-                shared.resume_notify.notified().await;
+            // Create the waiter before checking the flag. `Notify` retains a
+            // permit when resume races this check, so a pause cannot leave
+            // the reader asleep after the wakeup.
+            loop {
+                let notified = shared.resume_notify.notified();
+                if !shared.paused.load(Ordering::SeqCst) {
+                    break;
+                }
+                notified.await;
             }
             let count = match reader.read(&mut chunk).await {
                 Ok(0) | Err(_) => break,
@@ -174,10 +181,18 @@ mod unix {
             let mut line = Value::Object(frame).to_string();
             line.push('\n');
             let writer = self.writer.lock().expect("control writer lock");
-            // try_write on the owned half: control lines are tiny and the
-            // socket buffer absorbs them; a full buffer reads as a failure
-            // (the JS write() try/catch equivalent).
-            writer.try_write(line.as_bytes()).is_ok()
+            // `try_write` may accept only a prefix. Keep writing until the
+            // complete JSON line is sent, or fail on a full/closed socket;
+            // otherwise the peer can observe a permanently torn command.
+            let bytes = line.as_bytes();
+            let mut offset = 0;
+            while offset < bytes.len() {
+                match writer.try_write(&bytes[offset..]) {
+                    Ok(0) | Err(_) => return false,
+                    Ok(written) => offset += written,
+                }
+            }
+            true
         }
     }
 
