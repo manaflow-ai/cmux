@@ -228,6 +228,9 @@ pub(crate) struct BrowserMessages {
     new_page_verification_prefix: &'static str,
     updated_page_verification_prefix: &'static str,
     verification_suffix: &'static str,
+    pub starting: &'static str,
+    pub attach_unsupported: &'static str,
+    pub graphics_unsupported: &'static str,
 }
 
 impl BrowserMessages {
@@ -1246,6 +1249,9 @@ edits shell files. Authenticate with the configured host before retrying.
         new_page_verification_prefix: "browser failed: could not verify new page pixels: ",
         updated_page_verification_prefix: "browser failed: could not verify updated page pixels: ",
         verification_suffix: "; reload to retry",
+        starting: "starting browser...",
+        attach_unsupported: "browser panes are not supported over attach yet",
+        graphics_unsupported: "terminal has no kitty graphics support",
     },
     layout: LayoutMessages {
         startup_shortcuts: "  g  new 2/3 column right   U    undo layout",
@@ -1854,6 +1860,9 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         new_page_verification_prefix: "新しいページの表示を確認できませんでした: ",
         updated_page_verification_prefix: "更新後のページ表示を確認できませんでした: ",
         verification_suffix: "。再読み込みして再試行してください",
+        starting: "ブラウザを起動しています…",
+        attach_unsupported: "アタッチ経由ではブラウザペインにまだ対応していません",
+        graphics_unsupported: "ターミナルが Kitty グラフィックスに対応していません",
     },
     layout: LayoutMessages {
         startup_shortcuts: "  g  右に 2/3 幅の列を追加   U    レイアウトを元に戻す",

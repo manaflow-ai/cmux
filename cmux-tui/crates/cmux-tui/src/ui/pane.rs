@@ -526,11 +526,11 @@ fn draw_browser_content(
     let message = if let Some(status @ BrowserStatus::Failed(_)) = browser_status.as_ref() {
         status.failure().map(|failure| localization::catalog().browser.failure_message(failure))
     } else if matches!(browser_status, Some(BrowserStatus::Starting)) {
-        Some("starting browser...".to_string())
+        Some(localization::catalog().browser.starting.to_string())
     } else if surface.browser_url().is_none() {
-        Some("browser panes are not supported over attach yet".to_string())
+        Some(localization::catalog().browser.attach_unsupported.to_string())
     } else if !app.graphics_supported {
-        Some("terminal has no kitty graphics support".to_string())
+        Some(localization::catalog().browser.graphics_unsupported.to_string())
     } else if !surface.has_browser_frame() {
         let url = surface
             .browser_url()
