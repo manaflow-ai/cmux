@@ -5,6 +5,7 @@ package cmux
 import (
 	"fmt"
 	"os"
+	"unicode/utf16"
 
 	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/sessionpath"
 )
@@ -38,7 +39,14 @@ func defaultSocketPath(session string) string {
 }
 
 func defaultSocketPathForSession(session string) string {
-	return `\\.\pipe\cmux-tui-` + session
+	preferred := `\\.\pipe\cmux-tui-` + session
+	// Windows limits named-pipe names to MAX_PATH (256 UTF-16 code units).
+	// Use the shared SHA-256 leaf when the session would exceed that limit,
+	// preserving deterministic, collision-resistant cross-SDK resolution.
+	if namedPipePathFits(preferred) {
+		return preferred
+	}
+	return `\\.\pipe\cmux-tui-` + sessionpath.Digest(session)
 }
 
 // invalidSessionSocketPath keeps the unexported compatibility helper
@@ -53,4 +61,8 @@ func envSocketPath() string {
 		return socket
 	}
 	return os.Getenv("CMUX_MUX_SOCKET")
+}
+
+func namedPipePathFits(path string) bool {
+	return len(utf16.Encode([]rune(path))) <= 256
 }
