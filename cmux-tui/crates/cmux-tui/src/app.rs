@@ -23475,11 +23475,7 @@ mod tests {
         assert_eq!((poll_calls, read_calls), (3, 2));
         assert_eq!(
             poll_durations,
-            vec![
-                Duration::from_millis(100),
-                Duration::from_millis(10),
-                Duration::from_millis(10),
-            ]
+            vec![Duration::from_millis(100), Duration::from_millis(10), Duration::from_millis(10),]
         );
     }
 
@@ -23515,18 +23511,18 @@ mod tests {
         pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
         rebuild_pane_areas, record_surface_resize_dispatch_result, report_after_unwind,
         reset_pane_area_projection_work, run_status_command, should_claim_clear_history_shortcut,
-        sidebar_layout_for, sidebar_layout_for_state,
-        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
-        swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock, workspace_creation_selection,
+        sidebar_layout_for, sidebar_layout_for_state, sidebar_plugin_status_settles_passive_claim,
+        start_ordered_session, swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
+        workspace_creation_selection,
     };
     use cmux_tui_core::{FrontendFocusTarget, FrontendJournalEvent};
+    use serde_json::Value;
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::mpsc::Receiver;
     use std::sync::{Arc, Barrier, Mutex};
     use std::time::{Duration, Instant};
-    use serde_json::Value;
 
     use cmux_tui_core::resource::FrontendProjectionPublicId;
     use cmux_tui_core::{
