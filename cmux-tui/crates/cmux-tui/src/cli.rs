@@ -35,6 +35,29 @@ const PUBLIC_SCOPES: &[&str] = &[
     "raw",
 ];
 
+const REMOTE_COMMANDS: &[&str] = &[
+    "remote",
+    "connect",
+    "ssh",
+    "forward",
+    "rpc",
+    "enroll",
+    "known-daemons",
+    "remote-probe",
+    "remote-link",
+    "remote-sidecar",
+    "remote-stop",
+    "install-self",
+];
+
+/// Returns whether argv selects the remote command family.
+///
+/// Keeping this classifier next to the public CLI grammar prevents startup
+/// routing and the Unix remote implementation from maintaining separate lists.
+pub(super) fn is_remote_invocation(args: &[String]) -> bool {
+    args.first().is_some_and(|argument| REMOTE_COMMANDS.contains(&argument.as_str()))
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum OutputMode {
     #[default]
