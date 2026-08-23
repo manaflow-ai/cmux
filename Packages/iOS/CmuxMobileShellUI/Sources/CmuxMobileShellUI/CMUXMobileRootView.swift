@@ -42,8 +42,10 @@ struct CMUXMobileRootView: View {
     @State private var onboardingMacDiscoveryKeepAlive = OnboardingMacDiscoveryKeepAlive()
     /// The shared iOS modal slot for root sheets and shell-owned child sheets.
     @State private var rootPresentation: MobileRootPresentationState
+    #if DEBUG
     /// One-shot latch for the UI-test auto-open-first-workspace hook.
     @State private var didAutoOpenFirstWorkspaceForUITest = false
+    #endif
     #endif
     @State private var pendingAttachURL: String?
     @State private var didAuthenticateWithAttachTicket = false
@@ -323,11 +325,13 @@ struct CMUXMobileRootView: View {
         .onChange(of: store.workspaceTopologyVersion) { _, _ in
             pushCoordinator.workspacesDidChange()
         }
+        #if DEBUG
         // The UI-test auto-open hook observes the same workspace-arrival
         // signal; `initial: true` covers a list already loaded at mount.
         .onChange(of: store.workspaceTopologyVersion, initial: true) { _, _ in
             autoOpenFirstWorkspaceForUITestIfNeeded()
         }
+        #endif
         #endif
         .onChange(of: authManager.resolvedTeamID) { _, _ in
             diagnosticLog?.recordAppEvent(.authTeamChanged)
@@ -404,9 +408,11 @@ struct CMUXMobileRootView: View {
             )
             updateOnboardingMacDiscoveryKeepAlive()
             presentAutoConnectMigrationIfEligible()
+            #if DEBUG
             // Auth can resolve after the workspace list is already loaded, so
             // the topology-version hook alone would miss the arm-late case.
             autoOpenFirstWorkspaceForUITestIfNeeded()
+            #endif
             #endif
         }
         .onChange(of: authManager.isRestoringSession) { _, isRestoringSession in
@@ -935,20 +941,20 @@ struct CMUXMobileRootView: View {
         onboardingStore.markComplete()
     }
 
+    #if DEBUG
     /// Auto-opens the first loaded workspace once for the headless UI-test
     /// harness (`CMUX_UITEST_AUTO_OPEN_FIRST_WORKSPACE=1`), so scripted
     /// terminal verification (e.g. the scroll script) reaches a workspace
     /// detail without GUI taps. Called only from onChange handlers. DEBUG-only.
     private func autoOpenFirstWorkspaceForUITestIfNeeded() {
-        #if DEBUG
         guard UITestConfig.autoOpenFirstWorkspaceEnabled,
               !didAutoOpenFirstWorkspaceForUITest,
               isAuthenticated,
               let firstWorkspaceID = store.workspaces.first?.id else { return }
         didAutoOpenFirstWorkspaceForUITest = true
         store.navigateToWorkspaceForDeeplink(firstWorkspaceID)
-        #endif
     }
+    #endif
     #endif
 
     private var isAuthenticated: Bool {
