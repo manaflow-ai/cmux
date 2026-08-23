@@ -40,6 +40,10 @@ at `3fbdd078d`.
     `ssh-env`, `ssh-terminfo`, and the combined feature set.
 - Verification:
   - `tests/test_issue_8093_ghostty_ssh_binary_path.py` with Fish 4.6.0.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fd13a3fc20f8aab4136437b5693e2e447b86eafc-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `4b0ad8668eb50b57a36868c693ab80d5a75e9b0c4900e97f8f95150e0c7d9a35`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Incremental embedded configuration propagation
 
