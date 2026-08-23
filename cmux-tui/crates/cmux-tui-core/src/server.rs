@@ -81,6 +81,8 @@ use crate::{
 };
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
+/// Maximum JSON payload accepted on the Unix JSON-lines control socket.
+const MAX_JSON_LINE_BYTES: usize = 16 * 1024 * 1024;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
 pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guard-v1";
 pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
@@ -5026,16 +5028,28 @@ fn handle_connection_with_permit(
         mux.surface_operation_admission.clone(),
         connection_permit.clone(),
     ));
-    let reader = BufReader::new(stream);
+    let mut reader = BufReader::new(stream);
     let mut drain_accepted = true;
-    for line in reader.lines() {
-        let mut line = match line {
-            Ok(line) => line,
+    loop {
+        let mut line = String::new();
+        let read = match reader
+            .by_ref()
+            .take((MAX_JSON_LINE_BYTES + 1) as u64)
+            .read_line(&mut line)
+        {
+            Ok(read) => read,
             Err(_) => {
                 drain_accepted = false;
                 break;
             }
         };
+        if read == 0 {
+            break;
+        }
+        if line.len() > MAX_JSON_LINE_BYTES {
+            drain_accepted = false;
+            break;
+        }
         if line.trim().is_empty() {
             zeroize_string(&mut line);
             continue;
