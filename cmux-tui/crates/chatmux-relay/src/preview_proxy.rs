@@ -48,6 +48,9 @@ const NETWORK_METHOD_MAX_UNITS: usize = 16;
 /// Most in-flight network requests remembered while their response is
 /// pending (requestWillBeSent -> responseReceived/loadingFailed join).
 const PENDING_REQUEST_CAP: usize = 512;
+/// Maximum number of target-port listeners retained by one relay.
+/// Opening another target evicts the least-recently-used listener.
+pub const PREVIEW_PROXY_CAP: usize = 32;
 
 /// CDP command ids the proxy mints for its own enables; responses with
 /// these ids are swallowed instead of piped to the DevTools frontend.
@@ -243,6 +246,7 @@ fn tee_cdp_frame(ring: &ConsoleRing, raw: &str) -> Option<i64> {
 pub struct PreviewRegistry {
     ring: Arc<ConsoleRing>,
     proxies: tokio::sync::Mutex<HashMap<i64, ProxyRuntime>>,
+    order: tokio::sync::Mutex<VecDeque<i64>>,
 }
 
 struct ProxyRuntime {
@@ -262,6 +266,7 @@ impl PreviewRegistry {
         PreviewRegistry {
             ring: Arc::new(ConsoleRing::new()),
             proxies: tokio::sync::Mutex::new(HashMap::new()),
+            order: tokio::sync::Mutex::new(VecDeque::new()),
         }
     }
 
@@ -279,9 +284,25 @@ impl PreviewRegistry {
                 let runtime = spawn_proxy(target, Arc::clone(&self.ring)).await?;
                 let port = runtime.port;
                 proxies.insert(target_port, runtime);
+                let mut order = self.order.lock().await;
+                order.retain(|port| *port != target_port);
+                order.push_back(target_port);
+                if order.len() > PREVIEW_PROXY_CAP
+                    && let Some(evicted_port) = order.pop_front()
+                    && let Some(evicted) = proxies.remove(&evicted_port)
+                {
+                    let _ = evicted.shutdown.send(true);
+                    evicted.task.abort();
+                    let _ = evicted.task.await;
+                }
                 port
             }
         };
+        if proxies.contains_key(&target_port) {
+            let mut order = self.order.lock().await;
+            order.retain(|port| *port != target_port);
+            order.push_back(target_port);
+        }
         Ok(wire::WorkspaceResultBody::PreviewOpen(wire::PreviewOpenResult {
             op: wire::TagPreviewOpen::PreviewOpen,
             proxy_port: i64::from(proxy_port),
@@ -300,6 +321,7 @@ impl PreviewRegistry {
                 runtime.task
             })
             .collect::<Vec<_>>();
+        self.order.lock().await.clear();
         drop(proxies);
         for task in tasks {
             task.abort();
@@ -834,7 +856,8 @@ mod tests {
                         if request.uri().path() == "/oversized" {
                             let mut response = hyper::Response::new(full_body(vec![
                                 b'x';
-                                PREVIEW_HTML_BODY_MAX_BYTES + 1
+                                PREVIEW_HTML_BODY_MAX_BYTES
+                                    + 1
                             ]));
                             response.headers_mut().insert(
                                 hyper::header::CONTENT_TYPE,
@@ -1112,5 +1135,19 @@ mod tests {
         let fresh: Value = serde_json::from_str(&next_text(&mut replacement, "enable").await)
             .expect("enable json");
         assert!(fresh["id"].as_i64().expect("id") >= PROXY_CDP_ID_BASE);
+    }
+
+    #[tokio::test]
+    async fn bounds_preview_listeners_and_evicts_oldest_target() {
+        let registry = PreviewRegistry::new();
+        for target_port in 1..=i64::try_from(PREVIEW_PROXY_CAP).unwrap() + 1 {
+            registry.open(target_port).await.expect("preview open");
+        }
+        assert_eq!(registry.proxies.lock().await.len(), PREVIEW_PROXY_CAP);
+        assert!(!registry.proxies.lock().await.contains_key(&1));
+        assert!(registry.proxies.lock().await.contains_key(&(PREVIEW_PROXY_CAP as i64 + 1)));
+        registry.shutdown().await;
+        assert!(registry.proxies.lock().await.is_empty());
+        assert!(registry.order.lock().await.is_empty());
     }
 }
