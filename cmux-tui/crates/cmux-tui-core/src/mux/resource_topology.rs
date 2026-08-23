@@ -2850,7 +2850,7 @@ impl Mux {
                             .context("terminal omitted its durable host identity")?;
                         let incarnation = registry
                             .terminal_record(&host_id)?
-                            .context("terminal close target omitted its durable row")?
+                            .context("terminal close failed")?
                             .incarnation;
                         (public_id, vec![(host_id, incarnation)])
                     }
