@@ -551,7 +551,17 @@ impl Inner {
             None => {
                 let result = if let Some(cmux_tui) = cmux_tui.as_ref() {
                     self.clone()
-                        .open_cmux(cmux_tui, &session, cols, rows, &cwd, &env, &pty_id, context)
+                        .open_cmux(
+                            cmux_tui,
+                            &session,
+                            cols,
+                            rows,
+                            &cwd,
+                            &env,
+                            &pty_id,
+                            server_roots.as_deref(),
+                            context,
+                        )
                         .await
                 } else {
                     self.clone()
@@ -716,6 +726,39 @@ impl Inner {
     ) -> Result<Opened, String> {
         let socket_dir = self.deps.socket_dir();
         let ensured = self.deps.ensure_daemon(cmux_tui, session, &socket_dir, cwd, env).await?;
+        let roots_scoped = context.local_roots.as_deref().is_some_and(|r| !r.is_empty())
+            || server_roots.is_some_and(|r| !r.is_empty());
+        if roots_scoped && !ensured.created {
+            let control = self
+                .deps
+                .connect_control(&ensured.socket_path)
+                .await
+                .map_err(|_| "cannot inspect existing daemon cwd".to_owned())?;
+            let listed = control
+                .request("list-workspaces", json!({}))
+                .await
+                .map_err(|_| "cannot inspect existing daemon surfaces".to_owned())?;
+            let tabs = collect_pty_tabs(listed.get("data"));
+            if tabs.is_empty() || tabs.len() > MAX_ENUM_TERMINALS {
+                control.end();
+                return Err("cannot prove existing daemon cwd is within allowed roots".to_owned());
+            }
+            for tab in tabs {
+                let info = control
+                    .request("process-info", json!({ "surface": tab.surface_id }))
+                    .await
+                    .map_err(|_| "cannot inspect existing surface cwd".to_owned())?;
+                let actual = info
+                    .get("data")
+                    .and_then(|v| v.get("cwd"))
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| {
+                        "cannot prove existing surface cwd is within allowed roots".to_owned()
+                    })?;
+                scoped_cwd(Some(actual), &self.home, context.local_roots.as_deref(), server_roots)?;
+            }
+            control.end();
+        }
         let mut args = cmux_tui.prefix.clone();
         args.extend([
             "attach".to_owned(),
