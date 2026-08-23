@@ -219,15 +219,17 @@ fn offer_autostart(code_mode: bool) {
         return;
     }
     if env.as_deref() == Some("1") {
-        // Autostart install is a later slice (README: port plan).
-        eprintln!(
-            "Autostart install is not implemented in this relay build yet; run `npx cmux-relay \
-             --autostart` (npm build) to install it meanwhile."
-        );
+        let result = std::env::current_exe()
+            .map_err(|error| format!("could not locate relay executable: {error}"))
+            .and_then(|path| chatmux_relay::autostart::install(&path));
+        match result {
+            Ok(message) => println!("Autostart installed: {message}"),
+            Err(message) => eprintln!("Autostart install failed: {message}. Continuing without it."),
+        }
         return;
     }
     if !code_mode {
-        println!("Tip: `npx cmux-relay --autostart` keeps this machine online after reboots.");
+        println!("Tip: `cmux-relay --autostart` keeps this machine online after sign-in.");
     }
 }
 
