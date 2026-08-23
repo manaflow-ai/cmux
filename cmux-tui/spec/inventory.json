@@ -1037,11 +1037,6 @@
       "route": "frontend action adapter"
     },
     {
-      "variant": "ProviderMenu",
-      "classification": "presentation-only",
-      "route": "frontend action adapter"
-    },
-    {
       "variant": "FocusSidebar",
       "classification": "presentation-only",
       "route": "frontend action adapter"
