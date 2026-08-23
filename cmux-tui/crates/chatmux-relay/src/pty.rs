@@ -1359,7 +1359,7 @@ impl Inner {
 
         let roots_scoped = context.local_roots.as_deref().is_some_and(|r| !r.is_empty())
             || server_roots.is_some_and(|r| !r.is_empty());
-        if !ensured.created && roots_scoped {
+        if roots_scoped {
             let info = control.request("process-info", json!({ "surface": surface_id })).await;
             let actual = info
                 .as_ref()
