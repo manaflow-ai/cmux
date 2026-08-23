@@ -206,10 +206,12 @@ impl ClientConfig {
     /// [`Self::try_from_env_or_default_session`] to receive the validation error.
     pub fn from_env_or_default_session(session: &str) -> Self {
         let environment = env_socket_path();
-        let config = Self::from_derived_socket_path(compatibility_socket_path_for_session(
-            session,
-            environment.clone(),
-        ));
+        let socket_path = compatibility_socket_path_for_session(session, environment.clone());
+        let config = if environment.is_some() {
+            Self::from_socket_path(socket_path)
+        } else {
+            Self::from_derived_socket_path(socket_path)
+        };
         config
     }
 
@@ -224,7 +226,11 @@ impl ClientConfig {
     pub fn try_from_env_or_default_session(session: &str) -> Result<Self> {
         let environment = env_socket_path();
         let socket_path = socket_path_for_session(session, environment.clone())?;
-        Ok(Self::from_derived_socket_path(socket_path))
+        Ok(if environment.is_some() {
+            Self::from_socket_path(socket_path)
+        } else {
+            Self::from_derived_socket_path(socket_path)
+        })
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {

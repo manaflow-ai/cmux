@@ -171,9 +171,13 @@ impl Config {
     /// [`Self::try_from_env_or_default_session`] to receive the error.
     pub fn from_env_or_default_session(session: &str) -> Self {
         let env = crate::client::env_socket_path();
-        let config = Self::from_derived_socket_path(
-            crate::client::compatibility_socket_path_for_session(session, env.clone()),
-        );
+        let socket_path =
+            crate::client::compatibility_socket_path_for_session(session, env.clone());
+        let config = if env.is_some() {
+            Self::from_socket_path(socket_path)
+        } else {
+            Self::from_derived_socket_path(socket_path)
+        };
         config
     }
 
@@ -182,7 +186,11 @@ impl Config {
     pub fn try_from_env_or_default_session(session: &str) -> Result<Self> {
         let socket_path =
             crate::client::socket_path_for_session(session, crate::client::env_socket_path())?;
-        Ok(Self::from_derived_socket_path(socket_path))
+        Ok(if crate::client::env_socket_path().is_some() {
+            Self::from_socket_path(socket_path)
+        } else {
+            Self::from_derived_socket_path(socket_path)
+        })
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
