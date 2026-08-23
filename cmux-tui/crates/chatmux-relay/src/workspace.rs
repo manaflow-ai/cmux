@@ -281,8 +281,9 @@ impl Scope {
                     "allowed roots exceed {MAX_ALLOWED_ROOTS} entries"
                 )));
             }
-            let total_chars: usize = list.iter().map(|root| root.chars().count()).sum();
-            if total_chars > MAX_ALLOWED_ROOTS_CHARS {
+            let total_bytes =
+                list.iter().try_fold(0usize, |total, root| total.checked_add(root.len()));
+            if total_bytes.map_or(true, |bytes| bytes > MAX_ALLOWED_ROOTS_CHARS) {
                 return Err(Refusal::path_forbidden(format!(
                     "allowed roots exceed {MAX_ALLOWED_ROOTS_CHARS} characters"
                 )));
