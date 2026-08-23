@@ -26,8 +26,9 @@ namespace {
 using Clock = std::chrono::steady_clock;
 
 [[nodiscard]] Error system_error(ErrorCode code, std::string_view operation, int number = errno) {
-    return make_error(
-        code, std::string(operation) + ": " + std::string(std::strerror(number)));
+    auto error = make_error(code, std::string(operation) + ": " + std::string(std::strerror(number)));
+    error.system_errno = number;
+    return error;
 }
 
 [[nodiscard]] Result<void> wait_for_fd(int fd, short events, Clock::time_point deadline) {
