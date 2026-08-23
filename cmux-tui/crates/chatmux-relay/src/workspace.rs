@@ -42,6 +42,8 @@ pub const SEARCH_MAX_TEXT_UNITS: usize = 1_000;
 pub const STATUS_MAX_ENTRIES: usize = 5_000;
 pub const DIFF_MAX_BYTES: usize = 2_000_000;
 pub const MAX_PATH_CHARS: usize = 4_096;
+const MAX_ALLOWED_ROOTS: usize = 32;
+const MAX_ALLOWED_ROOTS_CHARS: usize = 16 * 1024;
 
 /// On-machine runtime bounds for one op (Worker default is 30s, ceiling
 /// 120s; the relay tolerates up to the v3 exec ceiling).
@@ -273,6 +275,20 @@ impl Scope {
         for list in [local_roots, frame_roots].into_iter().flatten() {
             if list.is_empty() {
                 continue;
+            }
+            if list.len() > MAX_ALLOWED_ROOTS {
+                return Err(Refusal::path_forbidden(format!(
+                    "allowed roots exceed {MAX_ALLOWED_ROOTS} entries"
+                )));
+            }
+            let total_chars: usize = list.iter().map(|root| root.chars().count()).sum();
+            if total_chars > MAX_ALLOWED_ROOTS_CHARS {
+                return Err(Refusal::path_forbidden(format!(
+                    "allowed roots exceed {MAX_ALLOWED_ROOTS_CHARS} characters"
+                )));
+            }
+            if list.iter().any(|root| root.is_empty()) {
+                return Err(Refusal::path_forbidden("allowed roots cannot contain empty paths"));
             }
             lexical_roots.push(list.iter().map(|root| expand_path(root, &home, &home)).collect());
         }
