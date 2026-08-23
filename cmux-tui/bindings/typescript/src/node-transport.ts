@@ -56,18 +56,31 @@ export function validateSessionName(session: string): void {
 
 /** Resolves the default Unix socket path for a session. */
 export function defaultSocketPath(session = "main"): string {
+  return defaultSocketPaths(session)[0];
+}
+
+/** Candidate paths in server lookup order. */
+export function defaultSocketPaths(session = "main"): string[] {
   validateSessionName(session);
   const uid = process.getuid?.() ?? 0;
   const base = process.env.XDG_RUNTIME_DIR || process.env.TMPDIR || os.tmpdir();
   const fileName = `${session}.sock`;
   const preferred = path.join(base, `cmux-tui-${uid}`, fileName);
-  if (unixSocketPathFits(preferred)) return preferred;
+  const candidates: string[] = [];
+  if (unixSocketPathFits(preferred)) candidates.push(preferred);
   const fallback = path.join("/tmp", `cmux-tui-${uid}`, fileName);
-  if (unixSocketPathFits(fallback)) return fallback;
+  if (unixSocketPathFits(fallback) && !candidates.includes(fallback)) candidates.push(fallback);
   const digest = createHash("sha256").update(session, "utf8").digest("hex");
   const hashed = path.join(base, `cmux-tui-hashed-${uid}`, `${digest}.sock`);
-  if (unixSocketPathFits(hashed)) return hashed;
-  return path.join("/tmp", `cmux-tui-hashed-${uid}`, `${digest}.sock`);
+  const hashedFallback = path.join("/tmp", `cmux-tui-hashed-${uid}`, `${digest}.sock`);
+  if (unixSocketPathFits(hashed)) candidates.push(hashed);
+  if (unixSocketPathFits(hashedFallback) && !candidates.includes(hashedFallback)) candidates.push(hashedFallback);
+  // Legacy raw path is valid only when canonical path is hashed.
+  if (candidates.length && candidates[0].includes("-hashed-")) {
+    candidates.push(path.join(base, `cmux-tui-${uid}`, fileName));
+    candidates.push(path.join("/tmp", `cmux-tui-${uid}`, fileName));
+  }
+  return candidates;
 }
 
 function unixSocketPathFits(socketPath: string): boolean {
@@ -81,6 +94,8 @@ export function envSocketPath(): string | undefined {
 }
 
 export interface UnixSocketTransportOptions {
+  /** Additional paths to try after ENOENT/ECONNREFUSED during initial connect. */
+  fallbackSocketPaths?: readonly string[];
   maxInboundMessageBytes?: number;
   maxOutboundMessageBytes?: number;
   maxPendingBytes?: number;
@@ -97,7 +112,9 @@ interface PendingMessage {
 /** Unix-socket JSON-lines transport for Node.js. */
 export class UnixSocketTransport implements Transport {
   readonly supportsDispatchGuard: true = true;
-  private readonly socket: net.Socket;
+  private socket: net.Socket;
+  private readonly fallbackSocketPaths: string[];
+  private fallbackIndex = 0;
   private readonly pending: PendingMessage[] = [];
   private readonly messageHandlers = new Set<(json: string) => void>();
   private readonly closeHandlers = new Set<() => void>();
@@ -112,7 +129,8 @@ export class UnixSocketTransport implements Transport {
   private connected = false;
   private closed = false;
 
-  constructor(readonly socketPath: string, options: UnixSocketTransportOptions = {}) {
+  constructor(public socketPath: string, options: UnixSocketTransportOptions = {}) {
+    this.fallbackSocketPaths = [...(options.fallbackSocketPaths ?? [])].filter((p) => p !== socketPath);
     this.maxInboundMessageBytes = positiveLimit(
       "maxInboundMessageBytes",
       options.maxInboundMessageBytes,
@@ -141,7 +159,11 @@ export class UnixSocketTransport implements Transport {
       (error) => this.failAndClose(error),
     );
     this.socket = net.createConnection({ path: socketPath });
-    this.socket.on("connect", () => {
+    this.bindSocket(this.socket);
+  }
+
+  private bindSocket(socket: net.Socket): void {
+    socket.on("connect", () => {
       this.connected = true;
       try {
         this.flushPending();
@@ -156,15 +178,23 @@ export class UnixSocketTransport implements Transport {
         }
       }
     });
-    this.socket.on("data", (chunk: Buffer) => this.receive(chunk));
-    this.socket.on("error", (error) => {
+    socket.on("data", (chunk: Buffer) => this.receive(chunk));
+    socket.on("error", (error: NodeJS.ErrnoException) => {
+      if (!this.connected && (error.code === "ENOENT" || error.code === "ECONNREFUSED") && this.fallbackIndex < this.fallbackSocketPaths.length) {
+        const next = this.fallbackSocketPaths[this.fallbackIndex++];
+        socket.destroy();
+        this.socketPath = next;
+        this.socket = net.createConnection({ path: next });
+        this.bindSocket(this.socket);
+        return;
+      }
       const prefix = this.connected
         ? "socket error"
         : `cannot connect to session socket ${this.socketPath}`;
       this.connected = false;
       this.fail(new CmuxConnectionError(`${prefix}: ${error.message}`));
     });
-    this.socket.on("close", () => this.finish());
+    socket.on("close", () => { if (socket === this.socket) this.finish(); });
   }
 
   send(json: string): void {
