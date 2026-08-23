@@ -9,6 +9,57 @@ import UniformTypeIdentifiers
 
 @MainActor
 enum SessionEntryResumeCoordinator {
+    /// Opens an indexed session in the most useful existing surface. A live
+    /// session is focused in place; an ended or stale session follows the
+    /// normal Vault resume path and gets a fresh surface.
+    static func open(_ entry: SessionEntry, tabManager: TabManager) {
+        guard !focusIfActive(entry, tabManager: tabManager) else { return }
+        resume(entry, tabManager: tabManager)
+    }
+
+    /// Focuses the current surface for `entry` when the live agent index still
+    /// points at a real panel in this tab manager.
+    @discardableResult
+    static func focusIfActive(_ entry: SessionEntry, tabManager: TabManager) -> Bool {
+        // Prefer the tab manager's authoritative surface snapshots. This
+        // catches an open-but-idle session even while the process index is
+        // between refreshes.
+        for workspace in tabManager.tabs {
+            if let panel = workspace.restoredAgentSnapshotsByPanelId.first(where: { panelID, snapshot in
+                workspace.panels[panelID] != nil
+                    && snapshot.kind.rawValue == entry.agent.rawValue
+                    && ManagedAgentSessionIdentity.sessionIDsMatch(
+                        kind: entry.agent.rawValue,
+                        lhs: snapshot.sessionId,
+                        rhs: entry.sessionId
+                    )
+            }) {
+                tabManager.focusTab(workspace.id, surfaceId: panel.key)
+                return true
+            }
+        }
+
+        // Process-detected sessions can still be present in the live index
+        // before their snapshot has been projected into the tab manager.
+        guard let index = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh(),
+              let match = index.forkValidationEntries().first(where: { panelKey, observation in
+                  observation.processLiveness == .running
+                      && observation.snapshot.kind.rawValue == entry.agent.rawValue
+                      && ManagedAgentSessionIdentity.sessionIDsMatch(
+                          kind: entry.agent.rawValue,
+                          lhs: observation.snapshot.sessionId,
+                          rhs: entry.sessionId
+                      )
+                      && tabManager.tabs.contains(where: { $0.id == panelKey.workspaceId })
+                      && tabManager.tabs.first(where: { $0.id == panelKey.workspaceId })?.panels[panelKey.panelId] != nil
+              }) else {
+            return false
+        }
+
+        tabManager.focusTab(match.0.workspaceId, surfaceId: match.0.panelId)
+        return true
+    }
+
     static func resume(_ entry: SessionEntry, tabManager: TabManager) {
         guard let launch = entry.resumeLaunch else { return }
         let targetCwd = launch.workingDirectory
@@ -69,8 +120,10 @@ struct SessionIndexView: View {
     /// Day sections whose "Show more" expanded them inline (day buckets have
     /// no popover — their key space doesn't map to a popover search scope).
     @State private var expandedDaySections: Set<SectionKey> = []
-    let chromeBackgroundColor: NSColor
     let onResume: ((SessionEntry) -> Void)?
+    /// Opens an existing live session in place, falling back to resume when
+    /// the indexed surface is no longer present.
+    let onOpen: ((SessionEntry) -> Void)?
     /// Rows shown per section before "Show more" is tapped.
     private static let collapsedRowLimit = 5
     /// Synthetic section hosting global search results in the recency view.
@@ -102,7 +155,6 @@ struct SessionIndexView: View {
             controlBar
             VaultAllSessionsBar(
                 store: store,
-                chromeBackgroundColor: chromeBackgroundColor,
                 showsSortAndFilter: store.grouping == .recency,
                 searchText: $searchText,
                 onPeekTopResult: { peekTopSearchResult() },
@@ -133,7 +185,7 @@ struct SessionIndexView: View {
     }
 
     private var controlBar: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
             ForEach(SessionGrouping.allCases) { mode in
                 GroupingButton(
                     mode: mode,
@@ -157,18 +209,19 @@ struct SessionIndexView: View {
             .accessibilityIdentifier("SessionScopeToggle.thisFolder")
             .titlebarInteractiveControl()
 
-            Button {
-                store.reload()
-            } label: {
-                HeaderChromeIconStyle.symbol("arrow.clockwise")
-            }
-            .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarSecondaryControl_reload"))
-            .help(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload Vault"))
-            .disabled(store.isLoading)
-            .titlebarInteractiveControl()
+            VaultOverflowMenu(
+                isLoading: store.isLoading,
+                onReload: { store.reload() }
+            )
+            .accessibilityIdentifier("SessionIndexOverflowMenu")
         }
-        .rightSidebarChromeBar()
-        .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
+        // Match the right-sidebar mode bar above: the same 4/6-point outer
+        // insets and the same 28-point chrome rhythm.
+        .rightSidebarChromeBar(
+            leadingPadding: 4,
+            trailingPadding: 6,
+            height: RightSidebarChromeMetrics.secondaryBarHeight
+        )
         .reportRightSidebarChromeGeometryForBonsplitUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
     }
 
@@ -213,6 +266,7 @@ struct SessionIndexView: View {
         let store = self.store
         let dragCoordinator = self.dragCoordinator
         let onResumeClosure = onResume
+        let onOpenClosure = onOpen
         let gapActions = SectionGapActions(
             currentDraggedKey: { dragCoordinator.draggedKey },
             moveSection: { key, before in store.moveSection(key, before: before) },
@@ -250,6 +304,7 @@ struct SessionIndexView: View {
                     }
                 },
                 onResume: onResumeClosure,
+                onOpen: onOpenClosure,
                 search: searchFn,
                 loadSnapshot: loadSnapshotFn
             )
@@ -517,6 +572,37 @@ private struct ScopeButton: View {
     }
 }
 
+/// Overflow actions for the Vault toolbar. Reload is intentionally secondary
+/// chrome: it remains discoverable without competing with grouping, scope, or
+/// search controls on every row.
+private struct VaultOverflowMenu: View {
+    let isLoading: Bool
+    let onReload: () -> Void
+
+    var body: some View {
+        Menu {
+            Button {
+                onReload()
+            } label: {
+                Label(
+                    String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload Vault"),
+                    systemImage: "arrow.clockwise"
+                )
+            }
+            .disabled(isLoading)
+        } label: {
+            HeaderChromeIconStyle.symbol("ellipsis")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarSecondaryControl_more"))
+        .help(String(localized: "sessionIndex.more.tooltip", defaultValue: "More Vault actions"))
+        .accessibilityLabel(Text(String(localized: "sessionIndex.more.tooltip", defaultValue: "More Vault actions")))
+        .titlebarInteractiveControl()
+    }
+}
+
 /// Closure type for paginated session search. Handed down into the popover
 /// instead of a `SessionIndexStore` reference so views inside the lazy list
 /// subtree cannot observe the store by accident.
@@ -543,6 +629,7 @@ struct IndexSectionActions {
     let onPreviewEntry: (SessionEntry) -> Void
     let onDismissPreview: (SessionEntry.ID) -> Void
     let onResume: ((SessionEntry) -> Void)?
+    let onOpen: ((SessionEntry) -> Void)?
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
 }
@@ -599,7 +686,8 @@ struct IndexSectionView: View, Equatable {
                         isPreviewPresented: previewEntryId == row.entry.id,
                         beginSessionDrag: actions.beginSessionDrag,
                         onPreview: { actions.onPreviewEntry(row.entry) },
-                        onResume: actions.onResume
+                        onResume: actions.onResume,
+                        onOpen: actions.onOpen
                     )
                         .equatable()
                         .id(row.id)
@@ -812,6 +900,7 @@ private struct SessionRow: View, Equatable {
     let beginSessionDrag: SessionDragBeginAction
     let onPreview: () -> Void
     let onResume: ((SessionEntry) -> Void)?
+    let onOpen: ((SessionEntry) -> Void)?
     @State private var isHovered: Bool = false
 
     static func == (lhs: SessionRow, rhs: SessionRow) -> Bool {
@@ -866,7 +955,9 @@ private struct SessionRow: View, Equatable {
                             .fixedSize()
                     }
                 }
-                .padding(.leading, 18)
+                // Match the title's leading edge: 20-point icon frame plus
+                // the six-point primary-line spacing.
+                .padding(.leading, 26)
             }
         }
         .padding(.leading, 32)
@@ -883,7 +974,7 @@ private struct SessionRow: View, Equatable {
             onDoubleClick: onPreview
         ))
         .contextMenu {
-            sessionRowMenuItems(entry: entry, onResume: onResume)
+            sessionRowMenuItems(entry: entry, onResume: onResume, onOpen: onOpen)
         }
     }
 
@@ -934,7 +1025,19 @@ private struct SessionRow: View, Equatable {
 /// free `@ViewBuilder` so SessionRow and PopoverRow both attach the same set
 /// without duplicating the button list or the action helpers.
 @ViewBuilder
-private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) -> Void)?) -> some View {
+private func sessionRowMenuItems(
+    entry: SessionEntry,
+    onResume: ((SessionEntry) -> Void)?,
+    onOpen: ((SessionEntry) -> Void)? = nil
+) -> some View {
+    if let onOpen {
+        Button {
+            onOpen(entry)
+        } label: {
+            Text(String(localized: "sessionIndex.row.openSession", defaultValue: "Open Session"))
+        }
+        Divider()
+    }
     if let onResume {
         Button {
             onResume(entry)
@@ -2282,6 +2385,7 @@ struct SectionPopoverView: View {
     let loadSnapshot: DirectorySnapshotFn
     let beginSessionDrag: SessionDragBeginAction
     let onResume: ((SessionEntry) -> Void)?
+    let onOpen: ((SessionEntry) -> Void)?
     let onDismiss: () -> Void
 
     @State private var query: String = ""
@@ -2387,7 +2491,13 @@ struct SectionPopoverView: View {
                         ForEach(loadedRows) { row in
                             PopoverRow(
                                 entry: row.entry,
-                                beginSessionDrag: beginSessionDrag
+                                beginSessionDrag: beginSessionDrag,
+                                onOpen: onOpen.map { open in
+                                    { entry in
+                                        open(entry)
+                                        onDismiss()
+                                    }
+                                }
                             ) {
                                 onResume?(row.entry)
                                 onDismiss()
@@ -2627,6 +2737,7 @@ struct SectionPopoverView: View {
 private struct PopoverRow: View, Equatable {
     let entry: SessionEntry
     let beginSessionDrag: SessionDragBeginAction
+    let onOpen: ((SessionEntry) -> Void)?
     let onActivate: () -> Void
 
     @State private var isHovered: Bool = false
@@ -2689,7 +2800,11 @@ private struct PopoverRow: View, Equatable {
         ))
         .help(entry.cwdLabel ?? entry.displayTitle)
         .contextMenu {
-            sessionRowMenuItems(entry: entry, onResume: { _ in onActivate() })
+            sessionRowMenuItems(
+                entry: entry,
+                onResume: { _ in onActivate() },
+                onOpen: onOpen
+            )
         }
     }
 }

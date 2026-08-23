@@ -31,6 +31,7 @@ struct SessionIndexTableViewportTests {
                 onPreviewEntry: { _ in },
                 onDismissPreview: { _ in },
                 onResume: nil,
+                onOpen: nil,
                 search: { _, _, _, _ in .init(entries: [], errors: []) },
                 loadSnapshot: { cwd in .init(cwd: cwd ?? "", entries: [], errors: []) }
             ),
@@ -117,6 +118,7 @@ struct SessionIndexTableViewportTests {
             onPreviewEntry: { _ in },
             onDismissPreview: { _ in },
             onResume: nil,
+            onOpen: nil,
             search: { _, _, _, _ in .init(entries: [], errors: []) },
             loadSnapshot: { cwd in .init(cwd: cwd ?? "", entries: [], errors: []) }
         )
@@ -312,8 +314,8 @@ struct SessionIndexTableViewportTests {
         let host = NSHostingView(
             rootView: SessionIndexView(
                 store: store,
-                chromeBackgroundColor: .black,
-                onResume: nil
+                onResume: nil,
+                onOpen: nil
             )
                 .frame(width: 320, height: 300)
         )
@@ -398,6 +400,7 @@ struct SessionIndexTableViewportTests {
                 onPreviewEntry: { _ in },
                 onDismissPreview: { _ in },
                 onResume: nil,
+                onOpen: nil,
                 search: { _, _, _, _ in .init(entries: [], errors: []) },
                 loadSnapshot: { cwd in .init(cwd: cwd ?? "", entries: [], errors: []) }
             ),

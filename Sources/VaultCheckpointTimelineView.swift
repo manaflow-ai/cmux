@@ -35,12 +35,11 @@ struct VaultCheckpointTimelineView: View {
                 errorRow(errorText)
             }
             if !supportsFork && !isLoading {
-                Text(String(localized: "sessionIndex.checkpoints.forkUnavailable",
-                            defaultValue: "Fork from checkpoint isn't available for this agent yet — the timeline is view-only"))
-                    .cmuxFont(size: 11)
-                    .foregroundColor(.secondary.opacity(0.75))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
+                checkpointNotice(
+                    systemImage: "info.circle",
+                    text: String(localized: "sessionIndex.checkpoints.forkUnavailable",
+                                 defaultValue: "Fork from checkpoint isn't available for this agent yet — the timeline is view-only")
+                )
             }
             content
         }
@@ -64,21 +63,30 @@ struct VaultCheckpointTimelineView: View {
             .padding(12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else if mergedCheckpoints.isEmpty {
-            Text(String(localized: "sessionIndex.checkpoints.empty", defaultValue: "No checkpoints yet"))
-                .cmuxFont(size: 12)
-                .foregroundColor(.secondary)
-                .padding(12)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            VStack(alignment: .leading, spacing: 6) {
+                Image(systemName: "flag")
+                    .cmuxFont(size: 18, weight: .regular)
+                    .foregroundColor(.secondary.opacity(0.7))
+                Text(String(localized: "sessionIndex.checkpoints.empty", defaultValue: "No checkpoints yet"))
+                    .cmuxFont(size: 12, weight: .medium)
+                    .foregroundColor(.secondary)
+                Text(String(localized: "sessionIndex.checkpoints.emptyHint",
+                            defaultValue: "Name a point above to make it easy to return here."))
+                    .cmuxFont(size: 11)
+                    .foregroundColor(.secondary.opacity(0.7))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else {
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if derivation?.isTruncated == true {
-                        Text(String(localized: "sessionIndex.checkpoints.truncated",
-                                    defaultValue: "Long transcript — earliest turns not shown"))
-                            .cmuxFont(size: 11)
-                            .foregroundColor(.secondary.opacity(0.7))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 4)
+                        checkpointNotice(
+                            systemImage: "exclamationmark.triangle",
+                            text: String(localized: "sessionIndex.checkpoints.truncated",
+                                         defaultValue: "Long transcript — earliest turns not shown")
+                        )
                     }
                     ForEach(mergedCheckpoints) { checkpoint in
                         VaultCheckpointRow(
@@ -90,7 +98,14 @@ struct VaultCheckpointTimelineView: View {
                         .equatable()
                     }
                 }
-                .padding(.vertical, 6)
+                .padding(.vertical, 8)
+                .overlay(alignment: .leading) {
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.12))
+                        .frame(width: 1)
+                        .padding(.leading, 19)
+                        .padding(.vertical, 8)
+                }
             }
         }
     }
@@ -105,10 +120,10 @@ struct VaultCheckpointTimelineView: View {
             .textFieldStyle(.plain)
             .cmuxFont(size: 12)
             .padding(.horizontal, 6)
-            .padding(.vertical, 3)
+            .padding(.vertical, 5)
             .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(Color.primary.opacity(0.06))
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.primary.opacity(0.07))
             )
             Button {
                 createManualCheckpoint()
@@ -117,14 +132,37 @@ struct VaultCheckpointTimelineView: View {
                     String(localized: "sessionIndex.checkpoints.now", defaultValue: "Checkpoint Now"),
                     systemImage: "flag"
                 )
-                .cmuxFont(size: 11, weight: .medium)
+                .cmuxFont(size: 11, weight: .semibold)
+                .foregroundColor(.accentColor)
+                .padding(.horizontal, 10)
+                .frame(height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(Color.accentColor.opacity(0.13))
+                )
             }
             .buttonStyle(.borderless)
             .disabled(isLoading || derivation == nil)
             .accessibilityIdentifier("VaultCheckpointNowButton")
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
+    }
+
+    private func checkpointNotice(systemImage: String, text: String) -> some View {
+        HStack(alignment: .top, spacing: 7) {
+            Image(systemName: systemImage)
+                .cmuxFont(size: 11, weight: .medium)
+                .foregroundColor(.secondary)
+            Text(text)
+                .cmuxFont(size: 11)
+                .foregroundColor(.secondary.opacity(0.82))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(Color.primary.opacity(0.035))
     }
 
     private func errorRow(_ text: String) -> some View {
@@ -281,11 +319,8 @@ private struct VaultCheckpointRow: View, Equatable {
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: checkpoint.source == .manual ? "flag.fill" : "circle.fill")
-                .cmuxFont(size: checkpoint.source == .manual ? 10 : 5)
-                .foregroundColor(checkpoint.source == .manual ? .accentColor : .secondary.opacity(0.5))
-                .frame(width: 12)
+        HStack(alignment: .top, spacing: 10) {
+            marker
             VStack(alignment: .leading, spacing: 1) {
                 Text(titleText)
                     .cmuxFont(size: 12)
@@ -295,6 +330,8 @@ private struct VaultCheckpointRow: View, Equatable {
                     Text(subtitleText)
                         .cmuxFont(size: 10)
                         .foregroundColor(.secondary.opacity(0.7))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                     if let sha = checkpoint.gitSHA {
                         Button {
                             GhosttyApp.terminalPasteboard.writeString(sha, to: .general)
@@ -318,7 +355,7 @@ private struct VaultCheckpointRow: View, Equatable {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 4)
+        .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .background(
@@ -329,14 +366,40 @@ private struct VaultCheckpointRow: View, Equatable {
         .onHover { isHovered = $0 }
     }
 
+    private var marker: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    checkpoint.source == .manual
+                        ? Color.accentColor
+                        : Color.secondary.opacity(0.65)
+                )
+                .frame(width: checkpoint.source == .manual ? 9 : 7,
+                       height: checkpoint.source == .manual ? 9 : 7)
+        }
+        .frame(width: 14, height: 18, alignment: .top)
+    }
+
     private var forkButton: some View {
         Button {
             onFork()
         } label: {
-            Text(String(localized: "sessionIndex.checkpoints.forkFromHere",
-                        defaultValue: "Fork from Here"))
-                .cmuxFont(size: 11, weight: .medium)
-                .foregroundColor(isHovered ? .primary : .secondary)
+            Label(
+                String(localized: "sessionIndex.checkpoints.forkShort", defaultValue: "Fork"),
+                systemImage: "arrow.triangle.branch"
+            )
+            .cmuxFont(size: 10, weight: .semibold)
+            .foregroundColor(isForkEnabled ? .accentColor : .secondary)
+            .padding(.horizontal, 8)
+            .frame(height: 22)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(
+                        isForkEnabled
+                            ? Color.accentColor.opacity(isHovered ? 0.16 : 0.10)
+                            : Color.primary.opacity(0.04)
+                    )
+            )
         }
         .buttonStyle(.borderless)
         .disabled(!isForkEnabled)

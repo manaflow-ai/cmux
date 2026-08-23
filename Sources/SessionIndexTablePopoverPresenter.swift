@@ -132,14 +132,15 @@ final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
         guard let currentPresentation else { return }
 
         switch currentPresentation.content {
-        case let .section(section, search, loadSnapshot, beginSessionDrag, onResume):
+        case let .section(section, search, loadSnapshot, beginSessionDrag, onResume, onOpen):
             hostingController.rootView = AnyView(
                 SectionPopoverView(
                     section: section,
                     search: search,
                     loadSnapshot: loadSnapshot,
                     beginSessionDrag: beginSessionDrag,
-                    onResume: onResume
+                    onResume: onResume,
+                    onOpen: onOpen
                 ) { [weak self] in
                     self?.dismissAndNotify()
                 }
@@ -259,7 +260,8 @@ extension SessionIndexTableRow {
                     search: actions.search,
                     loadSnapshot: actions.loadSnapshot,
                     beginSessionDrag: actions.beginSessionDrag,
-                    onResume: actions.onResume
+                    onResume: actions.onResume,
+                    onOpen: actions.onOpen
                 ),
                 onDismiss: { setPopoverOpen(false) }
             )

@@ -5,7 +5,8 @@ struct SessionIndexTablePopoverPresentation {
             search: SessionSearchFn,
             loadSnapshot: DirectorySnapshotFn,
             beginSessionDrag: SessionDragBeginAction,
-            onResume: ((SessionEntry) -> Void)?
+            onResume: ((SessionEntry) -> Void)?,
+            onOpen: ((SessionEntry) -> Void)?
         )
         case transcript(SessionEntry, onResume: ((SessionEntry) -> Void)?)
     }
@@ -16,7 +17,7 @@ struct SessionIndexTablePopoverPresentation {
 
     func hasEquivalentContent(to other: Self) -> Bool {
         switch (content, other.content) {
-        case let (.section(lhs, _, _, _, _), .section(rhs, _, _, _, _)):
+        case let (.section(lhs, _, _, _, _, _), .section(rhs, _, _, _, _, _)):
             return lhs == rhs
         case let (.transcript(lhs, _), .transcript(rhs, _)):
             return lhs == rhs

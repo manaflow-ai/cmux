@@ -484,6 +484,20 @@
         "ja": { "stringUnit": { "state": "translated", "value": "チェックポイントはまだありません" } }
       }
     },
+    "sessionIndex.checkpoints.emptyHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Name a point above to make it easy to return here." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "上で名前を付けると、ここへ簡単に戻れます。" } }
+      }
+    },
+    "sessionIndex.checkpoints.forkShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Fork" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォーク" } }
+      }
+    },
     "sessionIndex.checkpoints.copySha": {
       "extractionState": "manual",
       "localizations": {
@@ -150597,6 +150611,23 @@
         }
       }
     },
+    "sessionIndex.more.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More Vault actions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他のボールト操作"
+          }
+        }
+      }
+    },
     "sessionIndex.row.copyPath": {
       "extractionState": "manual",
       "localizations": {
@@ -150644,6 +150675,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "開く"
+          }
+        }
+      }
+    },
+    "sessionIndex.row.openSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションを開く"
           }
         }
       }

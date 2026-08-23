@@ -71,6 +71,7 @@ struct HiddenRightSidebarContentMountingTests {
             windowAppearance: .rightSidebarPanelViewTestDefault,
             workspaceId: nil,
             onResumeSession: nil,
+            onOpenSession: nil,
             onOpenFilePreview: { _ in },
             onOpenAsPane: { _ in },
             onClose: {}

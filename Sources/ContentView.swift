@@ -1998,6 +1998,9 @@ struct ContentView: View {
             onResumeSession: { entry in
                 resumeSession(entry: entry)
             },
+            onOpenSession: { entry in
+                openSession(entry: entry)
+            },
             onOpenFilePreview: { filePath in
                 openFilePreviewFromSidebar(filePath: filePath)
             },
@@ -2404,6 +2407,10 @@ struct ContentView: View {
 
     private func resumeSession(entry: SessionEntry) {
         SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+    }
+
+    private func openSession(entry: SessionEntry) {
+        SessionEntryResumeCoordinator.open(entry, tabManager: tabManager)
     }
 
     func openRightSidebarToolPane(_ mode: RightSidebarMode) {

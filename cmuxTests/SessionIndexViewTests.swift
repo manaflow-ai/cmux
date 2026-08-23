@@ -500,7 +500,8 @@ struct SessionIndexViewTests {
                 search: search,
                 loadSnapshot: loadSnapshot,
                 beginSessionDrag: { _, _, _, _, _ in false },
-                onResume: nil
+                onResume: nil,
+                onOpen: nil
             ),
             onDismiss: onDismiss
         )
