@@ -456,6 +456,35 @@ jobs:
           zig build -Doptimize=Debug
           zig build -Doptimize=ReleaseSafe
 
+  rust-msrv:
+    name: Rust SDK MSRV (1.88)
+    needs: contract
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install Rust 1.88 MSRV toolchain
+        run: rustup toolchain install 1.88.0 --profile minimal --component clippy rustfmt
+
+      - name: Test public Rust SDK crates and examples on MSRV
+        run: |
+          cargo +1.88.0 fmt --manifest-path cmux-tui/bindings/rust/Cargo.toml -- --check
+          cargo +1.88.0 test --manifest-path cmux-tui/bindings/rust/Cargo.toml --locked
+          cargo +1.88.0 test --manifest-path cmux-tui/bindings/rust-sidebar/Cargo.toml --locked
+          cargo +1.88.0 clippy \
+            --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml \
+            --locked \
+            --all-targets \
+            -- -D warnings
+          cargo +1.88.0 clippy \
+            --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml \
+            --locked \
+            --all-targets \
+            -- -D warnings
+
   conformance:
     name: seven-language live conformance
     needs: contract
