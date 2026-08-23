@@ -47,6 +47,13 @@ pub const MAX_PATH_CHARS: usize = 4_096;
 /// 120s; the relay tolerates up to the v3 exec ceiling).
 const MIN_TIMEOUT_MS: i64 = 1_000;
 const MAX_TIMEOUT_MS: i64 = 300_000;
+/// Bound per-connection workspace task fan-out. This matches the control
+/// plane's pending-request cap and makes refusal explicit under load.
+pub const MAX_IN_FLIGHT_WORKSPACE_REQUESTS: usize = 256;
+
+fn admit_workspace_request(in_flight: usize) -> bool {
+    in_flight < MAX_IN_FLIGHT_WORKSPACE_REQUESTS
+}
 
 /// A typed machine-side refusal (one `WorkspaceErrorCode` on the wire).
 #[derive(Debug)]
@@ -1011,7 +1018,7 @@ pub struct Connection {
     /// Request tasks are owned by the socket connection. Dropping the
     /// connection must stop in-flight work instead of letting it outlive the
     /// outbound queue and the relay session that created it.
-    requests: std::sync::Mutex<tokio::task::JoinSet<()>>,
+    requests: std::sync::Mutex<(tokio::task::JoinSet<()>, usize)>,
 }
 
 impl Connection {
@@ -1022,7 +1029,7 @@ impl Connection {
             outbound,
             local_observe: Arc::new(AtomicBool::new(false)),
             watches,
-            requests: std::sync::Mutex::new(tokio::task::JoinSet::new()),
+            requests: std::sync::Mutex::new((tokio::task::JoinSet::new(), 0)),
         }
     }
 
@@ -1079,6 +1086,7 @@ impl Connection {
         let runtime = Arc::clone(&self.runtime);
         let outbound = self.outbound.clone();
         let local_observe = Arc::clone(&self.local_observe);
+        let request_id = request.request_id.clone();
         let task = async move {
             let request_id = request.request_id.clone();
             let outcome = execute(&runtime, &local_observe, request).await;
@@ -1092,8 +1100,16 @@ impl Connection {
             // JoinSet removes completed tasks without rescanning every
             // in-flight request. This keeps admission proportional to the
             // number of completions since the previous frame.
-            while requests.try_join_next().is_some() {}
-            requests.spawn(task);
+            while requests.0.try_join_next().is_some() {
+                requests.1 = requests.1.saturating_sub(1);
+            }
+            if !admit_workspace_request(requests.1) {
+                let refusal = Refusal::failed("workspace request limit reached; retry later");
+                let _ = self.outbound.send(error_frame(&request_id, &refusal));
+                return;
+            }
+            requests.0.spawn(task);
+            requests.1 += 1;
         } else {
             // The task has not been spawned yet, so a poisoned registry does
             // not leak work beyond this connection.
@@ -1104,7 +1120,7 @@ impl Connection {
 impl Drop for Connection {
     fn drop(&mut self) {
         if let Ok(mut requests) = self.requests.lock() {
-            requests.abort_all();
+            requests.0.abort_all();
         }
     }
 }
@@ -1806,5 +1822,13 @@ mod tests {
         assert_eq!(clamp_i64(0, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS), MIN_TIMEOUT_MS);
         assert_eq!(clamp_i64(999_999, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS), MAX_TIMEOUT_MS);
         let _ = root;
+    }
+
+    #[test]
+    fn workspace_admission_refuses_only_at_the_bound() {
+        assert!(admit_workspace_request(0));
+        assert!(admit_workspace_request(MAX_IN_FLIGHT_WORKSPACE_REQUESTS - 1));
+        assert!(!admit_workspace_request(MAX_IN_FLIGHT_WORKSPACE_REQUESTS));
+        assert!(!admit_workspace_request(MAX_IN_FLIGHT_WORKSPACE_REQUESTS + 1));
     }
 }
