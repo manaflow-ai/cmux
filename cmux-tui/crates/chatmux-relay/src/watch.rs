@@ -79,17 +79,12 @@ impl WatchRegistry {
     /// Watching is read-only: observe trust is admitted.
     pub fn open(&self, frame: wire::RelayFsWatchOpen, local_roots: Option<&[String]>) {
         let watch_id = frame.watch_id.clone();
-        let root = match watch_root(&frame, local_roots) {
-            Ok(root) => root,
-            Err(refusal) => {
-                self.refuse(&watch_id, refusal.code, &refusal.message);
-                return;
-            }
-        };
         let at_capacity = self
             .sessions
             .lock()
-            .map(|sessions| sessions.len() >= WATCH_MAX_SESSIONS)
+            .map(|sessions| {
+                sessions.len() >= WATCH_MAX_SESSIONS && !sessions.contains_key(&watch_id)
+            })
             .unwrap_or(true);
         if at_capacity {
             self.refuse(
@@ -99,6 +94,13 @@ impl WatchRegistry {
             );
             return;
         }
+        let root = match watch_root(&frame, local_roots) {
+            Ok(root) => root,
+            Err(refusal) => {
+                self.refuse(&watch_id, refusal.code, &refusal.message);
+                return;
+            }
+        };
         let opened = serde_json::to_string(&wire::RelayFsWatchOpened {
             version: WORKSPACE_FRAME_VERSION,
             r#type: wire::TagFsWatchOpened::FsWatchOpened,
@@ -479,7 +481,9 @@ mod tests {
             let opened = next_frame(&mut rx, "opened").await;
             assert_eq!(opened["type"], "fs_watch_opened", "watch {index}");
         }
-        registry.open(open_frame("w-past-cap", &root), None);
+        let mut over_cap = open_frame("w-past-cap", &root);
+        over_cap.root = Some("/path/that/does/not/exist".to_owned());
+        registry.open(over_cap, None);
         let capped = next_frame(&mut rx, "watch_limit").await;
         assert_eq!(capped["type"], "fs_watch_error");
         assert_eq!(capped["code"], "watch_limit");
