@@ -1176,9 +1176,9 @@ struct BrowserPanelView: View {
                         onToggle: { panel.toggleDesignModeFromBrowserChrome(reason: "toolbar") }
                     )
                 }
-                developerToolsButton
                 browserProfileButton
                 browserThemeModeButton
+                developerToolsButton
                 browserOverflowMenu
             }
             .accessibilityElement(children: .contain)
@@ -1504,7 +1504,7 @@ struct BrowserPanelView: View {
             .disabled(!panel.shouldRenderWebView)
             .accessibilityIdentifier("BrowserScreenshotSectionButton")
         } label: {
-            CmuxSystemSymbolImage(systemName: "ellipsis", pointSize: devToolsButtonIconSize, weight: .medium)
+            CmuxSystemSymbolImage(systemName: "ellipsis.vertical", pointSize: devToolsButtonIconSize, weight: .medium)
                 .foregroundStyle(devToolsColorOption.color)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
