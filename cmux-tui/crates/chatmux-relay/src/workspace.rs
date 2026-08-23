@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
-use tokio::sync::{Semaphore, mpsc::UnboundedSender};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc::UnboundedSender};
 
 use crate::preview_proxy::PreviewRegistry;
 use crate::relay_wire as wire;
@@ -1121,36 +1121,82 @@ async fn run_op(
     runtime: &Arc<SharedRuntime>,
     request: wire::RelayWorkspaceRequest,
 ) -> Result<wire::WorkspaceResultBody, Refusal> {
-    let scope = Scope::build(request.allowed_roots.as_deref(), runtime.local_roots.as_deref())?;
+    let frame_roots = request.allowed_roots;
     match request.op {
-        wire::WorkspaceOp::FsTree(op) => blocking(runtime, move || run_tree(&scope, &op)).await,
-        wire::WorkspaceOp::FsRead(op) => blocking(runtime, move || run_read(&scope, &op)).await,
-        wire::WorkspaceOp::FsWrite(op) => blocking(runtime, move || run_write(&scope, &op)).await,
-        wire::WorkspaceOp::FsRename(op) => blocking(runtime, move || run_rename(&scope, &op)).await,
-        wire::WorkspaceOp::FsDelete(op) => blocking(runtime, move || run_delete(&scope, &op)).await,
-        wire::WorkspaceOp::FsSearch(op) => blocking(runtime, move || run_search(&scope, &op)).await,
-        wire::WorkspaceOp::GitStatus(_) => run_git_status(&scope).await,
-        wire::WorkspaceOp::GitDiff(op) => run_git_diff(&scope, &op).await,
+        wire::WorkspaceOp::FsTree(op) => {
+            blocking_scoped(runtime, frame_roots, move |scope| run_tree(scope, &op)).await
+        }
+        wire::WorkspaceOp::FsRead(op) => {
+            blocking_scoped(runtime, frame_roots, move |scope| run_read(scope, &op)).await
+        }
+        wire::WorkspaceOp::FsWrite(op) => {
+            blocking_scoped(runtime, frame_roots, move |scope| run_write(scope, &op)).await
+        }
+        wire::WorkspaceOp::FsRename(op) => {
+            blocking_scoped(runtime, frame_roots, move |scope| run_rename(scope, &op)).await
+        }
+        wire::WorkspaceOp::FsDelete(op) => {
+            blocking_scoped(runtime, frame_roots, move |scope| run_delete(scope, &op)).await
+        }
+        wire::WorkspaceOp::FsSearch(op) => {
+            blocking_scoped(runtime, frame_roots, move |scope| run_search(scope, &op)).await
+        }
+        wire::WorkspaceOp::GitStatus(_) => {
+            let (scope, _permit) = admitted_scope(runtime, frame_roots).await?;
+            run_git_status(&scope).await
+        }
+        wire::WorkspaceOp::GitDiff(op) => {
+            let (scope, _permit) = admitted_scope(runtime, frame_roots).await?;
+            run_git_diff(&scope, &op).await
+        }
         wire::WorkspaceOp::PreviewOpen(op) => runtime.preview.open(op.target_port).await,
         wire::WorkspaceOp::PreviewConsoleTail(op) => runtime.preview.tail(op.max_events),
     }
 }
 
-async fn blocking<F>(
+async fn acquire_blocking(runtime: &Arc<SharedRuntime>) -> Result<OwnedSemaphorePermit, Refusal> {
+    runtime.blocking.clone().acquire_owned().await.map_err(|_| {
+        Refusal::failed("workspace blocking worker pool is unavailable")
+    })
+}
+
+/// Build and validate a scope on the blocking pool after admission. The
+/// returned permit stays live for async subprocess work that uses the scope.
+/// If this future is cancelled during scope construction, the closure still
+/// owns the permit until its non-abortable filesystem work finishes.
+async fn admitted_scope(
     runtime: &Arc<SharedRuntime>,
+    frame_roots: Option<Vec<String>>,
+) -> Result<(Scope, OwnedSemaphorePermit), Refusal> {
+    let local_roots = runtime.local_roots.clone();
+    let permit = acquire_blocking(runtime).await?;
+    match tokio::task::spawn_blocking(move || {
+        let scope = Scope::build(frame_roots.as_deref(), local_roots.as_deref());
+        (scope, permit)
+    })
+    .await
+    {
+        Ok((scope, permit)) => Ok((scope?, permit)),
+        Err(join_error) => Err(Refusal::failed(format!("workspace op crashed: {join_error}"))),
+    }
+}
+
+async fn blocking_scoped<F>(
+    runtime: &Arc<SharedRuntime>,
+    frame_roots: Option<Vec<String>>,
     body: F,
 ) -> Result<wire::WorkspaceResultBody, Refusal>
 where
-    F: FnOnce() -> Result<wire::WorkspaceResultBody, Refusal> + Send + 'static,
+    F: FnOnce(&Scope) -> Result<wire::WorkspaceResultBody, Refusal> + Send + 'static,
 {
+    let local_roots = runtime.local_roots.clone();
     // Waiting for admission is cancellable when the connection drops. Once
     // admitted, the permit is moved into the closure and held until the
     // blocking call really finishes, since Tokio cannot abort it.
-    let permit = runtime.blocking.clone().acquire_owned().await.map_err(|_| {
-        Refusal::failed("workspace blocking worker pool is unavailable")
-    })?;
+    let permit = acquire_blocking(runtime).await?;
     match tokio::task::spawn_blocking(move || {
-        let outcome = body();
+        let outcome = Scope::build(frame_roots.as_deref(), local_roots.as_deref())
+            .and_then(|scope| body(&scope));
         drop(permit);
         outcome
     })
@@ -1252,6 +1298,19 @@ mod tests {
             .resolve(&inside_b_only.to_string_lossy(), false)
             .expect_err("outside the server echo");
         assert_eq!(refusal.code, wire::WorkspaceErrorCode::PathForbidden);
+    }
+
+    #[tokio::test]
+    async fn admitted_scope_holds_shared_permit_until_subprocess_work_finishes() {
+        let root = scratch("admitted-scope");
+        let roots = vec![root.to_string_lossy().into_owned()];
+        let runtime = Arc::new(SharedRuntime::new(Some(roots.clone())));
+
+        let (_scope, permit) = admitted_scope(&runtime, Some(roots)).await.expect("scope");
+        assert_eq!(runtime.blocking.available_permits(), MAX_BLOCKING_OPERATIONS - 1);
+
+        drop(permit);
+        assert_eq!(runtime.blocking.available_permits(), MAX_BLOCKING_OPERATIONS);
     }
 
     // --- fs ops ----------------------------------------------------------
