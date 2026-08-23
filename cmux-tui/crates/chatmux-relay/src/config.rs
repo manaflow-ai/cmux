@@ -109,6 +109,26 @@ pub fn load_config(path: &Path) -> Option<Config> {
     Some(config)
 }
 
+/// Load config while distinguishing a genuinely absent file from a present
+/// but unsafe file. Startup uses this to avoid silently re-onboarding into an
+/// unscoped session when persisted restrictions are malformed.
+pub fn load_config_checked(path: &Path) -> Result<Option<Config>, String> {
+    let raw = match std::fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("could not read relay config: {error}")),
+    };
+    let config: Config =
+        serde_json::from_str(&raw).map_err(|error| format!("invalid relay config: {error}"))?;
+    if config.device_id.is_empty() || config.token.is_empty() {
+        return Err("relay config is incomplete".to_owned());
+    }
+    if let Some(roots) = config.allowed_roots.as_deref() {
+        validate_allowed_roots(roots).map_err(str::to_owned)?;
+    }
+    Ok(Some(config))
+}
+
 /// Validate a local root list before it can be persisted or sent on the wire.
 /// The byte budget matches the server's UTF-8 JSON value budget conservatively
 /// by summing the encoded path strings, excluding JSON framing overhead.
@@ -235,7 +255,13 @@ mod tests {
         });
         std::fs::write(&path, serde_json::to_string(&raw).unwrap()).unwrap();
         assert!(load_config(&path).is_none());
+        assert!(load_config_checked(&path).is_err());
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn checked_load_distinguishes_missing_config() {
+        assert!(load_config_checked(&scratch("checked/missing.json")).unwrap().is_none());
     }
 
     #[cfg(unix)]

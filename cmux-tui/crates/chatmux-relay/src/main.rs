@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 use chatmux_relay::autostart;
 use chatmux_relay::cli::{Command, parse_cli_args};
 use chatmux_relay::config::{
-    Config, default_config_path, load_config, save_config, validate_allowed_roots,
+    Config, default_config_path, load_config, load_config_checked, save_config,
+    validate_allowed_roots,
 };
 use chatmux_relay::enrollment::load_managed_enrollment_file;
 use chatmux_relay::error::RelayError;
@@ -605,7 +606,10 @@ async fn main() {
     let existing = if parsed.command == Some(Command::Pair) {
         None
     } else {
-        load_config(&runtime.config_path)
+        match load_config_checked(&runtime.config_path) {
+            Ok(config) => config,
+            Err(error) => fatal_exit(&error),
+        }
     };
     let first_run = existing.is_none();
     let mut config = match existing {
