@@ -992,6 +992,11 @@ struct TaskComposerSheet: View {
     private func resumeDraft(_ id: UUID) {
         guard let onSwitchDraft else { return }
         persistDraft()
+        // The replaced view's onDisappear must not persist again: state
+        // storage is already torn down by the identity switch, so that late
+        // persist reads initial values and its empty snapshot would delete
+        // the draft that was just saved.
+        shouldPersistDraftOnDisappear = false
         onSwitchDraft(.resume(id))
     }
 
@@ -999,6 +1004,8 @@ struct TaskComposerSheet: View {
     private func startNewDraft() {
         guard let onSwitchDraft else { return }
         persistDraft()
+        // See resumeDraft: block the torn-down view's late empty persist.
+        shouldPersistDraftOnDisappear = false
         onSwitchDraft(.new)
     }
 
