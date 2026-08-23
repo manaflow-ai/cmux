@@ -2170,7 +2170,7 @@ impl Surface {
         mux: Weak<Mux>,
         resource_identity: Option<TabResourceIdentity>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let cell_pixels =
+        let mut cell_pixels =
             mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
         Self::spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
             id,

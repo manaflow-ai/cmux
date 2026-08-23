@@ -2694,8 +2694,8 @@ impl Mux {
     }
     fn finish_resource_close(&self, committed: CommittedResourceClose) -> ResourcePatchCommit {
         let effects = committed.effects;
-        if let Some(terminal_id) = effects.closed_terminal_public_id {
-            self.notify_terminal_exit_waiters(Some(terminal_id));
+        if let Some(terminal_id) = effects.closed_terminal_public_id.as_ref() {
+            self.notify_terminal_exit_waiters(std::iter::once(terminal_id.clone()));
         }
 
         #[cfg(test)]
