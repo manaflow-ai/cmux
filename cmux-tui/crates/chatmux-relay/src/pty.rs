@@ -26,10 +26,10 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 
 use async_trait::async_trait;
-use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
 use bytes::Bytes;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use crate::actions::{expand_path, scrubbed_env, validate_request_path};
 use crate::control::ControlHandle;
@@ -156,7 +156,11 @@ fn scoped_cwd(
 
 fn clamp_dim(value: Option<&Value>) -> Option<u16> {
     let number = value.and_then(Value::as_i64)?;
-    if (1..=10_000).contains(&number) { u16::try_from(number).ok() } else { None }
+    if (1..=10_000).contains(&number) {
+        u16::try_from(number).ok()
+    } else {
+        None
+    }
 }
 
 fn parse_allowed_roots(frame: &Value) -> Result<Option<Vec<String>>, &'static str> {
@@ -812,7 +816,8 @@ impl Inner {
                 control.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             }
-            let tabs = collect_pty_tabs(listed.get("data"));
+            let tabs = collect_pty_tabs_strict(listed.get("data"))
+                .map_err(|_| "cannot inspect existing daemon surfaces".to_owned())?;
             if tabs.len() > MAX_ENUM_TERMINALS || (tabs.is_empty() && !ensured.created) {
                 control.end();
                 return Err("cannot prove existing daemon cwd is within allowed roots".to_owned());
@@ -1323,6 +1328,63 @@ fn collect_pty_tabs(data: Option<&Value>) -> Vec<PtyTab> {
         }
     }
     tabs
+}
+
+fn collect_pty_tabs_strict(data: Option<&Value>) -> Result<Vec<PtyTab>, ()> {
+    let Some(workspaces) = data.and_then(|d| d.get("workspaces")).and_then(Value::as_array) else {
+        return Err(());
+    };
+    let mut tabs = Vec::new();
+    for workspace in workspaces {
+        let Some(screens) = workspace.get("screens").and_then(Value::as_array) else {
+            return Err(());
+        };
+        for screen in screens {
+            let Some(panes) = screen.get("panes").and_then(Value::as_array) else { return Err(()) };
+            for pane in panes {
+                let Some(entries) = pane.get("tabs").and_then(Value::as_array) else {
+                    return Err(());
+                };
+                for tab in entries {
+                    if tab.get("kind").and_then(Value::as_str) != Some("pty")
+                        || tab.get("dead").and_then(Value::as_bool) == Some(true)
+                    {
+                        continue;
+                    }
+                    let Some(surface_id) = tab.get("surface").and_then(Value::as_i64) else {
+                        return Err(());
+                    };
+                    tabs.push(PtyTab {
+                        surface_id,
+                        resource_id: tab
+                            .get("terminal_resource_id")
+                            .and_then(Value::as_str)
+                            .filter(|v| !v.is_empty())
+                            .map(str::to_owned),
+                        title: tab
+                            .get("title")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_owned(),
+                        name: tab
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_owned(),
+                        workspace: workspace
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_owned(),
+                    });
+                    if tabs.len() > MAX_ENUM_TERMINALS {
+                        return Err(());
+                    }
+                }
+            }
+        }
+    }
+    Ok(tabs)
 }
 
 fn workspace_shape_valid(data: Option<&Value>) -> bool {
