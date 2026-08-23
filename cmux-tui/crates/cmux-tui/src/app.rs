@@ -14388,7 +14388,7 @@ impl App {
                             return Ok(RenderAction::None);
                         }
                         self.status_message = Some(
-                            "Mux event backlog overflowed; subscription recovered".to_string(),
+                            localization::catalog().session.mux_subscription_recovered.to_string(),
                         );
                     }
                     Err(error) => {
@@ -14411,9 +14411,9 @@ impl App {
                         self.session.invalidate_remote_tree();
                         self.session.refresh_remote_tree_if_stale();
                         self.status_message = Some(
-                            format!(
-                                "Mux event backlog recovery failed; queued input was discarded while retrying: {error}"
-                            ),
+                            localization::catalog()
+                                .session
+                                .mux_subscription_recovery_failed(&error),
                         );
                     }
                 }
