@@ -802,22 +802,43 @@ final class WorkspaceContentViewVisibilityTests {
             WorkspaceContentView.agentPaneStateColor(
                 enabled: true,
                 revision: 0,
+                lifecycles: running
+            ) == WorkspaceAttentionColor(configuredHex: AgentPaneStateBorder.runningHex)
+        )
+    }
+
+    @Test
+    func agentPaneStateColorBordersAgentlessPanesBlack() {
+        // A pane with no agent reporting — or only unknown states — is a plain
+        // terminal and takes the neutral black border rather than none.
+        let noAgent = WorkspaceAttentionColor(configuredHex: "#000000")
+        #expect(
+            WorkspaceContentView.agentPaneStateColor(
+                enabled: true,
+                revision: 0,
                 lifecycles: nil
-            ) == nil
+            ) == noAgent
+        )
+        #expect(
+            WorkspaceContentView.agentPaneStateColor(
+                enabled: true,
+                revision: 0,
+                lifecycles: [:]
+            ) == noAgent
         )
         #expect(
             WorkspaceContentView.agentPaneStateColor(
                 enabled: true,
                 revision: 0,
                 lifecycles: ["codex": .unknown]
-            ) == nil
+            ) == noAgent
         )
         #expect(
             WorkspaceContentView.agentPaneStateColor(
-                enabled: true,
+                enabled: false,
                 revision: 0,
-                lifecycles: running
-            ) == WorkspaceAttentionColor(configuredHex: AgentPaneStateBorder.runningHex)
+                lifecycles: nil
+            ) == nil
         )
     }
 
