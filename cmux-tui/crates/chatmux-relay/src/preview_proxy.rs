@@ -532,6 +532,8 @@ fn status_response(
 /// Close code sent to a page/devtools connection displaced by a newer one
 /// ("latest connection wins" in the pinned contract).
 const REPLACED_CLOSE_CODE: u16 = 4001;
+/// Bound cleanup when a displaced peer's TCP writer is stuck.
+const REPLACED_WRITER_FLUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 
 fn accept_websocket(
     shared: Arc<ProxyShared>,
@@ -724,7 +726,7 @@ async fn run_peer<S>(
     // then abort a writer stuck behind a non-reading socket. Other exits
     // abort immediately because the read side has already ended.
     if replaced {
-        if tokio::time::timeout(std::time::Duration::from_secs(1), &mut writer).await.is_err() {
+        if tokio::time::timeout(REPLACED_WRITER_FLUSH_TIMEOUT, &mut writer).await.is_err() {
             writer.abort();
             let _ = writer.await;
         }
