@@ -863,12 +863,18 @@ impl ProviderMachineRuntime {
                                 .machines
                                 .iter()
                                 .filter(|descriptor| {
-                                    descriptor.id != deleted_id && !recoverable(&descriptor.id)
+                                    descriptor.id != deleted_id
+                                        && descriptor.connectable
+                                        && !recoverable(&descriptor.id)
                                 })
                                 .map(|descriptor| descriptor.id.clone())
                                 .collect();
                             runtime.snapshot.selected_machine_id =
                                 usable.get(deleted_slot.min(usable.len().saturating_sub(1))).cloned();
+                            runtime.workspace_snapshot = load_workspace_snapshot(
+                                &runtime.client,
+                                &runtime.snapshot,
+                            )?;
                         }
                         crate::client_log::info(
                             "machine",

@@ -17125,6 +17125,14 @@ impl App {
     }
 
     fn handle_machine_sidebar_key(&mut self, key: &KeyEvent) -> RenderAction {
+        if self.config.keys.action_for(key) == Some(Action::ProviderMenu)
+            || (!self.config.keys.provider_menu_overridden
+                && key.modifiers == KeyModifiers::NONE
+                && key.code == KeyCode::Char('m'))
+        {
+            let _ = self.open_provider_rail_menu(1, 2);
+            return RenderAction::Draw;
+        }
         if matches!(key.code, KeyCode::Left | KeyCode::Char('h')) {
             self.focus_adjacent_rail(RailKind::Machine, -1);
             return RenderAction::Draw;
