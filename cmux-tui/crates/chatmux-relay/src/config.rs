@@ -116,6 +116,9 @@ pub fn validate_allowed_roots(roots: &[String]) -> Result<(), &'static str> {
     if roots.len() > MAX_ALLOWED_ROOTS {
         return Err("too many allowed roots (maximum is 32)");
     }
+    if roots.iter().any(String::is_empty) {
+        return Err("allowed roots must not be empty");
+    }
     let bytes = roots.iter().try_fold(0usize, |total, root| {
         total.checked_add(root.len()).ok_or("allowed roots are too large")
     })?;
@@ -218,6 +221,7 @@ mod tests {
         assert!(validate_allowed_roots(&too_many).is_err());
         let too_large = vec!["x".repeat(MAX_ALLOWED_ROOT_BYTES + 1)];
         assert!(validate_allowed_roots(&too_large).is_err());
+        assert!(validate_allowed_roots(&[String::new()]).is_err());
     }
 
     #[test]
