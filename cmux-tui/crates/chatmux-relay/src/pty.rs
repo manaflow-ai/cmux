@@ -2337,6 +2337,57 @@ mod tests {
     }
 
     #[test]
+    fn scoped_cwd_accepts_absolute_and_home_relative_paths() {
+        let root = std::env::temp_dir().join(format!("cmux-pty-cwd-{}", std::process::id()));
+        let nested = root.join("nested");
+        std::fs::create_dir_all(&nested).unwrap();
+        assert_eq!(
+            scoped_cwd(Some(&home), Path::new(&home), None, None).unwrap(),
+            std::fs::canonicalize(&root).unwrap()
+        );
+        assert_eq!(
+            scoped_cwd(Some("~/nested"), Path::new(&home), None, None).unwrap(),
+            std::fs::canonicalize(nested).unwrap()
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn scoped_cwd_rejects_relative_requests_and_defaults_null_or_empty() {
+        let root =
+            std::env::temp_dir().join(format!("cmux-pty-cwd-default-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let home = root.to_string_lossy().into_owned();
+        assert_eq!(
+            scoped_cwd(Some("relative"), &root, None, None).unwrap_err(),
+            "cwd must be absolute or home-relative"
+        );
+        assert_eq!(
+            scoped_cwd(None, &root, None, None).unwrap(),
+            std::fs::canonicalize(&root).unwrap()
+        );
+        assert_eq!(
+            scoped_cwd(Some(""), &root, None, None).unwrap(),
+            std::fs::canonicalize(&root).unwrap()
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn malformed_process_info_cwd_is_cleaned_to_empty_picker_component() {
+        assert_eq!(shorten_cwd("", "/home/u"), "");
+        assert_eq!(shorten_cwd("/home/u/project", "/home/u"), "~/project");
+        let malformed = serde_json::json!({"cwd": {"path": "/tmp"}});
+        assert_eq!(
+            shorten_cwd(
+                malformed.get("cwd").and_then(Value::as_str).unwrap_or_default(),
+                "/home/u"
+            ),
+            ""
+        );
+    }
+
+    #[test]
     fn go_live_replay_stays_ahead_of_concurrent_output_and_exit() {
         let stream = TestArc::new(TerminalStream::new());
         stream.push_output(Bytes::from_static(b"buffered"));
