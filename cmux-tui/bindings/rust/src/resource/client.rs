@@ -8,8 +8,6 @@ use crate::{Error, Result};
 use serde_json::{Map, Value};
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::mem::{offset_of, size_of};
-use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, TryLockError};
@@ -22,18 +20,6 @@ const DEFAULT_STREAM_ITEMS: usize = 256;
 const DEFAULT_STREAM_BYTES: usize = 16 * 1024 * 1024;
 const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const LOCK_POLL_INTERVAL: Duration = Duration::from_millis(1);
-
-fn is_hashed_socket(path: &std::path::Path) -> bool {
-    path.parent()
-        .and_then(std::path::Path::file_name)
-        .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
-}
-
-fn unix_socket_path_fits(path: &std::path::Path) -> bool {
-    const SUN_PATH_CAPACITY: usize =
-        size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
-    path.as_os_str().as_bytes().len() < SUN_PATH_CAPACITY
-}
 
 thread_local! {
     static REQUEST_SCOPES: RefCell<Vec<(usize, RequestOptions)>> = const {
@@ -117,6 +103,7 @@ fn connect_with_budget(
     );
     if let Err(Error::ConnectionIo { kind, .. }) = &result
         && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
+        && crate::client::env_socket_path().as_ref() != Some(&config.socket_path)
         && crate::client::hashed_socket_legacy_path(&config.socket_path).is_some()
     {
         return JsonLineConnection::connect_with_poll_checks(
@@ -135,7 +122,6 @@ fn connect_with_budget(
 #[derive(Clone, Debug)]
 pub struct Config {
     pub socket_path: PathBuf,
-    /// Optional legacy socket path tried when the primary path is unavailable.
     ///
     /// This is public so callers that construct `Config` with a struct literal
     /// can preserve compatibility when configuring the legacy fallback.
