@@ -992,8 +992,10 @@ impl HostInputIngress {
         // always applies the final dimensions instead of spending queue space
         // on stale events.
         if event.is_resize() && state.events.back().is_some_and(HostInputMessage::is_resize) {
-            let previous_bytes = state.events.back().map(HostInputMessage::retained_bytes).unwrap_or(0);
-            state.retained_bytes = state.retained_bytes.saturating_sub(previous_bytes).saturating_add(retained_bytes);
+            let previous_bytes =
+                state.events.back().map(HostInputMessage::retained_bytes).unwrap_or(0);
+            state.retained_bytes =
+                state.retained_bytes.saturating_sub(previous_bytes).saturating_add(retained_bytes);
             *state.events.back_mut().unwrap() = event;
             return Ok(false);
         }
