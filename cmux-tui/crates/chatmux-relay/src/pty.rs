@@ -155,6 +155,22 @@ fn clamp_dim(value: Option<&Value>) -> Option<u16> {
     }
 }
 
+fn parse_allowed_roots(frame: &Value) -> Result<Option<Vec<String>>, &'static str> {
+    let Some(value) = frame.get("allowedRoots") else { return Ok(None) };
+    if value.is_null() {
+        return Ok(None);
+    }
+    let roots = value.as_array().ok_or("allowedRoots must be an array")?;
+    if roots.len() > MAX_ALLOWED_ROOTS || roots.iter().any(|root| !root.is_string()) {
+        return Err("invalid allowedRoots");
+    }
+    let total: usize = roots.iter().map(|root| root.as_str().unwrap().len()).sum();
+    if total > MAX_ALLOWED_ROOT_BYTES {
+        return Err("invalid allowedRoots");
+    }
+    Ok(Some(roots.iter().map(|root| root.as_str().unwrap().to_owned()).collect()))
+}
+
 // ---------------------------------------------------------------------------
 // Injected dependencies (real impls in `deps`; tests inject fakes)
 // ---------------------------------------------------------------------------
@@ -515,32 +531,13 @@ impl Inner {
 
         // cwd discipline: the local config and server-echoed root lists both
         // apply when present, else $HOME.
-        if let Some(value) = frame.get("allowedRoots") {
-            if !value.is_null() && !value.is_array() {
-                fail("bad_request", "allowedRoots must be an array");
+        let server_roots = match parse_allowed_roots(frame) {
+            Ok(roots) => roots,
+            Err(message) => {
+                fail("bad_request", message);
                 return;
             }
-        }
-        let server_roots: Option<Vec<String>> =
-            frame.get("allowedRoots").and_then(Value::as_array).map(|roots| {
-                if roots.len() > MAX_ALLOWED_ROOTS
-                    || roots.iter().filter_map(Value::as_str).map(str::len).sum::<usize>()
-                        > MAX_ALLOWED_ROOT_BYTES
-                    || roots.iter().any(|root| !root.is_string())
-                {
-                    return Vec::new();
-                }
-                roots.iter().map(|root| root.as_str().unwrap().to_owned()).collect()
-            });
-        if frame.get("allowedRoots").and_then(Value::as_array).is_some_and(|roots| {
-            roots.len() > MAX_ALLOWED_ROOTS
-                || roots.iter().filter_map(Value::as_str).map(str::len).sum::<usize>()
-                    > MAX_ALLOWED_ROOT_BYTES
-                || roots.iter().any(|root| !root.is_string())
-        }) {
-            fail("bad_request", "invalid allowedRoots");
-            return;
-        }
+        };
         let cwd = match scoped_cwd(
             frame.get("cwd").and_then(Value::as_str),
             &self.home,
