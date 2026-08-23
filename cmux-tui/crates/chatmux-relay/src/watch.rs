@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use tokio::sync::Notify;
 use tokio::sync::mpsc::{Receiver, Sender, channel};
 
 use crate::relay_wire as wire;
@@ -128,7 +129,7 @@ impl WatchRegistry {
         let outbound = self.outbound.clone();
         let sessions = Arc::clone(&self.sessions);
         let task_id = watch_id.clone();
-        let task = tokio::spawn(async move {
+        let mut task = Some(tokio::spawn(async move {
             run_watch(&task_id, &root, &outbound).await;
             if let Ok(mut sessions) = sessions.lock() {
                 if sessions
@@ -138,12 +139,24 @@ impl WatchRegistry {
                     sessions.remove(&task_id);
                 }
             }
-        });
-        if let Ok(mut sessions) = self.sessions.lock() {
+        }));
+        let installed = if let Ok(mut sessions) = self.sessions.lock() {
             if let Some(entry) = sessions.get_mut(&watch_id) {
                 if entry.0 == generation {
-                    entry.1 = Some(task);
+                    entry.1 = task.take();
+                    true
+                } else {
+                    false
                 }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if !installed {
+            if let Some(task) = task {
+                task.abort();
             }
         }
         if let Some((_, Some(previous))) = previous {
@@ -180,9 +193,11 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
     let (event_tx, mut event_rx) =
         channel::<Result<notify::Event, notify::Error>>(MAX_PENDING_NOTIFY_EVENTS);
     let overflowed = Arc::new(AtomicBool::new(false));
+    let overflow_notify = Arc::new(Notify::new());
     let callback_overflowed = Arc::clone(&overflowed);
+    let callback_notify = Arc::clone(&overflow_notify);
     let mut watcher = match notify::recommended_watcher(move |event| {
-        try_enqueue_notify_event(&event_tx, &callback_overflowed, event);
+        try_enqueue_notify_event(&event_tx, &callback_overflowed, &callback_notify, event);
     }) {
         Ok(watcher) => watcher,
         Err(error) => {
@@ -208,8 +223,15 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
     }
     let mut matcher = build_ignore_matcher(root);
     loop {
-        let Some(first) = event_rx.recv().await else { break };
-        let mut burst = vec![first];
+        let notified = overflow_notify.notified();
+        let first = tokio::select! {
+            event = event_rx.recv() => event,
+            _ = notified => None,
+        };
+        let mut burst = first.into_iter().collect::<Vec<_>>();
+        if burst.is_empty() && !overflowed.load(Ordering::Acquire) {
+            break;
+        }
         drain_burst(&mut event_rx, &mut burst).await;
         let mut fatal: Option<notify::Error> = None;
         let mut overflow = overflowed.swap(false, Ordering::AcqRel);
@@ -298,9 +320,15 @@ async fn drain_burst(
     }
 }
 
-fn try_enqueue_notify_event<T>(sender: &Sender<T>, overflowed: &AtomicBool, event: T) {
+fn try_enqueue_notify_event<T>(
+    sender: &Sender<T>,
+    overflowed: &AtomicBool,
+    notify: &Notify,
+    event: T,
+) {
     if sender.try_send(event).is_err() {
         overflowed.store(true, Ordering::Release);
+        notify.notify_one();
     }
 }
 
