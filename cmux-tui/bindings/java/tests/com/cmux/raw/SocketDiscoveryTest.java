@@ -72,7 +72,7 @@ public final class SocketDiscoveryTest {
             "501"
         );
         check(
-            resolved.equals(Path.of("/tmp/cmux-tui-501/sdk.sock")),
+            resolved.equals(Path.of("/tmp/cmux-tui-501/a9d0df1873a041a6e38e2c461ffc6b53d216fd7cfab9bece3e9b5bc5c69b4203.sock")),
             "short /tmp fallback"
         );
         check(SocketDiscovery.fitsUnixSocket(resolved), "fallback fits sockaddr_un");

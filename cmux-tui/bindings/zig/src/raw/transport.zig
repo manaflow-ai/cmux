@@ -1,4 +1,5 @@
 const std = @import("std");
+const Sha256 = std.crypto.hash.sha2.Sha256;
 const builtin = @import("builtin");
 const transport_hook_test = if (builtin.is_test)
     @import("transport_hook_test.zig")
@@ -497,10 +498,12 @@ pub fn resolveSocketPath(
     );
     if (preferred.len < 103) return preferred;
     allocator.free(preferred);
+    var digest: [Sha256.digest_length]u8 = undefined;
+    Sha256.hash(session, &digest, .{});
     return std.fmt.allocPrint(
         allocator,
-        "/tmp/cmux-tui-{d}/{s}.sock",
-        .{ std.posix.getuid(), session },
+        "/tmp/cmux-tui-{d}/{x}.sock",
+        .{ std.posix.getuid(), digest },
     );
 }
 

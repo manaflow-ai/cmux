@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Map;
 import java.util.Objects;
 
@@ -44,7 +46,7 @@ public final class SocketDiscovery {
         if (fitsUnixSocket(preferred)) {
             return preferred;
         }
-        return Path.of("/tmp", "cmux-tui-" + uid, fileName);
+        return Path.of("/tmp", "cmux-tui-" + uid, sha256Hex(session) + ".sock");
     }
 
     public static Path defaultSocketPath(String session) {
@@ -83,6 +85,18 @@ public final class SocketDiscovery {
             .toLowerCase()
             .contains("mac") ? 104 : 108;
         return path.toString().getBytes(StandardCharsets.UTF_8).length < capacity;
+    }
+
+    private static String sha256Hex(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                .digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder result = new StringBuilder(digest.length * 2);
+            for (byte item : digest) result.append(String.format("%02x", item & 0xff));
+            return result.toString();
+        } catch (NoSuchAlgorithmException error) {
+            throw new AssertionError("SHA-256 is required", error);
+        }
     }
 
     static String currentUid() {
