@@ -22,6 +22,7 @@ use futures_util::{SinkExt as _, StreamExt as _};
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio::sync::{Mutex as AsyncMutex, Semaphore};
+use tokio::task::JoinSet;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::{Error as TungsteniteError, Message};
 
@@ -209,7 +210,8 @@ async fn relay_session(
     let (workspace_tx, mut workspace_rx) = mpsc::unbounded_channel::<String>();
     let workspace = crate::workspace::Connection::new(workspace_runtime, workspace_tx);
     let workspace_out = out_tx.clone();
-    tokio::spawn(async move {
+    let mut connection_tasks = JoinSet::new();
+    connection_tasks.spawn(async move {
         while let Some(text) = workspace_rx.recv().await {
             if let Ok(frame) = serde_json::from_str::<Value>(&text) {
                 let _ = workspace_out.send(frame);
@@ -226,7 +228,7 @@ async fn relay_session(
         let out = out_tx.clone();
         let pending = Arc::clone(&pending);
         let auth = Arc::clone(&auth);
-        tokio::spawn(async move {
+        connection_tasks.spawn(async move {
             while let Some(frame) = pty_rx.recv().await {
                 let snapshot = auth.lock().expect("auth lock").clone();
                 let context = make_context(&out, &pending, &snapshot);
@@ -471,7 +473,7 @@ async fn relay_session(
                                 continue;
                             }
                         };
-                        tokio::spawn(async move {
+                        connection_tasks.spawn(async move {
                             let _permit = permit;
                             let result = perform_action(&raw, &action).await;
                             let ok = result.get("ok").and_then(Value::as_bool).unwrap_or(false);
@@ -565,6 +567,10 @@ async fn relay_session(
             }
         }
     };
+
+    // Handlers are owned by this socket. Cancel them before returning so a
+    // dropped connection cannot leave work sending into a dead session.
+    connection_tasks.shutdown().await;
 
     // Attachments die with the socket; sessions persist (docs/TERMINAL.md).
     #[cfg(unix)]
