@@ -22,7 +22,9 @@ use tokio::task::JoinSet;
 
 use crate::daemon::RemoteDaemon;
 use crate::identity::{EnrollmentRelayAccess, IdentityError};
-use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff, UnixSocketError};
+use crate::unix_socket::{
+    OwnedUnixListener, UnixAcceptBackoff, UnixSocketCleanup, UnixSocketError,
+};
 
 const MAX_ADMIN_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_ADMIN_CONNECTIONS: usize = 32;
@@ -143,6 +145,7 @@ pub struct DaemonStatus {
 
 pub struct AdminServer {
     path: PathBuf,
+    socket_cleanup: Arc<UnixSocketCleanup>,
     shutdown: Option<oneshot::Sender<()>>,
     task: Option<tokio::task::JoinHandle<Result<(), AdminError>>>,
 }
@@ -167,6 +170,10 @@ impl AdminServer {
 
 impl Drop for AdminServer {
     fn drop(&mut self) {
+        // The listener is owned by the accept task. Unlink the path here as
+        // well, because aborting a task only schedules cancellation; its
+        // listener may not be dropped before this wrapper returns.
+        let _ = self.socket_cleanup.unlink();
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
@@ -201,6 +208,7 @@ pub async fn serve_admin_with_shutdown(
             AdminError::Protocol(format!("could not own admin Unix socket: {message}"))
         }
     })?;
+    let socket_cleanup = listener.cleanup();
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let permits = Arc::new(Semaphore::new(MAX_ADMIN_CONNECTIONS));
     let task = tokio::spawn(async move {
@@ -264,7 +272,7 @@ pub async fn serve_admin_with_shutdown(
             }
         }
     });
-    Ok(AdminServer { path, shutdown: Some(shutdown_tx), task: Some(task) })
+    Ok(AdminServer { path, socket_cleanup, shutdown: Some(shutdown_tx), task: Some(task) })
 }
 
 pub async fn call_admin(

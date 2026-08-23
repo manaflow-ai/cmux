@@ -38,7 +38,7 @@ use crate::observability::{ConnectionState, ServerConnectionSnapshot};
 use crate::provider::AxumWebSocketLink;
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 #[cfg(unix)]
-use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff};
+use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff, UnixSocketCleanup};
 
 const PENDING_LINK_TTL: Duration = Duration::from_secs(30);
 const MAX_PENDING_LINK_GROUPS: usize = 256;
@@ -1438,6 +1438,7 @@ async fn upgrade_websocket(
 #[cfg(unix)]
 pub struct UnixServer {
     path: PathBuf,
+    socket_cleanup: Arc<UnixSocketCleanup>,
     shutdown: Option<oneshot::Sender<()>>,
     task: Option<tokio::task::JoinHandle<Result<(), DaemonError>>>,
 }
@@ -1464,6 +1465,10 @@ impl UnixServer {
 #[cfg(unix)]
 impl Drop for UnixServer {
     fn drop(&mut self) {
+        // The listener is owned by the accept task. Unlink the path here as
+        // well, because aborting a task only schedules cancellation; its
+        // listener may not be dropped before this wrapper returns.
+        let _ = self.socket_cleanup.unlink();
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
@@ -1493,6 +1498,7 @@ pub async fn serve_unix_with_shutdown(
     let listener = OwnedUnixListener::bind(path.clone())
         .await
         .map_err(|error| DaemonError::Protocol(format!("could not own Unix socket: {error:#}")))?;
+    let socket_cleanup = listener.cleanup();
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let permits = Arc::new(Semaphore::new(MAX_UNIX_CONNECTIONS));
     let task = tokio::spawn(async move {
@@ -1558,7 +1564,7 @@ pub async fn serve_unix_with_shutdown(
             }
         }
     });
-    Ok(UnixServer { path, shutdown: Some(shutdown_tx), task: Some(task) })
+    Ok(UnixServer { path, socket_cleanup, shutdown: Some(shutdown_tx), task: Some(task) })
 }
 
 #[derive(Debug)]
