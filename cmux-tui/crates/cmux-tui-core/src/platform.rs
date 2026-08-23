@@ -777,7 +777,8 @@ fn local_hostname() -> Option<String> {
         return None;
     }
     let end = hostname.iter().position(|byte| *byte == 0).unwrap_or(hostname.len());
-    std::str::from_utf8(&hostname[..end]).ok().filter(|value| !value.is_empty()).map(str::to_owned)
+    let hostname = String::from_utf8_lossy(&hostname[..end]);
+    (!hostname.is_empty()).then(|| hostname.into_owned())
 }
 
 #[cfg(windows)]
