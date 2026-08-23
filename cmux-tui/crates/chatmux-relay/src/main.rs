@@ -221,11 +221,11 @@ fn offer_autostart(code_mode: bool, config_path: &Path) {
     if env.as_deref() == Some("1") {
         let result = std::env::current_exe()
             .map_err(|error| format!("could not locate relay executable: {error}"))
-            .and_then(|path| chatmux_relay::autostart::install(&path, config_path));
+            .and_then(|path| autostart::install(&path, config_path));
         match result {
             Ok(message) => println!("Autostart installed: {message}"),
             Err(message) => {
-                eprintln!("Autostart install failed: {message}. Continuing without it.")
+                eprintln!("Autostart install failed: {message}. Continuing without it.");
             }
         }
         return;
