@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -29,11 +29,12 @@ const DEBOUNCE_QUIET: Duration = Duration::from_millis(150);
 const DEBOUNCE_MAX_LATENCY: Duration = Duration::from_millis(500);
 const MAX_PENDING_NOTIFY_EVENTS: usize = 1024;
 
-type Sessions = Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>;
+type Sessions = Arc<Mutex<HashMap<String, (u64, tokio::task::JoinHandle<()>)>>>;
 
 pub struct WatchRegistry {
     outbound: OutboundSink,
     sessions: Sessions,
+    next_generation: Arc<AtomicU64>,
 }
 
 impl Drop for WatchRegistry {
@@ -41,7 +42,7 @@ impl Drop for WatchRegistry {
         // The socket died with this registry; the Worker re-opens watches
         // on the next connection.
         if let Ok(mut sessions) = self.sessions.lock() {
-            for (_, task) in sessions.drain() {
+            for (_, (_, task)) in sessions.drain() {
                 task.abort();
             }
         }
@@ -61,7 +62,11 @@ fn watch_error_frame(watch_id: &str, code: wire::WorkspaceErrorCode, message: &s
 
 impl WatchRegistry {
     pub fn new(outbound: OutboundSink) -> WatchRegistry {
-        WatchRegistry { outbound, sessions: Arc::new(Mutex::new(HashMap::new())) }
+        WatchRegistry {
+            outbound,
+            sessions: Arc::new(Mutex::new(HashMap::new())),
+            next_generation: Arc::new(AtomicU64::new(0)),
+        }
     }
 
     pub fn refuse(&self, watch_id: &str, code: wire::WorkspaceErrorCode, message: &str) {
@@ -73,7 +78,7 @@ impl WatchRegistry {
         if let Ok(mut sessions) = self.sessions.lock()
             && let Some(task) = sessions.remove(watch_id)
         {
-            task.abort();
+            task.1.abort();
         }
     }
 
@@ -81,21 +86,6 @@ impl WatchRegistry {
     /// Watching is read-only: observe trust is admitted.
     pub fn open(&self, frame: wire::RelayFsWatchOpen, local_roots: Option<&[String]>) {
         let watch_id = frame.watch_id.clone();
-        let at_capacity = self
-            .sessions
-            .lock()
-            .map(|sessions| {
-                sessions.len() >= WATCH_MAX_SESSIONS && !sessions.contains_key(&watch_id)
-            })
-            .unwrap_or(true);
-        if at_capacity {
-            self.refuse(
-                &watch_id,
-                wire::WorkspaceErrorCode::WatchLimit,
-                &format!("this machine already streams {WATCH_MAX_SESSIONS} watches"),
-            );
-            return;
-        }
         let root = match watch_root(&frame, local_roots) {
             Ok(root) => root,
             Err(refusal) => {
@@ -110,19 +100,42 @@ impl WatchRegistry {
             root: root.to_string_lossy().into_owned(),
         })
         .unwrap_or_else(|_| String::new());
-        let _ = self.outbound.try_critical_text(opened);
+        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
         let outbound = self.outbound.clone();
         let sessions = Arc::clone(&self.sessions);
         let task_id = watch_id.clone();
         let task = tokio::spawn(async move {
             run_watch(&task_id, &root, &outbound).await;
             if let Ok(mut sessions) = sessions.lock() {
-                sessions.remove(&task_id);
+                if sessions.get(&task_id).is_some_and(|entry| entry.0 == generation) {
+                    sessions.remove(&task_id);
+                }
             }
         });
-        if let Ok(mut sessions) = self.sessions.lock()
-            && let Some(previous) = sessions.insert(watch_id, task)
-        {
+        let previous = match self.sessions.lock() {
+            Ok(mut sessions)
+                if sessions.contains_key(&watch_id) || sessions.len() < WATCH_MAX_SESSIONS =>
+            {
+                Ok(sessions.insert(watch_id.clone(), (generation, task)))
+            }
+            Ok(_) | Err(_) => {
+                task.abort();
+                Err(())
+            }
+        };
+        let previous = match previous {
+            Ok(previous) => previous,
+            Err(()) => {
+                self.refuse(
+                    &watch_id,
+                    wire::WorkspaceErrorCode::WatchLimit,
+                    &format!("this machine already streams {WATCH_MAX_SESSIONS} watches"),
+                );
+                return;
+            }
+        };
+        let _ = self.outbound.try_critical_text(opened);
+        if let Some((_, previous)) = previous {
             previous.abort();
         }
     }
@@ -162,20 +175,24 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
     }) {
         Ok(watcher) => watcher,
         Err(error) => {
-            let _ = outbound.critical_text(watch_error_frame(
-                watch_id,
-                wire::WorkspaceErrorCode::Failed,
-                &format!("could not start the watcher: {error}"),
-            )).await;
+            let _ = outbound
+                .critical_text(watch_error_frame(
+                    watch_id,
+                    wire::WorkspaceErrorCode::Failed,
+                    &format!("could not start the watcher: {error}"),
+                ))
+                .await;
             return;
         }
     };
     if let Err(error) = watcher.watch(root, notify::RecursiveMode::Recursive) {
-        let _ = outbound.critical_text(watch_error_frame(
-            watch_id,
-            wire::WorkspaceErrorCode::Failed,
-            &format!("could not watch {}: {error}", root.display()),
-        )).await;
+        let _ = outbound
+            .critical_text(watch_error_frame(
+                watch_id,
+                wire::WorkspaceErrorCode::Failed,
+                &format!("could not watch {}: {error}", root.display()),
+            ))
+            .await;
         return;
     }
     let mut matcher = build_ignore_matcher(root);
@@ -213,6 +230,15 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
             changes.truncate(WATCH_MAX_CHANGES);
             overflow = true;
         }
+        if overflow {
+            let _ = outbound
+                .critical_text(watch_error_frame(
+                    watch_id,
+                    wire::WorkspaceErrorCode::Failed,
+                    "watch event burst overflowed; refresh the tree",
+                ))
+                .await;
+        }
         if !changes.is_empty() || overflow {
             let frame = serde_json::to_string(&wire::RelayFsWatchEvent {
                 version: WORKSPACE_FRAME_VERSION,
@@ -230,11 +256,13 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
             matcher = build_ignore_matcher(root);
         }
         if let Some(error) = fatal {
-            let _ = outbound.critical_text(watch_error_frame(
-                watch_id,
-                wire::WorkspaceErrorCode::Failed,
-                &format!("the watcher died: {error}"),
-            )).await;
+            let _ = outbound
+                .critical_text(watch_error_frame(
+                    watch_id,
+                    wire::WorkspaceErrorCode::Failed,
+                    &format!("the watcher died: {error}"),
+                ))
+                .await;
             break;
         }
     }
