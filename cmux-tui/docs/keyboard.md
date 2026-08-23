@@ -194,6 +194,7 @@ toggle-sidebar
 toggle-sidebar-compact
 toggle-sidebar-view
 focus-sidebar
+provider-menu
 new-pane-right
 undo-layout
 focus-left
