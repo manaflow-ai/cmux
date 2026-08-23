@@ -1502,7 +1502,8 @@ struct BrowserPanelView: View {
     }
 
     /// Low-frequency browser actions that do not need dedicated toolbar space.
-    /// Design Mode and DevTools stay visible because they are persistent tools.
+    /// In compact panes, the persistent tools join this menu so the omnibar
+    /// keeps its profile/theme anchors without clipping.
     private var browserOverflowMenu: some View {
         Menu {
             Button(action: handleBrowserFocusModeButtonAction) {
@@ -1552,9 +1553,15 @@ struct BrowserPanelView: View {
     }
 
     private var browserVerticalMoreIcon: some View {
-        Text(verbatim: "⋮")
-            .cmuxFont(size: devToolsButtonIconSize, weight: .medium)
+        // macOS does not expose `ellipsis.vertical`; rotate the native
+        // template symbol so the dots share the other accessories' tint/weight.
+        CmuxSystemSymbolImage(
+            systemName: "ellipsis",
+            pointSize: devToolsButtonIconSize + 2,
+            weight: .medium
+        )
             .foregroundStyle(devToolsColorOption.color)
+            .rotationEffect(.degrees(90))
             .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
             .accessibilityHidden(true)
     }

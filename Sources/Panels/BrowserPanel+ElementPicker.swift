@@ -57,7 +57,10 @@ extension BrowserPanel {
     private func deactivateReactGrabForDesignMode(reason: String) async -> Bool {
         guard isReactGrabActive else { return true }
         do {
-            _ = try await evaluateJavaScript("window.__REACT_GRAB__?.deactivate(); true")
+            _ = try await designModeController.evaluatePageJavaScript(
+                "window.__REACT_GRAB__?.deactivate(); true",
+                in: webView
+            )
             isReactGrabActive = false
             clearReactGrabRoundTrip(reason: "\(reason).deactivateReactGrab")
             return true
