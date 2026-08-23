@@ -28,6 +28,14 @@ use crate::pty::{
 
 const DAEMON_SOCKET_WAIT_MS: u64 = 5_000;
 
+async fn control_ready(control: &Arc<dyn ControlHandle>) -> bool {
+    control
+        .request("list", serde_json::Value::Null)
+        .await
+        .and_then(|response| response.get("ok").and_then(serde_json::Value::as_bool))
+        == Some(true)
+}
+
 /// Resolve the same bounded socket path that cmux-tui-core uses for a
 /// session. `socket_dir` is the preferred `<runtime-base>/cmux-tui-<uid>`
 /// directory supplied by this relay. The ordinary `/tmp` fallback is checked
@@ -462,13 +470,15 @@ impl PtyDeps for RealPtyDeps {
         let socket_path = session_socket_path(socket_dir, self.uid, session)?;
         if socket_exists(&socket_path).await {
             let ready = match connect_control(&socket_path, CONTROL_TIMEOUT_MS).await {
-                Ok(control) => control.request("list", serde_json::Value::Null).await.is_some(),
+                Ok(control) => control_ready(&control).await,
                 Err(_) => false,
             };
             if ready {
                 return Ok(EnsureDaemon { created: false, socket_path });
             }
-            return Err(format!("cmux-tui daemon for \"{session}\" is not control-ready"));
+            // A dead listener leaves a pathname behind. Remove it so a retry
+            // can bind a fresh daemon instead of being permanently poisoned.
+            let _ = tokio::fs::remove_file(&socket_path).await;
         }
         let mut args = cmux_tui.prefix.clone();
         args.extend([
@@ -487,9 +497,8 @@ impl PtyDeps for RealPtyDeps {
         command.stdout(std::process::Stdio::null());
         command.stderr(std::process::Stdio::null());
         command.process_group(0);
-        let child = command
-            .spawn()
-            .map_err(|error| format!("cmux-tui daemon spawn failed: {error}"))?;
+        let child =
+            command.spawn().map_err(|error| format!("cmux-tui daemon spawn failed: {error}"))?;
 
         let deadline = Instant::now() + Duration::from_millis(DAEMON_SOCKET_WAIT_MS);
         while Instant::now() < deadline {
@@ -497,15 +506,14 @@ impl PtyDeps for RealPtyDeps {
                 // Probe a control round-trip before declaring readiness.
                 while Instant::now() < deadline {
                     match connect_control(&socket_path, CONTROL_TIMEOUT_MS).await {
-                        Ok(control)
-                            if control.request("list", serde_json::Value::Null).await.is_some() =>
-                        {
+                        Ok(control) if control_ready(&control).await => {
                             return Ok(EnsureDaemon { created: true, socket_path });
                         }
                         _ => tokio::time::sleep(Duration::from_millis(50)).await,
                     }
                 }
                 cleanup_daemon(child).await;
+                let _ = tokio::fs::remove_file(&socket_path).await;
                 return Err(format!(
                     "cmux-tui daemon for \"{session}\" did not become control-ready"
                 ));
@@ -513,6 +521,7 @@ impl PtyDeps for RealPtyDeps {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         cleanup_daemon(child).await;
+        let _ = tokio::fs::remove_file(&socket_path).await;
         Err(format!("cmux-tui daemon for \"{session}\" never created {}", socket_path.display()))
     }
 
