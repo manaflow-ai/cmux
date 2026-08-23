@@ -2172,7 +2172,7 @@ pub const Client = struct {
             );
             break :blk .{ .connection = fallback.connection, .path = fallback.path };
         } else blk: {
-            const connection = try raw.transport.connectUnixWithTimeout(allocator, path, options.timeout_ms);
+            var connection = try raw.transport.connectUnixWithTimeout(allocator, path, options.timeout_ms);
             errdefer connection.deinit();
             const owned_path = try allocator.dupe(u8, path);
             break :blk .{ .connection = connection, .path = owned_path };

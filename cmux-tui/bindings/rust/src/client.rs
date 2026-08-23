@@ -205,11 +205,7 @@ impl ClientConfig {
     pub fn try_from_env_or_default_session(session: &str) -> Result<Self> {
         let environment = env_socket_path();
         let socket_path = socket_path_for_session(session, environment.clone())?;
-        Ok(if environment.is_some() {
-            Self::from_socket_path(socket_path)
-        } else {
-            Self::from_derived_socket_path(socket_path)
-        })
+        Ok(Self::from_socket_path(socket_path))
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {

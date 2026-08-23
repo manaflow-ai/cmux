@@ -125,7 +125,7 @@ pub const Client = struct {
         const resolved: transport.ResolvedConnection = if (options.socket_path == null and !(try transport.hasSocketOverride()))
             try transport.connectResolvedWithLegacyFallback(allocator, path, options.session, options.timeout_ms)
         else blk: {
-            const connection = try transport.connectUnixWithTimeout(allocator, path, options.timeout_ms);
+            var connection = try transport.connectUnixWithTimeout(allocator, path, options.timeout_ms);
             errdefer connection.deinit();
             break :blk .{ .connection = connection, .path = try allocator.dupe(u8, path) };
         };
