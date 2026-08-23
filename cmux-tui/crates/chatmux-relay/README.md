@@ -11,7 +11,7 @@ is the self-hosted encrypted-circuit relay server, a different product. The
 npm distribution of THIS crate keeps the `cmux-relay` package name because
 production sandbox images and the pairing docs install it by that name.
 
-## What it does (target state)
+## What it does
 
 - Pairing ceremony against the chatmux Worker (`POST /v2/pairing/start` +
   the pairing WebSocket): x25519 key fingerprint, cute-code SAS, URL
@@ -38,8 +38,10 @@ over the shared control socket (`cmux-terminal-client`).
 ## Port plan (slices)
 
 Each slice is gated on the JS relay's behavior; the chatmux e2e conformance
-harness is the cross-language gate (see below). The JS relay is deleted at
-cutover — pre-launch, no legacy.
+harness is the cross-language gate (see below). The Rust crate is the
+implementation used by the new machine-relay packaging. The Node relay in
+chatmux remains the rollback implementation until hosted conformance and a
+release have completed.
 
 1. **Config + pairing + presence (THIS SLICE, done)** — config file
    handling (`~/.config/chatmux-relay/config.json`, 0600), URL + `--code`
@@ -64,12 +66,11 @@ cutover — pre-launch, no legacy.
    and the reconciled-trust gate (observe = read-only verbs only).
    Slices 2 and 3, plus the v6 pane verbs, are included; the advertised
    dialect is **6**.
-4. **Wire-v6 pane verbs + preview proxy** — fs/git/watch verbs and the
-   chobitsu-injecting preview proxy (chatmux pane-primitives program;
-   these verbs have NO JS implementation — Rust-first by decision).
-5. **Autostart** — launchd/systemd user-unit install (`--autostart` /
-   `--uninstall`), replacing the npm runtime-install machinery with the
-   platform binary path. Windows currently reports unsupported behavior.
+4. **Wire-v6 pane verbs + preview proxy (DONE)** — fs/git/watch verbs and
+   the chobitsu-injecting preview proxy. These verbs have no JS
+   implementation; they are Rust-first by decision.
+5. **Autostart (DONE)** — launchd, systemd, and Windows Task Scheduler
+   install/uninstall (`--autostart` / `--uninstall`) use the platform binary.
 
 ### Intentional divergences from the JS relay (still open)
 
@@ -86,20 +87,16 @@ cutover — pre-launch, no legacy.
 ## Wire contract and the vendored protocol
 
 The wire truth is chatmux `packages/protocol/src/relay.ts`, emitted to
-`generated/schema/relay-client.schema.json`. A Rust serde emitter is being
-added to the chatmux protocol codegen (alongside the existing Swift and
-Kotlin targets) together with the wire-v6 pane verbs.
+`generated/schema/relay-client.schema.json`. The generated serde types for
+the workspace/v6 data plane are vendored in `src/relay_wire.rs`.
 
-Until that lands, `src/wire.rs` hand-models exactly the slice-1 subset and
-is clearly marked for replacement. Once `packages/protocol/generated/rust/`
-exists in chatmux:
+After a chatmux protocol change:
 
 1. In chatmux: `cd packages/protocol && bun run generate`.
 2. Copy `packages/protocol/generated/rust/relay_wire.rs` (generated,
-   do not edit; landed by chatmux PR #313) into this crate as
-   `src/protocol_generated.rs`.
-3. Replace the hand-modeled structs in `src/wire.rs` with re-exports from
-   the vendored module; keep only the tolerant-parse helpers.
+   do not edit) into this crate as `src/relay_wire.rs`.
+3. Keep `src/wire.rs` only for the pairing/presence compatibility frames
+   and tolerant parse helpers until those frames are also generated.
 4. Record the chatmux commit sha of the vendored file in the copy header.
 
 Regenerate + re-copy is part of any chatmux protocol change that touches
@@ -142,9 +139,11 @@ change nothing but the version:
   `cmux-tui` packages use.
 - The `cmux-relay` wrapper's bin shim resolves the platform package (env
   override → optionalDependency → PATH fallback) and `exec`s the binary.
-- Publish as `0.1.0` from this workspace's release tooling; rebake images
-  (bump `CHATMUX_IMAGE_EPOCH`) in the same series that deletes
-  `packages/relay` from chatmux.
+The release workflows build the machine binary and platform packages for
+darwin-arm64, darwin-x64, linux-arm64, linux-x64, and win32-x64. The package
+name remains `cmux-relay`; the sibling circuit-relay binary and artifacts use
+separate lanes. Publish only after hosted conformance passes. Keep
+`packages/relay` as the rollback path until the image update is released.
 
 ## Development
 
