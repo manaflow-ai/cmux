@@ -51,6 +51,26 @@ ValueT = TypeVar("ValueT")
 _ITERATION_END = object()
 
 
+async def _await_cleanup(awaitable: Any) -> Any:
+    """Finish cleanup after caller cancellation, then re-raise it.
+
+    ``shield`` keeps the cleanup task alive, while the loop drains it even if
+    cancellation is delivered again during shutdown.
+    """
+    task = asyncio.ensure_future(awaitable)
+    cancelled = False
+    while True:
+        try:
+            result = await asyncio.shield(task)
+            break
+        except asyncio.CancelledError:
+            cancelled = True
+            continue
+    if cancelled:
+        raise asyncio.CancelledError
+    return result
+
+
 def _next_or_end(
     stream: SyncResourceStream[ValueT],
     timeout: Optional[float],
@@ -238,20 +258,29 @@ class Client:
         if self._closed or self._closing:
             return
         self._closing = True
-        streams = tuple(self._streams)
-        if streams:
-            await asyncio.gather(
-                *(stream.cancel() for stream in streams),
-                return_exceptions=True,
+        async def cleanup() -> None:
+            streams = tuple(self._streams)
+            if streams:
+                await asyncio.gather(
+                    *(stream.cancel() for stream in streams),
+                    return_exceptions=True,
+                )
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._sync.close)
+            await loop.run_in_executor(
+                None,
+                functools.partial(self._executor.shutdown, wait=True),
             )
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._sync.close)
-        await loop.run_in_executor(
-            None,
-            functools.partial(self._executor.shutdown, wait=True),
-        )
-        self._closed = True
-        self._closing = False
+
+        try:
+            await _await_cleanup(cleanup())
+        except asyncio.CancelledError:
+            self._closed = True
+            self._closing = False
+            raise
+        else:
+            self._closed = True
+            self._closing = False
 
     async def __aenter__(self) -> "Client":
         return self
