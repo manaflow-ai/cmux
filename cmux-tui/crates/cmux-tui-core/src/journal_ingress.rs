@@ -1914,6 +1914,7 @@ mod tests {
         ));
         let descendant_pid_path = root.join("descendant.pid");
         let release_gate_path = root.join("descendant.release");
+        let release_ready_path = root.join("descendant.release-ready");
         let mux = Mux::open_persistent(
             "terminal-descendant-shutdown",
             crate::SurfaceOptions::default(),
@@ -1943,10 +1944,11 @@ mod tests {
                 command: Some(vec![
                     "/bin/sh".into(),
                     "-c".into(),
-                    "stty -echo; printf input-ready; read ready; /bin/sh -c 'read release < \"$1\"' cmux-descendant \"$2\" & echo $! > \"$1\"; printf detached-ready; exit 0".into(),
+                    "stty -echo; printf input-ready; read ready; /bin/sh -c 'exec 3<\"$1\"; : > \"$2\"; read release <&3' cmux-descendant \"$2\" \"$3\" & echo $! > \"$1\"; printf detached-ready; exit 0".into(),
                     "cmux-shutdown-test".into(),
                     descendant_pid_path.to_string_lossy().into_owned(),
                     release_gate_path.to_string_lossy().into_owned(),
+                    release_ready_path.to_string_lossy().into_owned(),
                 ]),
                 ..crate::SurfaceOptions::default()
             },
@@ -1993,6 +1995,11 @@ mod tests {
             !std::fs::read_to_string(&descendant_pid_path).unwrap().trim().is_empty(),
             "descendant fixture did not publish its pid"
         );
+        let ready_deadline = Instant::now() + Duration::from_secs(5);
+        while !release_ready_path.exists() && Instant::now() < ready_deadline {
+            std::thread::yield_now();
+        }
+        assert!(release_ready_path.exists(), "descendant did not open the release gate");
 
         let started = Instant::now();
         mux.shutdown();
