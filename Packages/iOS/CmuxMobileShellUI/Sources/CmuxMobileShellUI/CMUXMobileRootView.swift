@@ -872,18 +872,21 @@ struct CMUXMobileRootView: View {
     @ViewBuilder
     private var onboardingFlow: some View {
         #if os(iOS)
-        OnboardingFlowView(
-            initialStage: initialOnboardingStage,
+        WelcomeTourView(
             context: .firstRun,
+            initialStage: initialWelcomeStage,
             isAuthenticated: isAuthenticated,
-            connectionPhase: onboardingConnectionPhase,
+            needsNotificationDecision: pushCoordinator.authorization == .notDetermined,
+            connection: welcomeConnectionStatus,
             connectionMethod: connectionMethodStore?.method ?? .automatic,
-            onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
-            onReachedConnection: markOnboardingReadyToConnect,
-            onSkip: completeOnboarding,
-            onRetryConnection: retryAutomaticConnection,
-            onStartTailscalePairing: showOnboardingPairingScanner,
-            onComplete: completeOnboarding
+            accountEmail: authManager.currentUser?.primaryEmail,
+            selectConnectionMethod: { connectionMethodStore?.method = $0 },
+            requestNotifications: { await pushCoordinator.enable() },
+            reachedConnectStage: markOnboardingReadyToConnect,
+            retryConnection: retryAutomaticConnection,
+            scanPairingCode: showOnboardingPairingScanner,
+            skip: completeOnboarding,
+            finish: completeOnboarding
         )
         #else
         EmptyView()
@@ -893,20 +896,24 @@ struct CMUXMobileRootView: View {
     @ViewBuilder
     private var onboardingPreview: some View {
         #if os(iOS) && DEBUG
-        OnboardingFlowView(
-            initialStage: initialOnboardingStage,
+        WelcomeTourView(
             context: .preview,
+            initialStage: initialWelcomeStage,
             isAuthenticated: true,
-            connectionPhase: UITestConfig.onboardingConnectionFallbackEnabled
-                ? .fallback
+            needsNotificationDecision: true,
+            connection: UITestConfig.onboardingConnectionFallbackEnabled
+                ? .stalled
                 : .searching,
             connectionMethod: connectionMethodStore?.method ?? .automatic,
-            onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
-            onReachedConnection: markOnboardingReadyToConnect,
-            onSkip: completeOnboarding,
-            onRetryConnection: {},
-            onStartTailscalePairing: showOnboardingPairingScanner,
-            onComplete: completeOnboarding
+            accountEmail: authManager.currentUser?.primaryEmail,
+            selectConnectionMethod: { connectionMethodStore?.method = $0 },
+            // Never the real system prompt inside the deterministic harness.
+            requestNotifications: { true },
+            reachedConnectStage: markOnboardingReadyToConnect,
+            retryConnection: {},
+            scanPairingCode: showOnboardingPairingScanner,
+            skip: completeOnboarding,
+            finish: completeOnboarding
         )
         #else
         EmptyView()
@@ -914,13 +921,14 @@ struct CMUXMobileRootView: View {
     }
 
     #if os(iOS)
-    private var initialOnboardingStage: OnboardingStage {
-        onboardingStore.progress == .connect ? .connect : .agents
+    private var initialWelcomeStage: WelcomeStage {
+        onboardingStore.progress == .connect ? .connect : .hello
     }
 
-    private var onboardingConnectionPhase: OnboardingConnectionPhase {
-        OnboardingConnectionPhase(
-            isMacReady: store.connectionState == .connected,
+    private var welcomeConnectionStatus: WelcomeConnectionStatus {
+        WelcomeConnectionStatus(
+            isConnected: store.connectionState == .connected,
+            macName: store.connectedHostName,
             isSearching: isAwaitingOnboardingReconnectStart || store.isReconnectingStoredMac,
             didFinishSearch: store.didFinishStoredMacReconnectAttempt
         )

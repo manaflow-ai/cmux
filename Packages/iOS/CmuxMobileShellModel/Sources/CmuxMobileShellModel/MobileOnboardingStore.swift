@@ -28,7 +28,7 @@ public final class MobileOnboardingStore {
     ///
     /// This key is intentionally independent from prior onboarding designs so
     /// completing an older tour does not suppress this one.
-    public static let progressKey = "dev.cmux.mobile.onboarding.redesign.progress.v1"
+    public static let progressKey = "dev.cmux.mobile.onboarding.welcomeTour.progress.v1"
 
     // UserDefaults is Apple-documented thread-safe; OK to hold nonisolated.
     private nonisolated(unsafe) let defaults: UserDefaults
