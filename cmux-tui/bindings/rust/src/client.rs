@@ -1041,7 +1041,7 @@ mod tests {
         let listener = UnixListener::bind(&legacy.0).unwrap();
         assert_eq!(hashed_socket_legacy_path(&config.socket_path), Some(legacy.0.clone()));
 
-        let client = CmuxClient::connect(config).unwrap();
+        let client = CmuxClient::connect_with_legacy_fallback(config).unwrap();
         assert_eq!(client.config().socket_path, legacy.0);
         drop(listener);
     }
