@@ -52,6 +52,7 @@ const MAX_ALLOWED_ROOTS: usize = 32;
 const MAX_ALLOWED_ROOT_BYTES: usize = 16 * 1024;
 const MAX_ENUM_SURFACES: usize = 8;
 const RAW_ATTACH_BACKLOG_CAP: usize = 1024 * 1024;
+const PTY_INPUT_B64_CAP: usize = 4 * 1024 * 1024;
 
 pub fn session_name_ok(name: &str) -> bool {
     let invalid = name.is_empty()
@@ -402,6 +403,7 @@ impl PtyManager {
                 let Some(data) = frame
                     .get("dataB64")
                     .and_then(Value::as_str)
+                    .filter(|value| value.len() <= PTY_INPUT_B64_CAP)
                     .and_then(|b64| BASE64.decode(b64).ok())
                 else {
                     return;
