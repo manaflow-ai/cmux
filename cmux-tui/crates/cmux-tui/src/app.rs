@@ -8409,23 +8409,20 @@ fn prepare_machine_session(
 ) -> anyhow::Result<PreparedMachineSession> {
     // The managed-workspace guard runs on every presentation, reused or
     // not: a pooled session can change state while it is not presented, and
-    // the guard is the invariant that makes presenting it safe. Only the
-    // cosmetic default-colors round-trip is skipped for reused sessions.
+    // the guard is the invariant that makes presenting it safe. Default
+    // colors are also refreshed for reused sessions because they belong to
+    // the current client presentation, not to the pooled remote session.
     ensure_managed_workspace_guard(&replacement.session, Some(machine_ui))?;
     ensure_initial_for_machine_ui(
         &replacement.session,
         preparation.initial_size,
         Some(machine_ui),
     )?;
-    let color_error = if replacement.reused {
-        None
-    } else {
-        replacement
-            .session
-            .set_default_colors(preparation.default_colors)
-            .err()
-            .map(|error| error.to_string())
-    };
+    let color_error = replacement
+        .session
+        .set_default_colors(preparation.default_colors)
+        .err()
+        .map(|error| error.to_string());
     let session_available = machine_ui.session_available;
     let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
         replacement.session,
