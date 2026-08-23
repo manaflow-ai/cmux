@@ -686,11 +686,20 @@ async fn run_spec(
     command.stdin(std::process::Stdio::null());
     command.stdout(std::process::Stdio::piped());
     command.stderr(std::process::Stdio::piped());
+    command.kill_on_drop(true);
     #[cfg(unix)]
     command.process_group(0);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(_) => return RunOutcome::Failed { message: "process failed to start".to_owned() },
+    };
+    #[cfg(windows)]
+    let job = match WindowsJob::attach(&child) {
+        Ok(job) => Some(job),
+        Err(_) => {
+            let _ = child.start_kill();
+            return RunOutcome::Failed { message: "process failed to start".to_owned() };
+        }
     };
     let pid = child.id();
     // Collect a little past the char cap (bytes over-approximate chars).
@@ -708,6 +717,7 @@ async fn run_spec(
     let mut exited: Option<i64> = None;
     let mut kill_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     let mut drain_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
+    let mut final_wait_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     loop {
         if exited.is_some() && !stdout_open && !stderr_open {
             break;
@@ -765,6 +775,10 @@ async fn run_spec(
                 // so the supervisor gets its EXIT cleanup, then enforce a
                 // hard bound for processes that ignore TERM.
                 signal_process_tree(pid, false);
+                #[cfg(windows)]
+                if let Some(job) = job.as_ref() {
+                    job.terminate();
+                }
                 // Keep the escalation timer owned by this invocation. A
                 // detached task could fire after the process exits and its
                 // PID is reused by an unrelated process.
@@ -779,7 +793,14 @@ async fn run_spec(
                 }
             }, if kill_deadline.is_some() => {
                 signal_process_tree(pid, true);
+                #[cfg(windows)]
+                if let Some(job) = job.as_ref() {
+                    job.terminate();
+                }
                 kill_deadline = None;
+                final_wait_deadline = Some(Box::pin(tokio::time::sleep(
+                    std::time::Duration::from_millis(250),
+                )));
             }
             () = async {
                 match drain_deadline.as_mut() {
@@ -791,8 +812,20 @@ async fn run_spec(
                 stderr_open = false;
                 drain_deadline = None;
             }
+            () = async {
+                match final_wait_deadline.as_mut() {
+                    Some(timer) => timer.as_mut().await,
+                    None => std::future::pending().await,
+                }
+            }, if final_wait_deadline.is_some() && exited.is_none() => {
+                let _ = child.start_kill();
+                final_wait_deadline = None;
+                exited = Some(1);
+            }
         }
     }
+    #[cfg(windows)]
+    drop(job);
     if timed_out {
         return RunOutcome::TimedOut;
     }
@@ -816,6 +849,42 @@ fn signal_process_tree(pid: Option<u32>, kill: bool) {
 
 #[cfg(not(unix))]
 fn signal_process_tree(_pid: Option<u32>, _kill: bool) {}
+
+#[cfg(windows)]
+struct WindowsJob {
+    handle: windows_sys::Win32::Foundation::HANDLE,
+}
+
+#[cfg(windows)]
+impl WindowsJob {
+    fn attach(child: &tokio::process::Child) -> Result<Self, ()> {
+        use std::os::windows::io::AsRawHandle;
+        use std::ptr::null_mut;
+        use windows_sys::Win32::System::JobObjects::CreateJobObjectW;
+        use windows_sys::Win32::System::Threading::AssignProcessToJobObject;
+        let handle = unsafe { CreateJobObjectW(null_mut(), null_mut()) };
+        if handle.is_null() {
+            return Err(());
+        }
+        let process = child.as_std().as_raw_handle() as windows_sys::Win32::Foundation::HANDLE;
+        if unsafe { AssignProcessToJobObject(handle, process) } == 0 {
+            unsafe { windows_sys::Win32::Foundation::CloseHandle(handle) };
+            return Err(());
+        }
+        Ok(Self { handle })
+    }
+
+    fn terminate(&self) {
+        unsafe { windows_sys::Win32::System::JobObjects::TerminateJobObject(self.handle, 1) };
+    }
+}
+
+#[cfg(windows)]
+impl Drop for WindowsJob {
+    fn drop(&mut self) {
+        unsafe { windows_sys::Win32::Foundation::CloseHandle(self.handle) };
+    }
+}
 
 fn cap_lines(output: &str, truncated: bool, limit: Option<&Value>) -> (String, bool) {
     let Some(limit) = limit.and_then(Value::as_f64).filter(|v| v.is_finite()) else {
