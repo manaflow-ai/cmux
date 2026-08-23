@@ -3091,7 +3091,13 @@ impl Terminal {
     /// text or completed graphics truncation. Callers can use this before a
     /// destructive geometry change, then build the full replay afterward.
     pub fn preflight_vt_replay_bounded(&self, max_bytes: usize) -> Result<()> {
-        self.kitty_inflight.replay_prefix_fits(max_bytes)
+        self.kitty_inflight.replay_prefix_fits(max_bytes)?;
+        let suffix_len = self.mouse_format_replay_suffix().len();
+        let prefix_len = self.kitty_inflight.replay_prefix_checked(max_bytes)?.len();
+        if prefix_len.checked_add(suffix_len).is_none_or(|total| total > max_bytes) {
+            return Err(Error::OutOfSpace);
+        }
+        Ok(())
     }
 
     /// VT replay bounded to `max_bytes`, retaining the newest complete rows.
@@ -4601,6 +4607,16 @@ mod tests {
         let text = String::from_utf8_lossy(&replay);
         assert!(!text.contains("[?1006l"), "suffix must not reset the only format");
         assert_eq!(text.matches("[?1006h").count(), 1, "active selector emitted once");
+    }
+
+    #[test]
+    fn replay_preflight_reserves_mouse_suffix_at_exact_boundary() {
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[?1006h\x1b[?1015h\x1b[?1006h");
+        let suffix_len = terminal.mouse_format_replay_suffix().len();
+        assert!(suffix_len > 0);
+        assert!(terminal.preflight_vt_replay_bounded(suffix_len).is_ok());
+        assert!(terminal.preflight_vt_replay_bounded(suffix_len - 1).is_err());
     }
 
     #[test]
