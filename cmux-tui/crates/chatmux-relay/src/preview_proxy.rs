@@ -280,7 +280,17 @@ impl PreviewRegistry {
         }
         let mut proxies = self.proxies.lock().await;
         let proxy_port = match proxies.get(&target_port) {
-            Some(runtime) => runtime.port,
+            Some(runtime) if !runtime.task.is_finished() => runtime.port,
+            Some(_) => {
+                // The accept loop can terminate on a listener error. Do not
+                // hand out the stale port from a finished runtime.
+                proxies.remove(&target_port);
+                let target = u16::try_from(target_port).unwrap_or_default();
+                let runtime = spawn_proxy(target, Arc::clone(&self.ring)).await?;
+                let port = runtime.port;
+                proxies.insert(target_port, runtime);
+                port
+            }
             None => {
                 let target = u16::try_from(target_port).unwrap_or_default();
                 let runtime = spawn_proxy(target, Arc::clone(&self.ring)).await?;
