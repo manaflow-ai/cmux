@@ -23,7 +23,7 @@ func resolveSocketPath(explicit, session string) (string, error) {
 		return inherited, nil
 	}
 	if err := sessionpath.Validate(session); err != nil {
-		return "", fmt.Errorf("%w: %v", ErrInvalidArgument, err)
+		return "", fmt.Errorf("%w: %w", ErrInvalidArgument, err)
 	}
 	return defaultSocketPathForSession(session), nil
 }
