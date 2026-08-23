@@ -1505,18 +1505,30 @@ struct BrowserPanelView: View {
             .disabled(!panel.shouldRenderWebView)
             .accessibilityIdentifier("BrowserScreenshotSectionButton")
         } label: {
-            // macOS does not provide `ellipsis.vertical`; rotate the
-            // supported horizontal symbol to keep the More affordance vertical.
-            CmuxSystemSymbolImage(systemName: "ellipsis", pointSize: devToolsButtonIconSize, weight: .medium)
-                .foregroundStyle(devToolsColorOption.color)
-                .rotationEffect(.degrees(90))
-                .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+            browserVerticalMoreIcon
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .safeHelp(String(localized: "browser.moreActions", defaultValue: "More Actions"))
         .accessibilityIdentifier("BrowserOverflowMenu")
+    }
+
+    private var browserVerticalMoreIcon: some View {
+        let dotSize = max(2, devToolsButtonIconSize * 0.2)
+        return VStack(spacing: dotSize * 0.55) {
+            Circle()
+                .fill(devToolsColorOption.color)
+                .frame(width: dotSize, height: dotSize)
+            Circle()
+                .fill(devToolsColorOption.color)
+                .frame(width: dotSize, height: dotSize)
+            Circle()
+                .fill(devToolsColorOption.color)
+                .frame(width: dotSize, height: dotSize)
+        }
+        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .accessibilityHidden(true)
     }
 
     private var browserThemeModeButton: some View {
