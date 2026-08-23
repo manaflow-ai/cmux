@@ -26,10 +26,10 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 
 use async_trait::async_trait;
-use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
 use bytes::Bytes;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use crate::actions::{expand_path, scrubbed_env, validate_request_path};
 use crate::control::ControlHandle;
@@ -155,7 +155,11 @@ fn scoped_cwd(
 
 fn clamp_dim(value: Option<&Value>) -> Option<u16> {
     let number = value.and_then(Value::as_i64)?;
-    if (1..=10_000).contains(&number) { u16::try_from(number).ok() } else { None }
+    if (1..=10_000).contains(&number) {
+        u16::try_from(number).ok()
+    } else {
+        None
+    }
 }
 
 fn parse_allowed_roots(frame: &Value) -> Result<Option<Vec<String>>, &'static str> {
@@ -835,7 +839,17 @@ impl Inner {
                         "cannot prove existing surface cwd is within allowed roots".to_owned()
                     );
                 }
-                scoped_cwd(Some(actual), &self.home, context.local_roots.as_deref(), server_roots)?;
+                if scoped_cwd(
+                    Some(actual),
+                    &self.home,
+                    context.local_roots.as_deref(),
+                    server_roots,
+                )
+                .is_err()
+                {
+                    control.end();
+                    return Err("existing surface cwd is outside allowed roots".to_owned());
+                }
             }
             control.end();
         }
@@ -1409,7 +1423,12 @@ impl Inner {
                 control.end();
                 return Err("cannot prove existing surface cwd is within allowed roots".to_owned());
             };
-            scoped_cwd(Some(actual), &self.home, context.local_roots.as_deref(), server_roots)?;
+            if scoped_cwd(Some(actual), &self.home, context.local_roots.as_deref(), server_roots)
+                .is_err()
+            {
+                control.end();
+                return Err("existing surface cwd is outside allowed roots".to_owned());
+            }
         }
 
         let stream = Arc::new(TerminalStream::new());
