@@ -1,6 +1,6 @@
 # Configuration
 
-`cmux-tui` reads `~/.config/cmux/cmux-tui.json`, or `$XDG_CONFIG_HOME/cmux/cmux-tui.json` when `XDG_CONFIG_HOME` is set. Existing `mux.json` files are still used when `cmux-tui.json` is absent, and `cmux-tui.json` wins when both exist. Set `CMUX_TUI_CONFIG` to use another file; legacy `CMUX_MUX_CONFIG` is still accepted as a fallback. Every documented key is optional. Unknown keys are ignored. Action names are strict: an unknown action does not run and is ignored. A syntactically invalid or otherwise unparsable file is rejected as a whole, logged, and replaced with defaults; cmux-tui does not apply a partial parse.
+`cmux-tui` reads `~/.config/cmux/cmux-tui.json`, or `$XDG_CONFIG_HOME/cmux/cmux-tui.json` when `XDG_CONFIG_HOME` is set. Existing `mux.json` files are still used when `cmux-tui.json` is absent, and `cmux-tui.json` wins when both exist. Set `CMUX_TUI_CONFIG` to use another file; legacy `CMUX_MUX_CONFIG` is still accepted as a fallback. Every documented key is optional. Unknown top-level keys are rejected, logged, and cause the whole file to use defaults. Known sections are validated independently, so an invalid section is logged and replaced with that section's defaults while valid sections remain active. Section objects reject unknown keys. Action names are strict: an unknown action does not run and is ignored.
 
 ## Executable fields and transport rules
 

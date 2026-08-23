@@ -3896,24 +3896,51 @@ fn agent_in_title(tabs: &Tabs, title: &str) -> Option<String> {
 fn load_raw_config() -> RawConfig {
     let Some(path) = platform::config_path() else { return RawConfig::default() };
     let Ok(text) = std::fs::read_to_string(&path) else { return RawConfig::default() };
-    match serde_json::from_str(&text) {
-        Ok(config) => config,
+    let value: Value = match serde_json::from_str(&text) {
+        Ok(value) => value,
         Err(e) => {
-            // A broken config should not take the TUI down; complain on
-            // stderr (visible pre-alternate-screen and in logs).
-            let guidance = if e.to_string().contains("unknown field `command`") {
-                " Use the top-level `commands` array for user commands; `command` is not a top-level config field."
-            } else {
-                ""
-            };
-            crate::client_log::stderr_log!(
-                "config",
-                "cmux-tui: ignoring invalid config {}: {e}.{guidance}",
-                path.display()
-            );
-            RawConfig::default()
+            crate::client_log::stderr_log!("config", "cmux-tui: ignoring invalid config {}: {e}", path.display());
+            return RawConfig::default();
         }
+    };
+    let Some(object) = value.as_object() else {
+        crate::client_log::stderr_log!("config", "cmux-tui: ignoring invalid config {}: root must be an object", path.display());
+        return RawConfig::default();
+    };
+    const KNOWN: &[&str] = &[
+        "theme", "tabs", "sidebar", "machine_sidebar", "machine_provider", "machines",
+        "commands", "browser", "scrollbar", "pane", "status_bar", "viewport", "server", "keys",
+    ];
+    if let Some(unknown) = object.keys().find(|key| !KNOWN.contains(&key.as_str())) {
+        crate::client_log::stderr_log!("config", "cmux-tui: ignoring invalid config {}: unknown top-level field `{unknown}`", path.display());
+        return RawConfig::default();
     }
+    let mut raw = RawConfig::default();
+    macro_rules! section {
+        ($field:ident, $name:literal) => {
+            if let Some(value) = object.get($name) {
+                match serde_json::from_value(value.clone()) {
+                    Ok(parsed) => raw.$field = parsed,
+                    Err(error) => crate::client_log::stderr_log!("config", "cmux-tui: ignoring invalid `{}` section in {}: {}", $name, path.display(), error),
+                }
+            }
+        };
+    }
+    section!(theme, "theme");
+    section!(tabs, "tabs");
+    section!(sidebar, "sidebar");
+    section!(machine_sidebar, "machine_sidebar");
+    section!(machine_provider, "machine_provider");
+    section!(machines, "machines");
+    section!(commands, "commands");
+    section!(browser, "browser");
+    section!(scrollbar, "scrollbar");
+    section!(pane, "pane");
+    section!(status_bar, "status_bar");
+    section!(viewport, "viewport");
+    section!(server, "server");
+    section!(keys, "keys");
+    raw
 }
 
 pub fn config_path() -> anyhow::Result<PathBuf> {
@@ -7669,6 +7696,37 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("unknown variant `stealth`"), "{err}");
+    }
+
+    #[test]
+    fn invalid_section_does_not_discard_valid_sections() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!("cmux-tui-section-recovery-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cmux-tui.json");
+        std::fs::write(&path, r##"{"theme":{"sidebar_rail":42},"browser":{"mode":"stealth"}}"##).unwrap();
+        let old = std::env::var_os("CMUX_TUI_CONFIG");
+        unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
+        let config = load();
+        restore_env_var("CMUX_TUI_CONFIG", old);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(config.theme.sidebar_rail, Color::Indexed(42));
+        assert_eq!(config.browser.mode, BrowserMode::Headful);
+    }
+
+    #[test]
+    fn unknown_top_level_field_keeps_strict_rejection() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!("cmux-tui-top-level-strict-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cmux-tui.json");
+        std::fs::write(&path, r##"{"theme":{"sidebar_rail":42},"future":true}"##).unwrap();
+        let old = std::env::var_os("CMUX_TUI_CONFIG");
+        unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
+        let config = load();
+        restore_env_var("CMUX_TUI_CONFIG", old);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(config.theme.sidebar_rail, Theme::default().sidebar_rail);
     }
 
     #[test]
