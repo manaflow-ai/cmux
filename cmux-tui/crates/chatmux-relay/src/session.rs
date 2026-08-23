@@ -77,6 +77,7 @@ pub(crate) struct OutboundSink {
     critical: mpsc::Sender<OutboundFrame>,
     watch: mpsc::Sender<OutboundFrame>,
     bytes: Arc<Semaphore>,
+    critical_overflow: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl OutboundSink {
@@ -84,7 +85,12 @@ impl OutboundSink {
         let (critical, critical_rx) = mpsc::channel(MAX_OUTBOUND_FRAMES);
         let (watch, watch_rx) = mpsc::channel(MAX_WATCH_OUTBOUND_FRAMES);
         (
-            OutboundSink { critical, watch, bytes: Arc::new(Semaphore::new(MAX_OUTBOUND_BYTES)) },
+            OutboundSink {
+                critical,
+                watch,
+                bytes: Arc::new(Semaphore::new(MAX_OUTBOUND_BYTES)),
+                critical_overflow: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            },
             critical_rx,
             watch_rx,
         )
@@ -111,10 +117,32 @@ impl OutboundSink {
     }
 
     pub(crate) fn try_critical_value(&self, frame: Value) -> Result<(), ()> {
-        let Some(text) = Self::encode(frame) else { return Err(()) };
-        let bytes = u32::try_from(text.len()).map_err(|_| ())?;
-        let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
-        self.critical.try_send(OutboundFrame { text, _bytes: permit }).map_err(|_| ())
+        let result = (|| {
+            let text = Self::encode(frame).ok_or(())?;
+            let bytes = u32::try_from(text.len()).map_err(|_| ())?;
+            let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
+            self.critical.try_send(OutboundFrame { text, _bytes: permit }).map_err(|_| ())
+        })();
+        if result.is_err() {
+            self.critical_overflow.store(true, Ordering::Release);
+        }
+        result
+    }
+
+    pub(crate) fn try_critical_text(&self, text: String) -> Result<(), ()> {
+        let result = (|| {
+            let bytes = u32::try_from(text.len()).map_err(|_| ())?;
+            let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
+            self.critical.try_send(OutboundFrame { text, _bytes: permit }).map_err(|_| ())
+        })();
+        if result.is_err() {
+            self.critical_overflow.store(true, Ordering::Release);
+        }
+        result
+    }
+
+    fn critical_overflowed(&self) -> bool {
+        self.critical_overflow.load(Ordering::Acquire)
     }
 
     pub(crate) fn try_watch_text(&self, text: String) -> Result<(), ()> {
@@ -325,14 +353,15 @@ async fn relay_session(
         let wake = {
             let mut guard = socket.lock().await;
             tokio::select! {
+                biased;
+                frame = critical_rx.recv() => Wake::Outbound(frame),
+                frame = watch_rx.recv() => Wake::Outbound(frame),
                 _ = async {
                     match heartbeat.as_mut() {
                         Some(interval) => interval.tick().await,
                         None => std::future::pending().await,
                     }
                 }, if heartbeat.is_some() => Wake::Heartbeat,
-                frame = critical_rx.recv() => Wake::Outbound(frame),
-                frame = watch_rx.recv() => Wake::Outbound(frame),
                 incoming = guard.next() => Wake::Incoming(incoming),
             }
         };
@@ -694,6 +723,9 @@ async fn relay_session(
                     }
                 }
             }
+        }
+        if out_tx.critical_overflowed() {
+            break Ok(connected);
         }
     };
 

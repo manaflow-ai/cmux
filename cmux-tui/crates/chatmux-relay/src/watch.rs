@@ -65,9 +65,8 @@ impl WatchRegistry {
     }
 
     pub fn refuse(&self, watch_id: &str, code: wire::WorkspaceErrorCode, message: &str) {
-        let outbound = self.outbound.clone();
         let text = watch_error_frame(watch_id, code, message);
-        tokio::spawn(async move { let _ = outbound.critical_text(text).await; });
+        let _ = self.outbound.try_critical_text(text);
     }
 
     pub fn close(&self, watch_id: &str) {
@@ -111,8 +110,7 @@ impl WatchRegistry {
             root: root.to_string_lossy().into_owned(),
         })
         .unwrap_or_else(|_| String::new());
-        let opened_outbound = self.outbound.clone();
-        tokio::spawn(async move { let _ = opened_outbound.critical_text(opened).await; });
+        let _ = self.outbound.try_critical_text(opened);
         let outbound = self.outbound.clone();
         let sessions = Arc::clone(&self.sessions);
         let task_id = watch_id.clone();
