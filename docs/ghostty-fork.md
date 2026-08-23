@@ -37,6 +37,10 @@ at `3fbdd078d`.
 - Verification:
   - Universal ReleaseFast GhosttyKit build with native Sentry disabled.
   - `tests/test_issue_8093_ghostty_ssh_binary_path.py` with Fish 4.6.0.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-8ae680da5b7b95966a36c0ffb9fce5123cddb8ab-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `a97aa9b634536e24831a2b964b4f101f53be50abfa21885e33067f9955f71a4a`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Fish SSH feature gating
 
