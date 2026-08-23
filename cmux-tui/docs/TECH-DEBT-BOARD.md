@@ -3,7 +3,7 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `aggregate-final`.
-Current integration code tip before this documentation commit: `7a0f71692f8be77da182bbf8a3c89871bd88636f`.
+Current integration code tip before this documentation commit: `6076269feb8d8dd32d9205a0b3a510f2290a3f83` (`require absolute or home relative pty cwd`).
 Exact worktree HEAD: run `git rev-parse HEAD` (documentation commits change this value).
 The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
 The current integration sequence includes the hosted formatter and verification
@@ -14,8 +14,8 @@ through `638e536f03`. Localization recovery is recorded in `01c4a2de8d`,
 `638e536f03`, and `f04c5409a0`. The aggregate tail adds legacy hashed-socket
 fallbacks for Python, TypeScript, Rust, Java, Zig, Go, and C++, bounded Unix JSON
 readers, wire-identity preflight, independent config-section recovery,
-localization recovery, and systemd quoting fixes through the exact current HEAD
-`7a0f71692f8be77da182bbf8a3c89871bd88636f`. The final tail also includes
+localization recovery, and systemd quoting fixes through the current code tip
+`6076269feb`. The final tail also includes
 Go fallback-state minimization and joined fallback errors, C++ attachment errno
 handling, path-bound Rust errors and tests, trailing-whitespace cleanup, and
 literal-percent escaping for systemd paths.
@@ -28,7 +28,7 @@ inflate the count. New turns must have a named deliverable.
 
 ## Current state
 
-The latest tail is `7a0f71692f`. It is a compatibility, lifecycle, and
+The latest code tail is `6076269feb`. It is a compatibility, lifecycle, and
 documentation update. The issues below remain open.
 
 ### Open issue inventory
@@ -453,3 +453,70 @@ Rust compile evidence, no manual-IO end-to-end proof, incomplete cancellation
 and child reaping, unresolved PTY resize and paste issues, and stale GitHub
 status snapshots. The issue and PR rows above do not claim those items are
 fixed.
+
+## Wave 19 change log and revert chains
+
+| Commit range | Change | Proof / residual risk | Revert chain |
+| --- | --- | --- | --- |
+| `3133fc4222` | Run the full PyPI wheel contract validator before executable smoke checks. | Python package and workflow tests passed; hosted package build remains required. | Revert the workflow and its ordering test together. |
+| `5ef7a91212` through `83ee31d7de` | Bound workspace fanout and legacy socket fallback paths, flatten Rust fallback conditions, match Python hashed parents, and choose one client fallback authority. | Source and focused Python checks cover the contract; cross-SDK hosted checks remain required. | Revert the fallback-selection commits as one compatibility chain, then restore the old explicit opt-in behavior. |
+| `864abe367e` through `f6ea69fb41` | Accept compatible journal protocol versions, preserve Rust config literals, harden bounded readers, and apply hosted formatting. | No local Rust compile evidence. Protocol compatibility must be checked against older daemons. | Revert protocol acceptance with its tests, and formatting independently. |
+| `7a0f71692f`, `8e1818033d` | Escape percent characters in systemd paths and await preview-proxy accept readiness. | Static checks pass; packaging and reconnect timing remain hosted concerns. | Revert the service quoting and readiness changes together if the service contract changes. |
+
+## Wave 20 change log and revert chains
+
+| Commit range | Change | Proof / residual risk | Revert chain |
+| --- | --- | --- | --- |
+| `ec6b4fa6c9` through `26a6ae9ad0` | Bound relay workspace admission and preserve mandatory responses under queue pressure, with shell-start waiter ownership and canonical formatting. | Queue behavior is source-reviewed; producer and consumer saturation tests are still needed. | Revert admission, response, and waiter commits together. |
+| `c3137be28c` through `91630119c6` | Scope PTY cwd to allowed roots, preserve socket authority, validate existing and restored attachments, and fail closed on scoped reattach. | CWD and attachment checks are present; relative-cwd compatibility and full reconnect coverage remain open. | Revert the cwd/reattach chain as one security contract. |
+| `ff62270c0f` through `c24f4e05ec` | Match hashed socket parents exactly and require explicit opt-in for raw legacy fallback. | Prevents ambiguous socket selection; callers relying on implicit fallback need migration. | Revert parent matching and opt-in changes together, then document the old contract. |
+| `82819f46a6` through `6076269feb` | Bound and validate allowed-root lists, workspace reads, response staging, and PTY cwd metadata; clean obsolete authority state and repair Java interruption cleanup. | Bounds are deliberate, but Java connect timeout, producer queue lifetime, and relative-cwd migration remain unresolved. | Revert the root and cwd policy commits as a staged chain, preserving the prior parser only with a replacement limit and migration test. |
+
+## PR status and classification
+
+| PR | Author | Current status | Classification and action |
+| --- | --- | --- | --- |
+| [#10522](https://github.com/manaflow-ai/cmux/pull/10522) | Lawrence Chen | Merged 2026-08-23, merge `409e9dc1620d47489313752f6cae4b5987d7b274` | Merged provider/sidebar rail work. No follow-up merge needed. |
+| [#10604](https://github.com/manaflow-ai/cmux/pull/10604) | Lawrence Chen | Merged 2026-08-23, merge `1956d7f440add80ba35e585d83697d9dae44d3e2` | Merged cleanup contract. Runtime child reaping remains separate. |
+| [#10605](https://github.com/manaflow-ai/cmux/pull/10605) | Lawrence Chen | Merged 2026-08-23, merge `51294051938830a1e3d3013a256d851ad4cfa1d3` | Merged workflow simplification. |
+| [#10606](https://github.com/manaflow-ai/cmux/pull/10606) | Lawrence Chen | Merged 2026-08-23, merge `8af5331e27b832eb517bb5c1892391348b5cb6e9` | Merged diagnostics routing. |
+| [#10608](https://github.com/manaflow-ai/cmux/pull/10608) | Lawrence Chen | Merged 2026-08-23, merge `2ee1e355c0a9b405ada3e2b812b0cec5e2ae4278` | Merged cross-language socket contract docs. |
+| [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Open, head `5ce10b76303038392f4550b4f654dbd19ad50348` | Aggregate implementation. Requires exact-head hosted checks, replay/safe-attach parity, and lifecycle review. |
+| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Open, head `67b7e6814f8355235e3930a6f3360a58dc0ba3c0` | Focused hardening stack. Treat as superseded by #10603 if all unique deltas are present. |
+| [#10607](https://github.com/manaflow-ai/cmux/pull/10607) | Lawrence Chen | Open, head `126d772a131ce71f245ae56c3048aa99f3607d17` | Identity-preflight fix. Review protocol compatibility and run hosted tests. |
+| [#10609](https://github.com/manaflow-ai/cmux/pull/10609) | Lawrence Chen | Open, head `bdcbb8c8049e` | Action-result enqueue refactor. Keep separate until queue ownership and backpressure tests pass. |
+| [#10611](https://github.com/manaflow-ai/cmux/pull/10611) | Lawrence Chen | Open, head `75f4192d2adc` | TypeScript empty-path validation. Review with the shared SDK fallback contract. |
+| [#10254](https://github.com/manaflow-ai/cmux/pull/10254) | Lawrence Chen | Open, head `e9c177d1c6bf38e89f51ce652003f8c4cf3f9d84` | Cross-SDK validation stack. Do not merge until C++ attachment and ordered fallback parity are complete. |
+| [#10571](https://github.com/manaflow-ai/cmux/pull/10571) | Lawrence Chen | Open, stale stack | Classify as superseded by #10603 unless a unique relay feature is intentionally retained. |
+
+## New session-mined intents and acceptance
+
+| Intent | Evidence path | Acceptance |
+| --- | --- | --- |
+| npm and PyPI artifacts need executable smoke checks, not only archive inspection. | `~/.codex/sessions/2026/08/23/rollout-2026-08-23T08-16-27-01a02f31-cad0-7043-a08a-8d4cb183abb5.jsonl`; `.github/workflows/cmux-tui-build-package.yml` | Build exactly six wheels with matching version and `RECORD`, verify the hook mode, install offline, and run `cmux --help`; keep npm and PyPI checks independent. |
+| Single-terminal attach should not create duplicate terminal resources. | `~/.codex/sessions/2026/08/23/rollout-2026-08-23T07-31-59-01a02f09-1652-7d03-a3ed-69a5a484d82f.jsonl` | Attach one existing terminal, prove one resource identity, preserve focus and cwd, then reconnect and close without an orphan. |
+| Color behavior must match between daemon, host, and client projections. | `~/.codex/sessions/2026/08/23/rollout-2026-08-23T07-55-08-01a02f1e-46a3-7113-99cd-c8a9838e86c7.jsonl` | Prove ANSI, OSC, and theme-query parity without treating daemon-owned colors as client-authored state. |
+| Linux packaging needs a real `CMUX_TUI_BINARY` backend. | `~/.codex/sessions/2026/08/23/rollout-2026-08-23T06-33-58-01a02ed3-f760-7fd0-ac3e-fd4330e0c9c2.jsonl`; `cmux-tui/docs/remote.md` | A clean Linux install resolves the configured binary, reports a useful missing-binary error, and supports attach, input, resize, and reconnect. |
+| Durable event streams need resumable ordering across reconnects. | `~/.codex/sessions/2026/08/23/rollout-2026-08-23T02-16-00-01a02de7-c99a-72f0-954b-f1c36a3894c6.jsonl` | Persist monotonic event IDs, resume from a cursor without loss or duplication, bound replay storage, and make shutdown ownership explicit. |
+
+## Residual risks after Waves 19 and 20
+
+The following risks remain open and are not implied to be fixed by the latest
+commits:
+
+- Java Unix connection setup still needs an explicit connect timeout and a
+  behavior test for a peer that accepts but never responds.
+- PTY inbound data can still exceed a bounded lifecycle unless every producer
+  has an admission limit and cancellation path.
+- Workspace producer queues now have bounds in several paths, but ownership of
+  a queued item across disconnect, shutdown, and retry is not fully proven.
+- Relative PTY cwd input is now rejected or normalized in more paths. A stable
+  documented relative-cwd migration contract and compatibility test are still
+  required.
+- No local Rust compile or end-to-end hosted result is claimed here. Manual-IO,
+  durable restore, cloud lifecycle, and complete child reaping remain open.
+
+The ledger still records at least 180 substantive agent turns. It counts named
+audits, fixes, reviews, and merge gates, and excludes empty or duplicate turns.
+The requested 10,000-session target is not reached, and no sessions are being
+created to inflate the count.
