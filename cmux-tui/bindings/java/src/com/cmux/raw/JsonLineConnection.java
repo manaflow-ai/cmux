@@ -154,11 +154,21 @@ final class JsonLineConnection implements AutoCloseable {
                 );
                 try {
                     beforeWait.run();
+                    if (Thread.currentThread().isInterrupted()) {
+                        throw interruptedRead();
+                    }
                     int ready = readSelector.select(
                         Math.max(1, Duration.ofNanos(remaining).toMillis())
                     );
                     if (closed.get()) {
                         throw new CmuxTransportException("connection is closed");
+                    }
+                    // Selector.select(timeout) returns zero and clears the thread's
+                    // interrupt status when the thread is interrupted. Check the
+                    // status immediately after select as well as before it, and
+                    // restore it before returning the typed transport error.
+                    if (Thread.interrupted()) {
+                        throw interruptedRead();
                     }
                     if (ready == 0) {
                         continue;
@@ -234,6 +244,13 @@ final class JsonLineConnection implements AutoCloseable {
         InterruptedException error = new InterruptedException("socket write interrupted");
         Thread.currentThread().interrupt();
         return new CmuxTransportException("interrupted during socket write", error);
+    }
+
+    private CmuxTransportException interruptedRead() {
+        InterruptedException error = new InterruptedException("socket read interrupted");
+        Thread.currentThread().interrupt();
+        close();
+        return new CmuxTransportException("interrupted during socket read", error);
     }
 
     private byte[] takeLine() throws CmuxTransportException {
