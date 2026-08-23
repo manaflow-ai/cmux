@@ -21,7 +21,7 @@ struct WelcomeSignInStageView: View {
                 .multilineTextAlignment(.center)
                 Text(L10n.string(
                     "mobile.welcome.signIn.subtitle",
-                    defaultValue: "Sign in here and on your Mac. That is how your phone finds it — no addresses, no port forwarding."
+                    defaultValue: "Sign in here and on your Mac. That is how your phone finds it. No addresses, no port forwarding."
                 ))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

@@ -5430,13 +5430,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux — on your Mac"
+            "value": "cmux · on your Mac"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux — あなたのMac上"
+            "value": "cmux · あなたのMac上"
           }
         }
       }
@@ -5481,7 +5481,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux runs AI coding agents in terminals on your Mac. When one needs you, answer from your phone — try it below."
+            "value": "cmux runs AI coding agents in terminals on your Mac. When one needs you, answer from your phone. Try it below."
           }
         },
         "ja": {
@@ -5515,7 +5515,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Questions like the one you just answered arrive as notifications. Reply right from the Lock Screen — the agent keeps going."
+            "value": "Questions like the one you just answered arrive as notifications. Reply right from the Lock Screen, and the agent keeps going."
           }
         },
         "ja": {
@@ -5685,7 +5685,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in here and on your Mac. That is how your phone finds it — no addresses, no port forwarding."
+            "value": "Sign in here and on your Mac. That is how your phone finds it. No addresses, no port forwarding."
           }
         },
         "ja": {

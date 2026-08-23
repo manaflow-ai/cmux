@@ -21,7 +21,7 @@ struct WelcomeNotificationsStageView: View {
                 .multilineTextAlignment(.center)
                 Text(L10n.string(
                     "mobile.welcome.notifications.subtitle",
-                    defaultValue: "Questions like the one you just answered arrive as notifications. Reply right from the Lock Screen — the agent keeps going."
+                    defaultValue: "Questions like the one you just answered arrive as notifications. Reply right from the Lock Screen, and the agent keeps going."
                 ))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

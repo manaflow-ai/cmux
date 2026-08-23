@@ -26,7 +26,7 @@ struct WelcomeHelloStageView: View {
                 .multilineTextAlignment(.center)
                 Text(L10n.string(
                     "mobile.welcome.hello.subtitle",
-                    defaultValue: "cmux runs AI coding agents in terminals on your Mac. When one needs you, answer from your phone — try it below."
+                    defaultValue: "cmux runs AI coding agents in terminals on your Mac. When one needs you, answer from your phone. Try it below."
                 ))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

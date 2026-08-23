@@ -42,7 +42,7 @@ struct WelcomeDemoTerminalView: View {
                     .frame(width: 9, height: 9)
             }
             Spacer()
-            Text(L10n.string("mobile.welcome.demo.windowTitle", defaultValue: "cmux — on your Mac"))
+            Text(L10n.string("mobile.welcome.demo.windowTitle", defaultValue: "cmux · on your Mac"))
                 .font(.system(.caption2, design: .monospaced))
                 .foregroundStyle(.white.opacity(0.45))
             Spacer()
