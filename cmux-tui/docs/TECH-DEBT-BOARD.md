@@ -3,7 +3,7 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `aggregate-final`.
-Current integration code tip before this documentation commit: `6076269feb8d8dd32d9205a0b3a510f2290a3f83` (`require absolute or home relative pty cwd`).
+Current integration code tip before this documentation commit: `eaf23dfb83dfb2e260e7a6be8c0e81e5f4ae3df7` (`validate action allowed root paths`).
 Exact worktree HEAD: run `git rev-parse HEAD` (documentation commits change this value).
 The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
 The current integration sequence includes the hosted formatter and verification
@@ -15,7 +15,7 @@ through `638e536f03`. Localization recovery is recorded in `01c4a2de8d`,
 fallbacks for Python, TypeScript, Rust, Java, Zig, Go, and C++, bounded Unix JSON
 readers, wire-identity preflight, independent config-section recovery,
 localization recovery, and systemd quoting fixes through the current code tip
-`6076269feb`. The final tail also includes
+`eaf23dfb83`. The final tail also includes
 Go fallback-state minimization and joined fallback errors, C++ attachment errno
 handling, path-bound Rust errors and tests, trailing-whitespace cleanup, and
 literal-percent escaping for systemd paths.
@@ -28,7 +28,7 @@ inflate the count. New turns must have a named deliverable.
 
 ## Current state
 
-The latest code tail is `6076269feb`. It is a compatibility, lifecycle, and
+The latest code tail is `eaf23dfb83`. It is a compatibility, lifecycle, and
 documentation update. The issues below remain open.
 
 ### Open issue inventory
@@ -520,3 +520,47 @@ The ledger still records at least 180 substantive agent turns. It counts named
 audits, fixes, reviews, and merge gates, and excludes empty or duplicate turns.
 The requested 10,000-session target is not reached, and no sessions are being
 created to inflate the count.
+
+## Wave 20 follow-up, current aggregate tip
+
+The code tip advanced from `8c5f808302` through the following bounded
+security, ingress, and metadata commits. These entries preserve the earlier
+Wave 20 decisions and do not convert an implementation slice into a completed
+product request.
+
+| Commit | Change | Proof / residual risk | Revert chain |
+| --- | --- | --- | --- |
+| [`aa7f9d29a7`](https://github.com/manaflow-ai/cmux/commit/aa7f9d29a70e391bc606e1874b077d7b82bcc588) | Bound relay PTY ingress and reject saturation. | Protects the ingress boundary; producer cancellation and client retry behavior still need hosted coverage. | Revert with the ingress-pressure commits below. |
+| [`92ded0653e`](https://github.com/manaflow-ai/cmux/commit/92ded0653e9405cfc7352517aceeeddfe5c6cc6a) | Validate capability identity shape before accepting the reply. | Fail-closed shape validation is covered at source level; exact-head protocol tests remain required. | Revert with the identity-preflight chain, not independently from its contract tests. |
+| [`b1775bcab2`](https://github.com/manaflow-ai/cmux/commit/b1775bcab2e9246fae9392e725900f4df28769fd) | Reject empty local allowed-root entries. | Prevents an empty root from broadening access; migration behavior for old configs remains open. | Revert with the allowed-root policy chain. |
+| [`6076269feb`](https://github.com/manaflow-ai/cmux/commit/6076269feb8d8dd32d9205a0b3a510f2290a3f83), [`f6988cef87`](https://github.com/manaflow-ai/cmux/commit/f6988cef8769ba1d08a331badf8e48cef89c5b84) | Require absolute or home-relative PTY cwd and reject malformed values. | Establishes a path-bound contract; relative-cwd compatibility needs an explicit migration test. | Revert both cwd policy commits together. |
+| [`20e2ea8f47`](https://github.com/manaflow-ai/cmux/commit/20e2ea8f47c4345ecd1a97d7b4be6a0481bf2578), [`63dbb11f99`](https://github.com/manaflow-ai/cmux/commit/63dbb11f99c9a45a04ff457453aefc0391e8cad7) | Reject untrusted cwd metadata and apply one shared allowed-root policy to workspace roots. | Closes parser disagreement between workspace and PTY paths; full cross-client behavior remains required. | Revert as one root-validation chain. |
+| [`6a84e6a770`](https://github.com/manaflow-ai/cmux/commit/6a84e6a77034fe708225eedbc22f02c02475b383), [`bb5c906f57`](https://github.com/manaflow-ai/cmux/commit/bb5c906f574d77fe16af120e06d729869cd5e8d1), [`eaf23dfb83`](https://github.com/manaflow-ai/cmux/commit/eaf23dfb83dfb2e260e7a6be8c0e81e5f4ae3df7) | Count root byte limits consistently and validate daemon/action workspace metadata and allowed-root paths. | Bounds are explicit; malformed metadata still needs hosted red/green coverage across every action producer. | Revert the metadata and byte-limit commits as one validation chain. |
+| [`3ee329e31f`](https://github.com/manaflow-ai/cmux/commit/3ee329e31f00e10e13195b9841e36aaf73e896a4), [`4511a8ba35`](https://github.com/manaflow-ai/cmux/commit/4511a8ba35432c0f4ecbe9ed8254ef6b03bc04a9) | Keep relay ingress responsive under busy responses and always process PTY close. | Prevents close starvation under pressure; queue ownership and shutdown ordering remain open. | Revert both ingress-pressure commits together with `aa7f9d29a7`. |
+
+## PR decisions after the latest audit
+
+| PR | Author | Status | Decision |
+| --- | --- | --- | --- |
+| [#10611](https://github.com/manaflow-ai/cmux/pull/10611) | Lawrence Chen | Merged 2026-08-23, merge `91b991496de2667a22e65176a8f11f715e6c089b` | Keep the TypeScript empty-path validation. No further action. |
+| [#10607](https://github.com/manaflow-ai/cmux/pull/10607) | Lawrence Chen | Open, head `126d772a131ce71f245ae56c3048aa99f3607d17` | Keep separate from #10603 until capability identity shape and protocol compatibility pass exact-head hosted checks. |
+| [#10609](https://github.com/manaflow-ai/cmux/pull/10609) | Lawrence Chen | Open, head `bdcbb8c8049eb552a0d646cdce78d58d294b7b82` | Keep separate until action-result queue ownership, saturation, cancellation, and retry behavior have tests. |
+| [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Open, head `5ce10b76303038392f4550b4f654dbd19ad50348` | Aggregate remains the likely integration vehicle, but do not merge until the unresolved queue and child-lifecycle risks have evidence. |
+
+## Residual risks, updated
+
+- Workspace producer queues have bounds in multiple paths, but a queued item
+  can still outlive its producer across disconnect, retry, and shutdown. The
+  ownership contract needs a behavior test, not another numeric cap.
+- Java Unix connection setup still lacks a complete connect-timeout contract.
+  Interruption cleanup is improved, but a peer that accepts and never replies
+  must terminate within a measured bound and release its task.
+- PTY inbound saturation now fails closed at one ingress boundary. Every
+  producer path still needs a bounded admission decision and cancellation
+  proof before claiming global backpressure safety.
+- Relative cwd rejection is safer than accepting ambiguous paths, but callers
+  need a documented absolute/home-relative migration contract.
+
+The ledger remains an honest lower bound of at least 180 substantive agent
+turns. It does not represent an exact session-file count, and the requested
+10,000-session target is not reached.
