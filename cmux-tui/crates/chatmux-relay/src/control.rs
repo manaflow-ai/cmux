@@ -370,7 +370,7 @@ mod tests {
             lines
         });
 
-        let control = unix::connect_control(&socket_path, 3_000)
+        let control = connect_control(&socket_path, 3_000)
             .await
             .expect("connect control test socket");
         let payload = "x".repeat(128 * 1024);
