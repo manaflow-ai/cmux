@@ -36,23 +36,8 @@ mod pty_input;
 mod remote_cli;
 #[cfg(not(unix))]
 mod remote_cli {
-    const REMOTE_COMMANDS: &[&str] = &[
-        "remote",
-        "connect",
-        "ssh",
-        "forward",
-        "rpc",
-        "enroll",
-        "known-daemons",
-        "remote-probe",
-        "remote-link",
-        "remote-sidecar",
-        "remote-stop",
-        "install-self",
-    ];
-
     pub fn is_remote_invocation(args: &[String]) -> bool {
-        args.first().is_some_and(|argument| REMOTE_COMMANDS.contains(&argument.as_str()))
+        crate::cli::is_remote_invocation(args)
     }
 
     pub fn run(_: &[String], _: &str) -> i32 {
