@@ -6,13 +6,13 @@ use super::wire::{Params, field};
 use crate::codec::JsonLineConnection;
 use crate::{Error, Result};
 use serde_json::{Map, Value};
+use sha2::{Digest as _, Sha256};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, TryLockError};
 use std::time::{Duration, Instant};
-use sha2::{Digest as _, Sha256};
 
 const PROTOCOL: &str = "cmux.protocol/2";
 const DEFAULT_REQUEST_BYTES: usize = 4 * 1024 * 1024;
