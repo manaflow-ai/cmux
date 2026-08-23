@@ -170,6 +170,12 @@ impl Drop for AdminServer {
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
+        // Dropping a JoinHandle detaches the accept loop. Abort it as a
+        // fallback so an AdminServer dropped during runtime shutdown cannot
+        // leave a listener task alive until the executor drains it.
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
     }
 }
 
