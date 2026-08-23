@@ -40,6 +40,7 @@ public final class GhosttySurfaceHostView: UIView {
     private var keyboardTargetHeight: CGFloat = 0
     private var keyboardTargetTop: CGFloat = 0
     private var keyboardTargetTerminalBottom: CGFloat = 0
+    private var keyboardTargetRenderBottom: CGFloat = 0
     #if DEBUG
     private var maximumTerminalDockPresentationGap: CGFloat = 0
     #endif
@@ -179,8 +180,10 @@ public final class GhosttySurfaceHostView: UIView {
             0,
             keyboardTargetTop - surfaceView.hostedBottomDockHeight
         )
-        let rendererBottom = surfaceView.hostedTerminalRenderBottom
-        let targetTranslation = keyboardTargetTerminalBottom - rendererBottom
+        keyboardTargetRenderBottom = surfaceView.hostedKeyboardTransitionRenderBottom(
+            to: keyboardTargetTerminalBottom
+        )
+        let targetTranslation = keyboardTargetRenderBottom - surfaceView.hostedTerminalRenderBottom
         #if DEBUG
         maximumTerminalDockPresentationGap = 0
         #endif
@@ -204,7 +207,7 @@ public final class GhosttySurfaceHostView: UIView {
         UIView.performWithoutAnimation {
             surfaceView.finishHostedKeyboardTransition(
                 keyboardHeight: keyboardTargetHeight,
-                terminalBottom: keyboardTargetTerminalBottom
+                terminalBottom: keyboardTargetRenderBottom
             )
             terminalPresentationView.transform = .identity
             layoutIfNeeded()
@@ -246,25 +249,25 @@ public final class GhosttySurfaceHostView: UIView {
         return occupancy > resolvedBottomSafeAreaInset + 0.5 ? occupancy : 0
     }
 
-    /// Rebase both sides of the terminal/dock boundary before a new keyboard will.
+    /// Rebase the dock/clip/render boundary before a new keyboard will.
     ///
     /// A reversal arrives while the previous leg still has separate Core Animation
     /// presentation trees for the dock constraint, clip boundary, and terminal
-    /// wrapper. Rebasing only the wrapper makes its next `.beginFromCurrentState`
-    /// animation start at the live edge while the clip remains at the old target,
-    /// exposing a one-frame gap. The notification fallback owns the dock constraint,
-    /// so it can first fold the live dock bottom into that constraint, lay out the
-    /// linked clip without actions, then fold the wrapper's live transform into its
-    /// model. The next transaction therefore starts every owned component at one edge.
+    /// wrapper. The notification fallback owns the dock constraint, so it first
+    /// folds the live dock bottom into that constraint and lays out the linked
+    /// clip without actions. The wrapper's live translation is folded into the
+    /// renderer before its animation is removed. The next transaction therefore
+    /// starts every owned component at one visible point.
     private func rebaseKeyboardPresentationFromLiveFrames() {
-        let wrapperTransform: CGAffineTransform? = {
-            guard let presentation = terminalPresentationView.layer.presentation(),
-                  CATransform3DIsAffine(presentation.transform) else { return nil }
-            return CATransform3DGetAffineTransform(presentation.transform)
+        let wrapperTranslationY: CGFloat = {
+            let layer = terminalPresentationView.layer
+            let source = layer.presentation() ?? layer
+            guard CATransform3DIsAffine(source.transform) else { return 0 }
+            return CATransform3DGetAffineTransform(source.transform).ty
         }()
         let liveDockBottom = surfaceView.hostedBottomDockPresentationBottom(in: self)
 
-        guard wrapperTransform != nil || liveDockBottom != nil else { return }
+        guard liveDockBottom != nil || abs(wrapperTranslationY) > 0.001 else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
@@ -272,9 +275,8 @@ public final class GhosttySurfaceHostView: UIView {
                let liveDockBottom {
                 dockBottomConstraint.constant = liveDockBottom - bounds.maxY
             }
-            if let wrapperTransform {
-                terminalPresentationView.transform = wrapperTransform
-            }
+            surfaceView.foldHostedKeyboardPresentationTranslation(wrapperTranslationY)
+            terminalPresentationView.transform = .identity
             // The clip bottom is constrained to the dock top. Layout before removing
             // the old animations so its model edge is the same live edge as the dock.
             layoutIfNeeded()
@@ -315,9 +317,20 @@ public final class GhosttySurfaceHostView: UIView {
     }
 
     private var terminalDockPresentationGap: CGFloat {
-        guard let terminalBottom = surfaceView.hostedTerminalPresentationBottom(in: self),
+        guard let terminalBottom = terminalViewportPresentationBottom,
               let dockTop = surfaceView.hostedBottomDockPresentationTop(in: self) else { return 0 }
         return abs(terminalBottom - dockTop)
+    }
+
+    /// During a transition the clip edge is the visible terminal edge. The
+    /// IOSurface stays top-anchored until its settled grid resize completes.
+    private var terminalViewportPresentationBottom: CGFloat? {
+        let source = terminalClipView.layer.presentation() ?? terminalClipView.layer
+        let hostLayer = layer.presentation() ?? layer
+        return source.convert(
+            CGPoint(x: source.bounds.midX, y: source.bounds.maxY),
+            to: hostLayer
+        ).y
     }
     #endif
 }
