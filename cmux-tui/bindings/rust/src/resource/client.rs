@@ -8,6 +8,8 @@ use crate::{Error, Result};
 use serde_json::{Map, Value};
 use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::mem::{offset_of, size_of};
+use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, TryLockError};
@@ -25,6 +27,12 @@ fn is_hashed_socket(path: &std::path::Path) -> bool {
     path.parent()
         .and_then(std::path::Path::file_name)
         .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
+}
+
+fn unix_socket_path_fits(path: &std::path::Path) -> bool {
+    const SUN_PATH_CAPACITY: usize =
+        size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+    path.as_os_str().as_bytes().len() < SUN_PATH_CAPACITY
 }
 
 thread_local! {
@@ -109,7 +117,7 @@ fn connect_with_budget(
     );
     if let Err(Error::ConnectionIo { kind, .. }) = &result
         && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
-        && config.legacy_socket_path.is_some()
+        && config.legacy_socket_path.as_ref().is_some_and(|path| unix_socket_path_fits(path))
     {
         return JsonLineConnection::connect_with_poll_checks(
             config.legacy_socket_path.as_ref().unwrap(),
@@ -280,6 +288,7 @@ impl Client {
             && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
         {
             if let Some(legacy) = config.legacy_socket_path.clone()
+                && unix_socket_path_fits(&legacy)
                 && let Ok(candidate) = JsonLineConnection::connect(
                     &legacy,
                     config.timeout,
