@@ -75,6 +75,24 @@ test("session socket helpers enforce the relaxed safe-name contract", () => {
   }
 });
 
+test("default socket resolution prefers XDG_RUNTIME_DIR over TMPDIR", () => {
+  const oldXdg = process.env.XDG_RUNTIME_DIR;
+  const oldTmp = process.env.TMPDIR;
+  try {
+    process.env.XDG_RUNTIME_DIR = "/run/user-test";
+    process.env.TMPDIR = "/tmp/should-not-win";
+    assert.equal(
+      defaultSocketPath("main"),
+      `/run/user-test/cmux-tui-${process.getuid?.() ?? 0}/main.sock`,
+    );
+  } finally {
+    if (oldXdg === undefined) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = oldXdg;
+    if (oldTmp === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = oldTmp;
+  }
+});
+
 interface DelayedUnixFixture {
   readonly transport: UnixSocketTransport;
   readonly received: string[];

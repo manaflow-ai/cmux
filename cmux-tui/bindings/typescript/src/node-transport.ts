@@ -56,10 +56,13 @@ export function validateSessionName(session: string): void {
 /** Resolves the default Unix socket path for a session. */
 export function defaultSocketPath(session = "main"): string {
   validateSessionName(session);
-  const base = process.env.TMPDIR || os.tmpdir();
+  const base = process.env.XDG_RUNTIME_DIR || process.env.TMPDIR || os.tmpdir();
   const dir = `cmux-tui-${process.getuid?.() ?? 0}`;
   const preferred = path.join(base, dir, `${session}.sock`);
-  if (Buffer.byteLength(preferred) < 108) return preferred;
+  // sockaddr_un.sun_path includes the terminating NUL. Darwin provides 104
+  // bytes; Linux provides 108. Keep the same strict bound as the server.
+  const capacity = process.platform === "darwin" ? 104 : 108;
+  if (Buffer.byteLength(preferred) < capacity) return preferred;
   const digest = createHash("sha256").update(session, "utf8").digest("hex");
   return path.join("/tmp", dir, `${digest}.sock`);
 }
