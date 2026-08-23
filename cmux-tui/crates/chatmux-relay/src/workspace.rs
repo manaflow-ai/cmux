@@ -639,6 +639,7 @@ fn run_search(scope: &Scope, op: &wire::FsSearchOp) -> Result<wire::WorkspaceRes
     let query = op.query.as_str();
     let query_units = utf16_units(query);
     let mut matches: Vec<wire::FsSearchMatch> = Vec::new();
+    let mut truncated = false;
     'files: for entry in workspace_walker(&root, false).build() {
         let Ok(entry) = entry else { continue };
         if entry.depth() == 0 || !entry.file_type().is_some_and(|kind| kind.is_file()) {
@@ -650,11 +651,12 @@ fn run_search(scope: &Scope, op: &wire::FsSearchOp) -> Result<wire::WorkspaceRes
         let Ok(text) = std::str::from_utf8(&bytes) else { continue };
         let path = slash_path(relative);
         for (index, line) in text.lines().enumerate() {
-            if matches.len() >= cap {
-                break 'files;
-            }
             if !line.contains(query) {
                 continue;
+            }
+            if matches.len() >= cap {
+                truncated = true;
+                break 'files;
             }
             let (capped, capped_units) = cap_utf16(line, SEARCH_MAX_TEXT_UNITS);
             let mut spans = Vec::new();
@@ -678,7 +680,6 @@ fn run_search(scope: &Scope, op: &wire::FsSearchOp) -> Result<wire::WorkspaceRes
             });
         }
     }
-    let truncated = matches.len() >= cap;
     Ok(wire::WorkspaceResultBody::FsSearch(wire::FsSearchResult {
         op: wire::TagFsSearch::FsSearch,
         matches,
@@ -837,6 +838,15 @@ async fn run_git_diff(
         args.push("--");
         for path in paths {
             validate_request_path(path).map_err(Refusal::path_forbidden)?;
+            if is_absolute_request(path) || relative_path_escapes(path) {
+                return Err(Refusal::path_forbidden(
+                    "git diff paths must stay relative to the workspace root",
+                ));
+            }
+            // Resolve through the same lexical and canonical root checks as
+            // filesystem operations. `allow_missing` permits deleted paths,
+            // while still refusing symlinks or parents that leave the scope.
+            scope.resolve(path, true)?;
             args.push(path);
         }
     }
@@ -1494,6 +1504,26 @@ mod tests {
         let capped = search(1);
         assert_eq!(capped.matches.len(), 1);
         assert!(capped.truncated);
+
+        let exact_root = scratch("search-exact");
+        write(&exact_root, "single.txt", "NEEDLE\n");
+        let exact_scope = scope_for(&exact_root);
+        let exactly_one = match run_search(
+            &exact_scope,
+            &wire::FsSearchOp {
+                op: wire::TagFsSearch::FsSearch,
+                query: "NEEDLE".to_owned(),
+                root: None,
+                max_results: 1,
+            },
+        )
+        .expect("exact search")
+        {
+            wire::WorkspaceResultBody::FsSearch(result) => result,
+            other => panic!("wrong body: {other:?}"),
+        };
+        assert_eq!(exactly_one.matches.len(), 1);
+        assert!(!exactly_one.truncated, "an exact-cap result is not truncated");
     }
 
     // --- git ops ---------------------------------------------------------
@@ -1555,6 +1585,25 @@ mod tests {
         assert_eq!(result.stat, wire::GitDiffStat { files: 1, additions: 1, deletions: 1 });
         assert!(!result.truncated);
         let _ = root;
+    }
+
+    #[tokio::test]
+    async fn git_diff_rejects_paths_outside_workspace() {
+        let (_root, scope) = seeded_repo("git-diff-scope");
+        for path in ["../outside", "/etc/passwd", "~/outside"] {
+            let refusal = run_git_diff(
+                &scope,
+                &wire::GitDiffOp {
+                    op: wire::TagGitDiff::GitDiff,
+                    base: None,
+                    paths: Some(vec![path.to_owned()]),
+                    context_lines: None,
+                },
+            )
+            .await
+            .expect_err("path must be scoped");
+            assert_eq!(refusal.code, wire::WorkspaceErrorCode::PathForbidden, "{path}");
+        }
     }
 
     #[tokio::test]
