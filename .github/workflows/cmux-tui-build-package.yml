@@ -356,6 +356,13 @@ jobs:
           path: dist/cmux-relay-*${{ matrix.ext }}
           if-no-files-found: error
 
+      - name: Upload chatmux relay binary artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chatmux-relay-${{ matrix.target }}
+          path: dist/chatmux-relay-*${{ matrix.ext }}
+          if-no-files-found: error
+
   cloudflare-relay:
     name: Cloudflare Durable Object relay
     if: inputs.build_cloudflare_relay
@@ -591,6 +598,13 @@ jobs:
           name: cmux-tui-aarch64-unknown-linux-musl
           path: dist/binaries
 
+      - name: Download chatmux relay binaries
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: chatmux-relay-*
+          path: dist/binaries
+          merge-multiple: true
+
       - name: Download Windows x64 binary
         if: inputs.include_windows
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -678,6 +692,21 @@ jobs:
               raise SystemExit(
                   f"binary npm bootstrap version {probe.get('npm_bootstrap_version')!r} != {expected!r}"
               )
+          PY
+
+      - name: Smoke verify chatmux relay npm packages
+        if: inputs.package_npm
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, stat
+          root = pathlib.Path('dist/npm-packages')
+          launcher = json.loads((root / 'cmux-relay' / 'package.json').read_text())
+          assert launcher['bin']['cmux-relay'] == 'bin/cmux-relay.js'
+          assert (root / 'cmux-relay' / 'bin/cmux-relay.js').stat().st_mode & stat.S_IXUSR
+          for name in launcher['optionalDependencies']:
+              manifest = json.loads((root / name / 'package.json').read_text())
+              assert manifest['version'] == launcher['version']
+              assert (root / name / 'bin' / ('cmux-relay.exe' if 'win32' in name else 'cmux-relay')).stat().st_mode & stat.S_IXUSR
           PY
 
       - name: Archive npm package directories with executable modes

@@ -188,6 +188,10 @@ jobs:
             cmux-tui-darwin-x64
             cmux-tui-linux-x64
             cmux-tui-linux-arm64
+            cmux-relay-darwin-arm64
+            cmux-relay-darwin-x64
+            cmux-relay-linux-x64
+            cmux-relay-linux-arm64
           )
           for package in "${packages[@]}"; do
             echo "Publishing $package"
