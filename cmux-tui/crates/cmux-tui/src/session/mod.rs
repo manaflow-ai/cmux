@@ -62,11 +62,16 @@ pub enum Session {
 /// Both local and remote sessions therefore expose the same snapshot contract.
 pub(crate) trait SessionPort: Send + Sync {
     fn snapshot(&self) -> TreeView;
+    fn agents(&self) -> Vec<AgentInfo>;
 }
 
 impl SessionPort for Session {
     fn snapshot(&self) -> TreeView {
         self.tree()
+    }
+
+    fn agents(&self) -> Vec<AgentInfo> {
+        self.agents_impl()
     }
 }
 
@@ -909,6 +914,10 @@ impl Session {
     }
 
     pub fn agents(&self) -> Vec<AgentInfo> {
+        <Self as SessionPort>::agents(self)
+    }
+
+    fn agents_impl(&self) -> Vec<AgentInfo> {
         match self {
             Session::Local(mux) => mux
                 .list_agents(None, None)
@@ -3001,6 +3010,14 @@ mod tests {
         assert_eq!(snapshot.pane_revision, direct.pane_revision);
         assert_eq!(snapshot.active_workspace, direct.active_workspace);
         assert_eq!(snapshot.workspaces.len(), direct.workspaces.len());
+    }
+
+    #[test]
+    fn session_port_agents_matches_existing_agent_read() {
+        let session = Session::Local(Mux::new("session-port-agents-test", SurfaceOptions::default()));
+        let direct = session.agents_impl();
+        let port: &dyn SessionPort = &session;
+        assert_eq!(port.agents(), direct);
     }
 
     #[test]
