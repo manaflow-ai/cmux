@@ -104,6 +104,7 @@ fn connect_with_budget(
     );
     if let Err(Error::ConnectionIo { kind, .. }) = &result
         && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
+        && allow_legacy_fallback
         && crate::client::hashed_socket_legacy_path(&config.socket_path).is_some()
     {
         return JsonLineConnection::connect_with_poll_checks(
@@ -1170,7 +1171,7 @@ mod tests {
         );
         let listener = UnixListener::bind(&legacy.0).unwrap();
 
-        let client = Client::connect(config).unwrap();
+        let client = Client::connect_with_legacy_fallback(config).unwrap();
         assert_eq!(client.config().socket_path, legacy.0);
         drop(listener);
     }
