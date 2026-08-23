@@ -208,7 +208,17 @@ export class UnixSocketTransport implements Transport {
         }
       }
     });
-    socket.on("data", (chunk: Buffer) => this.receive(chunk));
+    socket.on("data", (chunk: Buffer) => {
+      try {
+        this.receive(chunk);
+      } catch (error) {
+        try {
+          this.failAndClose(error instanceof Error ? error : new Error(String(error)));
+        } catch {
+          // Error observers must not throw through the EventEmitter callback.
+        }
+      }
+    });
     socket.on("error", (error: NodeJS.ErrnoException) => {
       // Node may deliver a queued error after a fallback socket replaced it.
       // Ignore events from that stale EventEmitter, as they do not describe
