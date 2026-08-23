@@ -101,7 +101,7 @@ struct UnixSocketCleanupGuard(Arc<UnixSocketCleanup>);
 
 impl Drop for UnixSocketCleanupGuard {
     fn drop(&mut self) {
-        let _ = self.0.unlink();
+        let _ = self.0.unlink_and_release();
     }
 }
 
@@ -111,15 +111,28 @@ impl UnixSocketCleanup {
     }
 
     pub(crate) fn unlink(&self) -> io::Result<()> {
+        self.unlink_inner(false)
+    }
+
+    fn unlink_and_release(&self) -> io::Result<()> {
+        self.unlink_inner(true)
+    }
+
+    fn unlink_inner(&self, release_lock: bool) -> io::Result<()> {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !state.linked {
+            if release_lock {
+                drop(state.path_lock.take());
+            }
             return Ok(());
         }
         let metadata = match fs::symlink_metadata(&self.path) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 state.linked = false;
-                drop(state.path_lock.take());
+                if release_lock {
+                    drop(state.path_lock.take());
+                }
                 return Ok(());
             }
             Err(error) => return Err(error),
@@ -129,12 +142,16 @@ impl UnixSocketCleanup {
             || metadata.ino() != self.inode
         {
             state.linked = false;
-            drop(state.path_lock.take());
+            if release_lock {
+                drop(state.path_lock.take());
+            }
             return Ok(());
         }
         fs::remove_file(&self.path)?;
         state.linked = false;
-        drop(state.path_lock.take());
+        if release_lock {
+            drop(state.path_lock.take());
+        }
         Ok(())
     }
 }
@@ -211,7 +228,7 @@ impl OwnedUnixListener {
         if let Err(error) =
             fs::set_permissions(lease.cleanup.0.path(), fs::Permissions::from_mode(0o600))
         {
-            let _ = lease.cleanup.0.unlink();
+            let _ = lease.cleanup.0.unlink_and_release();
             return Err(contextual_io(
                 error,
                 format!("could not secure Unix socket {}", lease.cleanup.0.path().display()),
