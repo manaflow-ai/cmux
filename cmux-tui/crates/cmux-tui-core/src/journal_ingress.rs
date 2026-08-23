@@ -296,10 +296,17 @@ pub(crate) struct JournalIngressSender {
     durable_sender: Option<SyncSender<QueuedJournalEvent>>,
     wake_sender: Option<SyncSender<()>>,
     state: Arc<JournalIngressState>,
-    writer: Mutex<Option<JournalWriter>>,
+    writer: Mutex<JournalWriterOwner>,
 }
 
-pub(crate) struct JournalWriter {
+enum JournalWriterOwner {
+    Vacant,
+    Reserved,
+    Running(JournalWriter),
+    Closed,
+}
+
+struct JournalWriter {
     thread: std::thread::JoinHandle<()>,
     finished: Receiver<()>,
 }
@@ -469,7 +476,7 @@ impl JournalIngressSender {
                     durable_sender: None,
                     wake_sender: None,
                     state,
-                    writer: Mutex::new(None),
+                    writer: Mutex::new(JournalWriterOwner::Vacant),
                 },
                 None,
             );
@@ -483,7 +490,7 @@ impl JournalIngressSender {
                 durable_sender: Some(durable_sender),
                 wake_sender: Some(wake_sender),
                 state: state.clone(),
-                writer: Mutex::new(None),
+                writer: Mutex::new(JournalWriterOwner::Vacant),
             },
             Some(JournalIngressReceivers { terminal, durable, wake, state }),
         )
@@ -654,15 +661,41 @@ impl JournalIngressSender {
                 Err(TrySendError::Disconnected(())) => {}
             }
         }
-        let Some(writer) = self.writer.lock().unwrap().take() else { return Ok(()) };
+        let writer = {
+            let mut owner = self.writer.lock().unwrap();
+            match std::mem::replace(&mut *owner, JournalWriterOwner::Closed) {
+                JournalWriterOwner::Running(writer) => Some(writer),
+                JournalWriterOwner::Vacant | JournalWriterOwner::Closed => None,
+                JournalWriterOwner::Reserved => {
+                    unreachable!("journal writer reservation escaped its owner lock")
+                }
+            }
+        };
+        let Some(writer) = writer else { return Ok(()) };
         writer.join_until(deadline)
     }
 
-    pub(crate) fn install_writer(&self, writer: JournalWriter) -> anyhow::Result<()> {
-        let mut installed = self.writer.lock().unwrap();
-        anyhow::ensure!(installed.is_none(), "session journal writer is already installed");
-        *installed = Some(writer);
-        Ok(())
+    pub(crate) fn spawn_writer(
+        &self,
+        name: &str,
+        task: impl FnOnce() + Send + 'static,
+    ) -> anyhow::Result<()> {
+        let mut owner = self.writer.lock().unwrap();
+        anyhow::ensure!(
+            matches!(*owner, JournalWriterOwner::Vacant),
+            "session journal writer is already installed"
+        );
+        *owner = JournalWriterOwner::Reserved;
+        match JournalWriter::spawn(name, task) {
+            Ok(writer) => {
+                *owner = JournalWriterOwner::Running(writer);
+                Ok(())
+            }
+            Err(error) => {
+                *owner = JournalWriterOwner::Vacant;
+                Err(error.into())
+            }
+        }
     }
 
     #[cfg(test)]
@@ -826,8 +859,7 @@ pub(crate) fn start(
 ) -> anyhow::Result<()> {
     let Some(receivers) = receivers else { return Ok(()) };
     let weak = Arc::downgrade(mux);
-    let writer = JournalWriter::spawn("mux-session-journal-writer", move || run(weak, receivers))?;
-    mux.install_journal_writer(writer)
+    mux.spawn_journal_writer("mux-session-journal-writer", move || run(weak, receivers))
 }
 
 fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
@@ -2285,7 +2317,7 @@ mod tests {
             completed.send(()).unwrap();
         })
         .unwrap();
-        sender.install_writer(writer).unwrap();
+        *sender.writer.lock().unwrap() = JournalWriterOwner::Running(writer);
         entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
 
         let deadline = Instant::now() + Duration::from_millis(100);
@@ -2296,6 +2328,55 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(1));
         release.send(()).unwrap();
         completion_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn duplicate_writer_is_rejected_before_its_thread_starts() {
+        let (sender, _receivers) = JournalIngressSender::new(true);
+        let (release, release_receiver) = sync_channel(1);
+        sender
+            .spawn_writer("owned-journal-writer-test", move || {
+                release_receiver.recv().unwrap();
+            })
+            .unwrap();
+
+        let duplicate_started = Arc::new(AtomicBool::new(false));
+        let duplicate_observer = duplicate_started.clone();
+        let error = sender
+            .spawn_writer("duplicate-journal-writer-test", move || {
+                duplicate_observer.store(true, Ordering::Release);
+            })
+            .unwrap_err();
+
+        assert!(error.to_string().contains("already installed"));
+        assert!(
+            !duplicate_started.load(Ordering::Acquire),
+            "a rejected writer must not start and detach"
+        );
+        release.send(()).unwrap();
+        sender.close_and_join().unwrap();
+    }
+
+    #[test]
+    fn mux_drop_joins_its_journal_writer() {
+        let mux = Mux::new("journal-writer-drop-owner", crate::SurfaceOptions::default());
+        let weak = Arc::downgrade(&mux);
+        let writer_finished = Arc::new(AtomicBool::new(false));
+        let writer_observer = writer_finished.clone();
+        mux.spawn_journal_writer("mux-drop-journal-writer-test", move || {
+            while weak.upgrade().is_some() {
+                std::thread::yield_now();
+            }
+            writer_observer.store(true, Ordering::Release);
+        })
+        .unwrap();
+
+        drop(mux);
+
+        assert!(
+            writer_finished.load(Ordering::Acquire),
+            "Mux::drop returned before its journal writer stopped"
+        );
     }
 
     #[test]

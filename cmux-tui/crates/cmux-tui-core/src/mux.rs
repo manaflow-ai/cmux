@@ -4779,11 +4779,12 @@ impl Mux {
         self.journal_ingress.flush_terminal()
     }
 
-    pub(crate) fn install_journal_writer(
+    pub(crate) fn spawn_journal_writer(
         &self,
-        writer: crate::journal_ingress::JournalWriter,
+        name: &str,
+        task: impl FnOnce() + Send + 'static,
     ) -> anyhow::Result<()> {
-        self.journal_ingress.install_writer(writer)
+        self.journal_ingress.spawn_writer(name, task)
     }
 
     #[cfg(test)]
@@ -15470,6 +15471,9 @@ impl Drop for Mux {
             for surface in unique_surface_runtimes(state) {
                 let _ = surface.shutdown_for_daemon(deadline);
             }
+        }
+        if let Err(error) = self.journal_ingress.close_and_join() {
+            eprintln!("cmux-tui: stop session journal writer during mux drop: {error:#}");
         }
         self.journal_kernel.shutdown();
         if let Ok(runtime) = self.browser_runtime.get_mut()
