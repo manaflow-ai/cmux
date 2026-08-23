@@ -472,6 +472,21 @@ def test_ghosttykit_checksum_pin_runs_macos() -> None:
     assert_areas(["scripts/ghosttykit-checksums.txt"], macos=True, web=False, go=False)
 
 
+def test_ghosttykit_checksum_pr_uses_release_guard_only() -> None:
+    # The classifier remains macOS-aware for manual/full CI routing above, but
+    # a checksum-only pull request takes the dedicated release-check path before
+    # invoking the classifier so it cannot be hidden by a build cache.
+    result, outputs = run_detect_step_for_paths(["scripts/ghosttykit-checksums.txt"])
+
+    assert "GhosttyKit provenance-only PR; running the release guard." in result.stdout
+    assert outputs == [
+        "macos=false",
+        "web=false",
+        "go=false",
+        "agent_session_web=false",
+    ]
+
+
 def test_app_bundled_markdown_runs_macos() -> None:
     assert_areas(["THIRD_PARTY_LICENSES.md"], macos=True, web=False, go=False)
 
