@@ -47,6 +47,10 @@ pub const MAX_PATH_CHARS: usize = 4_096;
 /// 120s; the relay tolerates up to the v3 exec ceiling).
 const MIN_TIMEOUT_MS: i64 = 1_000;
 const MAX_TIMEOUT_MS: i64 = 300_000;
+/// Maximum number of in-flight workspace operations a single socket may
+/// hold. Completed task handles are pruned on admission, but without an
+/// admission cap a peer could keep arbitrarily many slow requests pending.
+const MAX_PENDING_REQUESTS: usize = 64;
 
 /// A typed machine-side refusal (one `WorkspaceErrorCode` on the wire).
 #[derive(Debug)]
@@ -1014,11 +1018,27 @@ impl Connection {
     }
 
     fn spawn_request(&self, request: wire::RelayWorkspaceRequest) {
+        let request_id = request.request_id.clone();
+        let Ok(mut requests) = self.requests.lock() else {
+            let refusal = Refusal::failed("workspace request registry is unavailable");
+            let _ = self.outbound.send(error_frame(&request_id, &refusal));
+            return;
+        };
+        // Completed handles retain their allocation until awaited or dropped.
+        // Prune them before admission, then refuse excess pending work so the
+        // per-connection registry and task set remain bounded.
+        requests.retain(|task| !task.is_finished());
+        if requests.len() >= MAX_PENDING_REQUESTS {
+            let refusal = Refusal::failed(format!(
+                "too many pending workspace requests (limit {MAX_PENDING_REQUESTS})"
+            ));
+            let _ = self.outbound.send(error_frame(&request_id, &refusal));
+            return;
+        }
         let runtime = Arc::clone(&self.runtime);
         let outbound = self.outbound.clone();
         let local_observe = Arc::clone(&self.local_observe);
         let task = tokio::spawn(async move {
-            let request_id = request.request_id.clone();
             let outcome = execute(&runtime, &local_observe, request).await;
             let text = match outcome {
                 Ok(body) => ok_frame(&request_id, body),
@@ -1026,16 +1046,7 @@ impl Connection {
             };
             let _ = outbound.send(text);
         });
-        if let Ok(mut requests) = self.requests.lock() {
-            // Completed handles retain their allocation until awaited or
-            // dropped. Prune them on every admission so a busy connection
-            // cannot grow its task registry without bound.
-            requests.retain(|task| !task.is_finished());
-            requests.push(task);
-            requests.retain(|task| !task.is_finished());
-        } else {
-            task.abort();
-        }
+        requests.push(task);
     }
 }
 
@@ -1665,6 +1676,27 @@ mod tests {
         assert_eq!(answer["ok"], false);
         assert_eq!(answer["code"], "unsupported_verb");
         assert_eq!(answer["requestId"], "req_1");
+    }
+
+    #[tokio::test]
+    async fn dispatch_refuses_requests_past_the_per_connection_pending_cap() {
+        let runtime = Arc::new(SharedRuntime::new(None));
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let connection = Connection::new(runtime, tx);
+        {
+            let mut requests = connection.requests.lock().expect("request registry");
+            for _ in 0..MAX_PENDING_REQUESTS {
+                requests.push(tokio::spawn(std::future::pending::<()>()));
+            }
+        }
+        connection.handle_frame(request_json(
+            serde_json::json!({"op": "fs_read", "path": "missing", "maxBytes": 1000}),
+            "supervised",
+        ));
+        let answer: Value = serde_json::from_str(&rx.recv().await.expect("refusal frame")).unwrap();
+        assert_eq!(answer["ok"], false);
+        assert_eq!(answer["code"], "failed");
+        assert!(answer["message"].as_str().unwrap().contains("too many pending"));
     }
 
     #[tokio::test]
