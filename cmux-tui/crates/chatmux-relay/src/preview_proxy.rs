@@ -831,22 +831,20 @@ async fn forward_plain(
     }
     let (mut parts, body) = response.into_parts();
     use http_body_util::BodyExt as _;
-    let collected = match http_body_util::Limited::new(body, PREVIEW_HTML_MAX_BODY_BYTES)
-        .collect()
-        .await
-    {
-        Ok(collected) => collected.to_bytes(),
-        Err(error) if error.downcast_ref::<http_body_util::LengthLimitError>().is_some() => {
-            return text_response(
-                502,
-                &format!(
-                    "target HTML response exceeds the {} byte limit",
-                    PREVIEW_HTML_MAX_BODY_BYTES
-                ),
-            );
-        }
-        Err(error) => return text_response(502, &format!("target body failed: {error}")),
-    };
+    let collected =
+        match http_body_util::Limited::new(body, PREVIEW_HTML_MAX_BODY_BYTES).collect().await {
+            Ok(collected) => collected.to_bytes(),
+            Err(error) if error.downcast_ref::<http_body_util::LengthLimitError>().is_some() => {
+                return text_response(
+                    502,
+                    &format!(
+                        "target HTML response exceeds the {} byte limit",
+                        PREVIEW_HTML_MAX_BODY_BYTES
+                    ),
+                );
+            }
+            Err(error) => return text_response(502, &format!("target body failed: {error}")),
+        };
     let injected = inject_into_html(&collected);
     parts.headers.remove(hyper::header::CONTENT_LENGTH);
     parts.headers.remove(hyper::header::CONTENT_ENCODING);
@@ -953,18 +951,18 @@ mod tests {
                     let service = hyper::service::service_fn(|request| async move {
                         let path = request.uri().path();
                         let (body, content_type, opt_out): (Vec<u8>, &str, bool) = match path {
-                            "/body-only" => (b"<body><p>hi</p></body>".to_vec(), "text/html", false),
+                            "/body-only" => {
+                                (b"<body><p>hi</p></body>".to_vec(), "text/html", false)
+                            }
                             "/plain" => (b"no tags here".to_vec(), "text/plain", false),
                             "/opt-out" => (
                                 b"<html><head></head><body></body></html>".to_vec(),
                                 "text/html",
                                 true,
                             ),
-                            "/oversize" => (
-                                vec![b'a'; PREVIEW_HTML_MAX_BODY_BYTES + 1],
-                                "text/html",
-                                false,
-                            ),
+                            "/oversize" => {
+                                (vec![b'a'; PREVIEW_HTML_MAX_BODY_BYTES + 1], "text/html", false)
+                            }
                             _ => (
                                 b"<html><head><title>t</title></head><body></body></html>".to_vec(),
                                 "text/html; charset=utf-8",
