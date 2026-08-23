@@ -196,7 +196,7 @@ impl ClientConfig {
             environment.clone(),
         ));
         if environment.is_none() {
-            config.legacy_socket_path = Some(legacy_socket_path(session));
+            config.legacy_socket_path = Some(legacy_socket_path_for_session(session));
         }
         config
     }
@@ -214,7 +214,7 @@ impl ClientConfig {
         let socket_path = socket_path_for_session(session, environment.clone())?;
         let mut config = Self::from_socket_path(socket_path);
         if environment.is_none() {
-            config.legacy_socket_path = Some(legacy_socket_path(session));
+            config.legacy_socket_path = Some(legacy_socket_path_for_session(session));
         }
         Ok(config)
     }
@@ -502,7 +502,7 @@ fn is_hashed_socket(path: &Path) -> bool {
         .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
 }
 
-fn legacy_socket_path(session: &str) -> PathBuf {
+pub(crate) fn legacy_socket_path_for_session(session: &str) -> PathBuf {
     PathBuf::from("/tmp").join(private_runtime_dir_name()).join(format!("{session}.sock"))
 }
 

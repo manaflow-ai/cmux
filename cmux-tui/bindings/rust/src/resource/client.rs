@@ -93,20 +93,35 @@ fn connect_with_budget(
     let timeout = budget.remaining(operation)?;
     let poll_interval =
         if budget.cancellation.is_some() { CANCELLATION_POLL_INTERVAL } else { timeout };
-    JsonLineConnection::connect_with_poll_checks(
+    let result = JsonLineConnection::connect_with_poll_checks(
         &config.socket_path,
         timeout,
         config.timeout,
         config.max_response_bytes,
         poll_interval,
         || budget.check(operation),
-    )
+    );
+    if let Err(crate::CmuxError::ConnectionIo { kind, .. }) = &result
+        && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
+        && config.legacy_socket_path.is_some()
+    {
+        return JsonLineConnection::connect_with_poll_checks(
+            config.legacy_socket_path.as_ref().unwrap(),
+            timeout,
+            config.timeout,
+            config.max_response_bytes,
+            poll_interval,
+            || budget.check(operation),
+        );
+    }
+    result
 }
 
 /// Connection and bound configuration for the resource SDK.
 #[derive(Clone, Debug)]
 pub struct Config {
     pub socket_path: PathBuf,
+    legacy_socket_path: Option<PathBuf>,
     pub timeout: Duration,
     pub max_request_bytes: usize,
     pub max_response_bytes: usize,
@@ -118,6 +133,7 @@ impl Config {
     pub fn from_socket_path(socket_path: impl Into<PathBuf>) -> Self {
         Self {
             socket_path: socket_path.into(),
+            legacy_socket_path: None,
             timeout: Duration::from_secs(10),
             max_request_bytes: DEFAULT_REQUEST_BYTES,
             max_response_bytes: DEFAULT_RESPONSE_BYTES,
@@ -134,10 +150,15 @@ impl Config {
     /// and bypasses session derivation. Use
     /// [`Self::try_from_env_or_default_session`] to receive the error.
     pub fn from_env_or_default_session(session: &str) -> Self {
-        Self::from_socket_path(crate::client::compatibility_socket_path_for_session(
-            session,
-            crate::client::env_socket_path(),
-        ))
+        let env = crate::client::env_socket_path();
+        let mut config = Self::from_socket_path(
+            crate::client::compatibility_socket_path_for_session(session, env.clone()),
+        );
+        if env.is_none() {
+            config.legacy_socket_path =
+                Some(crate::client::legacy_socket_path_for_session(session));
+        }
+        config
     }
 
     /// Builds a resource configuration and reports invalid derived session
@@ -145,7 +166,12 @@ impl Config {
     pub fn try_from_env_or_default_session(session: &str) -> Result<Self> {
         let socket_path =
             crate::client::socket_path_for_session(session, crate::client::env_socket_path())?;
-        Ok(Self::from_socket_path(socket_path))
+        let mut config = Self::from_socket_path(socket_path);
+        if crate::client::env_socket_path().is_none() {
+            config.legacy_socket_path =
+                Some(crate::client::legacy_socket_path_for_session(session));
+        }
+        Ok(config)
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
