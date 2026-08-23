@@ -304,15 +304,19 @@ impl PtyDeps for RealPtyDeps {
         // PTY allocation and thread setup are blocking; run off the reactor.
         // On PTY allocation failure (ptmx exhaustion et al) degrade to a
         // pipe-mode shell so the terminal still functions, with a banner.
+        let output = ThreadOutput::new();
         tokio::task::spawn_blocking(move || match spawn_real_pty(&spec) {
             Ok(handle) => handle,
             Err(error) => spawn_pipe_mode(&spec, &error.to_string()),
         })
         .await
-        .unwrap_or_else(|_| PtyHandle {
+        .unwrap_or_else(|_| {
+            output.push_exit(1);
+            PtyHandle {
             control: Arc::new(DeadControl),
-            output: ThreadOutput::new(),
+            output,
             banner: None,
+            }
         })
     }
 
@@ -351,6 +355,21 @@ impl PtyDeps for RealPtyDeps {
         cwd: &Path,
         env: &HashMap<String, String>,
     ) -> Result<EnsureDaemon, String> {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        tokio::fs::create_dir_all(socket_dir)
+            .await
+            .map_err(|error| format!("control socket directory create failed: {error}"))?;
+        let metadata = tokio::fs::metadata(socket_dir)
+            .await
+            .map_err(|error| format!("control socket directory stat failed: {error}"))?;
+        if !metadata.is_dir() || metadata.uid() != self.uid {
+            return Err(format!("control socket directory is not owned by uid {}", self.uid));
+        }
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o700);
+        tokio::fs::set_permissions(socket_dir, permissions)
+            .await
+            .map_err(|error| format!("control socket directory permissions failed: {error}"))?;
         let socket_path = socket_dir.join(format!("{session}.sock"));
         if socket_exists(&socket_path).await {
             return Ok(EnsureDaemon { created: false, socket_path });
@@ -373,24 +392,8 @@ impl PtyDeps for RealPtyDeps {
             if socket_exists(&socket_path).await {
                 // Probe a control round-trip before declaring readiness.
                 while Instant::now() < deadline {
-                    let mut probe = tokio::process::Command::new(&cmux_tui.file);
-                    let mut probe_args = cmux_tui.prefix.clone();
-                    probe_args.extend([
-                        "--session".to_owned(),
-                        session.to_owned(),
-                        "client".to_owned(),
-                        "list".to_owned(),
-                        "--json".to_owned(),
-                    ]);
-                    probe.args(&probe_args).env_clear();
-                    for (key, value) in env {
-                        probe.env(key, value);
-                    }
-                    probe.stdin(std::process::Stdio::null());
-                    probe.stdout(std::process::Stdio::null());
-                    probe.stderr(std::process::Stdio::null());
-                    match probe.status().await {
-                        Ok(status) if status.success() => {
+                    match connect_control(&socket_path, CONTROL_TIMEOUT_MS).await {
+                        Ok(control) if control.request("list", serde_json::Value::Null).await.is_some() => {
                             return Ok(EnsureDaemon { created: true, socket_path });
                         }
                         _ => tokio::time::sleep(Duration::from_millis(50)).await,

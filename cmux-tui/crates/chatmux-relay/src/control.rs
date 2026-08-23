@@ -119,6 +119,7 @@ mod unix {
 
     async fn read_loop(mut reader: OwnedReadHalf, shared: Arc<Shared>) {
         let mut buffer: Vec<u8> = Vec::new();
+        const MAX_CONTROL_LINE_BYTES: usize = 1 << 20;
         let mut chunk = [0_u8; 16_384];
         loop {
             while shared.paused.load(Ordering::SeqCst) {
@@ -129,6 +130,12 @@ mod unix {
                 Ok(count) => count,
             };
             buffer.extend_from_slice(&chunk[..count]);
+            if buffer.len() > MAX_CONTROL_LINE_BYTES {
+                // A peer that never terminates a line must not grow memory
+                // without bound. Drop the partial frame and keep the socket.
+                buffer.clear();
+                continue;
+            }
             while let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') {
                 let line: Vec<u8> = buffer.drain(..=newline).collect();
                 let Ok(text) = std::str::from_utf8(&line[..line.len() - 1]) else { continue };
