@@ -2909,7 +2909,9 @@ impl Keys {
             }) {
                 Some(definition) => {
                     self.bindings.retain(|(_, action)| *action != definition.action);
-                    let mut provider_menu_override_valid = false;
+                    let mut provider_menu_override_valid = definition.action
+                        == Action::ProviderMenu
+                        && matches!(value, Value::Array(values) if values.is_empty());
                     for raw_chord in key_values(value) {
                         if raw_chord.eq_ignore_ascii_case("none") {
                             if definition.action == Action::ProviderMenu {
@@ -8018,6 +8020,7 @@ mod tests {
             (Value::String("not a chord".to_string()), false),
             (Value::String("ctrl+b".to_string()), false),
             (Value::String("none".to_string()), true),
+            (Value::Array(vec![]), true),
             (Value::String("x".to_string()), true),
             (Value::Bool(true), false),
         ];
