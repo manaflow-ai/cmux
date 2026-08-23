@@ -852,7 +852,12 @@ impl ProviderMachineRuntime {
                                         .iter()
                                         .any(|descriptor| &descriptor.id == selected)
                             });
-                        if deletes_open_session && selection_stale {
+                        // Refresh may replace the deleted desired selection
+                        // with an arbitrary valid provider fallback. The
+                        // open machine was still deleted, so slot-based
+                        // failover must win even when the refreshed selection
+                        // is no longer technically stale.
+                        if deletes_open_session {
                             let usable: Vec<protocol::OpaqueId> = runtime
                                 .snapshot
                                 .machines
