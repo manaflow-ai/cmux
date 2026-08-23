@@ -2,8 +2,8 @@
 
 Audit snapshot: 2026-08-23.
 
-Audit base: aggregate-final at `ace9e5f57f` (`fix(cmux-tui): parse 8-bit C1
-cursor controls`). This document records explicit user requests found in local
+Audit base: aggregate-final at `cfb0684e75` (`style(cmux-tui): format inline
+global option parser`). This document records explicit user requests found in local
 session history. It does not claim that an implementation is complete. For the
 aggregate change and risk ledger, see [`TECH-DEBT-BOARD.md`](TECH-DEBT-BOARD.md).
 
@@ -19,7 +19,7 @@ aggregate change and risk ledger, see [`TECH-DEBT-BOARD.md`](TECH-DEBT-BOARD.md)
 
 ## Deduplicated requests
 
-| ID | Explicit ask and evidence | Status at `ace9e5f57f` | Acceptance test |
+| ID | Explicit ask and evidence | Status at `cfb0684e75` | Acceptance test |
 | --- | --- | --- | --- |
 | UI-01 | Make every cmux terminal use a separate cmux-tui owner, keep the CLI path coherent, preserve terminals across Swift restart, and define the Swift layout projection. Evidence: `~/.claude/history.jsonl:89411,89422-89442`, 2026-08-19T03:49:41Z to 04:29:21Z UTC; follow-up `~/.claude/history.jsonl:89568`, 2026-08-20T02:57:08Z UTC. | Partial. The aggregate has relay/TUI integration, but the technical-debt board says manual-IO replacement, full restore, and layout ownership remain open. | Start a terminal, quit and reopen the Swift shell, and prove the same PTY, scrollback, cwd, and session ID remain. Exercise the CLI and a right-sidebar projection without creating a second owner. |
 | UI-02 | Use journal-first recovery for both a normal cmux restart and a host reboot, with explicit recovery intent and outcome. Evidence: `~/.claude/history.jsonl:89427,89568`, 2026-08-19T04:04:18Z and 2026-08-20T02:57:08Z UTC; `~/.codex/history.jsonl:17612-17614`, 2026-08-07T07:58:12Z to 08:00:03Z UTC. | Open. The aggregate explicitly says reboot checkpoints, full agent restore, and policy-controlled resume are not implemented. | Run clean mux restart with a live host, then host-crash/reboot simulation. The first preserves the live PTY; the second classifies the session interrupted and records one journaled recovery intent and outcome. No secrets or live capabilities enter the journal. |
@@ -38,6 +38,7 @@ aggregate change and risk ledger, see [`TECH-DEBT-BOARD.md`](TECH-DEBT-BOARD.md)
 | UI-15 | Keep terminal output responsive under load and avoid TUI freezes. Evidence: `~/.claude/history.jsonl:89921`, 2026-08-21T05:28:16Z UTC; the aggregate board's backpressure and queue blockers apply. | Partial. Queue and frame bounds landed, but sustained-output and disconnect behavior still require hosted proof. | Drive sustained output and resize while attaching multiple clients. Assert bounded memory, fair input, no frozen btop or dropped accepted bytes, explicit overload, and deterministic shutdown. |
 | UI-16 | Eliminate persistent blank space after Claude Code TUI resize or split. Evidence: `~/.claude/transcripts/ses_2a8f488aa0ffekX6csDX94egh16.jsonl:1`, 2026-04-04T05:50:49Z UTC; follow-up `ses_2a8f48aa0ffekX6csDX94egh16.jsonl:1`, 2026-04-04T05:51:01Z UTC. | Open. The request reports repeated failures after six attempted fixes; no aggregate closure is recorded. | Reproduce window drag and Cmd-D split with Claude Code TUI, capture grid, scroll-view document height, offset, and frame on every resize, and prove no blank rows across repeated transitions. |
 | UI-17 | Map a freshly spawned Codex TUI session to its exact cmux surface, including two same-cwd launches under 10 ms, then restore it after reopen. Evidence: `~/.claude/transcripts/ses_25cee6607ffebXFO2sT2wguI3w.jsonl:1`, 2026-04-19T00:09:01Z UTC. | Open. The transcript states that TUI mode does not expose the ID on stdout; no exact ownership proof is recorded. | Launch two same-cwd sessions less than 10 ms apart, record each durable session ID before surface association, kill and reopen cmux, and assert each session resumes only in its original surface. |
+| UI-18 | Add a multilingual and emoji glyph-rendering fixture for the Star Wars failure. Evidence: `~/.codex/transcription-history.jsonl:3`, record `ccc037fb-aff5-4bb0-909b-0979d129ee41`. | Open. No runnable corpus or cell-width/screenshot assertion is recorded. | Render broad multilingual and emoji input in the TUI, capture cell widths and pixels, and assert stable glyph placement across resize and redraw. |
 
 ## Aggregate residuals that affect these asks
 
