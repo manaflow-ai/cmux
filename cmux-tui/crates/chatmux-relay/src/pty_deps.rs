@@ -34,6 +34,7 @@ struct SourceState {
     on_data: Option<DataSink>,
     on_exit: Option<ExitSink>,
     backlog: VecDeque<Bytes>,
+    // Keep exit behind bytes that arrive before the subscriber drains.
     pending_exit: Option<i64>,
     delivering: bool,
     exited: bool,

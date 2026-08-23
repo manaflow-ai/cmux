@@ -848,6 +848,7 @@ struct TerminalStreamState {
     live_exit: Option<Arc<dyn Fn(i64) + Send + Sync>>,
     backlog: VecDeque<Bytes>,
     backlog_bytes: usize,
+    // Keep exit behind bytes that arrive before the live handoff drains.
     pending_exit: Option<i64>,
     delivering: bool,
     ended: bool,
