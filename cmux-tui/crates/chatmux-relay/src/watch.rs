@@ -7,10 +7,11 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender, channel};
 
 use crate::relay_wire as wire;
 use crate::workspace::{Refusal, Scope, WORKSPACE_FRAME_VERSION, slash_path};
@@ -25,6 +26,7 @@ pub const WATCH_MAX_CHANGES: usize = 256;
 /// behind the first change in its burst.
 const DEBOUNCE_QUIET: Duration = Duration::from_millis(150);
 const DEBOUNCE_MAX_LATENCY: Duration = Duration::from_millis(500);
+const MAX_PENDING_NOTIFY_EVENTS: usize = 1024;
 
 type Sessions = Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>;
 
@@ -147,9 +149,12 @@ fn watch_root(
 
 async fn run_watch(watch_id: &str, root: &Path, outbound: &UnboundedSender<String>) {
     use notify::Watcher as _;
-    let (event_tx, mut event_rx) = unbounded_channel::<Result<notify::Event, notify::Error>>();
+    let (event_tx, mut event_rx) =
+        channel::<Result<notify::Event, notify::Error>>(MAX_PENDING_NOTIFY_EVENTS);
+    let overflowed = Arc::new(AtomicBool::new(false));
+    let callback_overflowed = Arc::clone(&overflowed);
     let mut watcher = match notify::recommended_watcher(move |event| {
-        let _ = event_tx.send(event);
+        try_enqueue_notify_event(&event_tx, &callback_overflowed, event);
     }) {
         Ok(watcher) => watcher,
         Err(error) => {
@@ -175,7 +180,10 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &UnboundedSender<Strin
         let mut burst = vec![first];
         drain_burst(&mut event_rx, &mut burst).await;
         let mut fatal: Option<notify::Error> = None;
-        let mut overflow = false;
+        let mut overflow = overflowed.swap(false, Ordering::AcqRel);
+        // Include drops that happened while the quiet-window drain was
+        // collecting this burst. A later burst must not hide this loss.
+        overflow |= overflowed.swap(false, Ordering::AcqRel);
         let mut changes: Vec<wire::FsWatchChange> = Vec::new();
         let mut change_index: HashMap<String, usize> = HashMap::new();
         let mut saw_ignore_file = false;
@@ -230,7 +238,7 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &UnboundedSender<Strin
 }
 
 async fn drain_burst(
-    event_rx: &mut UnboundedReceiver<Result<notify::Event, notify::Error>>,
+    event_rx: &mut Receiver<Result<notify::Event, notify::Error>>,
     burst: &mut Vec<Result<notify::Event, notify::Error>>,
 ) {
     let flush_at = tokio::time::Instant::now() + DEBOUNCE_MAX_LATENCY;
@@ -244,6 +252,12 @@ async fn drain_burst(
             Ok(Some(event)) => burst.push(event),
             Ok(None) | Err(_) => return,
         }
+    }
+}
+
+fn try_enqueue_notify_event<T>(sender: &Sender<T>, overflowed: &AtomicBool, event: T) {
+    if sender.try_send(event).is_err() {
+        overflowed.store(true, Ordering::Release);
     }
 }
 
@@ -536,5 +550,18 @@ mod tests {
         );
         assert_eq!(changes.len(), 1, "the ignore file itself reports");
         assert!(saw_ignore, "and schedules a matcher rebuild");
+    }
+
+    #[test]
+    fn bounded_notify_queue_marks_overflow_without_losing_the_marker() {
+        let (sender, mut receiver) = channel::<u8>(1);
+        let overflowed = AtomicBool::new(false);
+        try_enqueue_notify_event(&sender, &overflowed, 1);
+        try_enqueue_notify_event(&sender, &overflowed, 2);
+        assert!(overflowed.load(Ordering::Acquire));
+        assert_eq!(receiver.try_recv().expect("first event"), 1);
+        assert!(receiver.try_recv().is_err());
+        assert!(overflowed.swap(false, Ordering::AcqRel));
+        assert!(!overflowed.load(Ordering::Acquire));
     }
 }
