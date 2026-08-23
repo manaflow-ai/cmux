@@ -17,8 +17,7 @@ use super::{GlobalArgs, OutputMode, UsageError};
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 const SERVER_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(2);
 const SUPPORTED_SERVER_APP: &str = "cmux-tui";
-const MINIMUM_SERVER_PROTOCOL: u64 =
-    cmux_tui_core::server::SESSION_JOURNAL_PROTOCOL_VERSION as u64;
+const MINIMUM_SERVER_PROTOCOL: u64 = cmux_tui_core::server::SESSION_JOURNAL_PROTOCOL_VERSION as u64;
 
 pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     if plan.stream && global.output == OutputMode::Json {
@@ -201,9 +200,11 @@ fn validate_capability_identity(identity: &Value) -> Result<(), &'static str> {
     if identity.get("app").and_then(Value::as_str) != Some(SUPPORTED_SERVER_APP) {
         return Err("unexpected server app");
     }
-    if identity.get("protocol").and_then(Value::as_u64).is_none_or(|protocol| {
-        protocol < MINIMUM_SERVER_PROTOCOL
-    }) {
+    if identity
+        .get("protocol")
+        .and_then(Value::as_u64)
+        .is_none_or(|protocol| protocol < MINIMUM_SERVER_PROTOCOL)
+    {
         return Err("unsupported server protocol");
     }
     Ok(())
