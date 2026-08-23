@@ -20,8 +20,10 @@ struct MachineSnapshot: Equatable, Identifiable {
     let isDesktop: Bool
     let activity: Activity
     let createdAt: Date?
+    /// User-chosen label; nil when the machine has no label.
+    let label: String?
 
-    var displayName: String { id }
+    var displayName: String { label?.isEmpty == false ? label! : id }
 
     var kindLabel: String {
         isDesktop
@@ -61,7 +63,8 @@ enum MachineSnapshotBuilder {
             activity: activity(fromStatus: summary.status),
             createdAt: summary.createdAt > 0
                 ? Date(timeIntervalSince1970: TimeInterval(summary.createdAt) / 1000)
-                : nil
+                : nil,
+            label: summary.displayName
         )
     }
 

@@ -95,6 +95,7 @@ export async function GET(request: Request): Promise<Response> {
         image: entry.image,
         imageVersion: entry.imageVersion,
         createdAt: entry.createdAt,
+        displayName: entry.displayName,
       }));
       // Plan context for machine-fleet UIs: how many active VMs this caller may
       // hold and which plan sets that ceiling. Personal accounts skip the team
@@ -203,6 +204,15 @@ export async function POST(request: Request): Promise<Response> {
             message: "`persistentHome` must be a boolean when provided.",
             action: "Omit `persistentHome`, or send `true` to mount the per-user persistent home volume.",
             details: { field: "persistentHome" },
+          });
+        }
+        if (candidate.perMachineHome !== undefined && typeof candidate.perMachineHome !== "boolean") {
+          return vmErrorResponse({
+            error: "vm_invalid_request",
+            status: 400,
+            message: "`perMachineHome` must be a boolean when provided.",
+            action: "Omit `perMachineHome`, or send `true` to give the new machine its own persistent home volume.",
+            details: { field: "perMachineHome" },
           });
         }
         if (typeof bodyBillingTeamId === "string" && bodyBillingTeamId.trim().length === 0) {
@@ -336,6 +346,7 @@ export async function POST(request: Request): Promise<Response> {
             idempotencyKey,
             bakedFreestyleSignedAdmin: imageUsesBakedFreestyleSignedAdmin(provider, image),
             persistentHome: candidate.persistentHome === true,
+            perMachineHome: candidate.perMachineHome === true,
             timing,
           }));
         } catch (err) {

@@ -57193,6 +57193,57 @@
         }
       }
     },
+    "cli.vm.rename.cleared": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ label cleared"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のラベルを削除しました"
+          }
+        }
+      }
+    },
+    "cli.vm.rename.set": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is now labeled “%2$@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ のラベルを“%2$@”に設定しました"
+          }
+        }
+      }
+    },
+    "cli.vm.rename.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux vm rename <id> <new-label>\n       cmux vm rename <id> --clear\n\nThe label is display-only; the machine id stays its address.\nFind an id:\n  cmux vm ls"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux vm rename <id> <new-label>\n        cmux vm rename <id> --clear\n\nラベルは表示専用です。マシンのアドレスは id のままです。\nid の確認:\n  cmux vm ls"
+          }
+        }
+      }
+    },
     "cli.workspace.create.error.envFileRequiresValue": {
       "extractionState": "manual",
       "localizations": {
@@ -122747,6 +122798,23 @@
         }
       }
     },
+    "machines.menu.rename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前を変更…"
+          }
+        }
+      }
+    },
     "machines.menu.status": {
       "extractionState": "manual",
       "localizations": {
@@ -122862,6 +122930,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "マシンを再読み込み"
+          }
+        }
+      }
+    },
+    "machines.rename.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更"
+          }
+        }
+      }
+    },
+    "machines.rename.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The label is display-only. The machine keeps its name as its address."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ラベルは表示専用です。マシンのアドレスは元の名前のままです。"
+          }
+        }
+      }
+    },
+    "machines.rename.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Label"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ラベル"
+          }
+        }
+      }
+    },
+    "machines.rename.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”の名前を変更"
           }
         }
       }
@@ -150477,6 +150613,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "マシン"
+          }
+        }
+      }
+    },
+    "rightSidebar.mode.machines.compact": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VMs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM"
           }
         }
       }

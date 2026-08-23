@@ -1647,6 +1647,7 @@ describe("VM Effect workflows", () => {
       reservePausedResume: () => Effect.succeed(null),
       reconciliationCandidates: () => Effect.succeed([]),
       markProviderObservedStatus: () => Effect.succeed(false),
+      setDisplayName: () => Effect.succeed(true),
       markCreateRunning: () => Effect.succeed(running),
       markCreateFailed: () => Effect.void,
       hasOwnedSnapshot: () => Effect.succeed(false),
@@ -4553,6 +4554,7 @@ function testCloudVmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     billingPlanId: "free",
     provider: "freestyle",
     providerVmId: null,
+    displayName: null,
     imageId: "snapshot-test",
     imageVersion: null,
     status: "provisioning",
@@ -4589,6 +4591,7 @@ function testWorkflowRepo(input: {
 }): VmRepositoryShape {
   return {
     listUserVms: () => Effect.succeed([]),
+    setDisplayName: () => Effect.succeed(true),
     claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
     markBillingGrantApplied: () => Effect.void,
     deleteBillingGrant: () => Effect.void,

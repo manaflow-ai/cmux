@@ -185,6 +185,7 @@ struct MachineRowActions {
     let openShell: @MainActor (String) -> Void
     let runCommand: @MainActor (String, [String]) -> Void
     let confirmDelete: @MainActor (String) -> Void
+    let promptRename: @MainActor (String, String?) -> Void
 
     static func bound(onDidMutate: @escaping @MainActor () -> Void) -> MachineRowActions {
         MachineRowActions(
@@ -196,13 +197,26 @@ struct MachineRowActions {
             },
             confirmDelete: { id in
                 presentDeleteConfirmation(id: id, onDidMutate: onDidMutate)
+            },
+            promptRename: { id, currentLabel in
+                presentRenamePrompt(id: id, currentLabel: currentLabel, onDidMutate: onDidMutate)
             }
         )
     }
 
     @MainActor
     static func openNewMachine(onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil) {
-        _ = AppDelegate.shared?.performCloudVMAction(onCompletion: onCompletion)
+        // `vm new` mints a fresh machine with its own persistent home and
+        // attaches it; the base slot stays reachable via the ＋ menu's Open Base.
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        CloudVMActionLauncher.shared.start(
+            socketPath: socketPath,
+            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+            arguments: ["vm", "new"],
+            onCompletion: onCompletion
+        )
     }
 
     @MainActor
@@ -216,6 +230,41 @@ struct MachineRowActions {
             arguments: arguments
         ) { _ in
             onDidMutate()
+        }
+    }
+
+    @MainActor
+    private static func presentRenamePrompt(id: String, currentLabel: String?, onDidMutate: @escaping @MainActor () -> Void) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        let format = String(localized: "machines.rename.title", defaultValue: "Rename \u{201C}%@\u{201D}")
+        alert.messageText = String(format: format, id)
+        alert.informativeText = String(
+            localized: "machines.rename.message",
+            defaultValue: "The label is display-only. The machine keeps its name as its address."
+        )
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.stringValue = currentLabel ?? ""
+        field.placeholderString = String(localized: "machines.rename.placeholder", defaultValue: "Label")
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        alert.addButton(withTitle: String(localized: "machines.rename.confirm", defaultValue: "Rename"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+        let respond: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .alertFirstButtonReturn else { return }
+            let label = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            var arguments = ["vm", "rename", id]
+            if label.isEmpty {
+                arguments.append("--clear")
+            } else {
+                arguments.append(label)
+            }
+            launch(arguments: arguments, onDidMutate: onDidMutate)
+        }
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            alert.beginSheetModal(for: window, completionHandler: respond)
+        } else {
+            respond(alert.runModal())
         }
     }
 
@@ -318,7 +367,13 @@ private struct MachineRow: View, Equatable {
     }
 
     private var subtitle: String {
-        var parts: [String] = [machine.kindLabel]
+        var parts: [String] = []
+        if machine.label?.isEmpty == false {
+            // Labeled machines keep their address visible: the id is what CLI
+            // verbs and URLs use.
+            parts.append(machine.id)
+        }
+        parts.append(machine.kindLabel)
         if let createdAt = machine.createdAt {
             parts.append(Self.relativeFormatter.localizedString(for: createdAt, relativeTo: Date()))
         }
@@ -341,6 +396,9 @@ private struct MachineRow: View, Equatable {
             }
         }
         Divider()
+        Button(String(localized: "machines.menu.rename", defaultValue: "Rename\u{2026}")) {
+            actions.promptRename(machine.id, machine.label)
+        }
         Button(String(localized: "machines.menu.status", defaultValue: "Status")) {
             actions.runCommand(machine.id, ["vm", "status"])
         }

@@ -34,6 +34,18 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         }
     }
 
+    /// Compact label for the titlebar mode bar, where four labeled tabs share
+    /// the sidebar's width. Only Machines shortens; the full name stays in the
+    /// palette, shortcuts, and accessibility labels.
+    var modeBarLabel: String {
+        switch self {
+        case .machines:
+            return String(localized: "rightSidebar.mode.machines.compact", defaultValue: "VMs")
+        default:
+            return label
+        }
+    }
+
     var symbolName: String {
         switch self {
         case .files: return "folder"

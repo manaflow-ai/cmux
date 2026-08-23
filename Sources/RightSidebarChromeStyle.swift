@@ -304,7 +304,7 @@ struct RightSidebarModeBarItem: Identifiable, Equatable, Sendable {
     var label: String {
         switch kind {
         case .mode(let mode):
-            return mode.label
+            return mode.modeBarLabel
         }
     }
 

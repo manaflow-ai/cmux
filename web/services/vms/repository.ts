@@ -149,6 +149,10 @@ export type VmRepositoryShape = {
     readonly providerVmId: string;
     readonly status: CloudVmStatus;
   }) => Effect.Effect<boolean, VmDatabaseError>;
+  readonly setDisplayName: (input: {
+    readonly id: string;
+    readonly displayName: string | null;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly markCreateRunning: (input: {
     readonly id: string;
     readonly providerVmId: string;
@@ -1148,6 +1152,17 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             ne(cloudVms.status, "destroyed"),
           ),
         )
+        .returning({ id: cloudVms.id });
+      return updated.length > 0;
+    }),
+
+  setDisplayName: (input) =>
+    dbEffect("setDisplayName", async () => {
+      const db = cloudDb();
+      const updated = await db
+        .update(cloudVms)
+        .set({ displayName: input.displayName, updatedAt: new Date() })
+        .where(and(eq(cloudVms.id, input.id), ne(cloudVms.status, "destroyed")))
         .returning({ id: cloudVms.id });
       return updated.length > 0;
     }),

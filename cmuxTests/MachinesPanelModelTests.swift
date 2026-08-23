@@ -20,6 +20,7 @@ final class MachinesPanelModelTests: XCTestCase {
         let snapshot = MachineSnapshotBuilder.snapshot(from: summary)
         XCTAssertEqual(snapshot.id, "noble-wren")
         XCTAssertEqual(snapshot.displayName, "noble-wren")
+        XCTAssertNil(snapshot.label)
         XCTAssertEqual(snapshot.provider, "blaxel")
         XCTAssertFalse(snapshot.isDesktop)
         XCTAssertEqual(snapshot.activity, .ready)
@@ -40,6 +41,22 @@ final class MachinesPanelModelTests: XCTestCase {
         ))
         XCTAssertTrue(desktop.isDesktop)
         XCTAssertNil(desktop.createdAt)
+    }
+
+    func testLabelDrivesDisplayName() {
+        var summary = VMSummary(
+            id: "noble-wren",
+            provider: "blaxel",
+            status: "running",
+            image: "blaxel/base-image:latest",
+            createdAt: 0,
+            base: nil
+        )
+        summary.displayName = "dev box"
+        let snapshot = MachineSnapshotBuilder.snapshot(from: summary)
+        XCTAssertEqual(snapshot.label, "dev box")
+        XCTAssertEqual(snapshot.displayName, "dev box")
+        XCTAssertEqual(snapshot.id, "noble-wren")
     }
 
     func testActivityMapping() {

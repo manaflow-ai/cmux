@@ -4339,23 +4339,28 @@ struct CMUXCLI {
                     print("No cloud VMs. Try: cmux vm new")
                     break
                 }
-                let rows: [(String, String, String, String)] = vms.map { vm in
+                let rows: [(String, String, String, String, String)] = vms.map { vm in
                     (
                         (vm["id"] as? String) ?? "?",
+                        (vm["displayName"] as? String) ?? "",
                         (vm["status"] as? String) ?? "unknown",
                         (vm["provider"] as? String) ?? "?",
                         (vm["image"] as? String) ?? "?"
                     )
                 }
+                let hasLabels = rows.contains { !$0.1.isEmpty }
                 let nameWidth = max(4, rows.map { $0.0.count }.max() ?? 4)
-                let stateWidth = max(5, rows.map { $0.1.count }.max() ?? 5)
-                let providerWidth = max(8, rows.map { $0.2.count }.max() ?? 8)
+                let labelWidth = max(5, rows.map { $0.1.count }.max() ?? 5)
+                let stateWidth = max(5, rows.map { $0.2.count }.max() ?? 5)
+                let providerWidth = max(8, rows.map { $0.3.count }.max() ?? 8)
                 func pad(_ text: String, _ width: Int) -> String {
                     text.padding(toLength: width, withPad: " ", startingAt: 0)
                 }
-                print("\(pad("NAME", nameWidth))  \(pad("STATE", stateWidth))  \(pad("PROVIDER", providerWidth))  IMAGE")
+                let labelHeader = hasLabels ? "\(pad("LABEL", labelWidth))  " : ""
+                print("\(pad("NAME", nameWidth))  \(labelHeader)\(pad("STATE", stateWidth))  \(pad("PROVIDER", providerWidth))  IMAGE")
                 for row in rows {
-                    print("\(pad(row.0, nameWidth))  \(pad(row.1, stateWidth))  \(pad(row.2, providerWidth))  \(row.3)")
+                    let labelCell = hasLabels ? "\(pad(row.1, labelWidth))  " : ""
+                    print("\(pad(row.0, nameWidth))  \(labelCell)\(pad(row.2, stateWidth))  \(pad(row.3, providerWidth))  \(row.4)")
                 }
                 if let limits = response["limits"] as? [String: Any],
                    let maxActiveVms = limits["maxActiveVms"] as? Int,
@@ -4511,15 +4516,20 @@ struct CMUXCLI {
                 // exporting CMUX_VM_DEFAULT_PROVIDER=blaxel gets Blaxel from a bare
                 // `cmux vm new` instead of a hardcoded Freestyle create that ignores it.
                 if usesPersistentDefaultCloud {
-                    // "Your computer": the default machine mounts a per-user persistent volume
-                    // as its home, so the sandbox is disposable compute around durable data.
+                    // Every new machine is its own persistent computer: the backend mounts a
+                    // volume derived from the machine's generated name, so `vm new` mints a
+                    // fresh durable machine each time (up to the plan limit) instead of
+                    // reattaching the single shared slot. `vm base open` still owns the slot.
                     params["persistent_home"] = true
+                    params["per_machine_home"] = true
                 }
                 let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
+                // Store-based idempotency: retries of a failed create reuse the key; a
+                // successful create clears it, so the next `vm new` makes a new machine.
                 let idempotency = try Self.activeVMCreateIdempotency(
                     image: imageOpt,
                     provider: normalizedProvider,
-                    usesPersistentDefaultCloud: usesPersistentDefaultCloud
+                    usesPersistentDefaultCloud: false
                 )
                 params["idempotency_key"] = idempotency.key
                 let vmCreateStartedAt = Date()
@@ -4564,7 +4574,6 @@ struct CMUXCLI {
                 // Create the VM then drop the user into a cmux-managed workspace. Managed
                 // Cloud VMs use the cmuxd-remote WebSocket PTY so they can reconnect and
                 // attach from mobile clients without minting foreground SSH passwords.
-                let shortId = String(id.prefix(8))
                 let createdMessage = String(
                     format: String(
                         localized: "cli.vm.create.createdCloudVM",
@@ -4575,7 +4584,7 @@ struct CMUXCLI {
                 print(createdMessage)
                 try vmOpenShell(
                     id: id,
-                    workspaceName: usesPersistentDefaultCloud ? Self.persistentCloudVMWorkspaceName : "vm:\(shortId)",
+                    workspaceName: "vm:\(id)",
                     windowRaw: targetWindow,
                     targetWorkspaceId: targetWorkspaceOpt,
                     forceSSH: false,
@@ -4650,7 +4659,7 @@ struct CMUXCLI {
                 print("  snapshot: \(snapshotId ?? "native fork")")
                 try vmOpenShell(
                     id: id,
-                    workspaceName: "vm:\(String(id.prefix(8)))",
+                    workspaceName: "vm:\(id)",
                     windowRaw: targetWindow,
                     forceSSH: false,
                     shouldPinWorkspaceToTop: false,
@@ -4693,7 +4702,7 @@ struct CMUXCLI {
                 print("Restored Cloud VM \(id)")
                 try vmOpenShell(
                     id: id,
-                    workspaceName: "vm:\(String(id.prefix(8)))",
+                    workspaceName: "vm:\(id)",
                     windowRaw: targetWindow,
                     forceSSH: false,
                     shouldPinWorkspaceToTop: false,
@@ -4712,10 +4721,9 @@ struct CMUXCLI {
                           cmux vm ls
                         """)
                 }
-                let shortId = String(vmId.prefix(8))
                 try vmOpenShell(
                     id: vmId,
-                    workspaceName: "vm:\(shortId)",
+                    workspaceName: "vm:\(vmId)",
                     windowRaw: windowOpt ?? windowId,
                     forceSSH: false,
                     shouldPinWorkspaceToTop: false,
@@ -4727,6 +4735,35 @@ struct CMUXCLI {
                    let image = status["image"] as? String,
                    Self.cloudVMImageHasDesktop(image) {
                     openVMDesktopSplit(vmId: vmId, client: client)
+                }
+
+            case "rename":
+                let clear = hasFlag(rest, name: "--clear")
+                let positional = rest.filter { !Self.isFlagToken($0) }
+                guard let vmId = positional.first, clear || positional.count >= 2 else {
+                    throw CLIError(message: String(localized: "cli.vm.rename.usage", defaultValue: """
+                        Usage: cmux vm rename <id> <new-label>
+                               cmux vm rename <id> --clear
+
+                        The label is display-only; the machine id stays its address.
+                        Find an id:
+                          cmux vm ls
+                        """))
+                }
+                let label = clear ? nil : positional.dropFirst().joined(separator: " ")
+                var renameParams: [String: Any] = ["id": vmId]
+                if let label { renameParams["display_name"] = label }
+                let renameResponse = try client.sendV2(method: "vm.rename", params: renameParams, responseTimeout: 30)
+                if jsonOutput {
+                    print(jsonString(renameResponse))
+                    break
+                }
+                if let stored = renameResponse["displayName"] as? String, !stored.isEmpty {
+                    let format = String(localized: "cli.vm.rename.set", defaultValue: "%1$@ is now labeled \u{201C}%2$@\u{201D}")
+                    print(String(format: format, vmId, stored))
+                } else {
+                    let format = String(localized: "cli.vm.rename.cleared", defaultValue: "%@ label cleared")
+                    print(String(format: format, vmId))
                 }
 
             case "rm", "destroy", "delete":
@@ -4755,10 +4792,9 @@ struct CMUXCLI {
                           cmux vm ls
                         """)
                 }
-                let shortId = String(vmId.prefix(8))
                 try vmOpenShell(
                     id: vmId,
-                    workspaceName: "vm:\(shortId)",
+                    workspaceName: "vm:\(vmId)",
                     windowRaw: windowOpt ?? windowId,
                     forceSSH: true,
                     shouldPinWorkspaceToTop: false,
@@ -36825,7 +36861,7 @@ export default CMUXSessionRestore;
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           \(localizedCoderouterAliases())
-          vm <base|new|ls|status|snapshot|fork|restore|rm|exec|shell|ssh> [args...]    (alias: cloud)
+          vm <base|new|ls|status|rename|snapshot|fork|restore|rm|exec|shell|ssh> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]
           rpc <method> [json-params]

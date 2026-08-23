@@ -267,13 +267,20 @@ export class BlaxelProvider implements VMProvider {
       async (span) => {
         try {
           const memoryMb = positiveIntEnv("CMUX_VM_BLAXEL_MEMORY_MB", DEFAULT_MEMORY_MB);
-          const homeVolume = options.homeVolume?.trim() || undefined;
-          if (homeVolume) {
-            await this.ensureHomeVolume(homeVolume);
-          }
+          // A `{machine}` token in homeVolume is resolved against the generated
+          // machine name, giving every fresh machine its own durable home. The
+          // resolved name (never the template) is what lands in providerMetadata,
+          // so resurrection finds the right volume.
+          const homeVolumeSpec = options.homeVolume?.trim() || undefined;
+          const resolveHomeVolume = (machineName: string): string | undefined =>
+            homeVolumeSpec?.replace("{machine}", machineName);
           let name = friendlyVmName();
+          let homeVolume = resolveHomeVolume(name);
           let created: BlaxelSandbox | null = null;
           for (let attempt = 0; attempt < 4 && !created; attempt += 1) {
+            if (homeVolume) {
+              await this.ensureHomeVolume(homeVolume);
+            }
             try {
               created = await blaxelFetch<BlaxelSandbox>("POST", `${CONTROL_PLANE_BASE}/sandboxes`, {
                 metadata: { name },
@@ -291,6 +298,7 @@ export class BlaxelProvider implements VMProvider {
               const conflict = err instanceof ProviderError && /-> 409/.test(err.message);
               if (!conflict || attempt === 3) throw err;
               name = friendlyVmName(attempt >= 1);
+              homeVolume = resolveHomeVolume(name);
             }
           }
           const sandboxUrl = created?.metadata?.url;

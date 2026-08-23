@@ -58,6 +58,9 @@ export const cloudVms = pgTable(
     billingPlanId: text("billing_plan_id"),
     provider: vmProvider("provider").notNull(),
     providerVmId: text("provider_vm_id"),
+    // User-chosen label shown in machine lists. The provider VM id stays the
+    // machine's address (URLs, CLI verbs); this is display-only.
+    displayName: text("display_name"),
     imageId: text("image_id").notNull(),
     imageVersion: text("image_version"),
     status: vmStatus("status").notNull().default("provisioning"),

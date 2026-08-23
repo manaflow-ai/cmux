@@ -346,7 +346,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-1",
       billingPlanId: "pro",
-      maxActiveVms: 10,
+      maxActiveVms: 15,
       provider: "freestyle",
       image: "snapshot-test",
       imageVersion: null,
@@ -534,7 +534,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "free",
-      maxActiveVms: 3,
+      maxActiveVms: 2,
     }));
     expect(listTeams).toHaveBeenCalledTimes(1);
   });
@@ -591,7 +591,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "free",
-      maxActiveVms: 3,
+      maxActiveVms: 2,
     }));
   });
 
@@ -754,7 +754,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "team",
-      maxActiveVms: 10,
+      maxActiveVms: 15,
     }));
     expect(runVmWorkflow).toHaveBeenCalled();
   });

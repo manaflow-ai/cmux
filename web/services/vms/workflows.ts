@@ -56,6 +56,7 @@ export type VmEntry = {
   readonly imageVersion: string | null;
   readonly status: CloudVmStatus;
   readonly createdAt: number;
+  readonly displayName: string | null;
 };
 
 export type BaseVmEntry = VmEntry & {
@@ -144,6 +145,23 @@ export function getVm(input: {
   });
 }
 
+/** Sets or clears the user-facing label on a machine the caller owns. The
+ * provider VM id stays the machine's address; this is display-only. */
+export function renameVm(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+  readonly displayName: string | null;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const vm = yield* requireUserVm(input);
+    yield* repo.setDisplayName({ id: vm.id, displayName: input.displayName });
+    return vmEntryFromRow({ ...vm, displayName: input.displayName, updatedAt: new Date() });
+  });
+}
+
 export function reconcileVmProviderStatuses(input: {
   readonly limit?: number;
 } = {}): Effect.Effect<VmProviderStatusReconcileResult, VmWorkflowError, VmRepository | VmProviderGateway> {
@@ -193,6 +211,15 @@ export function homeVolumeNameForUser(userId: string): string {
   return `cmux-home-${digest}`;
 }
 
+/**
+ * Per-machine home volume template. The driver substitutes the generated
+ * machine name for `{machine}` once the name is final, so every fresh machine
+ * gets its own durable home instead of contending for the single user volume.
+ */
+export function homeVolumeTemplateForUser(userId: string): string {
+  return `${homeVolumeNameForUser(userId)}-{machine}`;
+}
+
 export function createVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
@@ -210,6 +237,12 @@ export function createVm(input: {
    * the user id, so recreating the machine (TTL expiry, provider loss) finds the same home.
    */
   readonly persistentHome?: boolean;
+  /**
+   * Fresh-machine semantics: instead of the single shared user volume, mount a
+   * volume derived from the machine's own generated name, so any number of
+   * machines (up to the plan limit) each keep their own durable home.
+   */
+  readonly perMachineHome?: boolean;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -247,7 +280,11 @@ export function createVm(input: {
         image: input.image,
         providerMetadata: create.vm.providerMetadata,
         bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
-        homeVolume: input.persistentHome ? homeVolumeNameForUser(input.userId) : undefined,
+        homeVolume: input.perMachineHome
+          ? homeVolumeTemplateForUser(input.userId)
+          : input.persistentHome
+            ? homeVolumeNameForUser(input.userId)
+            : undefined,
       }),
     ).pipe(
       Effect.tapError((err) =>
@@ -2101,6 +2138,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     imageVersion: row.imageVersion,
     status: row.status,
     createdAt: row.createdAt.getTime(),
+    displayName: row.displayName ?? null,
   };
 }
 

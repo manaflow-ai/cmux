@@ -257,6 +257,11 @@ struct VMSummary {
     let image: String
     let createdAt: Int64
     let base: VMBaseSummary?
+    /// User-chosen label; the id stays the machine's address.
+    var displayName: String?
+
+    /// The name to show people: the label when set, otherwise the machine id.
+    var preferredName: String { displayName?.isEmpty == false ? displayName! : id }
 }
 
 /// Plan context served alongside the machine list: how many active VMs the
@@ -419,16 +424,21 @@ actor VMClient {
             let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
             let createdAt = (dict["createdAt"] as? Int64)
                 ?? Int64((dict["createdAt"] as? Double) ?? 0)
-            return VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(dict["base"]))
+            var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(dict["base"]))
+            if let label = dict["displayName"] as? String, !label.isEmpty {
+                summary.displayName = label
+            }
+            return summary
         }
         return VMListPage(vms: vms, limits: limits)
     }
 
-    func create(image: String? = nil, provider: String? = nil, persistentHome: Bool = false, idempotencyKey: String) async throws -> VMSummary {
+    func create(image: String? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, idempotencyKey: String) async throws -> VMSummary {
         var body: [String: Any] = [:]
         if let image { body["image"] = image }
         if let provider { body["provider"] = provider }
         if persistentHome { body["persistentHome"] = true }
+        if perMachineHome { body["perMachineHome"] = true }
         // The CLI owns key stability across command retries. VMClient only forwards the
         // key so the backend can short-circuit duplicate paid provider creates.
         let headers = ["Idempotency-Key": idempotencyKey]
@@ -514,6 +524,22 @@ actor VMClient {
         let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
         return VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
+    }
+
+    /// Sets or clears the machine's user-facing label via PATCH /api/vm/{id}.
+    /// Returns the stored label (nil when cleared).
+    func rename(id: String, displayName: String?) async throws -> String? {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        let body: [String: Any] = ["displayName": displayName ?? NSNull()]
+        let (data, http) = try await request(
+            "PATCH",
+            path: "/api/vm/\(encodedID)",
+            jsonBody: body
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        let stored = obj["displayName"] as? String
+        return stored?.isEmpty == false ? stored : nil
     }
 
     func destroy(id: String) async throws {

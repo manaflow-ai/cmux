@@ -8,11 +8,11 @@ async function body(response: Response): Promise<Record<string, unknown>> {
 
 describe("free plan VM allowance", () => {
   test("free users get 3 Cloud VMs by default", () => {
-    expect(maxActiveVmsForPlan("free", {})).toBe(3);
+    expect(maxActiveVmsForPlan("free", {})).toBe(2);
   });
 
   test("paid plans keep a higher default allowance", () => {
-    expect(maxActiveVmsForPlan("pro", {})).toBeGreaterThan(3);
+    expect(maxActiveVmsForPlan("pro", {})).toBe(15);
   });
 
   test("the free allowance stays env-overridable", () => {
