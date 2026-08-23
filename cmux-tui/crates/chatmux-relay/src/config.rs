@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
+
 /// Limits shared with the server-side allowedRoots envelope policy.
 pub const MAX_ALLOWED_ROOTS: usize = 32;
 pub const MAX_ALLOWED_ROOT_BYTES: usize = 16 * 1024;
@@ -113,6 +115,11 @@ pub fn load_config(path: &Path) -> Option<Config> {
 /// but unsafe file. Startup uses this to avoid silently re-onboarding into an
 /// unscoped session when persisted restrictions are malformed.
 pub fn load_config_checked(path: &Path) -> Result<Option<Config>, String> {
+    if let Ok(metadata) = std::fs::metadata(path)
+        && metadata.len() > MAX_CONFIG_BYTES
+    {
+        return Err("relay config exceeds the 1 MiB size limit".to_owned());
+    }
     let raw = match std::fs::read_to_string(path) {
         Ok(raw) => raw,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -120,11 +127,18 @@ pub fn load_config_checked(path: &Path) -> Result<Option<Config>, String> {
     };
     let config: Config =
         serde_json::from_str(&raw).map_err(|error| format!("invalid relay config: {error}"))?;
+    if raw.len() as u64 > MAX_CONFIG_BYTES {
+        return Err("relay config exceeds the 1 MiB size limit".to_owned());
+    }
     if config.device_id.is_empty() || config.token.is_empty() {
         return Err("relay config is incomplete".to_owned());
     }
     if let Some(roots) = config.allowed_roots.as_deref() {
         validate_allowed_roots(roots).map_err(str::to_owned)?;
+        for root in roots {
+            crate::actions::validate_request_path(root)
+                .map_err(|error| format!("invalid allowed root: {error}"))?;
+        }
     }
     Ok(Some(config))
 }
@@ -262,6 +276,20 @@ mod tests {
     #[test]
     fn checked_load_distinguishes_missing_config() {
         assert!(load_config_checked(&scratch("checked/missing.json")).unwrap().is_none());
+    }
+
+    #[test]
+    fn checked_load_rejects_unsafe_root_syntax() {
+        let path = scratch("roots-syntax/config.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let raw = serde_json::json!({
+            "deviceId": "dev_syntax",
+            "token": "tok_syntax",
+            "allowedRoots": ["/srv/%2e%2e/secret"],
+        });
+        std::fs::write(&path, serde_json::to_string(&raw).unwrap()).unwrap();
+        assert!(load_config_checked(&path).is_err());
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
     #[cfg(unix)]
