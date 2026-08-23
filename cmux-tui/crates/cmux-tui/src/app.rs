@@ -13193,7 +13193,10 @@ impl App {
             ) {
                 Ok(handle) => self.status_command_workers.push(handle),
                 Err(error) => {
-                    eprintln!("cmux-tui: could not start a status segment worker: {error}");
+                    crate::client_log::stderr_log!(
+                        "status",
+                        "cmux-tui: could not start a status segment worker: {error}"
+                    );
                 }
             }
         }
@@ -14687,7 +14690,10 @@ impl App {
                         self.session.refresh_clients_background();
                     }
                     SessionMutationOutcome::CreationResponseAmbiguous(error) => {
-                        eprintln!("cmux-tui: session creation response was ambiguous: {error}");
+                        crate::client_log::stderr_log!(
+                            "session",
+                            "cmux-tui: session creation response was ambiguous: {error}"
+                        );
                         self.status_message =
                             Some(localization::catalog().session.creation_reconciling.to_string());
                         self.layout_refresh_retries_remaining = LAYOUT_REFRESH_RETRIES;
@@ -14696,7 +14702,10 @@ impl App {
                         return Ok(RenderAction::Draw);
                     }
                     SessionMutationOutcome::MutationTimedOut(error) => {
-                        eprintln!("cmux-tui: session operation timed out: {error}");
+                        crate::client_log::stderr_log!(
+                            "session",
+                            "cmux-tui: session operation timed out: {error}"
+                        );
                         if let Some(intent) = semantic_intent {
                             // A peer without creation receipts cannot identify
                             // which surface, if any, a timed-out creation made.
@@ -14712,7 +14721,10 @@ impl App {
                         return Ok(RenderAction::Draw);
                     }
                     SessionMutationOutcome::Failed(error) => {
-                        eprintln!("cmux-tui: session operation failed: {error}");
+                        crate::client_log::stderr_log!(
+                            "session",
+                            "cmux-tui: session operation failed: {error}"
+                        );
                         if let Some(intent) = semantic_intent {
                             self.mark_semantic_destination_failed(intent);
                             self.status_message =
