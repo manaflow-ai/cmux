@@ -97,6 +97,11 @@ impl ConsoleRing {
 
     fn remember_request(&self, request_id: String, method: String, url: String) {
         let Ok(mut inner) = self.inner.lock() else { return };
+        // A request id can be reused by CDP redirects/retries. Remove its
+        // previous queue entry before replacing the map value, otherwise the
+        // order deque grows without bound and later eviction can discard the
+        // wrong request.
+        inner.pending_order.retain(|id| id != &request_id);
         if inner.pending.len() >= PENDING_REQUEST_CAP
             && let Some(oldest) = inner.pending_order.pop_front()
         {
@@ -923,6 +928,19 @@ mod tests {
     use futures_util::{SinkExt as _, StreamExt as _};
     use serde_json::Value;
     use tokio_tungstenite::tungstenite::Message;
+
+    #[test]
+    fn duplicate_request_ids_replace_order_entry() {
+        let ring = ConsoleRing::new();
+        ring.remember_request("same".to_owned(), "GET".to_owned(), "https://first".to_owned());
+        ring.remember_request("other".to_owned(), "POST".to_owned(), "https://other".to_owned());
+        ring.remember_request("same".to_owned(), "PUT".to_owned(), "https://latest".to_owned());
+
+        let mut inner = ring.inner.lock().expect("ring lock");
+        assert_eq!(inner.pending_order, VecDeque::from(["other".to_owned(), "same".to_owned()]));
+        assert_eq!(inner.pending.len(), 2);
+        assert_eq!(inner.pending.remove("same"), Some(("PUT".to_owned(), "https://latest".to_owned())));
+    }
 
     /// Tiny dev-server double: "/" is HTML with a head, "/body-only" has no
     /// head, "/plain" is not HTML, "/opt-out" answers with the no-inject
