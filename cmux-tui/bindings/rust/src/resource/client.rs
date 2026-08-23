@@ -121,10 +121,11 @@ fn connect_with_budget(
 /// Connection and bound configuration for the resource SDK.
 #[derive(Clone, Debug)]
 pub struct Config {
+    /// Primary socket path. The client may derive an internal legacy fallback
+    /// only when this path came from the default session mapping and no
+    /// explicit socket environment override is set.
     pub socket_path: PathBuf,
-    ///
-    /// This is public so callers that construct `Config` with a struct literal
-    /// can preserve compatibility when configuring the legacy fallback.
+    /// Maximum time to wait for a connection and each request operation.
     pub timeout: Duration,
     pub max_request_bytes: usize,
     pub max_response_bytes: usize,
