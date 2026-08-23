@@ -1027,7 +1027,12 @@ impl Connection {
             let _ = outbound.send(text);
         });
         if let Ok(mut requests) = self.requests.lock() {
+            // Completed handles retain their allocation until awaited or
+            // dropped. Prune them on every admission so a busy connection
+            // cannot grow its task registry without bound.
+            requests.retain(|task| !task.is_finished());
             requests.push(task);
+            requests.retain(|task| !task.is_finished());
         } else {
             task.abort();
         }
