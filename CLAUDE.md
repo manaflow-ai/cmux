@@ -17,6 +17,17 @@ A tag gives the app its own name, bundle ID, socket, and derived data path, so i
 
 Other variants: `reloadp.sh` (Release), `reloads.sh` (Release as isolated "cmux STAGING"), `reload2.sh --tag <tag>` (both).
 
+## Handing the user a drop-in OSS build
+
+The user's daily driver is the **OSS tagged Debug build** ("cmux DEV", ad-hoc signed, `com.cmuxterm.app.debug*` bundle ID). When the user asks for a build to replace it manually, the OSS build is the only thing to hand over — never a Release/Developer-ID build: that switches the keychain access group and forces a re-login, and it cannot carry the passkey entitlement on this Mac.
+
+```bash
+./scripts/reload.sh --tag <slug>            # produce the OSS Debug build
+ditto "$HOME/Library/Developer/Xcode/DerivedData/cmux-<slug>/Build/Products/Debug/cmux DEV <slug>.app" ~/Downloads/cmux.app
+```
+
+Then set `CFBundleName` back to `cmux DEV` in `~/Downloads/cmux.app/Contents/Info.plist` (leave the tagged `CFBundleIdentifier` alone — it owns the tag's socket, so it cannot collide with the running instance), and verify with `codesign -dvv`: `Signature=adhoc`, `TeamIdentifier=not set`.
+
 ## Shared Mac fleet capacity
 
 Every healthy slot in the canonical Mac fleet is general-purpose. Builds, iOS archives, tests, profiling, simulator and UI verification, and any other resource-intensive workload may use any available slot. Do not wait for an AWS-only builder or infer capacity from a workload label. Use the shared lease state and slot-isolated paths supplied by the fleet tooling.
