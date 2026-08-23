@@ -38,6 +38,13 @@ import Testing
         #expect(MobileOnboardingStore(defaults: defaults).progress == .welcome)
     }
 
+    @Test func completedPriorRedesignDoesNotSuppressWelcomeTour() {
+        let defaults = makeDefaults()
+        defaults.set("complete", forKey: "dev.cmux.mobile.onboarding.redesign.progress.v1")
+
+        #expect(MobileOnboardingStore(defaults: defaults).progress == .welcome)
+    }
+
     @Test func redesignProgressPersistsIndependentlyFromLegacyFlag() {
         let defaults = makeDefaults()
         defaults.set(true, forKey: "dev.cmux.mobile.onboarding.seen.v1")

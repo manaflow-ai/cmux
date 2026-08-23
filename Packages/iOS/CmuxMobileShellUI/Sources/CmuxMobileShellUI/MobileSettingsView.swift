@@ -469,27 +469,33 @@ struct MobileSettingsView: View {
             }
             #endif
             .sheet(isPresented: $showingOnboarding) {
-                // Re-entry never writes first-run progress. The final scene reads
-                // live connection state and can reopen pairing from offline Settings.
-                OnboardingFlowView(
-                    initialStage: .agents,
+                // Re-entry never writes first-run progress. The connect stage
+                // reads live connection state and can reopen pairing from
+                // offline Settings.
+                WelcomeTourView(
                     context: .replay,
                     isAuthenticated: true,
-                    connectionPhase: OnboardingConnectionPhase(
-                        isMacReady: store?.connectionState == .connected,
+                    needsNotificationDecision: false,
+                    connection: WelcomeConnectionStatus(
+                        isConnected: store?.connectionState == .connected,
+                        macName: store?.connectedHostName,
                         isSearching: store?.isReconnectingStoredMac == true,
-                        didFinishSearch: store?.didFinishStoredMacReconnectAttempt == true
+                        // A nil store (previews) must not report an eternal
+                        // search; the stalled state keeps guidance visible.
+                        didFinishSearch: store?.didFinishStoredMacReconnectAttempt != false
                     ),
                     connectionMethod: connectionMethodStore?.method ?? .automatic,
-                    onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
-                    onReachedConnection: {},
-                    onSkip: { showingOnboarding = false },
-                    onRetryConnection: retryAutomaticConnection,
-                    onStartTailscalePairing: {
+                    accountEmail: authManager.currentUser?.primaryEmail,
+                    selectConnectionMethod: { connectionMethodStore?.method = $0 },
+                    requestNotifications: { false },
+                    reachedConnectStage: {},
+                    retryConnection: retryAutomaticConnection,
+                    scanPairingCode: {
                         showingOnboarding = false
                         startPairingScanner?()
                     },
-                    onComplete: { showingOnboarding = false }
+                    skip: { showingOnboarding = false },
+                    finish: { showingOnboarding = false }
                 )
             }
             .sheet(isPresented: $showingSetupHelp) {

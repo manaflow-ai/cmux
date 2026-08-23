@@ -5186,7 +5186,704 @@
         }
       }
     },
-    "mobile.onboarding.connect.method.automatic": {
+    "mobile.welcome.demo.command": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux run \"fix the flaky auth test\""
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux run \"fix the flaky auth test\""
+          }
+        }
+      }
+    },
+    "mobile.welcome.demo.pickedUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent picked up the task"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントがタスクを開始しました"
+          }
+        }
+      }
+    },
+    "mobile.welcome.demo.reading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "reading tests/auth.spec.ts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tests/auth.spec.ts を読み込み中"
+          }
+        }
+      }
+    },
+    "mobile.welcome.demo.foundRace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "found a race: token refresh vs. mock clock"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "競合を発見: トークン更新とモッククロック"
+          }
+        }
+      }
+    },
+    "mobile.welcome.demo.question": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace the mock clock with a fake timer?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モッククロックをフェイクタイマーに置き換えますか？"
+          }
+        }
+      }
+    },
+    "mobile.welcome.demo.replyYes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yes, replace it"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "はい、置き換える"
+          }
+        }
+      }
+    },
+    "mobile.welcome.demo.replyYesEcho": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yes, replace it"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "はい、置き換えてください"
+          }
+        }
+      }
+    },
+    "mobile.welcome.demo.replacing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "swapping mock clock for fake timers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モッククロックをフェイクタイマーに交換中"
+          }
+        }
+      }
+    },
+    "mobile.welcome.demo.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 files changed · tests green"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2ファイル変更 · テスト成功"
+          }
+        }
+      }
+    },
+    "mobile.welcome.demo.replyDiff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the diff first"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に差分を見る"
+          }
+        }
+      }
+    },
+    "mobile.welcome.demo.replyDiffEcho": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "show the diff first"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に差分を見せてください"
+          }
+        }
+      }
+    },
+    "mobile.welcome.demo.diff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ vi.useFakeTimers()  − MockClock()"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ vi.useFakeTimers()  − MockClock()"
+          }
+        }
+      }
+    },
+    "mobile.welcome.demo.windowTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux · on your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux · あなたのMac上"
+          }
+        }
+      }
+    },
+    "mobile.welcome.demo.accessibilityIntro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Example agent session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションの例。"
+          }
+        }
+      }
+    },
+    "mobile.welcome.hello.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents work on your Mac.\nYou keep them moving."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントはMacで働き、\nあなたが前に進めます。"
+          }
+        }
+      }
+    },
+    "mobile.welcome.hello.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux runs AI coding agents in terminals on your Mac. When one needs you, answer from your phone. Try it below."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxはMacのターミナルでAIコーディングエージェントを実行します。エージェントがあなたを必要としたら、iPhoneから答えられます。下で試してみてください。"
+          }
+        }
+      }
+    },
+    "mobile.welcome.notifications.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Know the moment an agent needs you"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが必要とした瞬間にわかる"
+          }
+        }
+      }
+    },
+    "mobile.welcome.notifications.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questions like the one you just answered arrive as notifications. Reply right from the Lock Screen, and the agent keeps going."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先ほど答えたような質問が通知として届きます。ロック画面からそのまま返信でき、エージェントは作業を続けます。"
+          }
+        }
+      }
+    },
+    "mobile.welcome.notifications.now": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今"
+          }
+        }
+      }
+    },
+    "mobile.welcome.notifications.cardTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent needs input · fix the flaky auth test"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが入力を求めています · fix the flaky auth test"
+          }
+        }
+      }
+    },
+    "mobile.welcome.notifications.cardBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace the mock clock with a fake timer?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モッククロックをフェイクタイマーに置き換えますか？"
+          }
+        }
+      }
+    },
+    "mobile.welcome.notifications.cardReply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yes, replace it"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "はい、置き換える"
+          }
+        }
+      }
+    },
+    "mobile.welcome.notifications.cardOpen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを開く"
+          }
+        }
+      }
+    },
+    "mobile.welcome.notifications.cardAccessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Example notification: an agent asks a question and offers reply actions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知の例: エージェントが質問し、返信アクションを提示します。"
+          }
+        }
+      }
+    },
+    "mobile.welcome.notifications.enable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知を有効にする"
+          }
+        }
+      }
+    },
+    "mobile.welcome.notifications.later": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今はしない"
+          }
+        }
+      }
+    },
+    "mobile.welcome.signIn.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One account links both devices"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1つのアカウントで両方のデバイスをつなぐ"
+          }
+        }
+      }
+    },
+    "mobile.welcome.signIn.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in here and on your Mac. That is how your phone finds it. No addresses, no port forwarding."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここでサインインし、Macでも同じアカウントでサインインしてください。それだけでiPhoneがMacを見つけます。アドレス入力もポート転送も不要です。"
+          }
+        }
+      }
+    },
+    "mobile.welcome.connect.searchingTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Looking for your Mac…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macを探しています…"
+          }
+        }
+      }
+    },
+    "mobile.welcome.connect.stalledTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Mac found yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだMacが見つかりません"
+          }
+        }
+      }
+    },
+    "mobile.welcome.connect.linkedTitleFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linked to %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に接続しました"
+          }
+        }
+      }
+    },
+    "mobile.welcome.connect.linkedTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac is linked"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macに接続しました"
+          }
+        }
+      }
+    },
+    "mobile.welcome.connect.searchingSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Any Mac signed in to your cmux account appears here automatically."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたのcmuxアカウントにサインインしているMacは、自動的にここに表示されます。"
+          }
+        }
+      }
+    },
+    "mobile.welcome.connect.stalledSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the steps below on your Mac, then search again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macで以下の手順を確認して、もう一度検索してください。"
+          }
+        }
+      }
+    },
+    "mobile.welcome.connect.linkedSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspaces and agents from this Mac now stream to your phone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacのワークスペースとエージェントがiPhoneにストリーミングされます。"
+          }
+        }
+      }
+    },
+    "mobile.welcome.connect.checklistTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macでの手順"
+          }
+        }
+      }
+    },
+    "mobile.welcome.connect.checklistInstall": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get cmux at cmux.com"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com でcmuxを入手"
+          }
+        }
+      }
+    },
+    "mobile.welcome.connect.checklistSignInFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in as %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ でサインイン"
+          }
+        }
+      }
+    },
+    "mobile.welcome.connect.checklistSignIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in with this same account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じアカウントでサインイン"
+          }
+        }
+      }
+    },
+    "mobile.welcome.connect.checklistRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep cmux running"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxを起動したままにする"
+          }
+        }
+      }
+    },
+    "mobile.welcome.connect.methodTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How your phone reaches it"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhoneからの接続方法"
+          }
+        }
+      }
+    },
+    "mobile.welcome.connect.methodAutomaticTitle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5203,24 +5900,41 @@
         }
       }
     },
-    "mobile.onboarding.connect.method.automaticDetail": {
+    "mobile.welcome.connect.methodAutomaticSubtitle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Requires cmux 0.64.20 or later on your Mac."
+            "value": "End-to-end encrypted. Direct or over a local network when possible, through a cmux relay when not. Works anywhere, no setup."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac版cmux 0.64.20以降が必要です。"
+            "value": "エンドツーエンド暗号化。可能なときは直接またはローカルネットワーク経由、それ以外はcmuxリレー経由で接続します。どこでも使え、設定は不要です。"
           }
         }
       }
     },
-    "mobile.onboarding.connect.method.tailscale": {
+    "mobile.welcome.connect.methodRecommended": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recommended"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推奨"
+          }
+        }
+      }
+    },
+    "mobile.welcome.connect.methodTailscaleTitle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5237,24 +5951,24 @@
         }
       }
     },
-    "mobile.onboarding.connect.method.tailscaleDetail": {
+    "mobile.welcome.connect.methodTailscaleSubtitle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Works with cmux 0.64.17 or later. Scan once to authorize the Mac."
+            "value": "Connect only over your own Tailscale network. Authorize each Mac once by scanning the pairing code it shows."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac版cmux 0.64.17以降で動作します。一度スキャンしてMacを承認します。"
+            "value": "自分のTailscaleネットワーク経由でのみ接続します。各Macが表示するペアリングコードを一度スキャンして承認してください。"
           }
         }
       }
     },
-    "mobile.onboarding.connect.scanTailscaleCode": {
+    "mobile.welcome.connect.scanPairingCode": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5271,36 +5985,155 @@
         }
       }
     },
-    "mobile.onboarding.connect.tailscaleTitle": {
+    "mobile.welcome.connect.localNetworkNote": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connect over Tailscale"
+            "value": "iOS may ask to allow local-network access. That is how cmux finds a Mac on the same Wi-Fi."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleで接続"
+            "value": "iOSがローカルネットワークへのアクセス許可を求めることがあります。これは同じWi-Fi上のMacを見つけるためのものです。"
           }
         }
       }
     },
-    "mobile.onboarding.connect.tailscaleBody": {
+    "mobile.welcome.connect.start": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Works with cmux 0.64.17 or later. Install Tailscale on both devices and join the same network. On 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code once."
+            "value": "Start Using cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 0.64.17以降で動作します。両方のデバイスにTailscaleをインストールし、同じネットワークに参加してください。0.64.17では「Connect iPhone/iPad」を選び、「Pair iPhone」のコードを一度スキャンします。"
+            "value": "cmuxを使い始める"
+          }
+        }
+      }
+    },
+    "mobile.welcome.connect.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search Again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一度検索"
+          }
+        }
+      }
+    },
+    "mobile.welcome.connect.later": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Up Later"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あとで設定"
+          }
+        }
+      }
+    },
+    "mobile.welcome.back": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戻る"
+          }
+        }
+      }
+    },
+    "mobile.welcome.skip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキップ"
+          }
+        }
+      }
+    },
+    "mobile.welcome.continue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "続ける"
+          }
+        }
+      }
+    },
+    "mobile.welcome.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
+    "mobile.welcome.progressFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step %1$d of %2$d"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステップ %1$d / %2$d"
           }
         }
       }
@@ -5573,363 +6406,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "エージェントが対応を求めたら通知"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.connectBody": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux uses Iroh by default. It connects directly to your Mac when possible and uses a cmux relay when needed. Your Mac's identity and cmux account are verified end to end, so the relay cannot read terminal traffic."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmuxはデフォルトでIrohを使用します。可能な場合はMacへ直接接続し、必要な場合のみcmuxリレーを使用します。MacのIDとcmuxアカウントはエンドツーエンドで検証されるため、リレーはターミナル通信を読み取れません。"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.connectTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Encrypted wherever you connect"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "どこからでも暗号化接続"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.getStarted": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Get started"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "始める"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.next": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Next"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "次へ"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.pairTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pair your Mac"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Macとペアリング"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.privateNetworkBody": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "After cmux admits both devices over Iroh, Tailscale, WireGuard, another VPN, or the same LAN may become a faster direct path. They are optional, and Iroh keeps its encryption and identity checks."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmuxがIroh上で両方の端末を認証した後、Tailscale、WireGuard、別のVPN、または同じLANが、より高速な直接経路になる場合があります。これらは任意で、Irohの暗号化とID検証は維持されます。"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.privateNetworkStep1": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sign this phone and the Mac in to the same cmux account."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このiPhoneとMacを同じcmuxアカウントでサインインします。"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.privateNetworkStep2": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Leave cmux running on the Mac so Iroh can reconnect."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Irohが再接続できるよう、Macでcmuxを起動したままにします。"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.privateNetworkStep3": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Optional: connect both devices to the same private network so an admitted Iroh session can migrate to it."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "任意：認証済みのIrohセッションが移行できるよう、両方の端末を同じプライベートネットワークに接続します。"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.privateNetworkTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Private networks stay available"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プライベートネットワークも利用可能"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.skip": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skip"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "スキップ"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.tailscaleAppStoreLink": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Optional: Tailscale for iPhone"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "任意：iPhone版Tailscale"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.tailscaleBody": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscale is a free app that gives your devices a private network. Do this once, on both the phone and the Mac."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscaleは、端末同士をプライベートなネットワークでつなぐ無料アプリです。iPhoneとMacの両方で一度だけ設定してください。"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.tailscaleLink": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Optional: Tailscale for Mac"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "任意：Mac版Tailscale"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.tailscaleStep1": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Install Tailscale on this phone and on your Mac."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この端末とMacの両方にTailscaleをインストールします。"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.tailscaleStep2": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sign both in to the same Tailscale account so they share one tailnet."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "両方を同じTailscaleアカウントでサインインし、同じtailnetを共有させます。"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.tailscaleStep3": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keep both signed in to the same cmux account too. Pairing checks that they match."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "両方を同じcmuxアカウントでもサインインしておきます。ペアリング時に一致を確認します。"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.tailscaleTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Put both devices on Tailscale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "両方の端末をTailscaleに入れる"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.troubleConnecting": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Trouble connecting?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "接続できないときは"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.whatBody": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux runs your terminals and AI coding agents on your Mac. Watch, type, and respond from your phone. Every agent alert stays in Notifications, and push alerts are optional when you want an immediate heads-up away from the app."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmuxはMac上でターミナルとAIコーディングエージェントを動かします。iPhoneから状況を確認し、入力して対応できます。エージェントからの通知はすべて「通知」に時系列で残り、アプリを離れているときのプッシュ通知は必要に応じて有効にできます。"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.whatTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your Mac's terminals, on your phone"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Macのターミナルを、iPhoneで"
           }
         }
       }
@@ -7790,36 +8266,86 @@
     "mobile.settings.keepMacAwake": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Keep Mac Awake" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Macをスリープさせない" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Mac Awake"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macをスリープさせない"
+          }
+        }
       }
     },
     "mobile.settings.keepMacAwake.failed": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Couldn't confirm the change on your Mac. Check the connection and retry." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Macで変更を確認できませんでした。接続を確認して再試行してください。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't confirm the change on your Mac. Check the connection and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macで変更を確認できませんでした。接続を確認して再試行してください。"
+          }
+        }
       }
     },
     "mobile.settings.keepMacAwake.loadFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Couldn't load the Mac's Keep Mac Awake status. Check the connection and retry." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Macの「Macをスリープさせない」の状態を読み込めませんでした。接続を確認して再試行してください。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load the Mac's Keep Mac Awake status. Check the connection and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macの「Macをスリープさせない」の状態を読み込めませんでした。接続を確認して再試行してください。"
+          }
+        }
       }
     },
     "mobile.settings.keepMacAwake.footer": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Prevents this Mac from sleeping while cmux is open. Its display can still turn off." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "cmuxが開いている間、このMacがスリープするのを防ぎます。ディスプレイはオフにできます。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prevents this Mac from sleeping while cmux is open. Its display can still turn off."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxが開いている間、このMacがスリープするのを防ぎます。ディスプレイはオフにできます。"
+          }
+        }
       }
     },
     "mobile.settings.keepMacAwake.updateRequired": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Update cmux on this Mac to control Keep Mac Awake from iPhone." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "iPhoneから「Macをスリープさせない」を操作するには、このMacのcmuxをアップデートしてください。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update cmux on this Mac to control Keep Mac Awake from iPhone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhoneから「Macをスリープさせない」を操作するには、このMacのcmuxをアップデートしてください。"
+          }
+        }
       }
     },
     "mobile.settings.legalSupport": {
@@ -7842,8 +8368,18 @@
     "mobile.settings.macPower": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Mac Power" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Macの電源" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac Power"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macの電源"
+          }
+        }
       }
     },
     "mobile.settings.mac": {
@@ -10739,113 +11275,273 @@
     "mobile.taskComposer.attachments.add": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Add Attachment" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルを追加" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Attachment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイルを追加"
+          }
+        }
       }
     },
     "mobile.taskComposer.attachments.alert.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t Add Attachment" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルを追加できませんでした" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t Add Attachment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイルを追加できませんでした"
+          }
+        }
       }
     },
     "mobile.taskComposer.attachments.chooseFiles": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Choose Files" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ファイルを選択" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose Files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを選択"
+          }
+        }
       }
     },
     "mobile.taskComposer.attachments.fileTooLarge": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Choose a file smaller than 32 MB." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "32 MB未満のファイルを選択してください。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a file smaller than 32 MB."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "32 MB未満のファイルを選択してください。"
+          }
+        }
       }
     },
     "mobile.taskComposer.attachments.imageRejected": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "That image couldn’t be compressed below 8 MB." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "画像を8 MB未満に圧縮できませんでした。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That image couldn’t be compressed below 8 MB."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像を8 MB未満に圧縮できませんでした。"
+          }
+        }
       }
     },
     "mobile.taskComposer.attachments.limit.count": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "You can attach up to 10 items to a task." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "1つのタスクに添付できる項目は10件までです。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can attach up to 10 items to a task."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1つのタスクに添付できる項目は10件までです。"
+          }
+        }
       }
     },
     "mobile.taskComposer.attachments.limit.totalSize": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Task attachments can use up to 64 MB in total." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "タスクの添付ファイルは合計64 MBまでです。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task attachments can use up to 64 MB in total."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクの添付ファイルは合計64 MBまでです。"
+          }
+        }
       }
     },
     "mobile.taskComposer.attachments.photoLibrary": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Photo Library" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "写真ライブラリ" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Photo Library"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写真ライブラリ"
+          }
+        }
       }
     },
     "mobile.taskComposer.attachments.preview": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Preview Attachment" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルをプレビュー" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview Attachment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイルをプレビュー"
+          }
+        }
       }
     },
     "mobile.taskComposer.attachments.remove": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Remove Attachment" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルを削除" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Attachment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイルを削除"
+          }
+        }
       }
     },
     "mobile.taskComposer.attachments.unreadable": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "That file couldn’t be read. Choose another file." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ファイルを読み込めませんでした。別のファイルを選択してください。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That file couldn’t be read. Choose another file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを読み込めませんでした。別のファイルを選択してください。"
+          }
+        }
       }
     },
     "mobile.taskComposer.attachments.upload.authorization": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "That Mac did not authorize the attachment upload." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Macが添付ファイルのアップロードを承認しませんでした。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That Mac did not authorize the attachment upload."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macが添付ファイルのアップロードを承認しませんでした。"
+          }
+        }
       }
     },
     "mobile.taskComposer.attachments.upload.failed": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "The attachments couldn’t be uploaded. Check the files and try again." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルをアップロードできませんでした。ファイルを確認して、もう一度お試しください。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The attachments couldn’t be uploaded. Check the files and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイルをアップロードできませんでした。ファイルを確認して、もう一度お試しください。"
+          }
+        }
       }
     },
     "mobile.taskComposer.attachments.upload.notConnected": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "The attachments couldn’t be uploaded because that Mac is not connected." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Macが接続されていないため、添付ファイルをアップロードできませんでした。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The attachments couldn’t be uploaded because that Mac is not connected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macが接続されていないため、添付ファイルをアップロードできませんでした。"
+          }
+        }
       }
     },
     "mobile.taskComposer.attachments.upload.timedOut": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "The Mac did not finish uploading the attachments in time." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Macでの添付ファイルのアップロードが時間内に完了しませんでした。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Mac did not finish uploading the attachments in time."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macでの添付ファイルのアップロードが時間内に完了しませんでした。"
+          }
+        }
       }
     },
     "mobile.taskComposer.attachments.upload.unsupported": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "That Mac does not support task attachments." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "そのMacはタスクの添付ファイルに対応していません。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That Mac does not support task attachments."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのMacはタスクの添付ファイルに対応していません。"
+          }
+        }
       }
     },
     "mobile.taskComposer.agent": {
@@ -10885,22 +11581,52 @@
     "mobile.taskComposer.agent.error.claudeUnavailable": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Claude unavailable" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Claudeを利用できません" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claudeを利用できません"
+          }
+        }
       }
     },
     "mobile.taskComposer.agent.error.codexUnavailable": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Codex unavailable" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Codexを利用できません" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codexを利用できません"
+          }
+        }
       }
     },
     "mobile.taskComposer.agent.error.openCodeUnavailable": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "OpenCode unavailable" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "OpenCodeを利用できません" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCodeを利用できません"
+          }
+        }
       }
     },
     "mobile.taskComposer.button.accessibilityHint": {
@@ -12317,8 +13043,18 @@
     "mobile.taskComposer.effort.error.queryFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t load efforts" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "思考レベルを読み込めませんでした" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t load efforts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "思考レベルを読み込めませんでした"
+          }
+        }
       }
     },
     "mobile.taskComposer.effort.accessibilityHint": {
@@ -12409,22 +13145,52 @@
     "mobile.taskComposer.model.error.providerUnavailable": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Agent models unavailable" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "エージェントのモデルを利用できません" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent models unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントのモデルを利用できません"
+          }
+        }
       }
     },
     "mobile.taskComposer.model.error.queryFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t load models" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "モデルを読み込めませんでした" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t load models"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルを読み込めませんでした"
+          }
+        }
       }
     },
     "mobile.taskComposer.model.error.hostUnavailable": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Mac unavailable" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Macを利用できません" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macを利用できません"
+          }
+        }
       }
     },
     "mobile.taskComposer.openingShell": {
@@ -19091,567 +19857,6 @@
         }
       }
     },
-    "mobile.onboarding.agents.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Track every workspace from your phone."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "iPhoneからすべてのワークスペースを確認できます。"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.agents.primary": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Continue"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "続ける"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.agents.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your agents keep working on your Mac"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントはMacで作業を続けます"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.back": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Back"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "戻る"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.connect.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Use the same cmux account on both devices. Your Mac connects automatically."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "両方の端末で同じcmuxアカウントにサインインすると、Macに自動で接続されます。"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.connect.connectedStatus": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connected securely"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "安全に接続済み"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.connect.fallback": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Use QR Code Instead"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代わりにQRコードを使用"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.connect.fallbackStatus": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn’t connect to your Mac yet"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "まだMacに接続できません"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.connect.idleStatus": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ready to look for your Mac"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Macを探す準備ができました"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.connect.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Having trouble connecting?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "接続できないときは"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.connect.primary": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Check Again"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "もう一度検索"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.connect.sameAccount": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Same account"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "同じアカウント"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.connect.searching": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Looking for your Mac…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Macを検索中…"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.connect.start": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Check for My Mac"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Macを探す"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.connect.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your Mac connects automatically"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Macは自動的に接続されます"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.connect.trust": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "End-to-end encrypted. Relays cannot read your terminal traffic."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エンドツーエンドで暗号化。リレーはターミナル通信を読み取れません。"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.continue": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Continue"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "続ける"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.notifications.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Review every agent alert in one feed."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべてのエージェント通知を1つのフィードで確認できます。"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.notifications.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Every agent alert, in one place"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべてのエージェント通知を一か所で"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.preview.activeAgents": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connected"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "接続済み"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.preview.computer": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "MacBook Pro"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "MacBook Pro"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.preview.live": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Live"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ライブ"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.preview.workspace.cmux": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fix reconnect test"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再接続テストを修正"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.preview.workspace.docs": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Docs"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ドキュメント"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.preview.workspace.finished": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Running 7 focused tests…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "関連テストを7件実行中…"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.preview.workspace.ios": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "iOS avatar tuning"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "iOSのアバター調整"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.preview.workspace.waiting": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Drafting release notes…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リリースノートを作成中…"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.preview.workspace.working": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent needs your input"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントが返答を待っています"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.progressFormat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Step %1$d of %2$d"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "全%2$dステップ中%1$d"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.progressLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Introduction progress"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "はじめのガイドの進行状況"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.ready.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open any workspace and respond when an agent needs you."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースを開き、必要なときにすぐ応答できます。"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.ready.primary": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Workspaces"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースを開く"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.ready.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your Mac is connected"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Macは接続済みです"
-          }
-        }
-      }
-    },
     "mobile.pairing.cameraDeniedDescription": {
       "extractionState": "manual",
       "localizations": {
@@ -19941,129 +20146,2097 @@
         }
       }
     },
-    "mobile.accessibility.notSelected": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"not selected"}},"ja":{"stringUnit":{"state":"translated","value":"未選択"}}}},
-    "mobile.accessibility.selected": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"selected"}},"ja":{"stringUnit":{"state":"translated","value":"選択済み"}}}},
-    "mobile.surface.disconnected.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This phone isn't connected to the Mac right now. Reconnect, then retry."}},"ja":{"stringUnit":{"state":"translated","value":"このiPhoneは現在Macに接続されていません。再接続してから再試行してください。"}}}},
-    "mobile.surface.disconnected.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not connected"}},"ja":{"stringUnit":{"state":"translated","value":"未接続"}}}},
-    "mobile.surface.explainer.agentSession": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This agent session is running in cmux on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このエージェントセッションはMacのcmuxで実行中です。"}}}},
-    "mobile.surface.explainer.browser": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This browser tab is open in cmux on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このブラウザタブはMacのcmuxで開かれています。"}}}},
-    "mobile.surface.explainer.cloudVM": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This Cloud VM is still starting up on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このCloud VMはMac上でまだ起動中です。"}}}},
-    "mobile.surface.explainer.customSidebar": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This panel is drawn by a sidebar extension on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このパネルはMacのサイドバー拡張機能で描画されています。"}}}},
-    "mobile.surface.explainer.extensionBrowser": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This extension view opens in cmux on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"この拡張機能ビューはMacのcmuxで開かれています。"}}}},
-    "mobile.surface.explainer.generic": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This view is rendered by cmux on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このビューはMacのcmuxでレンダリングされています。"}}}},
-    "mobile.surface.explainer.other": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This surface needs a newer version of the iOS app."}},"ja":{"stringUnit":{"state":"translated","value":"このサーフェスには新しいバージョンのiOSアプリが必要です。"}}}},
-    "mobile.surface.explainer.project": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This pane browses the project's files on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このペインはMac上のプロジェクトファイルを参照します。"}}}},
-    "mobile.surface.explainer.rightSidebarTool": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This tool lives in the right sidebar on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このツールはMacの右サイドバーにあります。"}}}},
-    "mobile.surface.fileMissing.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The file is no longer available on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"そのファイルはMac上で利用できなくなりました。"}}}},
-    "mobile.surface.fileMissing.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"File not found"}},"ja":{"stringUnit":{"state":"translated","value":"ファイルが見つかりません"}}}},
-    "mobile.surface.forbidden.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This file isn't displayed by the selected panel."}},"ja":{"stringUnit":{"state":"translated","value":"このファイルは選択したパネルに表示されていません。"}}}},
-    "mobile.surface.forbidden.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Preview unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"プレビューできません"}}}},
-    "mobile.surface.kind.agentSession": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Agent Session"}},"ja":{"stringUnit":{"state":"translated","value":"エージェントセッション"}}}},
-    "mobile.surface.kind.browser": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Browser"}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザ"}}}},
-    "mobile.surface.kind.cloudVM": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM"}}}},
-    "mobile.surface.kind.customSidebar": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Custom Sidebar"}},"ja":{"stringUnit":{"state":"translated","value":"カスタムサイドバー"}}}},
-    "mobile.surface.kind.extensionBrowser": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Extension Browser"}},"ja":{"stringUnit":{"state":"translated","value":"拡張機能ブラウザ"}}}},
-    "mobile.surface.kind.filePreview": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"File Preview"}},"ja":{"stringUnit":{"state":"translated","value":"ファイルプレビュー"}}}},
-    "mobile.surface.kind.markdown": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Markdown"}},"ja":{"stringUnit":{"state":"translated","value":"Markdown"}}}},
-    "mobile.surface.kind.other": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Other Surface"}},"ja":{"stringUnit":{"state":"translated","value":"その他のサーフェス"}}}},
-    "mobile.surface.kind.project": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Project"}},"ja":{"stringUnit":{"state":"translated","value":"プロジェクト"}}}},
-    "mobile.surface.kind.rightSidebarTool": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Sidebar Tool"}},"ja":{"stringUnit":{"state":"translated","value":"サイドバーツール"}}}},
-    "mobile.surface.kind.terminal": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Terminal"}},"ja":{"stringUnit":{"state":"translated","value":"ターミナル"}}}},
-    "mobile.surface.kind.todo": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Todo"}},"ja":{"stringUnit":{"state":"translated","value":"ToDo"}}}},
-    "mobile.surface.loadFailed.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Something went wrong loading this file."}},"ja":{"stringUnit":{"state":"translated","value":"このファイルの読み込み中に問題が発生しました。"}}}},
-    "mobile.surface.loadFailed.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Couldn't load file"}},"ja":{"stringUnit":{"state":"translated","value":"ファイルを読み込めませんでした"}}}},
-    "mobile.surface.loading": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Loading preview"}},"ja":{"stringUnit":{"state":"translated","value":"プレビューを読み込み中"}}}},
-    "mobile.surface.macNeedsUpdate.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The connected Mac's cmux version can't preview this file."}},"ja":{"stringUnit":{"state":"translated","value":"接続中のMacのcmuxバージョンではこのファイルをプレビューできません。"}}}},
-    "mobile.surface.macNeedsUpdate.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Update cmux on your Mac"}},"ja":{"stringUnit":{"state":"translated","value":"Macのcmuxをアップデートしてください"}}}},
-    "mobile.surface.macUnreachable.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Check the connection to your Mac and try again."}},"ja":{"stringUnit":{"state":"translated","value":"Macへの接続を確認して、もう一度お試しください。"}}}},
-    "mobile.surface.macUnreachable.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mac unreachable"}},"ja":{"stringUnit":{"state":"translated","value":"Macに接続できません"}}}},
-    "mobile.surface.openOnMac": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open on Mac"}},"ja":{"stringUnit":{"state":"translated","value":"Macで開く"}}}},
-    "mobile.surface.openOnMacFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Couldn't reach your Mac. Try again."}},"ja":{"stringUnit":{"state":"translated","value":"Macに接続できませんでした。もう一度お試しください。"}}}},
-    "mobile.surface.panelClosed.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"That file panel is no longer open on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"そのファイルパネルはMacで開かれていません。"}}}},
-    "mobile.surface.panelClosed.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Panel closed"}},"ja":{"stringUnit":{"state":"translated","value":"パネルは閉じられました"}}}},
-    "mobile.surface.reconnecting.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This phone's connection to the Mac dropped and is coming back. Retry in a moment."}},"ja":{"stringUnit":{"state":"translated","value":"このiPhoneのMacへの接続が切断され、再接続中です。少し待ってから再試行してください。"}}}},
-    "mobile.surface.reconnecting.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Reconnecting…"}},"ja":{"stringUnit":{"state":"translated","value":"再接続中…"}}}},
-    "mobile.surface.retry": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Retry"}},"ja":{"stringUnit":{"state":"translated","value":"再試行"}}}},
-    "mobile.surface.tooLarge.limitFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This preview is limited to %@."}},"ja":{"stringUnit":{"state":"translated","value":"このプレビューは%@までです。"}}}},
-    "mobile.surface.tooLarge.messageFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This file is %1$@; previews are limited to %2$@."}},"ja":{"stringUnit":{"state":"translated","value":"このファイルは%1$@です。プレビューは%2$@までです。"}}}},
-    "mobile.surface.tooLarge.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"File too large to preview"}},"ja":{"stringUnit":{"state":"translated","value":"ファイルが大きすぎてプレビューできません"}}}},
-    "mobile.surface.transferUnavailable.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"File transfer is temporarily unavailable on your Mac. Try again shortly."}},"ja":{"stringUnit":{"state":"translated","value":"Macでファイル転送を一時的に利用できません。少し待ってから再試行してください。"}}}},
-    "mobile.surface.transferUnavailable.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Transfer unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"転送できません"}}}},
-    "mobile.surface.workspaceContextFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%1$@ · In “%2$@”"}},"ja":{"stringUnit":{"state":"translated","value":"%1$@ · “%2$@”内"}}}},
-    "mobile.todo.add": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Add checklist item"}},"ja":{"stringUnit":{"state":"translated","value":"チェックリスト項目を追加"}}}},
-    "mobile.todo.addPlaceholder": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"New checklist item"}},"ja":{"stringUnit":{"state":"translated","value":"新しいチェックリスト項目"}}}},
-    "mobile.todo.empty.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Anything you add here stays in sync with your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"ここに追加した内容はMacと同期されます。"}}}},
-    "mobile.todo.empty.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No items yet"}},"ja":{"stringUnit":{"state":"translated","value":"項目はまだありません"}}}},
-    "mobile.todo.item.delete": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Delete"}},"ja":{"stringUnit":{"state":"translated","value":"削除"}}}},
-    "mobile.todo.item.editPlaceholder": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Item text"}},"ja":{"stringUnit":{"state":"translated","value":"項目のテキスト"}}}},
-    "mobile.todo.item.markCompleted": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mark as completed"}},"ja":{"stringUnit":{"state":"translated","value":"完了にする"}}}},
-    "mobile.todo.item.markInProgress": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mark as in progress"}},"ja":{"stringUnit":{"state":"translated","value":"進行中にする"}}}},
-    "mobile.todo.item.markPending": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mark as pending"}},"ja":{"stringUnit":{"state":"translated","value":"保留にする"}}}},
-    "mobile.todo.progressFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%1$d of %2$d done"}},"ja":{"stringUnit":{"state":"translated","value":"%2$d件中%1$d件完了"}}}},
-    "mobile.todo.status.automatic": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Automatic"}},"ja":{"stringUnit":{"state":"translated","value":"自動"}}}},
-    "mobile.todo.status.choose": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Choose status"}},"ja":{"stringUnit":{"state":"translated","value":"ステータスを選択"}}}},
-    "mobile.todo.status.done": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Done"}},"ja":{"stringUnit":{"state":"translated","value":"完了"}}}},
-    "mobile.todo.status.hidden": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No Status"}},"ja":{"stringUnit":{"state":"translated","value":"ステータスなし"}}}},
-    "mobile.todo.status.menuTitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Status"}},"ja":{"stringUnit":{"state":"translated","value":"ステータス"}}}},
-    "mobile.todo.status.needsAttention": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Needs Attention"}},"ja":{"stringUnit":{"state":"translated","value":"要確認"}}}},
-    "mobile.todo.status.review": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Review"}},"ja":{"stringUnit":{"state":"translated","value":"レビュー"}}}},
-    "mobile.todo.status.todo": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Todo"}},"ja":{"stringUnit":{"state":"translated","value":"ToDo"}}}},
-    "mobile.todo.status.working": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Working"}},"ja":{"stringUnit":{"state":"translated","value":"作業中"}}}},
-    "mobile.todo.updateFailed.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Your change was undone. Try again."}},"ja":{"stringUnit":{"state":"translated","value":"変更を元に戻しました。もう一度お試しください。"}}}},
-    "mobile.todo.updateFailed.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Couldn’t Update Checklist"}},"ja":{"stringUnit":{"state":"translated","value":"チェックリストを更新できませんでした"}}}},
-    "mobile.notifications.awayExplanation": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Only When Away sends after the Mac is locked, asleep, or inactive."}},"ja":{"stringUnit":{"state":"translated","value":"「離席中のみ」では、Macがロック中、スリープ中、または操作されていないときに送信します。"}}}},
-    "mobile.notifications.hideContent": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Hide Notification Content"}},"ja":{"stringUnit":{"state":"translated","value":"通知内容を非表示"}}}},
-    "mobile.notifications.macForwarding": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Forward Alerts from This Mac"}},"ja":{"stringUnit":{"state":"translated","value":"このMacから通知を転送"}}}},
-    "mobile.notifications.macMode": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Forwarding Mode"}},"ja":{"stringUnit":{"state":"translated","value":"転送モード"}}}},
-    "mobile.notifications.macMutationFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The Mac did not save that change. Its last confirmed settings were restored."}},"ja":{"stringUnit":{"state":"translated","value":"Macに変更を保存できませんでした。最後に確認された設定に戻しました。"}}}},
-    "mobile.notifications.macUpdateRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Update cmux on this Mac to change forwarding from iPhone."}},"ja":{"stringUnit":{"state":"translated","value":"iPhoneから転送設定を変更するには、このMacのcmuxをアップデートしてください。"}}}},
-    "mobile.notifications.mode.always": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Always"}},"ja":{"stringUnit":{"state":"translated","value":"常に"}}}},
-    "mobile.notifications.mode.onlyWhenAway": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Only When Away"}},"ja":{"stringUnit":{"state":"translated","value":"離席中のみ"}}}},
-    "mobile.notifications.phoneEnabled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Allow Push Alerts on This iPhone"}},"ja":{"stringUnit":{"state":"translated","value":"このiPhoneでプッシュ通知を許可"}}}},
-    "mobile.notifications.readiness": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Delivery Status"}},"ja":{"stringUnit":{"state":"translated","value":"配信状況"}}}},
-    "mobile.notifications.repair.connectMac": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Connect a Mac"}},"ja":{"stringUnit":{"state":"translated","value":"Macに接続"}}}},
-    "mobile.notifications.repair.enablePhone": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Enable on This iPhone"}},"ja":{"stringUnit":{"state":"translated","value":"このiPhoneで有効にする"}}}},
-    "mobile.notifications.repair.openSettings": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open iOS Notification Settings"}},"ja":{"stringUnit":{"state":"translated","value":"iOSの通知設定を開く"}}}},
-    "mobile.notifications.repair.retryAPNs": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Retry Notification Setup"}},"ja":{"stringUnit":{"state":"translated","value":"通知設定を再試行"}}}},
-    "mobile.notifications.repair.retryRegistration": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Retry Registration"}},"ja":{"stringUnit":{"state":"translated","value":"登録を再試行"}}}},
-    "mobile.notifications.repair.signInAgain": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Sign In with the Matching Account"}},"ja":{"stringUnit":{"state":"translated","value":"同じアカウントでサインイン"}}}},
-    "mobile.notifications.repair.useAlways": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Use Always Mode"}},"ja":{"stringUnit":{"state":"translated","value":"「常に」モードを使用"}}}},
-    "mobile.notifications.status.accountDeletion": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Account Deletion in Progress"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、アカウントを削除しています"}}}},
-    "mobile.notifications.status.accountMismatch": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Mac Account Does Not Match"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、Macのアカウントが一致しません"}}}},
-    "mobile.notifications.status.authenticationRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Sign In Again"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、再度サインインしてください"}}}},
-    "mobile.notifications.status.awaitingToken": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Waiting for Notification Setup"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、通知設定を待っています"}}}},
-    "mobile.notifications.status.backendRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Finishing Notification Setup"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、通知設定を完了しています"}}}},
-    "mobile.notifications.status.deviceLimitFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, %d-Device Limit Reached"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、%d台のデバイス上限に達しました"}}}},
-    "mobile.notifications.status.invalidConfiguration": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Invalid Push Configuration"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、プッシュ設定が無効です"}}}},
-    "mobile.notifications.status.limitedAuthorization": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Limited, Delivered Quietly"}},"ja":{"stringUnit":{"state":"translated","value":"制限あり、静かに配信"}}}},
-    "mobile.notifications.status.macActive": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Paused, Mac Is Active"}},"ja":{"stringUnit":{"state":"translated","value":"一時停止中、Macを使用中です"}}}},
-    "mobile.notifications.status.macForwardingOff": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Mac Forwarding Is Off"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、Macの転送がオフです"}}}},
-    "mobile.notifications.status.macUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Mac Status Unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、Macの状態を確認できません"}}}},
-    "mobile.notifications.status.offline": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Network Unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、ネットワークを利用できません"}}}},
-    "mobile.notifications.status.originMismatch": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Mac and iPhone Servers Differ"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、MacとiPhoneのサーバーが異なります"}}}},
-    "mobile.notifications.status.permissionDenied": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, iOS Permission Denied"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、iOSの許可が拒否されています"}}}},
-    "mobile.notifications.status.permissionNotRequested": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, iOS Permission Not Requested"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、iOSの許可が未要求です"}}}},
-    "mobile.notifications.status.phoneOff": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Off on This iPhone"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、このiPhoneではオフです"}}}},
-    "mobile.notifications.status.presentationLimited": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Limited, Check iOS Presentation Settings"}},"ja":{"stringUnit":{"state":"translated","value":"制限あり、iOSの表示設定を確認してください"}}}},
-    "mobile.notifications.status.queueFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Limited, Delivery Recovery Unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"制限あり、配信の復旧を利用できません"}}}},
-    "mobile.notifications.status.queueUnconfirmed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Limited, Delivery Recovery Unconfirmed"}},"ja":{"stringUnit":{"state":"translated","value":"制限あり、配信の復旧を確認できません"}}}},
-    "mobile.notifications.status.rateLimited": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Registration Rate Limited"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、登録回数が制限されています"}}}},
-    "mobile.notifications.status.readyAlways": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Ready, Always"}},"ja":{"stringUnit":{"state":"translated","value":"準備完了、常に配信"}}}},
-    "mobile.notifications.status.readyAway": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Ready, Only When Away"}},"ja":{"stringUnit":{"state":"translated","value":"準備完了、離席中のみ配信"}}}},
-    "mobile.notifications.status.registering": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Registering This Device"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、このデバイスを登録しています"}}}},
-    "mobile.notifications.status.registrationFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Registration Failed"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、登録に失敗しました"}}}},
-    "mobile.notifications.status.tokenFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Notification Setup Failed"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、通知設定に失敗しました"}}}},
-    "mobile.notifications.status.unsupported": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Notifications Unsupported"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、通知はサポートされていません"}}}},
-    "mobile.notifications.test.authentication": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not queued because the Mac is not signed in."}},"ja":{"stringUnit":{"state":"translated","value":"Macにサインインしていないため、キューに追加できませんでした。"}}}},
-    "mobile.notifications.test.encodingFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The alert could not be prepared for delivery."}},"ja":{"stringUnit":{"state":"translated","value":"通知を配信する準備ができませんでした。"}}}},
-    "mobile.notifications.test.forwardingOff": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not queued because Mac forwarding is off."}},"ja":{"stringUnit":{"state":"translated","value":"Macの転送がオフのため、キューに追加できませんでした。"}}}},
-    "mobile.notifications.test.macActive": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not queued because Only When Away is active and the Mac is in use."}},"ja":{"stringUnit":{"state":"translated","value":"「離席中のみ」が有効でMacを使用中のため、キューに追加できませんでした。"}}}},
-    "mobile.notifications.test.queueFull": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Delivery is busy. Try again shortly."}},"ja":{"stringUnit":{"state":"translated","value":"配信が混み合っています。しばらくしてから再試行してください。"}}}},
-    "mobile.notifications.test.queued": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Queued on Mac. iOS delivery is still pending."}},"ja":{"stringUnit":{"state":"translated","value":"Macのキューに追加しました。iOSへの配信はまだ確認中です。"}}}},
-    "mobile.notifications.test.send": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Send Test Alert"}},"ja":{"stringUnit":{"state":"translated","value":"テスト通知を送信"}}}},
-    "mobile.notifications.test.unavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The Mac could not confirm a queue stage."}},"ja":{"stringUnit":{"state":"translated","value":"Macでキューの状態を確認できませんでした。"}}}},
-    "push.test.body": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Your Mac sent a test alert to cmux."}},"ja":{"stringUnit":{"state":"translated","value":"Mac から cmux にテスト通知が送信されました。"}}}},
-    "push.test.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux Notification Test"}},"ja":{"stringUnit":{"state":"translated","value":"cmux 通知テスト"}}}},
+    "mobile.accessibility.notSelected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not selected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未選択"
+          }
+        }
+      }
+    },
+    "mobile.accessibility.selected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "selected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択済み"
+          }
+        }
+      }
+    },
+    "mobile.surface.disconnected.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This phone isn't connected to the Mac right now. Reconnect, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このiPhoneは現在Macに接続されていません。再接続してから再試行してください。"
+          }
+        }
+      }
+    },
+    "mobile.surface.disconnected.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未接続"
+          }
+        }
+      }
+    },
+    "mobile.surface.explainer.agentSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This agent session is running in cmux on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェントセッションはMacのcmuxで実行中です。"
+          }
+        }
+      }
+    },
+    "mobile.surface.explainer.browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This browser tab is open in cmux on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このブラウザタブはMacのcmuxで開かれています。"
+          }
+        }
+      }
+    },
+    "mobile.surface.explainer.cloudVM": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Cloud VM is still starting up on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このCloud VMはMac上でまだ起動中です。"
+          }
+        }
+      }
+    },
+    "mobile.surface.explainer.customSidebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This panel is drawn by a sidebar extension on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このパネルはMacのサイドバー拡張機能で描画されています。"
+          }
+        }
+      }
+    },
+    "mobile.surface.explainer.extensionBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This extension view opens in cmux on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この拡張機能ビューはMacのcmuxで開かれています。"
+          }
+        }
+      }
+    },
+    "mobile.surface.explainer.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This view is rendered by cmux on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビューはMacのcmuxでレンダリングされています。"
+          }
+        }
+      }
+    },
+    "mobile.surface.explainer.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This surface needs a newer version of the iOS app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサーフェスには新しいバージョンのiOSアプリが必要です。"
+          }
+        }
+      }
+    },
+    "mobile.surface.explainer.project": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This pane browses the project's files on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインはMac上のプロジェクトファイルを参照します。"
+          }
+        }
+      }
+    },
+    "mobile.surface.explainer.rightSidebarTool": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This tool lives in the right sidebar on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このツールはMacの右サイドバーにあります。"
+          }
+        }
+      }
+    },
+    "mobile.surface.fileMissing.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file is no longer available on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのファイルはMac上で利用できなくなりました。"
+          }
+        }
+      }
+    },
+    "mobile.surface.fileMissing.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルが見つかりません"
+          }
+        }
+      }
+    },
+    "mobile.surface.forbidden.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file isn't displayed by the selected panel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは選択したパネルに表示されていません。"
+          }
+        }
+      }
+    },
+    "mobile.surface.forbidden.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューできません"
+          }
+        }
+      }
+    },
+    "mobile.surface.kind.agentSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッション"
+          }
+        }
+      }
+    },
+    "mobile.surface.kind.browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ"
+          }
+        }
+      }
+    },
+    "mobile.surface.kind.cloudVM": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM"
+          }
+        }
+      }
+    },
+    "mobile.surface.kind.customSidebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムサイドバー"
+          }
+        }
+      }
+    },
+    "mobile.surface.kind.extensionBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extension Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拡張機能ブラウザ"
+          }
+        }
+      }
+    },
+    "mobile.surface.kind.filePreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルプレビュー"
+          }
+        }
+      }
+    },
+    "mobile.surface.kind.markdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown"
+          }
+        }
+      }
+    },
+    "mobile.surface.kind.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other Surface"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他のサーフェス"
+          }
+        }
+      }
+    },
+    "mobile.surface.kind.project": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Project"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクト"
+          }
+        }
+      }
+    },
+    "mobile.surface.kind.rightSidebarTool": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar Tool"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーツール"
+          }
+        }
+      }
+    },
+    "mobile.surface.kind.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
+          }
+        }
+      }
+    },
+    "mobile.surface.kind.todo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ToDo"
+          }
+        }
+      }
+    },
+    "mobile.surface.loadFailed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Something went wrong loading this file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルの読み込み中に問題が発生しました。"
+          }
+        }
+      }
+    },
+    "mobile.surface.loadFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを読み込めませんでした"
+          }
+        }
+      }
+    },
+    "mobile.surface.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューを読み込み中"
+          }
+        }
+      }
+    },
+    "mobile.surface.macNeedsUpdate.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The connected Mac's cmux version can't preview this file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中のMacのcmuxバージョンではこのファイルをプレビューできません。"
+          }
+        }
+      }
+    },
+    "mobile.surface.macNeedsUpdate.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update cmux on your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのcmuxをアップデートしてください"
+          }
+        }
+      }
+    },
+    "mobile.surface.macUnreachable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the connection to your Mac and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macへの接続を確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.surface.macUnreachable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac unreachable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macに接続できません"
+          }
+        }
+      }
+    },
+    "mobile.surface.openOnMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open on Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macで開く"
+          }
+        }
+      }
+    },
+    "mobile.surface.openOnMacFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't reach your Mac. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macに接続できませんでした。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.surface.panelClosed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That file panel is no longer open on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのファイルパネルはMacで開かれていません。"
+          }
+        }
+      }
+    },
+    "mobile.surface.panelClosed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel closed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パネルは閉じられました"
+          }
+        }
+      }
+    },
+    "mobile.surface.reconnecting.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This phone's connection to the Mac dropped and is coming back. Retry in a moment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このiPhoneのMacへの接続が切断され、再接続中です。少し待ってから再試行してください。"
+          }
+        }
+      }
+    },
+    "mobile.surface.reconnecting.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecting…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続中…"
+          }
+        }
+      }
+    },
+    "mobile.surface.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        }
+      }
+    },
+    "mobile.surface.tooLarge.limitFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This preview is limited to %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプレビューは%@までです。"
+          }
+        }
+      }
+    },
+    "mobile.surface.tooLarge.messageFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file is %1$@; previews are limited to %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは%1$@です。プレビューは%2$@までです。"
+          }
+        }
+      }
+    },
+    "mobile.surface.tooLarge.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File too large to preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルが大きすぎてプレビューできません"
+          }
+        }
+      }
+    },
+    "mobile.surface.transferUnavailable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File transfer is temporarily unavailable on your Mac. Try again shortly."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macでファイル転送を一時的に利用できません。少し待ってから再試行してください。"
+          }
+        }
+      }
+    },
+    "mobile.surface.transferUnavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transfer unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "転送できません"
+          }
+        }
+      }
+    },
+    "mobile.surface.workspaceContextFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · In “%2$@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · “%2$@”内"
+          }
+        }
+      }
+    },
+    "mobile.todo.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add checklist item"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チェックリスト項目を追加"
+          }
+        }
+      }
+    },
+    "mobile.todo.addPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New checklist item"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいチェックリスト項目"
+          }
+        }
+      }
+    },
+    "mobile.todo.empty.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anything you add here stays in sync with your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここに追加した内容はMacと同期されます。"
+          }
+        }
+      }
+    },
+    "mobile.todo.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No items yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目はまだありません"
+          }
+        }
+      }
+    },
+    "mobile.todo.item.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        }
+      }
+    },
+    "mobile.todo.item.editPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Item text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目のテキスト"
+          }
+        }
+      }
+    },
+    "mobile.todo.item.markCompleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as completed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了にする"
+          }
+        }
+      }
+    },
+    "mobile.todo.item.markInProgress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as in progress"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "進行中にする"
+          }
+        }
+      }
+    },
+    "mobile.todo.item.markPending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as pending"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留にする"
+          }
+        }
+      }
+    },
+    "mobile.todo.progressFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d of %2$d done"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$d件中%1$d件完了"
+          }
+        }
+      }
+    },
+    "mobile.todo.status.automatic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
+      }
+    },
+    "mobile.todo.status.choose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose status"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータスを選択"
+          }
+        }
+      }
+    },
+    "mobile.todo.status.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
+    "mobile.todo.status.hidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Status"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータスなし"
+          }
+        }
+      }
+    },
+    "mobile.todo.status.menuTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータス"
+          }
+        }
+      }
+    },
+    "mobile.todo.status.needsAttention": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs Attention"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要確認"
+          }
+        }
+      }
+    },
+    "mobile.todo.status.review": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビュー"
+          }
+        }
+      }
+    },
+    "mobile.todo.status.todo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ToDo"
+          }
+        }
+      }
+    },
+    "mobile.todo.status.working": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Working"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業中"
+          }
+        }
+      }
+    },
+    "mobile.todo.updateFailed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your change was undone. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更を元に戻しました。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.todo.updateFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t Update Checklist"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チェックリストを更新できませんでした"
+          }
+        }
+      }
+    },
+    "mobile.notifications.awayExplanation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only When Away sends after the Mac is locked, asleep, or inactive."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「離席中のみ」では、Macがロック中、スリープ中、または操作されていないときに送信します。"
+          }
+        }
+      }
+    },
+    "mobile.notifications.hideContent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Notification Content"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知内容を非表示"
+          }
+        }
+      }
+    },
+    "mobile.notifications.macForwarding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forward Alerts from This Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacから通知を転送"
+          }
+        }
+      }
+    },
+    "mobile.notifications.macMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forwarding Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "転送モード"
+          }
+        }
+      }
+    },
+    "mobile.notifications.macMutationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Mac did not save that change. Its last confirmed settings were restored."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macに変更を保存できませんでした。最後に確認された設定に戻しました。"
+          }
+        }
+      }
+    },
+    "mobile.notifications.macUpdateRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update cmux on this Mac to change forwarding from iPhone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhoneから転送設定を変更するには、このMacのcmuxをアップデートしてください。"
+          }
+        }
+      }
+    },
+    "mobile.notifications.mode.always": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常に"
+          }
+        }
+      }
+    },
+    "mobile.notifications.mode.onlyWhenAway": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only When Away"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離席中のみ"
+          }
+        }
+      }
+    },
+    "mobile.notifications.phoneEnabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Push Alerts on This iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このiPhoneでプッシュ通知を許可"
+          }
+        }
+      }
+    },
+    "mobile.notifications.readiness": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delivery Status"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配信状況"
+          }
+        }
+      }
+    },
+    "mobile.notifications.repair.connectMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect a Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macに接続"
+          }
+        }
+      }
+    },
+    "mobile.notifications.repair.enablePhone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable on This iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このiPhoneで有効にする"
+          }
+        }
+      }
+    },
+    "mobile.notifications.repair.openSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open iOS Notification Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOSの通知設定を開く"
+          }
+        }
+      }
+    },
+    "mobile.notifications.repair.retryAPNs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry Notification Setup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知設定を再試行"
+          }
+        }
+      }
+    },
+    "mobile.notifications.repair.retryRegistration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry Registration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登録を再試行"
+          }
+        }
+      }
+    },
+    "mobile.notifications.repair.signInAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In with the Matching Account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じアカウントでサインイン"
+          }
+        }
+      }
+    },
+    "mobile.notifications.repair.useAlways": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Always Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「常に」モードを使用"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.accountDeletion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked, Account Deletion in Progress"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中、アカウントを削除しています"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.accountMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked, Mac Account Does Not Match"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中、Macのアカウントが一致しません"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.authenticationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked, Sign In Again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中、再度サインインしてください"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.awaitingToken": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked, Waiting for Notification Setup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中、通知設定を待っています"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.backendRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked, Finishing Notification Setup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中、通知設定を完了しています"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.deviceLimitFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked, %d-Device Limit Reached"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中、%d台のデバイス上限に達しました"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.invalidConfiguration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked, Invalid Push Configuration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中、プッシュ設定が無効です"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.limitedAuthorization": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limited, Delivered Quietly"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "制限あり、静かに配信"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.macActive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused, Mac Is Active"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一時停止中、Macを使用中です"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.macForwardingOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked, Mac Forwarding Is Off"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中、Macの転送がオフです"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.macUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked, Mac Status Unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中、Macの状態を確認できません"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked, Network Unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中、ネットワークを利用できません"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.originMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked, Mac and iPhone Servers Differ"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中、MacとiPhoneのサーバーが異なります"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.permissionDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked, iOS Permission Denied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中、iOSの許可が拒否されています"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.permissionNotRequested": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked, iOS Permission Not Requested"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中、iOSの許可が未要求です"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.phoneOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked, Off on This iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中、このiPhoneではオフです"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.presentationLimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limited, Check iOS Presentation Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "制限あり、iOSの表示設定を確認してください"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.queueFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limited, Delivery Recovery Unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "制限あり、配信の復旧を利用できません"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.queueUnconfirmed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limited, Delivery Recovery Unconfirmed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "制限あり、配信の復旧を確認できません"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.rateLimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked, Registration Rate Limited"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中、登録回数が制限されています"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.readyAlways": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready, Always"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "準備完了、常に配信"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.readyAway": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready, Only When Away"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "準備完了、離席中のみ配信"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.registering": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked, Registering This Device"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中、このデバイスを登録しています"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.registrationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked, Registration Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中、登録に失敗しました"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.tokenFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked, Notification Setup Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中、通知設定に失敗しました"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked, Notifications Unsupported"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中、通知はサポートされていません"
+          }
+        }
+      }
+    },
+    "mobile.notifications.test.authentication": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not queued because the Mac is not signed in."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macにサインインしていないため、キューに追加できませんでした。"
+          }
+        }
+      }
+    },
+    "mobile.notifications.test.encodingFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The alert could not be prepared for delivery."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知を配信する準備ができませんでした。"
+          }
+        }
+      }
+    },
+    "mobile.notifications.test.forwardingOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not queued because Mac forwarding is off."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macの転送がオフのため、キューに追加できませんでした。"
+          }
+        }
+      }
+    },
+    "mobile.notifications.test.macActive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not queued because Only When Away is active and the Mac is in use."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「離席中のみ」が有効でMacを使用中のため、キューに追加できませんでした。"
+          }
+        }
+      }
+    },
+    "mobile.notifications.test.queueFull": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delivery is busy. Try again shortly."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配信が混み合っています。しばらくしてから再試行してください。"
+          }
+        }
+      }
+    },
+    "mobile.notifications.test.queued": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Queued on Mac. iOS delivery is still pending."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのキューに追加しました。iOSへの配信はまだ確認中です。"
+          }
+        }
+      }
+    },
+    "mobile.notifications.test.send": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Test Alert"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テスト通知を送信"
+          }
+        }
+      }
+    },
+    "mobile.notifications.test.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Mac could not confirm a queue stage."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macでキューの状態を確認できませんでした。"
+          }
+        }
+      }
+    },
+    "push.test.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac sent a test alert to cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac から cmux にテスト通知が送信されました。"
+          }
+        }
+      }
+    },
+    "push.test.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Notification Test"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 通知テスト"
+          }
+        }
+      }
+    },
     "push.generic.body": {
       "extractionState": "manual",
       "localizations": {
