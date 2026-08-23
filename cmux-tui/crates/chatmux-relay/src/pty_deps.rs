@@ -488,6 +488,7 @@ pub fn valid_session(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex};
     use std::thread;
 
@@ -497,7 +498,7 @@ mod tests {
         output.push_data(Bytes::from_static(b"buffered"));
 
         let seen = TestArc::new(TestMutex::new(Vec::<String>::new()));
-        let invocations = TestArc::new(TestMutex::new(0_usize));
+        let invocations = TestArc::new(AtomicUsize::new(0));
         let entered = TestArc::new(Barrier::new(2));
         let release = TestArc::new(Barrier::new(2));
 
@@ -507,11 +508,7 @@ mod tests {
         let callback_release = TestArc::clone(&release);
         let on_data: DataSink = TestArc::new(move |chunk| {
             let value = String::from_utf8_lossy(&chunk).into_owned();
-            let invocation = {
-                let mut count = callback_invocations.lock().expect("invocation lock");
-                *count += 1;
-                *count
-            };
+            let invocation = callback_invocations.fetch_add(1, AtomicOrdering::Relaxed) + 1;
             if invocation == 1 {
                 callback_entered.wait();
                 callback_release.wait();
