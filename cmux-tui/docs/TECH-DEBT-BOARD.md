@@ -3,7 +3,7 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `aggregate-final`.
-Current integration code tip before this documentation commit: `b61f1bada6498ee9d6549f4550f9a062f327f22c` (`style: apply relay rustfmt`).
+Current integration code tip before this documentation commit: `05c0b30277f5ab9c22516b17a285756e0edbde32` (`Merge remote-tracking branch 'origin/codex/chatmux-relay-techdebt' into aggregate-final`).
 Exact worktree HEAD: run `git rev-parse HEAD` (documentation commits change this value).
 The aggregate branch is `aggregate-final`; the review branch is
 `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
@@ -19,7 +19,10 @@ localization recovery, and systemd quoting fixes. The current tail also bounds
 relay and remote queues, validates relay frame versions, joins Python cleanup,
 uses one Go fallback deadline, guards TypeScript transport callbacks, bounds
 Iroh result delivery, and hardens filesystem-watch admission and overflow
-wakeup through `643dbfe2e5`. The final formatting pass is `b61f1bada6`.
+wakeup through `643dbfe2e5`. The final formatting pass is `b61f1bada6`, followed
+by socket-send simplification, heartbeat bounds, fairness accounting, and shell
+reservation cleanup through `2e33e1a07b`. The 25-file relay/TUI integration
+merge is `05c0b30277`.
 
 Subagent ledger: at least 180 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
@@ -29,9 +32,9 @@ inflate the count. New turns must have a named deliverable.
 
 ## Current state
 
-The latest code tail is `b61f1bada6`. It carries the watch compatibility and
-queue-ownership fixes through `643dbfe2e5`, followed by a relay Rust formatting
-pass. The issues below remain open.
+The latest code tail is `05c0b30277`. It carries the watch compatibility,
+queue-ownership, fairness, timer-bound, and shell-reservation fixes, then merges
+the 25-file relay/TUI integration tail. The issues below remain open.
 
 ### Open issue inventory
 
@@ -706,6 +709,22 @@ backpressure or complete remote-session recovery.
 | [`b61f1bada6`](https://github.com/manaflow-ai/cmux/commit/b61f1bada6498ee9d6549f4550f9a062f327f22c) | Apply Rust formatting to the relay PTY, session, and workspace changes after the watch hardening tail. | Formatting only. It adds no behavior proof; rerun formatter, compile, and focused watch tests after further edits. | Revert this formatting commit independently; retain the behavior and test commits. |
 | [`c30f737369`](https://github.com/manaflow-ai/cmux/commit/c30f7373694abfe39f52aa58330ffe011139f7fd), [`dc8f116bfd`](https://github.com/manaflow-ai/cmux/commit/dc8f116bfda28021670b4668f37a7c693b4b84e8), and [`41a1bebf4c`](https://github.com/manaflow-ai/cmux/commit/41a1bebf4c77299ef7d271462e732aba37d9576d) | Guard TypeScript data callbacks, share one Go fallback deadline, and make concurrent Python close callers await one cleanup task. | The callback no longer escapes through `EventEmitter`; fallback no longer multiplies the timeout; Python cleanup is joinable. Long Unicode socket paths and hosted multi-language cancellation tests remain open. | Revert each binding fix with its focused test; do not revert the shared protocol contract. |
 
+## Wave 23 fairness and lifecycle tail
+
+The exact aggregate code tip immediately before this board commit is
+`05c0b30277f5ab9c22516b17a285756e0edbde32`. These rows follow the Wave 22
+transport bounds and keep their residuals open. They record targeted ownership
+and fairness fixes, not complete relay or PTY recovery.
+
+| Commit | Change | Evidence and residual risk | Revert chain |
+| --- | --- | --- | --- |
+| [`c11cb7fe95`](https://github.com/manaflow-ai/cmux/commit/c11cb7fe95ac7ee6acedf2f8a7db5e17bbec39c8) | Share one socket text-send helper for heartbeat and outbound frames while preserving pending-byte accounting. | Removes duplicate send and error handling. It does not prove producer cancellation, reconnect ordering, or raw attach backlog behavior. | Revert the helper independently; retain the bounded queue contract. |
+| [`4d96818339`](https://github.com/manaflow-ai/cmux/commit/4d9681833950f454c27060f62d800897ab2488ee) | Bound accepted heartbeat intervals to the Node timer limit, `1..=2,147,483,647` ms. | Rejects values that could become unsafe or near-immediate timers. Cross-language timer, reconnect, and heartbeat-liveness tests remain required. | Revert the parser bound and boundary tests together. |
+| [`ba8f2941a6`](https://github.com/manaflow-ai/cmux/commit/ba8f2941a6b3b32ce73c295605bec86fa1cdc010) | Reset the critical-burst fairness gauge on heartbeat and incoming traffic, and release pending-byte accounting when critical delivery fails. | Prevents a failed send from leaking the pending gauge and lets control traffic reset the burst. End-to-end starvation and disconnect tests remain open. | Revert this accounting and fairness cleanup with its focused tests. |
+| [`4325b75969`](https://github.com/manaflow-ai/cmux/commit/4325b759694e57af819fd4075045431086717e02) | Service the critical relay queue in bounded eight-frame bursts, then allow watch, heartbeat, and incoming traffic; keep direct PTY/auth handles available for the worker. | Critical traffic remains bounded while other sources receive service. Queue ownership across retry, cancellation, and shutdown remains open. | Revert the fair-select change with the gauge cleanup, retaining frame caps. |
+| [`2e33e1a07b`](https://github.com/manaflow-ai/cmux/commit/2e33e1a07b5a25bccb93fb9e191539127163ab7e) | Remove a shell-start reservation when the persistent-shell cap rejects a request. | A rejected start no longer leaks a reservation or blocks later starts. PTY process-group cleanup, raw attach backlog loss signaling, and restart persistence remain open. | Revert the reservation cleanup independently; preserve the cap and admission contract. |
+| [`05c0b30277`](https://github.com/manaflow-ai/cmux/commit/05c0b30277f5ab9c22516b17a285756e0edbde32) | Merge the 25-file relay/TUI integration from `origin/codex/chatmux-relay-techdebt`, including the TypeScript socket contract and tests, terminal client, native app/session/UI, docs, smoke, inventory, and publish-security updates. | This is structural integration, not completion proof. Exact-head Rust, TypeScript, Python, and behavior checks must inspect the resolved transport conflicts and the new session/UI paths. | Revert the merge to `2e33e1a07b`; keep the bounded transport and fairness commits as a separate chain. |
+
 ## Open user intents mined from `~/.claude` and `~/.codex`
 
 These records are requests, not completion evidence. Every row remains open
@@ -724,14 +743,15 @@ unless its acceptance column says that a narrow implementation slice exists.
 | Cloud snapshot no-go for live PTY persistence. | `/Users/lawrence/.codex/history.jsonl:18564,18569-18572`; `/Users/lawrence/.claude/history.jsonl:87599,89270,89295,89298` | A provider snapshot may package cmux-tui and tools in a base image. It must not be treated as the journal, a live PTY owner, or a restart guarantee. Measure snapshot and resume times separately, and reject a cloud integration until provider restore semantics and secret boundaries are proven. Explicit no-go for inferring persistence from a snapshot. |
 | Semantic colors and cross-platform parity. | `/Users/lawrence/.codex/history.jsonl:18402,18410,18423-18424,18461,18472`; `/Users/lawrence/.claude/history.jsonl:87551,87950,87970`; [PR #10612](https://github.com/manaflow-ai/cmux/pull/10612) | Compare semantic ANSI, OSC, theme-query, cursor, and font behavior against Ghostty on macOS, Linux, Windows, and remote clients. Include light and dark backgrounds, 256-color output, Kitty graphics, and screenshot or pixel evidence. The current review mismatch for `theme.chrome=auto` is unresolved. Open. |
 
-## Residual risks after Wave 22
+## Residual risks after Wave 23 integration
 
 - Several queues now have byte and count caps, but a workspace producer can
   still outlive its consumer across disconnect, retry, and shutdown. Ownership,
   cancellation, and permit release need an end-to-end behavior test.
 - PTY output admission checks a complete frame at one boundary. Raw attach
-  backlog truncation, late output after close, and every other producer path
-  still need an explicit rejection or loss contract.
+  backlog still truncates oversized chunks without an explicit rejection or
+  loss signal. Late output after close and every other producer path still need
+  an explicit contract.
 - Synchronous canonicalization and filesystem work can block a request path.
   Validation and later use still have a parent-directory TOCTOU window.
 - Relative PTY cwd migration needs a documented absolute or home-relative
@@ -742,6 +762,9 @@ unless its acceptance column says that a narrow implementation slice exists.
   No render or PTY performance result is claimed.
 - No local Rust compile or end-to-end hosted result is claimed in this board.
   Cross-language packaging, relay, restore, and remote attach remain open.
+- The 25-file merge includes resolved TypeScript transport conflicts and broad
+  native session/UI changes. Exact-head compile, protocol, and behavior review
+  of that merge remains required; the merge itself is not acceptance evidence.
 - Java connect-timeout and strict-tab cleanup are recorded as addressed in
   Wave 21. Do not re-list them as current defects without a new reproduction.
 
