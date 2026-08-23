@@ -81,12 +81,12 @@ struct WorkspaceDetailView: View {
     // deletes an entry (see the onChange handlers); a layout-driven
     // disappearance (overflow into More) cannot release a reservation and
     // make the collapse sticky.
-    @State private var trailingToolbarItemGeometry: [String: TrailingToolbarItemGeometry] = [:]
-    /// The fitted title label's leading edge in global space; pairs with the
-    /// trailing item geometry to derive the realized title-to-trailing span.
-    /// Leading-aligned, so it does not move as the title's cap changes.
-    @State private var titleLabelLeadingEdge: CGFloat?
-    @Environment(\.layoutDirection) private var layoutDirection
+    @State private var trailingToolbarItemWidths: [String: CGFloat] = [:]
+    /// Ratchets on when the trailing cluster's content leaves the bar while
+    /// structurally present: the system folded it into the More menu, so the
+    /// estimate reserves undershot this device's chrome. Never cleared for
+    /// this view's lifetime; the extra recovery reserve un-collapses the bar.
+    @State private var trailingToolbarCollapseDetected = false
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
     /// Identity of the in-flight New Browser creation. A late RPC result must
@@ -217,10 +217,10 @@ struct WorkspaceDetailView: View {
             // disappearance (overflow into More) never flips these conditions,
             // so it cannot release a reservation and make the collapse sticky.
             .onChange(of: workspaceChangesAreAvailable) { _, isAvailable in
-                if !isAvailable { trailingToolbarItemGeometry["changes"] = nil }
+                if !isAvailable { trailingToolbarItemWidths["changes"] = nil }
             }
             .onChange(of: altScreenNoticeIsVisible) { _, isVisible in
-                if !isVisible { trailingToolbarItemGeometry["altscreen-notice"] = nil }
+                if !isVisible { trailingToolbarItemWidths["altscreen-notice"] = nil }
             }
             .onAppear { refreshWorkspaceChangesHint() }
             .onChange(of: workspaceChangesHintEligibilityKey) { _, _ in
@@ -374,7 +374,7 @@ struct WorkspaceDetailView: View {
         AltScreenNoticeButton {
             displaySettings.showAltScreenNotice = false
         }
-        .measureTrailingToolbarItem("altscreen-notice", into: $trailingToolbarItemGeometry)
+        .measureTrailingToolbarItem("altscreen-notice", into: $trailingToolbarItemWidths)
     }
 
     private var workspaceChangesToolbarContent: some View {
@@ -386,12 +386,19 @@ struct WorkspaceDetailView: View {
         // The chrome sits on the terminal theme's background, not the
         // system scheme; resolve the counts' green/red for that.
         .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
-        .measureTrailingToolbarItem("changes", into: $trailingToolbarItemGeometry)
+        .measureTrailingToolbarItem("changes", into: $trailingToolbarItemWidths)
     }
 
     private var trailingClusterToolbarContent: some View {
         toolbarTrailingCluster
-            .measureTrailingToolbarItem("trailing-cluster", into: $trailingToolbarItemGeometry)
+            // Only the always-structural cluster wires collapse detection: a
+            // conditional item's structural removal also detaches its probe
+            // and would be indistinguishable from a More-menu collapse.
+            .measureTrailingToolbarItem(
+                "trailing-cluster",
+                into: $trailingToolbarItemWidths,
+                onLeaveBar: { trailingToolbarCollapseDetected = true }
+            )
     }
 
     // Which trailing toolbar items are structurally in the bar right now.
@@ -403,37 +410,8 @@ struct WorkspaceDetailView: View {
         return keys
     }
 
-    /// The realized distance from the title label's leading edge to the
-    /// leading-most trailing item's content, only when the title and every
-    /// structural trailing item have reported geometry that is plausible for
-    /// the current pane width. A stale measurement from a wider layout puts
-    /// the trailing content past the pane's end and is rejected; a stale
-    /// narrower-layout value only under-sizes the title, which cannot
-    /// over-commit the bar. RTL returns nil (the global-x projection would
-    /// need mirroring), falling back to the estimate-based reserve.
-    private var measuredTitleToTrailingSpan: CGFloat? {
-        guard layoutDirection == .leftToRight,
-              contentWidth > 0,
-              let titleMinX = titleLabelLeadingEdge else { return nil }
-        let geometries = structuralTrailingItemKeys.compactMap { trailingToolbarItemGeometry[$0] }
-        guard geometries.count == structuralTrailingItemKeys.count else { return nil }
-        let edges = geometries.compactMap(\.globalMinX)
-        guard edges.count == geometries.count,
-              let trailingLeadingEdge = edges.min()
-        else { return nil }
-        let trailingContentTotal = geometries.map(\.width).reduce(0, +)
-        guard trailingLeadingEdge > titleMinX,
-              trailingLeadingEdge + trailingContentTotal <= contentWidth
-        else { return nil }
-        return trailingLeadingEdge - titleMinX
-    }
-
     private var workspaceTitleToolbarMenu: some View {
-        // An entry can exist with only its window edge reported; only a real
-        // rendered width counts toward the estimate reserve.
-        let measuredWidths = structuralTrailingItemKeys
-            .compactMap { trailingToolbarItemGeometry[$0]?.width }
-            .filter { $0 > 0 }
+        let measuredWidths = structuralTrailingItemKeys.compactMap { trailingToolbarItemWidths[$0] }
         let value = WorkspaceTitleMenuValue(
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
@@ -442,7 +420,7 @@ struct WorkspaceDetailView: View {
             measuredTrailingItemsWidth: measuredWidths.reduce(0, +),
             measuredTrailingItemCount: measuredWidths.count,
             trailingItemCount: structuralTrailingItemKeys.count,
-            measuredTitleToTrailingSpan: measuredTitleToTrailingSpan,
+            hadTrailingCollapse: trailingToolbarCollapseDetected,
             isEnabled: hasTitleMenuActions,
             workspaceName: workspace.name,
             hasUnread: workspace.hasUnread,
@@ -455,10 +433,6 @@ struct WorkspaceDetailView: View {
         )
         return WorkspaceTitleMenu(
             value: value,
-            onLabelLeadingEdgeChange: { minX in
-                guard titleLabelLeadingEdge != minX else { return }
-                titleLabelLeadingEdge = minX
-            },
             menuContent: {
                 WorkspaceTitleMenuContent(
                     workspaceName: value.workspaceName,

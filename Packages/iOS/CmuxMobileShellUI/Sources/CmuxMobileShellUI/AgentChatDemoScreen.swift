@@ -108,7 +108,7 @@ struct AgentChatDemoScreen: View {
                 measuredTrailingItemsWidth: 0,
                 measuredTrailingItemCount: 0,
                 trailingItemCount: 0,
-                measuredTitleToTrailingSpan: nil,
+                hadTrailingCollapse: false,
                 isEnabled: true,
                 workspaceName: inlineWorkspaceTitle ?? "",
                 hasUnread: false,

@@ -107,13 +107,22 @@ import Testing
         #expect(unmeasured.cap == cap(393))
     }
 
-    @Test func realizedSpanSizesTheTitleFromActualPositions() {
-        // Dogfood on a 402pt iPhone 17: the estimate-based reserve left a
-        // ~35pt dead gap before the trailing cluster while the title
-        // truncated. With both edges of that gap measured, the cap is the
-        // span minus only the pill/capsule chrome and a back-gap-sized
-        // minimum gap, so the freed space goes to the title.
-        let measured = MobileLeadingToolbarTitleWidth(
+    @Test func observedCollapseRatchetsTheTitleSmaller() {
+        // A trailing item's content left the bar while structurally present:
+        // the system folded it into the More menu, so the reserves undershot
+        // this device's chrome. The recovery reserve exceeds the 12pt trimmed
+        // from the estimates, so the recovered layout is strictly roomier
+        // than the original constants and the bar un-collapses.
+        let base = MobileLeadingToolbarTitleWidth(
+            contentWidth: 402,
+            hasBackButton: true,
+            hasTrailingCluster: true,
+            hasChatToggle: true,
+            measuredTrailingItemsWidth: 126,
+            measuredTrailingItemCount: 2,
+            trailingItemCount: 2
+        )
+        let recovered = MobileLeadingToolbarTitleWidth(
             contentWidth: 402,
             hasBackButton: true,
             hasTrailingCluster: true,
@@ -121,46 +130,12 @@ import Testing
             measuredTrailingItemsWidth: 126,
             measuredTrailingItemCount: 2,
             trailingItemCount: 2,
-            measuredTitleToTrailingSpan: 160
+            hadTrailingCollapse: true
         )
 
-        #expect(measured.cap == 160 - MobileLeadingToolbarTitleWidth.spanGapReserve)
-    }
-
-    @Test func realizedSpanNeverProducesANegativeCap() {
-        let cramped = MobileLeadingToolbarTitleWidth(
-            contentWidth: 402,
-            hasBackButton: true,
-            hasTrailingCluster: true,
-            hasChatToggle: true,
-            measuredTitleToTrailingSpan: 20
-        )
-
-        #expect(cramped.cap == 0)
-    }
-
-    @Test func missingSpanFallsBackToTheEstimateReserve() {
-        let withNilSpan = MobileLeadingToolbarTitleWidth(
-            contentWidth: 393,
-            hasBackButton: true,
-            hasTrailingCluster: true,
-            hasChatToggle: true,
-            measuredTrailingItemsWidth: 150,
-            measuredTrailingItemCount: 2,
-            trailingItemCount: 2,
-            measuredTitleToTrailingSpan: nil
-        )
-        let estimate = MobileLeadingToolbarTitleWidth(
-            contentWidth: 393,
-            hasBackButton: true,
-            hasTrailingCluster: true,
-            hasChatToggle: true,
-            measuredTrailingItemsWidth: 150,
-            measuredTrailingItemCount: 2,
-            trailingItemCount: 2
-        )
-
-        #expect(withNilSpan.cap == estimate.cap)
+        #expect(recovered.cap
+            == base.cap - MobileLeadingToolbarTitleWidth.collapseRecoveryReserve)
+        #expect(MobileLeadingToolbarTitleWidth.collapseRecoveryReserve > 12)
     }
 
     @Test func structuralItemWithoutMeasurementStillReservesSpace() {

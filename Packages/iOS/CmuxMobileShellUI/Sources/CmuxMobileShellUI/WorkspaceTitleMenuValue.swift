@@ -9,8 +9,8 @@ struct WorkspaceTitleMenuValue: Equatable {
     let measuredTrailingItemsWidth: CGFloat
     let measuredTrailingItemCount: Int
     let trailingItemCount: Int
-    /// Realized title-to-trailing span; see `MobileLeadingToolbarTitleWidth`.
-    let measuredTitleToTrailingSpan: CGFloat?
+    /// Collapse-recovery ratchet; see `MobileLeadingToolbarTitleWidth`.
+    let hadTrailingCollapse: Bool
     let isEnabled: Bool
     let workspaceName: String
     let hasUnread: Bool

@@ -2,11 +2,6 @@ import SwiftUI
 
 struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View, Equatable {
     let value: WorkspaceTitleMenuValue
-    /// Reports the fitted label's leading edge in window space (nil when the
-    /// label leaves the bar) so the host can derive the realized
-    /// title-to-trailing span. Not part of equality: geometry callbacks
-    /// re-fire on layout changes regardless.
-    var onLabelLeadingEdgeChange: ((CGFloat?) -> Void)? = nil
     @ViewBuilder let menuContent: () -> MenuContent
     @ViewBuilder let label: () -> Label
 
@@ -42,7 +37,7 @@ struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View, Equatable {
             measuredTrailingItemsWidth: value.measuredTrailingItemsWidth,
             measuredTrailingItemCount: value.measuredTrailingItemCount,
             trailingItemCount: value.trailingItemCount,
-            measuredTitleToTrailingSpan: value.measuredTitleToTrailingSpan
+            hadTrailingCollapse: value.hadTrailingCollapse
         ).cap
 
         return label()
@@ -51,10 +46,5 @@ struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View, Equatable {
                 maxWidth: cap,
                 alignment: .leading
             )
-            // The frame is leading-aligned, so its leading edge does not move
-            // as the cap grows; reporting it cannot feed back into the cap.
-            .measureToolbarTitleFrame { frame in
-                onLabelLeadingEdgeChange?(frame?.minX)
-            }
     }
 }
