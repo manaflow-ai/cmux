@@ -518,13 +518,14 @@ fn peer_slot(shared: &ProxyShared, role: PeerRole) -> &Mutex<Option<Peer>> {
 }
 
 fn send_to_slot(shared: &ProxyShared, role: PeerRole, text: String) {
-    if let Ok(slot) = peer_slot(shared, role).lock()
+    if let Ok(mut slot) = peer_slot(shared, role).lock()
         && let Some(peer) = slot.as_ref()
     {
-        // A stalled browser must not turn proxy forwarding into an unbounded
-        // allocation. Dropping a frame is safe because the peer can reload
-        // and re-establish the DevTools/page state.
-        let _ = peer.tx.try_send(tungstenite::Message::text(text));
+        if peer.tx.try_send(tungstenite::Message::text(text)).is_err() {
+            // Do not silently drop CDP frames. A saturated peer is no longer
+            // coherent, so remove it and let the writer observe disconnect.
+            slot.take();
+        }
     }
 }
 
@@ -555,7 +556,9 @@ async fn run_peer<S>(
         // frontend connects; responses to these ids are swallowed.
         for method in ["Runtime.enable", "Network.enable", "Page.enable"] {
             let id = shared.next_cdp_id.fetch_add(1, Ordering::Relaxed);
-            let _ = tx.try_send(Message::text(format!("{{\"id\":{id},\"method\":\"{method}\"}}")));
+            if tx.try_send(Message::text(format!("{{\"id\":{id},\"method\":\"{method}\"}}"))).is_err() {
+                return;
+            }
         }
     }
     let writer = tokio::spawn(async move {
@@ -582,7 +585,9 @@ async fn run_peer<S>(
                 }
             }
             Message::Ping(payload) => {
-                let _ = tx.try_send(Message::Pong(payload));
+                if tx.try_send(Message::Pong(payload)).is_err() {
+                    break;
+                }
             }
             Message::Close(_) => break,
             _ => {}
