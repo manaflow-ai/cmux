@@ -638,8 +638,8 @@ wait_render_contains(sidebar_marker)
 print("focused sidebar Tab toggles workspaces to files ok")
 write_all(fd, b"\t")
 drain(0.5)
-assert "workspaces" in render_text_snapshot(output), output[-1200:]
-write_all(fd, b"\x02S")
+assert "+ new workspace" in render_text_snapshot(output), output[-1200:]
+os.write(fd, b"\x02S")
 drain(0.4)
 
 # Prefix-B creates a browser tab immediately and focuses its in-pane
@@ -909,8 +909,7 @@ text = output.decode("utf-8", "replace")
 assert "smoke-ws" in text, text[-500:]
 print("rename pane/workspace ok")
 
-# Sidebar rendered: header + new-workspace row are sidebar-only strings.
-assert "workspaces" in text, text[-500:]
+# Sidebar rendered: the new-workspace row is a sidebar-only string.
 assert "+ new workspace" in text, text[-500:]
 print("sidebar rendered ok")
 

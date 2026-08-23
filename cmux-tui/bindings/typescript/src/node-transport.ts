@@ -119,6 +119,14 @@ export function validateUnixSocketPath(socketPath: string): void {
   }
 }
 
+/** Compatibility validator used by the high-level and raw Node clients. */
+export function validateSocketPath(socketPath: string): void {
+  if (socketPath.length === 0) {
+    throw new TypeError("socketPath must be a non-empty path");
+  }
+  validateUnixSocketPath(socketPath);
+}
+
 export interface UnixSocketTransportOptions {
   /** Additional paths to try after ENOENT/ECONNREFUSED during initial connect. */
   fallbackSocketPaths?: readonly string[];
