@@ -54,8 +54,6 @@ struct MobileSettingsView: View {
     @State private var caffeineStatusLoadFailed = false
     @State private var caffeineStatusRetryID = 0
     #if DEBUG
-    @State private var showingChatDemo = false
-    @State private var showingTerminalDemo = false
     @State private var showingToastGallery = false
     /// Seconds between tapping "Run Toast Demo" and the first toast, so you
     /// can navigate to any screen (terminal, chat) and watch it play there.
@@ -241,24 +239,6 @@ struct MobileSettingsView: View {
 
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
-                    Button {
-                        showingChatDemo = true
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.agentChatDemo", defaultValue: "Agent Chat Demo"),
-                            systemImage: "bubble.left.and.bubble.right"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsAgentChatDemo")
-                    Button {
-                        showingTerminalDemo = true
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.terminalLogDemo", defaultValue: "Terminal Log Demo"),
-                            systemImage: "terminal"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsTerminalLogDemo")
                     Button {
                         showingToastGallery = true
                     } label: {
@@ -484,12 +464,6 @@ struct MobileSettingsView: View {
                 TerminalShortcutsSettingsView()
             }
             #if DEBUG
-            .fullScreenCover(isPresented: $showingChatDemo) {
-                AgentChatDemoScreen()
-            }
-            .fullScreenCover(isPresented: $showingTerminalDemo) {
-                TerminalLogDemoScreen()
-            }
             .sheet(isPresented: $showingToastGallery) {
                 ToastGalleryView()
             }
