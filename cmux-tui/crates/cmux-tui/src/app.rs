@@ -6669,6 +6669,7 @@ pub struct App {
     machine_selection_intent: Option<MachineKey>,
     machine_selection_generation: u64,
     machine_presented: Option<MachineKey>,
+    machine_deleted_rail_index: Option<usize>,
     machine_provider_reconnect_attempts: u8,
     machine_provider_reconnect_retry_at: Option<Instant>,
     pending_machine_replacement: Option<PendingMachineReplacement>,
@@ -8886,6 +8887,7 @@ fn run_with_machine_updates_inner(
         machine_selection_intent,
         machine_selection_generation: 0,
         machine_presented,
+        machine_deleted_rail_index: None,
         machine_provider_reconnect_attempts: 0,
         machine_provider_reconnect_retry_at: None,
         pending_machine_replacement: None,
@@ -10984,6 +10986,13 @@ impl App {
         let presented_deleted =
             self.machine_presented.is_some_and(|presented| !machine_usable(&update, presented));
         if presented_deleted {
+            if self.machine_deleted_rail_index.is_none()
+                && let Some(presented) = self.machine_presented
+            {
+                self.machine_deleted_rail_index = self.machine_ui.as_ref().and_then(|previous| {
+                    previous.snapshot.machines.iter().position(|machine| machine.key == presented)
+                });
+            }
             update.session_available = false;
         }
         // Switch to the next available machine instead of leaving the dead
@@ -11008,17 +11017,24 @@ impl App {
             })
         {
             let previous_index = self
-                .machine_ui
-                .as_ref()
-                .and_then(|previous| {
-                    previous.snapshot.machines.iter().position(|machine| machine.key == presented)
-                })
+                .machine_deleted_rail_index
                 .or_else(|| {
-                    // A deferred failover can outlive the machine's last
-                    // appearance in the previous snapshot: fall back to its
-                    // slot in the current catalog (soft delete keeps the
-                    // Recoverable row there), else to the front.
-                    update.snapshot.machines.iter().position(|machine| machine.key == presented)
+                    self.machine_ui
+                        .as_ref()
+                        .and_then(|previous| {
+                            previous
+                                .snapshot
+                                .machines
+                                .iter()
+                                .position(|machine| machine.key == presented)
+                        })
+                        .or_else(|| {
+                            update
+                                .snapshot
+                                .machines
+                                .iter()
+                                .position(|machine| machine.key == presented)
+                        })
                 })
                 .unwrap_or(0);
             let next_key = update
@@ -11047,6 +11063,7 @@ impl App {
                     );
                     update.request = Some(MachineRequest::Switch(next_key));
                     failover_rail_target = Some(next_key);
+                    self.machine_deleted_rail_index = None;
                     // The presented session belongs to a deleted machine:
                     // gate input away from it while the failover switch runs
                     // (a failed switch leaves the rail on the replacement,
@@ -16938,7 +16955,9 @@ impl App {
                 return KeyboardIngress::Handled(RenderAction::Draw);
             };
             let was_sidebar_focused = self.workspace_sidebar_focused();
-            if !(was_sidebar_focused && action == Action::SendPrefix) {
+            let keep_machine_rail_focus =
+                self.machine_sidebar_focused() && action == Action::ProviderMenu;
+            if !(was_sidebar_focused && action == Action::SendPrefix) && !keep_machine_rail_focus {
                 self.focus = FocusTarget::Pane;
             }
             if was_sidebar_focused && action == Action::FocusSidebar {
