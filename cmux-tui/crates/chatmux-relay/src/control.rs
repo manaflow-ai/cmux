@@ -272,10 +272,8 @@ mod unix {
                     self.shared.pending.lock().expect("control pending lock").remove(&id);
                     return None;
                 }
-                let write_ok = matches!(
-                    tokio::time::timeout_at(deadline, write_result).await,
-                    Ok(Ok(true))
-                );
+                let write_ok =
+                    matches!(tokio::time::timeout_at(deadline, write_result).await, Ok(Ok(true)));
                 if !write_ok {
                     self.shared.pending.lock().expect("control pending lock").remove(&id);
                     return None;
