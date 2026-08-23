@@ -5095,6 +5095,13 @@ impl ShortcutHelp {
             .filter(|(definition, _)| action_available_in_mode(definition.action, surface_only))
             .map(|(definition, shortcuts)| (definition.action, shortcuts.join(", ")))
             .collect();
+        // The default provider-menu chord is contextual to the machine rail,
+        // so it is not part of the generic resolved shortcut map.
+        if !config.keys.provider_menu_overridden
+            && action_available_in_mode(Action::ProviderMenu, surface_only)
+        {
+            rows.push((Action::ProviderMenu, "m".to_string()));
+        }
         for index in 0..config.commands.len() {
             let Some(action) = Action::user_command(index) else { break };
             if !action_available_in_mode(action, surface_only) {
