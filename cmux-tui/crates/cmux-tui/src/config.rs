@@ -1621,6 +1621,7 @@ pub enum Action {
     ToggleSidebarCompact,
     ToggleSidebarView,
     FocusSidebar,
+    ProviderMenu,
     NewPaneRight,
     UndoLayout,
     FocusLeft,
@@ -1677,6 +1678,8 @@ pub(crate) enum ActionExecution {
     ToggleSidebarCompact,
     ToggleSidebarView,
     FocusSidebar,
+    ProviderMenu,
+    ProviderMenu,
     NewPaneRight,
     UndoLayout,
     FocusLeft,
@@ -1901,6 +1904,7 @@ define_named_action_definitions! {
     TOGGLE_SIDEBAR_COMPACT_DEFINITION => (Action::ToggleSidebarCompact, "toggle-sidebar-compact", "Compact or expand sidebar", "サイドバーの幅を切り替え");
     TOGGLE_SIDEBAR_VIEW_DEFINITION => (Action::ToggleSidebarView, "toggle-sidebar-view", "Switch sidebar view", "サイドバー表示を切り替え");
     FOCUS_SIDEBAR_DEFINITION => (Action::FocusSidebar, "focus-sidebar", "Focus sidebar", "サイドバーにフォーカス");
+    PROVIDER_MENU_DEFINITION => (Action::ProviderMenu, "provider-menu", "Machine provider menu", "マシンプロバイダーメニュー");
     NEW_PANE_RIGHT_DEFINITION => (Action::NewPaneRight, "new-pane-right", "New column to the right", "右に新しい列");
     UNDO_LAYOUT_DEFINITION => (Action::UndoLayout, "undo-layout", "Undo layout", "レイアウトを元に戻す");
     FOCUS_LEFT_DEFINITION => (Action::FocusLeft, "focus-left", "Focus left", "左へフォーカス");
@@ -2053,7 +2057,7 @@ static SELECT_SCREEN_DEFINITIONS: [ActionDefinition; 10] = [
 /// The canonical action catalog. Presentation surfaces derive their labels
 /// and ordering from these named definitions instead of positional offsets.
 pub fn action_definitions() -> &'static [&'static ActionDefinition] {
-    static DEFINITIONS: [&ActionDefinition; 66] = [
+    static DEFINITIONS: [&ActionDefinition; 67] = [
         &SEND_PREFIX_DEFINITION,
         &NEW_TAB_DEFINITION,
         &NEW_BROWSER_TAB_DEFINITION,
@@ -2099,6 +2103,7 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
         &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
         &TOGGLE_SIDEBAR_VIEW_DEFINITION,
         &FOCUS_SIDEBAR_DEFINITION,
+        &PROVIDER_MENU_DEFINITION,
         &NEW_PANE_RIGHT_DEFINITION,
         &UNDO_LAYOUT_DEFINITION,
         &FOCUS_LEFT_DEFINITION,
@@ -2310,6 +2315,12 @@ impl Action {
                 "frontend action adapter",
                 ActionExecution::FocusSidebar,
             ),
+            Action::ProviderMenu => ActionMetadata::new(
+                "provider-menu",
+                ActionClassification::PresentationOnly,
+                "frontend machine provider menu",
+                ActionExecution::ProviderMenu,
+            ),
             Action::NewPaneRight => ActionMetadata::new(
                 "new-pane-right",
                 ActionClassification::Direct,
@@ -2476,6 +2487,7 @@ impl Action {
             Action::ToggleSidebarCompact => &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
             Action::ToggleSidebarView => &TOGGLE_SIDEBAR_VIEW_DEFINITION,
             Action::FocusSidebar => &FOCUS_SIDEBAR_DEFINITION,
+            Action::ProviderMenu => &PROVIDER_MENU_DEFINITION,
             Action::NewPaneRight => &NEW_PANE_RIGHT_DEFINITION,
             Action::UndoLayout => &UNDO_LAYOUT_DEFINITION,
             Action::FocusLeft => &FOCUS_LEFT_DEFINITION,
@@ -2689,7 +2701,7 @@ impl Default for Keys {
                 bind(KeyCode::Char('W'), Action::NewWorkspace),
                 bind(KeyCode::Char('D'), Action::CloseWorkspace),
                 bind(KeyCode::Char('s'), Action::ToggleSidebar),
-                bind(KeyCode::Char('m'), Action::ToggleSidebarCompact),
+                bind(KeyCode::Char('m'), Action::ProviderMenu),
                 bind(KeyCode::Char('e'), Action::ToggleSidebarView),
                 bind(KeyCode::Char('S'), Action::FocusSidebar),
                 bind(KeyCode::Char('g'), Action::NewPaneRight),

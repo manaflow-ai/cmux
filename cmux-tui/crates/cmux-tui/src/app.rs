@@ -17118,7 +17118,7 @@ impl App {
                     machine.select_rail_target(target);
                 }
                 None
-            } else if key.code == KeyCode::Char('m') && key.modifiers.is_empty() {
+            } else if self.config.keys.action_for(key) == Some(Action::ProviderMenu) {
                 // Keyboard twin of right-clicking "+ new vm" or the rail
                 // pad: provider scope switching and provider actions. Plain
                 // `m` only: Alt/Ctrl-m keep their normal routing (Ctrl-m is
@@ -18449,6 +18449,9 @@ impl App {
             }
             Action::ToggleSidebarView => self.toggle_sidebar_view(),
             Action::FocusSidebar => self.toggle_sidebar_focus(),
+            Action::ProviderMenu => {
+                self.open_provider_rail_menu(1, 2);
+            }
             Action::NewPaneRight => self.new_pane_right(pane, fallback_pane, semantic_intent)?,
             Action::UndoLayout => {
                 if let Some(pane) = pane {
@@ -22843,6 +22846,7 @@ fn action_is_frontend_local(action: Action) -> bool {
             | Action::ToggleSidebarCompact
             | Action::ToggleSidebarView
             | Action::FocusSidebar
+            | Action::ProviderMenu
             | Action::FocusLeft
             | Action::FocusRight
             | Action::FocusUp
