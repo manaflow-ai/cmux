@@ -90,6 +90,23 @@ struct FilePreviewCodeViewTests {
                 tabWidth: 4
             ) == 8
         )
+        // A tab jumps to the next stop, not +tabWidth from the current column.
+        let mixed = " \thello" as NSString
+        #expect(
+            FilePreviewEditorChromeOverlay.leadingIndentColumns(
+                in: mixed,
+                lineStart: 0,
+                tabWidth: 4
+            ) == 4
+        )
+        let threeSpacesThenTab = "   \thello" as NSString
+        #expect(
+            FilePreviewEditorChromeOverlay.leadingIndentColumns(
+                in: threeSpacesThenTab,
+                lineStart: 0,
+                tabWidth: 4
+            ) == 4
+        )
     }
 
     @Test("Gutter fill matches the editor background")
@@ -174,6 +191,62 @@ struct FilePreviewCodeViewTests {
         }
     }
 
+    @Test("Zooming the preview font requests a forced restyle")
+    func zoomingPreviewFontRequestsForcedRestyle() {
+        let textView = SavingTextView.makeFilePreviewTextView()
+        var requested = false
+        textView.onPreviewFontDidChange = { requested = true }
+        #expect(textView.zoomPreviewFontIn())
+        #expect(requested)
+    }
+
+    @Test("Forced restyle after a font blast keeps token colors")
+    func forcedRestyleAfterFontBlastKeepsTokenColors() async {
+        let textView = SavingTextView.makeFilePreviewTextView()
+        let styler = FilePreviewSyntaxStyler()
+        let source = """
+        {"ok": true}
+        """
+        textView.string = source
+        styler.schedule(
+            for: textView,
+            filePath: "/tmp/example.json",
+            enabled: true,
+            defaultColor: .textColor,
+            theme: .dark,
+            force: true
+        )
+        await waitForTokenColors(in: textView)
+
+        let flattened = GlobalFontMagnification.monospacedSystemFont(ofSize: 18, weight: .regular)
+        if let storage = textView.textStorage, storage.length > 0 {
+            storage.addAttribute(
+                .font,
+                value: flattened,
+                range: NSRange(location: 0, length: storage.length)
+            )
+        }
+        styler.schedule(
+            for: textView,
+            filePath: "/tmp/example.json",
+            enabled: true,
+            defaultColor: .textColor,
+            theme: .dark,
+            force: true
+        )
+        await waitForTokenColors(in: textView)
+        let ns = textView.string as NSString
+        let trueRange = ns.range(of: "true")
+        #expect(trueRange.location != NSNotFound)
+        if let color = textView.textStorage?.attribute(
+            .foregroundColor,
+            at: trueRange.location,
+            effectiveRange: nil
+        ) {
+            #expect(HighlightColorRemapper.hexKey(from: color) == "0091FF")
+        }
+    }
+
     @Test("Unknown and oversized buffers stay uncolored")
     func unknownAndOversizedStayPlain() async {
         let engine = HighlightrSyntaxEngine()
@@ -191,6 +264,14 @@ struct FilePreviewCodeViewTests {
             theme: .light
         )
         #expect(oversized == nil)
+    }
+
+    private func waitForTokenColors(in textView: NSTextView) async {
+        for _ in 0..<80 {
+            if distinctForegroundColors(in: textView).count >= 2 { return }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(distinctForegroundColors(in: textView).count >= 2)
     }
 
     private func distinctForegroundColors(in textView: NSTextView) -> Set<String> {

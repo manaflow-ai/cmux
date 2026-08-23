@@ -57,6 +57,10 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         let textView = SavingTextView.makeFilePreviewTextView()
         textView.panel = panel
         textView.delegate = context.coordinator
+        textView.onPreviewFontDidChange = { [weak coordinator = context.coordinator, weak textView] in
+            guard let textView else { return }
+            coordinator?.handlePreviewFontChange(in: textView)
+        }
         textView.drawsBackground = drawsBackground
         textView.string = panel.textContent
         panel.attachTextView(textView)
@@ -258,6 +262,21 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             FilePreviewEditorChromeOverlay.installed(in: textView)?.needsDisplay = true
         }
 
+        func handlePreviewFontChange(in textView: NSTextView) {
+            scheduleHighlight(
+                for: textView,
+                enabled: FilePreviewEditorSettings.isEnabled(
+                    key: FilePreviewEditorSettings.syntaxHighlightingKey,
+                    default: FilePreviewEditorSettings.syntaxHighlightingDefault
+                ),
+                defaultColor: textView.insertionPointColor,
+                force: true
+            )
+            if let scrollView = textView.enclosingScrollView {
+                FilePreviewTextEditor<PanelModel>.refreshChrome(on: scrollView, textView: textView)
+            }
+        }
+
         func scheduleHighlight(
             for textView: NSTextView,
             enabled: Bool,
@@ -386,6 +405,11 @@ final class SavingTextView: NSTextView {
     ]
 
     weak var panel: (any FilePreviewTextEditingPanel)?
+    /// Fired after the preview font size changes so highlighting can
+    /// re-apply token weights at the new size. Zoom writes a uniform
+    /// `.font` across storage; without a forced restyle, keywords stay
+    /// regular weight until the text or theme changes.
+    var onPreviewFontDidChange: (() -> Void)?
     private var previewFontSize: CGFloat = 13
     private var pendingEditorShortcutChordPrefix: ShortcutStroke?
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
@@ -497,6 +521,7 @@ final class SavingTextView: NSTextView {
             storage.addAttribute(.font, value: nextFont, range: NSRange(location: 0, length: storage.length))
         }
         FilePreviewEditorChromeOverlay.installed(in: self)?.needsDisplay = true
+        onPreviewFontDidChange?()
     }
 
     private func clearPendingShortcutChordPrefixes() {

@@ -135,7 +135,7 @@ final class FilePreviewEditorChromeOverlay: NSView {
             if character == 32 {
                 columns += 1
             } else if character == 9 {
-                columns += tab
+                columns = ((columns / tab) + 1) * tab
             } else {
                 break
             }
