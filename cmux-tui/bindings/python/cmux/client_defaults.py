@@ -11,13 +11,17 @@ def _unix_socket_path_fits(path: str) -> bool:
     return len(os.fsencode(path)) < capacity
 
 
-def _hashed_session_socket_path(session: str) -> str:
-    digest = hashlib.sha256(session.encode("utf-8")).hexdigest()
-    return os.path.join(
-        "/tmp",
-        f"cmux-tui-hashed-{os.getuid()}",
-        f"{digest}.sock",
+def _runtime_base() -> str:
+    return (
+        os.environ.get("XDG_RUNTIME_DIR")
+        or os.environ.get("TMPDIR")
+        or "/tmp"
     )
+
+
+def _hashed_session_socket_path(session: str, base: str) -> str:
+    digest = hashlib.sha256(session.encode("utf-8")).hexdigest()
+    return os.path.join(base, f"cmux-tui-hashed-{os.getuid()}", f"{digest}.sock")
 
 
 def validate_session_name(session: str) -> None:
@@ -44,9 +48,7 @@ def validate_session_name(session: str) -> None:
 def default_socket_path(session: str = "main") -> str:
     """Return the default socket path after validating the session name."""
     validate_session_name(session)
-    runtime = os.environ.get("XDG_RUNTIME_DIR")
-    if not runtime:
-        runtime = os.environ.get("TMPDIR") or "/tmp"
+    runtime = _runtime_base()
     file_name = f"{session}.sock"
     preferred = os.path.join(runtime, f"cmux-tui-{os.getuid()}", file_name)
     if _unix_socket_path_fits(preferred):
@@ -54,11 +56,17 @@ def default_socket_path(session: str = "main") -> str:
     fallback = os.path.join("/tmp", f"cmux-tui-{os.getuid()}", file_name)
     if _unix_socket_path_fits(fallback):
         return fallback
-    return _hashed_session_socket_path(session)
+    hashed = _hashed_session_socket_path(session, runtime)
+    if _unix_socket_path_fits(hashed):
+        return hashed
+    hashed = _hashed_session_socket_path(session, "/tmp")
+    if not _unix_socket_path_fits(hashed):
+        raise ValueError("derived Unix socket path is too long")
+    return hashed
 
 
 def env_socket_path() -> Optional[str]:
-    return os.environ.get("CMUX_TUI_SOCKET") or os.environ.get("CMUX_MUX_SOCKET")
+    return os.environ.get("CMUX_TUI_SOCKET") or os.environ.get("CMUX_MUX_SOCKET") or None
 
 
 __all__ = ["default_socket_path", "env_socket_path", "validate_session_name"]

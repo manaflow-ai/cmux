@@ -730,6 +730,13 @@ fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> Pa
             return fallback;
         }
         let digest = Sha256::digest(session.as_bytes());
+        let preferred_base = runtime_dir.parent().unwrap_or_else(|| Path::new("/tmp"));
+        let hashed = preferred_base
+            .join(format!("cmux-tui-hashed-{}", current_uid_component()))
+            .join(format!("{digest:x}.sock"));
+        if unix_socket_path_fits(&hashed) {
+            return hashed;
+        }
         let hashed = PathBuf::from("/tmp")
             .join(format!("cmux-tui-hashed-{}", current_uid_component()))
             .join(format!("{digest:x}.sock"));
@@ -934,6 +941,26 @@ mod tests {
             .unwrap_or_else(|error| panic!("failed to bind {bind_path:?}: {error}"));
         drop(listener);
         std::fs::remove_file(bind_path).unwrap();
+    }
+
+    #[test]
+    fn long_session_hash_prefers_runtime_base_and_falls_back_to_tmp() {
+        let session = format!("legacy-{}", "x".repeat(200));
+        let preferred_runtime = PathBuf::from("/run/user/501/cmux-tui-501");
+        let preferred = default_socket_path_in_runtime_dir(&session, preferred_runtime);
+        assert!(
+            preferred
+                .to_string_lossy()
+                .starts_with("/run/user/501/cmux-tui-hashed-")
+        );
+
+        let long_runtime = PathBuf::from("/tmp").join("x".repeat(200)).join("cmux-tui-501");
+        let fallback = default_socket_path_in_runtime_dir(&session, long_runtime);
+        assert!(
+            fallback
+                .to_string_lossy()
+                .starts_with("/tmp/cmux-tui-hashed-")
+        );
     }
 
     #[test]

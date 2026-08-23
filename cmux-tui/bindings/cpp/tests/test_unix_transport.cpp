@@ -223,7 +223,7 @@ TEST("long session socket path uses a bindable digest fallback") {
     }
     const auto& path = result.value();
     const auto expected =
-        std::string("/tmp/cmux-tui-hashed-") +
+        std::string("/run/user/501/cmux-tui-hashed-") +
         std::to_string(static_cast<unsigned long>(::getuid())) +
         "/e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2.sock";
     CHECK_EQ(path, expected);
@@ -266,6 +266,27 @@ TEST("long session socket path uses a bindable digest fallback") {
     std::filesystem::remove(bind_path, ignored);
 }
 
+TEST("hashed session socket path falls back to slash tmp when runtime base is too long") {
+    std::lock_guard lock(environment_mutex);
+    ScopedEnvironment environment({"XDG_RUNTIME_DIR", "TMPDIR"});
+    environment.set(
+        "XDG_RUNTIME_DIR",
+        "/tmp/" + std::string(sizeof(sockaddr_un{}.sun_path), 'x'));
+    environment.unset("TMPDIR");
+
+    const auto session = std::string("legacy-") + std::string(200, 'x');
+    auto result = cmux::try_default_socket_path(session);
+    CHECK(result);
+    if (!result) {
+        return;
+    }
+    CHECK(result.value().starts_with(
+        "/tmp/cmux-tui-hashed-" +
+        std::to_string(static_cast<unsigned long>(::getuid())) + "/"));
+    CHECK(result.value().ends_with(".sock"));
+    CHECK(result.value().size() < sizeof(sockaddr_un{}.sun_path));
+}
+
 TEST("very long session length uses a bounded digest fallback") {
     std::lock_guard lock(environment_mutex);
     ScopedEnvironment environment({"XDG_RUNTIME_DIR", "TMPDIR"});
@@ -279,7 +300,7 @@ TEST("very long session length uses a bounded digest fallback") {
         return;
     }
     CHECK(result.value().starts_with(
-        "/tmp/cmux-tui-hashed-" +
+        "/run/user/501/cmux-tui-hashed-" +
         std::to_string(static_cast<unsigned long>(::getuid())) + "/"));
     CHECK(result.value().ends_with(".sock"));
     CHECK(result.value().size() < sizeof(sockaddr_un{}.sun_path));
@@ -311,7 +332,7 @@ TEST("non-ASCII long session uses shared UTF-8 SHA-256 digest") {
         return;
     }
     const auto expected =
-        std::string("/tmp/cmux-tui-hashed-") +
+        std::string("/run/user/501/cmux-tui-hashed-") +
         std::to_string(static_cast<unsigned long>(::getuid())) +
         "/0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3.sock";
     CHECK_EQ(result.value(), expected);

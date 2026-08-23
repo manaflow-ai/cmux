@@ -33,6 +33,36 @@ const RESOURCE_SESSION = sessionId(`session_${"a".repeat(32)}`);
 const RESOURCE_WORKSPACE = workspaceId(`ws_${"b".repeat(32)}`);
 const RESOURCE_TERMINAL = terminalId(`term_${"c".repeat(32)}`);
 
+function withSocketRuntime<T>(run: () => T): T {
+  const previousXdg = process.env.XDG_RUNTIME_DIR;
+  const previousTmp = process.env.TMPDIR;
+  process.env.XDG_RUNTIME_DIR = "/run/user/501";
+  delete process.env.TMPDIR;
+  try {
+    return run();
+  } finally {
+    if (previousXdg === undefined) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = previousXdg;
+    if (previousTmp === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previousTmp;
+  }
+}
+
+async function withSocketRuntimeAsync<T>(run: () => Promise<T>): Promise<T> {
+  const previousXdg = process.env.XDG_RUNTIME_DIR;
+  const previousTmp = process.env.TMPDIR;
+  process.env.XDG_RUNTIME_DIR = "/run/user/501";
+  delete process.env.TMPDIR;
+  try {
+    return await run();
+  } finally {
+    if (previousXdg === undefined) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = previousXdg;
+    if (previousTmp === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previousTmp;
+  }
+}
+
 test("session socket helpers enforce the relaxed safe-name contract", () => {
   for (const session of [
     "",
@@ -71,49 +101,74 @@ test("session socket helpers enforce the relaxed safe-name contract", () => {
 });
 
 test("long session socket paths use a bindable digest fallback", async () => {
-  const session = `legacy-${"x".repeat(200)}`;
-  const digest = "e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2";
-  const socketPath = defaultSocketPath(session);
-  assert.equal(
-    socketPath,
-    join(
-      "/tmp",
-      `cmux-tui-hashed-${process.getuid?.() ?? 0}`,
-      `${digest}.sock`,
-    ),
-  );
-  const capacity = process.platform === "darwin" ? 104 : 108;
-  assert.ok(Buffer.byteLength(socketPath) < capacity);
+  await withSocketRuntimeAsync(async () => {
+    const session = `legacy-${"x".repeat(200)}`;
+    const digest = "e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2";
+    const socketPath = defaultSocketPath(session);
+    assert.equal(
+      socketPath,
+      join(
+        "/run/user/501",
+        `cmux-tui-hashed-${process.getuid?.() ?? 0}`,
+        `${digest}.sock`,
+      ),
+    );
+    const capacity = process.platform === "darwin" ? 104 : 108;
+    assert.ok(Buffer.byteLength(socketPath) < capacity);
 
-  const directory = await mkdtemp(join(tmpdir(), "c-"));
-  const leafLength = Buffer.byteLength(socketPath) - Buffer.byteLength(directory) - 1;
-  assert.ok(leafLength >= 5);
-  const bindPath = join(directory, `${"x".repeat(leafLength - 5)}.sock`);
-  assert.equal(Buffer.byteLength(bindPath), Buffer.byteLength(socketPath));
-  const server = createServer();
-  try {
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(bindPath, resolve);
-    });
-  } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    await rm(directory, { recursive: true, force: true });
-  }
+    const directory = await mkdtemp(join(tmpdir(), "c-"));
+    const leafLength = Buffer.byteLength(socketPath) - Buffer.byteLength(directory) - 1;
+    assert.ok(leafLength >= 5);
+    const bindPath = join(directory, `${"x".repeat(leafLength - 5)}.sock`);
+    assert.equal(Buffer.byteLength(bindPath), Buffer.byteLength(socketPath));
+    const server = createServer();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(bindPath, resolve);
+      });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 });
 
 test("non-ASCII long session paths use the shared UTF-8 SHA-256 digest", () => {
-  const session = "\u540D\u524D".repeat(100);
-  const digest = "0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3";
-  const socketPath = defaultSocketPath(session);
-  assert.equal(
-    socketPath,
-    join(
-      "/tmp",
-      `cmux-tui-hashed-${process.getuid?.() ?? 0}`,
-      `${digest}.sock`,
-    ),
-  );
+  withSocketRuntime(() => {
+    const session = "\u540D\u524D".repeat(100);
+    const digest = "0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3";
+    const socketPath = defaultSocketPath(session);
+    assert.equal(
+      socketPath,
+      join(
+        "/run/user/501",
+        `cmux-tui-hashed-${process.getuid?.() ?? 0}`,
+        `${digest}.sock`,
+      ),
+    );
+  });
+});
+
+test("hashed session paths fall back to /tmp when the runtime base is too long", () => {
+  const previousXdg = process.env.XDG_RUNTIME_DIR;
+  const previousTmp = process.env.TMPDIR;
+  process.env.XDG_RUNTIME_DIR = join("/tmp", "x".repeat(200));
+  delete process.env.TMPDIR;
+  try {
+    const session = `legacy-${"x".repeat(200)}`;
+    const socketPath = defaultSocketPath(session);
+    assert.ok(
+      socketPath.startsWith(
+        join("/tmp", `cmux-tui-hashed-${process.getuid?.() ?? 0}`) + "/",
+      ),
+    );
+  } finally {
+    if (previousXdg === undefined) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = previousXdg;
+    if (previousTmp === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previousTmp;
+  }
 });
 
 interface DelayedUnixFixture {

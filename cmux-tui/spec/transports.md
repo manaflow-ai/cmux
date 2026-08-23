@@ -31,13 +31,17 @@ $TMPDIR
 
 It appends `cmux-tui-<uid>/<session>.sock`. When that path exceeds the
 platform Unix-socket limit, the server first uses the same leaf below `/tmp`.
-If the session leaf itself is still too long, the server and every SDK use
-`/tmp/cmux-tui-hashed-<uid>/<sha256>.sock`, where `sha256` is the full
+If the session leaf itself is still too long, the server and every SDK first
+use `<runtime-base>/cmux-tui-hashed-<uid>/<sha256>.sock` when that path fits,
+then use `/tmp/cmux-tui-hashed-<uid>/<sha256>.sock` only when the preferred
+runtime base is also too long. Here `<runtime-base>` is the first non-empty
+value of `XDG_RUNTIME_DIR`, `TMPDIR`, or `/tmp`, and `sha256` is the full
 lowercase SHA-256 digest of the session's UTF-8 bytes. The separate directory
 prevents a digest leaf from aliasing an ordinary session name. The TUI exports
 the resolved path to child surfaces as `CMUX_TUI_SOCKET` and legacy
 `CMUX_MUX_SOCKET`. SDKs must prefer an explicit socket or `CMUX_TUI_SOCKET`,
-then implement the same resolution algorithm.
+then implement the same byte-length and path-resolution algorithm. Empty
+socket environment values are treated as unset.
 
 The server validates session text before joining it into the path. A name must
 be a non-empty single path component. `.`, `..`, `/`, `\\`, NUL, control
@@ -119,7 +123,17 @@ The v5 socket security model is filesystem permissions:
 | Runtime directory | `0700` |
 | Socket file | `0600` |
 
-When binding, the server creates the runtime directory if needed, refuses to clobber a live socket, removes a stale socket, binds the listener, and then sets socket permissions. On clean shutdown, it removes the socket file.
+Before binding, the server creates the final socket parent if needed, rejects a
+symlink or non-directory, verifies ownership by the effective user, and
+tightens group/other permissions. It then refuses to clobber a live socket,
+removes a stale socket, binds the listener, and sets socket permissions. On
+clean shutdown, it removes the socket file. These checks cover the final
+parent; because `create_dir_all` can follow intermediate links, a future
+component-by-component `openat`/`O_NOFOLLOW` walk is needed if an untrusted
+process can replace an intermediate parent during creation.
+The relay's ensure-daemon path performs the same final-parent ownership/mode
+validation after `create_dir_all` and has the same intermediate-parent
+limitation.
 
 Access to the Unix socket is equivalent to access to the mux session. A client can type into PTYs, read screens, close surfaces, and change focus. Hosts must keep the runtime directory private.
 
