@@ -1524,9 +1524,9 @@ struct BrowserPanelView: View {
         return ZStack {
             CmuxSystemSymbolImage(systemName: "ellipsis", pointSize: devToolsButtonIconSize, weight: .medium)
                 .foregroundStyle(devToolsColorOption.color)
-                .rotationEffect(.degrees(90))
         }
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .rotationEffect(.degrees(90))
         .accessibilityHidden(true)
     }
 
