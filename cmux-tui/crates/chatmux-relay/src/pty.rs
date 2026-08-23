@@ -161,7 +161,9 @@ fn parse_allowed_roots(frame: &Value) -> Result<Option<Vec<String>>, &'static st
         return Ok(None);
     }
     let roots = value.as_array().ok_or("allowedRoots must be an array")?;
-    if roots.len() > MAX_ALLOWED_ROOTS || roots.iter().any(|root| !root.is_string()) {
+    if roots.len() > MAX_ALLOWED_ROOTS
+        || roots.iter().any(|root| !root.is_string() || root.as_str() == Some(""))
+    {
         return Err("invalid allowedRoots");
     }
     let total: usize = roots.iter().map(|root| root.as_str().unwrap().len()).sum();
@@ -810,6 +812,12 @@ impl Inner {
                     .ok_or_else(|| {
                         "cannot prove existing surface cwd is within allowed roots".to_owned()
                     })?;
+                if actual.is_empty() || !Path::new(actual).is_absolute() {
+                    control.end();
+                    return Err(
+                        "cannot prove existing surface cwd is within allowed roots".to_owned()
+                    );
+                }
                 scoped_cwd(Some(actual), &self.home, context.local_roots.as_deref(), server_roots)?;
             }
             control.end();
@@ -1376,6 +1384,10 @@ impl Inner {
                 .and_then(|v| v.get("data"))
                 .and_then(|v| v.get("cwd"))
                 .and_then(Value::as_str);
+            if actual.is_none_or(|value| value.is_empty() || !Path::new(value).is_absolute()) {
+                control.end();
+                return Err("cannot prove existing surface cwd is within allowed roots".to_owned());
+            }
             let Some(actual) = actual else {
                 control.end();
                 return Err("cannot prove existing surface cwd is within allowed roots".to_owned());

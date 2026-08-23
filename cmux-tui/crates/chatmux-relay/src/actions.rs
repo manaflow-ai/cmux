@@ -853,7 +853,7 @@ fn frame_roots(frame: &Value) -> Result<Option<Vec<String>>, &'static str> {
         return Ok(None);
     }
     let roots = value.as_array().ok_or("allowedRoots must be an array")?;
-    if roots.len() > 32 || roots.iter().any(|root| !root.is_string()) {
+    if roots.len() > 32 || roots.iter().any(|root| !root.is_string() || root.as_str() == Some("")) {
         return Err("invalid allowedRoots");
     }
     if roots.iter().map(|root| root.as_str().unwrap().len()).sum::<usize>() > 16 * 1024 {
