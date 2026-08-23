@@ -1521,12 +1521,23 @@ struct BrowserPanelView: View {
     }
 
     private var browserVerticalMoreIcon: some View {
+        let dotSize = max(2, devToolsButtonIconSize * 0.2)
         return ZStack {
-            CmuxSystemSymbolImage(systemName: "ellipsis", pointSize: devToolsButtonIconSize, weight: .medium)
-                .foregroundStyle(devToolsColorOption.color)
+            Color.clear
+                .frame(width: devToolsButtonIconSize, height: devToolsButtonIconSize)
+            VStack(spacing: dotSize * 0.55) {
+                Circle()
+                    .fill(devToolsColorOption.color)
+                    .frame(width: dotSize, height: dotSize)
+                Circle()
+                    .fill(devToolsColorOption.color)
+                    .frame(width: dotSize, height: dotSize)
+                Circle()
+                    .fill(devToolsColorOption.color)
+                    .frame(width: dotSize, height: dotSize)
+            }
         }
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
-        .rotationEffect(.degrees(90))
         .accessibilityHidden(true)
     }
 
