@@ -3918,6 +3918,39 @@ class ResourceApiTests(unittest.TestCase):
 
         asyncio.run(exercise())
 
+    def test_aio_cancelled_close_caller_does_not_cancel_shared_cleanup(self) -> None:
+        async def exercise() -> None:
+            client = object.__new__(cmux.aio.Client)
+            client._closed = False
+            client._closing = False
+            client._close_task = None
+            client._streams = set()
+            client._executor = ThreadPoolExecutor(max_workers=1)
+            started = asyncio.Event()
+            release = threading.Event()
+
+            def close_sync() -> None:
+                loop.call_soon_threadsafe(started.set)
+                release.wait(1)
+
+            loop = asyncio.get_running_loop()
+            sync = type("Sync", (), {})()
+            sync.close = close_sync
+            client._sync = sync
+            cancelled_caller = asyncio.create_task(client.close())
+            await started.wait()
+            joining_caller = asyncio.create_task(client.close())
+            cancelled_caller.cancel()
+            await asyncio.sleep(0)
+            self.assertFalse(joining_caller.done())
+            release.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await cancelled_caller
+            await joining_caller
+            self.assertTrue(client.closed)
+
+        asyncio.run(exercise())
+
     def test_aio_close_failure_allows_retry(self) -> None:
         async def exercise() -> None:
             client = object.__new__(cmux.aio.Client)
