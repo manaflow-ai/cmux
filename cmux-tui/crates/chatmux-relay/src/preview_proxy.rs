@@ -50,6 +50,9 @@ const NETWORK_METHOD_MAX_UNITS: usize = 16;
 const PENDING_REQUEST_CAP: usize = 512;
 /// Bound browser/devtools CDP messages before tungstenite allocates them.
 const PREVIEW_WS_MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
+/// HTML responses are buffered only while injecting the bootstrap script.
+/// Keep that exceptional path bounded; non-injected responses remain streams.
+const PREVIEW_HTML_MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
 /// Limit queued frames per peer. A browser/devtools socket that stops
 /// reading must not make the relay retain an unbounded stream of CDP data.
 const PREVIEW_WS_QUEUE_CAPACITY: usize = 64;
@@ -828,9 +831,20 @@ async fn forward_plain(
     }
     let (mut parts, body) = response.into_parts();
     use http_body_util::BodyExt as _;
-    let collected = match body.collect().await {
+    let collected = match http_body_util::Limited::new(body, PREVIEW_HTML_MAX_BODY_BYTES)
+        .collect()
+        .await
+    {
         Ok(collected) => collected.to_bytes(),
-        Err(error) => return text_response(502, &format!("target body failed: {error}")),
+        Err(error) => {
+            return text_response(
+                502,
+                &format!(
+                    "target HTML response exceeds the {} byte limit: {error}",
+                    PREVIEW_HTML_MAX_BODY_BYTES
+                ),
+            );
+        }
     };
     let injected = inject_into_html(&collected);
     parts.headers.remove(hyper::header::CONTENT_LENGTH);
@@ -936,20 +950,27 @@ mod tests {
                 tokio::spawn(async move {
                     let io = hyper_util::rt::TokioIo::new(stream);
                     let service = hyper::service::service_fn(|request| async move {
-                        let (body, content_type, opt_out) = match request.uri().path() {
-                            "/body-only" => ("<body><p>hi</p></body>", "text/html", false),
-                            "/plain" => ("no tags here", "text/plain", false),
-                            "/opt-out" => {
-                                ("<html><head></head><body></body></html>", "text/html", true)
-                            }
+                        let path = request.uri().path();
+                        let (body, content_type, opt_out): (Vec<u8>, &str, bool) = match path {
+                            "/body-only" => (b"<body><p>hi</p></body>".to_vec(), "text/html", false),
+                            "/plain" => (b"no tags here".to_vec(), "text/plain", false),
+                            "/opt-out" => (
+                                b"<html><head></head><body></body></html>".to_vec(),
+                                "text/html",
+                                true,
+                            ),
+                            "/oversize" => (
+                                vec![b'a'; PREVIEW_HTML_MAX_BODY_BYTES + 1],
+                                "text/html",
+                                false,
+                            ),
                             _ => (
-                                "<html><head><title>t</title></head><body></body></html>",
+                                b"<html><head><title>t</title></head><body></body></html>".to_vec(),
                                 "text/html; charset=utf-8",
                                 false,
                             ),
                         };
-                        let mut response =
-                            hyper::Response::new(full_body(body.as_bytes().to_vec()));
+                        let mut response = hyper::Response::new(full_body(body));
                         response.headers_mut().insert(
                             hyper::header::CONTENT_TYPE,
                             hyper::header::HeaderValue::from_str(content_type).expect("ct"),
@@ -1029,6 +1050,20 @@ mod tests {
         assert_eq!(open_proxy(&registry, target).await, proxy);
         registry.shutdown().await;
         assert!(tokio::net::TcpStream::connect(("127.0.0.1", proxy)).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn rejects_oversize_html_before_injection() {
+        let registry = PreviewRegistry::new();
+        let target = spawn_target().await;
+        let proxy = open_proxy(&registry, target).await;
+
+        let (status, _, body) = http_get(proxy, "/oversize", &[]).await;
+        assert_eq!(status, 502);
+        assert!(body.contains("target HTML response exceeds"));
+        assert!(!body.contains(std::str::from_utf8(INJECT_TAG).expect("tag utf8")));
+
+        registry.shutdown().await;
     }
 
     #[tokio::test]
