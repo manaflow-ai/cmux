@@ -450,7 +450,11 @@ struct WorkspaceDetailView: View {
         return WorkspaceTitleMenu(
             value: value,
             onLabelLeadingEdgeChange: { minX in
+                guard titleLabelLeadingEdge != minX else { return }
                 titleLabelLeadingEdge = minX
+                #if DEBUG
+                NSLog("cmux.toolbar.span probe key=title minX=%.1f", minX)
+                #endif
             },
             menuContent: {
                 WorkspaceTitleMenuContent(

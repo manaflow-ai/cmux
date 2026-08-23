@@ -52,10 +52,8 @@ struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View, Equatable {
             )
             // The frame is leading-aligned, so its leading edge does not move
             // as the cap grows; reporting it cannot feed back into the cap.
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.frame(in: .global).minX
-            } action: { minX in
-                onLabelLeadingEdgeChange?(minX)
+            .measureToolbarTitleFrame { frame in
+                onLabelLeadingEdgeChange?(frame.minX)
             }
     }
 }
