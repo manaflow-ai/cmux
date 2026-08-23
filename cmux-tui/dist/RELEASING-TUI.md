@@ -21,6 +21,9 @@ scripts receive `--version`, so cutting a stable TUI release is just creating a
 - npm `cmux-tui-linux-arm64`: Linux arm64 binary package.
 - npm `cmux-relay`: launcher for the remote relay.
 - npm `cmux-relay-*`: platform relay binary packages (including Windows x64).
+- Windows packages are published when the release input `include_windows` is
+  enabled. Configure Trusted Publishers for both `cmux-tui-win32-x64` and
+  `cmux-relay-win32-x64` before enabling that input.
 - PyPI `cmux`: platform wheels for `uvx cmux` / `pipx run cmux`.
 
 Linux packages contain static musl binaries that run on both glibc and musl

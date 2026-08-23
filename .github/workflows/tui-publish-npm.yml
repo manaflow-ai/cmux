@@ -192,6 +192,8 @@ jobs:
             cmux-relay-darwin-x64
             cmux-relay-linux-x64
             cmux-relay-linux-arm64
+            cmux-tui-win32-x64
+            cmux-relay-win32-x64
           )
           for package in "${packages[@]}"; do
             echo "Publishing $package"
@@ -204,6 +206,12 @@ jobs:
           - cmux-tui-darwin-x64
           - cmux-tui-linux-x64
           - cmux-tui-linux-arm64
+          - cmux-tui-win32-x64
+          - cmux-relay-darwin-arm64
+          - cmux-relay-darwin-x64
+          - cmux-relay-linux-x64
+          - cmux-relay-linux-arm64
+          - cmux-relay-win32-x64
 
           Trusted publisher settings for each package:
           - Repository: manaflow-ai/cmux
