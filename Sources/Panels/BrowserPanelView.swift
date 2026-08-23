@@ -1505,8 +1505,11 @@ struct BrowserPanelView: View {
             .disabled(!panel.shouldRenderWebView)
             .accessibilityIdentifier("BrowserScreenshotSectionButton")
         } label: {
-            CmuxSystemSymbolImage(systemName: "ellipsis.vertical", pointSize: devToolsButtonIconSize, weight: .medium)
+            // macOS does not provide `ellipsis.vertical`; rotate the
+            // supported horizontal symbol to keep the More affordance vertical.
+            CmuxSystemSymbolImage(systemName: "ellipsis", pointSize: devToolsButtonIconSize, weight: .medium)
                 .foregroundStyle(devToolsColorOption.color)
+                .rotationEffect(.degrees(90))
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
         .menuStyle(.borderlessButton)
