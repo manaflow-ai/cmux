@@ -3,7 +3,7 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `aggregate-final`.
-Current integration code tip before this documentation commit: `2b0e717d638bc0cd66caea6db940e00593852113` (`fix(python): preserve caller cancellation after cleanup`).
+Current integration code tip before this documentation commit: `35be8f8c8a3868631d27dfa0b8009dace5b70f4c` (`Merge concurrent TUI review fixes, retain aggregate tree`).
 Exact worktree HEAD: run `git rev-parse HEAD` (documentation commits change this value).
 The aggregate branch is `aggregate-final`; the review branch is
 `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
@@ -25,14 +25,14 @@ reservation cleanup, explicit PTY overflow, preview saturation disconnect,
 cross-language transport cleanup, CLI metadata, capability documentation,
 credential-child reaping, journal-writer ownership/finalization, explicit socket
 parent and lease cleanup, package-mode preservation, and C1 parser support
-through `2b0e717d63`. The exact-head tail adds bounded preview and Windows
+through `35be8f8c8a`. The exact-head tail adds bounded preview and Windows
 process cleanup, safe socket fallback precedence, Python cancellation
 propagation, and the Rust fallback-test contract. Documentation-only bridge commits are
 [`42b776a327`](https://github.com/manaflow-ai/cmux/commit/42b776a327c17386d131ef1b1f8a382b02683954)
 and [`cef7c71460`](https://github.com/manaflow-ai/cmux/commit/cef7c71460f72444e874f7c9f26100e9259874c1).
 The 25-file relay/TUI integration merge is `05c0b30277`.
 
-Subagent ledger: at least 190 substantive agent turns are complete in this
+Subagent ledger: at least 200 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
 reviews, and merge gates. It excludes empty or duplicate turns. The requested
 10,000-session target is not reached. I will not create empty sessions to
@@ -41,13 +41,14 @@ sessions. New turns must have a named deliverable.
 
 ## Current state
 
-The latest code tail is `2b0e717d63`. It carries the watch compatibility,
+The latest code tail is `35be8f8c8a`. It carries the watch compatibility,
 queue-ownership, fairness, timer-bound, shell-reservation, PTY overflow,
 preview saturation, SDK lifecycle, CLI grammar, capability documentation,
 credential-child reaping, journal-writer ownership/finalization, explicit
 socket cleanup, package-mode preservation, 8-bit C1 parser fixes, and inline
 global CLI values, bounded preview and process cleanup, safe socket fallback
-precedence, and cancellation propagation after the
+precedence, cancellation propagation, cross-platform root parsing, and SDK
+clippy cleanup after the
 25-file relay/TUI integration merge. The issues below remain open.
 
 ### Open issue inventory
@@ -862,6 +863,9 @@ unless its acceptance column says that a narrow implementation slice exists.
 - Python cleanup propagates cancellation of its shared task without spinning.
   The focused and full Python suites pass, but hosted cross-language checks
   remain required.
+- Windows drive-prefix parent creation and platform-separated allowed-root
+  parsing now have source-level tests. Hosted Windows execution remains the
+  acceptance boundary.
 
 The ledger remains an honest lower bound of at least 180 substantive agent
 turns. It is not an exact session-file count. The requested 10,000-session

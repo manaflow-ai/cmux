@@ -1,6 +1,6 @@
 # cmux-tui aggregate change log
 
-Snapshot: 2026-08-23. Aggregate branch: `aggregate-final`, current code tip [`2b0e717d63`](https://github.com/manaflow-ai/cmux/commit/2b0e717d638bc0cd66caea6db940e00593852113). The prior documented code tip was [`cfb0684e75`](https://github.com/manaflow-ai/cmux/commit/cfb0684e75). This update records seven exact-head autoreview fixes: bounded Windows process cleanup, preview listener and request bounds, HTML body limits, safe socket fallback precedence, Python cancellation propagation, and an explicit Rust legacy-fallback test.
+Snapshot: 2026-08-23. Aggregate branch: `aggregate-final`, current code tip [`35be8f8c8a`](https://github.com/manaflow-ai/cmux/commit/35be8f8c8a3868631d27dfa0b8009dace5b70f4c). The prior documented code tip was [`2b0e717d63`](https://github.com/manaflow-ai/cmux/commit/2b0e717d638bc0cd66caea6db940e00593852113). The branch is 507 commits ahead of `origin/main`. This update records cross-platform relay and SDK path hardening, bounded HTML error classification, and the normal merge of concurrent review history.
 
 Earlier aggregate rows retained for history:
 
@@ -39,6 +39,15 @@ Session-count honesty: the accompanying board records at least 190 substantive a
 | [`40120911dc`](https://github.com/manaflow-ai/cmux/commit/40120911dc) and [`2b0e717d63`](https://github.com/manaflow-ai/cmux/commit/2b0e717d63) | Propagate cancellation of a shared Python cleanup task without retry spin, while preserving caller cancellation. | Python suite: 107 passed, 421 subtests. | `git revert 40120911dc 2b0e717d63` |
 | [`946d7b5a21`](https://github.com/manaflow-ai/cmux/commit/946d7b5a21) | Cap preview listeners at 32 target ports with LRU eviction and awaited task cleanup. | Focused async test and diff/format checks; hosted relay test remains required. Eviction can close an active preview after the cap. | `git revert 946d7b5a21` |
 | [`4a23b30a82`](https://github.com/manaflow-ai/cmux/commit/4a23b30a82), [`ff04cd9ea3`](https://github.com/manaflow-ai/cmux/commit/ff04cd9ea3), and [`cb52a7910e`](https://github.com/manaflow-ai/cmux/commit/cb52a7910e) | Terminate Windows exec process trees with a Job Object, kill-on-close, bounded final wait, and Tokio's `raw_handle` API. | Windows source path follows existing repository Job Object code; hosted Windows compile/runtime proof remains required. | `git revert 4a23b30a82 ff04cd9ea3 cb52a7910e` |
+
+## Cross-platform hardening after `2b0e717d63`
+
+| Commit | Change | Verification / residual | Revert |
+| --- | --- | --- | --- |
+| [`5087c74c44`](https://github.com/manaflow-ai/cmux/commit/5087c74c44) | Preserve Windows drive prefixes while creating safe relay parent directories, parse allowed-root environment values with the platform separator, remove the stale Rust derived-config constructor, and allow Zig deferred cleanup variables. | `cargo fmt` and diff checks pass; hosted Windows, Rust SDK, and Zig checks remain required. | `git revert 5087c74c44` |
+| [`516fa5791e`](https://github.com/manaflow-ai/cmux/commit/516fa5791e) | Remove unused Rust fallback state and apply clippy's let-chain form in the resource client. | Formatter and source checks pass; hosted Rust clippy remains required. | `git revert 516fa5791e` |
+| [`681971deb5`](https://github.com/manaflow-ai/cmux/commit/681971deb5) | Return a stable 502 message for oversized injected HTML bodies. | Focused oversized-response assertion; hosted relay behavior remains required. | `git revert 681971deb5` |
+| [`35be8f8c8a`](https://github.com/manaflow-ai/cmux/commit/35be8f8c8a3868631d27dfa0b8009dace5b70f4c) | Record the normal merge of concurrent review history without replacing the corrected aggregate tree. | Merge metadata only. The remote-side commits are retained in ancestry; this tree contains their safe semantic fixes or stricter replacements. | `git revert -m 1 35be8f8c8a3868631d27dfa0b8009dace5b70f4c` |
 
 ## Final accepted tail from `b61f1bada6` to `e8df21eed2`
 
