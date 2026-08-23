@@ -158,7 +158,8 @@ impl std::error::Error for CmuxError {
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
     pub socket_path: PathBuf,
-    legacy_socket_path: Option<PathBuf>,
+    /// Optional legacy socket path tried when the primary path is unavailable.
+    pub legacy_socket_path: Option<PathBuf>,
     pub timeout: Duration,
     pub max_frame_bytes: usize,
     pub max_queued_events: usize,
@@ -281,7 +282,10 @@ impl CmuxClient {
             && is_hashed_socket(&config.socket_path)
         {
             let Some(legacy) = config.legacy_socket_path.clone() else {
-                return Err(connection.unwrap_err());
+                return match connection {
+                    Ok(_) => unreachable!("connection error was matched above"),
+                    Err(error) => Err(error),
+                };
             };
             if let Ok(candidate) = JsonLineConnection::connect(
                 &legacy,
