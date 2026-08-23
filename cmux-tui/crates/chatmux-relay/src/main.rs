@@ -9,7 +9,9 @@ use std::path::{Path, PathBuf};
 
 use chatmux_relay::autostart;
 use chatmux_relay::cli::{Command, parse_cli_args};
-use chatmux_relay::config::{Config, default_config_path, load_config, save_config};
+use chatmux_relay::config::{
+    Config, default_config_path, load_config, save_config, validate_allowed_roots,
+};
 use chatmux_relay::enrollment::load_managed_enrollment_file;
 use chatmux_relay::error::RelayError;
 use chatmux_relay::pairing::{CeremonyMode, PairedOutcome, await_ceremony, start_pairing};
@@ -200,7 +202,10 @@ fn apply_allowed_roots(config: &mut Config, allow_root_args: &[String], config_p
         config.allowed_roots = None;
         println!("Agent path scoping cleared (unscoped).");
     } else {
-        roots.truncate(16);
+        if let Err(error) = validate_allowed_roots(&roots) {
+            eprintln!("Invalid allowed roots: {error}");
+            return;
+        }
         println!("Agent access on this machine is limited to: {}", roots.join(", "));
         config.allowed_roots = Some(roots);
     }

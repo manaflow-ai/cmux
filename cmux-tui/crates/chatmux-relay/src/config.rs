@@ -11,6 +11,10 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+/// Limits shared with the server-side allowedRoots envelope policy.
+pub const MAX_ALLOWED_ROOTS: usize = 32;
+pub const MAX_ALLOWED_ROOT_BYTES: usize = 16 * 1024;
+
 /// Managed enrollment identity forwarded in the hello frame
 /// (`ManagedRelayEnrollment` in chatmux `packages/protocol/src/relay.ts`).
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -97,7 +101,28 @@ pub fn load_config(path: &Path) -> Option<Config> {
     if config.device_id.is_empty() || config.token.is_empty() {
         return None;
     }
+    if let Some(roots) = config.allowed_roots.as_deref()
+        && validate_allowed_roots(roots).is_err()
+    {
+        return None;
+    }
     Some(config)
+}
+
+/// Validate a local root list before it can be persisted or sent on the wire.
+/// The byte budget matches the server's UTF-8 JSON value budget conservatively
+/// by summing the encoded path strings, excluding JSON framing overhead.
+pub fn validate_allowed_roots(roots: &[String]) -> Result<(), &'static str> {
+    if roots.len() > MAX_ALLOWED_ROOTS {
+        return Err("too many allowed roots (maximum is 32)");
+    }
+    let bytes = roots.iter().try_fold(0usize, |total, root| {
+        total.checked_add(root.len()).ok_or("allowed roots are too large")
+    })?;
+    if bytes > MAX_ALLOWED_ROOT_BYTES {
+        return Err("allowed roots exceed the 16 KiB limit");
+    }
+    Ok(())
 }
 
 /// Persist the pairing with owner-only permissions (0600 on Unix). The
@@ -182,6 +207,30 @@ mod tests {
         std::fs::write(&path, "not json").unwrap();
         assert!(load_config(&path).is_none());
         assert!(load_config(&scratch("missing/config.json")).is_none());
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn allowed_roots_enforce_count_and_byte_limits() {
+        let roots = vec!["/srv".to_owned(); MAX_ALLOWED_ROOTS];
+        assert!(validate_allowed_roots(&roots).is_ok());
+        let too_many = vec!["/srv".to_owned(); MAX_ALLOWED_ROOTS + 1];
+        assert!(validate_allowed_roots(&too_many).is_err());
+        let too_large = vec!["x".repeat(MAX_ALLOWED_ROOT_BYTES + 1)];
+        assert!(validate_allowed_roots(&too_large).is_err());
+    }
+
+    #[test]
+    fn invalid_allowed_roots_make_saved_config_unusable() {
+        let path = scratch("roots-limit/config.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let raw = serde_json::json!({
+            "deviceId": "dev_roots",
+            "token": "tok_roots",
+            "allowedRoots": ["x".repeat(MAX_ALLOWED_ROOT_BYTES + 1)],
+        });
+        std::fs::write(&path, serde_json::to_string(&raw).unwrap()).unwrap();
+        assert!(load_config(&path).is_none());
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
