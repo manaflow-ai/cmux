@@ -57,7 +57,13 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let request_id =
         request["id"].as_str().expect("locally built request IDs are strings").to_string();
 
-    let socket = resolve_socket(&global);
+    let socket = match resolve_socket(&global) {
+        Ok(socket) => socket,
+        Err(error) => {
+            eprintln!("cmux: cannot resolve session socket: {error}");
+            return 2;
+        }
+    };
     let stream = match transport::connect(&socket) {
         Ok(stream) => stream,
         Err(error) => {
@@ -685,21 +691,21 @@ fn human_key_rank(key: &str) -> usize {
     }
 }
 
-pub(super) fn resolve_socket(global: &GlobalArgs) -> PathBuf {
+pub(super) fn resolve_socket(global: &GlobalArgs) -> anyhow::Result<PathBuf> {
     if let Some(path) = &global.socket {
-        return path.clone();
+        return Ok(path.clone());
     }
     if let Some(session) = &global.session {
-        return cmux_tui_core::server::default_socket_path(session);
+        return cmux_tui_core::server::try_default_socket_path(session);
     }
     for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
         if let Some(path) = std::env::var_os(name)
             && !path.is_empty()
         {
-            return PathBuf::from(path);
+            return Ok(PathBuf::from(path));
         }
     }
-    cmux_tui_core::server::default_socket_path("main")
+    cmux_tui_core::server::try_default_socket_path("main")
 }
 
 #[cfg(test)]
