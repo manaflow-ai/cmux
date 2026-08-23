@@ -23,7 +23,7 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 use tokio_tungstenite::connect_async;
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::{Error as TungsteniteError, Message};
 
 use crate::actions::{ActionContext, perform_action, process_env_snapshot, scrubbed_env};
 use crate::config::{Config, save_config};
@@ -245,7 +245,7 @@ async fn relay_session(
         enum Wake {
             Heartbeat,
             Outbound(Option<Value>),
-            Incoming(Option<Result<Message, tokio_tungstenite::tungstenite::Error>>),
+            Incoming(Option<Result<Message, TungsteniteError>>),
         }
         let wake = {
             let mut guard = socket.lock().await;

@@ -18,6 +18,7 @@ pub mod prompt;
 pub mod pty;
 #[cfg(unix)]
 pub mod pty_deps;
+pub mod relay_wire;
 pub mod session;
 pub mod trust;
 pub mod watch;

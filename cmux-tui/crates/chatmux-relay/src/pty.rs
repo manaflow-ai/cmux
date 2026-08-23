@@ -341,21 +341,27 @@ impl Inner {
             return;
         }
         let fail = |code: &str, message: &str| send_pty_error(context, &pty_id, code, message);
-        let mut opening = self.opening_ids.lock().expect("opening lock");
-        let attached = self.attachments.lock().expect("attach lock").contains_key(&pty_id);
-        if attached || opening.contains(&pty_id) {
-            fail("bad_request", "ptyId is already attached");
+        let reservation_result = {
+            let mut opening = self.opening_ids.lock().expect("opening lock");
+            let attached = self.attachments.lock().expect("attach lock").contains_key(&pty_id);
+            if attached || opening.contains(&pty_id) {
+                Err(("bad_request", "ptyId is already attached".to_owned()))
+            } else if self.attachments.lock().expect("attach lock").len() + opening.len()
+                >= self.max_ptys
+            {
+                Err((
+                    "session_limit",
+                    format!("this relay caps concurrent terminals at {}", self.max_ptys),
+                ))
+            } else {
+                opening.insert(pty_id.clone());
+                Ok(())
+            }
+        };
+        if let Err((code, message)) = reservation_result {
+            fail(code, &message);
             return;
         }
-        if self.attachments.lock().expect("attach lock").len() + opening.len() >= self.max_ptys {
-            fail(
-                "session_limit",
-                &format!("this relay caps concurrent terminals at {}", self.max_ptys),
-            );
-            return;
-        }
-        opening.insert(pty_id.clone());
-        drop(opening);
         let mut reservation =
             OpeningReservation { inner: Arc::clone(&self), id: pty_id.clone(), active: true };
 

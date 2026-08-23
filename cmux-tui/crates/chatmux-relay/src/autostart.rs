@@ -34,7 +34,7 @@ fn atomic_write(p: &Path, b: &str) -> Result<(), String> {
                     fs::set_permissions(&t, fs::Permissions::from_mode(0o600))
                         .map_err(|e| e.to_string())?;
                 }
-                f.write_all(b).map_err(|e| e.to_string())?;
+                f.write_all(b.as_bytes()).map_err(|e| e.to_string())?;
                 f.sync_all().map_err(|e| e.to_string())?;
                 drop(f);
                 let r = fs::rename(&t, p).map_err(|e| e.to_string());
@@ -114,45 +114,47 @@ fn install_impl(_: &Path, _: &Path) -> Result<String, String> {
 pub fn install(e: &Path, config: &Path) -> Result<String, String> {
     install_impl(e, config)
 }
-pub fn uninstall() -> Result<String, String> {
-    #[cfg(target_os = "macos")]
-    {
-        {
-            let p = home()?.join("Library/LaunchAgents").join(format!("{LABEL}.plist"));
-            let d = format!("gui/{}", unsafe { libc::getuid() });
-            if let Some(s) = p.to_str() {
-                let _ = run("launchctl", &["bootout", &d, s]);
-            }
-            if let Err(e) = fs::remove_file(&p) {
-                if e.kind() != std::io::ErrorKind::NotFound {
-                    return Err(e.to_string());
-                }
-            }
-            return Ok(format!("removed {}", p.display()));
+#[cfg(target_os = "macos")]
+fn uninstall_impl() -> Result<String, String> {
+    let p = home()?.join("Library/LaunchAgents").join(format!("{LABEL}.plist"));
+    let d = format!("gui/{}", unsafe { libc::getuid() });
+    if let Some(s) = p.to_str() {
+        let _ = run("launchctl", &["bootout", &d, s]);
+    }
+    if let Err(e) = fs::remove_file(&p) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            return Err(e.to_string());
         }
     }
-    #[cfg(target_os = "linux")]
-    {
-        {
-            let p = home()?.join(".config/systemd/user/chatmux-relay.service");
-            let _ = run("systemctl", &["--user", "disable", "--now", "chatmux-relay.service"]);
-            if let Err(e) = fs::remove_file(&p) {
-                if e.kind() != std::io::ErrorKind::NotFound {
-                    return Err(e.to_string());
-                }
-            }
-            let _ = run("systemctl", &["--user", "daemon-reload"]);
-            return Ok(format!("removed {}", p.display()));
+    Ok(format!("removed {}", p.display()))
+}
+
+#[cfg(target_os = "linux")]
+fn uninstall_impl() -> Result<String, String> {
+    let p = home()?.join(".config/systemd/user/chatmux-relay.service");
+    let _ = run("systemctl", &["--user", "disable", "--now", "chatmux-relay.service"]);
+    if let Err(e) = fs::remove_file(&p) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            return Err(e.to_string());
         }
     }
-    #[cfg(target_os = "windows")]
-    {
-        {
-            let _ = run("schtasks", &["/Delete", "/F", "/TN", LABEL]);
-            return Ok(format!("removed Windows task {LABEL}"));
-        }
-    }
+    let _ = run("systemctl", &["--user", "daemon-reload"]);
+    Ok(format!("removed {}", p.display()))
+}
+
+#[cfg(target_os = "windows")]
+fn uninstall_impl() -> Result<String, String> {
+    let _ = run("schtasks", &["/Delete", "/F", "/TN", LABEL]);
+    Ok(format!("removed Windows task {LABEL}"))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+fn uninstall_impl() -> Result<String, String> {
     Err("autostart is unsupported on this platform".into())
+}
+
+pub fn uninstall() -> Result<String, String> {
+    uninstall_impl()
 }
 #[cfg(test)]
 mod tests {
