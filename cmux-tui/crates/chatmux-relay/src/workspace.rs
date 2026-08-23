@@ -19,11 +19,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc::UnboundedSender};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::actions::validate_request_path as validate_action_path;
 use crate::preview_proxy::PreviewRegistry;
 use crate::relay_wire as wire;
+use crate::session::OutboundSink;
 use crate::watch::WatchRegistry;
 
 /// Every v6 frame this module emits carries the workspace dialect
@@ -1069,7 +1070,7 @@ impl SharedRuntime {
 /// re-opens them), requests answer onto this connection's outbound queue.
 pub struct Connection {
     runtime: Arc<SharedRuntime>,
-    outbound: UnboundedSender<String>,
+    outbound: OutboundSink,
     /// Machine-side trust re-check: when the LOCAL effective trust is
     /// observe, mutating ops refuse regardless of what the server claims.
     local_observe: Arc<AtomicBool>,
@@ -1082,7 +1083,7 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn new(runtime: Arc<SharedRuntime>, outbound: UnboundedSender<String>) -> Connection {
+    pub fn new(runtime: Arc<SharedRuntime>, outbound: OutboundSink) -> Connection {
         let watches = WatchRegistry::new(outbound.clone());
         Connection {
             runtime,
@@ -1108,7 +1109,7 @@ impl Connection {
                     if let Some(request_id) = frame.get("requestId").and_then(Value::as_str) {
                         let refusal =
                             Refusal::new(wire::WorkspaceErrorCode::PathForbidden, message);
-                        let _ = self.outbound.send(error_frame(request_id, &refusal));
+                        self.send_critical(error_frame(request_id, &refusal));
                     }
                     return;
                 }
@@ -1123,7 +1124,7 @@ impl Connection {
                                 wire::WorkspaceErrorCode::UnsupportedVerb,
                                 "this relay build does not know this workspace op",
                             );
-                            let _ = self.outbound.send(error_frame(request_id, &refusal));
+                            self.send_critical(error_frame(request_id, &refusal));
                         }
                     }
                 }
@@ -1169,7 +1170,7 @@ impl Connection {
             Ok(permit) => permit,
             Err(_) => {
                 let refusal = Refusal::failed("workspace request limit reached; retry later");
-                let _ = self.outbound.send(error_frame(&request.request_id, &refusal));
+                self.send_critical(error_frame(&request.request_id, &refusal));
                 return;
             }
         };
@@ -1181,7 +1182,7 @@ impl Connection {
                 Ok(body) => ok_frame(&request_id, body),
                 Err(refusal) => error_frame(&request_id, &refusal),
             };
-            let _ = outbound.send(text);
+            let _ = outbound.critical_text(text).await;
         };
         if let Ok(mut requests) = self.requests.lock() {
             // JoinSet removes completed tasks without rescanning every
@@ -1192,6 +1193,13 @@ impl Connection {
         } else {
             // The task has not been spawned yet, so a poisoned registry does
             // not leak work beyond this connection.
+        }
+    }
+
+    fn send_critical(&self, text: String) {
+        let outbound = self.outbound.clone();
+        if let Ok(mut requests) = self.requests.lock() {
+            requests.spawn(async move { let _ = outbound.critical_text(text).await; });
         }
     }
 }
@@ -1294,6 +1302,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::OutboundSink;
 
     fn scratch(name: &str) -> PathBuf {
         let mut path = std::env::temp_dir();
@@ -1816,14 +1825,14 @@ mod tests {
         let runtime = Arc::new(SharedRuntime::new(Some(roots.clone())));
         let mut patched = request;
         patched["allowedRoots"] = serde_json::json!(roots);
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-        let connection = Connection::new(runtime, tx);
+        let (sink, mut critical, _watch) = OutboundSink::channels();
+        let connection = Connection::new(runtime, sink);
         connection.handle_frame(patched);
-        let text = tokio::time::timeout(std::time::Duration::from_secs(15), rx.recv())
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(15), critical.recv())
             .await
             .expect("no answer within 15s")
             .expect("channel open");
-        serde_json::from_str(&text).expect("valid json frame")
+        serde_json::from_str(&frame.text).expect("valid json frame")
     }
 
     #[tokio::test]
@@ -1833,8 +1842,8 @@ mod tests {
         write(&root, "b.txt", "b\n");
         let roots = vec![root.to_string_lossy().into_owned()];
         let runtime = Arc::new(SharedRuntime::new(Some(roots.clone())));
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-        let connection = Connection::new(runtime, tx);
+        let (sink, mut critical, _watch) = OutboundSink::channels();
+        let connection = Connection::new(runtime, sink);
 
         for (request_id, path) in [("req_a", "a.txt"), ("req_b", "b.txt")] {
             let mut request = request_json(
@@ -1847,16 +1856,16 @@ mod tests {
         }
 
         let mut ids = [
-            tokio::time::timeout(std::time::Duration::from_secs(15), rx.recv())
+            tokio::time::timeout(std::time::Duration::from_secs(15), critical.recv())
                 .await
                 .expect("first request timed out")
                 .expect("channel closed"),
-            tokio::time::timeout(std::time::Duration::from_secs(15), rx.recv())
+            tokio::time::timeout(std::time::Duration::from_secs(15), critical.recv())
                 .await
                 .expect("second request timed out")
                 .expect("channel closed"),
         ]
-        .map(|text| serde_json::from_str::<Value>(&text).expect("valid json"));
+        .map(|frame| serde_json::from_str::<Value>(&frame.text).expect("valid json"));
         ids.sort_by_key(|frame| frame["requestId"].as_str().unwrap().to_owned());
         assert_eq!(ids[0]["requestId"], "req_a");
         assert_eq!(ids[1]["requestId"], "req_b");

@@ -21,7 +21,7 @@ use std::time::Duration;
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde_json::Value;
 use tokio::sync::mpsc;
-use tokio::sync::{Mutex as AsyncMutex, Semaphore};
+use tokio::sync::{Mutex as AsyncMutex, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinSet;
 use tokio_tungstenite::connect_async_with_config;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
@@ -42,6 +42,8 @@ use crate::wire::{
 };
 
 const MAX_OUTBOUND_FRAMES: usize = 256;
+const MAX_WATCH_OUTBOUND_FRAMES: usize = 64;
+const MAX_OUTBOUND_BYTES: usize = 8 << 20;
 const MAX_PTY_INGRESS_FRAMES: usize = 64;
 // Keep room for the workspace fs_write 2 MiB payload plus its JSON envelope.
 const MAX_INBOUND_FRAME_BYTES: usize = 4 << 20;
@@ -60,6 +62,66 @@ struct AuthSnapshot {
     trust: String,
     roots: Option<Vec<String>>,
     owner: Option<String>,
+}
+
+pub(crate) struct OutboundFrame {
+    pub(crate) text: String,
+    _bytes: OwnedSemaphorePermit,
+}
+
+/// One socket's bounded outbound capacity. Critical request responses wait
+/// for capacity; lossy watch/stream events fail immediately and let their
+/// producer coalesce the loss into a later overflow frame.
+#[derive(Clone)]
+pub(crate) struct OutboundSink {
+    critical: mpsc::Sender<OutboundFrame>,
+    watch: mpsc::Sender<OutboundFrame>,
+    bytes: Arc<Semaphore>,
+}
+
+impl OutboundSink {
+    pub(crate) fn channels() -> (OutboundSink, mpsc::Receiver<OutboundFrame>, mpsc::Receiver<OutboundFrame>) {
+        let (critical, critical_rx) = mpsc::channel(MAX_OUTBOUND_FRAMES);
+        let (watch, watch_rx) = mpsc::channel(MAX_WATCH_OUTBOUND_FRAMES);
+        (
+            OutboundSink { critical, watch, bytes: Arc::new(Semaphore::new(MAX_OUTBOUND_BYTES)) },
+            critical_rx,
+            watch_rx,
+        )
+    }
+
+    fn encode(frame: Value) -> Option<String> {
+        serde_json::to_string(&frame).ok()
+    }
+
+    pub(crate) async fn critical_value(&self, frame: Value) -> Result<(), ()> {
+        let Some(text) = Self::encode(frame) else { return Err(()) };
+        self.critical_text(text).await
+    }
+
+    pub(crate) async fn critical_text(&self, text: String) -> Result<(), ()> {
+        let bytes = u32::try_from(text.len()).map_err(|_| ())?;
+        let permit = Arc::clone(&self.bytes).acquire_many_owned(bytes).await.map_err(|_| ())?;
+        self.critical.send(OutboundFrame { text, _bytes: permit }).await.map_err(|_| ())
+    }
+
+    pub(crate) fn try_watch_value(&self, frame: Value) -> Result<(), ()> {
+        let Some(text) = Self::encode(frame) else { return Err(()) };
+        self.try_watch_text(text)
+    }
+
+    pub(crate) fn try_critical_value(&self, frame: Value) -> Result<(), ()> {
+        let Some(text) = Self::encode(frame) else { return Err(()) };
+        let bytes = u32::try_from(text.len()).map_err(|_| ())?;
+        let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
+        self.critical.try_send(OutboundFrame { text, _bytes: permit }).map_err(|_| ())
+    }
+
+    pub(crate) fn try_watch_text(&self, text: String) -> Result<(), ()> {
+        let bytes = u32::try_from(text.len()).map_err(|_| ())?;
+        let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
+        self.watch.try_send(OutboundFrame { text, _bytes: permit }).map_err(|_| ())
+    }
 }
 
 /// Process-lifetime state shared across reconnects. The PtyManager singleton
@@ -149,7 +211,7 @@ fn save(config: &Config, config_path: &Path) {
 
 /// Build a per-frame FrameContext reading the current reconciled auth.
 fn make_context(
-    out: &mpsc::Sender<Value>,
+    out: &OutboundSink,
     pending: &Arc<AtomicU64>,
     auth: &AuthSnapshot,
 ) -> FrameContext {
@@ -160,8 +222,11 @@ fn make_context(
         send: Arc::new(move |frame: Value| {
             let size = serde_json::to_string(&frame).map(|text| text.len() as u64).unwrap_or(0);
             pending_send.fetch_add(size, Ordering::SeqCst);
-            if sender.try_send(frame).is_err() {
-                eprintln!("Dropping relay outbound frame because its bounded queue is full");
+            let critical = matches!(frame.get("type").and_then(Value::as_str),
+                Some("pty_opened" | "pty_error" | "pty_exit" | "pty_closed" | "surface_list_result"));
+            let result = if critical { sender.try_critical_value(frame) } else { sender.try_watch_value(frame) };
+            if result.is_err() {
+                eprintln!("Dropping relay outbound frame because its bounded queue is full; mandatory={critical}");
                 pending_send
                     .fetch_sub(size.min(pending_send.load(Ordering::SeqCst)), Ordering::SeqCst);
             }
@@ -217,38 +282,13 @@ async fn relay_session(
         .map_err(|error| RelayError::transient(error.to_string()))?;
 
     // Outbound frame channel (exec/PTY tasks -> socket) + backpressure gauge.
-    let (out_tx, mut out_rx) = mpsc::channel::<Value>(MAX_OUTBOUND_FRAMES);
+    let (out_tx, mut critical_rx, mut watch_rx) = OutboundSink::channels();
     let pending = Arc::new(AtomicU64::new(0));
     let action_slots = Arc::new(Semaphore::new(8));
     let auth = Arc::new(std::sync::Mutex::new(AuthSnapshot::default()));
     let workspace_runtime = Arc::clone(&runtime.workspace);
-    let (workspace_tx, mut workspace_rx) = mpsc::unbounded_channel::<String>();
-    let workspace = crate::workspace::Connection::new(workspace_runtime, workspace_tx);
-    // Keep a bounded staging queue between workspace producers and the shared
-    // socket writer. The workspace API still has synchronous producers, so its
-    // legacy unbounded sender is drained promptly into this backpressured queue.
-    let (workspace_frame_tx, mut workspace_frame_rx) = mpsc::channel::<Value>(MAX_OUTBOUND_FRAMES);
-    let workspace_out = workspace_frame_tx.clone();
+    let workspace = crate::workspace::Connection::new(workspace_runtime, out_tx.clone());
     let mut connection_tasks = JoinSet::new();
-    connection_tasks.spawn(async move {
-        while let Some(text) = workspace_rx.recv().await {
-            if let Ok(frame) = serde_json::from_str::<Value>(&text) {
-                // Workspace replies are request/response traffic. Await the bounded queue
-                // instead of dropping them, so cancellation closes the sender naturally.
-                if workspace_out.send(frame).await.is_err() {
-                    break;
-                }
-            }
-        }
-    });
-    let socket_out = out_tx.clone();
-    connection_tasks.spawn(async move {
-        while let Some(frame) = workspace_frame_rx.recv().await {
-            if socket_out.send(frame).await.is_err() {
-                break;
-            }
-        }
-    });
 
     // Ordered PTY frame dispatch on its own task so a slow open (daemon
     // spawn) never stalls heartbeats or other frames.
@@ -279,7 +319,7 @@ async fn relay_session(
     let result = loop {
         enum Wake {
             Heartbeat,
-            Outbound(Option<Value>),
+            Outbound(Option<OutboundFrame>),
             Incoming(Option<Result<Message, TungsteniteError>>),
         }
         let wake = {
@@ -291,7 +331,8 @@ async fn relay_session(
                         None => std::future::pending().await,
                     }
                 }, if heartbeat.is_some() => Wake::Heartbeat,
-                frame = out_rx.recv() => Wake::Outbound(frame),
+                frame = critical_rx.recv() => Wake::Outbound(frame),
+                frame = watch_rx.recv() => Wake::Outbound(frame),
                 incoming = guard.next() => Wake::Incoming(incoming),
             }
         };
@@ -303,7 +344,7 @@ async fn relay_session(
                 }
             }
             Wake::Outbound(Some(frame)) => {
-                let text = frame.to_string();
+                let text = frame.text;
                 let size = text.len() as u64;
                 let sent = socket.lock().await.send(Message::Text(text.into())).await;
                 pending.fetch_sub(size.min(pending.load(Ordering::SeqCst)), Ordering::SeqCst);
@@ -506,7 +547,7 @@ async fn relay_session(
                                     .map(|text| text.len() as u64)
                                     .unwrap_or(0);
                                 pending.fetch_add(size, Ordering::SeqCst);
-                                let _ = out.send(result).await;
+                                let _ = out.critical_value(result).await;
                                 continue;
                             }
                         };
@@ -528,7 +569,7 @@ async fn relay_session(
                                 .map(|text| text.len() as u64)
                                 .unwrap_or(0);
                             pending.fetch_add(size, Ordering::SeqCst);
-                            let _ = out.send(result).await;
+                            let _ = out.critical_value(result).await;
                         });
                     }
                     ServerFrame::Pty { frame_type, raw } => {
@@ -622,7 +663,7 @@ async fn relay_session(
                                 _ => None,
                             };
                             if let Some(reply) = reply {
-                                let _ = out_tx.send(reply).await;
+                                let _ = out_tx.critical_value(reply).await;
                             }
                         }
                     }

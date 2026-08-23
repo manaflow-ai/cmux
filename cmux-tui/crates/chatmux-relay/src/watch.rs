@@ -11,9 +11,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender, channel};
+use tokio::sync::mpsc::{Receiver, Sender, channel};
 
 use crate::relay_wire as wire;
+use crate::session::OutboundSink;
 use crate::workspace::{Refusal, Scope, WORKSPACE_FRAME_VERSION, slash_path};
 
 /// Concurrent watch sessions per machine (WORKSPACE_WATCH_MAX_SESSIONS).
@@ -31,7 +32,7 @@ const MAX_PENDING_NOTIFY_EVENTS: usize = 1024;
 type Sessions = Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>;
 
 pub struct WatchRegistry {
-    outbound: UnboundedSender<String>,
+    outbound: OutboundSink,
     sessions: Sessions,
 }
 
@@ -59,12 +60,14 @@ fn watch_error_frame(watch_id: &str, code: wire::WorkspaceErrorCode, message: &s
 }
 
 impl WatchRegistry {
-    pub fn new(outbound: UnboundedSender<String>) -> WatchRegistry {
+    pub fn new(outbound: OutboundSink) -> WatchRegistry {
         WatchRegistry { outbound, sessions: Arc::new(Mutex::new(HashMap::new())) }
     }
 
     pub fn refuse(&self, watch_id: &str, code: wire::WorkspaceErrorCode, message: &str) {
-        let _ = self.outbound.send(watch_error_frame(watch_id, code, message));
+        let outbound = self.outbound.clone();
+        let text = watch_error_frame(watch_id, code, message);
+        tokio::spawn(async move { let _ = outbound.critical_text(text).await; });
     }
 
     pub fn close(&self, watch_id: &str) {
@@ -108,7 +111,8 @@ impl WatchRegistry {
             root: root.to_string_lossy().into_owned(),
         })
         .unwrap_or_else(|_| String::new());
-        let _ = self.outbound.send(opened);
+        let opened_outbound = self.outbound.clone();
+        tokio::spawn(async move { let _ = opened_outbound.critical_text(opened).await; });
         let outbound = self.outbound.clone();
         let sessions = Arc::clone(&self.sessions);
         let task_id = watch_id.clone();
@@ -149,7 +153,7 @@ fn watch_root(
 // The watch task: notify events -> debounce -> gitignore filter -> frames
 // ---------------------------------------------------------------------------
 
-async fn run_watch(watch_id: &str, root: &Path, outbound: &UnboundedSender<String>) {
+async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
     use notify::Watcher as _;
     let (event_tx, mut event_rx) =
         channel::<Result<notify::Event, notify::Error>>(MAX_PENDING_NOTIFY_EVENTS);
@@ -160,20 +164,20 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &UnboundedSender<Strin
     }) {
         Ok(watcher) => watcher,
         Err(error) => {
-            let _ = outbound.send(watch_error_frame(
+            let _ = outbound.critical_text(watch_error_frame(
                 watch_id,
                 wire::WorkspaceErrorCode::Failed,
                 &format!("could not start the watcher: {error}"),
-            ));
+            )).await;
             return;
         }
     };
     if let Err(error) = watcher.watch(root, notify::RecursiveMode::Recursive) {
-        let _ = outbound.send(watch_error_frame(
+        let _ = outbound.critical_text(watch_error_frame(
             watch_id,
             wire::WorkspaceErrorCode::Failed,
             &format!("could not watch {}: {error}", root.display()),
-        ));
+        )).await;
         return;
     }
     let mut matcher = build_ignore_matcher(root);
@@ -220,19 +224,19 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &UnboundedSender<Strin
                 overflow: overflow.then_some(true),
             })
             .unwrap_or_else(|_| String::new());
-            if outbound.send(frame).is_err() {
-                break;
+            if outbound.try_watch_text(frame).is_err() {
+                overflowed.store(true, Ordering::Release);
             }
         }
         if saw_ignore_file {
             matcher = build_ignore_matcher(root);
         }
         if let Some(error) = fatal {
-            let _ = outbound.send(watch_error_frame(
+            let _ = outbound.critical_text(watch_error_frame(
                 watch_id,
                 wire::WorkspaceErrorCode::Failed,
                 &format!("the watcher died: {error}"),
-            ));
+            )).await;
             break;
         }
     }
@@ -407,6 +411,7 @@ fn collect_changes(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::{OutboundFrame, OutboundSink};
     use serde_json::Value;
 
     fn scratch(name: &str) -> PathBuf {
@@ -429,22 +434,28 @@ mod tests {
         }
     }
 
-    async fn next_frame(rx: &mut UnboundedReceiver<String>, what: &str) -> Value {
-        let text = tokio::time::timeout(Duration::from_secs(10), rx.recv())
+    async fn next_frame(
+        critical: &mut Receiver<OutboundFrame>,
+        watch: &mut Receiver<OutboundFrame>,
+        what: &str,
+    ) -> Value {
+        let frame = tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::select! { biased; frame = critical.recv() => frame, frame = watch.recv() => frame }
+        })
             .await
             .unwrap_or_else(|_| panic!("no {what} frame within 10s"))
             .expect("channel open");
-        serde_json::from_str(&text).expect("valid frame json")
+        serde_json::from_str(&frame.text).expect("valid frame json")
     }
 
     #[tokio::test]
     async fn watch_streams_debounced_changes_for_a_write() {
         let root = scratch("stream");
         std::fs::write(root.join("seed.txt"), "seed\n").expect("seed");
-        let (tx, mut rx) = unbounded_channel::<String>();
-        let registry = WatchRegistry::new(tx);
+        let (sink, mut critical, mut watch) = OutboundSink::channels();
+        let registry = WatchRegistry::new(sink);
         registry.open(open_frame("w1", &root), None);
-        let opened = next_frame(&mut rx, "opened").await;
+        let opened = next_frame(&mut critical, &mut watch, "opened").await;
         assert_eq!(opened["type"], "fs_watch_opened");
         assert_eq!(opened["watchId"], "w1");
         assert_eq!(opened["root"].as_str(), root.to_str());
@@ -452,7 +463,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(400)).await;
         std::fs::write(root.join("fresh.txt"), "hello\n").expect("write");
         let event = loop {
-            let frame = next_frame(&mut rx, "change").await;
+            let frame = next_frame(&mut critical, &mut watch, "change").await;
             assert_eq!(frame["type"], "fs_watch_event");
             let changes = frame["changes"].as_array().expect("changes").clone();
             if changes.iter().any(|change| change["path"] == "fresh.txt") {
@@ -466,25 +477,25 @@ mod tests {
     #[tokio::test]
     async fn watch_refuses_typed_and_respects_the_session_cap() {
         let root = scratch("refuse");
-        let (tx, mut rx) = unbounded_channel::<String>();
-        let registry = WatchRegistry::new(tx);
+        let (sink, mut critical, mut watch) = OutboundSink::channels();
+        let registry = WatchRegistry::new(sink);
         // A root outside the allowed list refuses path_forbidden.
         let mut outside = open_frame("w-out", &root);
         outside.root = Some("/etc".to_owned());
         registry.open(outside, None);
-        let refusal = next_frame(&mut rx, "refusal").await;
+        let refusal = next_frame(&mut critical, &mut watch, "refusal").await;
         assert_eq!(refusal["type"], "fs_watch_error");
         assert_eq!(refusal["code"], "path_forbidden");
         // Session cap: the 17th watch refuses watch_limit.
         for index in 0..WATCH_MAX_SESSIONS {
             registry.open(open_frame(&format!("w{index}"), &root), None);
-            let opened = next_frame(&mut rx, "opened").await;
+            let opened = next_frame(&mut critical, &mut watch, "opened").await;
             assert_eq!(opened["type"], "fs_watch_opened", "watch {index}");
         }
         let mut over_cap = open_frame("w-past-cap", &root);
         over_cap.root = Some("/path/that/does/not/exist".to_owned());
         registry.open(over_cap, None);
-        let capped = next_frame(&mut rx, "watch_limit").await;
+        let capped = next_frame(&mut critical, &mut watch, "watch_limit").await;
         assert_eq!(capped["type"], "fs_watch_error");
         assert_eq!(capped["code"], "watch_limit");
     }
