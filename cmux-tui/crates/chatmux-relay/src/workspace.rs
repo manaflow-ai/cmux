@@ -436,7 +436,7 @@ fn open_no_follow(path: &Path) -> std::io::Result<std::fs::File> {
 /// in after the canonical check (actions.mjs readUtf8NoFollow).
 fn read_bytes_no_follow(path: &Path, max_bytes: usize) -> std::io::Result<Vec<u8>> {
     use std::io::Read as _;
-    let mut file = open_no_follow(path)?;
+    let file = open_no_follow(path)?;
     let mut bytes = Vec::with_capacity(max_bytes.saturating_add(1));
     file.take(max_bytes.saturating_add(1) as u64).read_to_end(&mut bytes)?;
     Ok(bytes)
@@ -879,7 +879,7 @@ async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refu
     let mut child = git_command(&root, &["status", "--porcelain=v2", "--branch", "-z"])
         .spawn()
         .map_err(|error| Refusal::failed(format!("could not run git: {error}")))?;
-    let Some(mut stdout) = child.stdout.take() else {
+    let Some(stdout) = child.stdout.take() else {
         return Err(Refusal::failed("git status produced no stdout pipe"));
     };
     use tokio::io::AsyncReadExt as _;
@@ -1215,7 +1215,6 @@ impl Connection {
                 return;
             }
         };
-        let request_id = request.request_id.clone();
         let task = async move {
             let request_id = request.request_id.clone();
             let outcome = execute(&runtime, &local_observe, request, permit).await;
