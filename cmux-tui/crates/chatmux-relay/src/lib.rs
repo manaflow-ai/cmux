@@ -12,6 +12,7 @@ pub mod enrollment;
 pub mod error;
 pub mod fingerprint;
 pub mod pairing;
+pub mod preview_proxy;
 pub mod prompt;
 pub mod pty;
 #[cfg(unix)]
@@ -19,3 +20,5 @@ pub mod pty_deps;
 pub mod session;
 pub mod trust;
 pub mod wire;
+pub mod watch;
+pub mod workspace;
