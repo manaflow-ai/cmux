@@ -1024,7 +1024,7 @@ async fn run_git_diff(
     let mut patch = String::new();
     let mut current_file_start = 0_usize;
     let mut capped = false;
-    let mut truncated = stdout_capped;
+    let mut truncated = false;
     let mut files: i64 = 0;
     let mut additions: i64 = 0;
     let mut deletions: i64 = 0;

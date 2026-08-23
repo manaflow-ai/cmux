@@ -2159,10 +2159,24 @@ pub const Client = struct {
             options.session,
         );
         defer allocator.free(path);
-        const resolved = if (options.socket_path == null and !(try raw.transport.hasSocketOverride()))
-            try raw.transport.connectResolvedWithLegacyFallback(allocator, path, options.session, options.timeout_ms)
-        else
-            .{ .connection = try raw.transport.connectUnixWithTimeout(allocator, path, options.timeout_ms), .path = try allocator.dupe(u8, path) };
+        const Resolved = struct {
+            connection: raw.transport.Connection,
+            path: []u8,
+        };
+        const resolved: Resolved = if (options.socket_path == null and !(try raw.transport.hasSocketOverride())) blk: {
+            const fallback = try raw.transport.connectResolvedWithLegacyFallback(
+                allocator,
+                path,
+                options.session,
+                options.timeout_ms,
+            );
+            break :blk .{ .connection = fallback.connection, .path = fallback.path };
+        } else blk: {
+            const connection = try raw.transport.connectUnixWithTimeout(allocator, path, options.timeout_ms);
+            errdefer connection.deinit();
+            const owned_path = try allocator.dupe(u8, path);
+            break :blk .{ .connection = connection, .path = owned_path };
+        };
         var connection = resolved.connection;
         const effective_path = resolved.path;
         errdefer connection.deinit();
