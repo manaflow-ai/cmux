@@ -3,11 +3,11 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `feat-tui-tech-debt-wave1-clean`.
-Current integration code tip: `6e15ea5f38`.
+Current integration code tip: `51a66ad061`.
 The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
 The combined review PR is `https://github.com/manaflow-ai/cmux/pull/10602`.
 
-Subagent ledger: at least 100 substantive agent turns are complete in this
+Subagent ledger: at least 120 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
 reviews, and merge gates. It excludes empty or duplicate turns. The requested
 10,000-session target is not reached. I will not create empty sessions to
@@ -113,9 +113,15 @@ red/green behavior proof.
    explicit shutdown awaits listeners but not all admitted work. A future
    cancellation-token design must thread through dispatch and WebSocket
    upgrades before claiming deterministic shutdown.
-6. The final exact-head hosted run must include the SDK MSRV job, relay request
-   cap, parser flush, diagnostics logging, SSH reaping, and per-binary manifest
-   changes. Run `32638599661` is an earlier pre-final-tip run.
+6. GitStatus and GitDiff children use `kill_on_drop`, but the generic timeout
+   can drop the future before an explicit kill-and-reap await. A cleanup design
+   must retain child ownership without letting descendants or permits escape.
+7. Over-capacity or duplicate relay `Incoming` frames are intentionally dropped
+   today. The wire protocol has no bounded rejection frame, so adding one needs
+   a protocol decision.
+8. The exact-head hosted run `32639615550` failed only because the hosted Rust
+   formatter found the pre-`51a66ad061` layout. Dispatch a new exact-head run
+   after the next code tip is stable.
 
 ## Wave-2 change log
 
@@ -157,6 +163,8 @@ red/green behavior proof.
 | `86ebb29994` | Correct `docs/remote.md` to describe static musl Linux packages instead of an incorrect glibc floor. | Docs-only; package contract and release docs agree. | Revert this documentation correction. |
 | `a2cffdf6c8`, `8712d2f0e2` | Bound non-abortable relay filesystem/search work with eight shared blocking permits and keep the formatting canonical. | The cap bounds work that can outlive a disconnect; queued requests remain cancellable, while admitted closures can still finish. Hosted relay tests remain required. | Revert both commits together to restore unbounded blocking-pool admission. |
 | `6e15ea5f38` | Document the `runtimeByBinary` raw-release contract, including per-file libc and package-specific wheel tags. | Docs match the generated manifest; external consumers still need to adopt the new field. | Revert this documentation commit only. |
+| `d76bc5539b` | Admit GitStatus and GitDiff through the shared eight-permit pool and build scopes on the blocking pool before filesystem validation. | Prevents cross-connection process admission growth and async-runtime filesystem stalls. Hosted Rust verification required. | Revert this commit with `51a66ad061` to restore the prior Git/scope path. |
+| `51a66ad061` | Apply the hosted formatter output for the shared admission helper. | `git diff --check` passed; exact hosted Rust formatter rerun required. | Revert this style-only commit. |
 
 Rejected or deferred after review: PTY resize error handling was already fixed
 by `80f40831dac`; Kitty transient-status suppression is already present as
@@ -178,11 +186,12 @@ complexity and host-state publication findings beyond its compile fixes.
 | [#10513](https://github.com/manaflow-ai/cmux/pull/10513) | Lawrence Chen | Stacked head `55caae646e`; dedicated heartbeat fix `18b05775d8` and dead idle-state cleanup `d599fd89e0` are prepared on the in-org stack, but the branch is dirty. | Land the foundational stack with hosted coverage before merging the liveness fixes. |
 | [#10521](https://github.com/manaflow-ai/cmux/pull/10521) | Lawrence Chen | Head `087bb3496a`; compile fixes pushed as `392bb50b92`, hosted run `32638928481` pending. Complexity and host-state race findings remain. | Do not merge until those findings have an explicit design resolution. |
 | [#10537](https://github.com/manaflow-ai/cmux/pull/10537) | dkta0 | External author branch. Candidate fix `65d19bc694` cannot be pushed to the external fork. | Do not push outside `manaflow-ai`; use an in-org re-cut only if the semantic fix is redesigned. |
-| [#10600](https://github.com/manaflow-ai/cmux/pull/10600) | Lawrence Chen | Head `296aa5170f`; clean GitHub state but canonical review found an unused `Session::snapshot` and formatter failures. | Fix or close as redundant after #10602; do not merge the current head. |
+| [#10600](https://github.com/manaflow-ai/cmux/pull/10600) | Lawrence Chen | Merged at `1e1800db80` after exact-head checks and clean canonical review. | Done. |
 | [#10601](https://github.com/manaflow-ai/cmux/pull/10601) | Lawrence Chen | Merged after exact-head checks and clean canonical autoreview. | Done. |
-| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Combined branch, current tip `86ebb29994`; exact hosted run `32638599661` covers the earlier `ff1095b6ed` tip and a final rerun is required after later commits. | Wait for final exact-head hosted checks and canonical review, then merge. |
+| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Combined branch, current tip `51a66ad061`; run `32639615550` failed on formatting before `51a66ad061`, so it is stale. | Dispatch an exact-head hosted run, run canonical review on that head, then merge if all gates are clean. |
 | [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Wording lint fixed at `9e0fe12be4`; protocol and inventory scripts pass, canonical review pending. | Merge only after required checks and canonical review pass. |
-| [#10522](https://github.com/manaflow-ai/cmux/pull/10522) | Lawrence Chen | Head `347193a886`; configurable provider-menu action added after review P2, checks rerunning. | Verify plain `m` and prefixed `Ctrl-b m` behavior before merge. |
+| [#10522](https://github.com/manaflow-ai/cmux/pull/10522) | Lawrence Chen | Head `c7d216507f`; configurable provider-menu action and focus-target correction are present, but protocol and inventory checks fail for missing `ProviderMenu` inventory. | Fix the contract inventory, rerun exact checks, then review. |
+| [#10254](https://github.com/manaflow-ai/cmux/pull/10254) | Lawrence Chen | Head `f1150fecbf`; socket fallback and override-precedence fixes are pushed, checks and exact-head review pending. | Do not merge until all SDK conformance checks and canonical review pass. |
 
 Do not merge stale or high-risk branches [#10131](https://github.com/manaflow-ai/cmux/pull/10131), [#10571](https://github.com/manaflow-ai/cmux/pull/10571), [#9022](https://github.com/manaflow-ai/cmux/pull/9022), [#9003](https://github.com/manaflow-ai/cmux/pull/9003), [#8999](https://github.com/manaflow-ai/cmux/pull/8999), [#9061](https://github.com/manaflow-ai/cmux/pull/9061), [#9062](https://github.com/manaflow-ai/cmux/pull/9062), or superseded stacks [#9922](https://github.com/manaflow-ai/cmux/pull/9922), [#10249](https://github.com/manaflow-ai/cmux/pull/10249), [#10254](https://github.com/manaflow-ai/cmux/pull/10254), and [#10259](https://github.com/manaflow-ai/cmux/pull/10259) without a fresh rebase and exact-head review.
 
@@ -203,6 +212,9 @@ Do not merge stale or high-risk branches [#10131](https://github.com/manaflow-ai
 | `~/.codex/sessions/2026/07/26/rollout-2026-07-26T20-57-20-019fa1b8-55e1-79b3-8448-f0b7ce2b4aba.jsonl` | Agents should create interactive TUI controls through stable SDK/CLI APIs without source edits. | Unfinished programmable UI/SDK request. |
 | `~/.codex/sessions/2026/07/25/rollout-2026-07-25T16-00-36-019f9b82-4e89-78d1-be5c-27ba09784768.jsonl` | Replace the 511 kernel PTY ceiling with a userspace terminal model while preserving shell/job-control compatibility and multiplexing. | Unimplemented architecture proposal; needs a stress and compatibility design before code. |
 | `~/.codex/sessions/2026/07/25/rollout-2026-07-25T20-51-15-019f9c8c-684c-7070-ad8d-3960d8e8f0f8.jsonl` | Every cloud TUI text input needs a visible cursor, word deletion, paste, mouse editing, and resize coverage. | Unverified acceptance detail for the cloud shell row. |
+| `~/.codex/sessions/2026/07/11/rollout-2026-07-11T17-37-14-019f53c1-c0fa-7c40-ac05-1ada23f5dc90.jsonl` | TUI release publishing must use GitHub Actions OIDC without a long-lived npm authenticator. | Completed through [PR #8330](https://github.com/manaflow-ai/cmux/pull/8330); retain tag and approval checks for future releases. |
+| `~/.claude/paste-cache/e5e0a602b679110b.txt` | Reboot restore/apply should return terminal tabs as exited tabs with old scrollback. | Unfinished; no current PR evidence. Needs a restart behavior proof. |
+| `~/.claude/paste-cache/18bda3edc0facc99.txt` | Linux terminal panes need a built cmux-tui backend wired through `CMUX_TUI_BINARY`. | Blocked launcher gap; no implementation evidence. |
 
 ## Official pattern references
 
