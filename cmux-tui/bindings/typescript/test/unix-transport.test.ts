@@ -20,6 +20,8 @@ import {
 import {
   UnixSocketTransport,
   defaultSocketPath,
+  defaultSocketPaths,
+  envSocketPath,
   validateSessionName,
   type UnixSocketTransportOptions,
 } from "../src/node-transport.js";
@@ -168,6 +170,40 @@ test("hashed session paths fall back to /tmp when the runtime base is too long",
     else process.env.XDG_RUNTIME_DIR = previousXdg;
     if (previousTmp === undefined) delete process.env.TMPDIR;
     else process.env.TMPDIR = previousTmp;
+  }
+});
+
+test("socket candidates keep long sessions bindable and short sessions canonical", () => {
+  withSocketRuntime(() => {
+    const capacity = process.platform === "darwin" ? 104 : 108;
+    const longSession = `legacy-${"x".repeat(200)}`;
+    const longCandidates = defaultSocketPaths(longSession);
+    assert.ok(longCandidates.length > 0);
+    assert.ok(longCandidates.every((candidate) => Buffer.byteLength(candidate) < capacity));
+    assert.ok(longCandidates.every((candidate) => candidate.includes("-hashed-")));
+    assert.ok(longCandidates.every((candidate) => !candidate.endsWith(`/${longSession}.sock`)));
+
+    const shortSession = "main";
+    const shortCandidates = defaultSocketPaths(shortSession);
+    assert.ok(shortCandidates[0].endsWith(`/cmux-tui-${process.getuid?.() ?? 0}/${shortSession}.sock`));
+    assert.equal(defaultSocketPath(shortSession), shortCandidates[0]);
+  });
+});
+
+test("explicit and environment socket paths remain authoritative", () => {
+  const previousTui = process.env.CMUX_TUI_SOCKET;
+  const previousMux = process.env.CMUX_MUX_SOCKET;
+  try {
+    process.env.CMUX_MUX_SOCKET = "/tmp/legacy-authority.sock";
+    delete process.env.CMUX_TUI_SOCKET;
+    assert.equal(envSocketPath(), "/tmp/legacy-authority.sock");
+    process.env.CMUX_TUI_SOCKET = "/tmp/explicit-authority.sock";
+    assert.equal(envSocketPath(), "/tmp/explicit-authority.sock");
+  } finally {
+    if (previousTui === undefined) delete process.env.CMUX_TUI_SOCKET;
+    else process.env.CMUX_TUI_SOCKET = previousTui;
+    if (previousMux === undefined) delete process.env.CMUX_MUX_SOCKET;
+    else process.env.CMUX_MUX_SOCKET = previousMux;
   }
 });
 
