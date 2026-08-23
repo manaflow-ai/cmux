@@ -2,10 +2,10 @@
 
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
-Integration branch: `feat-tui-tech-debt-wave1-clean`.
-Current integration tip: `31a8df3561` (PR head `31a8df3561d56e5ede737eaedee1671467ed1fef`).
-The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
-The combined review PR is `https://github.com/manaflow-ai/cmux/pull/10602`.
+Integration branch: `codex/chatmux-relay-techdebt`.
+Current integration tip: `d3aa21a541` (PR head `d3aa21a54164ebfc50539c72e5f85835a11e6b92`).
+The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/codex/chatmux-relay-techdebt`.
+The combined review PR is `https://github.com/manaflow-ai/cmux/pull/10603`.
 
 Subagent ledger: at least 64 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
