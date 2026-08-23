@@ -190,7 +190,7 @@ impl ClientConfig {
     /// [`Self::try_from_env_or_default_session`] to receive the validation error.
     pub fn from_env_or_default_session(session: &str) -> Self {
         let environment = env_socket_path();
-        let socket_path = compatibility_socket_path_for_session(session, environment.clone());
+        let socket_path = compatibility_socket_path_for_session(session, environment);
         Self::from_socket_path(socket_path)
     }
 
@@ -204,7 +204,7 @@ impl ClientConfig {
     /// compatibility helper.
     pub fn try_from_env_or_default_session(session: &str) -> Result<Self> {
         let environment = env_socket_path();
-        let socket_path = socket_path_for_session(session, environment.clone())?;
+        let socket_path = socket_path_for_session(session, environment)?;
         Ok(Self::from_socket_path(socket_path))
     }
 
@@ -246,7 +246,6 @@ pub struct ServerInfo {
 pub struct CmuxClient {
     config: ClientConfig,
     connection: JsonLineConnection,
-    allow_legacy_fallback: bool,
     next_id: u64,
     server: Option<ServerInfo>,
     buffered_events: VecDeque<Event>,
@@ -299,7 +298,6 @@ impl CmuxClient {
         Ok(Self {
             config,
             connection,
-            allow_legacy_fallback,
             next_id: 1,
             server: None,
             buffered_events: VecDeque::new(),
