@@ -1547,21 +1547,23 @@ struct BrowserPanelView: View {
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
+        .tint(devToolsColorOption.color)
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .safeHelp(String(localized: "browser.moreActions", defaultValue: "More Actions"))
         .accessibilityIdentifier("BrowserOverflowMenu")
     }
 
     private var browserVerticalMoreIcon: some View {
-        // macOS does not expose `ellipsis.vertical`; rotate the native
-        // template symbol so the dots share the other accessories' tint/weight.
-        CmuxSystemSymbolImage(
-            systemName: "ellipsis",
-            pointSize: devToolsButtonIconSize + 2,
-            weight: .medium
-        )
-            .foregroundStyle(devToolsColorOption.color)
-            .rotationEffect(.degrees(90))
+        // Menu labels flatten SwiftUI transforms on macOS, so draw the
+        // vertical affordance directly instead of rotating a horizontal glyph.
+        let dotDiameter = max(3, devToolsButtonIconSize * 0.34)
+        let dotSpacing = max(1.5, devToolsButtonIconSize * 0.18)
+        return VStack(spacing: dotSpacing) {
+            Circle().fill(devToolsColorOption.color)
+            Circle().fill(devToolsColorOption.color)
+            Circle().fill(devToolsColorOption.color)
+        }
+            .frame(width: dotDiameter, height: dotDiameter * 3 + dotSpacing * 2)
             .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
             .accessibilityHidden(true)
     }
