@@ -113,6 +113,8 @@ jobs:
               "license": "MIT",
               # Runtime constraints are per binary. Some GNU target-named
               # files are compatibility-name copies of musl-linked binaries.
+              # `libc` is present only for Linux artifacts; it is not
+              # applicable to macOS or Windows and is intentionally omitted.
               "runtimeByBinary": {f: runtime_for(f) for f in files},
               "binaries": {
                   f: hashlib.sha256(open(f, "rb").read()).hexdigest() for f in files
@@ -180,6 +182,7 @@ jobs:
           root = pathlib.Path(sys.argv[2])
           files = sorted(path for path in root.glob("cmux-mux-*") if path.is_file())
           def runtime_for(filename):
+              # `libc` is Linux-only; omit it for macOS and Windows entries.
               target = filename.removeprefix("cmux-mux-").removeprefix("hook-").removesuffix(".exe")
               if "apple-darwin" in target:
                   return {"os": "macos", "arch": "arm64" if target.startswith("aarch64") else "x86_64"}
