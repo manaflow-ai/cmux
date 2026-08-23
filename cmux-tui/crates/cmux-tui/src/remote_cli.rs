@@ -2120,7 +2120,7 @@ fn ensure_daemon(
     let mux_socket = mux_socket_override
         .map(Path::to_path_buf)
         .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from))
-        .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(session));
+        .map_or_else(|| cmux_tui_core::server::default_socket_path(session), Ok)?;
     if UnixStream::connect(&mux_socket).is_err() {
         let log = OpenOptions::new().create(true).append(true).open(&log_path)?;
         let mut mux_owner = Command::new(&executable);

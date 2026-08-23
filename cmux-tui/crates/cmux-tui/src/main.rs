@@ -1536,8 +1536,10 @@ fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
 }
 
 fn run_attach(args: Args) -> anyhow::Result<()> {
-    let socket_path =
-        args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    let socket_path = match args.socket {
+        Some(path) => path,
+        None => cmux_tui_core::server::default_socket_path(&args.session)?,
+    };
     let config = config::load();
     let messages = &localization::catalog().attach;
     let terminal = args
@@ -1627,8 +1629,10 @@ fn run_relay(args: Args) -> anyhow::Result<()> {
     if args.provider_cli_requested() {
         anyhow::bail!("relay cannot also select a machine provider");
     }
-    let socket_path =
-        args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    let socket_path = match args.socket {
+        Some(path) => path,
+        None => cmux_tui_core::server::default_socket_path(&args.session)?,
+    };
     let stream = cmux_tui_core::platform::transport::connect(&socket_path).map_err(|error| {
         anyhow::anyhow!("cannot connect relay to session socket {}: {error}", socket_path.display())
     })?;
@@ -1809,10 +1813,10 @@ fn run_server(
     let ws_token = args.ws_token.clone().or(config.server.ws_token.clone());
     // Compute the socket path up front so a normal interactive launch can
     // reuse an existing local session and surface children inherit it.
-    let socket_path = args
-        .socket
-        .clone()
-        .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    let socket_path = match args.socket.clone() {
+        Some(path) => path,
+        None => cmux_tui_core::server::default_socket_path(&args.session)?,
+    };
     if args.should_attach_existing(&ws_addr, &ws_token)
         && socket_path.exists()
         && let Ok(remote) = RemoteSession::connect(&socket_path)
