@@ -370,7 +370,7 @@ pub fn connectResolvedWithLegacyFallback(
     session: []const u8,
     timeout_ms: ?u32,
 ) !struct { connection: Connection, path: []u8 } {
-    const connection = connectUnixWithTimeout(allocator, path, timeout_ms) catch |failure| {
+    var connection = connectUnixWithTimeout(allocator, path, timeout_ms) catch |failure| {
         if (failure != error.FileNotFound and failure != error.ConnectionRefused) return failure;
         if (!isHashedSocketPath(path)) return failure;
         const legacy = try sessionSocketPath(allocator, "/tmp", session);
@@ -381,6 +381,9 @@ pub fn connectResolvedWithLegacyFallback(
         if (!unixSocketPathFits(legacy)) return failure;
         return .{ .connection = try connectUnixWithTimeout(allocator, legacy, timeout_ms), .path = legacy };
     };
+    // Keep the socket owned by this function until the result path is also
+    // allocated. If the duplicate fails, the connection must be released.
+    errdefer connection.deinit();
     return .{ .connection = connection, .path = try allocator.dupe(u8, path) };
 }
 
