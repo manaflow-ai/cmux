@@ -424,14 +424,21 @@ fn write_utf8_no_follow(
 }
 
 fn create_parent_dirs_no_symlink(path: &Path) -> Result<(), HostError> {
-    let mut current = if path.is_absolute() {
-        PathBuf::from(std::path::MAIN_SEPARATOR.to_string())
-    } else {
-        PathBuf::new()
-    };
+    // Keep the platform prefix in the path as we walk it. On Windows an
+    // absolute path starts with `Component::Prefix` (for example `C:`),
+    // followed by `Component::RootDir`. Rejecting the prefix makes every
+    // absolute write fail before the first directory is checked.
+    let mut current = PathBuf::new();
     for component in path.components() {
         match component {
-            Component::RootDir => continue,
+            Component::Prefix(prefix) => {
+                current.push(prefix.as_os_str());
+                continue;
+            }
+            Component::RootDir => {
+                current.push(Component::RootDir.as_os_str());
+                continue;
+            }
             Component::CurDir => continue,
             Component::Normal(name) => current.push(name),
             _ => return Err(HostError::Refusal("invalid parent path".to_owned())),
@@ -1257,6 +1264,20 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         // realpath so canonical checks match (macOS /tmp -> /private/tmp).
         std::fs::canonicalize(&dir).unwrap()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn create_parent_dirs_accepts_windows_drive_prefix() {
+        let mut root = std::env::temp_dir();
+        root.push(format!("chatmux-actions-drive-{}", std::process::id()));
+        let parent = root.join("nested").join("deeper");
+        let _ = std::fs::remove_dir_all(&root);
+
+        create_parent_dirs_no_symlink(&parent).unwrap();
+        assert!(parent.is_dir());
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
