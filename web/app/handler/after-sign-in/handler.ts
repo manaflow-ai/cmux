@@ -145,6 +145,20 @@ function verifiedNativeHandoff(
   return cookieStore.get(NATIVE_HANDOFF_COOKIE_NAME)?.value === handoffNonce;
 }
 
+/** Production-only jmux Login return: scheme/host/path exact; never HTML-token fallback. */
+function isJmuxNativeAuthCallback(href: string): boolean {
+  try {
+    const url = new URL(href);
+    return (
+      url.protocol === "cmux-dev-jmux:" &&
+      url.hostname === "auth-callback" &&
+      (url.pathname === "" || url.pathname === "/")
+    );
+  } catch {
+    return false;
+  }
+}
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -359,6 +373,14 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
           }
           return nativeReturnResponse(href, localizedMessages, switchAccountHref(request));
         }
+      }
+      // Deployed-host jmux Login: accept only verified handoff; never emit token HTML.
+      if (
+        isJmuxNativeAuthCallback(nativeReturnTo) &&
+        verifiedNativeHandoff(request, stackCookies, nativeReturnTo)
+      ) {
+        const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
+        if (href) return nativeRedirectResponse(request, href);
       }
       return NextResponse.redirect(new URL("/", request.url));
     }
