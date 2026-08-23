@@ -823,8 +823,10 @@ mod tests {
     use super::*;
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixListener;
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
     use std::thread;
-    use std::time::Instant;
+
+    static NEXT_TEST_SOCKET: AtomicU64 = AtomicU64::new(1);
 
     static SUBSCRIBE_METADATA: CommandMetadata = CommandMetadata {
         name: "subscribe",
@@ -835,11 +837,16 @@ mod tests {
     };
 
     fn temp_socket(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "cmux-sdk-{name}-{}-{}.sock",
-            std::process::id(),
-            Instant::now().elapsed().as_nanos()
-        ))
+        let id = NEXT_TEST_SOCKET.fetch_add(1, AtomicOrdering::Relaxed);
+        std::env::temp_dir().join(format!("cmux-sdk-{name}-{}-{id}.sock", std::process::id()))
+    }
+
+    struct SocketFile(PathBuf);
+
+    impl Drop for SocketFile {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
     }
 
     fn spawn_stream_server(
@@ -968,6 +975,35 @@ mod tests {
         let result =
             std::panic::catch_unwind(|| ClientConfig::from_env_or_default_session("../escape"));
         assert!(result.is_ok(), "source-compatible constructor must not panic");
+    }
+
+    #[test]
+    fn implicit_hashed_socket_falls_back_to_the_legacy_session_socket() {
+        let id = NEXT_TEST_SOCKET.fetch_add(1, AtomicOrdering::Relaxed);
+        let session = format!("raw-fallback-{}-{id}-{}", std::process::id(), "x".repeat(160));
+        let mut config = ClientConfig::from_socket_path(try_default_socket_path(&session).unwrap());
+        config.legacy_socket_path = Some(legacy_socket_path_for_session(&session));
+        assert!(is_hashed_socket(&config.socket_path));
+        let legacy = SocketFile(config.legacy_socket_path.clone().unwrap());
+        std::fs::create_dir_all(legacy.0.parent().unwrap()).unwrap();
+        let listener = UnixListener::bind(&legacy.0).unwrap();
+
+        let client = CmuxClient::connect(config).unwrap();
+        assert_eq!(client.config().socket_path, legacy.0);
+        drop(listener);
+    }
+
+    #[test]
+    fn explicit_socket_authority_does_not_install_a_legacy_fallback() {
+        let explicit = temp_socket("explicit-authority");
+        let raw = ClientConfig::from_socket_path(&explicit);
+        assert_eq!(raw.socket_path, explicit);
+        assert_eq!(raw.legacy_socket_path, None);
+
+        let inherited =
+            socket_path_for_session("../invalid-without-authority", Some(explicit.clone()))
+                .unwrap();
+        assert_eq!(inherited, explicit);
     }
 
     #[test]

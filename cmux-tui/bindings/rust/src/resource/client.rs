@@ -1055,6 +1055,18 @@ fn random_stream_id() -> Result<StreamId> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::net::UnixListener;
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+
+    static NEXT_TEST_SOCKET: AtomicU64 = AtomicU64::new(1);
+
+    struct SocketFile(PathBuf);
+
+    impl Drop for SocketFile {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
 
     #[test]
     fn cancellable_connect_reuses_one_socket_across_poll_slices() {
@@ -1123,5 +1135,59 @@ mod tests {
     fn compatibility_config_constructor_does_not_panic_for_invalid_session() {
         let result = std::panic::catch_unwind(|| Config::from_env_or_default_session("../escape"));
         assert!(result.is_ok(), "source-compatible constructor must not panic");
+    }
+
+    #[test]
+    fn implicit_hashed_socket_falls_back_to_the_legacy_session_socket() {
+        let id = NEXT_TEST_SOCKET.fetch_add(1, AtomicOrdering::Relaxed);
+        let session = format!("resource-fallback-{}-{id}-{}", std::process::id(), "x".repeat(160));
+        let mut config =
+            Config::from_socket_path(crate::client::try_default_socket_path(&session).unwrap());
+        config.legacy_socket_path = Some(crate::client::legacy_socket_path_for_session(&session));
+        assert!(
+            config
+                .socket_path
+                .parent()
+                .and_then(std::path::Path::file_name)
+                .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
+        );
+        let legacy = SocketFile(config.legacy_socket_path.clone().unwrap());
+        std::fs::create_dir_all(legacy.0.parent().unwrap()).unwrap();
+        let listener = UnixListener::bind(&legacy.0).unwrap();
+
+        let client = Client::connect(config).unwrap();
+        assert_eq!(client.config().socket_path, legacy.0);
+        drop(listener);
+    }
+
+    #[test]
+    fn explicit_socket_authority_does_not_install_a_legacy_fallback() {
+        let id = NEXT_TEST_SOCKET.fetch_add(1, AtomicOrdering::Relaxed);
+        let explicit = std::env::temp_dir()
+            .join(format!("cmux-resource-explicit-{}-{id}.sock", std::process::id()));
+        let config = Config::from_socket_path(&explicit);
+        assert_eq!(config.socket_path, explicit);
+        assert_eq!(config.legacy_socket_path, None);
+    }
+
+    #[test]
+    fn protocol_retry_classification_preserves_the_typed_retryable_field() {
+        for retryable in [false, true] {
+            let error = decode_protocol_error(&serde_json::json!({
+                "code": "resource.busy",
+                "message": "try later",
+                "details": {"resource": "workspace_test"},
+                "retryable": retryable,
+            }))
+            .unwrap();
+            assert!(matches!(
+                error,
+                Error::Protocol {
+                    code,
+                    retryable: actual,
+                    ..
+                } if code == "resource.busy" && actual == retryable
+            ));
+        }
     }
 }
