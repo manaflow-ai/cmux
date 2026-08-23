@@ -63,6 +63,21 @@ public final class SocketDiscovery {
         return resolve(null, session);
     }
 
+    /** Compatibility path for servers that still publish a raw short-session socket. */
+    static Path legacyRawFallback(Path resolved, String session) {
+        if (nonBlank(System.getenv("CMUX_TUI_SOCKET")) != null
+                || nonBlank(System.getenv("CMUX_MUX_SOCKET")) != null) return null;
+        validateSession(session);
+        String uid = currentUid();
+        String root = nonBlank(System.getenv("XDG_RUNTIME_DIR"));
+        if (root == null) root = nonBlank(System.getenv("TMPDIR"));
+        if (root == null) root = "/tmp";
+        Path hashed = Path.of(root, "cmux-tui-hashed-" + uid, sessionDigest(session) + ".sock");
+        Path hashedTmp = Path.of("/tmp", "cmux-tui-hashed-" + uid, sessionDigest(session) + ".sock");
+        if (!resolved.equals(hashed) && !resolved.equals(hashedTmp)) return null;
+        return Path.of("/tmp", "cmux-tui-" + uid, session + ".sock");
+    }
+
     public static void validateSession(String session) {
         Objects.requireNonNull(session, "session");
         if (session.isEmpty() || session.equals(".") || session.equals("..")) {
