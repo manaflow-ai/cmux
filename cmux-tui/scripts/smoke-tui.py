@@ -71,16 +71,16 @@ def fallback_socket_path():
     return os.path.join(base, f"cmux-tui-{os.getuid()}", f"{SESSION}.sock")
 
 def wait_for_control_socket(server, seconds=15):
-    deadline = time.time() + seconds
+    deadline = time.monotonic() + seconds
     output = []
     assert server.stdout is not None
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         if server.poll() is not None:
             rest = server.stdout.read() or ""
             if rest:
                 output.append(rest)
             break
-        wait = min(0.1, max(0.0, deadline - time.time()))
+        wait = min(0.1, max(0.0, deadline - time.monotonic()))
         readable, _, _ = select.select([server.stdout], [], [], wait)
         if not readable:
             continue
@@ -91,8 +91,8 @@ def wait_for_control_socket(server, seconds=15):
         match = CONTROL_SOCKET_RE.search(line.strip())
         if match:
             path = match.group(1)
-            socket_deadline = time.time() + 5
-            while time.time() < socket_deadline:
+            socket_deadline = time.monotonic() + 5
+            while time.monotonic() < socket_deadline:
                 if os.path.exists(path):
                     return path
                 if server.poll() is not None:
@@ -177,9 +177,9 @@ def send_prefix_t_until_tab_count(count):
     raise AssertionError(last)
 
 def wait_for_pane_count(count, seconds=15):
-    deadline = time.time() + seconds
+    deadline = time.monotonic() + seconds
     last = None
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         drain(0.2)
         workspaces = tree()
         if workspaces:
@@ -277,8 +277,8 @@ def answer_host_color_queries(chunk):
 
 def drain(seconds):
     global output, keyboard_probe_answers
-    end = time.time() + seconds
-    while time.time() < end:
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
         r, _, _ = select.select([fd], [], [], 0.1)
         if r:
             try:
@@ -293,9 +293,9 @@ def drain(seconds):
                 break
 
 def wait_screen_contains(surface_id, needle, seconds=45):
-    deadline = time.time() + seconds
+    deadline = time.monotonic() + seconds
     last = ""
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         drain(0.2)
         screen = rpc({"id": 300, "cmd": "read-screen", "surface": surface_id})
         last = screen["data"]["text"]
@@ -304,9 +304,9 @@ def wait_screen_contains(surface_id, needle, seconds=45):
     raise AssertionError(last[-500:])
 
 def wait_any_screen_contains(surface_ids, needle, seconds=45):
-    deadline = time.time() + seconds
+    deadline = time.monotonic() + seconds
     last = {}
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         drain(0.2)
         for surface_id in surface_ids:
             screen = rpc({"id": 301, "cmd": "read-screen", "surface": surface_id})
@@ -316,9 +316,9 @@ def wait_any_screen_contains(surface_ids, needle, seconds=45):
     raise AssertionError({surface: text[-500:] for surface, text in last.items()})
 
 def wait_render_contains(needle, seconds=15):
-    deadline = time.time() + seconds
+    deadline = time.monotonic() + seconds
     last = ""
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         drain(0.2)
         last = render_text_snapshot(output)
         if needle in last:
@@ -326,18 +326,18 @@ def wait_render_contains(needle, seconds=15):
     raise AssertionError(last[-1200:])
 
 def wait_render_excludes(needle, seconds=15, stable_seconds=0.5):
-    deadline = time.time() + seconds
+    deadline = time.monotonic() + seconds
     last = ""
     absent_since = None
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         drain(0.2)
         last = render_text_snapshot(output)
         if needle in last:
             absent_since = None
             continue
         if absent_since is None:
-            absent_since = time.time()
-        elif time.time() - absent_since >= stable_seconds:
+            absent_since = time.monotonic()
+        elif time.monotonic() - absent_since >= stable_seconds:
             return last
     raise AssertionError(last[-1200:])
 
@@ -530,8 +530,8 @@ def assert_snapshot_parser_controls():
 
 assert_snapshot_parser_controls()
 
-deadline = time.time() + 15
-while not os.path.exists(SOCK) and time.time() < deadline:
+deadline = time.monotonic() + 15
+while not os.path.exists(SOCK) and time.monotonic() < deadline:
     drain(0.2)
 assert os.path.exists(SOCK), f"socket missing at {SOCK}"
 
@@ -540,8 +540,8 @@ assert os.path.exists(SOCK), f"socket missing at {SOCK}"
 # completed host probing and created the initial workspace, so wait for both
 # milestones instead of assigning them an arbitrary one-second budget.
 initial_tree = []
-deadline = time.time() + 15
-while time.time() < deadline:
+deadline = time.monotonic() + 15
+while time.monotonic() < deadline:
     drain(0.2)
     initial_tree = tree()
     if (
@@ -701,9 +701,9 @@ try:
     # Generous deadline: the shell may still be consuming the pasted
     # heredoc and the TUI coalesces frames (this raced at 2s, and 8s
     # still fails on saturated CI runners).
-    end = time.time() + 30
-    while time.time() < end and not (data.endswith(b'\\x1b\\\\') or data.endswith(b'\\x07')):
-        r, _, _ = select.select([fd], [], [], max(0, end - time.time()))
+    end = time.monotonic() + 30
+    while time.monotonic() < end and not (data.endswith(b'\\x1b\\\\') or data.endswith(b'\\x07')):
+        r, _, _ = select.select([fd], [], [], max(0, end - time.monotonic()))
         if not r:
             break
         data += os.read(fd, 128)
@@ -1089,8 +1089,8 @@ print("right-click menu -> close tab ok")
 
 # Prefix + d: quit.
 write_all(fd, b"\x02d")
-deadline = time.time() + 5
-while time.time() < deadline:
+deadline = time.monotonic() + 5
+while time.monotonic() < deadline:
     done, status = os.waitpid(pid, os.WNOHANG)
     if done:
         print("clean quit, status", status)
