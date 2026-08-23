@@ -583,7 +583,8 @@ fn send_to_slot(shared: &ProxyShared, role: PeerRole, text: String) {
     if let Ok(mut slot) = peer_slot(shared, role).lock()
         && let Some(peer) = slot.as_ref()
     {
-        if enqueue_message(&peer.tx, &peer.queued_bytes, tungstenite::Message::text(text)).is_err() {
+        if enqueue_message(&peer.tx, &peer.queued_bytes, tungstenite::Message::text(text)).is_err()
+        {
             // A saturated peer is no longer coherent. Remove it instead of
             // silently dropping a CDP frame, then let its writer terminate.
             let _ = slot.take();
