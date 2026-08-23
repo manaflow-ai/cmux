@@ -43,7 +43,7 @@ jobs:
           git fetch --force --tags
           latest_tag="$(
             git tag --merged HEAD --list 'cmux-tui-v*' --sort=-v:refname |
-              grep -E '^cmux-tui-v[0-9]+\.[0-9]+\.[0-9]+$' |
+              grep -E '^cmux-tui-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' |
               head -n 1 || true
           )"
           if [[ -z "$latest_tag" ]]; then
@@ -95,6 +95,7 @@ jobs:
       - build-package
     runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner
     permissions:
+      actions: read
       contents: read
       id-token: write
     environment:
@@ -128,6 +129,33 @@ jobs:
       - name: Install npm with OIDC support
         run: npm install -g npm@11.5.1
 
+      - name: Revalidate packed npm contract
+        run: |
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --npm-packages dist/npm-packages \
+            --version "${{ needs.version.outputs.npm_version }}" \
+            --install-npm-package cmux-tui-linux-x64
+
+      - name: Verify independent environment approval policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ENVIRONMENT: npm-tui
+        run: |
+          set -euo pipefail
+          environment_json="$RUNNER_TEMP/tui-release-environment.json"
+          if ! gh api \
+            --hostname github.com \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "repos/$GITHUB_REPOSITORY/environments/$RELEASE_ENVIRONMENT" \
+            > "$environment_json" 2>/dev/null; then
+            echo "Unable to verify the release environment protection policy; refusing to publish." >&2
+            exit 1
+          fi
+          python3 cmux-tui/bindings/verify_release_environment_policy.py \
+            --environment "$RELEASE_ENVIRONMENT" \
+            --environment-json "$environment_json"
+
       - name: Publish platform packages with nightly dist-tag
         run: |
           set -euo pipefail
@@ -151,17 +179,50 @@ jobs:
       - build-package
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
+      actions: read
       contents: read
       id-token: write
     environment:
       name: pypi-tui
       url: https://pypi.org/p/cmux
     steps:
+      - name: Checkout immutable nightly source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.version.outputs.head_sha }}
+
       - name: Download PyPI wheels
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: pypi-wheels
           path: dist
+
+      - name: Revalidate PyPI wheel contract
+        run: |
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --pypi-wheels dist \
+            --version "${{ needs.version.outputs.pypi_version }}"
+
+      - name: Verify independent environment approval policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ENVIRONMENT: pypi-tui
+        run: |
+          set -euo pipefail
+          environment_json="$RUNNER_TEMP/tui-release-environment.json"
+          if ! gh api \
+            --hostname github.com \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "repos/$GITHUB_REPOSITORY/environments/$RELEASE_ENVIRONMENT" \
+            > "$environment_json" 2>/dev/null; then
+            echo "Unable to verify the release environment protection policy; refusing to publish." >&2
+            exit 1
+          fi
+          python3 cmux-tui/bindings/verify_release_environment_policy.py \
+            --environment "$RELEASE_ENVIRONMENT" \
+            --environment-json "$environment_json"
 
       - name: Publish nightly package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1

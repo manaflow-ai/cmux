@@ -980,6 +980,164 @@ class RegistryArtifactTests(unittest.TestCase):
             )
         self.assertEqual(result, 0)
 
+    def test_tui_npm_partial_retry_accepts_exact_postwrite_state(self) -> None:
+        with mock.patch.object(
+            reconcile,
+            "registry_status",
+            side_effect=(reconcile.MISSING, reconcile.MATCH),
+        ), mock.patch.object(
+            reconcile,
+            "_run_publish_command",
+            return_value=types.SimpleNamespace(returncode=7),
+        ) as publish:
+            result = reconcile.main(
+                [
+                    "publish",
+                    "--registry",
+                    "npm",
+                    "--package",
+                    "cmux-tui-linux-x64",
+                    "--version",
+                    "1.2.3",
+                    "--artifact",
+                    str(self.artifact),
+                    "--wait-seconds",
+                    "120",
+                    "--",
+                    "npm",
+                    "publish",
+                    "--provenance",
+                ]
+            )
+        self.assertEqual(result, 0)
+        publish.assert_called_once()
+
+    def test_tui_npm_exact_match_skips_republish(self) -> None:
+        with mock.patch.object(
+            reconcile, "registry_status", return_value=reconcile.MATCH
+        ), mock.patch.object(reconcile, "_run_publish_command") as publish:
+            result = reconcile.main(
+                [
+                    "publish",
+                    "--registry",
+                    "npm",
+                    "--package",
+                    "cmux-tui-linux-x64",
+                    "--version",
+                    "1.2.3",
+                    "--artifact",
+                    str(self.artifact),
+                    "--",
+                    "npm",
+                    "publish",
+                    "--provenance",
+                ]
+            )
+        self.assertEqual(result, 0)
+        publish.assert_not_called()
+
+    def test_tui_npm_mismatch_fails_before_republish(self) -> None:
+        with mock.patch.object(
+            reconcile,
+            "registry_status",
+            side_effect=reconcile.ArtifactMismatch("registry bytes differ"),
+        ), mock.patch.object(reconcile, "_run_publish_command") as publish:
+            result = reconcile.main(
+                [
+                    "publish",
+                    "--registry",
+                    "npm",
+                    "--package",
+                    "cmux-tui-linux-x64",
+                    "--version",
+                    "1.2.3",
+                    "--artifact",
+                    str(self.artifact),
+                    "--",
+                    "npm",
+                    "publish",
+                    "--provenance",
+                ]
+            )
+        self.assertEqual(result, 1)
+        publish.assert_not_called()
+
+    def test_tui_pypi_exact_match_skips_republish(self) -> None:
+        with mock.patch.object(
+            reconcile, "registry_status", return_value=reconcile.MATCH
+        ), mock.patch.object(reconcile, "_run_publish_command") as publish:
+            result = reconcile.main(
+                [
+                    "publish",
+                    "--registry",
+                    "pypi",
+                    "--package",
+                    "cmux",
+                    "--version",
+                    "1.2.3",
+                    "--artifact",
+                    str(self.artifact),
+                    "--",
+                    "pypa-upload",
+                ]
+            )
+        self.assertEqual(result, 0)
+        publish.assert_not_called()
+
+    def test_tui_pypi_partial_retry_accepts_exact_postwrite_state(self) -> None:
+        with mock.patch.object(
+            reconcile,
+            "registry_status",
+            side_effect=(reconcile.MISSING, reconcile.MATCH),
+        ), mock.patch.object(
+            reconcile,
+            "_run_publish_command",
+            return_value=types.SimpleNamespace(returncode=7),
+        ) as publish:
+            result = reconcile.main(
+                [
+                    "publish",
+                    "--registry",
+                    "pypi",
+                    "--package",
+                    "cmux",
+                    "--version",
+                    "1.2.3",
+                    "--artifact",
+                    str(self.artifact),
+                    "--wait-seconds",
+                    "120",
+                    "--",
+                    "pypa-upload",
+                ]
+            )
+        self.assertEqual(result, 0)
+        publish.assert_called_once()
+
+    def test_tui_pypi_mismatch_fails_before_republish(self) -> None:
+        with mock.patch.object(
+            reconcile,
+            "registry_status",
+            side_effect=reconcile.ArtifactMismatch("registry hash differs"),
+        ), mock.patch.object(reconcile, "_run_publish_command") as publish:
+            result = reconcile.main(
+                [
+                    "publish",
+                    "--registry",
+                    "pypi",
+                    "--package",
+                    "cmux",
+                    "--version",
+                    "1.2.3",
+                    "--artifact",
+                    str(self.artifact),
+                    "--",
+                    "pypa-upload",
+                ]
+            )
+        self.assertEqual(result, 1)
+        publish.assert_not_called()
+
     def test_successful_publish_fails_without_postwrite_registry_match(self) -> None:
         with mock.patch.object(
             reconcile,

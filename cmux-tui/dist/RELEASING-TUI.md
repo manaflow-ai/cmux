@@ -25,6 +25,13 @@ Linux packages contain static musl binaries that run on both glibc and musl
 distributions. PyPI publishes each Linux binary under matching manylinux and
 musllinux wheel tags so installers on both runtime families can resolve it.
 
+Before upload, the package contract validator checks the exact five npm package
+trees, including both the TUI binary and hook, then runs `npm pack` and an
+offline install of the matching Linux package. It checks the exact six PyPI
+wheels, their platform tags, metadata, `RECORD` hashes, and executable modes.
+The Windows binary and hook are raw release artifacts only. They are not in the
+npm or PyPI package set.
+
 ## One-time registry setup
 
 Add npm Trusted Publishers for all five npm package names:
@@ -47,6 +54,11 @@ Add a PyPI Trusted Publisher for:
 - Repository: `manaflow-ai/cmux`
 - Workflow: `tui-publish-pypi.yml`
 - Environment: `pypi-tui`
+
+Configure both `npm-tui` and `pypi-tui` for protected branches only, at least
+one required reviewer, `Prevent self-review`, and disabled administrator
+bypass. Each publisher reads the live environment policy before it can access
+registry publishing, and fails closed if any of these settings are missing.
 
 Nightly publishing uses the same environments. Add trusted publishers for:
 
@@ -89,17 +101,19 @@ Use `.github/workflows/cmux-tui-release-cut.yml` from `main`.
 
 - Select `patch`, `minor`, or `major`, or provide an explicit `X.Y.Z` version.
 - The workflow reads the latest reachable `cmux-tui-vX.Y.Z` tag, validates the
-  new version is strictly greater, creates annotated tag `cmux-tui-vX.Y.Z` on
-  `main` HEAD, and pushes that tag.
+  new version is strictly greater, verifies the dispatch SHA is still the
+  current protected `main` commit immediately before tagging, creates annotated
+  tag `cmux-tui-vX.Y.Z` on that commit, and pushes that tag.
 - The tag is pushed with the default `GITHUB_TOKEN`, and GitHub suppresses
   workflow triggers for token-created events, so the release-cut workflow then
   explicitly dispatches `cmux-tui-release.yml` against the new tag with npm and
   PyPI publishing enabled.
 - `cmux-tui-release.yml` builds every target once, creates both registries'
   packages, and runs the Linux compatibility matrix. After those jobs pass, it
-  dispatches both top-level publishers with its own artifact run ID. This keeps
-  the configured trusted-publisher identities while avoiding registry-specific
-  rebuilds.
+  dispatches both top-level publishers with its own artifact run ID, waits for
+  each run ID to finish, and fails the release if either conclusion is not
+  successful. This keeps the configured trusted-publisher identities while
+  avoiding registry-specific rebuilds.
 - A manual `git push origin cmux-tui-vX.Y.Z` runs the artifact workflow without
   publishing. Use the release-cut workflow for a coordinated stable release.
 
@@ -111,8 +125,16 @@ checks the source workflow, tag, commit, and conclusion before downloading its
 package artifact. It never rebuilds the binaries. This also lets a failed
 publisher retry reuse the already verified artifacts.
 
-npm additionally requires `confirm_tui_cmux=true`. The platform packages are
-published first, then the `cmux` launcher.
+Both publishers additionally require `confirm_tui_cmux=true`. The npm platform
+packages are published first, then the `cmux` launcher. npm stable publishers
+share one concurrency lock for the global `latest` dist-tag and refuse to run
+when the registry already reports a newer stable version.
+
+Retries reconcile each immutable artifact before upload. npm compares the packed
+tarball digest and stable version state, while PyPI compares every wheel filename
+and SHA-256 value and stages only missing wheels. Exact matches are skipped; any
+mismatch, malformed response, or unproven registry state fails closed. The
+existing npm provenance and PyPI Trusted Publisher/OIDC steps remain in force.
 
 The shared artifact run exercises the generated npm and PyPI entrypoints across
 the supported glibc and musl distribution matrix on x86_64 and ARM64. A
@@ -121,3 +143,10 @@ compatibility regression therefore blocks both registry dispatches.
 The npm launcher publish deliberately does not pass `--tag`: when the TUI
 version is greater than `0.8.3`, this coordinated release takes over the npm
 `latest` dist-tag for `cmux` from the old CLI package.
+
+The npm publisher uses one `tui-publish-npm-latest` concurrency group with
+`cancel-in-progress: false`. GitHub's newer `queue: max` key can retain up to
+100 pending publishes, but the repository's pinned actionlint validator rejects
+that key. The workflow keeps the validator-compatible single pending run until
+the validator is upgraded. If GitHub replaces a pending run, the release waiter
+cannot confirm the exact dispatch and fails closed before reporting success.

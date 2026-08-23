@@ -21,7 +21,7 @@ on:
         default: false
         type: boolean
       confirm_tui_cmux:
-        description: "Set true only for the coordinated npm cmux TUI publish"
+        description: "Set true only for the coordinated cmux TUI registry publish"
         required: true
         default: false
         type: boolean
@@ -33,7 +33,7 @@ permissions: {}
 
 concurrency:
   group: cmux-tui-release-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   version:
@@ -49,6 +49,7 @@ jobs:
         env:
           DISPATCH_VERSION: ${{ inputs.version }}
           PUBLISH_NPM: ${{ inputs.publish_npm }}
+          PUBLISH_PYPI: ${{ inputs.publish_pypi }}
           CONFIRM_TUI_CMUX: ${{ inputs.confirm_tui_cmux }}
         run: |
           set -euo pipefail
@@ -56,7 +57,7 @@ jobs:
             echo "Stable artifacts require a cmux-tui-vX.Y.Z tag ref." >&2
             exit 1
           fi
-          [[ "$GITHUB_REF_NAME" =~ ^cmux-tui-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+          [[ "$GITHUB_REF_NAME" =~ ^cmux-tui-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
             echo "tag must match cmux-tui-vX.Y.Z" >&2
             exit 1
           }
@@ -68,6 +69,10 @@ jobs:
 
           if [[ "$PUBLISH_NPM" == "true" && "$CONFIRM_TUI_CMUX" != "true" ]]; then
             echo "npm publishing requires confirm_tui_cmux=true." >&2
+            exit 1
+          fi
+          if [[ "$PUBLISH_PYPI" == "true" && "$CONFIRM_TUI_CMUX" != "true" ]]; then
+            echo "PyPI publishing requires confirm_tui_cmux=true." >&2
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -88,6 +93,8 @@ jobs:
     if: ${{ inputs.publish_npm || inputs.publish_pypi }}
     needs: build-package
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # npm and PyPI waits are sequential, each bounded to 90 minutes.
+    timeout-minutes: 210
     permissions:
       actions: write
       contents: read
@@ -99,28 +106,93 @@ jobs:
       PUBLISH_NPM: ${{ inputs.publish_npm }}
       PUBLISH_PYPI: ${{ inputs.publish_pypi }}
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
       - name: Dispatch registry publishers
         run: |
           set -euo pipefail
+          npm_runs_endpoint="repos/$GITHUB_REPOSITORY/actions/workflows/tui-publish-npm.yml/runs?event=workflow_dispatch&per_page=100"
+          pypi_runs_endpoint="repos/$GITHUB_REPOSITORY/actions/workflows/tui-publish-pypi.yml/runs?event=workflow_dispatch&per_page=100"
+          npm_before_run_id=0
+          pypi_before_run_id=0
+          npm_dispatch_started_at=0
+          pypi_dispatch_started_at=0
+          npm_dispatched=false
+          pypi_dispatched=false
+          dispatch_failure=0
+          npm_conclusion="not-dispatched"
+          pypi_conclusion="not-dispatched"
           if [[ "$PUBLISH_NPM" == "true" ]]; then
-            gh workflow run tui-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" \
-              -f version="$VERSION" \
-              -f artifact_run_id="$ARTIFACT_RUN_ID" \
-              -f confirm_tui_cmux=true
+            npm_before_run_id="$(gh api "$npm_runs_endpoint" --jq '[.workflow_runs[].id] | max // 0')"
+            npm_dispatch_started_at="$(date +%s)"
           fi
           if [[ "$PUBLISH_PYPI" == "true" ]]; then
-            gh workflow run tui-publish-pypi.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" \
+            pypi_before_run_id="$(gh api "$pypi_runs_endpoint" --jq '[.workflow_runs[].id] | max // 0')"
+            pypi_dispatch_started_at="$(date +%s)"
+          fi
+          if [[ "$PUBLISH_NPM" == "true" ]]; then
+            if gh workflow run tui-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" \
               -f version="$VERSION" \
-              -f artifact_run_id="$ARTIFACT_RUN_ID"
+              -f artifact_run_id="$ARTIFACT_RUN_ID" \
+              -f confirm_tui_cmux=true; then
+              npm_dispatched=true
+            else
+              echo "npm publisher dispatch failed; continuing to reconcile any other dispatched publisher." >&2
+              dispatch_failure=1
+              npm_conclusion=dispatch-failure
+            fi
+          fi
+          if [[ "$PUBLISH_PYPI" == "true" ]]; then
+            if gh workflow run tui-publish-pypi.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" \
+              -f version="$VERSION" \
+              -f artifact_run_id="$ARTIFACT_RUN_ID" \
+              -f confirm_tui_cmux=true; then
+              pypi_dispatched=true
+            else
+              echo "PyPI publisher dispatch failed; continuing to reconcile any other dispatched publisher." >&2
+              dispatch_failure=1
+              pypi_conclusion=dispatch-failure
+            fi
+          fi
+
+          publisher_failure=0
+          if [[ "$npm_dispatched" == "true" ]]; then
+            if npm_result="$(
+              WAIT_TIMEOUT_SECONDS=5400 bash .github/scripts/wait-for-workflow-run.sh \
+                tui-publish-npm.yml "$TAG" "$GITHUB_SHA" \
+                "$npm_dispatch_started_at" "$npm_before_run_id"
+            )"; then
+              IFS=$'\t' read -r _ npm_conclusion <<<"$npm_result"
+            else
+              publisher_failure=1
+              npm_conclusion=failure
+            fi
+          fi
+          if [[ "$pypi_dispatched" == "true" ]]; then
+            if pypi_result="$(
+              WAIT_TIMEOUT_SECONDS=5400 bash .github/scripts/wait-for-workflow-run.sh \
+                tui-publish-pypi.yml "$TAG" "$GITHUB_SHA" \
+                "$pypi_dispatch_started_at" "$pypi_before_run_id"
+            )"; then
+              IFS=$'\t' read -r _ pypi_conclusion <<<"$pypi_result"
+            else
+              publisher_failure=1
+              pypi_conclusion=failure
+            fi
           fi
           {
             echo "### Registry publishing"
             echo
-            echo "- Verified artifact run: $ARTIFACT_RUN_ID"
+            echo "- Verified artifacts: ready"
             if [[ "$PUBLISH_NPM" == "true" ]]; then
-              echo "- Dispatched npm publisher"
+              echo "- npm publisher: $npm_conclusion"
             fi
             if [[ "$PUBLISH_PYPI" == "true" ]]; then
-              echo "- Dispatched PyPI publisher"
+              echo "- PyPI publisher: $pypi_conclusion"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+          (( dispatch_failure == 0 && publisher_failure == 0 )) || exit 1
