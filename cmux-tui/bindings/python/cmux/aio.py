@@ -116,7 +116,9 @@ class ResourceStream(Generic[ValueT], AsyncIterator[StreamItem[ValueT]]):
                 timeout,
             )
             try:
-                await asyncio.wait((future,))
+                # Shield the executor future so cancellation reaches the stream
+                # protocol below, rather than cancelling the asyncio wrapper.
+                await asyncio.shield(future)
                 value = future.result()
             except asyncio.CancelledError:
                 await self.cancel()
@@ -285,11 +287,18 @@ class Client:
             cancel_event,
         )
         try:
-            await asyncio.wait((future,))
+            # The worker owns a request that must be drained after cancellation.
+            # Shield preserves that future while we signal cancellation below.
+            await asyncio.shield(future)
             return future.result()
         except asyncio.CancelledError:
             cancel_event.set()
-            await asyncio.wait((future,))
+            try:
+                await asyncio.shield(future)
+            except BaseException:
+                # Drain the worker result. The request cancellation exception
+                # is intentionally hidden by the caller's asyncio cancellation.
+                pass
             try:
                 future.result()
             except BaseException:
