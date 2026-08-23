@@ -3,14 +3,18 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `feat-tui-tech-debt-wave1-clean`.
-Current integration code tip: `638e536f03`.
+Current integration code tip: `eae4eacba991f30980547fbf2181fdfaf35722cb`.
 The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
 The current integration sequence includes the hosted formatter and verification
 fixes through `66e83c808f`, the replay preflight correction `c867048c1d`, the
 safe scoped-attach series through `dfa4ef3b6a`, manifest and socket-contract
 hardening, Unix/Admin task ownership, browser guard coverage, and localization
-through `638e536f03`. Localization recovery is recorded in `01c4a2de8d`
-and `638e536f03`.
+through `638e536f03`. Localization recovery is recorded in `01c4a2de8d`,
+`638e536f03`, and `f04c5409a0`. The aggregate tail adds legacy hashed-socket
+fallbacks for Python, TypeScript, Rust, Java, Zig, and C++, bounded Unix JSON
+readers, wire-identity preflight, independent config-section recovery,
+localization recovery, and systemd quoting fixes through the exact current HEAD
+`eae4eacba991f30980547fbf2181fdfaf35722cb`.
 
 Subagent ledger: at least 180 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
@@ -131,6 +135,15 @@ red/green behavior proof.
    PTY tap still has blocking I/O, process-group, and log-permission risks.
    Rebase and remove or repair that tap before treating the PR as a base for
    liveness work.
+10. This aggregate has no local Rust compile or test evidence. Treat every
+    Rust behavior claim above as pending hosted verification, even where a
+    focused source or diff check passed.
+11. Relay child cancellation and reaping are still incomplete for generic
+    timeout paths. The current changes do not provide a durable cancellation
+    token and awaited child ownership for every relay child.
+12. Durable Objects integration is not implemented. Cloud TUI lifecycle,
+    persistence, and reconnect claims must not be inferred from the local
+    relay and SDK hardening in this branch.
 
 ## Wave-2 change log
 
@@ -175,6 +188,17 @@ red/green behavior proof.
 | `d76bc5539b` | Admit GitStatus and GitDiff through the shared eight-permit pool and build scopes on the blocking pool before filesystem validation. | Prevents cross-connection process admission growth and async-runtime filesystem stalls. Hosted Rust verification required. | Revert this commit with `51a66ad061` to restore the prior Git/scope path. |
 | `51a66ad061` | Apply the hosted formatter output for the shared admission helper. | `git diff --check` passed; exact hosted Rust formatter rerun required. | Revert this style-only commit. |
 | `14bf092017` | Extract one injected Crossterm event-reader helper for blocking and timed input, with behavior coverage for poll/read ordering. | `git diff --check` passed; hosted run `32640497665` is required for Rust compilation and tests. | Revert this commit to restore duplicated input branches. |
+
+## Aggregate socket, relay, and recovery tail
+
+| Commit range | Change | Proof / residual risk | Revert |
+| --- | --- | --- | --- |
+| `7a9788b3f4` through `6eb2e4293e` | Apply the legacy hashed-session socket fallback consistently across Python, TypeScript, Rust, Java, Zig, and C++ resource clients, including Unix socket headers where required. | Cross-SDK behavior is aligned at the source level; no local Rust compile or test was run. Hosted SDK and protocol checks remain required. | Revert the SDK fallback commits as one compatibility change, then restore the previous hashed-only contract deliberately. |
+| `c254984b62` | Bound Unix JSON-line readers so a peer cannot grow an unbounded frame or line in memory. | Diff and source checks pass; hosted Rust coverage is required. The limit is a protocol policy and may reject oversized future messages. | Revert this bound only with an explicit replacement limit. |
+| `cbd64255b9`, `12f1d29eb2` | Validate wire identity during capability preflight and cover the mismatch behavior. | Prevents a capability reply from being accepted for the wrong connection. Rust compile/test remains hosted-only. | Revert both commits together to restore capability-only preflight. |
+| `696c600f67` | Recover valid config sections independently so one malformed section does not discard unrelated configuration. | Recovery behavior is covered by focused tests; hosted Rust verification remains required. | Revert this recovery change to restore all-or-nothing parsing. |
+| `d6f92ad2b4`, `f04c5409a0` | Add and localize mux recovery status messaging. | English and Japanese localization paths are updated; exact-head hosted UI/runtime verification remains open. | Revert the test and localization commits together. |
+| `3adcaf2c78` | Quote systemd `ExecStart` arguments safely for paths and values containing shell metacharacters. | Static and diff checks pass; hosted packaging/install verification remains required. | Revert this service-unit quoting fix only with a replacement escaping rule. |
 
 Rejected or deferred after review: PTY resize error handling was already fixed
 by `80f40831dac`; Kitty transient-status suppression is already present as
