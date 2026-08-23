@@ -1,7 +1,7 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_remote_protocol::REMOTE_PROTOCOL_VERSION;
 use serde::{Deserialize, Serialize};
@@ -413,6 +413,7 @@ impl SshBootstrapper {
                 )));
             }
         };
+        let started = Instant::now();
         let completion = tokio::time::timeout(self.config.timeout, async {
             // Drain both pipes concurrently so either stream can fill without
             // blocking the other stream or the child exit observation.
@@ -427,7 +428,15 @@ impl SshBootstrapper {
             Ok(Ok(result)) => result,
             Ok(Err(error)) => {
                 terminate_and_reap(&mut child).await;
-                return Err(error);
+                // Preserve the bootstrap contract when the timeout and an
+                // I/O error race under scheduler load. Once the budget has
+                // expired, callers must see Timeout regardless of which
+                // cancelled pipe reports first.
+                return Err(if started.elapsed() >= self.config.timeout {
+                    BootstrapError::Timeout
+                } else {
+                    error
+                });
             }
             Err(_) => {
                 terminate_and_reap(&mut child).await;
@@ -474,6 +483,7 @@ impl SshBootstrapper {
                 )));
             }
         };
+        let started = Instant::now();
         let completion = tokio::time::timeout(self.config.timeout, async {
             tokio::try_join!(
                 read_bounded(stdout, "stdout"),
@@ -486,7 +496,11 @@ impl SshBootstrapper {
             Ok(Ok(result)) => result,
             Ok(Err(error)) => {
                 terminate_and_reap(&mut child).await;
-                return Err(error);
+                return Err(if started.elapsed() >= self.config.timeout {
+                    BootstrapError::Timeout
+                } else {
+                    error
+                });
             }
             Err(_) => {
                 terminate_and_reap(&mut child).await;
