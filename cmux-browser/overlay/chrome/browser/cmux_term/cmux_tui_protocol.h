@@ -93,6 +93,13 @@ std::string SelectCmuxTuiSocketPath(std::string_view preferred,
                                     std::string_view fallback,
                                     size_t native_path_capacity);
 
+// Returns the lowercase SHA-256 digest used by compatibility socket paths.
+// This is a namespace guard only, not an authentication primitive.
+std::string CmuxTuiSha256Hex(std::string_view input);
+
+// Builds the bounded fallback leaf shared with the other cmux-tui bindings.
+std::string CmuxTuiSocketFallbackPath(std::string_view session, uint32_t uid);
+
 // Removes OSC 4 palette definitions from a state replay before it reaches a
 // configured Ghostty frontend. cmux-tui reports the PTY-authored overrides
 // separately; replaying its complete parser palette would otherwise replace

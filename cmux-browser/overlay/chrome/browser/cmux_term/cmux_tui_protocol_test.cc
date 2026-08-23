@@ -37,6 +37,15 @@ int main() {
   using cmux::CmuxTuiRegistryFenceDecision;
 
   {
+    Check(cmux::CmuxTuiSha256Hex("abc") ==
+              "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+          "SHA-256 matches the FIPS 180-4 abc vector");
+    Check(cmux::CmuxTuiSocketFallbackPath("abc", 501) ==
+              "/tmp/cmux-tui-501/ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad.sock",
+          "fallback socket uses the canonical lowercase digest leaf");
+  }
+
+  {
     for (const std::string_view event : {
              "tree-changed", "workspace-added", "workspace-closed",
              "workspace-renamed", "workspace-moved", "screen-added",
