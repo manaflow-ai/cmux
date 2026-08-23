@@ -2008,7 +2008,7 @@ mod tests {
             "shutdown waited without a bound for a descendant-held PTY"
         );
 
-        std::io::Write::write_all(&mut release_gate, b"release\n").unwrap();
+        io::Write::write_all(&mut release_gate, b"release\n").unwrap();
         drop(release_gate);
         drop(release_gate_reader);
         assert!(

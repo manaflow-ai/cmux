@@ -1131,7 +1131,7 @@ mod tests {
         let session = format!("resource-fallback-{}-{id}-{}", std::process::id(), "x".repeat(160));
         let config =
             Config::from_socket_path(crate::client::try_default_socket_path(&session).unwrap());
-        let dir = std::path::PathBuf::from("/tmp").join(crate::client::private_runtime_dir_name());
+        let dir = PathBuf::from("/tmp").join(crate::client::private_runtime_dir_name());
         std::fs::create_dir_all(&dir).unwrap();
         let legacy = SocketFile(dir.join(format!("{session}.sock")));
         assert!(
