@@ -3,14 +3,15 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `feat-tui-tech-debt-wave1-clean`.
-Current integration code tip: `dfa4ef3b6a`.
+Current integration code tip: `585e2477dd`.
 The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
 The current integration sequence includes the hosted formatter and verification
 fixes through `66e83c808f`, the replay preflight correction `c867048c1d`, the
-safe scoped-attach series through `dfa4ef3b6a`, and the current localization
-and config diagnostics commits.
+safe scoped-attach series through `dfa4ef3b6a`, manifest and socket-contract
+hardening, Unix/Admin task ownership, browser guard coverage, and localization
+through `585e2477dd`.
 
-Subagent ledger: at least 160 substantive agent turns are complete in this
+Subagent ledger: at least 180 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
 reviews, and merge gates. It excludes empty or duplicate turns. The requested
 10,000-session target is not reached. I will not create empty sessions to
@@ -196,10 +197,10 @@ complexity and host-state publication findings beyond its compile fixes.
 | [#10537](https://github.com/manaflow-ai/cmux/pull/10537) | dkta0 | External author branch. Candidate fix `65d19bc694` cannot be pushed to the external fork. | Do not push outside `manaflow-ai`; use an in-org re-cut only if the semantic fix is redesigned. |
 | [#10600](https://github.com/manaflow-ai/cmux/pull/10600) | Lawrence Chen | Merged at `1e1800db80` after exact-head checks and clean canonical review. | Done. |
 | [#10601](https://github.com/manaflow-ai/cmux/pull/10601) | Lawrence Chen | Merged after exact-head checks and clean canonical autoreview. | Done. |
-| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Local integration tip `dfa4ef3b6a` is not yet pushed to the PR head. | Push, run exact-head hosted checks, run canonical review, then merge if clean. |
+| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Local integration tip `585e2477dd` is not yet pushed to the PR head. | Push, run exact-head hosted checks, run canonical review, then merge if clean, unless aggregate #10603 is merged first. |
 | [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Aggregate relay head `a193cf2456` is green, but it lacks the replay and safe attach deltas. | Port the missing deltas deliberately, then review and merge the aggregate. |
-| [#10522](https://github.com/manaflow-ai/cmux/pull/10522) | Lawrence Chen | Actual PR head is `82176e3d0b`; contract checks are restarting. | Wait for exact-head checks, then review and merge if green. |
-| [#10254](https://github.com/manaflow-ai/cmux/pull/10254) | Lawrence Chen | Head `44a26cc960`; all required SDK checks are green. | Run canonical review and merge if clean. |
+| [#10522](https://github.com/manaflow-ai/cmux/pull/10522) | Lawrence Chen | Provider-menu fixes are pushed at `af69eae746`; new checks are pending. | Run exact-head checks and canonical review, then merge if green. |
+| [#10254](https://github.com/manaflow-ai/cmux/pull/10254) | Lawrence Chen | Cross-SDK work is at `0dc661ef65`; canonical review still finds C++ parity and legacy fallback compatibility gaps. | Do not merge until every SDK follows one contract and exact-head review is clean. |
 
 Do not merge stale or high-risk branches [#10131](https://github.com/manaflow-ai/cmux/pull/10131), [#10571](https://github.com/manaflow-ai/cmux/pull/10571), [#9022](https://github.com/manaflow-ai/cmux/pull/9022), [#9003](https://github.com/manaflow-ai/cmux/pull/9003), [#8999](https://github.com/manaflow-ai/cmux/pull/8999), [#9061](https://github.com/manaflow-ai/cmux/pull/9061), [#9062](https://github.com/manaflow-ai/cmux/pull/9062), or superseded stacks [#9922](https://github.com/manaflow-ai/cmux/pull/9922), [#10249](https://github.com/manaflow-ai/cmux/pull/10249), [#10254](https://github.com/manaflow-ai/cmux/pull/10254), and [#10259](https://github.com/manaflow-ai/cmux/pull/10259) without a fresh rebase and exact-head review.
 
@@ -290,10 +291,10 @@ accepted.
 
 | PR | Author | Current evidence | Disposition |
 | --- | --- | --- | --- |
-| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Integration branch now contains the focused TUI fixes through `dfa4ef3b6a`; the remote head must be pushed and checked at that exact SHA. | Run hosted exact-head checks and canonical autoreview, then merge if clean. |
+| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Integration branch now contains the focused TUI fixes through `585e2477dd`; the remote head must be pushed and checked at that exact SHA. | Run hosted exact-head checks and canonical autoreview, then merge if clean. |
 | [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Aggregate relay branch is green at its current head but does not contain the replay and attach commits. | Merge only after a deliberate port of missing TUI deltas, then close superseded #10602 and #10571 if the aggregate contains them. |
-| [#10254](https://github.com/manaflow-ai/cmux/pull/10254) | Lawrence Chen | Exact head `44a26cc960fc7aed3c5e425de56c329b852d9be3` has all SDK checks green. | Run canonical autoreview and merge if no actionable finding remains. |
-| [#10522](https://github.com/manaflow-ai/cmux/pull/10522) | Lawrence Chen | Provider-menu inventory and route fixes are now on the actual PR branch at `82176e3d0b1c18e5c2eda89a16017eea17bc747c`. | Wait for exact-head contract checks, review, then merge if green. |
+| [#10254](https://github.com/manaflow-ai/cmux/pull/10254) | Lawrence Chen | Exact head `0dc661ef65` still has C++ parity and legacy fallback review findings. | Finish the shared contract, then run exact-head checks and canonical autoreview. |
+| [#10522](https://github.com/manaflow-ai/cmux/pull/10522) | Lawrence Chen | Provider-menu routing fixes are now pushed at `af69eae7466f548cb647142f17a45e53b4e442e6`; checks are restarting. | Run exact-head checks and canonical review, then merge if green. |
 | [#10428](https://github.com/manaflow-ai/cmux/pull/10428) | Lawrence Chen | Existing branch contains the unsafe tap and is not a clean ancestor of the safe subset. | Do not merge the tap. Close as superseded after the safe subset lands, unless the tap is redesigned and re-reviewed. |
 | [#10521](https://github.com/manaflow-ai/cmux/pull/10521) | Lawrence Chen | Journal restore still has cold-start scan, lifecycle ordering, and privacy findings. | Keep open, fix design blockers before review or merge. |
 | [#10513](https://github.com/manaflow-ai/cmux/pull/10513) | Lawrence Chen | Branch conflicts with current main and depends on the attach/liveness stack. | Rebase and resolve the heartbeat ownership design before merge. |
@@ -318,3 +319,24 @@ accepted.
 These references support the current decisions: preserve ambiguous legacy bytes,
 use a versioned protocol for future explicit mouse metadata, centralize host
 state ownership, and bound event polling and task admission.
+
+## Wave-8 changes and open review findings
+
+| Commit | Change | Proof / residual risk | Revert |
+| --- | --- | --- | --- |
+| `0ccb2a1e8b` | Treat C1 ST (`0x9c`) as a valid terminator for all ESC-opened terminal string bodies in cursor provenance parsing. | Official xterm control-sequence reference and focused regression coverage; direct 8-bit string openers remain outside this slice. | Revert this parser/test commit together. |
+| `bce7bdfc8b` | Make release `runtimeByBinary` use `architecture` and explicit `libc` values for every platform in current and legacy manifests. | `python3 -m pytest -q tests/test_tui_publish_workflow_security.py` passed 48 tests; consumers must migrate from any private `arch` field. | Revert the workflow, docs, and security-test commit together. |
+| `488804b909` | Exercise fail-closed handling for legacy browser mouse and wheel requests with `frame_seq: null`. | Test-only; hosted Rust verification remains required. | Revert this test commit. |
+| `9dd26b52bb` | Bound Unix daemon handlers at 64 and track them in a listener-owned `JoinSet`, aborting and awaiting on shutdown. | Tokio lifecycle review found no P0-P2 defect; active-handler, flood, and drop behavior tests remain useful follow-up coverage. | Revert this daemon lifecycle commit. |
+| `b86a250a3d` | Replace duplicated AdminServer abort-and-drain loops with `JoinSet::shutdown().await`. | Same cancellation semantics with one Tokio primitive; hosted Rust verification remains required. | Revert this two-line lifecycle cleanup. |
+| `d94cef71f8` | Record a safe continuation-token design for journal restore preview so one archive segment is decoded once across pages. | Design-only because a live SQLite snapshot and owned cursor are required; no speculative runtime iterator was added. | Revert this documentation commit. |
+| `b5dd3abec7` | Record measured projection complexity and defer caching until a composite invalidation revision exists. | Retired-surface cleanup is already O(tree + retired) with a `HashSet`; per-frame row allocations remain an open optimization. | Revert this documentation commit. |
+| `edf9ca96f7`, `585e2477dd` | Route browser, sidebar, provider, and action-status copy through the EN/JA catalog, including provider action IDs. | Known third-party provider labels remain provider-supplied; hosted compile and UI review remain required. | Revert both localization commits together. |
+| `bc3839813c` | Make raw `--session` socket resolution fallible so invalid names cannot bypass validation or hash an unsafe path. | Focused hosted run before this commit failed on the old test branch; final exact-head hosted run is required. | Revert this raw-client contract fix. |
+
+The current integration branch is not a claim that every open TUI PR is safe.
+PR [#10254](https://github.com/manaflow-ai/cmux/pull/10254) still needs C++
+parity and an ordered legacy fallback probe. PR [#10522](https://github.com/manaflow-ai/cmux/pull/10522)
+has a pushed provider-menu fix awaiting exact-head checks and review. Aggregate
+PR [#10603](https://github.com/manaflow-ai/cmux/pull/10603) has unowned relay
+tasks that need a lifecycle decision before merge.
