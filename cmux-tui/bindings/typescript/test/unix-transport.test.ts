@@ -103,6 +103,16 @@ test("session socket helpers enforce the relaxed safe-name contract", () => {
   assert.doesNotThrow(() => validateSessionName(`legacy-${"x".repeat(200)}`));
 });
 
+test("preferred runtime socket wins over the raw /tmp compatibility path", () => {
+  withSocketRuntime(() => {
+    const session = "main";
+    assert.equal(
+      defaultSocketPath(session),
+      join("/run/user/501", `cmux-tui-${process.getuid?.() ?? 0}`, `${session}.sock`),
+    );
+  });
+});
+
 test("long session socket paths use a bindable digest fallback", async () => {
   await withSocketRuntimeAsync(async () => {
     const session = `legacy-${"x".repeat(200)}`;
