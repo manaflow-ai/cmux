@@ -15,6 +15,7 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -54,12 +55,16 @@ func (e *CommandError) Is(target error) bool {
 	return target == ErrCommand
 }
 
-type connectionError struct{ msg string }
+type connectionError struct {
+	msg   string
+	cause error
+}
 
 func (e *connectionError) Error() string { return e.msg }
 func (e *connectionError) Is(target error) bool {
 	return target == ErrConnection
 }
+func (e *connectionError) Unwrap() error { return e.cause }
 
 type timeoutError struct {
 	msg   string
@@ -180,7 +185,21 @@ func NewClient(options Options) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	conn, err := dialJSON(socketPath, maxRequestBytes, maxResponseBytes)
+	paths := []string{socketPath}
+	if options.SocketPath == "" && EnvSocketPath() == "" {
+		paths = socketPathCandidates(session)
+	}
+	var conn *jsonLineConn
+	for index, candidate := range paths {
+		conn, err = dialJSON(candidate, maxRequestBytes, maxResponseBytes)
+		if err == nil {
+			socketPath = candidate
+			break
+		}
+		if index+1 == len(paths) || (!errors.Is(err, syscall.ENOENT) && !errors.Is(err, syscall.ECONNREFUSED)) {
+			break
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -843,7 +862,7 @@ func dialJSON(
 			"cannot connect to session socket %s: %v",
 			socketPath,
 			err,
-		)}
+		), cause: err}
 	}
 	return &jsonLineConn{
 		conn:             conn,

@@ -57,6 +57,17 @@ func defaultSocketPathForSession(session string) string {
 	return sessionpath.FallbackSocketPath(session, uint32(os.Getuid()))
 }
 
+// socketPathCandidates returns the canonical path first, then the pre-contract
+// unhashed path for long sessions. Explicit and inherited paths never call this.
+func socketPathCandidates(session string) []string {
+	canonical := defaultSocketPathForSession(session)
+	if filepath.Base(canonical) == session+".sock" {
+		return []string{canonical}
+	}
+	legacy := filepath.Join("/tmp", "cmux-tui-"+strconv.Itoa(os.Getuid()), session+".sock")
+	return []string{canonical, legacy}
+}
+
 // invalidSessionSocketPath keeps the unexported compatibility helper
 // deterministic and outside the normal runtime directory. It is not a
 // connector route; resolveSocketPath returns ErrInvalidArgument first.
