@@ -210,14 +210,13 @@ func NewClient(ctx context.Context, options ClientOptions) (*Client, error) {
 	if keySource == nil {
 		keySource = newIdempotencyKey
 	}
-	effective := socket
 	conn, err := dial(ctx, "unix", socket)
 	if err != nil && options.SocketPath == "" && envSocketPath() == "" &&
 		(errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED)) {
 		legacy := legacySocketPathForSession(session)
 		if legacy != "" && legacy != socket {
 			if fallbackConn, fallbackErr := dial(ctx, "unix", legacy); fallbackErr == nil {
-				conn, effective, err = fallbackConn, legacy, nil
+				conn, err = fallbackConn, nil
 			}
 		}
 	}
@@ -236,7 +235,6 @@ func NewClient(ctx context.Context, options ClientOptions) (*Client, error) {
 		streams:          make(map[StreamID]*streamRoute),
 		done:             make(chan struct{}),
 	}
-	_ = effective
 	client.writer <- struct{}{}
 	go client.readLoop()
 	return client, nil
