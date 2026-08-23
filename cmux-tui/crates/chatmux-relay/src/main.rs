@@ -8,6 +8,7 @@ use std::io::IsTerminal as _;
 use std::path::{Path, PathBuf};
 
 use chatmux_relay::cli::{Command, parse_cli_args};
+use chatmux_relay::autostart;
 use chatmux_relay::config::{Config, default_config_path, load_config, save_config};
 use chatmux_relay::enrollment::load_managed_enrollment_file;
 use chatmux_relay::error::RelayError;
@@ -533,15 +534,8 @@ async fn main() {
             std::process::exit(0);
         }
         Some(Command::Status) => print_status(&config_path),
-        Some(Command::Uninstall) | Some(Command::Autostart) => {
-            // Autostart install/uninstall is a later slice (README: port
-            // plan). The npm build still owns this surface.
-            eprintln!(
-                "Autostart is not implemented in this relay build yet; use the npm cmux-relay \
-                 for --autostart/--uninstall."
-            );
-            std::process::exit(1);
-        }
+        Some(Command::Uninstall) => match autostart::uninstall() { Ok(message) => { println!("{message}"); std::process::exit(0); }, Err(message) => { eprintln!("{message}"); std::process::exit(1); } },
+        Some(Command::Autostart) => match std::env::current_exe().map_err(|e| e.to_string()).and_then(|path| autostart::install(&path)) { Ok(message) => { println!("{message}"); std::process::exit(0); }, Err(message) => { eprintln!("{message}"); std::process::exit(1); } },
         Some(Command::Pair) | None => {}
     }
 

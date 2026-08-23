@@ -67,9 +67,9 @@ cutover — pre-launch, no legacy.
 4. **Wire-v6 pane verbs + preview proxy** — fs/git/watch verbs and the
    chobitsu-injecting preview proxy (chatmux pane-primitives program;
    these verbs have NO JS implementation — Rust-first by decision).
-5. **Autostart** — launchd/systemd/schtasks install (`--autostart` /
+5. **Autostart** — launchd/systemd user-unit install (`--autostart` /
    `--uninstall`), replacing the npm runtime-install machinery with the
-   platform binary path.
+   platform binary path. Windows currently reports unsupported behavior.
 
 ### Intentional divergences from the JS relay (still open)
 
@@ -78,8 +78,6 @@ cutover — pre-launch, no legacy.
 - `--code` prints the `chatmux://pair` link without the terminal QR
   graphic (QR rendering comes with a later slice; the link carries the
   same payload).
-- `--autostart` / `--uninstall` exit 1 with a pointer to the npm build
-  (slice 5).
 - PTY frame dispatch is serialized on one task per connection, so a slow
   `pty_open` (daemon spawn, up to 5s) delays a following frame for a
   DIFFERENT pty. Acceptable for typical one-open-at-a-time use; revisit

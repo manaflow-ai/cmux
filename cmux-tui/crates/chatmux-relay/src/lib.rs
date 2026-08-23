@@ -5,6 +5,7 @@
 //! vendored-protocol regeneration step.
 
 pub mod actions;
+pub mod autostart;
 pub mod cli;
 pub mod config;
 pub mod control;
