@@ -42,6 +42,7 @@ fn xml_escape(v: &str) -> String {
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
 }
+#[cfg(target_os = "linux")]
 fn shell_quote(v: &str) -> String {
     format!("'{}'", v.replace('\'', "'\\''"))
 }
@@ -191,6 +192,7 @@ mod tests {
         assert_eq!(xml_escape("a<&\"' >"), "a&lt;&amp;&quot;&apos; &gt;");
     }
     #[test]
+    #[cfg(target_os = "linux")]
     fn quotes() {
         assert_eq!(shell_quote("/tmp/a'b"), "'/tmp/a'\\''b'");
     }
