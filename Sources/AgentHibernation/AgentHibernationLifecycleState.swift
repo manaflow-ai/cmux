@@ -5,6 +5,8 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
     case running
     case idle
     case needsInput
+    /// The agent hit an error or ran out of quota (sidebar ERROR/LIMIT).
+    case error
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -39,6 +41,8 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
             return .idle
         case "needsinput", "needs-input":
             return .needsInput
+        case "error", "limited", "quota":
+            return .error
         default:
             return nil
         }

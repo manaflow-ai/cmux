@@ -47,6 +47,8 @@ enum PaneChromeSettings {
 /// Mirrors `SidebarStateIndicatorState` from the in-flight sidebar
 /// state-indicator work so the two palettes can converge on one type.
 enum AgentPaneState: String, CaseIterable, Sendable, Equatable {
+    /// The agent hit an error or ran out of quota.
+    case error
     /// The agent is blocked waiting on user input.
     case needsInput
     /// The agent is actively working.
@@ -57,9 +59,10 @@ enum AgentPaneState: String, CaseIterable, Sendable, Equatable {
     /// Sort rank backing the reduction below; lower ranks win.
     fileprivate var precedenceRank: Int {
         switch self {
-        case .needsInput: 0
-        case .running: 1
-        case .idle: 2
+        case .error: 0
+        case .needsInput: 1
+        case .running: 2
+        case .idle: 3
         }
     }
 }
@@ -71,17 +74,22 @@ enum AgentPaneStateBorder {
     // colors rather than the raw `set_status --color` hexes the CLI hooks
     // emit, which the sidebar does not display verbatim.
 
+    /// Hex color for a pane whose agent errored or ran out of quota
+    /// (sidebar ERROR/LIMIT).
+    static let errorHex = "#FF453A"
     /// Hex color for a pane whose agent is blocked on the user (sidebar INPUT).
     static let needsInputHex = "#FF9F0A"
     /// Hex color for a pane whose agent is working (sidebar WORKING).
     static let runningHex = "#0A84FF"
     /// Hex color for a pane whose agent finished its turn (sidebar READY).
     static let idleHex = "#30D158"
+    /// Border color for a pane with no agent reporting: a plain terminal.
+    static let noAgentHex = "#000000"
 
     /// Collapses every agent reporting under `panelId` into the one state that
     /// should drive the border.
     ///
-    /// Precedence is `needsInput` > `running` > `idle`. This deliberately
+    /// Precedence is `error` > `needsInput` > `running` > `idle`. This deliberately
     /// differs from `Workspace.agentHibernationLifecycleState`, which ranks
     /// `running` first because it answers "is anything still working?" for
     /// hibernation. A border answers "does this pane want me?", so a blocked
@@ -117,6 +125,7 @@ enum AgentPaneStateBorder {
 
     static func colorHex(for state: AgentPaneState) -> String {
         switch state {
+        case .error: errorHex
         case .needsInput: needsInputHex
         case .running: runningHex
         case .idle: idleHex
@@ -127,6 +136,7 @@ enum AgentPaneStateBorder {
         for lifecycle: AgentHibernationLifecycleState
     ) -> AgentPaneState? {
         switch lifecycle {
+        case .error: .error
         case .needsInput: .needsInput
         case .running: .running
         case .idle: .idle

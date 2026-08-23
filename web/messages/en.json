@@ -1930,6 +1930,7 @@
         },
         "paneBorderColor": "Override the cmux pane divider color in split workspaces. This affects cmux pane boundaries, not Ghostty internal splits.",
         "activePaneBorderColor": "Optional border color drawn around the focused cmux pane in split workspaces.",
+        "agentStateBorder": "Border each terminal pane in its agent's lifecycle color, matching the sidebar's agent status rows: red when the agent errored or ran out of quota, orange when it needs input, blue while it is working, green when it finished, black when no agent is running in the pane. The unread notification ring takes precedence when both apply.",
         "notifications": {
           "paneFlashColor": "Override the pane flash and unread notification ring color. Leave unset to use the built-in system blue.",
           "suppressOnlyFocusedSurface": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw.",

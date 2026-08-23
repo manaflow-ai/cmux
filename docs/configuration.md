@@ -50,14 +50,16 @@ row read as the same signal.
 
 | Color | Sidebar | State |
 | --- | --- | --- |
+| Red `#FF453A` | ERROR / LIMIT | The agent errored or ran out of quota. |
 | Orange `#FF9F0A` | INPUT | The agent is blocked waiting on your input. |
 | Blue `#0A84FF` | WORKING | The agent is working. |
 | Green `#30D158` | READY | The agent finished its turn. |
+| Black `#000000` | — | No agent is running in this pane. |
 
-Panes with no agent reporting a state stay unbordered, and a pane whose agent
-reports an unknown state is treated as having no agent. When several agents
-report under one pane, the pane takes the most demanding state:
-needs-input over working over finished.
+A pane whose agent reports an unknown state is treated as having no agent and
+takes the black border. When several agents report under one pane, the pane
+takes the most demanding state: error over needs-input over working over
+finished.
 
 The border shares its layer with the unread notification ring, and the ring
 wins while a notification is unread — so a finished agent shows the usual blue

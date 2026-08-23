@@ -31290,8 +31290,10 @@ export default CMUXSessionRestore;
             switch notificationStatus {
             case .idle?:
                 return .idle
-            case .needsInput?, .error?:
+            case .needsInput?:
                 return .needsInput
+            case .error?:
+                return .error
             case nil:
                 return nil
             }
@@ -32154,7 +32156,7 @@ export default CMUXSessionRestore;
                 if antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle {
                     return .running
                 }
-                return stopNotificationStatus == .idle ? .idle : .needsInput
+                return stopNotificationStatus == .idle ? .idle : .error
             }()
             let staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
                 hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)

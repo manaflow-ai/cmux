@@ -17,7 +17,7 @@ extension Workspace {
         var anyAgentRunning = false
         for (panelId, states) in agentLifecycleStatesByPanelId where panels[panelId] != nil {
             for state in states.values {
-                if state == .needsInput { anyAgentNeedsInput = true }
+                if state == .needsInput || state == .error { anyAgentNeedsInput = true }
                 if state == .running { anyAgentRunning = true }
             }
         }

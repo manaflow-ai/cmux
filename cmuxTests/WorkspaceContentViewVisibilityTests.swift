@@ -762,6 +762,23 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
+    func agentPaneStateBorderPrefersErrorOverEverything() {
+        // Error/quota is the loudest signal: it has to win even while a
+        // sibling status key still reports the agent as blocked or working.
+        let lifecycles: [String: AgentHibernationLifecycleState] = [
+            "codex": .error,
+            "cmux.feed.attention:codex": .needsInput,
+            "claude_code": .running,
+        ]
+
+        #expect(AgentPaneStateBorder.state(lifecycles: lifecycles) == .error)
+        #expect(
+            AgentPaneStateBorder.colorHex(lifecycles: lifecycles)
+                == AgentPaneStateBorder.errorHex
+        )
+    }
+
+    @Test
     func agentPaneStateBorderRanksRunningOverIdle() {
         #expect(
             AgentPaneStateBorder.state(lifecycles: ["codex": .idle, "claude_code": .running])
@@ -811,7 +828,7 @@ final class WorkspaceContentViewVisibilityTests {
     func agentPaneStateColorBordersAgentlessPanesBlack() {
         // A pane with no agent reporting — or only unknown states — is a plain
         // terminal and takes the neutral black border rather than none.
-        let noAgent = WorkspaceAttentionColor(configuredHex: "#000000")
+        let noAgent = WorkspaceAttentionColor(configuredHex: AgentPaneStateBorder.noAgentHex)
         #expect(
             WorkspaceContentView.agentPaneStateColor(
                 enabled: true,

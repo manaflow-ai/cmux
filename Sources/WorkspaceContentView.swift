@@ -199,6 +199,10 @@ struct WorkspaceContentView: View {
     /// Resolves one pane's agent lifecycle states into the border color the
     /// pane subtree should carry, or `nil` to leave the pane unbordered.
     ///
+    /// A pane with no agent reporting (nil, empty, or only `unknown` states)
+    /// is a plain terminal and takes the neutral no-agent border, so the
+    /// only unbordered panes are those with the setting off.
+    ///
     /// `revision` is unused by the computation; it exists so callers inside
     /// `body` take a read dependency on the agent-runtime observation counter,
     /// whose backing maps are `@ObservationIgnored`.
@@ -208,8 +212,9 @@ struct WorkspaceContentView: View {
         lifecycles: [String: AgentHibernationLifecycleState]?
     ) -> WorkspaceAttentionColor? {
         _ = revision
-        guard enabled, let lifecycles, !lifecycles.isEmpty else { return nil }
-        guard let hex = AgentPaneStateBorder.colorHex(lifecycles: lifecycles) else { return nil }
+        guard enabled else { return nil }
+        let hex = lifecycles.flatMap { AgentPaneStateBorder.colorHex(lifecycles: $0) }
+            ?? AgentPaneStateBorder.noAgentHex
         return WorkspaceAttentionColor(configuredHex: hex)
     }
 

@@ -362,7 +362,9 @@ extension DockSplitStore {
         panelId: UUID,
         runtime: Workspace.DetachedAgentRuntimeState?
     ) {
-        let needsInput = runtime?.agentLifecycleStates.values.contains(.needsInput) == true
+        let needsInput = runtime?.agentLifecycleStates.values.contains(where: {
+            $0 == .needsInput || $0 == .error
+        }) == true
         agentNeedsInputAttention.setAttention(needsInput, forSurfaceId: panelId)
     }
 

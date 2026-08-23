@@ -18,6 +18,9 @@ struct AgentHibernationTests {
         expectEqual(AgentHibernationLifecycleState.parseCLIValue("needsInput"), .needsInput)
         expectEqual(AgentHibernationLifecycleState.parseCLIValue("needs-input"), .needsInput)
         expectEqual(AgentHibernationLifecycleState.parseCLIValue("needs_input"), .needsInput)
+        expectEqual(AgentHibernationLifecycleState.parseCLIValue("error"), .error)
+        expectEqual(AgentHibernationLifecycleState.parseCLIValue("LIMITED"), .error)
+        expectEqual(AgentHibernationLifecycleState.parseCLIValue("quota"), .error)
         expectNil(AgentHibernationLifecycleState.parseCLIValue("paused"))
 
         let decoded = try JSONDecoder().decode(

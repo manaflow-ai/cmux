@@ -34,7 +34,7 @@
       "type": "boolean",
       "default": true,
       "descriptionKey": "schemaDescriptions.agentStateBorder",
-      "description": "Border each terminal pane in its agent's lifecycle color, matching the sidebar's agent status rows: orange when the agent needs input, blue while it is working, green when it finished. Panes with no reporting agent stay unbordered. The unread notification ring takes precedence when both apply."
+      "description": "Border each terminal pane in its agent's lifecycle color, matching the sidebar's agent status rows: red when the agent errored or ran out of quota, orange when it needs input, blue while it is working, green when it finished, black when no agent is running in the pane. The unread notification ring takes precedence when both apply."
     },
     "actions": {
       "title": "actions",
