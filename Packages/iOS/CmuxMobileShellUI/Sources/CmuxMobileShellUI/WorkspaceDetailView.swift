@@ -455,12 +455,6 @@ struct WorkspaceDetailView: View {
                         subtitle: subtitle,
                         style: .toolbarCompact
                     )
-                case .browser(let title):
-                    Text(title)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .foregroundStyle(value.terminalTheme.terminalChromeForegroundColor)
                 case .standard(let title, let subtitle):
                     WorkspaceToolbarTitleView(title: title, subtitle: subtitle)
                 }
@@ -481,11 +475,17 @@ struct WorkspaceDetailView: View {
                 subtitle: tabName(for: session)
             )
         } else if let browser = activeBrowser {
-            return .browser(title: browser.title ?? workspace.name)
+            // Browser-style surfaces keep the workspace as the pill's title,
+            // like the terminal; the surface's own title (the page or tab)
+            // rides the subtitle line.
+            return .standard(title: workspace.name, subtitle: browser.title)
         } else if let browser = activeBrowserStream {
-            return .browser(title: browser.title ?? workspace.name)
+            return .standard(title: workspace.name, subtitle: browser.title)
         } else if let simulator = activeSimulatorStream {
-            return .browser(title: simulator.selectedDeviceName ?? simulator.title)
+            return .standard(
+                title: workspace.name,
+                subtitle: simulator.selectedDeviceName ?? simulator.title
+            )
         } else {
             return .standard(title: workspace.name, subtitle: selectedToolbarSubtitle)
         }

@@ -9,7 +9,7 @@ import Testing
             labelToken: .standard(title: "Workspace", subtitle: "Terminal")
         )
         let browser = menuValue(
-            labelToken: .browser(title: "Workspace")
+            labelToken: .standard(title: "Workspace", subtitle: "GitHub - cmux")
         )
         let chat = menuValue(
             labelToken: .chat(

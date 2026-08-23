@@ -8,6 +8,5 @@ enum WorkspaceTitleMenuLabelToken: Equatable {
         titleOverride: String?,
         subtitle: String?
     )
-    case browser(title: String)
     case standard(title: String, subtitle: String?)
 }
