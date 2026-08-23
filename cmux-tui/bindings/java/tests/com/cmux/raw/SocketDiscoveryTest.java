@@ -20,6 +20,7 @@ public final class SocketDiscoveryTest {
         longSessionUsesBindableDigestFallback();
         hashedSessionFallsBackToTmpWhenRuntimeBaseIsTooLong();
         nonAsciiLongSessionUsesSharedUtf8Sha256Digest();
+        overlongLegacyFallbackIsSuppressed();
     }
 
     private static void explicitWins() {
@@ -188,6 +189,20 @@ public final class SocketDiscoveryTest {
             "0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3.sock"
         );
         check(resolved.equals(expected), "shared non-ASCII UTF-8 digest path");
+    }
+
+    private static void overlongLegacyFallbackIsSuppressed() {
+        String session = "legacy-" + "x".repeat(200);
+        String uid = SocketDiscovery.currentUid();
+        Path hashed = Path.of(
+            "/tmp", "cmux-tui-hashed-" + uid,
+            "e538a84493067947f7376110a6f695dd3"
+                + "db062b67eee939c3660c07f3f47dce2.sock"
+        );
+        Path raw = Path.of("/tmp", "cmux-tui-" + uid, session + ".sock");
+        check(!SocketDiscovery.fitsUnixSocket(raw), "test session must exceed Unix socket limit");
+        check(SocketDiscovery.legacyRawFallback(hashed, session) == null,
+            "overlong legacy fallback is suppressed");
     }
 
     private static int utf8Length(Path path) {

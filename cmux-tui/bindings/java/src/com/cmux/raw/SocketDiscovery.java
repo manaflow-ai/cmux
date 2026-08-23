@@ -75,7 +75,8 @@ public final class SocketDiscovery {
         Path hashed = Path.of(root, "cmux-tui-hashed-" + uid, sessionDigest(session) + ".sock");
         Path hashedTmp = Path.of("/tmp", "cmux-tui-hashed-" + uid, sessionDigest(session) + ".sock");
         if (!resolved.equals(hashed) && !resolved.equals(hashedTmp)) return null;
-        return Path.of("/tmp", "cmux-tui-" + uid, session + ".sock");
+        Path fallback = Path.of("/tmp", "cmux-tui-" + uid, session + ".sock");
+        return fitsUnixSocket(fallback) ? fallback : null;
     }
 
     public static void validateSession(String session) {
