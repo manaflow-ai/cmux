@@ -525,8 +525,10 @@ pub(crate) fn hashed_socket_legacy_path(path: &Path) -> Option<PathBuf> {
             let name = entry.file_name();
             let Some(name) = name.to_str() else { continue };
             if !name.ends_with(".sock")
-                || format!("{:x}.sock", Sha256::digest(name.trim_end_matches(".sock").as_bytes()))
-                    != leaf
+                || format!(
+                    "{:x}.sock",
+                    Sha256::digest(name.strip_suffix(".sock").unwrap_or(name).as_bytes())
+                ) != leaf
             {
                 continue;
             }
@@ -1012,7 +1014,7 @@ mod tests {
     #[test]
     fn implicit_hashed_socket_falls_back_to_the_legacy_session_socket() {
         let id = NEXT_TEST_SOCKET.fetch_add(1, AtomicOrdering::Relaxed);
-        let session = format!("raw-fallback-{}-{id}-{}", std::process::id(), "x".repeat(160));
+        let session = format!("raw-fallback-{}-{id}-{}.sock", std::process::id(), "x".repeat(160));
         let config = ClientConfig::from_socket_path(try_default_socket_path(&session).unwrap());
         let dir = PathBuf::from("/tmp").join(private_runtime_dir_name());
         std::fs::create_dir_all(&dir).unwrap();
