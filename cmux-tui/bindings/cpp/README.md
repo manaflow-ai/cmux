@@ -67,9 +67,9 @@ non-empty single path components without `.`, `..`, separators, NUL, control
 characters, or Unicode line separators. Spaces, Unicode, leading punctuation,
 colons, and long legacy names remain valid. `resolve_socket_path()` and
 `try_default_socket_path()` return `ErrorCode::invalid_argument` before path
-use. The source-compatible `default_socket_path()` wrapper maps an empty
-session to the historical `main` route. It maps other invalid input to a
-deterministic per-input hash path under `cmux-tui-invalid-<uid>`; it never
+use. The source-compatible `default_socket_path()` wrapper maps empty and
+other invalid input to a deterministic per-input hash path under
+`cmux-tui-invalid-<uid>`; it never
 joins the invalid text and cannot select a normal session socket. Its leaf is
 the lowercase SHA-256 digest of the session's UTF-8 bytes, matching the other
 SDKs. Use `try_default_socket_path()` for any path that will be opened.

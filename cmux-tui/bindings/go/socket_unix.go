@@ -32,9 +32,6 @@ func defaultSocketPath(session string) string {
 	if inherited := envSocketPath(); inherited != "" {
 		return inherited
 	}
-	if session == "" {
-		session = "main"
-	}
 	if err := sessionpath.Validate(session); err != nil {
 		return invalidSessionSocketPath(session)
 	}

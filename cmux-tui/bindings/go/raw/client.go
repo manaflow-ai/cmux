@@ -230,9 +230,6 @@ func ValidateSession(session string) error {
 }
 
 func DefaultSocketPath(session string) string {
-	if session == "" {
-		session = "main"
-	}
 	if err := ValidateSession(session); err != nil {
 		return invalidSessionSocketPath(session)
 	}
