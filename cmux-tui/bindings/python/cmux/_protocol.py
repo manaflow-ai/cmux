@@ -374,13 +374,14 @@ class _StreamState(Generic[ItemT]):
 class ProtocolConnection:
     """One multiplexed synchronous resource-protocol connection."""
 
-    def __init__(self, socket_path: str, timeout: float) -> None:
+    def __init__(self, socket_path: str, timeout: float, *, fallback_path: Optional[str] = None) -> None:
         self.socket_path = socket_path
         self.timeout = timeout
         self._wire = JsonLineConnection(
             socket_path,
             timeout,
             max_line_bytes=MAX_RESPONSE_BYTES + 1,
+            fallback_path=fallback_path,
         )
         # Per-request deadlines are enforced by Pending events. The one shared
         # reader must remain idle indefinitely between requests and events.

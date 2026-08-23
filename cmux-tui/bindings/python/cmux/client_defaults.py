@@ -64,9 +64,13 @@ def default_socket_path(session: str = "main") -> str:
         raise ValueError("derived Unix socket path is too long")
     return hashed
 
+def legacy_raw_socket_path(session: str) -> str:
+    validate_session_name(session)
+    return os.path.join("/tmp", f"cmux-tui-{os.getuid()}", f"{session}.sock")
+
 
 def env_socket_path() -> Optional[str]:
     return os.environ.get("CMUX_TUI_SOCKET") or os.environ.get("CMUX_MUX_SOCKET") or None
 
 
-__all__ = ["default_socket_path", "env_socket_path", "validate_session_name"]
+__all__ = ["default_socket_path", "env_socket_path", "legacy_raw_socket_path", "validate_session_name"]
