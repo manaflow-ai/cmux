@@ -3,6 +3,7 @@
 //! This module is intentionally named `raw`: its request object may contain
 //! internal fields and receives no public compatibility guarantees.
 
+use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -139,6 +140,13 @@ fn read_line_limited(
 }
 
 fn resolve_socket(global: &GlobalArgs) -> anyhow::Result<PathBuf> {
+    resolve_socket_with_env(global, |name| std::env::var_os(name))
+}
+
+fn resolve_socket_with_env(
+    global: &GlobalArgs,
+    env: impl Fn(&str) -> Option<OsString>,
+) -> anyhow::Result<PathBuf> {
     if let Some(path) = &global.socket {
         return Ok(path.clone());
     }
@@ -149,7 +157,7 @@ fn resolve_socket(global: &GlobalArgs) -> anyhow::Result<PathBuf> {
         return cmux_tui_core::server::default_socket_path(session);
     }
     for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
-        if let Some(path) = std::env::var_os(name)
+        if let Some(path) = env(name)
             && !path.is_empty()
         {
             return Ok(PathBuf::from(path));
@@ -167,5 +175,21 @@ mod tests {
         let request = json!({"id": 7, "cmd": "private-operation", "opaque": {"x": true}});
         let plan = RawCommandPlan { request: request.clone() };
         assert_eq!(plan.request, request);
+    }
+
+    #[test]
+    fn explicit_session_precedes_ambient_socket_fallbacks() {
+        let global = GlobalArgs {
+            session: Some("session-alpha".into()),
+            ..GlobalArgs::default()
+        };
+        let socket = resolve_socket_with_env(&global, |_| Some("/tmp/stale.sock".into()))
+            .expect("session socket path should resolve");
+
+        assert_eq!(
+            socket,
+            cmux_tui_core::server::default_socket_path("session-alpha")
+                .expect("session socket path should resolve")
+        );
     }
 }
