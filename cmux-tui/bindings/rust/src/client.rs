@@ -158,8 +158,6 @@ impl std::error::Error for CmuxError {
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
     pub socket_path: PathBuf,
-    /// Optional legacy socket path tried when the primary path is unavailable.
-    pub legacy_socket_path: Option<PathBuf>,
     pub timeout: Duration,
     pub max_frame_bytes: usize,
     pub max_queued_events: usize,
@@ -174,7 +172,6 @@ impl ClientConfig {
     pub fn from_socket_path(socket_path: impl Into<PathBuf>) -> Self {
         Self {
             socket_path: socket_path.into(),
-            legacy_socket_path: None,
             timeout: Duration::from_secs(10),
             max_frame_bytes: 32 * 1024 * 1024,
             max_queued_events: 1_024,
@@ -196,9 +193,7 @@ impl ClientConfig {
             session,
             environment.clone(),
         ));
-        if environment.is_none() {
-            config.legacy_socket_path = Some(legacy_socket_path_for_session(session));
-        }
+        if environment.is_none() {}
         config
     }
 
@@ -214,9 +209,7 @@ impl ClientConfig {
         let environment = env_socket_path();
         let socket_path = socket_path_for_session(session, environment.clone())?;
         let mut config = Self::from_socket_path(socket_path);
-        if environment.is_none() {
-            config.legacy_socket_path = Some(legacy_socket_path_for_session(session));
-        }
+        if environment.is_none() {}
         Ok(config)
     }
 
@@ -281,7 +274,7 @@ impl CmuxClient {
             && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
             && is_hashed_socket(&config.socket_path)
         {
-            let Some(legacy) = config.legacy_socket_path.clone() else {
+            let Some(legacy) = hashed_socket_legacy_path(&config.socket_path) else {
                 return match connection {
                     Ok(_) => unreachable!("connection error was matched above"),
                     Err(error) => Err(error),
@@ -504,6 +497,37 @@ fn is_hashed_socket(path: &Path) -> bool {
     path.parent()
         .and_then(Path::file_name)
         .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
+}
+
+pub(crate) fn hashed_socket_legacy_path(path: &Path) -> Option<PathBuf> {
+    let parent = path.parent()?;
+    let leaf = path.file_name()?.to_str()?;
+    let uid = parent.file_name()?.to_str()?.strip_prefix("cmux-tui-hashed-")?;
+    if uid != current_uid_component() || !leaf.ends_with(".sock") {
+        return None;
+    }
+    let digest = leaf.strip_suffix(".sock")?;
+    if digest.len() != 64 || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let dir = PathBuf::from("/tmp").join(format!("cmux-tui-{uid}"));
+    let entries = std::fs::read_dir(&dir).ok()?;
+    for entry in entries.take(256) {
+        let entry = entry.ok()?;
+        let name = entry.file_name();
+        let name = name.to_str()?;
+        if !name.ends_with(".sock")
+            || format!("{:x}.sock", Sha256::digest(name.trim_end_matches(".sock").as_bytes()))
+                != leaf
+        {
+            continue;
+        }
+        let candidate = entry.path();
+        if std::os::unix::fs::FileTypeExt::is_socket(&entry.file_type().ok()?) {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 pub(crate) fn legacy_socket_path_for_session(session: &str) -> PathBuf {
@@ -983,7 +1007,6 @@ mod tests {
         let session = format!("raw-fallback-{}-{id}-{}", std::process::id(), "x".repeat(160));
         let mut config = ClientConfig::from_socket_path(try_default_socket_path(&session).unwrap());
         let legacy = SocketFile(temp_socket("hashed-fallback-legacy"));
-        config.legacy_socket_path = Some(legacy.0.clone());
         assert!(is_hashed_socket(&config.socket_path));
         let listener = UnixListener::bind(&legacy.0).unwrap();
 
@@ -997,7 +1020,6 @@ mod tests {
         let explicit = temp_socket("explicit-authority");
         let raw = ClientConfig::from_socket_path(&explicit);
         assert_eq!(raw.socket_path, explicit);
-        assert_eq!(raw.legacy_socket_path, None);
 
         let inherited =
             socket_path_for_session("../invalid-without-authority", Some(explicit.clone()))

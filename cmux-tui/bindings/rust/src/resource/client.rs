@@ -117,10 +117,10 @@ fn connect_with_budget(
     );
     if let Err(Error::ConnectionIo { kind, .. }) = &result
         && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
-        && config.legacy_socket_path.as_ref().is_some_and(|path| unix_socket_path_fits(path))
+        && crate::client::hashed_socket_legacy_path(&config.socket_path).is_some()
     {
         return JsonLineConnection::connect_with_poll_checks(
-            config.legacy_socket_path.as_ref().unwrap(),
+            crate::client::hashed_socket_legacy_path(&config.socket_path).as_ref().unwrap(),
             timeout,
             config.timeout,
             config.max_response_bytes,
@@ -139,7 +139,6 @@ pub struct Config {
     ///
     /// This is public so callers that construct `Config` with a struct literal
     /// can preserve compatibility when configuring the legacy fallback.
-    pub legacy_socket_path: Option<PathBuf>,
     pub timeout: Duration,
     pub max_request_bytes: usize,
     pub max_response_bytes: usize,
@@ -151,7 +150,6 @@ impl Config {
     pub fn from_socket_path(socket_path: impl Into<PathBuf>) -> Self {
         Self {
             socket_path: socket_path.into(),
-            legacy_socket_path: None,
             timeout: Duration::from_secs(10),
             max_request_bytes: DEFAULT_REQUEST_BYTES,
             max_response_bytes: DEFAULT_RESPONSE_BYTES,
@@ -172,10 +170,6 @@ impl Config {
         let mut config = Self::from_socket_path(
             crate::client::compatibility_socket_path_for_session(session, env.clone()),
         );
-        if env.is_none() && is_hashed_socket(&config.socket_path) {
-            config.legacy_socket_path =
-                Some(crate::client::legacy_socket_path_for_session(session));
-        }
         config
     }
 
@@ -185,10 +179,6 @@ impl Config {
         let socket_path =
             crate::client::socket_path_for_session(session, crate::client::env_socket_path())?;
         let mut config = Self::from_socket_path(socket_path);
-        if crate::client::env_socket_path().is_none() && is_hashed_socket(&config.socket_path) {
-            config.legacy_socket_path =
-                Some(crate::client::legacy_socket_path_for_session(session));
-        }
         Ok(config)
     }
 
@@ -287,8 +277,7 @@ impl Client {
         if let Err(Error::ConnectionIo { kind, .. }) = &connection
             && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
         {
-            if let Some(legacy) = config.legacy_socket_path.clone()
-                && unix_socket_path_fits(&legacy)
+            if let Some(legacy) = crate::client::hashed_socket_legacy_path(&config.socket_path)
                 && let Ok(candidate) = JsonLineConnection::connect(
                     &legacy,
                     config.timeout,
@@ -1184,7 +1173,6 @@ mod tests {
             .join(format!("cmux-resource-explicit-{}-{id}.sock", std::process::id()));
         let config = Config::from_socket_path(&explicit);
         assert_eq!(config.socket_path, explicit);
-        assert_eq!(config.legacy_socket_path, None);
     }
 
     #[test]
