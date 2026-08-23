@@ -614,12 +614,33 @@ pub fn default_socket_path(session: &str) -> PathBuf {
 }
 
 fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
-    let file_name = format!("{session}.sock");
+    let file_name = format!("{}.sock", socket_session_component(session));
     let preferred = runtime_dir.join(&file_name);
     if !unix_socket_path_fits(&preferred) {
         return PathBuf::from("/tmp").join(private_runtime_dir_name()).join(file_name);
     }
     preferred
+}
+
+/// Keep the selected session as one portable filename component.
+/// Encoding invalid names prevents separators and dot components escaping the
+/// private runtime directory while preserving distinct user input.
+fn socket_session_component(session: &str) -> String {
+    if !session.is_empty()
+        && session.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.')
+        })
+        && session != "."
+        && session != ".."
+    {
+        return session.to_owned();
+    }
+    let mut encoded = String::from("session-");
+    for byte in session.as_bytes() {
+        use std::fmt::Write as _;
+        write!(&mut encoded, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    encoded
 }
 
 fn private_runtime_dir_name() -> String {
@@ -652,6 +673,20 @@ mod tests {
         authority: "control",
         stream: Some(crate::StreamMetadata { kind: "subscribe", terminal_event: None }),
     };
+
+    #[test]
+    fn session_names_cannot_escape_runtime_directory() {
+        let runtime = PathBuf::from("/private/runtime/cmux-tui-42");
+        for session in ["", ".", "..", "../outside", "nested/name", r"nested\name"] {
+            let path = default_socket_path_in_runtime_dir(session, runtime.clone());
+            assert_eq!(path.parent(), Some(runtime.as_path()));
+            assert!(path.file_name().is_some_and(|name| name != "..sock"));
+        }
+        assert_eq!(
+            default_socket_path_in_runtime_dir("demo", runtime),
+            PathBuf::from("/private/runtime/cmux-tui-42/demo.sock")
+        );
+    }
 
     fn temp_socket(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
