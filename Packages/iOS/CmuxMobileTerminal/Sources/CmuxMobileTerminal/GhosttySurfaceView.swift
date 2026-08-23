@@ -245,6 +245,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// deadline so a wedged output queue cannot park that waiter forever.
     var localScrollApplyStartedAt: CFTimeInterval?
     var localScrollApplyToken: UInt64?
+    /// Same deadline contract for the pixel-precise local scroll pump.
+    var localPixelScrollApplyStartedAt: CFTimeInterval?
+    var localPixelScrollApplyToken: UInt64?
     var pendingVisibleSnapshot: PendingVisibleSnapshot?
     var pendingVerifiedReplayViewportAnchorCapture: PendingVerifiedReplayViewportAnchorCapture?
     var pendingVerifiedReplayViewportAnchorRestore: PendingVerifiedReplayViewportAnchorRestore?
@@ -273,6 +276,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             || pendingVerifiedReplayViewportAnchorRestore != nil
             || pendingCopyableTextRead != nil || pendingVerifiedReplayPresentation != nil
             || localScrollApplyStartedAt != nil
+            || localPixelScrollApplyStartedAt != nil
     }
     /// Viewport-restore gate. `interactionGeneration` records user intent
     /// bumped on the main actor, while `appliedInteractionGeneration` records
@@ -292,6 +296,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
     nonisolated let viewportRestoreGate =
         OSAllocatedUnfairLock<ViewportRestoreGate>(initialState: .init())
+    /// Pixel-scroll state shared with `outputQueue`. `remainderPx` is the
+    /// best-effort fractional pixel carried between batches; batches write it
+    /// on `outputQueue`, and bottom snaps / surface replacement reset it from
+    /// the main actor. Same lock discipline as `viewportRestoreGate`: held
+    /// only for field reads and writes, never across a Ghostty C call.
+    nonisolated struct LocalPixelScrollState {
+        var remainderPx: Double = 0
+        var lastFallbackLogTime: CFTimeInterval = 0
+        #if DEBUG
+        var lastApplied: (row: UInt64, remainderPx: Double, revision: UInt64, total: UInt64)?
+        /// Rate-limits slow-batch perf log lines (scroll-hitch investigation).
+        var lastPerfLogTime: CFTimeInterval = 0
+        #endif
+    }
+    nonisolated let localPixelScrollState =
+        OSAllocatedUnfairLock<LocalPixelScrollState>(initialState: .init())
+    #if DEBUG
+    /// Last pixel-precise viewport position the pixel pump applied.
+    var debugLastPixelScroll: (row: UInt64, remainderPx: Double, revision: UInt64, total: UInt64)? {
+        localPixelScrollState.withLock { $0.lastApplied }
+    }
+    #endif
     var userViewportInteractionGeneration: UInt64 {
         viewportRestoreGate.withLock { $0.interactionGeneration }
     }
@@ -400,6 +426,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var debugLastScrollbar: (total: Int, offset: Int, len: Int)?
     var debugBottomScrollStressPhase = "idle"
     var debugBottomViewportMismatchObserved = false
+    /// Frame counter + one-shot latch for the scripted headless scroll
+    /// (`Debug/GhosttySurfaceView+ScrollScriptDebug.swift`).
+    var debugScrollScriptFrame = 0
+    var debugScrollScriptDone = false
 
     /// The live `key=value;…` description of the bottom dock, read by
     /// ``ComposerDockProbeView`` on every accessibility query. `fieldFocused` is the
@@ -2073,12 +2103,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
         let divisor = cellHeightPt > 1 ? Double(cellHeightPt) * 3 : 42
         pendingScrollLines += -Double(deltaY) / divisor
+        // Same direction in device pixels: the pixel position is the viewport
+        // top's distance from the top of scrollback, so a finger drag DOWN
+        // (negative deltaY, positive lines, older content) decreases it.
+        pendingScrollPixels += Double(deltaY) * Double(max(preferredScreenScale, 1))
         pendingScrollCell = scrollCell(at: touchPoint)
         pendingScrollInteractionGeneration = interactionGeneration
     }
 
     /// Coalesced native scroll forwarded to the Mac once per display-link frame.
     private var pendingScrollLines: Double = 0
+    /// The same coalesced deltas in device pixels for the pixel-precise local path.
+    private var pendingScrollPixels: Double = 0
     private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
     private var pendingScrollInteractionGeneration: UInt64?
     var pendingLocalScrollLines: Double = 0
@@ -2086,11 +2122,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var pendingLocalScrollInteractionGeneration: UInt64?
     var localScrollApplyInFlight = false
     var localScrollApplyInFlightGeneration: UInt64?
+    var pendingLocalScrollPixels: Double = 0
+    var pendingLocalPixelScrollInteractionGeneration: UInt64?
+    var localPixelScrollApplyInFlight = false
+    var localPixelScrollApplyInFlightGeneration: UInt64?
     var pendingLocalScrollDrains: [(generation: UInt64, continuation: CheckedContinuation<Bool, Never>)] = []
 
     /// Drops scroll work tied to a surface generation that will no longer run.
     func resetScrollStateForSurfaceReplacement() {
         pendingScrollLines = 0
+        pendingScrollPixels = 0
         pendingScrollInteractionGeneration = nil
         pendingLocalScrollLines = 0
         pendingLocalScrollInteractionGeneration = nil
@@ -2098,6 +2139,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         localScrollApplyInFlightGeneration = nil
         localScrollApplyStartedAt = nil
         localScrollApplyToken = nil
+        pendingLocalScrollPixels = 0
+        pendingLocalPixelScrollInteractionGeneration = nil
+        localPixelScrollApplyInFlight = false
+        localPixelScrollApplyInFlightGeneration = nil
+        localPixelScrollApplyStartedAt = nil
+        localPixelScrollApplyToken = nil
+        localPixelScrollState.withLock { $0 = .init() }
         scrollToBottomInFlight = false
         scrollToBottomRequested = false
         scrollToBottomRetryCount = 0
@@ -2121,19 +2169,33 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func flushPendingScrollIfNeeded() -> (generation: UInt64, appliedLocally: Bool)? {
         guard pendingScrollLines != 0 else { return nil }
         let lines = pendingScrollLines
+        let pixels = pendingScrollPixels
         let cell = pendingScrollCell
         let generation = pendingScrollInteractionGeneration
             ?? recordUserViewportScrollInteraction()
         pendingScrollLines = 0
+        pendingScrollPixels = 0
         pendingScrollInteractionGeneration = nil
         let appliedLocally = scrollPresentationAuthority.appliesLocally
-        if scrollPresentationAuthority.appliesLocally {
-            applyLocalScrollbackScroll(
-                lines: lines,
-                col: cell.col,
-                row: cell.row,
-                interactionGeneration: generation
-            )
+        if appliedLocally {
+            // Pixel-precise local scroll only where the phone owns
+            // primary-screen scrolling (the confirmed-primary condition that
+            // also suppresses the Mac scroll RPC). Alt screens and legacy
+            // transports keep the row-quantized line path.
+            if pixels != 0,
+               delegate?.ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(self) == true {
+                applyLocalPixelScroll(
+                    pixels: pixels,
+                    interactionGeneration: generation
+                )
+            } else {
+                applyLocalScrollbackScroll(
+                    lines: lines,
+                    col: cell.col,
+                    row: cell.row,
+                    interactionGeneration: generation
+                )
+            }
         }
         delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
         return (generation, appliedLocally)
@@ -2171,6 +2233,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if localScrollApplyInFlight,
            let localScrollApplyInFlightGeneration {
             generation = max(generation ?? 0, localScrollApplyInFlightGeneration)
+        }
+        if pendingLocalScrollPixels != 0,
+           let pendingLocalPixelScrollInteractionGeneration {
+            generation = max(generation ?? 0, pendingLocalPixelScrollInteractionGeneration)
+        }
+        if localPixelScrollApplyInFlight,
+           let localPixelScrollApplyInFlightGeneration {
+            generation = max(generation ?? 0, localPixelScrollApplyInFlightGeneration)
         }
         return generation
     }
@@ -2763,11 +2833,29 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 ghostty_surface_update_theme_config(surface, preparedConfig)
                 ghostty_config_free(preparedConfig)
             }
+            #if DEBUG
+            let outputApplyStartedAt = CACurrentMediaTime()
+            #endif
             forwarded.withUnsafeBytes { buffer in
                 guard let baseAddress = buffer.baseAddress else { return }
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
             }
+            #if DEBUG
+            // Perf probe for the scroll-hitch investigation: a VT apply on this
+            // serial queue delays any queued scroll-position batch by its full
+            // duration (head-of-line blocking). Log slow applies, rate-limited.
+            let outputApplyMs = (CACurrentMediaTime() - outputApplyStartedAt) * 1000
+            if outputApplyMs > 8 {
+                let perfNow = CACurrentMediaTime()
+                if perfNow - workQueue.lastOutputPerfLogTime >= 0.25 {
+                    workQueue.lastOutputPerfLogTime = perfNow
+                    MobileDebugLog.anchormux(
+                        "perf.process_output ms=\(Int(outputApplyMs)) bytes=\(forwarded.count)"
+                    )
+                }
+            }
+            #endif
             #if DEBUG
             // `ghostty_surface_read_text` takes the same internal surface lock as
             // `process_output`. Reading it on the MAIN thread per-output (to feed
@@ -2841,6 +2929,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// because it runs after everything already queued, so key-repeat during a
     /// stall never fans out into one lock-taking queue item per event.
     func enqueueScrollToBottom() {
+        // The bottom snap resets Ghostty's fractional pixel offset; drop the
+        // pixel batch and remainder so the next gesture rebases from bottom.
+        pendingScrollPixels = 0
+        pendingLocalScrollPixels = 0
+        pendingLocalPixelScrollInteractionGeneration = nil
+        localPixelScrollState.withLock { $0.remainderPx = 0 }
         let interactionGeneration = recordFollowBottomInteraction()
         scrollToBottomInteractionGeneration = interactionGeneration
         if !scrollToBottomRequested && !scrollToBottomInFlight {
@@ -3422,9 +3516,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // pending deltas and freeze the scroll mechanics at the current offset
         // (kill-deceleration idiom) so typed input lands at the bottom.
         pendingScrollLines = 0
+        pendingScrollPixels = 0
         pendingScrollInteractionGeneration = nil
         pendingLocalScrollLines = 0
         pendingLocalScrollInteractionGeneration = nil
+        pendingLocalScrollPixels = 0
+        pendingLocalPixelScrollInteractionGeneration = nil
         scrollMechanicsView.setContentOffset(scrollMechanicsView.contentOffset, animated: false)
         enqueueScrollToBottom()
     }
@@ -3452,6 +3549,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             return
         }
+        #if DEBUG
+        debugStepScrollScriptIfNeeded()
+        #endif
         #if DEBUG
         // Main-thread liveness heartbeat + presented-surface state. Time-gated,
         // no behavior change. The `contents`/size fields let an IDLE blank be

@@ -48,6 +48,7 @@ These defaults come from `Keys::default`.
 | `Ctrl-b m` | Toggle the sidebar between compact and full width; shows it when hidden |
 | `Ctrl-b e` | Toggle the built-in sidebar between files and workspaces |
 | `Ctrl-b S` | Focus the built-in sidebar or configured sidebar plugin; a prefixed command returns focus to the pane |
+| `m` | Open the machine provider menu when the machine rail is focused |
 | `Ctrl-b g` | Append a two-thirds-width terminal to the right |
 | `Ctrl-b U` | Undo the latest structural layout action on the focused screen |
 | `Ctrl-b ?` | Open the keyboard shortcut modal |
@@ -87,11 +88,11 @@ Workspace navigation follows tmux's outer session lane: `(` and `)` move backwar
 
 ## Focused Sidebar
 
-When the built-in sidebar is focused, its header gains an accent background and its divider becomes a bold accent rail. `Tab` toggles files/workspaces without leaving sidebar focus. In the files view, Up/Down and Ctrl-J/Ctrl-K move the selection, Right descends into a directory, Enter descends or opens a file in a new `$EDITOR` tab, and Left or `h` goes to the parent when the machine rail is absent. `c` sends a safely quoted `cd` to the focused pane, `o` opens `.html` and `.md` files in a browser tab, `.` toggles dotfiles, `/` enters filter mode, and `~` follows the focused pane cwd again. Esc clears a nonempty filter before leaving filter mode.
+When the built-in sidebar is focused, its divider becomes a bold accent rail. `Tab` toggles files/workspaces without leaving sidebar focus. In the files view, Up/Down and Ctrl-J/Ctrl-K move the selection, Right descends into a directory, Enter descends or opens a file in a new `$EDITOR` tab, and Left or `h` goes to the parent when the machine rail is absent. `c` sends a safely quoted `cd` to the focused pane, `o` opens `.html` and `.md` files in a browser tab, `.` toggles dotfiles, `/` enters filter mode, and `~` follows the focused pane cwd again. Esc clears a nonempty filter before leaving filter mode.
 
 In the workspaces view, Up/Down move the selection and Enter activates it. A one-level `tabs` view follows the highlighted workspace. Multi-level views such as `workspaces → agents` are collapsible trees: Left collapses, Right expands, Space toggles, and Enter activates the exact workspace, pane, tab, or agent surface. Alt/Option with arrows or `hjkl` always navigates, so Alt-Left and Alt-Right traverse views instead of changing tree expansion. Right from the final view or Esc returns to the pane. Any normal prefixed command leaves sidebar focus and runs through the usual action table. A configured sidebar plugin keeps its existing PTY forwarding behavior.
 
-When the optional machine rail is visible, `Ctrl-b S` enters through the first view containing workspaces. Alt/Option-Left or Alt/Option-`h` at the left pane boundary enters the rightmost visible view. Left or `h` and Right or `l` traverse the ordered native views. Up/Down or `k`/`j` changes the selected machine, Enter connects to it, and Esc returns to the active pane. Clicking a view header focuses that view. Clicking a machine, workspace, pane, tab, or agent activates it and returns keyboard input to the latest terminal. Sidebar views swallow other unprefixed keys instead of forwarding them to a remote terminal.
+When the optional machine rail is visible, `Ctrl-b S` enters through the first view containing workspaces. Alt/Option-Left or Alt/Option-`h` at the left pane boundary enters the rightmost visible view. Left or `h` and Right or `l` traverse the ordered native views. Up/Down or `k`/`j` changes the selected machine, Enter connects to it, `m` opens the provider scope/actions menu when the provider offers one, and Esc returns to the active pane. Clicking a view's one-row top pad focuses it without activating a row. Clicking a machine, workspace, pane, tab, or agent activates it and returns keyboard input to the latest terminal. Sidebar views swallow other unprefixed keys instead of forwarding them to a remote terminal.
 
 ## Modeless Alt Layer
 
@@ -193,6 +194,7 @@ toggle-sidebar
 toggle-sidebar-compact
 toggle-sidebar-view
 focus-sidebar
+provider-menu
 new-pane-right
 undo-layout
 focus-left

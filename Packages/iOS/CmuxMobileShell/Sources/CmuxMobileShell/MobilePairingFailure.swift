@@ -399,7 +399,7 @@ extension MobilePairingFailureCategory {
             if macChannelIsRelease {
                 return L10n.string(
                     "mobile.pairing.guidance.authEnvironment",
-                    defaultValue: "Use BETA, INTERNAL, or the App Store app with Stable or Nightly. Use this DEV app with a Mac that has the same DEV tag."
+                    defaultValue: "Use BETA, INTERNAL, or the App Store app with Stable or Nightly. Use a DEV iPhone build with any DEV Mac build."
                 )
             }
             // Reaches production users (TestFlight/App Store scanning a dev
@@ -411,7 +411,7 @@ extension MobilePairingFailureCategory {
         case .buildIncompatible:
             return L10n.string(
                 "mobile.pairing.guidance.buildIncompatible",
-                defaultValue: "DEV builds must use the same DEV tag. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
+                defaultValue: "DEV iPhone builds connect to any DEV Mac build. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
             )
         case .ticketExpired, .unsupportedRoute, .noSupportedRoute:
             return L10n.string(

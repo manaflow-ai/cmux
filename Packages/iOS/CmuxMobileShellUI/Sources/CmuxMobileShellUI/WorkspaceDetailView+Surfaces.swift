@@ -27,12 +27,7 @@ extension WorkspaceDetailView {
                 .opacity(surface == .terminal ? 1 : 0)
                 .allowsHitTesting(surface == .terminal)
                 .accessibilityHidden(surface != .terminal)
-            if surface == .chat, let session = chosenChatSession {
-                chatContent(session)
-                    .background(store.activeTerminalTheme.terminalBackgroundColor)
-            } else if surface == .chat {
-                chatWaitingSurfacePlaceholder()
-            } else if surface == .browser, let browser = activeBrowser {
+            if surface == .browser, let browser = activeBrowser {
                 browserContent(browser)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
             } else if surface == .browser {
@@ -257,7 +252,43 @@ extension WorkspaceDetailView {
         }
     }
 
+    @ViewBuilder
     func simulatorStreamContent(_ simulator: MobileSimulatorStreamSurfaceState) -> some View {
+        if store.supportsSimulatorStreamV2,
+            let access = store.simulatorStreamV2Access(panelID: simulator.id)
+        {
+            let workspaceID = workspace.rpcWorkspaceID.rawValue
+            SimulatorStreamV2Pane(
+                panelID: simulator.id,
+                workspaceID: workspaceID,
+                access: access,
+                isTransportReady: store.connectionState == .connected,
+                supportsDeviceSwitching: store.supportsSimulatorDeviceSwitching,
+                listDevices: { [weak store] in
+                    await store?.listSimulatorDevices(
+                        panelID: simulator.id, workspaceID: workspaceID) ?? []
+                },
+                selectDevice: { [weak store] udid in
+                    await store?.selectSimulatorDevice(
+                        panelID: simulator.id, workspaceID: workspaceID, udid: udid) ?? false
+                }
+            )
+            .task {
+                await store.stopLegacySimulatorStream(
+                    panelID: simulator.id,
+                    workspaceID: workspace.rpcWorkspaceID.rawValue
+                )
+            }
+            .id(simulator.id)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            legacySimulatorStreamContent(simulator)
+        }
+    }
+
+    private func legacySimulatorStreamContent(
+        _ simulator: MobileSimulatorStreamSurfaceState
+    ) -> some View {
         SimulatorStreamPane(
             state: simulator,
             workspaceID: workspace.rpcWorkspaceID.rawValue,

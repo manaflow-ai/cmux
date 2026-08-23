@@ -12,14 +12,31 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `fd13a3fc2`, on the fork branch
+The submodule pinned by this branch is `8ae680da5`, on the fork branch
 `issue-10557-reload-config-stall`. It lets an embedded host commit app-scoped
 configuration without synchronously propagating it to every surface and fixes
 Fish SSH integration when only one forwarding feature is enabled. The pin
-includes the prior fork changes below, including the tokened iOS render work at
+merges the current fork `main` renderer updates through `b17f1726f` with both
+feature commits. It includes the prior fork changes below, including the tokened
+iOS render work at
 `3da10da73`, VT formatter cursor restoration at `f76c132e5`, VT
 stream-boundary visibility at `9513174f2`, and Hangul canonical font resolution
 at `3fbdd078d`.
+
+### Current merged feature pin
+
+- Branch:
+  - https://github.com/manaflow-ai/ghostty/tree/issue-10557-reload-config-stall
+- Commit:
+  - `8ae680da5` (merge current fork main into issue-10557-reload-config-stall)
+- Summary:
+  - Combines incremental embedded configuration propagation and Fish SSH
+    feature gating with the current fork-main renderer changes.
+  - Keeps both feature commits reachable while satisfying the parent repo's
+    updated Ghostty pointer from `origin/main`.
+- Verification:
+  - Universal ReleaseFast GhosttyKit build with native Sentry disabled.
+  - `tests/test_issue_8093_ghostty_ssh_binary_path.py` with Fish 4.6.0.
 
 ### Fish SSH feature gating
 
