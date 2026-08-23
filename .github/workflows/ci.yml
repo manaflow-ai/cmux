@@ -1,8 +1,16 @@
 name: CI
 
 on:
-  # CI pause: keep the full suite available for explicit validation without
-  # starting it for pull requests or main pushes.
+  # Keep the full suite available for explicit validation, while always
+  # running the lightweight GhosttyKit provenance check when its pointer,
+  # checksum, or helper changes in a PR.
+  pull_request:
+    paths:
+      - ghostty
+      - scripts/download-prebuilt-ghosttykit.sh
+      - scripts/ghosttykit-checksums.txt
+      - tests/test_ci_ghosttykit_release_check.sh
+      - .github/workflows/ci.yml
   workflow_dispatch:
 
 permissions:
@@ -58,6 +66,33 @@ jobs:
             if [ ! -s /tmp/cmux-ci-changed-files.txt ]; then
               echo "PR diff is empty; running all CI areas."
               emit_all_areas
+              exit 0
+            fi
+
+            # A provenance-only PR gets the cheap Linux guard and avoids
+            # queuing the unrelated macOS/web/Go suites. Keep this exception
+            # narrow: any workflow edit or source/configuration file opts back
+            # into normal routing below.
+            ghosttykit_guard_only=true
+            has_ghosttykit_guard_file=false
+            while IFS= read -r changed_file; do
+              case "$changed_file" in
+                ghostty|scripts/download-prebuilt-ghosttykit.sh|scripts/ghosttykit-checksums.txt|tests/test_ci_ghosttykit_release_check.sh)
+                  has_ghosttykit_guard_file=true
+                  ;;
+                *)
+                  ghosttykit_guard_only=false
+                  ;;
+              esac
+            done < /tmp/cmux-ci-changed-files.txt
+            if [ "$ghosttykit_guard_only" = true ] && [ "$has_ghosttykit_guard_file" = true ]; then
+              echo "GhosttyKit provenance-only PR; running the release guard."
+              {
+                echo "macos=false"
+                echo "web=false"
+                echo "go=false"
+                echo "agent_session_web=false"
+              } >> "$GITHUB_OUTPUT"
               exit 0
             fi
 
@@ -204,6 +239,9 @@ jobs:
       - name: Validate GhosttyKit checksum verification
         run: ./tests/test_ci_ghosttykit_checksum_verification.sh
 
+      - name: Validate GhosttyKit release check behavior
+        run: ./tests/test_ci_ghosttykit_release_check.sh
+
       - name: Validate Zig install without sudo
         run: ./tests/test_install_zig_ci_no_sudo.sh
 
@@ -301,6 +339,33 @@ jobs:
 
       - name: Validate test determinism gate
         run: python3 scripts/check-test-determinism.py --strict
+
+  ghosttykit-release-check:
+    name: GhosttyKit release check
+    # The pull_request trigger is path-scoped to GhosttyKit provenance inputs;
+    # workflow_dispatch keeps the same guard available for explicit CI runs.
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Read pinned Ghostty SHA
+        run: |
+          set -euo pipefail
+          GHOSTTY_SHA="$(git ls-tree HEAD ghostty | awk '$4 == "ghostty" { print $3; exit }')"
+          test -n "$GHOSTTY_SHA"
+          echo "Pinned Ghostty SHA: $GHOSTTY_SHA"
+          echo "GHOSTTY_SHA=$GHOSTTY_SHA" >> "$GITHUB_ENV"
+
+      - name: Verify published GhosttyKit release and checksum
+        env:
+          # A missing GitHub release should fail quickly rather than spending
+          # the helper's nightly retry budget on a known 404.
+          GHOSTTYKIT_DOWNLOAD_RETRIES: "2"
+          GHOSTTYKIT_DOWNLOAD_RETRY_DELAY: "1"
+        run: ./scripts/download-prebuilt-ghosttykit.sh --verify-only
 
   remote-daemon-tests:
     needs: changes
@@ -2186,6 +2251,7 @@ jobs:
     needs:
       - changes
       - workflow-guard-tests
+      - ghosttykit-release-check
       - remote-daemon-tests
       - web-typecheck
       - react-apps-check
