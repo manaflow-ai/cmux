@@ -3135,7 +3135,7 @@ impl RemoteSession {
                 // against the current cache rather than losing browser metadata.
                 let tree = self.tree.lock().unwrap();
                 browser_source_from_tree(&tree.view, id)
-            }).flatten();
+            }).flatten());
         let (cols, rows) = size.unwrap_or((80, 24));
         let initial_size = size.map(|(cols, rows)| (cols.max(1), rows.max(1))).filter(|_| {
             self.supports_capability(cmux_tui_core::server::ATTACH_INITIAL_SIZE_CAPABILITY)
