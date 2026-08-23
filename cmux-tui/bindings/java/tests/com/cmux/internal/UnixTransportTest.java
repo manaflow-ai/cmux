@@ -46,6 +46,7 @@ public final class UnixTransportTest {
         Path socket = Files.createTempFile("cmux-java-connect", ".sock");
         Files.deleteIfExists(socket);
         AtomicReference<Throwable> failure = new AtomicReference<>();
+        CountDownLatch acceptedSignal = new CountDownLatch(1);
         Thread server = null;
         try (ServerSocketChannel listener =
                 ServerSocketChannel.open(StandardProtocolFamily.UNIX)) {
@@ -56,6 +57,8 @@ public final class UnixTransportTest {
                     check(accepted.isOpen(), "connect test accepted channel");
                 } catch (Throwable error) {
                     failure.set(error);
+                } finally {
+                    acceptedSignal.countDown();
                 }
             }, "cmux-java-connect-test-server");
             server.start();
@@ -65,6 +68,10 @@ public final class UnixTransportTest {
                 )) {
                 check(client.isBlocking(), "bounded connector returns blocking channel");
             }
+            check(
+                acceptedSignal.await(2, TimeUnit.SECONDS),
+                "connect test server accepted client before listener closes"
+            );
         } finally {
             if (server != null) {
                 server.join(2_000);
