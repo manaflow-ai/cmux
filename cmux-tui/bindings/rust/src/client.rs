@@ -155,12 +155,14 @@ impl std::error::Error for CmuxError {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SocketAuthority {
     Explicit,
     Derived,
 }
 
+/// Connection settings. Construct this type with [`ClientConfig::from_socket_path`]
+/// or a session constructor. Struct literals are intentionally non-exhaustive.
 #[non_exhaustive]
 #[derive(Debug, Clone)]
 pub struct ClientConfig {

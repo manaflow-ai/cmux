@@ -119,12 +119,14 @@ fn connect_with_budget(
 }
 
 /// Connection and bound configuration for the resource SDK.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SocketAuthority {
     Explicit,
     Derived,
 }
 
+/// Resource connection settings. Use the constructors because this bootstrap
+/// SDK keeps socket authority provenance private for safe fallback routing.
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub struct Config {
