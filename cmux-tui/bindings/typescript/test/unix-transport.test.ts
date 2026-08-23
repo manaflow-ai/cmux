@@ -174,6 +174,32 @@ test("hashed session paths fall back to /tmp when the runtime base is too long",
   }
 });
 
+test("socket discovery ignores TMP and TEMP outside the contract", () => {
+  const previousXdg = process.env.XDG_RUNTIME_DIR;
+  const previousTmpdir = process.env.TMPDIR;
+  const previousTmp = process.env.TMP;
+  const previousTemp = process.env.TEMP;
+  delete process.env.XDG_RUNTIME_DIR;
+  delete process.env.TMPDIR;
+  process.env.TMP = "/tmp/node-tmp-override";
+  process.env.TEMP = "/tmp/node-temp-override";
+  try {
+    assert.equal(
+      defaultSocketPath("main"),
+      join("/tmp", `cmux-tui-${process.getuid?.() ?? 0}`, "main.sock"),
+    );
+  } finally {
+    if (previousXdg === undefined) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = previousXdg;
+    if (previousTmpdir === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previousTmpdir;
+    if (previousTmp === undefined) delete process.env.TMP;
+    else process.env.TMP = previousTmp;
+    if (previousTemp === undefined) delete process.env.TEMP;
+    else process.env.TEMP = previousTemp;
+  }
+});
+
 test("socket candidates keep long sessions bindable and short sessions canonical", () => {
   withSocketRuntime(() => {
     const capacity = process.platform === "darwin" ? 104 : 108;
