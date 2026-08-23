@@ -84,24 +84,27 @@ fn scoped_cwd(
     } else {
         raw_owned =
             match (local_roots.filter(|r| !r.is_empty()), server_roots.filter(|r| !r.is_empty())) {
-                (Some(local), Some(server)) => local
-                    .iter()
-                    .find_map(|candidate| {
-                        let path = expand_path(candidate, home, home);
-                        let canonical = std::fs::canonicalize(&path).ok()?;
-                        server
-                            .iter()
-                            .any(|root| {
+                (Some(local), Some(server)) => {
+                    let mut candidates: Vec<PathBuf> = local
+                        .iter()
+                        .chain(server.iter())
+                        .filter_map(|root| {
+                            std::fs::canonicalize(expand_path(root, home, home)).ok()
+                        })
+                        .collect();
+                    candidates.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
+                    candidates
+                        .into_iter()
+                        .find(|candidate| {
+                            local.iter().chain(server.iter()).all(|root| {
                                 std::fs::canonicalize(expand_path(root, home, home))
-                                    .map(|root| {
-                                        canonical.starts_with(root) || root.starts_with(&canonical)
-                                    })
+                                    .map(|root| candidate.starts_with(root))
                                     .unwrap_or(false)
                             })
-                            .then_some(candidate.as_str())
-                    })
-                    .unwrap_or("~")
-                    .to_owned(),
+                        })
+                        .map(|path| path.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| "~".to_owned())
+                }
                 (Some(local), None) => local.first().unwrap().clone(),
                 (None, Some(server)) => server.first().unwrap().clone(),
                 (None, None) => "~".to_owned(),
@@ -1252,7 +1255,9 @@ impl Inner {
             ));
         };
 
-        if !ensured.created {
+        let roots_scoped = context.local_roots.as_deref().is_some_and(|r| !r.is_empty())
+            || server_roots.is_some_and(|r| !r.is_empty());
+        if !ensured.created && roots_scoped {
             let info = control.request("process-info", json!({ "surface": surface_id })).await;
             let actual = info
                 .as_ref()
