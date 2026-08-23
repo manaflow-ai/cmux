@@ -318,6 +318,16 @@ struct BrowserPanelView: View {
     @State private var focusFlashAnimationGeneration: Int = 0
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var addressBarHeight: CGFloat = 0
+    @State private var addressBarWidth: CGFloat = 0
+
+    /// Below this chrome width the full accessory row would crowd out the
+    /// omnibar, so the toolbar tools collapse into More.
+    private static let compactChromeWidthThreshold: CGFloat = 420
+
+    private var isChromeCompact: Bool {
+        addressBarWidth > 0 && addressBarWidth < Self.compactChromeWidthThreshold
+    }
+
     @State private var isBrowserImportHintPopoverPresented = false
     @State private var focusModeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var lastHandledAddressBarFocusRequestId: UUID?
@@ -1066,6 +1076,9 @@ struct BrowserPanelView: View {
         .onPreferenceChange(BrowserAddressBarHeightPreferenceKey.self) { height in
             addressBarHeight = height
         }
+        .onPreferenceChange(BrowserAddressBarWidthPreferenceKey.self) { width in
+            addressBarWidth = width
+        }
         .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick)) { notification in
             handleBrowserWebViewClickIntent(notification)
         }
@@ -1155,45 +1168,51 @@ struct BrowserPanelView: View {
             omnibarField
                 .accessibilityIdentifier("BrowserOmnibarPill")
                 .accessibilityLabel("Browser omnibar")
-                .frame(minWidth: 0, maxWidth: .infinity)
 
             HStack(spacing: browserToolbarAccessorySpacing) {
                 if shouldShowToolbarImportHintChip {
                     browserImportHintToolbarChip
                 }
-                // Focus and Design Mode share one transient text chip while
-                // active. Design Mode and DevTools stay reachable without
-                // opening the menu; lower-frequency screenshot actions remain
-                // in the overflow menu. Keep More at the far right so the
-                // popover/menu affordance has a stable trailing anchor.
-                browserActiveModeButtonWithShortcutHint
-                browserScreenshotCopiedIndicator
-                if activeToolbarMode != .design {
-                    BrowserDesignModeToolbarButton(
-                        controller: panel.designModeController,
-                        iconPointSize: devToolsButtonIconSize,
-                        hitSize: addressBarButtonSize,
-                        inactiveColor: devToolsColorOption.color,
-                        onToggle: { panel.toggleDesignModeFromBrowserChrome(reason: "toolbar") }
-                    )
-                }
-                browserProfileButton
-                browserThemeModeButton
-                Spacer(minLength: 0)
-                HStack(spacing: browserToolbarAccessorySpacing) {
+                if isChromeCompact {
+                    browserActiveModeButtonWithShortcutHint
+                    browserScreenshotCopiedIndicator
+                    browserProfileButton
+                    browserThemeModeButton
+                    browserOverflowMenu
+                } else {
+                    // Keep the stable wide-row sizing and place Inspect/DevTools
+                    // immediately before the trailing More affordance.
+                    browserActiveModeButtonWithShortcutHint
+                    browserScreenshotCopiedIndicator
+                    if activeToolbarMode != .design {
+                        BrowserDesignModeToolbarButton(
+                            controller: panel.designModeController,
+                            iconPointSize: devToolsButtonIconSize,
+                            hitSize: addressBarButtonSize,
+                            inactiveColor: devToolsColorOption.color,
+                            onToggle: { panel.toggleDesignModeFromBrowserChrome(reason: "toolbar") }
+                        )
+                    }
+                    browserProfileButton
+                    browserThemeModeButton
                     developerToolsButton
                     browserOverflowMenu
                 }
-                .fixedSize(horizontal: true, vertical: false)
-                .layoutPriority(1)
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("BrowserToolbarAccessoryRow")
-            .layoutPriority(1)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, addressBarVerticalPadding)
         .background(browserChromeBackground)
+        .background {
+            GeometryReader { geo in
+                Color.clear.preference(
+                    key: BrowserAddressBarWidthPreferenceKey.self,
+                    value: geo.size.width
+                )
+            }
+        }
         .background(
             WindowAccessor(refreshID: showModifierHoldHints) { window in
                 focusModeShortcutHintMonitor.setHostWindow(showModifierHoldHints ? window : nil)
@@ -1510,6 +1529,18 @@ struct BrowserPanelView: View {
             }
             .disabled(!panel.shouldRenderWebView)
             .accessibilityIdentifier("BrowserScreenshotSectionButton")
+            if isChromeCompact {
+                Divider()
+                BrowserDesignModeOverflowMenuButton(
+                    controller: panel.designModeController,
+                    onToggle: { panel.toggleDesignModeFromBrowserChrome(reason: "overflowMenu") }
+                )
+                .accessibilityIdentifier("BrowserOverflowDesignModeButton")
+                Button(action: openDevTools) {
+                    Label(developerToolsButtonHelp, systemImage: devToolsIconOption.rawValue)
+                }
+                .accessibilityIdentifier("BrowserToggleDevToolsButton")
+            }
         } label: {
             browserVerticalMoreIcon
         }
@@ -1521,24 +1552,11 @@ struct BrowserPanelView: View {
     }
 
     private var browserVerticalMoreIcon: some View {
-        let dotSize = max(2, devToolsButtonIconSize * 0.2)
-        return ZStack {
-            Color.clear
-                .frame(width: devToolsButtonIconSize, height: devToolsButtonIconSize)
-            VStack(spacing: dotSize * 0.55) {
-                Circle()
-                    .fill(devToolsColorOption.color)
-                    .frame(width: dotSize, height: dotSize)
-                Circle()
-                    .fill(devToolsColorOption.color)
-                    .frame(width: dotSize, height: dotSize)
-                Circle()
-                    .fill(devToolsColorOption.color)
-                    .frame(width: dotSize, height: dotSize)
-            }
-        }
-        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
-        .accessibilityHidden(true)
+        Text(verbatim: "⋮")
+            .cmuxFont(size: devToolsButtonIconSize, weight: .medium)
+            .foregroundStyle(devToolsColorOption.color)
+            .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+            .accessibilityHidden(true)
     }
 
     private var browserThemeModeButton: some View {
@@ -3664,6 +3682,14 @@ private struct OmnibarPillFramePreferenceKey: PreferenceKey {
         if next != .zero {
             value = next
         }
+    }
+}
+
+private struct BrowserAddressBarWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
