@@ -54,10 +54,7 @@ pub(crate) fn parse_identity_capabilities(value: &Value) -> Result<HashSet<Strin
     capabilities
         .iter()
         .map(|capability| {
-            capability
-                .as_str()
-                .map(str::to_owned)
-                .ok_or("capabilities must be an array of strings")
+            capability.as_str().map(str::to_owned).ok_or("capabilities must be an array of strings")
         })
         .collect()
 }

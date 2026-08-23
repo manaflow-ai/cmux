@@ -760,10 +760,12 @@ mod tests {
     #[test]
     fn capability_preflight_rejects_malformed_capabilities() {
         for capabilities in [json!(null), json!("journal-v1"), json!(["journal-v1", false])] {
-            assert!(validate_capability_identity(&json!({
-                "app": "cmux-tui", "protocol": 12, "capabilities": capabilities,
-            }))
-            .is_err());
+            assert!(
+                validate_capability_identity(&json!({
+                    "app": "cmux-tui", "protocol": 12, "capabilities": capabilities,
+                }))
+                .is_err()
+            );
         }
     }
 

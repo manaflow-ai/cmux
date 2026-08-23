@@ -4308,10 +4308,12 @@ mod tests {
     #[test]
     fn malformed_identity_capabilities_are_rejected() {
         for capabilities in [json!(null), json!("clear-history-v1"), json!(["ok", 1])] {
-            assert!(validate_remote_identity(&json!({
-                "app": "cmux-tui", "protocol": 12, "capabilities": capabilities,
-            }))
-            .is_err());
+            assert!(
+                validate_remote_identity(&json!({
+                    "app": "cmux-tui", "protocol": 12, "capabilities": capabilities,
+                }))
+                .is_err()
+            );
         }
     }
 

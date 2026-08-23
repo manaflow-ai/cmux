@@ -21,7 +21,7 @@
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 pub const READ_ONLY_VERBS: [&str; 4] = ["read", "ls", "grep", "find"];
 pub const ACTION_VERBS: [&str; 6] = ["exec", "read", "write", "ls", "grep", "find"];
@@ -63,11 +63,7 @@ fn lexical_resolve(base: &Path, value: &str) -> PathBuf {
             Component::Normal(part) => out.push(part),
         }
     }
-    if out.as_os_str().is_empty() {
-        base.to_path_buf()
-    } else {
-        out
-    }
+    if out.as_os_str().is_empty() { base.to_path_buf() } else { out }
 }
 
 /// Expand a leading `~` and resolve to an absolute path.
