@@ -11017,6 +11017,7 @@ impl App {
         if presented_deleted
             && let Some(presented) = self.machine_presented
             && update.request.is_none()
+            && !self.machine_action_in_flight
             && self.machine_selection_intent.is_none_or(|intent| {
                 intent == presented || !machine_usable(&update, intent) || failed_intent_is_stale
             })
@@ -22922,6 +22923,7 @@ fn action_is_frontend_local(action: Action) -> bool {
             | Action::FocusNextPane
             | Action::ScrollUp
             | Action::ScrollDown
+            | Action::ProviderMenu
             | Action::BrowserEditUrl
             | Action::ShowShortcuts
     )
