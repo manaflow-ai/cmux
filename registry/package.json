@@ -1,0 +1,18 @@
+{
+  "name": "cmux-device-registry",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Device registry + presence for cmux (contract 9.6/9.7): durable device rows, heartbeat-lease presence, full-list realtime snapshots via Convex subscriptions. First consumer: cmux-lite (manaflow-ai/cmuxterm-hq#317).",
+  "scripts": {
+    "dev": "convex dev",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "convex": "^1.17.0"
+  },
+  "devDependencies": {
+    "convex-test": "^0.0.36",
+    "vitest": "^2.1.0",
+    "@edge-runtime/vm": "^4.0.0"
+  }
+}
