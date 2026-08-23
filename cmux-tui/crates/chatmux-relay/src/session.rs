@@ -383,7 +383,6 @@ async fn relay_session(
         let wake = {
             let mut guard = socket.lock().await;
             tokio::select! {
-                biased;
                 frame = critical_rx.recv(), if critical_burst < 8 => Wake::Outbound(true, frame),
                 frame = watch_rx.recv() => Wake::Outbound(false, frame),
                 _ = async {
@@ -397,6 +396,7 @@ async fn relay_session(
         };
         match wake {
             Wake::Heartbeat => {
+                critical_burst = 0;
                 let frame = heartbeat_frame(now_ms()).to_string();
                 if send_socket_text(&socket, frame).await.is_err() {
                     break Ok(connected);
@@ -420,6 +420,7 @@ async fn relay_session(
                 critical_burst = 0;
             }
             Wake::Incoming(incoming) => {
+                critical_burst = 0;
                 let message = match incoming {
                     Some(Ok(message)) => message,
                     Some(Err(error)) => break Err(RelayError::transient(error.to_string())),
@@ -613,7 +614,12 @@ async fn relay_session(
                                     .map(|text| text.len() as u64)
                                     .unwrap_or(0);
                                 pending.fetch_add(size, Ordering::SeqCst);
-                                let _ = out.critical_value(result).await;
+                                if out.critical_value(result).await.is_err() {
+                                    pending.fetch_sub(
+                                        size.min(pending.load(Ordering::SeqCst)),
+                                        Ordering::SeqCst,
+                                    );
+                                }
                                 continue;
                             }
                         };
@@ -635,7 +641,12 @@ async fn relay_session(
                                 .map(|text| text.len() as u64)
                                 .unwrap_or(0);
                             pending.fetch_add(size, Ordering::SeqCst);
-                            let _ = out.critical_value(result).await;
+                            if out.critical_value(result).await.is_err() {
+                                pending.fetch_sub(
+                                    size.min(pending.load(Ordering::SeqCst)),
+                                    Ordering::SeqCst,
+                                );
+                            }
                         });
                     }
                     ServerFrame::Pty { frame_type, raw } => {
