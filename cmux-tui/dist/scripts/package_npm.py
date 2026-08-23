@@ -199,6 +199,14 @@ def package_launcher(version: str, out_dir: Path, include_windows: bool) -> None
     relay_json["version"] = version
     relay_json["optionalDependencies"] = {target["package"]: version for target in relay_targets}
     write_json(relay_json_path, relay_json)
+    relay_bin = relay_dir / "bin" / "cmux-relay.js"
+    if relay_bin.exists():
+        relay_bin.chmod(
+            relay_bin.stat().st_mode
+            | stat.S_IXUSR
+            | stat.S_IXGRP
+            | stat.S_IXOTH
+        )
 
 
 def main() -> None:
