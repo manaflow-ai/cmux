@@ -3,9 +3,10 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `aggregate-final`.
-Current integration code tip before this documentation commit: `643dbfe2e5d688f07f633b92d758e7990ad55e31` (`Wake watch loop for latched errors and send failures`).
+Current integration code tip before this documentation commit: `b61f1bada6498ee9d6549f4550f9a062f327f22c` (`style: apply relay rustfmt`).
 Exact worktree HEAD: run `git rev-parse HEAD` (documentation commits change this value).
-The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
+The aggregate branch is `aggregate-final`; the review branch is
+`https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
 The current integration sequence includes the hosted formatter and verification
 fixes through `66e83c808f`, the replay preflight correction `c867048c1d`, the
 safe scoped-attach series through `dfa4ef3b6a`, manifest and socket-contract
@@ -18,7 +19,7 @@ localization recovery, and systemd quoting fixes. The current tail also bounds
 relay and remote queues, validates relay frame versions, joins Python cleanup,
 uses one Go fallback deadline, guards TypeScript transport callbacks, bounds
 Iroh result delivery, and hardens filesystem-watch admission and overflow
-wakeup through `643dbfe2e5`.
+wakeup through `643dbfe2e5`. The final formatting pass is `b61f1bada6`.
 
 Subagent ledger: at least 180 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
@@ -28,8 +29,9 @@ inflate the count. New turns must have a named deliverable.
 
 ## Current state
 
-The latest code tail is `643dbfe2e5`. It is a compatibility, lifecycle, and
-queue-ownership update. The issues below remain open.
+The latest code tail is `b61f1bada6`. It carries the watch compatibility and
+queue-ownership fixes through `643dbfe2e5`, followed by a relay Rust formatting
+pass. The issues below remain open.
 
 ### Open issue inventory
 
@@ -688,7 +690,7 @@ absolute/home-relative contract.
 ## Wave 22 bounded transport tail
 
 The exact aggregate code tip immediately before this board commit is
-`643dbfe2e5d688f07f633b92d758e7990ad55e31`. The companion
+`b61f1bada6498ee9d6549f4550f9a062f327f22c`. The companion
 `TECH-DEBT-CHANGELOG.md` is a historical snapshot at an older tip. This table
 is the current revert map. A bound at one ingress edge is not a claim of global
 backpressure or complete remote-session recovery.
@@ -701,6 +703,7 @@ backpressure or complete remote-session recovery.
 | [`80d5a5393c`](https://github.com/manaflow-ai/cmux/commit/80d5a5393cc5654d00d254adc9c9b78c4e1573df), [`8c9e530326`](https://github.com/manaflow-ai/cmux/commit/8c9e530326af78ff0e2f256835746bb87d44c714), and [`9a887a2e05`](https://github.com/manaflow-ai/cmux/commit/9a887a2e05917572be7b7a79ec94e2ccdb5f81c) | Validate known relay frame versions, bound Iroh accept-result buffering, and make watch replacement and overflow signaling generation-safe. | Malformed known versions fail closed. Hosted cross-version, Iroh shutdown, and filesystem-watch cancellation tests remain required. | Revert protocol parsing separately; revert Iroh and watch admission together with their lifecycle tests. |
 | [`c7e66ee6ac`](https://github.com/manaflow-ai/cmux/commit/c7e66ee6ac4e7e42798faba2635869337801cbb6) | Reserve filesystem-watch capacity before spawning and announce an opened watch before event delivery. | Prevents duplicate admission during a race. Synchronous filesystem work, parent-directory TOCTOU, and cancellation after disconnect remain open. | Revert this watch ownership change with the watch replacement chain. |
 | [`2ac781a18e`](https://github.com/manaflow-ai/cmux/commit/2ac781a18ef25a019bb5cb22d65b6b02688dca5f), [`e7a931766a`](https://github.com/manaflow-ai/cmux/commit/e7a931766adc6709f3f5422d2f0ee3acb616c731), and [`643dbfe2e5`](https://github.com/manaflow-ai/cmux/commit/643dbfe2e5d688f07f633b92d758e7990ad55e31) | Install watch tasks only for the current generation, latch watcher errors when the bounded event queue is full, and wake the loop for latched errors or outbound send failure. | Overflow and watcher errors now reach the loop instead of waiting indefinitely. Cancellation after disconnect, synchronous filesystem work, and parent-directory TOCTOU remain open. | Revert these three watch wakeup and lifecycle commits together with the watch admission chain. |
+| [`b61f1bada6`](https://github.com/manaflow-ai/cmux/commit/b61f1bada6498ee9d6549f4550f9a062f327f22c) | Apply Rust formatting to the relay PTY, session, and workspace changes after the watch hardening tail. | Formatting only. It adds no behavior proof; rerun formatter, compile, and focused watch tests after further edits. | Revert this formatting commit independently; retain the behavior and test commits. |
 | [`c30f737369`](https://github.com/manaflow-ai/cmux/commit/c30f7373694abfe39f52aa58330ffe011139f7fd), [`dc8f116bfd`](https://github.com/manaflow-ai/cmux/commit/dc8f116bfda28021670b4668f37a7c693b4b84e8), and [`41a1bebf4c`](https://github.com/manaflow-ai/cmux/commit/41a1bebf4c77299ef7d271462e732aba37d9576d) | Guard TypeScript data callbacks, share one Go fallback deadline, and make concurrent Python close callers await one cleanup task. | The callback no longer escapes through `EventEmitter`; fallback no longer multiplies the timeout; Python cleanup is joinable. Long Unicode socket paths and hosted multi-language cancellation tests remain open. | Revert each binding fix with its focused test; do not revert the shared protocol contract. |
 
 ## Open user intents mined from `~/.claude` and `~/.codex`
