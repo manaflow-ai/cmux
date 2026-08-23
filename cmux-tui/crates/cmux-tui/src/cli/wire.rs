@@ -16,6 +16,8 @@ use super::{GlobalArgs, OutputMode, UsageError};
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 const SERVER_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(2);
+const SUPPORTED_SERVER_APP: &str = "cmux-tui";
+const SUPPORTED_SERVER_PROTOCOL: u64 = 12;
 
 pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     if plan.stream && global.output == OutputMode::Json {
@@ -167,11 +169,15 @@ fn require_server_capability(
         eprintln!("protocol error: invalid identify response during capability negotiation");
         return Err(3);
     }
-    let supported = response
-        .get("data")
-        .and_then(|data| data.get("capabilities"))
-        .and_then(Value::as_array)
-        .is_some_and(|capabilities| {
+    let identity = response.get("data").unwrap_or(&Value::Null);
+    if let Err(reason) = validate_capability_identity(identity) {
+        eprintln!(
+            "protocol error: invalid identify response during capability negotiation: {reason}"
+        );
+        return Err(3);
+    }
+    let supported =
+        identity.get("capabilities").and_then(Value::as_array).is_some_and(|capabilities| {
             capabilities.iter().any(|value| value.as_str() == Some(capability))
         });
     if supported {
@@ -188,6 +194,16 @@ fn require_server_capability(
         "retryable":false
     });
     Err(print_local_error(&error, global.output, 1))
+}
+
+fn validate_capability_identity(identity: &Value) -> Result<(), &'static str> {
+    if identity.get("app").and_then(Value::as_str) != Some(SUPPORTED_SERVER_APP) {
+        return Err("unexpected server app");
+    }
+    if identity.get("protocol").and_then(Value::as_u64) != Some(SUPPORTED_SERVER_PROTOCOL) {
+        return Err("unsupported server protocol");
+    }
+    Ok(())
 }
 
 fn response_read_timeout(plan: &RequestPlan, signal_interrupt_armed: bool) -> Option<Duration> {
