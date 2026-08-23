@@ -26,10 +26,10 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 
 use async_trait::async_trait;
-use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
 use bytes::Bytes;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use crate::actions::{expand_path, scrubbed_env};
 use crate::control::ControlHandle;
@@ -78,16 +78,43 @@ fn scoped_cwd(
     local_roots: Option<&[String]>,
     server_roots: Option<&[String]>,
 ) -> Result<PathBuf, String> {
-    let raw = requested.filter(|value| !value.is_empty()).unwrap_or_else(|| {
-        local_roots
-            .and_then(|roots| roots.first().map(String::as_str))
-            .or_else(|| server_roots.and_then(|roots| roots.first().map(String::as_str)))
-            .unwrap_or("~")
-    });
+    let raw_owned;
+    let raw = if let Some(value) = requested.filter(|value| !value.is_empty()) {
+        value
+    } else {
+        raw_owned =
+            match (local_roots.filter(|r| !r.is_empty()), server_roots.filter(|r| !r.is_empty())) {
+                (Some(local), Some(server)) => local
+                    .iter()
+                    .find_map(|candidate| {
+                        let path = expand_path(candidate, home, home);
+                        let canonical = std::fs::canonicalize(&path).ok()?;
+                        server
+                            .iter()
+                            .any(|root| {
+                                std::fs::canonicalize(expand_path(root, home, home))
+                                    .map(|root| {
+                                        canonical.starts_with(root) || root.starts_with(&canonical)
+                                    })
+                                    .unwrap_or(false)
+                            })
+                            .then_some(candidate.as_str())
+                    })
+                    .unwrap_or("~")
+                    .to_owned(),
+                (Some(local), None) => local.first().unwrap().clone(),
+                (None, Some(server)) => server.first().unwrap().clone(),
+                (None, None) => "~".to_owned(),
+            };
+        &raw_owned
+    };
     let path = expand_path(raw, home, home);
     let canonical = std::fs::canonicalize(&path)
         .map_err(|error| format!("cwd {} is not accessible: {error}", path.display()))?;
-    for roots in [local_roots, server_roots].into_iter().flatten() {
+    for roots in [local_roots.filter(|r| !r.is_empty()), server_roots.filter(|r| !r.is_empty())]
+        .into_iter()
+        .flatten()
+    {
         if !roots.iter().map(|root| expand_path(root, home, home)).any(|root| {
             std::fs::canonicalize(root).map(|root| canonical.starts_with(root)).unwrap_or(false)
         }) {
@@ -102,7 +129,11 @@ fn scoped_cwd(
 
 fn clamp_dim(value: Option<&Value>) -> Option<u16> {
     let number = value.and_then(Value::as_i64)?;
-    if (1..=10_000).contains(&number) { u16::try_from(number).ok() } else { None }
+    if (1..=10_000).contains(&number) {
+        u16::try_from(number).ok()
+    } else {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -680,6 +711,9 @@ impl Inner {
     ) -> Result<Opened, String> {
         let socket_dir = self.deps.socket_dir();
         let ensured = self.deps.ensure_daemon(cmux_tui, session, &socket_dir, cwd, env).await?;
+        if !ensured.created {
+            return Err("cannot prove existing surface cwd is within allowed roots".to_owned());
+        }
         let mut args = cmux_tui.prefix.clone();
         args.extend([
             "attach".to_owned(),
