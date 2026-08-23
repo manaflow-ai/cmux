@@ -58,6 +58,29 @@ fn admit_workspace_request(in_flight: usize) -> bool {
     in_flight < MAX_IN_FLIGHT_WORKSPACE_REQUESTS
 }
 
+fn validate_allowed_roots_value(frame: &Value) -> Result<(), &'static str> {
+    let Some(value) = frame.get("allowedRoots") else { return Ok(()) };
+    let Some(roots) = value.as_array() else {
+        return if value.is_null() { Ok(()) } else { Err("allowedRoots must be an array or null") };
+    };
+    if roots.len() > MAX_ALLOWED_ROOTS {
+        return Err("allowed roots exceed entry limit");
+    }
+    let mut total_bytes = 0usize;
+    for root in roots {
+        let Some(root) = root.as_str() else { return Err("allowedRoots entries must be strings") };
+        total_bytes = total_bytes.checked_add(root.len()).ok_or("allowed roots size overflow")?;
+        if total_bytes > MAX_ALLOWED_ROOTS_CHARS {
+            return Err("allowed roots exceed byte limit");
+        }
+        if root.is_empty() {
+            return Err("allowed roots cannot contain empty paths");
+        }
+        validate_request_path(root).map_err(|_| "allowed roots contain an invalid path")?;
+    }
+    Ok(())
+}
+
 /// A typed machine-side refusal (one `WorkspaceErrorCode` on the wire).
 #[derive(Debug)]
 pub struct Refusal {
@@ -1081,6 +1104,14 @@ impl Connection {
         let Some(frame_type) = frame.get("type").and_then(Value::as_str) else { return };
         match frame_type {
             "workspace_request" => {
+                if let Err(message) = validate_allowed_roots_value(&frame) {
+                    if let Some(request_id) = frame.get("requestId").and_then(Value::as_str) {
+                        let refusal =
+                            Refusal::new(wire::WorkspaceErrorCode::PathForbidden, message);
+                        let _ = self.outbound.send(error_frame(request_id, &refusal));
+                    }
+                    return;
+                }
                 match serde_json::from_value::<wire::RelayWorkspaceRequest>(frame.clone()) {
                     Ok(request) => self.spawn_request(request),
                     Err(_) => {
@@ -1098,6 +1129,16 @@ impl Connection {
                 }
             }
             "fs_watch_open" => {
+                if let Err(message) = validate_allowed_roots_value(&frame) {
+                    if let Some(watch_id) = frame.get("watchId").and_then(Value::as_str) {
+                        self.watches.refuse(
+                            watch_id,
+                            wire::WorkspaceErrorCode::PathForbidden,
+                            message,
+                        );
+                    }
+                    return;
+                }
                 match serde_json::from_value::<wire::RelayFsWatchOpen>(frame.clone()) {
                     Ok(open) => self.watches.open(open, self.runtime.local_roots.as_deref()),
                     Err(_) => {
