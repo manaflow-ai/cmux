@@ -43,7 +43,9 @@ fn xml_escape(v: &str) -> String {
         .replace('\'', "&apos;")
 }
 fn shell_quote(v: &str) -> String {
-    format!("'{}'", v.replace('\'', "'\\''"))
+    // systemd expands percent specifiers in unit files. Double literal
+    // percent signs before shell quoting so paths are passed unchanged.
+    format!("'{}'", v.replace('%', "%%").replace('\'', "'\\''"))
 }
 fn atomic_write(p: &Path, b: &str) -> Result<(), String> {
     let d = p.parent().ok_or("autostart path has no parent")?;
@@ -193,6 +195,11 @@ mod tests {
     #[test]
     fn quotes() {
         assert_eq!(shell_quote("/tmp/a'b"), "'/tmp/a'\\''b'");
+    }
+
+    #[test]
+    fn quotes_systemd_percent_specifiers_as_literal_path_bytes() {
+        assert_eq!(shell_quote("/tmp/relay%2Fbin/config%name"), "'/tmp/relay%%2Fbin/config%%name'");
     }
 
     #[test]
