@@ -1180,8 +1180,12 @@ struct BrowserPanelView: View {
                 browserProfileButton
                 browserThemeModeButton
                 Spacer(minLength: 0)
-                developerToolsButton
-                browserOverflowMenu
+                HStack(spacing: browserToolbarAccessorySpacing) {
+                    developerToolsButton
+                    browserOverflowMenu
+                }
+                .fixedSize(horizontal: true, vertical: false)
+                .layoutPriority(1)
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("BrowserToolbarAccessoryRow")
