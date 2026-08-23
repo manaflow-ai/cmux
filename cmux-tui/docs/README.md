@@ -11,8 +11,8 @@
 - [Configuration](configuration.md): full `cmux-tui.json` reference with defaults and a worked example.
 - [Remote daemon](remote.md): authenticated clients, SSH, WebSocket, Iroh, relays, RPC, and port forwarding. The exact agent RPC wire schema is in the [remote RPC contract](../spec/remote-rpc.md).
 - [Machines](machines.md): optional dual rails, static Unix/SSH targets, relay, `npx cmux` remote setup, and outbound `npx cmux machine-agent` registration.
-- [Raw control protocol](protocol.md): private protocol-v12 JSON-lines commands and compatibility rules.
-- [Public resource protocol](../spec/resource-api-v2.md): stable opaque IDs, requests, mutations, streams, and errors.
+- [Public resource protocol](../spec/resource-api-v2.md): the supported entry point for new clients, with stable opaque IDs, requests, mutations, streams, and errors.
+- [Raw control protocol](protocol.md): private protocol-v12 JSON-lines commands for cmux frontends and compatibility adapters.
 - [Public CLI](../spec/cli.md): noun-first commands and selectors.
 - [SDK contract](../spec/bindings.md): handwritten facades and generated raw layers.
 - [Browser panes](browser-panes.md): CDP-backed browser tabs, rendering, input, profiles, and current limitations.

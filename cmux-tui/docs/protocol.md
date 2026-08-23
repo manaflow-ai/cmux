@@ -1,10 +1,16 @@
 # Raw control protocol v12
 
 This is the private implementation interface for cmux frontends and
-compatibility adapters. New applications should use
+compatibility adapters. New applications should use the public resource API,
+not this socket protocol:
 [`cmux.protocol/2`](../spec/resource-api-v2.md), the
 [noun-first CLI](../spec/cli.md), or a [handwritten SDK](../spec/bindings.md).
 High-level packages expose protocol v12 only through their `raw` namespace.
+
+Protocol v12 and resource API v2 are separate version domains. They use
+different messages, identifiers, and negotiation. A resource API client does
+not connect to this socket directly, and a raw client does not become a
+resource API client by reporting `protocol: 12`.
 
 As of protocol v12, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
 
