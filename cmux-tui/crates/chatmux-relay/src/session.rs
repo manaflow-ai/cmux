@@ -219,9 +219,9 @@ async fn relay_session(
     connection_tasks.spawn(async move {
         while let Some(text) = workspace_rx.recv().await {
             if let Ok(frame) = serde_json::from_str::<Value>(&text) {
-                if workspace_out.try_send(frame).is_err() {
-                    eprintln!("Dropping relay workspace frame because its bounded queue is full");
-                }
+                // Workspace replies are request/response traffic. Await the bounded queue
+                // instead of dropping them; only synchronous PTY event producers may drop.
+                let _ = workspace_out.send(frame).await;
             }
         }
     });
