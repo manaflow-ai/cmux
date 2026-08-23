@@ -847,11 +847,19 @@ pub struct ActionContext {
     pub env: HashMap<String, String>,
 }
 
-fn frame_roots(frame: &Value) -> Option<Vec<String>> {
-    frame
-        .get("allowedRoots")
-        .and_then(Value::as_array)
-        .map(|roots| roots.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+fn frame_roots(frame: &Value) -> Result<Option<Vec<String>>, &'static str> {
+    let Some(value) = frame.get("allowedRoots") else { return Ok(None) };
+    if value.is_null() {
+        return Ok(None);
+    }
+    let roots = value.as_array().ok_or("allowedRoots must be an array")?;
+    if roots.len() > 32 || roots.iter().any(|root| !root.is_string()) {
+        return Err("invalid allowedRoots");
+    }
+    if roots.iter().map(|root| root.as_str().unwrap().len()).sum::<usize>() > 16 * 1024 {
+        return Err("invalid allowedRoots");
+    }
+    Ok(Some(roots.iter().map(|root| root.as_str().unwrap().to_owned()).collect()))
 }
 
 fn ok_result(version: i64, action_id: &str, result: Value) -> Value {
@@ -932,12 +940,10 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
     }
 
     let home = context.home.clone();
-    if let Some(value) = frame.get("allowedRoots") {
-        if !value.is_null() && !value.is_array() {
-            return fail("bad_request", "allowedRoots must be an array");
-        }
-    }
-    let server_roots = frame_roots(frame);
+    let server_roots = match frame_roots(frame) {
+        Ok(roots) => roots,
+        Err(message) => return fail("bad_request", message),
+    };
     let root_lists: RootLists<'_> = [context.local_roots.as_deref(), server_roots.as_deref()];
     let empty_args = Map::new();
     let args = frame.get("args").and_then(Value::as_object).unwrap_or(&empty_args);
