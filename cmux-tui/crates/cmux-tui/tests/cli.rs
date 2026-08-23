@@ -751,6 +751,27 @@ fn local_server_lifecycle_rejects_machine_before_socket_access() {
     }
 }
 
+#[test]
+fn local_server_lifecycle_rejects_invalid_derived_socket_sessions() {
+    for action in ["status", "stop", "reload-config"] {
+        let output = lifecycle_cli(&["--json", "--session", "../outside", "server", action]);
+
+        assert_eq!(output.status.code(), Some(2), "action={action}");
+        assert!(output.stdout.is_empty(), "action={action}");
+        let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap_or_else(|error| {
+            panic!(
+                "action={action}: expected JSON error, got {error}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )
+        });
+        assert_eq!(error["code"], "server.invalid_session", "action={action}");
+        assert!(
+            error["message"].as_str().is_some_and(|message| message.contains("invalid")),
+            "action={action}: {error}"
+        );
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn explicit_session_overrides_an_inherited_socket_route() {
