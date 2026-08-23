@@ -22880,7 +22880,7 @@ mod tests {
         DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission, DeferredInputQueue,
         DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome, FrontendJournalQueue,
         FrontendJournalWorker, GraphicIdentity, GraphicPlacement, GraphicSourceRect,
-        GraphicsSceneCache, GuardedMouseEncode, HostInputIngress, HostInputRuntime,
+        GraphicsSceneCache, GuardedMouseEncode, HostInputIngress, HostInputMessage, HostInputRuntime,
         MachineActionWorker, MachineConnectRoute, MenuAction, MenuItem, MutationImpact,
         MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession, OuterCursorSpec, PaneArea,
         PaneAreaProjection, PaneContentGeneration, PaneEdge, PaneFocusHistory,
