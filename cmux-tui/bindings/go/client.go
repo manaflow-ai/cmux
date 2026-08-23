@@ -217,6 +217,8 @@ func NewClient(ctx context.Context, options ClientOptions) (*Client, error) {
 		if legacy != "" && legacy != socket {
 			if fallbackConn, fallbackErr := dial(ctx, "unix", legacy); fallbackErr == nil {
 				conn, err = fallbackConn, nil
+			} else {
+				err = errors.Join(err, fmt.Errorf("legacy socket %s: %w", legacy, fallbackErr))
 			}
 		}
 	}
