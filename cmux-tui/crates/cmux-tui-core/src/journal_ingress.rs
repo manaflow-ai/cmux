@@ -322,10 +322,28 @@ impl JournalWriter {
     }
 
     fn join_until(self, deadline: Instant) -> anyhow::Result<()> {
+        let Self { thread, finished } = self;
+        if thread.thread().id() == std::thread::current().id() {
+            std::thread::Builder::new()
+                .name("mux-session-journal-writer-reaper".into())
+                .spawn(move || {
+                    if thread.join().is_err() {
+                        eprintln!(
+                            "cmux-tui: session journal writer panicked during self-join handoff"
+                        );
+                    }
+                })
+                .map(|_| ())
+                .map_err(|error| {
+                    anyhow::anyhow!(
+                        "hand off session journal writer self-join to reaper thread: {error}"
+                    )
+                })?;
+            return Ok(());
+        }
         let wait = deadline.saturating_duration_since(Instant::now());
-        match self.finished.recv_timeout(wait) {
-            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => self
-                .thread
+        match finished.recv_timeout(wait) {
+            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => thread
                 .join()
                 .map_err(|_| anyhow::anyhow!("session journal writer panicked during shutdown")),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(anyhow::anyhow!(
@@ -2377,6 +2395,27 @@ mod tests {
             writer_finished.load(Ordering::Acquire),
             "Mux::drop returned before its journal writer stopped"
         );
+    }
+
+    #[test]
+    fn writer_that_drops_the_last_mux_owner_hands_off_its_self_join() {
+        let mux = Mux::new("journal-writer-self-drop", crate::SurfaceOptions::default());
+        let writer_mux = mux.clone();
+        let (release, release_receiver) = sync_channel(1);
+        let (completed, completion_receiver) = sync_channel(1);
+        mux.spawn_journal_writer("mux-self-drop-journal-writer-test", move || {
+            release_receiver.recv().unwrap();
+            drop(writer_mux);
+            completed.send(()).unwrap();
+        })
+        .unwrap();
+
+        drop(mux);
+        release.send(()).unwrap();
+
+        completion_receiver
+            .recv_timeout(Duration::from_millis(500))
+            .expect("journal writer waited for its own completion during Mux::drop");
     }
 
     #[test]
