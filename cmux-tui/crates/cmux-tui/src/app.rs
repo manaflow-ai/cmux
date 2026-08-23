@@ -24115,7 +24115,7 @@ mod tests {
             app.config.keys.macos_option_as_alt = macos_option_as_alt;
             app.config.keys.apply_for_test(&HashMap::from([(
                 "toggle-sidebar".to_string(),
-                serde_json::Value::String("alt+j".to_string()),
+                Value::String("alt+j".to_string()),
             )]));
             let sidebar_was_visible = app.sidebar_visible;
 
@@ -27904,7 +27904,7 @@ mod tests {
         app.replace_tree(app.session.tree());
         app.config.keys.apply_for_test(&HashMap::from([(
             "clear-history".to_string(),
-            serde_json::Value::String("q".to_string()),
+            Value::String("q".to_string()),
         )]));
 
         app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
@@ -29671,7 +29671,7 @@ mod tests {
     fn full_tui_focus_gained_does_not_reset_host_capture_bookkeeping() {
         let mux = Mux::new("full-tui-focus-reassert-test", SurfaceOptions::default());
         let _surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
-        let mut app = test_app(Session::Local(mux.clone()));
+        let mut app = test_app(Session::Local(mux));
         app.surface_only = None;
         app.host_mouse_capture_applied = Some(true);
 
