@@ -581,8 +581,8 @@ Server startup applies the restored topology: workspace identity, order, and
 names; screens; split trees with committed ratios and viewport column widths;
 and tab placements. Startup rebuilds it from the transactional projections
 that invariant 2 keeps equal to the journal head, so the applied state and a
-restore preview at the same head agree. A terminal whose process died while
-the daemon was down is latched as exited with the first observed outcome and
+restore preview at the same head agree. A terminal found dead while the daemon
+was down is latched as exited with an unknown exit outcome and
 keeps its journaled placements: restoration never respawns a process, never
 pretends to reattach a dead one, and never discards layout on behalf of a
 process it did not observe exiting. An exit the daemon observes live still
@@ -611,8 +611,7 @@ writer instead of waiting without a limit. The transaction continues to own the
 registry and its atomic idempotency receipt until SQLite returns; a later retry
 therefore observes the committed receipt or performs the request once.
 
-Live restoration will consume this inert complete model. Process adoption,
-fresh process spawning, browser reconnect, and agent resume are explicit
+Process adoption, fresh process spawning, browser reconnect, and agent resume are explicit
 post-replay actions with their own journal outcomes. A partially supported
 record fails with a compatibility error or becomes an explicit degraded
 projection. It is never silently discarded.
