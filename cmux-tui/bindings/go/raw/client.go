@@ -224,7 +224,7 @@ func ResolveSocketPath(explicit, session string) (string, error) {
 // directory or carry control text into the socket path.
 func ValidateSession(session string) error {
 	if err := sessionpath.Validate(session); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidArgument, err)
+		return fmt.Errorf("%w: %v", ErrInvalidArgument, err)
 	}
 	return nil
 }
@@ -242,7 +242,7 @@ func DefaultSocketPath(session string) string {
 	if unixSocketPathFits(preferred) {
 		return preferred
 	}
-	return filepath.Join("/tmp", fmt.Sprintf("cmux-tui-%d", os.Getuid()), sessionpath.Digest(session)+".sock")
+	return sessionpath.FallbackSocketPath(session, uint32(os.Getuid()))
 }
 
 // invalidSessionSocketPath is retained for source-compatible path queries.

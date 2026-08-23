@@ -404,7 +404,7 @@ func TestSocketResolutionFallsBackWhenUnixPathIsTooLong(t *testing.T) {
 	want := filepath.Join(
 		"/tmp",
 		fmt.Sprintf("cmux-tui-%d", os.Getuid()),
-		"main.sock",
+		sessionpath.Digest("main")+".sock",
 	)
 	if path != want {
 		t.Fatalf("fallback path = %q, want %q", path, want)
