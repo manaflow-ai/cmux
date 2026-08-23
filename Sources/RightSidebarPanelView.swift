@@ -29,22 +29,11 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
-        case .machines: return String(localized: "rightSidebar.mode.machines", defaultValue: "Machines")
+        case .machines: return String(localized: "rightSidebar.mode.machines", defaultValue: "Cloud")
         case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
         }
     }
 
-    /// Compact label for the titlebar mode bar, where four labeled tabs share
-    /// the sidebar's width. Only Machines shortens; the full name stays in the
-    /// palette, shortcuts, and accessibility labels.
-    var modeBarLabel: String {
-        switch self {
-        case .machines:
-            return String(localized: "rightSidebar.mode.machines.compact", defaultValue: "VMs")
-        default:
-            return label
-        }
-    }
 
     var symbolName: String {
         switch self {
@@ -53,7 +42,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return "books.vertical"
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
-        case .machines: return "server.rack"
+        case .machines: return "cloud"
         case .customSidebar: return "wand.and.stars"
         }
     }

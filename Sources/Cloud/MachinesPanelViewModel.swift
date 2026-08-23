@@ -100,6 +100,19 @@ final class MachinesPanelViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var hasLoadedOnce = false
     @Published private(set) var lastErrorDescription: String?
+    /// Human-readable label of the Cloud VM action currently running from this
+    /// panel ("Checkpointing noble-wren…"). Replaces the plan meter in the
+    /// header while set — the in-app substitute for a floating progress HUD.
+    @Published private(set) var activeOperation: String?
+
+    func beginOperation(_ label: String) {
+        activeOperation = label
+    }
+
+    func endOperation() {
+        activeOperation = nil
+        refresh()
+    }
 
     private var refreshTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?

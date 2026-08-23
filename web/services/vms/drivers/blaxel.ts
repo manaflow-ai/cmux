@@ -721,12 +721,27 @@ export class BlaxelProvider implements VMProvider {
     }
   }
 
-  private async ensurePreview(vmId: string, previewName = CMUXD_PREVIEW_NAME, port = CMUXD_WS_PORT): Promise<string> {
+  // One in-flight ensure per (machine, preview): a create that races the attach it triggers
+  // must not mint the same preview twice. Cross-process races are handled below by re-reading
+  // the preview after a failed branded create instead of clobbering it.
+  private readonly inflightPreviews = new Map<string, Promise<string>>();
+
+  private ensurePreview(vmId: string, previewName = CMUXD_PREVIEW_NAME, port = CMUXD_WS_PORT): Promise<string> {
+    const key = `${vmId}/${previewName}`;
+    const inflight = this.inflightPreviews.get(key);
+    if (inflight) return inflight;
+    const task = this.ensurePreviewUncoalesced(vmId, previewName, port).finally(() => {
+      this.inflightPreviews.delete(key);
+    });
+    this.inflightPreviews.set(key, task);
+    return task;
+  }
+
+  private async ensurePreviewUncoalesced(vmId: string, previewName: string, port: number): Promise<string> {
     const base = `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}/previews`;
-    const existing = await blaxelFetch<BlaxelPreview>(
-      "GET",
-      `${base}/${previewName}`,
-    ).catch(() => null);
+    const readExisting = () =>
+      blaxelFetch<BlaxelPreview>("GET", `${base}/${previewName}`).catch(() => null);
+    const existing = await readExisting();
     const existingUrl = usablePrivatePreviewUrl(existing);
     if (existingUrl) return existingUrl;
     if (existing?.spec?.url) {
@@ -739,29 +754,42 @@ export class BlaxelProvider implements VMProvider {
     // rejected prefix (collision, length, validation) falls back to the opaque hash URL rather
     // than failing the attach.
     const prefixUrl = brandedPreviewPrefix(vmId, previewName, port);
-    let created: BlaxelPreview | null = null;
     const customDomain = prefixUrl ? await verifiedCustomDomain() : null;
+    const brandedSpecs: Array<{ label: string; spec: Record<string, unknown> }> = [];
     if (prefixUrl && customDomain) {
-      created = await blaxelFetch<BlaxelPreview>("POST", base, {
-        metadata: { name: previewName },
-        // Blaxel's API takes the bare verified domain in customDomain and composes the
-        // host from prefixUrl: {prefixUrl: "noble-wren", customDomain: "vm.cmux.sh"} →
-        // https://noble-wren.vm.cmux.sh. Passing the full host 404s ("Custom domain not found").
-        spec: { port, public: false, prefixUrl, customDomain },
-      }).catch(() => null);
+      // Blaxel's API takes the bare verified domain in customDomain and composes the
+      // host from prefixUrl: {prefixUrl: "noble-wren", customDomain: "vm.cmux.sh"} →
+      // https://noble-wren.vm.cmux.sh. Passing the full host 404s ("Custom domain not found").
+      brandedSpecs.push({ label: "custom-domain", spec: { port, public: false, prefixUrl, customDomain } });
     }
-    if (!created && prefixUrl) {
-      created = await blaxelFetch<BlaxelPreview>("POST", base, {
-        metadata: { name: previewName },
-        spec: { port, public: false, prefixUrl },
-      }).catch(() => null);
+    if (prefixUrl) {
+      brandedSpecs.push({ label: "branded", spec: { port, public: false, prefixUrl } });
     }
-    if (!created) {
-      created = await blaxelFetch<BlaxelPreview>("POST", base, {
-        metadata: { name: previewName },
-        spec: { port, public: false },
-      });
+    for (const attempt of brandedSpecs) {
+      try {
+        const created = await blaxelFetch<BlaxelPreview>("POST", base, {
+          metadata: { name: previewName },
+          spec: attempt.spec,
+        });
+        const url = usablePrivatePreviewUrl(created);
+        if (url) return url;
+      } catch (error) {
+        // The usual reason a branded create fails is that another caller (a second server
+        // instance, or the attach racing the create that spawned it) minted this preview a
+        // moment ago under the same prefix. Adopt that one; an unbranded create here would
+        // upsert the name and replace the machine-name URL with an opaque hash.
+        const raced = usablePrivatePreviewUrl(await readExisting());
+        if (raced) return raced;
+        console.warn(
+          `[blaxel] ${attempt.label} preview create failed for ${vmId}/${previewName}; falling back:`,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
     }
+    const created = await blaxelFetch<BlaxelPreview>("POST", base, {
+      metadata: { name: previewName },
+      spec: { port, public: false },
+    });
     const url = usablePrivatePreviewUrl(created);
     if (!url) {
       throw new ProviderError("blaxel", `preview create for ${vmId} returned no url or came back public`);

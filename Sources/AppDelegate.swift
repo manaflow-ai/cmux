@@ -8044,7 +8044,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             socketPath: socketPath,
             preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
             arguments: ["vm", "base", "open", "--workspace", workspace.id.uuidString],
-            showsProgress: false,
             presentsFailureAlert: false,
             environmentOverrides: [
                 "CMUX_CLOUD_ATTACH_RETRY_LIMIT": "12",

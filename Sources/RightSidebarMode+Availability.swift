@@ -14,7 +14,7 @@ extension RightSidebarMode {
             return .feed
         case "dock":
             return .dock
-        case "machines", "vms":
+        case "cloud", "machines", "vms":
             return .machines
         default:
             return nil

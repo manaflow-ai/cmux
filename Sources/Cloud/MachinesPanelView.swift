@@ -22,7 +22,18 @@ struct MachinesPanelView: View {
 
     private var controlBar: some View {
         HStack(spacing: 6) {
-            if let plan = viewModel.plan {
+            if let operation = viewModel.activeOperation {
+                HStack(spacing: 5) {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text(operation)
+                        .cmuxFont(size: 11)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .padding(.leading, 8)
+            } else if let plan = viewModel.plan {
                 MachinePlanMeter(plan: plan)
             }
             Spacer(minLength: 4)
@@ -38,7 +49,8 @@ struct MachinesPanelView: View {
                 accessibilityLabel: String(localized: "machines.new", defaultValue: "New Machine"),
                 isBusy: false
             ) {
-                MachineRowActions.openNewMachine { _ in viewModel.refresh() }
+                viewModel.beginOperation(String(localized: "machines.operation.create", defaultValue: "Creating a new machine\u{2026}"))
+                MachineRowActions.openNewMachine { [weak viewModel] _ in viewModel?.endOperation() }
             }
         }
         .rightSidebarChromeBar()
@@ -55,7 +67,10 @@ struct MachinesPanelView: View {
     }
 
     private var machinesList: some View {
-        let actions = MachineRowActions.bound(onDidMutate: { [weak viewModel] in viewModel?.refresh() })
+        let actions = MachineRowActions.bound(
+            onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
+            onDidMutate: { [weak viewModel] in viewModel?.endOperation() }
+        )
         return ScrollView {
             LazyVStack(spacing: 0) {
                 ForEach(viewModel.machines) { machine in
@@ -86,7 +101,8 @@ struct MachinesPanelView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
                 Button {
-                    MachineRowActions.openNewMachine { _ in viewModel.refresh() }
+                    viewModel.beginOperation(String(localized: "machines.operation.create", defaultValue: "Creating a new machine\u{2026}"))
+                    MachineRowActions.openNewMachine { [weak viewModel] _ in viewModel?.endOperation() }
                 } label: {
                     Text(String(localized: "machines.empty.create", defaultValue: "New Machine"))
                         .cmuxFont(size: 12)
@@ -187,21 +203,68 @@ struct MachineRowActions {
     let confirmDelete: @MainActor (String) -> Void
     let promptRename: @MainActor (String, String?) -> Void
 
-    static func bound(onDidMutate: @escaping @MainActor () -> Void) -> MachineRowActions {
+    static func bound(
+        onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
+        onDidMutate: @escaping @MainActor () -> Void
+    ) -> MachineRowActions {
         MachineRowActions(
             openShell: { id in
+                onWillMutate(String(format: String(localized: "machines.operation.openShell", defaultValue: "Opening %@\u{2026}"), id))
                 launch(arguments: ["vm", "shell", id], onDidMutate: onDidMutate)
             },
             runCommand: { id, verb in
-                launch(arguments: verb + [id], onDidMutate: onDidMutate)
+                onWillMutate(operationLabel(verb: verb, id: id))
+                let result = resultPresentation(verb: verb)
+                launch(
+                    arguments: verb + [id],
+                    successTitle: result.title,
+                    presentOutputOnSuccess: result.presentsOutput,
+                    onDidMutate: onDidMutate
+                )
             },
             confirmDelete: { id in
-                presentDeleteConfirmation(id: id, onDidMutate: onDidMutate)
+                presentDeleteConfirmation(id: id, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
             },
             promptRename: { id, currentLabel in
-                presentRenamePrompt(id: id, currentLabel: currentLabel, onDidMutate: onDidMutate)
+                presentRenamePrompt(id: id, currentLabel: currentLabel, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
             }
         )
+    }
+
+    /// What to show when a row verb finishes. Status and Checkpoint are
+    /// read-only reports, so their output is the whole point and opens in the
+    /// house result sheet; Fork attaches the new machine as a workspace, so a
+    /// sheet would only get in the way. Same policy as the palette's
+    /// `CurrentCloudVMCommand`.
+    private static func resultPresentation(verb: [String]) -> (title: String?, presentsOutput: Bool) {
+        if verb.contains("status") {
+            return (String(localized: "command.cloudVM.status.result.title", defaultValue: "Cloud VM Status"), true)
+        }
+        if verb.contains("snapshot") {
+            return (String(localized: "command.cloudVM.snapshot.result.title", defaultValue: "Cloud VM Checkpoint"), true)
+        }
+        if verb.contains("fork") {
+            return (String(localized: "command.cloudVM.fork.result.title", defaultValue: "Cloud VM Forked"), false)
+        }
+        return (nil, false)
+    }
+
+    private static func operationLabel(verb: [String], id: String) -> String {
+        let format: String
+        if verb.contains("snapshot") {
+            format = String(localized: "machines.operation.checkpoint", defaultValue: "Checkpointing %@\u{2026}")
+        } else if verb.contains("fork") {
+            format = String(localized: "machines.operation.fork", defaultValue: "Forking %@\u{2026}")
+        } else if verb.contains("status") {
+            format = String(localized: "machines.operation.status", defaultValue: "Checking %@\u{2026}")
+        } else if verb.contains("rename") {
+            format = String(localized: "machines.operation.rename", defaultValue: "Renaming %@\u{2026}")
+        } else if verb.contains("rm") {
+            format = String(localized: "machines.operation.delete", defaultValue: "Deleting %@\u{2026}")
+        } else {
+            format = String(localized: "machines.operation.generic", defaultValue: "Working on %@\u{2026}")
+        }
+        return String(format: format, id)
     }
 
     @MainActor
@@ -220,21 +283,33 @@ struct MachineRowActions {
     }
 
     @MainActor
-    private static func launch(arguments: [String], onDidMutate: @escaping @MainActor () -> Void) {
+    private static func launch(
+        arguments: [String],
+        successTitle: String? = nil,
+        presentOutputOnSuccess: Bool = false,
+        onDidMutate: @escaping @MainActor () -> Void
+    ) {
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
         CloudVMActionLauncher.shared.start(
             socketPath: socketPath,
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
-            arguments: arguments
+            arguments: arguments,
+            successTitle: successTitle,
+            presentOutputOnSuccess: presentOutputOnSuccess
         ) { _ in
             onDidMutate()
         }
     }
 
     @MainActor
-    private static func presentRenamePrompt(id: String, currentLabel: String?, onDidMutate: @escaping @MainActor () -> Void) {
+    private static func presentRenamePrompt(
+        id: String,
+        currentLabel: String?,
+        onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
+        onDidMutate: @escaping @MainActor () -> Void
+    ) {
         let alert = NSAlert()
         alert.alertStyle = .informational
         let format = String(localized: "machines.rename.title", defaultValue: "Rename \u{201C}%@\u{201D}")
@@ -259,6 +334,7 @@ struct MachineRowActions {
             } else {
                 arguments.append(label)
             }
+            onWillMutate(operationLabel(verb: ["rename"], id: id))
             launch(arguments: arguments, onDidMutate: onDidMutate)
         }
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
@@ -269,7 +345,11 @@ struct MachineRowActions {
     }
 
     @MainActor
-    private static func presentDeleteConfirmation(id: String, onDidMutate: @escaping @MainActor () -> Void) {
+    private static func presentDeleteConfirmation(
+        id: String,
+        onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
+        onDidMutate: @escaping @MainActor () -> Void
+    ) {
         let alert = NSAlert()
         alert.alertStyle = .warning
         let format = String(
@@ -286,6 +366,7 @@ struct MachineRowActions {
         alert.buttons.first?.hasDestructiveAction = true
         let respond: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .alertFirstButtonReturn else { return }
+            onWillMutate(operationLabel(verb: ["rm"], id: id))
             launch(arguments: ["vm", "rm", id], onDidMutate: onDidMutate)
         }
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
