@@ -172,6 +172,10 @@ extension MobileShellComposite {
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
             applyConnectionRecoveryOwnerState()
+            armAutomaticReconnectRetryAfterFailedAttempt(
+                failure: .connectionClosed,
+                stackUserID: lastReconnectStackUserID
+            )
             return
         }
 
@@ -322,12 +326,26 @@ extension MobileShellComposite {
                         "connection.recovery waiting for physical transport drain "
                             + "attempt=\(attempt.id.uuidString)"
                     )
-                    await expectedClient.disconnectAndWaitForTransportDrain()
+                    // Bounded: teardown and physical close keep running in the
+                    // abandoned task either way (their awaits do not throw on
+                    // cancellation), and the shared route registry admits one
+                    // recovery dial while physical cleanups remain pending. An
+                    // unbounded wait here let a single wedged close (80s
+                    // observed) starve the redial long past the restoring
+                    // window while the user watched Not Connected.
+                    let drain = await Self.raceAgainstDeadline(
+                        nanoseconds: Self.recoveryTransportDrainDeadlineNanoseconds
+                    ) {
+                        await expectedClient.disconnectAndWaitForTransportDrain()
+                    }
                     guard !Task.isCancelled,
                           self.connectionRecoveryOwner.isCurrent(attempt) else { return }
                     MobileDebugLog.anchormux(
-                        "connection.recovery physical transport drained "
-                            + "attempt=\(attempt.id.uuidString)"
+                        drain.didTimeOut
+                            ? "connection.recovery transport drain deadline expired; "
+                                + "dialing anyway attempt=\(attempt.id.uuidString)"
+                            : "connection.recovery physical transport drained "
+                                + "attempt=\(attempt.id.uuidString)"
                     )
                 }
                 if self.connectionState == .connected {
@@ -349,6 +367,11 @@ extension MobileShellComposite {
                 )
                 guard !Task.isCancelled,
                       self.connectionRecoveryOwner.isCurrent(attempt) else { return }
+                // Temporary Not Connected diagnostics for dogfood; remove before merge.
+                MobileDebugLog.anchormux(
+                    "connection.recovery settled outcome=\(reconnectOutcome) "
+                        + "trigger=\(trigger.description)"
+                )
                 guard self.settleConnectionRecovery(
                     attempt,
                     outcome: reconnectOutcome,
@@ -362,6 +385,46 @@ extension MobileShellComposite {
             }
         }
         connectionRecoveryOwner.install(task, for: attempt)
+        startConnectionRecoveryAttemptDeadline(attempt)
+    }
+
+    /// Ceiling spanning one whole recovery-owner attempt (transport drain,
+    /// stored-Mac dial, replacement validation).
+    static var connectionRecoveryAttemptDeadlineSeconds: TimeInterval { 90 }
+
+    /// Bound on the recovery path's physical transport drain wait.
+    static var recoveryTransportDrainDeadlineNanoseconds: UInt64 { 10_000_000_000 }
+
+    /// Fails the owner attempt if it is somehow still unsettled at the
+    /// ceiling, then schedules the next automatic attempt through the
+    /// transient backoff. Every inner phase already carries its own deadline;
+    /// this exists so an await that escapes them (a wedged FFI close, a
+    /// continuation that never resumes) degrades into a bounded outage
+    /// instead of an owner that silently coalesces every later trigger.
+    private func startConnectionRecoveryAttemptDeadline(
+        _ attempt: MobileConnectionRecoveryOwner.Attempt
+    ) {
+        connectionRecoveryAttemptDeadlineTask?.cancel()
+        let seconds = Self.connectionRecoveryAttemptDeadlineSeconds
+        connectionRecoveryAttemptDeadlineTask = Task { @MainActor [weak self] in
+            try? await ContinuousClock().sleep(for: .seconds(seconds))
+            guard let self, !Task.isCancelled else { return }
+            guard self.connectionRecoveryOwner.isCurrent(attempt),
+                  self.connectionRecoveryOwner.isRedialingOrValidating,
+                  self.connectionState != .connected else { return }
+            MobileDebugLog.anchormux(
+                "connection.recovery attempt deadline forced failure "
+                    + "trigger=\(attempt.trigger) attempt=\(attempt.id.uuidString)"
+            )
+            guard self.connectionRecoveryOwner.failReplacement() != nil else { return }
+            self.recordConnectionRecoveryFailed(attempt, failure: .timedOut)
+            self.macConnectionStatus = .unavailable
+            self.applyConnectionRecoveryOwnerState()
+            self.armAutomaticReconnectRetryAfterFailedAttempt(
+                failure: .timedOut,
+                stackUserID: self.lastReconnectStackUserID
+            )
+        }
     }
 
     @discardableResult
@@ -477,6 +540,12 @@ extension MobileShellComposite {
     }
 
     func applyConnectionRecoveryOwnerState() {
+        if !connectionRecoveryOwner.isActive {
+            // The attempt settled (or was cancelled); its lifetime bounds the
+            // ceiling watchdog.
+            connectionRecoveryAttemptDeadlineTask?.cancel()
+            connectionRecoveryAttemptDeadlineTask = nil
+        }
         switch connectionRecoveryOwner.phase {
         case .idle:
             isRecoveringConnection = false
@@ -816,6 +885,28 @@ extension MobileShellComposite {
             now: now
         )
         scheduleAutomaticReconnectRetry(accountID: accountID, retryAt: retryAt, now: now)
+    }
+
+    /// A failed AUTOMATIC stored-Mac attempt must never end as silent dead
+    /// air: schedule the next bounded attempt through the transient backoff
+    /// owner (2s doubling to a 60s cap; the timer fires
+    /// `.automaticBackoffExpired`). Reauth-shaped failures stop the loop
+    /// because a redial cannot fix them and the reauth UI owns the next step.
+    func armAutomaticReconnectRetryAfterFailedAttempt(
+        failure: DiagnosticFailureKind,
+        stackUserID: String?
+    ) {
+        guard failure != .authorizationFailed,
+              failure != .accountMismatch,
+              !connectionRequiresReauth else { return }
+        guard isSignedIn, connectionState != .connected else { return }
+        guard Self.shouldRecordReconnectBackoff(
+            abandonedDialCount: abandonedReconnectDialCount
+        ) else { return }
+        guard let accountID = stackUserID ?? identityProvider?.currentUserID else {
+            return
+        }
+        recordTransientAutomaticReconnectBackoff(accountID: accountID)
     }
 
     func recordTransientAutomaticReconnectBackoff(accountID: String) {
