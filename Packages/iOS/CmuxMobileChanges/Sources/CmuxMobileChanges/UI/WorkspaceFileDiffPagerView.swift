@@ -6,6 +6,7 @@ public struct WorkspaceFileDiffPagerView: View {
     private let cachedPresentations: [String: FileDiffPresentation]
     private let actions: WorkspaceFileDiffPagerActions
     private let mountPolicy = DiffPagerMountPolicy()
+    private let prefetchPolicy = DiffPagerPrefetchPolicy()
     @State private var selection: Int
     @State private var fontSize: Double
     @State private var scrollRowIDsByPath: [String: String] = [:]
@@ -45,6 +46,23 @@ public struct WorkspaceFileDiffPagerView: View {
         .onAppear(perform: recordSelectedPresentationAccess)
         .onChange(of: selection) {
             recordSelectedPresentationAccess()
+        }
+        // Warm nearby pages while the user reads the current one, so a swipe
+        // lands on content instead of a placeholder that pops in mid-slide.
+        // Loads land in the mount-layer cache; a canceled batch (fast
+        // consecutive swipes) is retried by the next selection's task.
+        .task(id: selection) {
+            let paths = prefetchPolicy.prefetchPaths(
+                files: files,
+                selectedIndex: selection,
+                cachedPaths: Set(cachedPresentations.keys)
+            )
+            // Sequential, nearest first: the page most likely to be swiped to
+            // warms first, and a canceled tail simply retries next selection.
+            for path in paths {
+                guard !Task.isCancelled else { return }
+                _ = try? await actions.onLoad(path, false, nil)
+            }
         }
     }
 
@@ -109,6 +127,9 @@ public struct WorkspaceFileDiffPagerView: View {
                             .accessibilityHidden(true)
                     }
                 }
+                // The mount-window swap rides the settle animation; without an
+                // identity transition it crossfades, ghosting two files' text.
+                .transition(.identity)
                 .tag(index)
             }
         }
