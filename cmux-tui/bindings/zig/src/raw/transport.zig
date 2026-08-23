@@ -90,6 +90,15 @@ pub const Connection = struct {
     }
 };
 
+/// A connected transport together with the owned socket path that was used.
+///
+/// The path can differ from the initially resolved path when implicit
+/// discovery falls back from a hashed endpoint to the legacy `/tmp` endpoint.
+pub const ResolvedConnection = struct {
+    connection: Connection,
+    path: []u8,
+};
+
 const Deadline = struct {
     timer: ?std.time.Timer = null,
     timeout_ns: u64 = 0,
@@ -369,7 +378,7 @@ pub fn connectResolvedWithLegacyFallback(
     path: []const u8,
     session: []const u8,
     timeout_ms: ?u32,
-) !struct { connection: Connection, path: []u8 } {
+) !ResolvedConnection {
     const connection = connectUnixWithTimeout(allocator, path, timeout_ms) catch |failure| {
         if (failure != error.FileNotFound and failure != error.ConnectionRefused) return failure;
         if (!isHashedSocketPath(path)) return failure;

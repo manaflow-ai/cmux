@@ -2159,7 +2159,7 @@ pub const Client = struct {
             options.session,
         );
         defer allocator.free(path);
-        const resolved = if (options.socket_path == null and !(try raw.transport.hasSocketOverride()))
+        const resolved: raw.transport.ResolvedConnection = if (options.socket_path == null and !(try raw.transport.hasSocketOverride()))
             try raw.transport.connectResolvedWithLegacyFallback(allocator, path, options.session, options.timeout_ms)
         else
             .{ .connection = try raw.transport.connectUnixWithTimeout(allocator, path, options.timeout_ms), .path = try allocator.dupe(u8, path) };
