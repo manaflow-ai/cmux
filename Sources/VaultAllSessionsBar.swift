@@ -206,9 +206,7 @@ private struct VaultToolbarIcon: View {
     @State private var isHovered = false
 
     var body: some View {
-        Image(systemName: systemName)
-            .symbolRenderingMode(.monochrome)
-            .cmuxFont(size: RightSidebarChromeMetrics.headerIconSize, weight: .regular)
+        HeaderChromeIconStyle.symbol(systemName)
             .foregroundStyle(
                 isActive
                     ? Color.accentColor

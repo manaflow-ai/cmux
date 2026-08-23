@@ -523,9 +523,7 @@ private struct ScopeButton: View {
             guard isEnabled else { return }
             isOn.toggle()
         } label: {
-            Image(systemName: "scope")
-                .symbolRenderingMode(.monochrome)
-                .cmuxFont(size: RightSidebarChromeMetrics.headerIconSize, weight: .regular)
+            HeaderChromeIconStyle.symbol(isOn ? "folder.fill" : "folder")
                 .frame(
                     width: RightSidebarChromeMetrics.headerIconFrameSize,
                     height: RightSidebarChromeMetrics.headerIconFrameSize
@@ -714,6 +712,12 @@ struct IndexSectionView: View, Equatable {
         }
         .opacity(isDragged ? 0.45 : 1.0)
         .coordinateSpace(name: Self.popoverAnchorCoordinateSpace)
+        // The AppKit table owns row geometry. Do not let an inherited SwiftUI
+        // transaction animate the disclosure subtree independently from the
+        // table's single height update; that produces a brief cell flash.
+        .transaction { transaction in
+            transaction.animation = nil
+        }
     }
 
     private var showMoreButton: some View {

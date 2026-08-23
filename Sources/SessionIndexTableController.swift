@@ -7,6 +7,50 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
     private static let columnIdentifier = NSUserInterfaceItemIdentifier("vault-session")
     private static let cellIdentifier = NSUserInterfaceItemIdentifier("vault-session-cell")
 
+    /// Keeps the toggled section's top edge stable while AppKit recalculates
+    /// its row height. Without an anchor, NSTableView may preserve the bottom
+    /// edge of the document and make an expansion appear to grow upward.
+    @MainActor
+    private struct ViewportAnchor {
+        let rowID: SessionIndexTableRowID
+        let offsetFromViewportTop: CGFloat
+
+        static func capture(
+            table: NSTableView,
+            rows: [SessionIndexTableRow],
+            preferredRows: IndexSet
+        ) -> Self? {
+            let visible = table.rows(in: table.visibleRect)
+            guard visible.location != NSNotFound, visible.length > 0 else { return nil }
+
+            let preferredIndex = preferredRows.first {
+                NSLocationInRange($0, visible)
+            }
+            let rowIndex = preferredIndex ?? visible.location
+            guard rows.indices.contains(rowIndex) else { return nil }
+
+            return Self(
+                rowID: rows[rowIndex].id,
+                offsetFromViewportTop: table.rect(ofRow: rowIndex).minY - table.visibleRect.minY
+            )
+        }
+
+        func restore(table: NSTableView, rows: [SessionIndexTableRow]) {
+            guard let rowIndex = rows.firstIndex(where: { $0.id == rowID }),
+                  let scrollView = table.enclosingScrollView else {
+                return
+            }
+            table.layoutSubtreeIfNeeded()
+            let clipView = scrollView.contentView
+            var bounds = clipView.bounds
+            let targetOriginY = table.rect(ofRow: rowIndex).minY - offsetFromViewportTop
+            guard abs(targetOriginY - bounds.origin.y) > 0.5 else { return }
+            bounds.origin.y = targetOriginY
+            clipView.scroll(to: clipView.constrainBoundsRect(bounds).origin)
+            scrollView.reflectScrolledClipView(clipView)
+        }
+    }
+
     private weak var containerView: SessionIndexTableContainerView?
     private var rows: [SessionIndexTableRow] = []
     private var environment: SessionIndexTableEnvironmentSnapshot?
@@ -103,8 +147,54 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
             !previousRows[index].hasEquivalentContent(to: nextRows[index])
         })
         guard !changedRows.isEmpty else { return }
-        table.reloadData(forRowIndexes: changedRows, columnIndexes: IndexSet(integer: 0))
-        table.noteHeightOfRows(withIndexesChanged: changedRows)
+        let viewportAnchor = ViewportAnchor.capture(
+            table: table,
+            rows: previousRows,
+            preferredRows: changedRows
+        )
+        reconfigureVisibleCells(table, indexes: changedRows)
+        noteHeightOfRowsWithoutAnimation(table, changedRows)
+        viewportAnchor?.restore(table: table, rows: nextRows)
+    }
+
+    /// Reconfigures realized cells in place so a disclosure toggle does not
+    /// tear down and recreate the hosting view. Offscreen rows are picked up
+    /// by `viewFor` when AppKit realizes them later.
+    private func reconfigureVisibleCells(
+        _ table: NSTableView,
+        indexes: IndexSet
+    ) {
+        let visible = table.rows(in: table.visibleRect)
+        guard visible.location != NSNotFound, visible.length > 0,
+              let environment else { return }
+
+        for rowIndex in indexes where NSLocationInRange(rowIndex, visible) {
+            guard rows.indices.contains(rowIndex),
+                  let cell = table.view(
+                      atColumn: 0,
+                      row: rowIndex,
+                      makeIfNecessary: false
+                  ) as? SessionIndexTableCellView else {
+                continue
+            }
+            cell.configure(row: rows[rowIndex], environment: environment)
+        }
+    }
+
+    /// NSTableView animates `noteHeightOfRows` by default. Vault rows are
+    /// hosted inside a virtualized table, so that implicit animation can move
+    /// the clip origin and make a section appear to expand upward. The table
+    /// still updates its height synchronously; only the unwanted interpolation
+    /// is suppressed.
+    private func noteHeightOfRowsWithoutAnimation(
+        _ table: NSTableView,
+        _ indexes: IndexSet
+    ) {
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        NSAnimationContext.current.allowsImplicitAnimation = false
+        table.noteHeightOfRows(withIndexesChanged: indexes)
+        NSAnimationContext.endGrouping()
     }
 
     private func refreshVisibleCellPresentations(in table: NSTableView) {
