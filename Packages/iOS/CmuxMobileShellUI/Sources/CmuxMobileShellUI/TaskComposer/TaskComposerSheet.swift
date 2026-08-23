@@ -56,8 +56,6 @@ struct TaskComposerSheet: View {
     /// Draft typing is sampled once per composer presentation so this bounded
     /// log records that editing occurred without one event per keystroke.
     @State var hasRecordedDraftChange = false
-    /// Saved drafts other than this session's, loaded when the list presents.
-    @State private var otherDrafts: [MobileTaskComposerSavedDraft] = []
     @State private var isDraftsListPresented = false
     @State var isLeaveConfirmationPresented = false
     /// True until this session's preserved attachments finish re-staging, so
@@ -394,7 +392,9 @@ struct TaskComposerSheet: View {
             }
             .sheet(isPresented: $isDraftsListPresented) {
                 TaskComposerDraftsSheet(
-                    drafts: otherDrafts,
+                    loadDrafts: { [store, draftID] in
+                        store.taskComposerSavedDrafts().filter { $0.id != draftID }
+                    },
                     templates: templates,
                     resume: resumeDraft,
                     startNew: startNewDraft,
@@ -981,9 +981,8 @@ struct TaskComposerSheet: View {
         return { presentDraftsList() }
     }
 
-    /// Opens the saved-drafts list for every session except this one.
+    /// Opens the saved-drafts list; the sheet loads its rows on appear.
     private func presentDraftsList() {
-        otherDrafts = store.taskComposerSavedDrafts().filter { $0.id != draftID }
         isDraftsListPresented = true
     }
 
@@ -1010,11 +1009,10 @@ struct TaskComposerSheet: View {
     }
 
     private func deleteDrafts(_ ids: Set<UUID>) {
-        guard store.deleteTaskComposerDrafts(
+        store.deleteTaskComposerDrafts(
             ids: ids,
             ifSessionGeneration: sessionGeneration
-        ) else { return }
-        otherDrafts.removeAll { ids.contains($0.id) }
+        )
     }
 
     private func selectMachine(_ macDeviceID: String, _ instanceTag: String?) {

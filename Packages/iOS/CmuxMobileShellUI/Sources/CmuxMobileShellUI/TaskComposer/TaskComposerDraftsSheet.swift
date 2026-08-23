@@ -8,11 +8,16 @@ import SwiftUI
 /// content is saved as a draft of its own.
 struct TaskComposerDraftsSheet: View {
     @Environment(\.dismiss) private var dismiss
-    let drafts: [MobileTaskComposerSavedDraft]
+    /// Live source of the listed drafts. The sheet loads on its own appear
+    /// instead of receiving a snapshot: a snapshot captured across the
+    /// composer's draft-switch identity swap can be stale or empty.
+    let loadDrafts: () -> [MobileTaskComposerSavedDraft]
     let templates: [MobileTaskTemplate]
     let resume: (UUID) -> Void
     let startNew: () -> Void
     let delete: (Set<UUID>) -> Void
+
+    @State private var drafts: [MobileTaskComposerSavedDraft] = []
 
     var body: some View {
         NavigationStack {
@@ -47,12 +52,15 @@ struct TaskComposerDraftsSheet: View {
                             .accessibilityIdentifier("MobileTaskComposerDraftRow")
                         }
                         .onDelete { offsets in
-                            delete(Set(offsets.map { drafts[$0].id }))
+                            let ids = Set(offsets.map { drafts[$0].id })
+                            delete(ids)
+                            drafts.removeAll { ids.contains($0.id) }
                         }
                     }
                     .accessibilityIdentifier("MobileTaskComposerDraftsList")
                 }
             }
+            .onAppear { drafts = loadDrafts() }
             .navigationTitle(L10n.string(
                 "mobile.taskComposer.drafts.title",
                 defaultValue: "Drafts"
