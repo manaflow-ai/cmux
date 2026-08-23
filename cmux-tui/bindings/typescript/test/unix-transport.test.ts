@@ -185,7 +185,12 @@ test("socket candidates keep long sessions bindable and short sessions canonical
 
     const shortSession = "main";
     const shortCandidates = defaultSocketPaths(shortSession);
-    assert.ok(shortCandidates[0].endsWith(`/cmux-tui-${process.getuid?.() ?? 0}/${shortSession}.sock`));
+    assert.ok(
+      shortCandidates[0].endsWith(
+        `/cmux-tui-${process.getuid?.() ?? 0}/${shortSession}.sock`,
+      ),
+    );
+    assert.ok(shortCandidates.every((candidate) => !candidate.includes("-hashed-")));
     assert.equal(defaultSocketPath(shortSession), shortCandidates[0]);
   });
 });

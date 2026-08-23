@@ -70,20 +70,15 @@ export function defaultSocketPaths(session = "main"): string[] {
   if (unixSocketPathFits(preferred)) candidates.push(preferred);
   const fallback = path.join("/tmp", `cmux-tui-${uid}`, fileName);
   if (unixSocketPathFits(fallback) && !candidates.includes(fallback)) candidates.push(fallback);
+  // A bindable raw path is authoritative. Adding digest paths here could
+  // connect a short session to an unrelated same-user compatibility socket.
+  if (candidates.length) return candidates;
+
   const digest = createHash("sha256").update(session, "utf8").digest("hex");
   const hashed = path.join(base, `cmux-tui-hashed-${uid}`, `${digest}.sock`);
   const hashedFallback = path.join("/tmp", `cmux-tui-hashed-${uid}`, `${digest}.sock`);
   if (unixSocketPathFits(hashed)) candidates.push(hashed);
   if (unixSocketPathFits(hashedFallback) && !candidates.includes(hashedFallback)) candidates.push(hashedFallback);
-  // Legacy raw path is valid only when canonical path is hashed.
-  if (candidates.length && candidates[0].includes("-hashed-")) {
-    const legacy = path.join(base, `cmux-tui-${uid}`, fileName);
-    if (unixSocketPathFits(legacy) && !candidates.includes(legacy)) candidates.push(legacy);
-    const legacyFallback = path.join("/tmp", `cmux-tui-${uid}`, fileName);
-    if (unixSocketPathFits(legacyFallback) && !candidates.includes(legacyFallback)) {
-      candidates.push(legacyFallback);
-    }
-  }
   return candidates;
 }
 
