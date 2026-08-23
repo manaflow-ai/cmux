@@ -214,6 +214,14 @@ func NewClient(options Options) (*Client, error) {
 	}, nil
 }
 
+func socketPathCandidates(session string) []string {
+	canonical, _ := ResolveSocketPath("", session)
+	if filepath.Base(canonical) == session+".sock" {
+		return []string{canonical}
+	}
+	return []string{canonical, filepath.Join("/tmp", fmt.Sprintf("cmux-tui-%d", os.Getuid()), session+".sock")}
+}
+
 func optionLimit(name string, value, defaultValue int) (int, error) {
 	if value < 0 {
 		return 0, fmt.Errorf("%w: %s must not be negative", ErrInvalidArgument, name)
