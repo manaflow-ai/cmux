@@ -65,14 +65,17 @@ export function defaultSocketPaths(session = "main"): string[] {
   const base = process.env.XDG_RUNTIME_DIR || process.env.TMPDIR || "/tmp";
   const fileName = `${session}.sock`;
   const preferred = path.join(base, `cmux-tui-${uid}`, fileName);
+  // A fitting preferred path is authoritative. Do not probe a same-name
+  // /tmp socket in that case, because it can belong to another runtime.
+  if (unixSocketPathFits(preferred)) return [preferred];
   const candidates: string[] = [];
-  if (unixSocketPathFits(preferred)) candidates.push(preferred);
-  const fallback = path.join("/tmp", `cmux-tui-${uid}`, fileName);
-  if (unixSocketPathFits(fallback) && !candidates.includes(fallback)) candidates.push(fallback);
-  // A bindable raw path is authoritative. Adding digest paths here could
-  // connect a short session to an unrelated same-user compatibility socket.
+  // Only try the raw /tmp compatibility path after the preferred base failed.
+  // When the preferred base is already /tmp this is the same path.
+  if (base !== "/tmp") {
+    const fallback = path.join("/tmp", `cmux-tui-${uid}`, fileName);
+    if (unixSocketPathFits(fallback)) candidates.push(fallback);
+  }
   if (candidates.length) return candidates;
-
   const digest = createHash("sha256").update(session, "utf8").digest("hex");
   const hashed = path.join(base, `cmux-tui-hashed-${uid}`, `${digest}.sock`);
   const hashedFallback = path.join("/tmp", `cmux-tui-hashed-${uid}`, `${digest}.sock`);

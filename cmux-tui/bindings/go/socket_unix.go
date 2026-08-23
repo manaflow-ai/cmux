@@ -51,9 +51,11 @@ func defaultSocketPathForSession(session string) string {
 	if unixSocketPathFits(preferred) {
 		return preferred
 	}
-	fallback := filepath.Join("/tmp", "cmux-tui-"+strconv.Itoa(os.Getuid()), fileName)
-	if unixSocketPathFits(fallback) {
-		return fallback
+	if base != "/tmp" {
+		fallback := filepath.Join("/tmp", "cmux-tui-"+strconv.Itoa(os.Getuid()), fileName)
+		if unixSocketPathFits(fallback) {
+			return fallback
+		}
 	}
 	hashed := filepath.Join(
 		base,
