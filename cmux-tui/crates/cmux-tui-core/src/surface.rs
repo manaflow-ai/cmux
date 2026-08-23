@@ -2092,7 +2092,7 @@ impl Surface {
         opts: SurfaceOptions,
         mux: Weak<Mux>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let cell_pixels =
+        let mut cell_pixels =
             mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
         Self::spawn_at_cell_pixels(id, opts, mux, cell_pixels)
     }
@@ -3905,6 +3905,7 @@ impl Surface {
                         cell_height,
                     } => {
                         (cols, rows) = (*tail_cols, *tail_rows);
+                        cell_pixels = (*cell_width as u16, *cell_height as u16);
                         term.resize(*tail_cols, *tail_rows, *cell_width, *cell_height)?;
                     }
                 }

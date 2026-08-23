@@ -2297,10 +2297,11 @@ impl Mux {
                     "live terminal resource {public_id} has views but no runtime owner"
                 ))
             );
-            if let (Some(expected), Some(stored)) =
-                (expected_incarnation, durable.incarnation.as_deref())
-            {
-                anyhow::ensure!(expected == stored, "terminal_incarnation_mismatch");
+            if let Some(expected) = expected_incarnation {
+                anyhow::ensure!(
+                    durable.incarnation.as_deref() == Some(expected),
+                    "terminal_incarnation_mismatch"
+                );
             }
             let plan = self.resource_close_plan_locked(
                 ResourceOperation::TerminalClose,
