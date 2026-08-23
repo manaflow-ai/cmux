@@ -74,7 +74,7 @@ impl CursorStyleProvenance {
             State::Escape => self.dispatch_escape(byte),
             State::Csi(csi) => self.step_csi(csi, byte),
             State::StringBody => match byte {
-                0x07 => self.state = State::Ground,
+                0x07 | 0x9c => self.state = State::Ground,
                 0x1b => self.state = State::StringBodyEscape,
                 _ => {}
             },
@@ -225,6 +225,20 @@ mod tests {
         // A real DECSCUSR after the strings still counts.
         p.scan(b"\x1b[5 q");
         assert!(p.authored());
+    }
+
+    #[test]
+    fn c1_string_terminator_ends_all_string_bodies() {
+        let mut p = CursorStyleProvenance::default();
+        for opener in [b']', b'P', b'_', b'^', b'X'] {
+            p.scan(&[0x1b, opener]);
+            p.scan(b"payload 5 q");
+            p.scan(&[0x9c]);
+            assert!(!p.authored(), "string body payload must not author");
+        }
+
+        p.scan(b"\x1b[5 q");
+        assert!(p.authored(), "C1 ST must return the parser to ground");
     }
 
     #[test]
