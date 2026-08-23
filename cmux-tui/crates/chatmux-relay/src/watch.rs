@@ -201,7 +201,8 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
     let callback_overflowed = Arc::clone(&overflowed);
     let callback_notify = Arc::clone(&overflow_notify);
     let callback_error = Arc::clone(&latched_error);
-    let mut watcher = match notify::recommended_watcher(move |event| match event {
+    let mut watcher = match notify::recommended_watcher(
+        move |event: Result<notify::Event, notify::Error>| match event {
         Ok(event) => {
             try_enqueue_notify_event(&event_tx, &callback_overflowed, &callback_notify, Ok(event))
         }
