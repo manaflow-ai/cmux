@@ -43,8 +43,11 @@ fn xml_escape(v: &str) -> String {
         .replace('\'', "&apos;")
 }
 #[cfg(target_os = "linux")]
-fn shell_quote(v: &str) -> String {
-    format!("'{}'", v.replace('\'', "'\\''"))
+fn systemd_quote(v: &str) -> String {
+    // ExecStart is parsed by systemd's unit-file lexer, not a POSIX shell.
+    // Double-quoted items preserve whitespace; only backslashes and double
+    // quotes need escaping under systemd.syntax(7).
+    format!("\"{}\"", v.replace('\\', "\\\\").replace('"', "\\\""))
 }
 fn atomic_write(p: &Path, b: &str) -> Result<(), String> {
     let d = p.parent().ok_or("autostart path has no parent")?;
@@ -105,8 +108,8 @@ fn install_impl(e: &Path, config: &Path) -> Result<String, String> {
         &p,
         &format!(
             "[Unit]\nDescription=chatmux relay\n[Service]\nExecStart={} --no-onboard --config {}\nRestart=on-failure\nRestartSec=5\n[Install]\nWantedBy=default.target\n",
-            shell_quote(x),
-            shell_quote(c)
+            systemd_quote(x),
+            systemd_quote(c)
         ),
     )?;
     run("systemctl", &["--user", "daemon-reload"])?;
@@ -193,8 +196,11 @@ mod tests {
     }
     #[test]
     #[cfg(target_os = "linux")]
-    fn quotes() {
-        assert_eq!(shell_quote("/tmp/a'b"), "'/tmp/a'\\''b'");
+    fn quotes_systemd_execstart_arguments() {
+        assert_eq!(
+            systemd_quote("/tmp/a'b with\\slash\"quote"),
+            "\"/tmp/a'b with\\\\slash\\\"quote\""
+        );
     }
 
     #[test]
