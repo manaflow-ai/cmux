@@ -62,7 +62,8 @@ cutover — pre-launch, no legacy.
    lexical + canonical (realpath) double pass, O_NOFOLLOW opens, scrubbed
    env, hard process-group timeouts, the v5 process-credential runtime,
    and the reconciled-trust gate (observe = read-only verbs only).
-   Both slices raised the advertised dialect to **5**.
+   Slices 2 and 3, plus the v6 pane verbs, are included; the advertised
+   dialect is **6**.
 4. **Wire-v6 pane verbs + preview proxy** — fs/git/watch verbs and the
    chobitsu-injecting preview proxy (chatmux pane-primitives program;
    these verbs have NO JS implementation — Rust-first by decision).
@@ -72,9 +73,8 @@ cutover — pre-launch, no legacy.
 
 ### Intentional divergences from the JS relay (still open)
 
-- The advertised relay protocol is **v5** now that PTY + exec land. The
-  pane data-plane verbs (wire v6) and the journal forwarder are later
-  slices; the Worker's forward tolerance covers the gap.
+- The advertised relay protocol is **v6**. PTY and exec remain capability
+  gated at v4 and v3; workspace/watch/preview use v6.
 - `--code` prints the `chatmux://pair` link without the terminal QR
   graphic (QR rendering comes with a later slice; the link carries the
   same payload).

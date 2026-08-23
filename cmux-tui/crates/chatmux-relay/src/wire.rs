@@ -19,12 +19,9 @@ use serde_json::Value;
 
 use crate::config::ManagedIdentity;
 
-/// Relay wire dialect this build ADVERTISES. Slice 1 advertised v2 (core
-/// only). Slices 2 (PTY multi-viewer) and 3 (exec verbs + v5 process
-/// credentials) are implemented, so this build advertises v5 — the Worker
-/// may dispatch exec verbs and the pty_* family. The pane data-plane verbs
-/// (wire v6) land in a later slice and bump this again.
-pub const ADVERTISED_PROTOCOL_VERSION: u64 = 5;
+/// Relay wire dialect this build advertises. Workspace/watch/preview frames
+/// use v6; lower dialect features remain capability-gated.
+pub const ADVERTISED_PROTOCOL_VERSION: u64 = 6;
 /// Frame dialect marker (`RelayFrameVersion`, >= 2) on every sent frame.
 pub const FRAME_VERSION: u64 = 2;
 /// Verbs exist from this dialect on.

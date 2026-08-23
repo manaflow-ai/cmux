@@ -60,12 +60,17 @@ struct AuthSnapshot {
 pub struct SessionRuntime {
     home: PathBuf,
     base_env: HashMap<String, String>,
+    pub(crate) workspace: Arc<crate::workspace::SharedRuntime>,
     #[cfg(unix)]
     pty: Arc<PtyManager>,
 }
 
 impl SessionRuntime {
     pub fn new() -> SessionRuntime {
+        Self::with_roots(None)
+    }
+
+    pub fn with_roots(local_roots: Option<Vec<String>>) -> SessionRuntime {
         let base_env = process_env_snapshot();
         let home = base_env.get("HOME").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
         #[cfg(unix)]
@@ -76,6 +81,7 @@ impl SessionRuntime {
         SessionRuntime {
             home,
             base_env,
+            workspace: Arc::new(crate::workspace::SharedRuntime::new(local_roots)),
             #[cfg(unix)]
             pty,
         }
@@ -104,7 +110,7 @@ fn jitter() -> f64 {
 /// Keep the machine online forever. Fatal errors end the process; anything
 /// else rides a jittered exponential backoff with a 30s ceiling.
 pub async fn stay_online(mut config: Config, config_path: &Path, mut state: SessionState) -> ! {
-    let runtime = SessionRuntime::new();
+    let runtime = SessionRuntime::with_roots(config.allowed_roots.clone());
     let mut attempt: u32 = 0;
     loop {
         match relay_session(&mut config, config_path, &mut state, &runtime).await {
@@ -198,7 +204,7 @@ async fn relay_session(
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Value>();
     let pending = Arc::new(AtomicU64::new(0));
     let auth = Arc::new(std::sync::Mutex::new(AuthSnapshot::default()));
-    let workspace_runtime = Arc::new(crate::workspace::SharedRuntime::new(local_roots.clone()));
+    let workspace_runtime = Arc::clone(&runtime.workspace);
     let (workspace_tx, mut workspace_rx) = mpsc::unbounded_channel::<String>();
     let workspace = crate::workspace::Connection::new(workspace_runtime, workspace_tx);
     let workspace_out = out_tx.clone();
