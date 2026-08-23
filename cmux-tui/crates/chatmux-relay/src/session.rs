@@ -41,6 +41,8 @@ use crate::wire::{
 };
 
 const MAX_OUTBOUND_FRAMES: usize = 256;
+const MAX_PTY_INGRESS_FRAMES: usize = 64;
+const MAX_INBOUND_FRAME_BYTES: usize = 1 << 20;
 
 pub struct SessionState {
     pub first_connect: bool,
@@ -245,7 +247,7 @@ async fn relay_session(
     // spawn) never stalls heartbeats or other frames.
     #[cfg(unix)]
     let pty_tx = {
-        let (pty_tx, mut pty_rx) = mpsc::unbounded_channel::<Value>();
+        let (pty_tx, mut pty_rx) = mpsc::channel::<Value>(MAX_PTY_INGRESS_FRAMES);
         let manager = Arc::clone(&runtime.pty);
         let out = out_tx.clone();
         let pending = Arc::clone(&pending);
@@ -316,6 +318,10 @@ async fn relay_session(
                     Message::Close(_) => break Ok(connected),
                     _ => continue,
                 };
+                if text.len() > MAX_INBOUND_FRAME_BYTES {
+                    eprintln!("Ignoring oversized relay frame ({} bytes)", text.len());
+                    continue;
+                }
                 // Unreadable frames are ignored; the socket stays open.
                 let Some(frame) = parse_server_frame(&text) else { continue };
                 match frame {
@@ -528,7 +534,38 @@ async fn relay_session(
                         }
                         #[cfg(unix)]
                         {
-                            let _ = pty_tx.send(raw);
+                            let is_slow =
+                                matches!(frame_type.as_str(), "pty_open" | "surface_list");
+                            match pty_tx.try_send(raw.clone()) {
+                                Ok(()) => {}
+                                Err(mpsc::error::TrySendError::Closed(_)) => break Ok(connected),
+                                Err(mpsc::error::TrySendError::Full(_)) => {
+                                    // Never silently discard a server command. Slow opens/listing
+                                    // have an explicit busy response; control frames use the same
+                                    // typed refusal when the serialized ingress queue is saturated.
+                                    let reply = raw
+                                        .get("ptyId")
+                                        .and_then(Value::as_str)
+                                        .map(|id| serde_json::json!({
+                                            "version": PTY_PROTOCOL_VERSION,
+                                            "type": "pty_error",
+                                            "ptyId": id,
+                                            "code": "busy",
+                                            "message": if is_slow { "relay is busy; retry this terminal request" } else { "relay is busy; retry this terminal command" },
+                                        }))
+                                        .or_else(|| raw.get("requestId").and_then(Value::as_str).map(|id| serde_json::json!({
+                                            "version": PTY_PROTOCOL_VERSION,
+                                            "type": "surface_list_result",
+                                            "requestId": id,
+                                            "surfaces": [],
+                                            "code": "busy",
+                                            "message": "relay is busy; retry this terminal request",
+                                        })));
+                                    if let Some(reply) = reply {
+                                        let _ = out_tx.send(reply).await;
+                                    }
+                                }
+                            }
                         }
                         #[cfg(not(unix))]
                         {
