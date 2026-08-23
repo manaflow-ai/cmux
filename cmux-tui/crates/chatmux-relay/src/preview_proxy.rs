@@ -310,10 +310,7 @@ impl PreviewRegistry {
     /// graceful relay shutdown.
     pub async fn shutdown(&self) {
         let mut proxies = self.proxies.lock().await;
-        let runtimes = proxies
-            .drain()
-            .map(|(_, runtime)| runtime)
-            .collect::<Vec<_>>();
+        let runtimes = proxies.drain().map(|(_, runtime)| runtime).collect::<Vec<_>>();
         drop(proxies);
         for mut runtime in runtimes {
             let _ = runtime.shutdown.send(true);

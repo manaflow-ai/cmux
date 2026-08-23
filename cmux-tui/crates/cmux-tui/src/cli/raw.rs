@@ -34,10 +34,7 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
     let socket = match resolve_socket(&global) {
         Ok(socket) => socket,
         Err(_) => {
-            eprintln!(
-                "{}",
-                crate::localization::catalog().startup.invalid_session_name
-            );
+            eprintln!("{}", crate::localization::catalog().startup.invalid_session_name);
             return 2;
         }
     };

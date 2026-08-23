@@ -758,12 +758,13 @@ fn local_server_lifecycle_rejects_invalid_derived_socket_sessions() {
 
         assert_eq!(output.status.code(), Some(2), "action={action}");
         assert!(output.stdout.is_empty(), "action={action}");
-        let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap_or_else(|error| {
-            panic!(
-                "action={action}: expected JSON error, got {error}: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )
-        });
+        let error: serde_json::Value =
+            serde_json::from_slice(&output.stderr).unwrap_or_else(|error| {
+                panic!(
+                    "action={action}: expected JSON error, got {error}: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                )
+            });
         assert_eq!(error["code"], "server.invalid_session", "action={action}");
         assert!(
             error["message"].as_str().is_some_and(|message| message.contains("invalid")),

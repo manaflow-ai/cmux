@@ -60,10 +60,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let socket = match resolve_socket(&global) {
         Ok(socket) => socket,
         Err(_) => {
-            eprintln!(
-                "cmux: {}",
-                crate::localization::catalog().startup.invalid_session_name
-            );
+            eprintln!("cmux: {}", crate::localization::catalog().startup.invalid_session_name);
             return 2;
         }
     };
