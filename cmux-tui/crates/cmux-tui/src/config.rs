@@ -3901,9 +3901,14 @@ fn load_raw_config() -> RawConfig {
         Err(e) => {
             // A broken config should not take the TUI down; complain on
             // stderr (visible pre-alternate-screen and in logs).
+            let guidance = if e.to_string().contains("unknown field `command`") {
+                " Use the top-level `commands` array for user commands; `command` is not a top-level config field."
+            } else {
+                ""
+            };
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring invalid config {}: {e}",
+                "cmux-tui: ignoring invalid config {}: {e}.{guidance}",
                 path.display()
             );
             RawConfig::default()
