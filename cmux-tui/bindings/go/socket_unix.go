@@ -70,6 +70,14 @@ func defaultSocketPathForSession(session string) string {
 	)
 }
 
+func legacySocketPathForSession(session string) string {
+	path := filepath.Join("/tmp", "cmux-tui-"+strconv.Itoa(os.Getuid()), session+".sock")
+	if unixSocketPathFits(path) {
+		return path
+	}
+	return ""
+}
+
 // invalidSessionSocketPath keeps the unexported compatibility helper
 // deterministic and outside the normal runtime directory. It is not a
 // connector route; resolveSocketPath returns ErrInvalidArgument first.

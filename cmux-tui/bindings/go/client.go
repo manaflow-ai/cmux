@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -189,11 +190,11 @@ func NewClient(ctx context.Context, options ClientOptions) (*Client, error) {
 		return nil, fmt.Errorf("%w: message limits must be positive", ErrInvalidArgument)
 	}
 	socket := options.SocketPath
+	session := options.Session
+	if session == "" {
+		session = "main"
+	}
 	if socket == "" {
-		session := options.Session
-		if session == "" {
-			session = "main"
-		}
 		var err error
 		socket, err = resolveSocketPath("", session)
 		if err != nil {
@@ -209,7 +210,17 @@ func NewClient(ctx context.Context, options ClientOptions) (*Client, error) {
 	if keySource == nil {
 		keySource = newIdempotencyKey
 	}
+	effective := socket
 	conn, err := dial(ctx, "unix", socket)
+	if err != nil && options.SocketPath == "" && envSocketPath() == "" &&
+		(errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED)) {
+		legacy := legacySocketPathForSession(session)
+		if legacy != "" && legacy != socket {
+			if fallbackConn, fallbackErr := dial(ctx, "unix", legacy); fallbackErr == nil {
+				conn, effective, err = fallbackConn, legacy, nil
+			}
+		}
+	}
 	if err != nil {
 		return nil, &TransportError{Operation: "connect", Err: err}
 	}
@@ -225,6 +236,7 @@ func NewClient(ctx context.Context, options ClientOptions) (*Client, error) {
 		streams:          make(map[StreamID]*streamRoute),
 		done:             make(chan struct{}),
 	}
+	_ = effective
 	client.writer <- struct{}{}
 	go client.readLoop()
 	return client, nil

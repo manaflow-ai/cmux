@@ -13,8 +13,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -54,9 +56,13 @@ func (e *CommandError) Is(target error) bool {
 	return target == ErrCommand
 }
 
-type connectionError struct{ msg string }
+type connectionError struct {
+	msg   string
+	cause error
+}
 
 func (e *connectionError) Error() string { return e.msg }
+func (e *connectionError) Unwrap() error { return e.cause }
 func (e *connectionError) Is(target error) bool {
 	return target == ErrConnection
 }
@@ -180,12 +186,19 @@ func NewClient(options Options) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	conn, err := dialJSON(socketPath, maxRequestBytes, maxResponseBytes)
+	legacy := ""
+	if options.SocketPath == "" && EnvSocketPath() == "" {
+		legacy = legacySocketPathForSession(session)
+		if legacy == socketPath {
+			legacy = ""
+		}
+	}
+	conn, effective, err := dialJSONWithFallback(socketPath, legacy, maxRequestBytes, maxResponseBytes)
 	if err != nil {
 		return nil, err
 	}
 	return &Client{
-		socketPath:              socketPath,
+		socketPath:              effective,
 		timeout:                 timeout,
 		maxRequestBytes:         maxRequestBytes,
 		maxResponseBytes:        maxResponseBytes,
@@ -259,6 +272,14 @@ func DefaultSocketPath(session string) string {
 		fmt.Sprintf("cmux-tui-hashed-%d", os.Getuid()),
 		sessionpath.Digest(session)+".sock",
 	)
+}
+
+func legacySocketPathForSession(session string) string {
+	path := filepath.Join("/tmp", "cmux-tui-"+strconv.Itoa(os.Getuid()), session+".sock")
+	if unixSocketPathFits(path) {
+		return path
+	}
+	return ""
 }
 
 // invalidSessionSocketPath is retained for source-compatible path queries.
@@ -721,8 +742,9 @@ func (c *Client) openStream(
 	ctx context.Context,
 	request map[string]any,
 ) (*Stream, error) {
-	conn, err := dialJSON(
+	conn, _, err := dialJSONWithFallback(
 		c.socketPath,
+		"",
 		c.requestLimit(),
 		c.responseLimit(),
 	)
@@ -855,7 +877,7 @@ func dialJSON(
 ) (*jsonLineConn, error) {
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
-		return nil, &connectionError{msg: fmt.Sprintf(
+		return nil, &connectionError{cause: err, msg: fmt.Sprintf(
 			"cannot connect to session socket %s: %v",
 			socketPath,
 			err,
@@ -867,6 +889,21 @@ func dialJSON(
 		maxRequestBytes:  maxRequestBytes,
 		maxResponseBytes: maxResponseBytes,
 	}, nil
+}
+
+func dialJSONWithFallback(path, legacy string, req, resp int) (*jsonLineConn, string, error) {
+	conn, err := dialJSON(path, req, resp)
+	if err == nil {
+		return conn, path, nil
+	}
+	if legacy == "" || (!errors.Is(err, syscall.ENOENT) && !errors.Is(err, syscall.ECONNREFUSED)) {
+		return nil, path, err
+	}
+	conn, fallbackErr := dialJSON(legacy, req, resp)
+	if fallbackErr != nil {
+		return nil, path, fallbackErr
+	}
+	return conn, legacy, nil
 }
 
 func (c *jsonLineConn) Close() error {
