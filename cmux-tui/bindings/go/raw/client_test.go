@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -396,6 +397,38 @@ func TestSocketResolutionFallsBackWhenUnixPathIsTooLong(t *testing.T) {
 	)
 	if path != want {
 		t.Fatalf("fallback path = %q, want %q", path, want)
+	}
+}
+
+func TestNewClientSharesTimeoutAcrossSocketFallback(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	t.Setenv("TMPDIR", "/tmp/ignored")
+	oldDial := dialUnixContext
+	t.Cleanup(func() { dialUnixContext = oldDial })
+	var deadlines []time.Time
+	dialUnixContext = func(ctx context.Context, _ string) (net.Conn, error) {
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			t.Fatal("dial context has no deadline")
+		}
+		deadlines = append(deadlines, deadline)
+		if len(deadlines) == 1 {
+			<-ctx.Done()
+			return nil, syscall.ENOENT
+		}
+		if ctx.Err() == nil {
+			t.Fatal("fallback dial received a fresh timeout")
+		}
+		return nil, syscall.ENOENT
+	}
+	_, err := NewClient(Options{Timeout: 5 * time.Millisecond})
+	if err == nil || len(deadlines) != 2 {
+		t.Fatalf("NewClient error = %v, dial attempts = %d, want two attempts", err, len(deadlines))
+	}
+	if !deadlines[1].Equal(deadlines[0]) {
+		t.Fatalf("fallback deadline changed: first %v, second %v", deadlines[0], deadlines[1])
 	}
 }
 
