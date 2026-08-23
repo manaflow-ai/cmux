@@ -435,13 +435,18 @@ fn create_parent_dirs_no_symlink(path: &Path) -> Result<(), HostError> {
         }
         match std::fs::symlink_metadata(&current) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
-                return Err(HostError::Refusal(format!("path {} is a symlink", current.display())))
+                return Err(HostError::Refusal(format!("path {} is a symlink", current.display())));
             }
             Ok(metadata) if !metadata.is_dir() => {
-                return Err(HostError::Refusal(format!("path {} is not a directory", current.display())))
+                return Err(HostError::Refusal(format!(
+                    "path {} is not a directory",
+                    current.display()
+                )));
             }
             Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => std::fs::create_dir(&current)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                std::fs::create_dir(&current)?
+            }
             Err(error) => return Err(HostError::Io(error)),
         }
     }
@@ -486,6 +491,7 @@ pub fn scrubbed_env(base: &HashMap<String, String>) -> HashMap<String, String> {
         "LOGNAME",
         "SHELL",
         "TMPDIR",
+        // cmux-tui and the relay must resolve the same per-user socket dir.
         "XDG_RUNTIME_DIR",
         "LANG",
         "LC_ALL",
