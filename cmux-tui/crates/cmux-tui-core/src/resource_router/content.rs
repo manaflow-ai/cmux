@@ -326,7 +326,15 @@ fn terminal_effect(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Val
     validate_terminal_effect_fields(&request)?;
     let fields = request.fields.clone();
     let preparation = effects::prepare(mux, &request, || {
-        let (terminal_id, _) = resolve_terminal_surface(mux, &request.selectors)?;
+        let path = mux.resolve_resource_path(ResourceTarget::Terminal, &request.selectors)?;
+        let terminal_id = path
+            .terminal
+            .ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
+        if request.envelope.operation != ResourceOperation::TerminalClose {
+            let _ = mux
+                .resource_surface_for_terminal(&terminal_id)
+                .ok_or_else(|| ResourceError::not_found("terminal", terminal_id.as_str()))?;
+        }
         Ok(json!({"terminal_id":terminal_id,"fields":fields}))
     })?;
     match preparation {

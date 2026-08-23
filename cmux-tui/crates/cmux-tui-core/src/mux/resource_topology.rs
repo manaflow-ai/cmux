@@ -2712,6 +2712,8 @@ impl Mux {
         if let Some(runtime) = effects.terminal_runtime {
             self.purge_terminal_runtime_side_tables(&runtime);
             self.terminate_terminal_runtime(&runtime);
+        } else if let Some(terminal_id) = effects.closed_terminal_public_id.as_ref() {
+            self.purge_terminal_side_tables(terminal_id);
         }
         match effects.tree_publication {
             ResourceCloseTreePublication::PendingDelta(delta) => {
