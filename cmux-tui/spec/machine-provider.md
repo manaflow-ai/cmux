@@ -125,3 +125,8 @@ On Linux, a mux with `CMUX_PROVIDER_WORKSPACE_AUTHORITY` must set `PR_SET_DUMPAB
 A cloud implementation may authenticate at the SSH edge, project a team-scoped catalog, create or wake a VM, and proxy `cmux relay` from that VM. The app must receive only descriptors, capabilities, action results, and an opened message transport. Cloud credentials, billing decisions, and provider API objects must not enter `App`, `RemoteSession`, or the shared rail renderer.
 
 V1 lets a provider withdraw a machine, change status, revoke an open connection, and use capability checks to hide unsupported actions such as `new machine`. User-owned machines and cloud VMs use the same descriptor and open boundary. The reference client preserves process-local keys across snapshots by reconciling provider-stable ids.
+# Capability note
+
+`connection-progress-v1` is an optional client capability. When accepted during
+`negotiate_client_capabilities`, the provider may emit advisory
+`connection_progress` events while `open_machine` is in flight.
