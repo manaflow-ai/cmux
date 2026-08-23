@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+use sha2::Digest as _;
 
 pub type Result<T> = std::result::Result<T, CmuxError>;
 
@@ -617,7 +618,10 @@ fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> Pa
     let file_name = format!("{session}.sock");
     let preferred = runtime_dir.join(&file_name);
     if !unix_socket_path_fits(&preferred) {
-        return PathBuf::from("/tmp").join(private_runtime_dir_name()).join(file_name);
+        let digest = sha2::Digest::digest(session.as_bytes());
+        return PathBuf::from("/tmp")
+            .join(private_runtime_dir_name())
+            .join(format!("{:x}.sock", digest));
     }
     preferred
 }
