@@ -194,10 +194,20 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
         channel::<Result<notify::Event, notify::Error>>(MAX_PENDING_NOTIFY_EVENTS);
     let overflowed = Arc::new(AtomicBool::new(false));
     let overflow_notify = Arc::new(Notify::new());
+    let latched_error = Arc::new(Mutex::new(None::<String>));
     let callback_overflowed = Arc::clone(&overflowed);
     let callback_notify = Arc::clone(&overflow_notify);
-    let mut watcher = match notify::recommended_watcher(move |event| {
-        try_enqueue_notify_event(&event_tx, &callback_overflowed, &callback_notify, event);
+    let callback_error = Arc::clone(&latched_error);
+    let mut watcher = match notify::recommended_watcher(move |event| match event {
+        Ok(event) => {
+            try_enqueue_notify_event(&event_tx, &callback_overflowed, &callback_notify, Ok(event))
+        }
+        Err(error) => {
+            if let Ok(mut latched) = callback_error.lock() {
+                *latched = Some(error.to_string());
+            }
+            callback_notify.notify_one();
+        }
     }) {
         Ok(watcher) => watcher,
         Err(error) => {
@@ -272,6 +282,7 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
                 ))
                 .await;
         }
+        let latched_error = latched_error.lock().ok().and_then(|mut error| error.take());
         if !changes.is_empty() || overflow {
             let frame = serde_json::to_string(&wire::RelayFsWatchEvent {
                 version: WORKSPACE_FRAME_VERSION,
@@ -294,6 +305,16 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
                     watch_id,
                     wire::WorkspaceErrorCode::Failed,
                     &format!("the watcher died: {error}"),
+                ))
+                .await;
+            break;
+        }
+        if let Some(error) = latched_error {
+            let _ = outbound
+                .critical_text(watch_error_frame(
+                    watch_id,
+                    wire::WorkspaceErrorCode::Failed,
+                    &format!("the watcher reported an error: {error}"),
                 ))
                 .await;
             break;
