@@ -15,6 +15,8 @@ use serde_json::Value;
 /// Per-request budget on a cmux-tui control connection.
 pub const CONTROL_TIMEOUT_MS: u64 = 3_000;
 const MAX_CONTROL_LINE_BYTES: usize = 1_048_576;
+const MAX_WRITER_QUEUE: usize = 256;
+const MAX_PENDING_REQUESTS: usize = 256;
 
 pub type EventHandler = Box<dyn Fn(&Value) + Send + Sync>;
 pub type CloseHandler = Box<dyn Fn() + Send + Sync>;
@@ -48,7 +50,7 @@ mod unix {
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use tokio::net::UnixStream;
     use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
-    use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+    use tokio::sync::mpsc::{self, Receiver, Sender};
     use tokio::sync::{Mutex as AsyncMutex, Notify, oneshot};
 
     struct OutboundLine {
@@ -88,7 +90,7 @@ mod unix {
 
     pub struct UnixControl {
         shared: Arc<Shared>,
-        writer_tx: UnboundedSender<OutboundLine>,
+        writer_tx: Sender<OutboundLine>,
         raw_fd: std::os::fd::RawFd,
         next_id: AtomicU64,
         timeout_ms: u64,
@@ -124,7 +126,7 @@ mod unix {
         // `write_all` below waits for socket backpressure and never exposes a
         // partial JSON line to the peer.
         let writer = Arc::new(AsyncMutex::new(write_half));
-        let (writer_tx, writer_rx) = mpsc::unbounded_channel();
+        let (writer_tx, writer_rx) = mpsc::channel(MAX_WRITER_QUEUE);
         tokio::spawn(write_loop(writer, writer_rx, Arc::clone(&shared)));
         tokio::spawn(read_loop(read_half, Arc::clone(&shared)));
         Ok(Arc::new(UnixControl {
@@ -138,7 +140,7 @@ mod unix {
 
     async fn write_loop(
         writer: Arc<AsyncMutex<OwnedWriteHalf>>,
-        mut receiver: UnboundedReceiver<OutboundLine>,
+        mut receiver: Receiver<OutboundLine>,
         shared: Arc<Shared>,
     ) {
         loop {
@@ -170,6 +172,14 @@ mod unix {
             if result.is_err() {
                 shared.settle_closed();
                 break;
+            }
+        }
+        // Resolve queued request acknowledgements when the writer exits. This
+        // makes shutdown cancellation prompt instead of waiting for each
+        // request timeout while preserving FIFO correlation for delivered lines.
+        while let Ok(line) = receiver.try_recv() {
+            if let Some(written) = line.written {
+                let _ = written.send(false);
             }
         }
     }
@@ -247,7 +257,7 @@ mod unix {
             written: Option<oneshot::Sender<bool>>,
         ) -> bool {
             self.writer_tx
-                .send(OutboundLine { bytes: Self::encode_line(id, cmd, params), written })
+                .try_send(OutboundLine { bytes: Self::encode_line(id, cmd, params), written })
                 .is_ok()
         }
     }
@@ -265,7 +275,13 @@ mod unix {
                 }
                 let id = self.next_id.fetch_add(1, Ordering::SeqCst);
                 let (sender, receiver) = oneshot::channel();
-                self.shared.pending.lock().expect("control pending lock").insert(id, sender);
+                {
+                    let mut pending = self.shared.pending.lock().expect("control pending lock");
+                    if pending.len() >= MAX_PENDING_REQUESTS {
+                        return None;
+                    }
+                    pending.insert(id, sender);
+                }
                 let deadline = tokio::time::Instant::now() + Duration::from_millis(self.timeout_ms);
                 let (written, write_result) = oneshot::channel();
                 if !self.enqueue_line(id, &cmd, params, Some(written)) {
