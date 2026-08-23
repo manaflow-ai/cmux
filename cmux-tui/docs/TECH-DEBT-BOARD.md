@@ -3,13 +3,13 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `feat-tui-tech-debt-wave1-clean`.
-Current integration code tip: `585e2477dd`.
+Current integration code tip: `3d47d1d537`.
 The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
 The current integration sequence includes the hosted formatter and verification
 fixes through `66e83c808f`, the replay preflight correction `c867048c1d`, the
 safe scoped-attach series through `dfa4ef3b6a`, manifest and socket-contract
 hardening, Unix/Admin task ownership, browser guard coverage, and localization
-through `585e2477dd`.
+through `3d47d1d537`.
 
 Subagent ledger: at least 180 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
@@ -334,6 +334,7 @@ state ownership, and bound event polling and task admission.
 | `b5dd3abec7` | Record measured projection complexity and defer caching until a composite invalidation revision exists. | Retired-surface cleanup is already O(tree + retired) with a `HashSet`; per-frame row allocations remain an open optimization. | Revert this documentation commit. |
 | `edf9ca96f7`, `585e2477dd` | Route browser, sidebar, provider, and action-status copy through the EN/JA catalog, including provider action IDs. | Known third-party provider labels remain provider-supplied; hosted compile and UI review remain required. | Revert both localization commits together. |
 | `bc3839813c` | Make raw `--session` socket resolution fallible so invalid names cannot bypass validation or hash an unsafe path. | Focused hosted run before this commit failed on the old test branch; final exact-head hosted run is required. | Revert this raw-client contract fix. |
+| `3d47d1d537` | Add Unix listener shutdown, admission-recovery, and Drop cleanup behavior tests. | Tests are formatted but not run locally; hosted Rust verification remains required. | Revert this test-only commit. |
 
 The current integration branch is not a claim that every open TUI PR is safe.
 PR [#10254](https://github.com/manaflow-ai/cmux/pull/10254) still needs C++
