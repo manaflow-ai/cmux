@@ -22910,16 +22910,18 @@ fn browser_character_code(character: char) -> (&'static str, u32) {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn crossterm_reader_polls_only_for_timed_reads() {
+    fn crossterm_reader_uses_bounded_polls_for_all_reads() {
         let event = crossterm::event::Event::Resize(80, 24);
         let mut poll_calls = 0;
         let mut read_calls = 0;
+        let mut poll_durations = Vec::new();
 
         let blocking = super::read_crossterm_event(
             None,
-            |_| {
+            |timeout| {
                 poll_calls += 1;
-                Ok(false)
+                poll_durations.push(timeout);
+                Ok(true)
             },
             || {
                 read_calls += 1;
@@ -22928,12 +22930,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(blocking, Some(event.clone()));
-        assert_eq!((poll_calls, read_calls), (0, 1));
+        assert_eq!((poll_calls, read_calls), (1, 1));
 
         let timed_out = super::read_crossterm_event(
             Some(std::time::Duration::from_millis(10)),
-            |_| {
+            |timeout| {
                 poll_calls += 1;
+                poll_durations.push(timeout);
                 Ok(false)
             },
             || {
@@ -22943,12 +22946,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(timed_out, None);
-        assert_eq!((poll_calls, read_calls), (1, 1));
+        assert_eq!((poll_calls, read_calls), (2, 1));
 
         let ready = super::read_crossterm_event(
             Some(std::time::Duration::from_millis(10)),
-            |_| {
+            |timeout| {
                 poll_calls += 1;
+                poll_durations.push(timeout);
                 Ok(true)
             },
             || {
@@ -22958,7 +22962,15 @@ mod tests {
         )
         .unwrap();
         assert_eq!(ready, Some(event));
-        assert_eq!((poll_calls, read_calls), (2, 2));
+        assert_eq!((poll_calls, read_calls), (3, 2));
+        assert_eq!(
+            poll_durations,
+            vec![
+                std::time::Duration::from_millis(100),
+                std::time::Duration::from_millis(10),
+                std::time::Duration::from_millis(10),
+            ]
+        );
     }
 
     use super::{
