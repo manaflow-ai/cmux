@@ -158,6 +158,7 @@ impl std::error::Error for CmuxError {
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
     pub socket_path: PathBuf,
+    legacy_socket_path: Option<PathBuf>,
     pub timeout: Duration,
     pub max_frame_bytes: usize,
     pub max_queued_events: usize,
@@ -172,6 +173,7 @@ impl ClientConfig {
     pub fn from_socket_path(socket_path: impl Into<PathBuf>) -> Self {
         Self {
             socket_path: socket_path.into(),
+            legacy_socket_path: None,
             timeout: Duration::from_secs(10),
             max_frame_bytes: 32 * 1024 * 1024,
             max_queued_events: 1_024,
@@ -188,7 +190,15 @@ impl ClientConfig {
     /// and bypasses session derivation. Callers handling user input should use
     /// [`Self::try_from_env_or_default_session`] to receive the validation error.
     pub fn from_env_or_default_session(session: &str) -> Self {
-        Self::from_socket_path(compatibility_socket_path_for_session(session, env_socket_path()))
+        let environment = env_socket_path();
+        let mut config = Self::from_socket_path(compatibility_socket_path_for_session(
+            session,
+            environment.clone(),
+        ));
+        if environment.is_none() {
+            config.legacy_socket_path = Some(legacy_socket_path(session));
+        }
+        config
     }
 
     /// Builds a configuration from the environment or a named session.
@@ -200,8 +210,13 @@ impl ClientConfig {
     /// uses an isolated, deterministic path only through the path-only
     /// compatibility helper.
     pub fn try_from_env_or_default_session(session: &str) -> Result<Self> {
-        let socket_path = socket_path_for_session(session, env_socket_path())?;
-        Ok(Self::from_socket_path(socket_path))
+        let environment = env_socket_path();
+        let socket_path = socket_path_for_session(session, environment.clone())?;
+        let mut config = Self::from_socket_path(socket_path);
+        if environment.is_none() {
+            config.legacy_socket_path = Some(legacy_socket_path(session));
+        }
+        Ok(config)
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
@@ -265,7 +280,9 @@ impl CmuxClient {
             && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
             && is_hashed_socket(&config.socket_path)
         {
-            let legacy = legacy_socket_path("main");
+            let Some(legacy) = config.legacy_socket_path.clone() else {
+                return Err(connection.unwrap_err());
+            };
             if let Ok(candidate) = JsonLineConnection::connect(
                 &legacy,
                 config.timeout,
