@@ -174,7 +174,7 @@ pub fn parse_server_frame(raw: &str) -> Option<ServerFrame> {
     match frame_type.as_str() {
         "hello_accepted" => {
             let heartbeat_interval_ms = get_u64(&frame, "heartbeatIntervalMs")
-                .filter(|value| (1..=i64::MAX as u64).contains(value))?;
+                .filter(|value| (1..=i32::MAX as u64).contains(value))?;
             let relay_protocol_version = get_u64(&frame, "relayProtocolVersion")
                 .filter(|value| (FRAME_VERSION..=ADVERTISED_PROTOCOL_VERSION).contains(value))?;
             Some(ServerFrame::HelloAccepted(HelloAccepted {
@@ -271,7 +271,7 @@ mod tests {
             ("version", Value::from(ADVERTISED_PROTOCOL_VERSION + 1)),
             ("relayProtocolVersion", Value::from(FRAME_VERSION - 1)),
             ("relayProtocolVersion", Value::from(ADVERTISED_PROTOCOL_VERSION + 1)),
-            ("heartbeatIntervalMs", Value::from(i64::MAX as u64 + 1)),
+            ("heartbeatIntervalMs", Value::from(i32::MAX as u64 + 1)),
         ] {
             let mut invalid = full.clone();
             invalid[name] = value;
@@ -280,7 +280,7 @@ mod tests {
 
         let mut boundary = full;
         boundary["relayProtocolVersion"] = Value::from(ADVERTISED_PROTOCOL_VERSION);
-        boundary["heartbeatIntervalMs"] = Value::from(i64::MAX);
+        boundary["heartbeatIntervalMs"] = Value::from(i32::MAX);
         assert!(parse_server_frame(&boundary.to_string()).is_some());
     }
 
