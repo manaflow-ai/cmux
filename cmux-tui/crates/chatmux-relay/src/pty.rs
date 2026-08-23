@@ -718,6 +718,16 @@ impl Inner {
     }
 
     fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext) {
+        self.emit_exit_with_overflow(pty_id, code, false, context);
+    }
+
+    fn emit_exit_with_overflow(
+        &self,
+        pty_id: &str,
+        code: i64,
+        overflow: bool,
+        context: &FrameContext,
+    ) {
         let mut attachments = self.attachments.lock().expect("attach lock");
         match attachments.get(pty_id) {
             Some(attachment) if !attachment.closing.load(Ordering::SeqCst) => {}
@@ -725,12 +735,19 @@ impl Inner {
         }
         attachments.remove(pty_id);
         drop(attachments);
-        (context.send)(json!({
+        let mut frame = json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_exit",
             "ptyId": pty_id,
             "code": code,
-        }));
+        });
+        if overflow {
+            frame["overflow"] = Value::Bool(true);
+            frame["error"] = Value::String(
+                "pty output backlog overflowed; reattach to continue receiving output".to_owned(),
+            );
+        }
+        (context.send)(frame);
     }
 
     /// Detach, NOT kill: idempotent, unknown ptyId tolerated.
@@ -1131,6 +1148,7 @@ fn decode_b64_field(event: &Value, field: &str) -> Option<Bytes> {
 /// pty_opened must precede all output).
 struct TerminalStream {
     state: Mutex<TerminalStreamState>,
+    overflowed: AtomicBool,
 }
 
 struct TerminalStreamState {
@@ -1156,6 +1174,7 @@ impl TerminalStream {
                 delivering: false,
                 ended: false,
             }),
+            overflowed: AtomicBool::new(false),
         }
     }
 
@@ -1208,24 +1227,30 @@ impl TerminalStream {
             if state.ended {
                 return;
             }
-            let chunk = if state.live_data.is_none() {
+            if state.live_data.is_none() {
                 let remaining = RAW_ATTACH_BACKLOG_CAP.saturating_sub(state.backlog_bytes);
                 if chunk.len() > remaining {
                     state.ended = true;
+                    self.overflowed.store(true, Ordering::Release);
                     state.pending_exit = Some(1);
-                    return;
+                    Self::start_delivery(&mut state)
+                } else {
+                    state.backlog_bytes += chunk.len();
+                    state.backlog.push_back(chunk);
+                    Self::start_delivery(&mut state)
                 }
-                state.backlog_bytes += chunk.len();
-                chunk
             } else {
-                chunk
-            };
-            state.backlog.push_back(chunk);
-            Self::start_delivery(&mut state)
+                state.backlog.push_back(chunk);
+                Self::start_delivery(&mut state)
+            }
         };
         if should_drain {
             self.drain();
         }
+    }
+
+    fn overflowed(&self) -> bool {
+        self.overflowed.load(Ordering::Acquire)
     }
 
     fn finish_exit(&self, code: i64) {
@@ -1574,7 +1599,19 @@ impl Inner {
         }
 
         let proxy = Arc::new(ControlTerminalControl { control, surface_id });
-        let (on_data, on_exit) = self.sinks(pty_id, context);
+        let (on_data, _) = self.sinks(pty_id, context);
+        let relay = Arc::clone(self);
+        let context_for_exit = context.clone();
+        let pty_id_for_exit = pty_id.to_owned();
+        let stream_for_exit = Arc::clone(&stream);
+        let on_exit: ExitSink = Arc::new(move |code| {
+            relay.emit_exit_with_overflow(
+                &pty_id_for_exit,
+                code,
+                stream_for_exit.overflowed(),
+                &context_for_exit,
+            )
+        });
         let start_stream = Arc::clone(&stream);
         Ok(Some(Opened {
             created: ensured.created,
@@ -2436,5 +2473,22 @@ mod tests {
             *seen.lock().expect("seen lock"),
             vec!["buffered".to_owned(), "live".to_owned(), "exit:11".to_owned()]
         );
+    }
+
+    #[test]
+    fn backlog_overflow_ends_after_accepted_bytes_and_marks_overflow() {
+        let stream = TerminalStream::new();
+        stream.push_output(Bytes::from(vec![b'x'; RAW_ATTACH_BACKLOG_CAP]));
+        stream.push_output(Bytes::from_static(b"late"));
+        assert!(stream.overflowed());
+
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let data_seen = Arc::clone(&seen);
+        let exit_seen = Arc::clone(&seen);
+        stream.go_live(
+            Arc::new(move |chunk| data_seen.lock().unwrap().push(chunk.len())),
+            Arc::new(move |code| exit_seen.lock().unwrap().push(code as usize)),
+        );
+        assert_eq!(*seen.lock().unwrap(), vec![RAW_ATTACH_BACKLOG_CAP, 1]);
     }
 }
