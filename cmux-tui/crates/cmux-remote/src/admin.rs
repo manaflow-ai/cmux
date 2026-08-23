@@ -209,8 +209,7 @@ pub async fn serve_admin_with_shutdown(
         loop {
             tokio::select! {
                 _ = &mut shutdown_rx => {
-                    connections.abort_all();
-                    while connections.join_next().await.is_some() {}
+                    connections.shutdown().await;
                     return Ok(())
                 },
                 Some(_) = connections.join_next(), if !connections.is_empty() => {},
@@ -232,8 +231,7 @@ pub async fn serve_admin_with_shutdown(
                             };
                             tokio::select! {
                                 _ = &mut shutdown_rx => {
-                                    connections.abort_all();
-                                    while connections.join_next().await.is_some() {}
+                                    connections.shutdown().await;
                                     return Ok(())
                                 },
                                 _ = tokio::time::sleep(delay) => {}
