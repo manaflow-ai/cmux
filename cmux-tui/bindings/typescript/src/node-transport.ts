@@ -1,6 +1,7 @@
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
+import { createHash } from "node:crypto";
 import { CmuxConnectionError } from "./errors.js";
 import { NewlineFrameBuffer } from "./internal/newline-frame-buffer.js";
 import type {
@@ -56,7 +57,11 @@ export function validateSessionName(session: string): void {
 export function defaultSocketPath(session = "main"): string {
   validateSessionName(session);
   const base = process.env.TMPDIR || os.tmpdir();
-  return path.join(base, `cmux-tui-${process.getuid?.() ?? 0}`, `${session}.sock`);
+  const dir = `cmux-tui-${process.getuid?.() ?? 0}`;
+  const preferred = path.join(base, dir, `${session}.sock`);
+  if (Buffer.byteLength(preferred) < 108) return preferred;
+  const digest = createHash("sha256").update(session, "utf8").digest("hex");
+  return path.join("/tmp", dir, `${digest}.sock`);
 }
 
 /** Reads the current or legacy cmux-tui socket environment variable. */

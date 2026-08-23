@@ -762,8 +762,6 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
     if out.agent_browser_provider {
         return Err(format!("--agent-browser-provider is unsupported on {}", std::env::consts::OS));
     }
-    cmux_tui_core::server::validate_session_name(&out.session)
-        .map_err(|_| localization::catalog().startup.invalid_session.to_string())?;
     Ok(out)
 }
 

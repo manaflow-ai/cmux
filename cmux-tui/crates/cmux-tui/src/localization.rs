@@ -1192,7 +1192,7 @@ edits shell files. Authenticate with the configured host before retrying.
         migration_failed: "Could not reconnect the machine; please try again",
         pairing_code_unavailable: "Pairing code could not be displayed securely. Run this command from an interactive terminal and retry",
         runtime_failed: "The machine agent could not start or continue; check its configuration",
-        invalid_session: "The session name is invalid; use an ASCII name up to 128 bytes with letters, digits, dots, hyphens, underscores, or colons",
+        invalid_session: "The session name is invalid; use a non-empty path component without separators or control characters",
         identity_unavailable: "The private machine identity is unavailable; check that --state points to a private writable file",
         registration_already_running: "A machine agent is already sharing this session; stop it before starting another",
         cloud_configuration_invalid: "The cloud connection settings are invalid; check the host, user, port, and identity file",
@@ -1624,7 +1624,7 @@ static JAPANESE: Catalog = Catalog {
     japanese: true,
     startup: StartupMessages {
         schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",
-        invalid_session: "セッション名が無効です。英数字、ドット、ハイフン、アンダースコア、コロンを使った 128 バイト以内の ASCII 名を使用してください",
+        invalid_session: "セッション名が無効です。空でなく、区切り文字や制御文字を含まないパス要素を使用してください",
         session_socket: "セッションソケット",
         stop_newer_server: "新しい cmux サーバーがこの保存済みセッションを所有しています。再試行する前に停止:",
         no_server_listening: "このソケットを待ち受けているサーバーはありません",

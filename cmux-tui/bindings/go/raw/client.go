@@ -242,7 +242,7 @@ func DefaultSocketPath(session string) string {
 	if unixSocketPathFits(preferred) {
 		return preferred
 	}
-	return filepath.Join("/tmp", fmt.Sprintf("cmux-tui-%d", os.Getuid()), fileName)
+	return filepath.Join("/tmp", fmt.Sprintf("cmux-tui-%d", os.Getuid()), sessionpath.Digest(session)+".sock")
 }
 
 // invalidSessionSocketPath is retained for source-compatible path queries.

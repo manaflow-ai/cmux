@@ -127,8 +127,9 @@ formatting.
 non-Unix platforms, and tests. Without one, the SDK connects to the discovered
 Unix session socket.
 
-Session socket discovery rejects empty, `.`, `..`, separators, NUL, Unicode
-control characters, and Unicode line separators before joining a derived path.
+Session socket discovery rejects empty, `.`, `..`, separators, NUL, malformed
+Unicode, Unicode control characters, and Unicode line separators before joining
+a derived path.
 Spaces, Unicode, punctuation, and long legacy-safe names remain valid. An
 explicit socket path or inherited socket environment variable is used as
 provided and does not derive a path from the session text.

@@ -32,6 +32,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use base64::Engine;
+use sha2::{Digest, Sha256};
 use ghostty_vt::{
     Dirty, KeyAction, KeyEncoder, KeyInput, KittyReplayState, Mods, StyledRun, UnderlineStyle,
     key_input_from_chord, rows_to_runs, sys,
@@ -501,7 +502,10 @@ fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> Pa
     let preferred = runtime_dir.join(&file_name);
     #[cfg(unix)]
     if !unix_socket_path_fits(&preferred) {
-        return platform::fallback_runtime_dir().join(file_name);
+        let digest = Sha256::digest(session.as_bytes());
+        let leaf = format!("{:x}.sock", digest);
+        let fallback = platform::fallback_runtime_dir().join(leaf);
+        return fallback;
     }
     preferred
 }
@@ -13036,10 +13040,8 @@ mod tests {
             preferred_runtime_dir,
         );
 
-        assert_eq!(
-            path,
-            platform::fallback_runtime_dir().join("cmux-browser-0123456789abcdef.sock")
-        );
+        let digest = Sha256::digest("cmux-browser-0123456789abcdef".as_bytes());
+        assert_eq!(path, platform::fallback_runtime_dir().join(format!("{:x}.sock", digest)));
         assert!(unix_socket_path_fits(&path));
         assert_ne!(path.parent(), Some(Path::new("/tmp")));
     }
