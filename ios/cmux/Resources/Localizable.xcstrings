@@ -17051,36 +17051,104 @@
         }
       }
     },
-    "mobile.screenshot.notification.body": {
+    "mobile.screenshot.notification.finished.body": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude is asking: which database should I use, Postgres or SQLite?"
+            "value": "The login crash fix is ready for review."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude が質問しています: どのデータベースを使いますか、Postgres それとも SQLite?"
+            "value": "ログインクラッシュの修正をレビューできます。"
           }
         }
       }
     },
-    "mobile.screenshot.notification.title": {
+    "mobile.screenshot.notification.finished.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent needs your input"
+            "value": "Claude finished"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントが入力を求めています"
+            "value": "Claude が完了しました"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.input.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approve the command to keep work moving."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドを承認して作業を続けてください。"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.input.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex needs your input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex が入力を求めています"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.tests.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 checks failed in cmux. Tap to open the workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux で 2 件のチェックが失敗しました。タップしてワークスペースを開きます。"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.tests.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tests need attention"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テストを確認してください"
           }
         }
       }
@@ -19410,6 +19478,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "すべてのエージェント通知を一か所で"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.pushNotifications.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get a push when work finishes or needs your input. Tap to open the right workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業が完了したときや入力が必要なときにプッシュ通知を受け取れます。タップすると該当のワークスペースに移動します。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.pushNotifications.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Know when your agent needs you"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントがあなたを必要としたら通知"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.pushPreview.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Three cmux notifications for completed work, failed checks, and requested input."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了した作業、失敗したチェック、入力要求を知らせる3件のcmux通知。"
           }
         }
       }
