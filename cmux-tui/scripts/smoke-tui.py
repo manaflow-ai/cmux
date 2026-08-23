@@ -696,7 +696,7 @@ fd = os.open('/dev/tty', os.O_RDWR)
 old = termios.tcgetattr(fd)
 try:
     tty.setraw(fd)
-    write_all(fd, b'\\x1b]11;?\\x1b\\\\')
+    os.write(fd, b'\\x1b]11;?\\x1b\\\\')
     data = b''
     # Generous deadline: the shell may still be consuming the pasted
     # heredoc and the TUI coalesces frames (this raced at 2s, and 8s
