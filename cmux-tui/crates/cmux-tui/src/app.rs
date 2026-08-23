@@ -4269,8 +4269,8 @@ impl MenuAction {
             MenuAction::RenameTab(_) | MenuAction::RenameSurface(_) => {
                 localization::catalog().action_label(Action::RenameTab)
             }
-            MenuAction::CopyTabId(_) => "Copy tab id",
-            MenuAction::CopyPaneId(_) => "Copy pane id",
+            MenuAction::CopyTabId(_) => menu.copy_tab_id,
+            MenuAction::CopyPaneId(_) => menu.copy_pane_id,
             MenuAction::CopyStatusMessage => menu.copy_message,
             MenuAction::NewPaneSmart(_) => {
                 localization::catalog().action_label(Action::NewPaneSmart)
@@ -4296,13 +4296,13 @@ impl MenuAction {
             MenuAction::ShowShortcuts => {
                 localization::catalog().action_label(Action::ShowShortcuts)
             }
-            MenuAction::SetClientSizing { enabled: true, .. } => "Use for sizing",
-            MenuAction::SetClientSizing { enabled: false, .. } => "Exclude from sizing",
-            MenuAction::UseClientSize { .. } => "Use only this client size",
-            MenuAction::RestoreAllClientSizing(_) => "Use all client sizes",
-            MenuAction::DisconnectClient(_) => "Disconnect",
+            MenuAction::SetClientSizing { enabled: true, .. } => menu.use_client_size,
+            MenuAction::SetClientSizing { enabled: false, .. } => menu.excluded,
+            MenuAction::UseClientSize { .. } => menu.use_client_size,
+            MenuAction::RestoreAllClientSizing(_) => menu.restore_all_client_sizing,
+            MenuAction::DisconnectClient(_) => menu.disconnect_client,
             MenuAction::SelectProviderScope(_) | MenuAction::InvokeProviderAction(_) => {
-                "Provider action"
+                localization::catalog().sidebar.provider_actions
             }
             MenuAction::CreateMachineFrom(_) => localization::catalog().sidebar.new_machine,
             MenuAction::ConnectMachineTarget(_) => localization::catalog().sidebar.connect_machine,

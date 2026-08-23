@@ -201,6 +201,8 @@ impl MachineAgentMessages {
 pub(crate) struct MenuMessages {
     pub copy_message: &'static str,
     pub copy_workspace_id: &'static str,
+    pub copy_tab_id: &'static str,
+    pub copy_pane_id: &'static str,
     pub copy_url: &'static str,
     pub show_in_chrome: &'static str,
     pub connected_clients: &'static str,
@@ -1239,6 +1241,8 @@ edits shell files. Authenticate with the configured host before retrying.
     menu: MenuMessages {
         copy_message: "Copy message",
         copy_workspace_id: "Copy workspace id",
+        copy_tab_id: "Copy tab id",
+        copy_pane_id: "Copy pane id",
         copy_url: "Copy URL",
         show_in_chrome: "Show in Chrome",
         connected_clients: "Connected clients",
@@ -1863,6 +1867,8 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     menu: MenuMessages {
         copy_message: "メッセージをコピー",
         copy_workspace_id: "ワークスペース ID をコピー",
+        copy_tab_id: "タブ ID をコピー",
+        copy_pane_id: "ペイン ID をコピー",
         copy_url: "URL をコピー",
         show_in_chrome: "Chrome で表示",
         connected_clients: "接続中のクライアント",
