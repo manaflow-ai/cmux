@@ -23,12 +23,15 @@ import UIKit
 ///   OUT OF ORDER relative to newer reports.
 /// - Mac window resizes arrive as daemon pushes through `applyViewSize`.
 ///
-/// The user-visible invariant under test: empty space above the terminal
+/// The user-visible invariants under test: empty space above the terminal
 /// content (`renderRect.minY`, the render is bottom-pinned) never exceeds one
-/// cell once the negotiated grid covers the phone's natural capacity. The
-/// opencode "ton of extra space at top" screenshot is exactly this invariant
-/// breaking: a stale keyboard-up viewport echo landing after the keyboard
-/// closed pins the phone to the old, smaller grid forever.
+/// cell once the negotiated grid covers the phone's natural capacity — and
+/// the KEYBOARD is not a grid input at all. A keyboard toggle must emit no
+/// capacity report and leave the grid and render untouched in surface
+/// coordinates (the host slides the full-height render so its bottom edge
+/// rides the composer bar). The old design resized the grid per keyboard
+/// toggle, which is where the "content pushed down, then resized to full"
+/// dismissal glitch and the whole stale-echo bug class came from.
 @MainActor
 private final class ViewportSpacingDelegate: NSObject, GhosttySurfaceViewDelegate {
     /// Every natural-grid report the view has emitted, in order.
@@ -65,9 +68,13 @@ private final class ViewportSpacingHarness {
     let view: GhosttySurfaceView
     let delegate: ViewportSpacingDelegate
 
-    /// A keyboard overlap tall enough to change the natural row count by many
-    /// rows at the 10pt test font, mirroring a real iPhone keyboard.
+    /// A keyboard overlap tall enough that the OLD design would have dropped
+    /// many rows at the 10pt test font, mirroring a real iPhone keyboard.
     static let keyboardHeight: CGFloat = 336
+
+    /// A composer band tall enough to change the natural row count by many
+    /// rows — the remaining REAL grid input used to drive renegotiation.
+    static let tallComposerBand: CGFloat = 160
 
     init() throws {
         let runtime = try GhosttyRuntime.shared()
@@ -195,47 +202,60 @@ struct TerminalViewportSpacingTests {
         #expect(await harness.waitForFill(), "top gap \(harness.topGap)pt, bottom gap \(harness.bottomGap)pt, cell \(harness.cellHeightPoints)pt")
     }
 
-    /// Keyboard open then close, echoes arriving in order after each report.
-    /// Both settled states must fill their viewport.
-    @Test("keyboard open/close with in-order echoes fills at every settle")
-    func keyboardOpenCloseInOrder() async throws {
+    /// THE DISMISSAL GLITCH, killed at the root: a keyboard toggle must not
+    /// renegotiate the grid. No capacity report goes out, the natural grid is
+    /// untouched, and the render rect does not move in surface coordinates —
+    /// the host slides the whole render to ride the composer bar instead.
+    /// Under the old design this test fails twice over: the open emits a
+    /// smaller report and the render rect shrinks/slides.
+    @Test("keyboard toggle emits no report and leaves grid and render untouched")
+    func keyboardToggleNeverRenegotiatesTheGrid() async throws {
         let harness = try ViewportSpacingHarness()
         defer { harness.tearDown() }
 
         let initial = try #require(await harness.waitForReport(after: 0))
         harness.echo(initial)
         #expect(await harness.waitForFill())
+        let settled = harness.snapshot
+        let reportsBefore = harness.delegate.reports.count
 
-        // Keyboard opens: viewport shrinks, view reports a smaller grid.
-        let beforeOpen = harness.delegate.reports.count
+        // Keyboard opens: nothing about the grid may change.
         harness.view.setKeyboardHeightForTesting(ViewportSpacingHarness.keyboardHeight)
-        let openReport = try #require(
-            await harness.waitForReport(after: beforeOpen),
-            "no report after keyboard open"
+        await harness.settle(1.0)
+        #expect(
+            harness.delegate.reports.count == reportsBefore,
+            "keyboard open must not re-report capacity. reports=\(harness.delegate.reports)"
         )
-        #expect(openReport.rows < initial.rows)
-        harness.echo(openReport)
-        #expect(await harness.waitForFill(), "keyboard-up: top gap \(harness.topGap)pt")
+        #expect(
+            harness.snapshot.renderRect == settled.renderRect,
+            "keyboard open moved/resized the render in surface coordinates: \(harness.snapshot.renderRect) vs \(settled.renderRect)"
+        )
+        #expect(harness.snapshot.viewportRect == settled.viewportRect)
+        #expect(harness.snapshot.reportedSize == settled.reportedSize)
 
-        // Keyboard closes: viewport grows back, view re-reports, echo restores.
-        let beforeClose = harness.delegate.reports.count
+        // Keyboard closes: still nothing (this is exactly the "pushed down,
+        // then resized to full" dismissal moment of the old design).
         harness.view.setKeyboardHeightForTesting(0)
-        let closeReport = try #require(
-            await harness.waitForReport(after: beforeClose),
-            "no report after keyboard close"
+        await harness.settle(1.0)
+        #expect(
+            harness.delegate.reports.count == reportsBefore,
+            "keyboard close must not re-report capacity. reports=\(harness.delegate.reports)"
         )
-        #expect(closeReport.rows > openReport.rows)
-        harness.echo(closeReport)
-        #expect(await harness.waitForFill(), "keyboard-down: top gap \(harness.topGap)pt")
+        #expect(
+            harness.snapshot.renderRect == settled.renderRect,
+            "keyboard close moved/resized the render: \(harness.snapshot.renderRect) vs \(settled.renderRect)"
+        )
+        #expect(harness.bottomGap <= 1)
     }
 
-    /// THE OPENCODE BUG: the echo for the keyboard-UP report arrives AFTER the
-    /// echo for the newer keyboard-DOWN report (out-of-order async RPC replies,
-    /// exactly what `Coordinator.didResize`'s detached per-report Tasks allow).
-    /// The stale echo must NOT re-pin the phone to the old smaller grid: the
-    /// natural grid never changed afterwards, so nothing would ever re-report
-    /// and the top gap would be permanent.
-    @Test("stale keyboard-up echo after keyboard-down echo must not shrink the grid")
+    /// THE OPENCODE BUG, generalized: the echo for an older smaller-grid
+    /// report arrives AFTER the echo for a newer full-grid report
+    /// (out-of-order async RPC replies). The stale echo must NOT re-pin the
+    /// phone to the old smaller grid: the natural grid never changed
+    /// afterwards, so nothing would ever re-report and the top gap would be
+    /// permanent. The keyboard no longer produces reports at all, so the
+    /// shrink is driven by the composer band — a real grid input.
+    @Test("stale small-grid echo after a newer echo must not shrink the grid")
     func staleEchoAfterNewerEchoKeepsFill() async throws {
         let harness = try ViewportSpacingHarness()
         defer { harness.tearDown() }
@@ -244,22 +264,23 @@ struct TerminalViewportSpacingTests {
         harness.echo(initial)
         #expect(await harness.waitForFill())
 
-        // Keyboard opens; the report goes out but its echo is DELAYED.
+        // A tall composer band opens; the report goes out but its echo is
+        // DELAYED.
         let beforeOpen = harness.delegate.reports.count
-        harness.view.setKeyboardHeightForTesting(ViewportSpacingHarness.keyboardHeight)
+        harness.view.setComposerBandHeight(ViewportSpacingHarness.tallComposerBand, animated: false)
         let openReport = try #require(await harness.waitForReport(after: beforeOpen))
         #expect(openReport.rows < initial.rows)
 
-        // Keyboard closes before the open echo lands; the close report's echo
+        // The band closes before the open echo lands; the close report's echo
         // arrives FIRST.
         let beforeClose = harness.delegate.reports.count
-        harness.view.setKeyboardHeightForTesting(0)
+        harness.view.setComposerBandHeight(0, animated: false)
         let closeReport = try #require(await harness.waitForReport(after: beforeClose))
         #expect(closeReport.rows > openReport.rows)
         harness.echo(closeReport)
         #expect(await harness.waitForFill())
 
-        // NOW the stale keyboard-up echo lands (out-of-order RPC reply).
+        // NOW the stale band-open echo lands (out-of-order RPC reply).
         harness.echo(openReport)
         await harness.settle()
 
@@ -346,13 +367,15 @@ struct TerminalViewportSpacingTests {
         #expect(await harness.waitForFill())
 
         // Open + echo so a real pin exists, then close with the echo DROPPED.
+        // The composer band drives the shrink; keyboard toggles no longer
+        // renegotiate the grid.
         let beforeOpen = harness.delegate.reports.count
-        harness.view.setKeyboardHeightForTesting(ViewportSpacingHarness.keyboardHeight)
+        harness.view.setComposerBandHeight(ViewportSpacingHarness.tallComposerBand, animated: false)
         let openReport = try #require(await harness.waitForReport(after: beforeOpen))
         harness.echo(openReport)
 
         let beforeClose = harness.delegate.reports.count
-        harness.view.setKeyboardHeightForTesting(0)
+        harness.view.setComposerBandHeight(0, animated: false)
         let closeReport = try #require(await harness.waitForReport(after: beforeClose))
         #expect(closeReport.rows > openReport.rows)
 
@@ -404,26 +427,33 @@ struct TerminalViewportSpacingTests {
             live font \(harness.snapshot.liveFontSize) vs base \(harness.snapshot.baseFontSize)
             """)
 
-        // Keyboard opens: the phone itself becomes the row constraint, so the
-        // font returns to base and the content still fills the viewport.
+        // Keyboard opens: the grid is keyboard-invariant, so the
+        // mac-constrained stretch persists untouched — no font decay, no
+        // re-report. (Under the old design the phone became the row
+        // constraint here and the font snapped back to base.)
+        let reportsBeforeKeyboard = harness.delegate.reports.count
         harness.view.setKeyboardHeightForTesting(ViewportSpacingHarness.keyboardHeight)
-        let keyboardFit = await harness.pump(timeout: 8) {
-            let snap = harness.snapshot
-            return harness.topGap <= harness.cellHeightPoints * 1.5
-                && harness.bottomGap <= 1
-                && abs(snap.liveFontSize - snap.baseFontSize) < 0.5
-        }
-        #expect(keyboardFit, "keyboard-up: top gap \(harness.topGap)pt, live font \(harness.snapshot.liveFontSize)")
+        await harness.settle(1.0)
+        #expect(
+            harness.delegate.reports.count == reportsBeforeKeyboard,
+            "keyboard open must not re-report while mac-constrained. reports=\(harness.delegate.reports)"
+        )
+        var snap = harness.snapshot
+        #expect(
+            snap.liveFontSize > snap.baseFontSize + 0.25,
+            "keyboard open decayed the stretched font: live \(snap.liveFontSize) vs base \(snap.baseFontSize)"
+        )
+        #expect(harness.topGap <= harness.cellHeightPoints * 1.5)
+        #expect(harness.bottomGap <= 1)
 
-        // Keyboard closes: back to the mac-constrained state, stretched again.
+        // Keyboard closes: still stretched, still filled, still silent.
         harness.view.setKeyboardHeightForTesting(0)
-        let restretched = await harness.pump(timeout: 8) {
-            let snap = harness.snapshot
-            return harness.topGap <= harness.cellHeightPoints * 1.5
-                && harness.bottomGap <= 1
-                && snap.liveFontSize > snap.baseFontSize + 0.25
-        }
-        #expect(restretched, "keyboard-down: top gap \(harness.topGap)pt, live font \(harness.snapshot.liveFontSize)")
+        await harness.settle(1.0)
+        #expect(harness.delegate.reports.count == reportsBeforeKeyboard)
+        snap = harness.snapshot
+        #expect(snap.liveFontSize > snap.baseFontSize + 0.25)
+        #expect(harness.topGap <= harness.cellHeightPoints * 1.5)
+        #expect(harness.bottomGap <= 1)
 
         // The Mac window grows past the phone's capacity: the daemon pushes
         // the bigger grid; the font must decay back to base with the phone
