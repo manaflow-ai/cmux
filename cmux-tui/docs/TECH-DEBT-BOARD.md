@@ -3,7 +3,8 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `codex/chatmux-relay-techdebt`.
-Current integration tip: `d3aa21a541` (PR head `d3aa21a54164ebfc50539c72e5f85835a11e6b92`).
+Current integration tip: `7da5c37980` (PR head
+`7da5c37980bf940d118bea630daf8d05e21ba4ba`).
 The branch is pushed to `https://github.com/manaflow-ai/cmux/tree/codex/chatmux-relay-techdebt`.
 The combined review PR is `https://github.com/manaflow-ai/cmux/pull/10603`.
 
@@ -78,6 +79,10 @@ round 9B; no manual-IO proof exists yet.
 | `16942a5d49` | Add a `SessionPort` snapshot boundary shared by local and remote sessions. | Behavior test compares the port with the existing topology read; hosted Rust test required. | Revert this commit; the frontend uses the direct enum again. |
 | `e09f068dc4` | Convert relay slot/circuit invariant panics into atomic explicit errors. | `git diff --check`; hosted relay tests required. | Revert this commit; the old invariant panics return. |
 | `eaa7108e9b` | Add this durable board and request log. | Markdown only. | Revert this commit; code remains unchanged. |
+
+Rows below that cite earlier commits or hosted run IDs are historical evidence
+from prior branch tips. They are retained for rollback context and are not
+current merge-gate status.
 
 The integration branch can be reverted safely by reverting the rows in reverse
 order. Do not revert the manual-IO bridge until its replacement has a hosted
