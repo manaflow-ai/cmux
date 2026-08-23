@@ -120,15 +120,7 @@ fn connect_with_budget(
 }
 
 /// Connection and bound configuration for the resource SDK.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SocketAuthority {
-    Explicit,
-    Derived,
-}
-
-/// Resource connection settings. Use the constructors because this bootstrap
-/// SDK keeps socket authority provenance private for safe fallback routing.
-#[non_exhaustive]
+/// Resource connection settings.
 #[derive(Clone, Debug)]
 pub struct Config {
     /// Primary socket path. The client may derive an internal legacy fallback
@@ -141,7 +133,6 @@ pub struct Config {
     pub max_response_bytes: usize,
     pub max_stream_items: usize,
     pub max_stream_bytes: usize,
-    authority: SocketAuthority,
 }
 
 impl Config {
@@ -153,14 +144,7 @@ impl Config {
             max_response_bytes: DEFAULT_RESPONSE_BYTES,
             max_stream_items: DEFAULT_STREAM_ITEMS,
             max_stream_bytes: DEFAULT_STREAM_BYTES,
-            authority: SocketAuthority::Explicit,
         }
-    }
-
-    fn from_derived_socket_path(socket_path: PathBuf) -> Self {
-        let mut config = Self::from_socket_path(socket_path);
-        config.authority = SocketAuthority::Derived;
-        config
     }
 
     /// Builds a configuration from the environment or a named session.
@@ -174,12 +158,7 @@ impl Config {
         let env = crate::client::env_socket_path();
         let socket_path =
             crate::client::compatibility_socket_path_for_session(session, env.clone());
-        let config = if env.is_some() {
-            Self::from_socket_path(socket_path)
-        } else {
-            Self::from_derived_socket_path(socket_path)
-        };
-        config
+        Self::from_socket_path(socket_path)
     }
 
     /// Builds a resource configuration and reports invalid derived session
@@ -187,11 +166,7 @@ impl Config {
     pub fn try_from_env_or_default_session(session: &str) -> Result<Self> {
         let socket_path =
             crate::client::socket_path_for_session(session, crate::client::env_socket_path())?;
-        Ok(if crate::client::env_socket_path().is_some() {
-            Self::from_socket_path(socket_path)
-        } else {
-            Self::from_derived_socket_path(socket_path)
-        })
+        Ok(Self::from_socket_path(socket_path))
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
