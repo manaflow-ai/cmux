@@ -242,7 +242,13 @@ fn tee_cdp_frame(ring: &ConsoleRing, raw: &str) -> Option<i64> {
 
 pub struct PreviewRegistry {
     ring: Arc<ConsoleRing>,
-    proxies: tokio::sync::Mutex<HashMap<i64, u16>>,
+    proxies: tokio::sync::Mutex<HashMap<i64, ProxyRuntime>>,
+}
+
+struct ProxyRuntime {
+    port: u16,
+    shutdown: tokio::sync::watch::Sender<bool>,
+    task: tokio::task::JoinHandle<()>,
 }
 
 impl Default for PreviewRegistry {
@@ -267,11 +273,12 @@ impl PreviewRegistry {
         }
         let mut proxies = self.proxies.lock().await;
         let proxy_port = match proxies.get(&target_port) {
-            Some(port) => *port,
+            Some(runtime) => runtime.port,
             None => {
                 let target = u16::try_from(target_port).unwrap_or_default();
-                let port = spawn_proxy(target, Arc::clone(&self.ring)).await?;
-                proxies.insert(target_port, port);
+                let runtime = spawn_proxy(target, Arc::clone(&self.ring)).await?;
+                let port = runtime.port;
+                proxies.insert(target_port, runtime);
                 port
             }
         };
@@ -279,6 +286,17 @@ impl PreviewRegistry {
             op: wire::TagPreviewOpen::PreviewOpen,
             proxy_port: i64::from(proxy_port),
         }))
+    }
+
+    /// Stop all preview listeners and owned connection tasks. Safe to call
+    /// repeatedly. This makes registry lifetime explicit for tests and
+    /// graceful relay shutdown.
+    pub async fn shutdown(&self) {
+        let mut proxies = self.proxies.lock().await;
+        for (_, runtime) in proxies.drain() {
+            let _ = runtime.shutdown.send(true);
+            runtime.task.abort();
+        }
     }
 
     pub fn tail(&self, max_events: Option<i64>) -> Result<wire::WorkspaceResultBody, Refusal> {
@@ -340,7 +358,7 @@ fn text_response(status: u16, message: &str) -> hyper::Response<ProxyBody> {
     response
 }
 
-async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<u16, Refusal> {
+async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRuntime, Refusal> {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.map_err(|error| {
         Refusal::new(
             wire::WorkspaceErrorCode::PortUnavailable,
@@ -365,26 +383,30 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<u16, Re
         next_peer_id: AtomicU64::new(1),
         next_cdp_id: AtomicI64::new(PROXY_CDP_ID_BASE),
     });
-    tokio::spawn(async move {
+    let (shutdown, mut stopped) = tokio::sync::watch::channel(false);
+    let task = tokio::spawn(async move {
+        let mut connections = tokio::task::JoinSet::new();
         loop {
-            let Ok((stream, _peer)) = listener.accept().await else { break };
-            let shared = Arc::clone(&shared);
-            tokio::spawn(async move {
-                let io = hyper_util::rt::TokioIo::new(stream);
-                let service = hyper::service::service_fn(move |request| {
+            tokio::select! {
+                _ = stopped.changed() => break,
+                accepted = listener.accept() => {
+                    let Ok((stream, _peer)) = accepted else { break };
                     let shared = Arc::clone(&shared);
-                    async move {
-                        Ok::<_, std::convert::Infallible>(handle_request(shared, request).await)
-                    }
-                });
-                let _ = hyper::server::conn::http1::Builder::new()
-                    .serve_connection(io, service)
-                    .with_upgrades()
-                    .await;
-            });
+                    connections.spawn(async move {
+                        let io = hyper_util::rt::TokioIo::new(stream);
+                        let service = hyper::service::service_fn(move |request| {
+                            let shared = Arc::clone(&shared);
+                            async move { Ok::<_, std::convert::Infallible>(handle_request(shared, request).await) }
+                        });
+                        let _ = hyper::server::conn::http1::Builder::new().serve_connection(io, service).with_upgrades().await;
+                    });
+                }
+            }
         }
+        connections.abort_all();
+        while connections.join_next().await.is_some() {}
     });
-    Ok(proxy_port)
+    Ok(ProxyRuntime { port: proxy_port, shutdown, task })
 }
 
 fn wants_websocket(request: &hyper::Request<hyper::body::Incoming>) -> bool {
@@ -882,6 +904,8 @@ mod tests {
 
         // Reuse: the same target port keeps its proxy port.
         assert_eq!(open_proxy(&registry, target).await, proxy);
+        registry.shutdown().await;
+        assert!(tokio::net::TcpStream::connect(("127.0.0.1", proxy)).await.is_err());
     }
 
     #[tokio::test]
