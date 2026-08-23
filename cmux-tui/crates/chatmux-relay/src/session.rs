@@ -69,6 +69,13 @@ pub(crate) struct OutboundFrame {
     _bytes: OwnedSemaphorePermit,
 }
 
+async fn send_socket_text<S>(socket: &Arc<AsyncMutex<S>>, text: String) -> Result<(), ()>
+where
+    S: futures_util::Sink<Message> + Unpin,
+{
+    socket.lock().await.send(Message::Text(text.into())).await.map_err(|_| ())
+}
+
 /// One socket's bounded outbound capacity. Critical request responses wait
 /// for capacity; lossy watch/stream events fail immediately and let their
 /// producer coalesce the loss into a later overflow frame.
@@ -391,7 +398,7 @@ async fn relay_session(
         match wake {
             Wake::Heartbeat => {
                 let frame = heartbeat_frame(now_ms()).to_string();
-                if socket.lock().await.send(Message::Text(frame.into())).await.is_err() {
+                if send_socket_text(&socket, frame).await.is_err() {
                     break Ok(connected);
                 }
             }
@@ -403,7 +410,7 @@ async fn relay_session(
                 }
                 let text = frame.text;
                 let size = text.len() as u64;
-                let sent = socket.lock().await.send(Message::Text(text.into())).await;
+                let sent = send_socket_text(&socket, text).await;
                 pending.fetch_sub(size.min(pending.load(Ordering::SeqCst)), Ordering::SeqCst);
                 if sent.is_err() {
                     break Ok(connected);
