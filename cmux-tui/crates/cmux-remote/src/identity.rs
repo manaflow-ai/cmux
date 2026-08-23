@@ -1138,7 +1138,7 @@ impl AuthDatabase {
             #[cfg(test)]
             self.pending_wait_hooks.pause_after_empty().await;
             if tokio::time::timeout_at(deadline, notified.as_mut()).await.is_err() {
-                return self.pending_snapshot().await.map_or(Err(IdentityError::Timeout), Ok);
+                return self.pending_snapshot().await.ok_or(IdentityError::Timeout);
             }
         }
     }

@@ -702,7 +702,7 @@ impl DaemonServices {
         mux.write_all(b"\n").await?;
         mux.flush().await?;
         let mut response = String::new();
-        let mut reader = BufReader::new(mux);
+        let reader = BufReader::new(mux);
         let read = reader
             .take((MAX_RENDERER_GRANT_LINE_BYTES + 1) as u64)
             .read_line(&mut response)

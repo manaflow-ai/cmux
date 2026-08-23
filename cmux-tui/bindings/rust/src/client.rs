@@ -558,10 +558,6 @@ pub(crate) fn hashed_socket_legacy_path(path: &Path) -> Option<PathBuf> {
     None
 }
 
-pub(crate) fn legacy_socket_path_for_session(session: &str) -> PathBuf {
-    PathBuf::from("/tmp").join(private_runtime_dir_name()).join(format!("{session}.sock"))
-}
-
 impl Drop for CmuxClient {
     fn drop(&mut self) {
         self.close();

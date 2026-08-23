@@ -1027,7 +1027,7 @@ mod tests {
             .unwrap()
             .iter()
             .map(|terminal| terminal["id"].as_str().expect("terminal id"))
-            .collect::<std::collections::HashSet<_>>();
+            .collect::<HashSet<_>>();
         assert_eq!(terminal_ids.len(), snapshot["terminals"].as_array().unwrap().len());
     }
 
