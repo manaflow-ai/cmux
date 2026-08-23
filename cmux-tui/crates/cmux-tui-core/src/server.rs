@@ -4805,12 +4805,17 @@ fn prepare_runtime_socket_directory(dir: &Path) -> anyhow::Result<()> {
 
 /// Bind the socket and accept protocol clients before lifecycle readiness.
 pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
-    let path = match path {
-        Some(path) => path,
-        None => try_default_socket_path(&mux.session)?,
+    let (path, is_derived) = match path {
+        Some(path) => (path, false),
+        None => (try_default_socket_path(&mux.session)?, true),
     };
-    if let Some(dir) = path.parent() {
-        prepare_runtime_socket_directory(dir)?;
+    // Only harden directories selected by the daemon. An explicit socket path
+    // is authoritative, so its parent may be a shared or pre-configured path
+    // such as /tmp and must not be chmod'ed or ownership-checked.
+    if is_derived {
+        if let Some(dir) = path.parent() {
+            prepare_runtime_socket_directory(dir)?;
+        }
     }
     // Refuse to clobber a live socket; remove a stale one.
     if path.exists() {
@@ -13216,16 +13221,16 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn serve_paused_rejects_explicit_symlink_socket_parent() {
-        use std::os::unix::fs::symlink;
+    fn serve_paused_preserves_explicit_socket_parent_permissions() {
+        use std::os::unix::fs::PermissionsExt;
 
-        let root = TestSocketDir::create("explicit-runtime-directory-security");
-        let target = root.path().join("target");
-        std::fs::create_dir(&target).unwrap();
-        let alias = root.path().join("alias");
-        symlink(&target, &alias).unwrap();
-        let result = serve_paused(test_mux(), Some(alias.join("mux.sock")));
-        assert!(result.is_err());
+        let root = TestSocketDir::create("explicit-runtime-directory");
+        let directory = root.path().join("socket-parent");
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let pending = serve_paused(test_mux(), Some(directory.join("mux.sock"))).unwrap();
+        drop(pending);
+        assert_eq!(std::fs::metadata(&directory).unwrap().permissions().mode() & 0o777, 0o755);
     }
 
     #[cfg(unix)]
