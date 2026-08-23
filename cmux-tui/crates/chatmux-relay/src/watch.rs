@@ -201,30 +201,35 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
     let callback_overflowed = Arc::clone(&overflowed);
     let callback_notify = Arc::clone(&overflow_notify);
     let callback_error = Arc::clone(&latched_error);
-    let mut watcher = match notify::recommended_watcher(
-        move |event: Result<notify::Event, notify::Error>| match event {
-        Ok(event) => {
-            try_enqueue_notify_event(&event_tx, &callback_overflowed, &callback_notify, Ok(event))
-        }
-        Err(error) => {
-            if let Ok(mut latched) = callback_error.lock() {
-                *latched = Some(error.to_string());
+    let mut watcher =
+        match notify::recommended_watcher(move |event: Result<notify::Event, notify::Error>| {
+            match event {
+                Ok(event) => try_enqueue_notify_event(
+                    &event_tx,
+                    &callback_overflowed,
+                    &callback_notify,
+                    Ok(event),
+                ),
+                Err(error) => {
+                    if let Ok(mut latched) = callback_error.lock() {
+                        *latched = Some(error.to_string());
+                    }
+                    callback_notify.notify_one();
+                }
             }
-            callback_notify.notify_one();
-        }
-    }) {
-        Ok(watcher) => watcher,
-        Err(error) => {
-            let _ = outbound
-                .critical_text(watch_error_frame(
-                    watch_id,
-                    wire::WorkspaceErrorCode::Failed,
-                    &format!("could not start the watcher: {error}"),
-                ))
-                .await;
-            return;
-        }
-    };
+        }) {
+            Ok(watcher) => watcher,
+            Err(error) => {
+                let _ = outbound
+                    .critical_text(watch_error_frame(
+                        watch_id,
+                        wire::WorkspaceErrorCode::Failed,
+                        &format!("could not start the watcher: {error}"),
+                    ))
+                    .await;
+                return;
+            }
+        };
     if let Err(error) = watcher.watch(root, notify::RecursiveMode::Recursive) {
         let _ = outbound
             .critical_text(watch_error_frame(
