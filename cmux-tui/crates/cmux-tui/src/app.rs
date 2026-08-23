@@ -18572,7 +18572,11 @@ impl App {
         let Some(ws) = self.tree.active_workspace() else { return };
         let Some(screen) = ws.active_screen_ref() else { return };
         let buffer = screen.name.clone().unwrap_or_default();
-        let prompt = Prompt::new("Rename screen", buffer, PromptTarget::Screen(screen.id));
+        let prompt = Prompt::new(
+            localization::catalog().action_label(Action::RenameScreen),
+            buffer,
+            PromptTarget::Screen(screen.id),
+        );
         self.cancel_pty_mouse_drag();
         self.prompt = Some(prompt);
     }
@@ -18855,7 +18859,11 @@ impl App {
                     .find(|s| s.id == id)
                     .and_then(|s| s.name.clone())
                     .unwrap_or_default();
-                self.prompt = Some(Prompt::new("Rename screen", buffer, PromptTarget::Screen(id)));
+                self.prompt = Some(Prompt::new(
+                    localization::catalog().action_label(Action::RenameScreen),
+                    buffer,
+                    PromptTarget::Screen(id),
+                ));
             }
             MenuAction::CloseScreen(id) => self.session.close_screen(id),
             MenuAction::BrowserBack(id) => {
@@ -21518,7 +21526,7 @@ impl App {
 
     fn copy_short_id(&mut self, short_id: String) {
         self.copy_text_to_clipboard(&short_id);
-        self.show_toast(format!("Copied {short_id}"));
+        self.show_toast(format!("{} {short_id}", localization::catalog().menu.copied));
     }
 
     fn show_toast(&mut self, text: String) {
