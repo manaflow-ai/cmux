@@ -142,6 +142,12 @@ fn resolve_socket(global: &GlobalArgs) -> anyhow::Result<PathBuf> {
     if let Some(path) = &global.socket {
         return Ok(path.clone());
     }
+    // An explicit session selects that session's canonical socket. Keep this
+    // ahead of environment fallbacks so `--session` cannot route raw requests
+    // through a stale socket inherited from the shell.
+    if let Some(session) = &global.session {
+        return cmux_tui_core::server::default_socket_path(session);
+    }
     for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
         if let Some(path) = std::env::var_os(name)
             && !path.is_empty()
