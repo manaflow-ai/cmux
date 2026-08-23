@@ -279,10 +279,7 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
         if let Some((flag, inline_value)) = value.split_once('=') {
             if matches!(flag, "--socket" | "--session" | "--machine") {
                 if inline_value.is_empty() {
-                    return Err((
-                        UsageError::new(format!("{flag} needs a value")),
-                        global.output,
-                    ));
+                    return Err((UsageError::new(format!("{flag} needs a value")), global.output));
                 }
                 match flag {
                     "--socket" => global.socket = Some(PathBuf::from(inline_value)),
