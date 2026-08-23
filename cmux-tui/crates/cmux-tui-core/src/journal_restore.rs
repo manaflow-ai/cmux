@@ -16,7 +16,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::SessionJournalRecord;
-use crate::workspace_registry::{JournalContentRef, WorkspaceRegistry};
+use crate::workspace_registry::{journal_extensions::encode_hex, JournalContentRef, WorkspaceRegistry};
 
 /// Bound on tail bytes replayed into one restored placeholder. Matches the
 /// bounded VT replay budget used everywhere else a terminal is rebuilt.
@@ -441,14 +441,6 @@ fn geometry_field(payload: &Value, field: &str) -> anyhow::Result<u32> {
             .with_context(|| format!("terminal geometry omitted {field}"))?,
     )
     .with_context(|| format!("terminal geometry {field} overflow"))
-}
-
-fn encode_hex(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push_str(&format!("{byte:02x}"));
-    }
-    out
 }
 
 #[cfg(test)]
