@@ -1,6 +1,6 @@
 # cmux-tui programmability contracts
 
-cmux-tui exposes two different client surfaces. Use the resource API for new
+cmux-tui exposes two different client entry points. Use the resource API for new
 integrations. Use the raw mux protocol only when implementing cmux's own
 frontend or a compatibility adapter.
 
