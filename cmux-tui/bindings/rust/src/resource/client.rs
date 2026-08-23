@@ -6,7 +6,6 @@ use super::wire::{Params, field};
 use crate::codec::JsonLineConnection;
 use crate::{Error, Result};
 use serde_json::{Map, Value};
-use sha2::{Digest as _, Sha256};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -1044,6 +1043,7 @@ fn random_stream_id() -> Result<StreamId> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::{Digest as _, Sha256};
     use std::os::unix::net::UnixListener;
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
