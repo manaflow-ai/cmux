@@ -6,7 +6,6 @@ import CmuxMobileSupport
 import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
-import os
 #if os(iOS)
 @preconcurrency import UIKit
 #elseif os(macOS)
@@ -168,8 +167,6 @@ struct WorkspaceShellView: View {
     @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     #if os(iOS)
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
-    /// One-time what's-new notice for the per-Computer connection update.
-    @State private var showsConnectionsUpdateNotice = false
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var notificationSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var workspaceSearchNavigationPath: [MobileWorkspacePreview.ID] = []
@@ -484,52 +481,8 @@ struct WorkspaceShellView: View {
                 submitTaskComposer: submitTaskComposerFromShell
             )
         }
-        // One-time what's-new notice for the per-Computer connection-method
-        // update. Only users who already HAVE Computers see it (fresh installs
-        // learn the same in onboarding); any dismissal acknowledges it.
-        .onAppear {
-            presentConnectionsUpdateNoticeIfNeeded()
-            // The shell can restore straight into cached workspaces without
-            // ever loading the paired-Mac list (it normally loads on the
-            // Computers sheet or a reconnect pass), so load it here and
-            // re-check — otherwise the has-Computers gate never answers.
-            Task {
-                await store.loadPairedMacs()
-                presentConnectionsUpdateNoticeIfNeeded()
-            }
-        }
-        .onChange(of: store.pairedMacs.isEmpty) { _, _ in
-            presentConnectionsUpdateNoticeIfNeeded()
-        }
-        .sheet(
-            isPresented: $showsConnectionsUpdateNotice
-        ) {
-            MobileConnectionsUpdateSheet {
-                showsConnectionsUpdateNotice = false
-            }
-            .presentationDetents([.large])
-        }
         #endif
         .accessibilityIdentifier("MobileWorkspaceShell")
-    }
-
-    /// One-time what's-new notice for the per-Computer connection update:
-    /// only for devices that already HAVE Computers (fresh installs learn the
-    /// same in onboarding), marked seen the moment it first shows so a kill
-    /// mid-presentation cannot re-show it forever.
-    private func presentConnectionsUpdateNoticeIfNeeded() {
-        // Temporary gate diagnostics for dogfood; remove before merge.
-        Logger(subsystem: "dev.cmux.mobile", category: "ConnectionsUpdateNotice").log(
-            "gate acknowledged=\(UserDefaults.standard.bool(forKey: MobileConnectionsUpdateSheet.acknowledgedKey)) pairedMacs=\(store.pairedMacs.count) presented=\(showsConnectionsUpdateNotice)"
-        )
-        guard !UserDefaults.standard.bool(
-            forKey: MobileConnectionsUpdateSheet.acknowledgedKey
-        ), !store.pairedMacs.isEmpty, !showsConnectionsUpdateNotice else { return }
-        UserDefaults.standard.set(
-            true,
-            forKey: MobileConnectionsUpdateSheet.acknowledgedKey
-        )
-        showsConnectionsUpdateNotice = true
     }
 
     private func stackLayout(canCreateWorkspaceForSelection: Bool) -> some View {

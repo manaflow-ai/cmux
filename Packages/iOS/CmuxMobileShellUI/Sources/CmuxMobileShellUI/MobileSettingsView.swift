@@ -68,20 +68,6 @@ struct MobileSettingsView: View {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)
 
-                // Directly under the account card so release notices stay
-                // discoverable after their one-time launch sheet is dismissed.
-                Section {
-                    NavigationLink {
-                        MobileWhatsNewListView()
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.whatsNew", defaultValue: "What's New"),
-                            systemImage: "sparkles"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsWhatsNewRow")
-                }
-
                 // Stack team switcher. Only shown when the user belongs to more than
                 // one team. Rendered as an INLINE picker — each team is a row with a
                 // checkmark on the current one — so every team is visible at a glance
