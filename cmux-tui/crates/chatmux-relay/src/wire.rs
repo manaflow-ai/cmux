@@ -139,18 +139,46 @@ fn get_u64(frame: &Value, name: &str) -> Option<u64> {
     frame.get(name).and_then(Value::as_u64)
 }
 
+fn has_supported_version(frame: &Value, minimum: u64) -> bool {
+    get_u64(frame, "version")
+        .is_some_and(|version| (minimum..=ADVERTISED_PROTOCOL_VERSION).contains(&version))
+}
+
+fn minimum_version_for_type(frame_type: &str) -> Option<u64> {
+    match frame_type {
+        "action_request" => Some(EXEC_PROTOCOL_VERSION),
+        "pty_open" | "pty_input" | "pty_resize" | "pty_flow" | "pty_close" | "surface_list" => {
+            Some(PTY_PROTOCOL_VERSION)
+        }
+        "workspace_request" | "fs_watch_open" | "fs_watch_close" => {
+            Some(crate::workspace::WORKSPACE_FRAME_VERSION as u64)
+        }
+        "hello_accepted" | "upgrade_required" | "heartbeat_ack" | "trust_ack" | "error" => {
+            Some(FRAME_VERSION)
+        }
+        _ => None,
+    }
+}
+
 /// Minimal runtime validator for server frames. Returns `None` only for
 /// frames that are not usable at all (the caller ignores them and keeps the
 /// socket); unknown types come back as `ServerFrame::Unknown`.
 pub fn parse_server_frame(raw: &str) -> Option<ServerFrame> {
     let frame: Value = serde_json::from_str(raw).ok()?;
     let frame_type = frame.get("type").and_then(Value::as_str)?.to_owned();
+    if minimum_version_for_type(&frame_type)
+        .is_some_and(|minimum| !has_supported_version(&frame, minimum))
+    {
+        return None;
+    }
     match frame_type.as_str() {
         "hello_accepted" => {
-            let heartbeat_interval_ms =
-                get_u64(&frame, "heartbeatIntervalMs").filter(|value| *value > 0)?;
+            let heartbeat_interval_ms = get_u64(&frame, "heartbeatIntervalMs")
+                .filter(|value| (1..=i64::MAX as u64).contains(value))?;
+            let relay_protocol_version = get_u64(&frame, "relayProtocolVersion")
+                .filter(|value| (FRAME_VERSION..=ADVERTISED_PROTOCOL_VERSION).contains(value))?;
             Some(ServerFrame::HelloAccepted(HelloAccepted {
-                relay_protocol_version: get_u64(&frame, "relayProtocolVersion")?,
+                relay_protocol_version,
                 heartbeat_interval_ms,
                 machine_name: get_str(&frame, "machineName")?,
                 scope: get_str(&frame, "scope")?,
@@ -237,16 +265,68 @@ mod tests {
             "trust": "supervised",
         });
         assert!(parse_server_frame(&zero_interval.to_string()).is_none());
+
+        for (name, value) in [
+            ("version", Value::from(FRAME_VERSION - 1)),
+            ("version", Value::from(ADVERTISED_PROTOCOL_VERSION + 1)),
+            ("relayProtocolVersion", Value::from(FRAME_VERSION - 1)),
+            ("relayProtocolVersion", Value::from(ADVERTISED_PROTOCOL_VERSION + 1)),
+            ("heartbeatIntervalMs", Value::from(i64::MAX as u64 + 1)),
+        ] {
+            let mut invalid = full.clone();
+            invalid[name] = value;
+            assert!(parse_server_frame(&invalid.to_string()).is_none(), "accepted invalid {name}");
+        }
+
+        let mut boundary = full;
+        boundary["relayProtocolVersion"] = Value::from(ADVERTISED_PROTOCOL_VERSION);
+        boundary["heartbeatIntervalMs"] = Value::from(i64::MAX);
+        assert!(parse_server_frame(&boundary.to_string()).is_some());
+    }
+
+    #[test]
+    fn known_frame_types_require_their_protocol_version() {
+        let cases = [
+            ("heartbeat_ack", FRAME_VERSION),
+            ("action_request", EXEC_PROTOCOL_VERSION),
+            ("pty_close", PTY_PROTOCOL_VERSION),
+            ("workspace_request", crate::workspace::WORKSPACE_FRAME_VERSION as u64),
+        ];
+        for (frame_type, minimum) in cases {
+            let mut valid = serde_json::json!({"type": frame_type, "version": minimum});
+            if frame_type == "action_request" {
+                valid["actionId"] = Value::from("action_1");
+                valid["verb"] = Value::from("exec");
+            }
+            assert!(parse_server_frame(&valid.to_string()).is_some());
+
+            let too_old = serde_json::json!({"type": frame_type, "version": minimum - 1});
+            assert!(parse_server_frame(&too_old.to_string()).is_none());
+
+            let too_new = serde_json::json!({
+                "type": frame_type,
+                "version": ADVERTISED_PROTOCOL_VERSION + 1,
+            });
+            assert!(parse_server_frame(&too_new.to_string()).is_none());
+        }
     }
 
     #[test]
     fn trust_ack_only_accepts_canonical_levels() {
-        let good = serde_json::json!({"type": "trust_ack", "trust": "observe"});
+        let good = serde_json::json!({
+            "version": FRAME_VERSION,
+            "type": "trust_ack",
+            "trust": "observe",
+        });
         assert!(matches!(
             parse_server_frame(&good.to_string()),
             Some(ServerFrame::TrustAck { .. })
         ));
-        let bad = serde_json::json!({"type": "trust_ack", "trust": "root"});
+        let bad = serde_json::json!({
+            "version": FRAME_VERSION,
+            "type": "trust_ack",
+            "trust": "root",
+        });
         assert!(parse_server_frame(&bad.to_string()).is_none());
     }
 
