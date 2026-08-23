@@ -39,6 +39,12 @@ use crate::wire::{
     ServerFrame, advertised_protocol, heartbeat_frame, parse_server_frame, set_trust_frame,
 };
 
+fn enqueue_action_result(out: &mpsc::UnboundedSender<Value>, pending: &AtomicU64, result: Value) {
+    let size = serde_json::to_string(&result).map(|text| text.len() as u64).unwrap_or(0);
+    pending.fetch_add(size, Ordering::SeqCst);
+    let _ = out.send(result);
+}
+
 pub struct SessionState {
     pub first_connect: bool,
     pub first_run: bool,
@@ -463,11 +469,7 @@ async fn relay_session(
                                     "code": "busy",
                                     "message": "relay is busy; retry this action",
                                 });
-                                let size = serde_json::to_string(&result)
-                                    .map(|text| text.len() as u64)
-                                    .unwrap_or(0);
-                                pending.fetch_add(size, Ordering::SeqCst);
-                                let _ = out.send(result);
+                                enqueue_action_result(&out, &pending, result);
                                 continue;
                             }
                         };
@@ -485,11 +487,7 @@ async fn relay_session(
                                     result.get("code").and_then(Value::as_str).unwrap_or("failed");
                                 println!("Refused {verb} ({code}) for {actor}.");
                             }
-                            let size = serde_json::to_string(&result)
-                                .map(|text| text.len() as u64)
-                                .unwrap_or(0);
-                            pending.fetch_add(size, Ordering::SeqCst);
-                            let _ = out.send(result);
+                            enqueue_action_result(&out, &pending, result);
                         });
                     }
                     ServerFrame::Pty { frame_type, raw } => {
@@ -570,4 +568,26 @@ async fn relay_session(
     #[cfg(unix)]
     runtime.pty.detach_all();
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enqueue_action_result_accounts_utf8_bytes_and_preserves_fifo() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let pending = AtomicU64::new(0);
+        let first = serde_json::json!({"message": "é"});
+        let second = serde_json::json!({"message": "second"});
+        let first_size = serde_json::to_string(&first).unwrap().len() as u64;
+        let second_size = serde_json::to_string(&second).unwrap().len() as u64;
+
+        enqueue_action_result(&tx, &pending, first.clone());
+        enqueue_action_result(&tx, &pending, second.clone());
+
+        assert_eq!(pending.load(Ordering::SeqCst), first_size + second_size);
+        assert_eq!(rx.try_recv().unwrap(), first);
+        assert_eq!(rx.try_recv().unwrap(), second);
+    }
 }
