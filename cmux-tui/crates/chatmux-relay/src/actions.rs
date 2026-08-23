@@ -858,7 +858,6 @@ struct WindowsJob {
 #[cfg(windows)]
 impl WindowsJob {
     fn attach(child: &tokio::process::Child) -> Result<Self, ()> {
-        use std::os::windows::io::AsRawHandle;
         use std::ptr::null_mut;
         use windows_sys::Win32::System::JobObjects::{
             CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
@@ -887,7 +886,7 @@ impl WindowsJob {
             unsafe { windows_sys::Win32::Foundation::CloseHandle(handle) };
             return Err(());
         }
-        let process = child.as_std().as_raw_handle() as windows_sys::Win32::Foundation::HANDLE;
+        let process = child.raw_handle().ok_or(())?;
         if unsafe { AssignProcessToJobObject(handle, process) } == 0 {
             unsafe { windows_sys::Win32::Foundation::CloseHandle(handle) };
             return Err(());
