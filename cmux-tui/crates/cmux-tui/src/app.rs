@@ -950,6 +950,10 @@ impl HostInputMessage {
     fn is_passive_motion(&self) -> bool {
         matches!(self, Self::Event(Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. })))
     }
+
+    fn is_resize(&self) -> bool {
+        matches!(self, Self::Event(Event::Resize(..)))
+    }
 }
 
 #[derive(Default)]
@@ -980,6 +984,16 @@ impl HostInputIngress {
                 state.events.back().map(HostInputMessage::retained_bytes).unwrap_or(0);
             state.retained_bytes =
                 state.retained_bytes.saturating_sub(previous_bytes).saturating_add(retained_bytes);
+            *state.events.back_mut().unwrap() = event;
+            return Ok(false);
+        }
+        // Crossterm can report several intermediate sizes while a terminal is
+        // being resized. Keep only the latest adjacent resize so the app
+        // always applies the final dimensions instead of spending queue space
+        // on stale events.
+        if event.is_resize() && state.events.back().is_some_and(HostInputMessage::is_resize) {
+            let previous_bytes = state.events.back().map(HostInputMessage::retained_bytes).unwrap_or(0);
+            state.retained_bytes = state.retained_bytes.saturating_sub(previous_bytes).saturating_add(retained_bytes);
             *state.events.back_mut().unwrap() = event;
             return Ok(false);
         }
@@ -23126,6 +23140,18 @@ mod tests {
         assert_eq!(ingress.len(), DEFERRED_INPUT_CAPACITY);
         ingress.close();
         producer.join().unwrap();
+    }
+
+    #[test]
+    fn host_input_ingress_keeps_latest_adjacent_resize() {
+        let ingress = HostInputIngress::default();
+        ingress.send(Event::Resize(80, 24)).unwrap();
+        ingress.send(Event::Resize(120, 40)).unwrap();
+        assert_eq!(ingress.len(), 1);
+        assert!(matches!(
+            ingress.pop_if(|_| true),
+            Some(HostInputMessage::Event(Event::Resize(120, 40)))
+        ));
     }
 
     use crate::sidebar_files::FileBrowser;
