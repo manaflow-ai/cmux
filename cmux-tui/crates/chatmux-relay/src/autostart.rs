@@ -151,10 +151,10 @@ fn uninstall_impl() -> Result<String, String> {
     if let Some(s) = p.to_str() {
         let _ = run("launchctl", &["bootout", &d, s]);
     }
-    if let Err(e) = fs::remove_file(&p) {
-        if !matches!(e.kind(), std::io::ErrorKind::NotFound) {
-            return Err(e.to_string());
-        }
+    if let Err(e) = fs::remove_file(&p)
+        && !matches!(e.kind(), std::io::ErrorKind::NotFound)
+    {
+        return Err(e.to_string());
     }
     Ok(format!("removed {}", p.display()))
 }
