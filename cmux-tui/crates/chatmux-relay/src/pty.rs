@@ -931,7 +931,7 @@ impl Inner {
                     // Register before releasing the map lock. The owner may
                     // finish immediately; creating this future later could
                     // miss `notify_waiters`.
-                    let waiter = notify.notified();
+                    let waiter = Arc::clone(&notify).notified_owned();
                     (notify, false, Some(waiter))
                 } else {
                     let notify = Arc::new(Notify::new());
@@ -1583,7 +1583,7 @@ impl Inner {
 
         let proxy = Arc::new(ControlTerminalControl { control, surface_id });
         let (on_data, _) = self.sinks(pty_id, context);
-        let relay = Arc::clone(self);
+        let relay = Arc::clone(&self);
         let context_for_exit = context.clone();
         let pty_id_for_exit = pty_id.to_owned();
         let stream_for_exit = Arc::clone(&stream);
