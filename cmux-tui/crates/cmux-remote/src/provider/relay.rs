@@ -2218,7 +2218,9 @@ mod tests {
         .expect("relay registration did not become ready")
         .expect("transient initial carrier failure stopped relay registration");
 
-        registration.shutdown().await;
+        tokio::time::timeout(Duration::from_secs(1), registration.shutdown())
+            .await
+            .expect("relay registration shutdown did not complete");
         server.await.unwrap();
     }
 

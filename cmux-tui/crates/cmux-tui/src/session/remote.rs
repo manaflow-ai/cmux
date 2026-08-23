@@ -1468,6 +1468,7 @@ pub struct RemoteSession {
     surface_leases: Mutex<HashMap<SurfaceId, String>>,
     retired_surfaces: Mutex<HashSet<SurfaceId>>,
     tree: Mutex<RemoteTreeCache>,
+    browser_sources: Mutex<HashMap<SurfaceId, BrowserSource>>,
     tree_refresh: Mutex<()>,
     tree_stale: AtomicBool,
     subscription_started: AtomicBool,
@@ -1805,6 +1806,7 @@ impl RemoteSession {
             surface_leases: Mutex::new(HashMap::new()),
             retired_surfaces: Mutex::new(HashSet::new()),
             tree: Mutex::new(RemoteTreeCache::default()),
+            browser_sources: Mutex::new(HashMap::new()),
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
             subscription_started: AtomicBool::new(false),
@@ -3122,10 +3124,16 @@ impl RemoteSession {
         if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
             return Ok(RemoteSurfaceAttach::Attached(surface.clone()));
         }
-        let source = {
-            let tree = self.tree.lock().unwrap();
-            browser_source_from_tree(&tree.view, id)
-        };
+        let source = self.browser_sources.lock().unwrap().get(&id).copied().or_else(|| {
+            (kind == SurfaceKind::Browser)
+                .then(|| {
+                    // Before the first tree refresh, preserve the historical lookup
+                    // against the current cache rather than losing browser metadata.
+                    let tree = self.tree.lock().unwrap();
+                    browser_source_from_tree(&tree.view, id)
+                })
+                .flatten()
+        });
         let (cols, rows) = size.unwrap_or((80, 24));
         let initial_size = size.map(|(cols, rows)| (cols.max(1), rows.max(1))).filter(|_| {
             self.supports_capability(cmux_tui_core::server::ATTACH_INITIAL_SIZE_CAPABILITY)
@@ -3368,9 +3376,11 @@ impl RemoteSession {
             cache.replace_agents(agents, agent_refresh_generation);
             cache.view.clone()
         };
+        let browser_sources = browser_sources_from_tree(&tree);
+        *self.browser_sources.lock().unwrap() = browser_sources.clone();
         let surfaces = self.surfaces.lock().unwrap().clone();
         for (id, surface) in surfaces {
-            surface.update_browser_source(browser_source_from_tree(&tree, id));
+            surface.update_browser_source(browser_sources.get(&id).copied());
         }
         Ok(tree)
     }
@@ -3567,6 +3577,16 @@ fn dump_mirror(surface: &RemoteSurface) -> String {
     out
 }
 
+fn browser_sources_from_tree(tree: &TreeView) -> HashMap<SurfaceId, BrowserSource> {
+    tree.workspaces
+        .iter()
+        .flat_map(|ws| ws.screens.iter())
+        .flat_map(|screen| screen.panes.iter())
+        .flat_map(|pane| pane.tabs.iter())
+        .filter_map(|tab| tab.browser_source.map(|source| (tab.surface, source)))
+        .collect()
+}
+
 fn browser_source_from_tree(tree: &TreeView, id: SurfaceId) -> Option<BrowserSource> {
     tree.workspaces
         .iter()
@@ -3739,6 +3759,7 @@ fn test_session_with_writer(
         surface_leases: Mutex::new(HashMap::new()),
         retired_surfaces: Mutex::new(HashSet::new()),
         tree: Mutex::new(RemoteTreeCache::default()),
+        browser_sources: Mutex::new(HashMap::new()),
         tree_refresh: Mutex::new(()),
         tree_stale: AtomicBool::new(true),
         subscription_started: AtomicBool::new(false),
@@ -4750,6 +4771,7 @@ mod tests {
             surface_leases: Mutex::new(HashMap::new()),
             retired_surfaces: Mutex::new(HashSet::new()),
             tree: Mutex::new(RemoteTreeCache::default()),
+            browser_sources: Mutex::new(HashMap::new()),
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
             subscription_started: AtomicBool::new(false),

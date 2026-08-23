@@ -1008,12 +1008,22 @@ pub struct Connection {
     /// observe, mutating ops refuse regardless of what the server claims.
     local_observe: Arc<AtomicBool>,
     watches: WatchRegistry,
+    /// Request tasks are owned by the socket connection. Dropping the
+    /// connection must stop in-flight work instead of letting it outlive the
+    /// outbound queue and the relay session that created it.
+    requests: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 impl Connection {
     pub fn new(runtime: Arc<SharedRuntime>, outbound: UnboundedSender<String>) -> Connection {
         let watches = WatchRegistry::new(outbound.clone());
-        Connection { runtime, outbound, local_observe: Arc::new(AtomicBool::new(false)), watches }
+        Connection {
+            runtime,
+            outbound,
+            local_observe: Arc::new(AtomicBool::new(false)),
+            watches,
+            requests: std::sync::Mutex::new(Vec::new()),
+        }
     }
 
     pub fn set_local_observe(&self, observe: bool) {
@@ -1069,7 +1079,7 @@ impl Connection {
         let runtime = Arc::clone(&self.runtime);
         let outbound = self.outbound.clone();
         let local_observe = Arc::clone(&self.local_observe);
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             let request_id = request.request_id.clone();
             let outcome = execute(&runtime, &local_observe, request).await;
             let text = match outcome {
@@ -1078,6 +1088,26 @@ impl Connection {
             };
             let _ = outbound.send(text);
         });
+        if let Ok(mut requests) = self.requests.lock() {
+            // Completed handles retain their allocation until awaited or
+            // dropped. Prune them on every admission so a busy connection
+            // cannot grow its task registry without bound.
+            requests.retain(|task| !task.is_finished());
+            requests.push(task);
+            requests.retain(|task| !task.is_finished());
+        } else {
+            task.abort();
+        }
+    }
+}
+
+impl Drop for Connection {
+    fn drop(&mut self) {
+        if let Ok(mut requests) = self.requests.lock() {
+            for task in requests.drain(..) {
+                task.abort();
+            }
+        }
     }
 }
 

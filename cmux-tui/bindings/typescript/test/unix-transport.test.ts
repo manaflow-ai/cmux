@@ -19,6 +19,8 @@ import {
 } from "../src/node.js";
 import {
   UnixSocketTransport,
+  defaultSocketPath,
+  validateSessionName,
   type UnixSocketTransportOptions,
 } from "../src/node-transport.js";
 import { CmuxClient } from "../src/raw/node-client.js";
@@ -30,6 +32,89 @@ import {
 const RESOURCE_SESSION = sessionId(`session_${"a".repeat(32)}`);
 const RESOURCE_WORKSPACE = workspaceId(`ws_${"b".repeat(32)}`);
 const RESOURCE_TERMINAL = terminalId(`term_${"c".repeat(32)}`);
+
+test("session socket helpers enforce the relaxed safe-name contract", () => {
+  for (const session of [
+    "",
+    ".",
+    "..",
+    "../escape",
+    "nested/session",
+    "nested\\session",
+    "bad\u0000name",
+    "bad\nname",
+    "bad\u0085name",
+    "bad\u2028name",
+    "bad\u2029name",
+    "bad\ud800name",
+  ]) {
+    assert.throws(
+      () => validateSessionName(session),
+      /session name must be a non-empty path component/,
+      `accepted unsafe session ${JSON.stringify(session)}`,
+    );
+    assert.throws(() => defaultSocketPath(session));
+  }
+
+  for (const session of [
+    "legacy name",
+    "名前",
+    "_leading",
+    "-leading",
+    ".leading",
+    "legacy:colon",
+  ]) {
+    assert.doesNotThrow(() => validateSessionName(session));
+    assert.ok(defaultSocketPath(session).endsWith(`/${session}.sock`));
+  }
+  assert.doesNotThrow(() => validateSessionName(`legacy-${"x".repeat(200)}`));
+});
+
+test("long session socket paths use a bindable digest fallback", async () => {
+  const session = `legacy-${"x".repeat(200)}`;
+  const digest = "e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2";
+  const socketPath = defaultSocketPath(session);
+  assert.equal(
+    socketPath,
+    join(
+      "/tmp",
+      `cmux-tui-hashed-${process.getuid?.() ?? 0}`,
+      `${digest}.sock`,
+    ),
+  );
+  const capacity = process.platform === "darwin" ? 104 : 108;
+  assert.ok(Buffer.byteLength(socketPath) < capacity);
+
+  const directory = await mkdtemp(join(tmpdir(), "c-"));
+  const leafLength = Buffer.byteLength(socketPath) - Buffer.byteLength(directory) - 1;
+  assert.ok(leafLength >= 5);
+  const bindPath = join(directory, `${"x".repeat(leafLength - 5)}.sock`);
+  assert.equal(Buffer.byteLength(bindPath), Buffer.byteLength(socketPath));
+  const server = createServer();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(bindPath, resolve);
+    });
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("non-ASCII long session paths use the shared UTF-8 SHA-256 digest", () => {
+  const session = "\u540D\u524D".repeat(100);
+  const digest = "0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3";
+  const socketPath = defaultSocketPath(session);
+  assert.equal(
+    socketPath,
+    join(
+      "/tmp",
+      `cmux-tui-hashed-${process.getuid?.() ?? 0}`,
+      `${digest}.sock`,
+    ),
+  );
+});
 
 interface DelayedUnixFixture {
   readonly transport: UnixSocketTransport;

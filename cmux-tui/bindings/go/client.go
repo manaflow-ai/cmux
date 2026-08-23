@@ -190,7 +190,15 @@ func NewClient(ctx context.Context, options ClientOptions) (*Client, error) {
 	}
 	socket := options.SocketPath
 	if socket == "" {
-		socket = defaultSocketPath(options.Session)
+		session := options.Session
+		if session == "" {
+			session = "main"
+		}
+		var err error
+		socket, err = resolveSocketPath("", session)
+		if err != nil {
+			return nil, err
+		}
 	}
 	dial := options.DialContext
 	if dial == nil {

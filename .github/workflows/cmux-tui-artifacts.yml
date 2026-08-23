@@ -100,6 +100,11 @@ jobs:
           manifest = {
               "commit": sys.argv[1],
               "builtAt": datetime.now(timezone.utc).isoformat(),
+              # Keep distribution metadata next to the digest map. Consumers
+              # can reject an artifact whose runtime contract they cannot
+              # satisfy without guessing from the filename.
+              "license": "MIT",
+              "runtime": {"linux": {"glibc": ">=2.28"}},
               "binaries": {
                   f: hashlib.sha256(open(f, "rb").read()).hexdigest() for f in files
               },
@@ -172,6 +177,8 @@ jobs:
           manifest = {
               "commit": sys.argv[1],
               "builtAt": datetime.now(timezone.utc).isoformat(),
+              "license": "MIT",
+              "runtime": {"linux": {"glibc": ">=2.28"}},
               "binaries": {
                   path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in files
               },

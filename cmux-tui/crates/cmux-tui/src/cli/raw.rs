@@ -31,7 +31,13 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
             return 2;
         }
     };
-    let socket = resolve_socket(&global);
+    let socket = match resolve_socket(&global) {
+        Ok(socket) => socket,
+        Err(error) => {
+            eprintln!("cannot resolve session socket: {error}");
+            return 2;
+        }
+    };
     let stream = match transport::connect(&socket) {
         Ok(stream) => stream,
         Err(error) => {
@@ -132,18 +138,18 @@ fn read_line_limited(
         .map_err(|error| format!("protocol error: raw response is not UTF-8: {error}"))
 }
 
-fn resolve_socket(global: &GlobalArgs) -> PathBuf {
+fn resolve_socket(global: &GlobalArgs) -> anyhow::Result<PathBuf> {
     if let Some(path) = &global.socket {
-        return path.clone();
+        return Ok(path.clone());
     }
     for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
         if let Some(path) = std::env::var_os(name)
             && !path.is_empty()
         {
-            return PathBuf::from(path);
+            return Ok(PathBuf::from(path));
         }
     }
-    cmux_tui_core::server::default_socket_path(global.session.as_deref().unwrap_or("main"))
+    cmux_tui_core::server::try_default_socket_path(global.session.as_deref().unwrap_or("main"))
 }
 
 #[cfg(test)]

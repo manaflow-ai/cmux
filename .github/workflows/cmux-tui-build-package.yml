@@ -368,8 +368,6 @@ jobs:
     if: inputs.build_cloudflare_relay
     runs-on: ${{ inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
-    env:
-      RUSTUP_TOOLCHAIN: "1.91.0"
     permissions:
       contents: read
     defaults:
@@ -396,9 +394,12 @@ jobs:
           cache: npm
           cache-dependency-path: cmux-tui/relays/cloudflare-do/package-lock.json
 
+      - name: Set up pinned Rust toolchain
+        uses: ./.github/actions/setup-cmux-tui-rust
+
       - name: Install pinned Rust toolchain and Worker builder
         run: |
-          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component clippy --target wasm32-unknown-unknown
+          rustup target add wasm32-unknown-unknown
           cargo install --locked worker-build@0.8.5
 
       - name: Install pinned npm dependencies

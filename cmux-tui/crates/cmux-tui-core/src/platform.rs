@@ -164,6 +164,19 @@ pub fn fallback_runtime_dir() -> PathBuf {
     PathBuf::from("/tmp").join(format!("cmux-tui-{}", user_id_component()))
 }
 
+/// Shared short root for socket paths that need a fixed-length digest leaf.
+/// Every SDK uses this root when the configured runtime directory cannot fit
+/// a Unix-domain socket path.
+pub fn hashed_runtime_dir() -> PathBuf {
+    PathBuf::from("/tmp").join(format!("cmux-tui-hashed-{}", user_id_component()))
+}
+
+/// Private root for compatibility paths produced from invalid session text.
+/// These paths are never opened by a fallible connector.
+pub fn invalid_runtime_dir() -> PathBuf {
+    PathBuf::from("/tmp").join(format!("cmux-tui-invalid-{}", user_id_component()))
+}
+
 /// Default root for durable workspace/session state. Runtime sockets stay in
 /// the short-lived runtime directory; canonical identities and mutation
 /// ledgers live here across daemon and machine reboots.
@@ -777,7 +790,13 @@ fn local_hostname() -> Option<String> {
         return None;
     }
     let end = hostname.iter().position(|byte| *byte == 0).unwrap_or(hostname.len());
-    std::str::from_utf8(&hostname[..end]).ok().filter(|value| !value.is_empty()).map(str::to_owned)
+    decode_local_hostname(&hostname[..end])
+}
+
+#[cfg(unix)]
+fn decode_local_hostname(bytes: &[u8]) -> Option<String> {
+    let hostname = String::from_utf8_lossy(bytes);
+    (!hostname.is_empty()).then(|| hostname.into_owned())
 }
 
 #[cfg(windows)]
@@ -1061,5 +1080,12 @@ mod tests {
         );
         assert_eq!(terminal_pwd_to_local_path("/tmp/plain"), Some(PathBuf::from("/tmp/plain")));
         assert_eq!(terminal_pwd_to_local_path("file://remote.invalid/tmp/nope"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_hostname_decoder_accepts_non_utf8_os_bytes() {
+        assert_eq!(decode_local_hostname(b"host\xff"), Some("host�".to_string()));
+        assert_eq!(decode_local_hostname(b""), None);
     }
 }

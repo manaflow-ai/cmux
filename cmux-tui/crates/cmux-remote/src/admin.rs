@@ -18,6 +18,7 @@ use serde_json::Value;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::{Semaphore, oneshot, watch};
+use tokio::task::JoinSet;
 
 use crate::daemon::RemoteDaemon;
 use crate::identity::{EnrollmentRelayAccess, IdentityError};
@@ -198,9 +199,15 @@ pub async fn serve_admin_with_shutdown(
     let permits = Arc::new(Semaphore::new(MAX_ADMIN_CONNECTIONS));
     let task = tokio::spawn(async move {
         let mut accept_backoff = UnixAcceptBackoff::new();
+        let mut connections = JoinSet::new();
         loop {
             tokio::select! {
-                _ = &mut shutdown_rx => return Ok(()),
+                _ = &mut shutdown_rx => {
+                    connections.abort_all();
+                    while connections.join_next().await.is_some() {}
+                    return Ok(())
+                },
+                Some(_) = connections.join_next(), if !connections.is_empty() => {},
                 accepted = listener.listener().accept() => {
                     let (stream, _) = match accepted {
                         Ok(accepted) => {
@@ -218,7 +225,11 @@ pub async fn serve_admin_with_shutdown(
                                 )));
                             };
                             tokio::select! {
-                                _ = &mut shutdown_rx => return Ok(()),
+                                _ = &mut shutdown_rx => {
+                                    connections.abort_all();
+                                    while connections.join_next().await.is_some() {}
+                                    return Ok(())
+                                },
                                 _ = tokio::time::sleep(delay) => {}
                             }
                             continue;
@@ -234,7 +245,7 @@ pub async fn serve_admin_with_shutdown(
                     let default_route_hints = default_route_hints.clone();
                     let lifecycle_id = lifecycle_id.clone();
                     let owner_shutdown = owner_shutdown.clone();
-                    tokio::spawn(async move {
+                    connections.spawn(async move {
                         let _permit = permit;
                         let _ = serve_connection(
                             daemon,

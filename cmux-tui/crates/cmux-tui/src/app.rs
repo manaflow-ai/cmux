@@ -950,6 +950,10 @@ impl HostInputMessage {
     fn is_passive_motion(&self) -> bool {
         matches!(self, Self::Event(Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. })))
     }
+
+    fn is_resize(&self) -> bool {
+        matches!(self, Self::Event(Event::Resize(..)))
+    }
 }
 
 #[derive(Default)]
@@ -976,6 +980,18 @@ impl HostInputIngress {
         if event.is_passive_motion()
             && state.events.back().is_some_and(HostInputMessage::is_passive_motion)
         {
+            let previous_bytes =
+                state.events.back().map(HostInputMessage::retained_bytes).unwrap_or(0);
+            state.retained_bytes =
+                state.retained_bytes.saturating_sub(previous_bytes).saturating_add(retained_bytes);
+            *state.events.back_mut().unwrap() = event;
+            return Ok(false);
+        }
+        // Crossterm can report several intermediate sizes while a terminal is
+        // being resized. Keep only the latest adjacent resize so the app
+        // always applies the final dimensions instead of spending queue space
+        // on stale events.
+        if event.is_resize() && state.events.back().is_some_and(HostInputMessage::is_resize) {
             let previous_bytes =
                 state.events.back().map(HostInputMessage::retained_bytes).unwrap_or(0);
             state.retained_bytes =
@@ -23128,6 +23144,18 @@ mod tests {
         producer.join().unwrap();
     }
 
+    #[test]
+    fn host_input_ingress_keeps_latest_adjacent_resize() {
+        let ingress = HostInputIngress::default();
+        ingress.send(Event::Resize(80, 24)).unwrap();
+        ingress.send(Event::Resize(120, 40)).unwrap();
+        assert_eq!(ingress.len(), 1);
+        assert!(matches!(
+            ingress.pop_if(|_| true),
+            Some(HostInputMessage::Event(Event::Resize(120, 40)))
+        ));
+    }
+
     use crate::sidebar_files::FileBrowser;
 
     fn settled(outcome: super::SessionMutationOutcome) -> AppEvent {
@@ -34790,6 +34818,11 @@ mod tests {
         mux.new_workspace(None, Some((80, 24))).unwrap();
         let (mut app, mutation_events) = test_app_with_events(Session::Local(mux));
         app.sidebar_visible = false;
+        // Keep this admission test on the terminal paint path. Graphics
+        // completion is asynchronous and can otherwise race the pointer
+        // event when the full suite starts from a cold cache. SurfaceOutput
+        // below is intentionally a paint-only stimulus for this contract.
+        app.graphics_supported = false;
         app.sync_layout((100, 12));
         while app.session.has_pending_mutations() {
             app.handle(mutation_events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();

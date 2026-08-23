@@ -480,9 +480,45 @@ pub(crate) fn decode_terminal_host_clear_history(
     fallback_key.map(KeyInput::try_from).transpose()
 }
 
+/// Validate the component used to identify a local session.
+///
+/// Session names become socket file names. Keep legacy names that are still a
+/// single path component, but reject values that can escape the socket root or
+/// carry control and line-separator characters.
+pub fn validate_session_name(session: &str) -> anyhow::Result<()> {
+    let invalid = session.is_empty()
+        || matches!(session, "." | "..")
+        || session.chars().any(|character| {
+            character == '/'
+                || character == '\\'
+                || character == '\0'
+                || character.is_control()
+                || matches!(character, '\u{0085}' | '\u{2028}' | '\u{2029}')
+        });
+    anyhow::ensure!(
+        !invalid,
+        "session name must be a non-empty path component without separators or control characters"
+    );
+    Ok(())
+}
+
 /// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {
-    default_socket_path_in_runtime_dir(session, platform::runtime_dir())
+    match try_default_socket_path(session) {
+        Ok(path) => path,
+        Err(_) => invalid_session_socket_path(session),
+    }
+}
+
+/// Resolve a session socket path and report invalid input before any path use.
+pub fn try_default_socket_path(session: &str) -> anyhow::Result<PathBuf> {
+    validate_session_name(session)?;
+    Ok(default_socket_path_in_runtime_dir(session, platform::runtime_dir()))
+}
+
+fn invalid_session_socket_path(session: &str) -> PathBuf {
+    let digest = format!("{:x}", Sha256::digest(session.as_bytes()));
+    platform::invalid_runtime_dir().join(format!("{digest}.sock"))
 }
 
 fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
@@ -490,7 +526,12 @@ fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> Pa
     let preferred = runtime_dir.join(&file_name);
     #[cfg(unix)]
     if !unix_socket_path_fits(&preferred) {
-        return platform::fallback_runtime_dir().join(file_name);
+        let fallback = platform::fallback_runtime_dir().join(&file_name);
+        if unix_socket_path_fits(&fallback) {
+            return fallback;
+        }
+        let digest = format!("{:x}", Sha256::digest(session.as_bytes()));
+        return platform::hashed_runtime_dir().join(format!("{digest}.sock"));
     }
     preferred
 }
@@ -4699,7 +4740,10 @@ impl Drop for PendingServer {
 
 /// Bind the socket and accept protocol clients before lifecycle readiness.
 pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
-    let path = path.unwrap_or_else(|| default_socket_path(&mux.session));
+    let path = match path {
+        Some(path) => path,
+        None => try_default_socket_path(&mux.session)?,
+    };
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
         platform::restrict_directory(dir)?;
@@ -12974,6 +13018,16 @@ mod tests {
             default_socket_path_in_runtime_dir("main", runtime_dir.clone()),
             runtime_dir.join("main.sock")
         );
+    }
+
+    #[test]
+    fn session_name_validation_rejects_path_escape_input() {
+        for session in ["", ".", "..", "../escape", "nested/session", "nested\\session"] {
+            assert!(validate_session_name(session).is_err(), "accepted {session:?}");
+        }
+        assert!(validate_session_name("main").is_ok());
+        assert!(validate_session_name("legacy name").is_ok());
+        assert_ne!(default_socket_path("../escape"), default_socket_path("main"));
     }
 
     #[test]
