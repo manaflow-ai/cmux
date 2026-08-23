@@ -322,6 +322,16 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
             toolbarElement(app, identifier: "BrowserThemeModeButton").frame.maxX,
             "More should be the rightmost accessory control"
         )
+        XCTAssertGreaterThan(
+            toolbarElement(app, identifier: "BrowserToggleDevToolsButton").frame.minX,
+            toolbarElement(app, identifier: "BrowserThemeModeButton").frame.maxX,
+            "Inspect/DevTools should sit immediately before More"
+        )
+        XCTAssertGreaterThan(
+            toolbarElement(app, identifier: "BrowserOverflowMenu").frame.minX,
+            toolbarElement(app, identifier: "BrowserToggleDevToolsButton").frame.maxX,
+            "More should trail the Inspect/DevTools control"
+        )
 
         let inlineOverflowActionIdentifiers = [
             "BrowserFocusModeButton",
