@@ -416,8 +416,10 @@ struct WorkspaceDetailView: View {
               contentWidth > 0,
               let titleMinX = titleLabelLeadingEdge else { return nil }
         let geometries = structuralTrailingItemKeys.compactMap { trailingToolbarItemGeometry[$0] }
-        guard geometries.count == structuralTrailingItemKeys.count,
-              let trailingLeadingEdge = geometries.map(\.globalMinX).min()
+        guard geometries.count == structuralTrailingItemKeys.count else { return nil }
+        let edges = geometries.compactMap(\.globalMinX)
+        guard edges.count == geometries.count,
+              let trailingLeadingEdge = edges.min()
         else { return nil }
         let trailingContentTotal = geometries.map(\.width).reduce(0, +)
         guard trailingLeadingEdge > titleMinX,
@@ -427,7 +429,11 @@ struct WorkspaceDetailView: View {
     }
 
     private var workspaceTitleToolbarMenu: some View {
-        let measuredWidths = structuralTrailingItemKeys.compactMap { trailingToolbarItemGeometry[$0]?.width }
+        // An entry can exist with only its window edge reported; only a real
+        // rendered width counts toward the estimate reserve.
+        let measuredWidths = structuralTrailingItemKeys
+            .compactMap { trailingToolbarItemGeometry[$0]?.width }
+            .filter { $0 > 0 }
         let value = WorkspaceTitleMenuValue(
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
@@ -452,9 +458,6 @@ struct WorkspaceDetailView: View {
             onLabelLeadingEdgeChange: { minX in
                 guard titleLabelLeadingEdge != minX else { return }
                 titleLabelLeadingEdge = minX
-                #if DEBUG
-                NSLog("cmux.toolbar.span probe key=title minX=%.1f", minX)
-                #endif
             },
             menuContent: {
                 WorkspaceTitleMenuContent(
