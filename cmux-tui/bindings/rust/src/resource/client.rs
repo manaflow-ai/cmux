@@ -101,7 +101,7 @@ fn connect_with_budget(
         poll_interval,
         || budget.check(operation),
     );
-    if let Err(crate::CmuxError::ConnectionIo { kind, .. }) = &result
+    if let Err(Error::ConnectionIo { kind, .. }) = &result
         && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
         && config.legacy_socket_path.is_some()
     {
@@ -263,12 +263,29 @@ impl std::fmt::Debug for Client {
 impl Client {
     pub fn connect(config: Config) -> Result<Self> {
         config.validate()?;
-        let connection = JsonLineConnection::connect(
+        let mut config = config;
+        let mut connection = JsonLineConnection::connect(
             &config.socket_path,
             config.timeout,
             config.timeout,
             config.max_response_bytes,
-        )?;
+        );
+        if let Err(Error::ConnectionIo { kind, .. }) = &connection
+            && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
+        {
+            if let Some(legacy) = config.legacy_socket_path.clone()
+                && let Ok(candidate) = JsonLineConnection::connect(
+                    &legacy,
+                    config.timeout,
+                    config.timeout,
+                    config.max_response_bytes,
+                )
+            {
+                config.socket_path = legacy;
+                connection = Ok(candidate);
+            }
+        }
+        let connection = connection?;
         Ok(Self {
             shared: Arc::new(SharedClient {
                 config,
