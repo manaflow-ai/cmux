@@ -1158,7 +1158,10 @@ mod tests {
                 .and_then(std::path::Path::file_name)
                 .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
         );
-        assert_eq!(crate::client::hashed_socket_legacy_path(&config.socket_path), Some(legacy.0.clone()));
+        assert_eq!(
+            crate::client::hashed_socket_legacy_path(&config.socket_path),
+            Some(legacy.0.clone())
+        );
         let listener = UnixListener::bind(&legacy.0).unwrap();
 
         let client = Client::connect(config).unwrap();

@@ -497,6 +497,11 @@ fn is_hashed_socket(path: &Path) -> bool {
         .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
 }
 
+/// Finds a legacy session socket for a hashed endpoint.
+///
+/// This bounded compatibility probe scans only UID-private runtime directories,
+/// limiting each directory to 256 entries. It validates the session digest and
+/// Unix socket type before returning a candidate, so unrelated paths are ignored.
 pub(crate) fn hashed_socket_legacy_path(path: &Path) -> Option<PathBuf> {
     let parent = path.parent()?;
     let leaf = path.file_name()?.to_str()?;
@@ -508,21 +513,26 @@ pub(crate) fn hashed_socket_legacy_path(path: &Path) -> Option<PathBuf> {
     if digest.len() != 64 || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
-    let dir = PathBuf::from("/tmp").join(format!("cmux-tui-{uid}"));
-    let entries = std::fs::read_dir(&dir).ok()?;
-    for entry in entries.take(256) {
-        let entry = entry.ok()?;
-        let name = entry.file_name();
-        let name = name.to_str()?;
-        if !name.ends_with(".sock")
-            || format!("{:x}.sock", Sha256::digest(name.trim_end_matches(".sock").as_bytes()))
-                != leaf
-        {
-            continue;
-        }
-        let candidate = entry.path();
-        if std::os::unix::fs::FileTypeExt::is_socket(&entry.file_type().ok()?) {
-            return Some(candidate);
+    let canonical = PathBuf::from("/tmp").join(format!("cmux-tui-{uid}"));
+    let sibling = parent.parent()?.join(format!("cmux-tui-{uid}"));
+    let mut roots = vec![canonical];
+    if sibling != roots[0] {
+        roots.push(sibling);
+    }
+    for dir in roots {
+        let Ok(entries) = std::fs::read_dir(dir) else { continue };
+        for entry in entries.flatten().take(256) {
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else { continue };
+            if !name.ends_with(".sock")
+                || format!("{:x}.sock", Sha256::digest(name.trim_end_matches(".sock").as_bytes()))
+                    != leaf
+            {
+                continue;
+            }
+            if std::os::unix::fs::FileTypeExt::is_socket(&entry.file_type().ok()?) {
+                return Some(entry.path());
+            }
         }
     }
     None
