@@ -23,9 +23,11 @@ final class BrowserOmnibarPageFocusAdapter: BrowserOmnibarScriptEvaluating {
             return
         }
         panel.webView.evaluateJavaScript(script) { result, error in
-            MainActor.assumeIsolated {
-                completion(result, error)
-            }
+            // WebKit's completion is UI-actor isolated. Deliver its raw result
+            // and error directly so nested menu tracking cannot trip a runtime
+            // `MainActor.assumeIsolated` assertion before the repository can
+            // classify the outcome.
+            completion(result, error)
         }
     }
 }
