@@ -495,6 +495,7 @@ def test_ghosttykit_guard_wiring_pr_stays_on_release_guard() -> None:
             "scripts/download-prebuilt-ghosttykit.sh",
             "scripts/ghosttykit-checksums.txt",
             "tests/test_ci_ghosttykit_release_check.sh",
+            "tests/test_ci_change_areas.py",
             ".github/workflows/ci.yml",
         ]
     )
