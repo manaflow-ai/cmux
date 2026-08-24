@@ -1100,12 +1100,10 @@ async fn run_spec(
                 // pipes. Preserve a timeout escalation that is already in
                 // flight, and bound the remaining drain after a timeout.
                 final_wait_deadline = None;
-                if timed_out {
-                    if (stdout_open || stderr_open) && drain_deadline.is_none() {
-                        drain_deadline = Some(Box::pin(tokio::time::sleep(
-                            std::time::Duration::from_millis(250),
-                        )));
-                    }
+                if timed_out && (stdout_open || stderr_open) && drain_deadline.is_none() {
+                    drain_deadline = Some(Box::pin(tokio::time::sleep(
+                        std::time::Duration::from_millis(250),
+                    )));
                 }
                 exited = Some(match status {
                     Ok(status) => status.code().map(i64::from).unwrap_or(1),

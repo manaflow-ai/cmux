@@ -943,8 +943,7 @@ async fn relay_session(
     // shutdown wait forever.
     if !shutdown_connection_tasks(&mut connection_tasks, &connection_cancellation).await {
         eprintln!(
-            "Relay connection task shutdown exceeded {:?}; abandoning remaining handlers.",
-            CONNECTION_TASK_SHUTDOWN_TIMEOUT
+            "Relay connection task shutdown exceeded {CONNECTION_TASK_SHUTDOWN_TIMEOUT:?}; abandoning remaining handlers."
         );
     }
 
