@@ -15,6 +15,7 @@ struct TaskComposerDirectoryPickerView: View {
     @State private var path: [TaskComposerDirectoryBrowseDestination]
 
     private let suggested: [MobileTaskDirectoryCandidate]
+    private let recents: [MobileTaskDirectoryCandidate]
     private let suggestionIndex: MobileTaskDirectorySuggestionIndex
     private let selectedPath: String
     private let selectedPathID: MobileTaskDirectoryPathID
@@ -42,6 +43,9 @@ struct TaskComposerDirectoryPickerView: View {
         let index = MobileTaskDirectorySuggestionIndex(candidates: candidates)
         suggestionIndex = index
         suggested = index.suggestions(matching: "", limit: 6)
+        // Home and Computer are permanent locations on the picker root, so
+        // the quick chips only carry real remembered directories.
+        recents = suggested.prefix(5).filter { $0.path != "~" && $0.path != "/" }
         self.selectedPath = selectedPath
         selectedPathID = MobileTaskDirectoryPathID(path: selectedPath)
         self.select = select
@@ -68,6 +72,7 @@ struct TaskComposerDirectoryPickerView: View {
                     requestedPath: destination.path,
                     selectedPathID: selectedPathID,
                     suggestionIndex: suggestionIndex,
+                    recents: recents,
                     choose: choose,
                     cancel: { dismiss() },
                     searchMac: searchMac,

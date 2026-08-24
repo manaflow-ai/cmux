@@ -12,6 +12,7 @@ struct TaskComposerDirectoryBrowseScreen: View {
     let requestedPath: String
     let selectedPathID: MobileTaskDirectoryPathID
     let suggestionIndex: MobileTaskDirectorySuggestionIndex
+    let recents: [MobileTaskDirectoryCandidate]
     let choose: (String) -> Void
     let cancel: () -> Void
     let searchMac: (
@@ -30,6 +31,7 @@ struct TaskComposerDirectoryBrowseScreen: View {
         requestedPath: String,
         selectedPathID: MobileTaskDirectoryPathID,
         suggestionIndex: MobileTaskDirectorySuggestionIndex,
+        recents: [MobileTaskDirectoryCandidate],
         choose: @escaping (String) -> Void,
         cancel: @escaping () -> Void,
         searchMac: @escaping (
@@ -43,6 +45,7 @@ struct TaskComposerDirectoryBrowseScreen: View {
         self.requestedPath = requestedPath
         self.selectedPathID = selectedPathID
         self.suggestionIndex = suggestionIndex
+        self.recents = recents
         self.choose = choose
         self.cancel = cancel
         self.searchMac = searchMac
@@ -62,6 +65,7 @@ struct TaskComposerDirectoryBrowseScreen: View {
                     choose: choose
                 )
             } else {
+                recentChipsSection
                 folderSection
             }
         }
@@ -93,6 +97,17 @@ struct TaskComposerDirectoryBrowseScreen: View {
         .taskComposerDirectorySearch($search, query: query, searchMac: searchMac)
         .task(id: browse.pendingRequest) {
             await loadPendingDirectoryRequest()
+        }
+    }
+
+    @ViewBuilder
+    private var recentChipsSection: some View {
+        if !recents.isEmpty {
+            Section {
+                TaskComposerDirectoryRecentChipsRow(recents: recents)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+            }
         }
     }
 
