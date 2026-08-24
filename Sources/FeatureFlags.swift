@@ -64,9 +64,9 @@ final class CmuxFeatureFlags {
     private nonisolated static let mobileTaskComposerDefault = true
 
     #if DEBUG
-    private static let subrouterUIDefault = true
+    private nonisolated static let subrouterUIDefault = true
     #else
-    private static let subrouterUIDefault = false
+    private nonisolated static let subrouterUIDefault = false
     #endif
 
     private static let overrideKeyPrefix = "cmux.flags.override."

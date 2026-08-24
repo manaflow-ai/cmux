@@ -60,29 +60,6 @@ public struct SubrouterTerminalRequest: Sendable, Equatable {
         )
     }
 
-    /// The re-login request for an account at the explicit target, or `nil`
-    /// when unsupported.
-    public static func signIn(
-        account: SubrouterAccountUsageStatus,
-        target: SubrouterAccountTarget = .local
-    ) -> SubrouterTerminalRequest? {
-        guard let command = SubrouterMaintenanceCommand.signIn(
-            provider: account.provider,
-            accountID: account.id,
-            target: target
-        ) else {
-            return nil
-        }
-        return SubrouterTerminalRequest(
-            workspaceTitle: String(
-                localized: "subrouter.terminal.signInTitle",
-                defaultValue: "Sign in \(account.displayName)"
-            ),
-            command: command,
-            runsImmediately: true
-        )
-    }
-
     /// The remove request for an account at the explicit target, or `nil`
     /// when unsupported.
     /// Pre-typed, never auto-run: pressing Return is the confirmation.

@@ -1681,6 +1681,7 @@
               "switchRightSidebarToSessions",
               "switchRightSidebarToFeed",
               "switchRightSidebarToDock",
+              "switchRightSidebarToAgents",
               "triggerFlash",
               "nextSurface",
               "prevSurface",

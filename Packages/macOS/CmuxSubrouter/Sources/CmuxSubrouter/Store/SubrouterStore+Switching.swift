@@ -112,7 +112,11 @@ extension SubrouterStore {
         // whole routing history — the pending state must not wait on that
         // transfer. Only the socket verbs that read sessions (`status`,
         // `sessions`) fetch them.
-        await performFreshRefresh(reason: "switch", includingSessions: false)
+        await performFreshRefresh(
+            reason: "switch",
+            includingSessions: false,
+            forceAfterInFlight: true
+        )
         if let reloadWarning, snapshot.lastErrorDescription == nil {
             recordWarning(reloadWarning)
         }
@@ -138,7 +142,11 @@ extension SubrouterStore {
         let result = try await client.reloadAccounts(endpoint: configuration.endpoint)
         // The reload verb's payload never reads sessions; skip the
         // whole-history transfer here too.
-        await performFreshRefresh(reason: "reload", includingSessions: false)
+        await performFreshRefresh(
+            reason: "reload",
+            includingSessions: false,
+            forceAfterInFlight: true
+        )
         return result
     }
 

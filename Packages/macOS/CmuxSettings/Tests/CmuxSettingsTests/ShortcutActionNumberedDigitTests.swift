@@ -79,4 +79,11 @@ struct ShortcutActionNumberedDigitTests {
         #expect(!ShortcutAction.fileExplorerOpenSelection.allowsChordShortcut)
         #expect(!ShortcutAction.fileExplorerOpenSelectionFinderAlias.allowsChordShortcut)
     }
+
+    @Test func agentsSidebarShortcutIsRegisteredInSettings() {
+        let action = ShortcutAction.switchRightSidebarToAgents
+        #expect(action.defaultShortcut == StoredShortcut(first: ShortcutStroke(key: "6", control: true)))
+        #expect(ShortcutAction.settingsVisibleActions.contains(action))
+        #expect(action.defaultFocusWhenClause == .atom(.sidebarFocus))
+    }
 }

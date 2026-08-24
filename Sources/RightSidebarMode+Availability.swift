@@ -23,7 +23,7 @@ extension RightSidebarMode {
 
     static func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
         let settings = SubrouterIntegrationSettings(defaults: defaults)
-        availableModes(
+        return availableModes(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
             agentsEnabled: settings.isEnabled
@@ -44,7 +44,7 @@ extension RightSidebarMode {
 
     func isAvailable(defaults: UserDefaults = .standard) -> Bool {
         let settings = SubrouterIntegrationSettings(defaults: defaults)
-        isAvailable(
+        return isAvailable(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
             agentsEnabled: settings.isEnabled

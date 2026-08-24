@@ -1,5 +1,5 @@
 /// Builders for the `sr` shell commands behind the panel's account
-/// management actions (add, re-auth, remove). The panel opens these in a
+/// management actions (add, remove). The panel opens these in a
 /// real cmux terminal instead of running them silently: OAuth logins are
 /// interactive, and destructive commands stay visible to the user.
 public enum SubrouterMaintenanceCommand {
@@ -35,25 +35,6 @@ public enum SubrouterMaintenanceCommand {
             provider: provider,
             target: serverName.map { .server(name: $0) } ?? .local
         )
-    }
-
-    /// The command that re-runs the provider's login for an existing account,
-    /// or `nil` when the provider has no safe profile-reuse verb. Codex OAuth
-    /// can infer the account; the pinned Claude CLI's `add <name>` creates a
-    /// profile and therefore is intentionally not exposed as re-auth.
-    public static func signIn(
-        provider: SubrouterProvider,
-        accountID: String,
-        target: SubrouterAccountTarget = .local
-    ) -> String? {
-        switch provider {
-        case .codex:
-            return scoped("cmux sr add codex", provider: provider, target: target)
-        case .claude:
-            return nil
-        default:
-            return nil
-        }
     }
 
     /// The command that removes the account from `sr`'s local store, or

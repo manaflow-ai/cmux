@@ -126,9 +126,9 @@ public struct AgentsPanelView: View {
     /// The action bundle for one account row. Remote pools get no row
     /// actions: the daemon load-balances accounts per session, so the UI
     /// never presents one as selected or switchable (hosted pools choose an
-    /// account per session, so global switching is unavailable). Sign-in and
-    /// remove manage the local `sr` store, so
-    /// they are local-only too — and all terminal-backed verbs also
+    /// account per session, so global switching is unavailable). Remove
+    /// manages the local `sr` store, so it is local-only too — and all
+    /// terminal-backed verbs also
     /// require a terminal-capable host.
     private func rowActions(
         account: SubrouterAccountUsageStatus,
@@ -138,17 +138,14 @@ public struct AgentsPanelView: View {
         guard !configuration.isRemoteEndpoint else {
             return SubrouterAccountRowActions()
         }
-        // Matches the popover's filter: a row whose auth check failed is a
-        // sign-in candidate, not a switch target — activating it would
-        // replace working credentials with an expired account.
+        // Matches the popover's filter: a row whose auth check failed is not
+        // a switch target — activating it would replace working credentials
+        // with an expired account.
         let canSwitch = !account.isActive
             && account.isSwitchableCandidate
             && store.pendingSwitch == nil
         return SubrouterAccountRowActions(
             onSwitch: canSwitch ? { switchAccount(account) } : nil,
-            onSignIn: accountTarget.flatMap { target in
-                terminalAction(.signIn(account: account, target: target))
-            },
             onRemove: accountTarget.flatMap { target in
                 terminalAction(.removeAccount(account: account, target: target))
             }

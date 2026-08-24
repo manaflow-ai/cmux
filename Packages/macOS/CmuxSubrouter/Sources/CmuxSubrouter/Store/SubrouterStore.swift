@@ -316,19 +316,26 @@ public final class SubrouterStore {
     ///     Verbs that never read sessions (accounts, usage) pass `false`
     ///     to skip that endpoint's whole-history transfer; the previous
     ///     sessions stay in the snapshot.
+    ///   - forceAfterInFlight: Whether to start a new read after an in-flight
+    ///     refresh settles. Mutation callers use this after changing account
+    ///     state so a pre-mutation response can never be returned as the
+    ///     authoritative post-mutation snapshot.
     /// - Returns: The refreshed snapshot.
     @discardableResult
     public func performFreshRefresh(
         reason: String,
-        includingSessions: Bool = true
+        includingSessions: Bool = true,
+        forceAfterInFlight: Bool = false
     ) async -> SubrouterSnapshot {
         guard configurationStorage.isEnabled else { return snapshot }
-        if let inFlight = refreshTask {
+        while let inFlight = refreshTask {
             let inFlightIncludesSessions = refreshTaskIncludesSessions
             await inFlight.value
             // A sessions-capable caller cannot reuse a sessions-less result;
             // all other callers share the refresh that was already in flight.
-            if !includingSessions || inFlightIncludesSessions {
+            // Mutation callers deliberately loop once more: the completed
+            // request may have started before the account change.
+            if !forceAfterInFlight && (!includingSessions || inFlightIncludesSessions) {
                 return snapshot
             }
         }

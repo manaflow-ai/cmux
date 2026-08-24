@@ -8,19 +8,15 @@ internal import AppKit
 public struct SubrouterAccountRowActions {
     /// Switches the provider's active account to this row's account.
     public let onSwitch: (() -> Void)?
-    /// Opens a terminal running the provider's login for this account.
-    public let onSignIn: (() -> Void)?
     /// Opens a terminal with the remove command pre-typed (not run).
     public let onRemove: (() -> Void)?
 
     /// Creates the bundle; omit closures for unavailable actions.
     public init(
         onSwitch: (() -> Void)? = nil,
-        onSignIn: (() -> Void)? = nil,
         onRemove: (() -> Void)? = nil
     ) {
         self.onSwitch = onSwitch
-        self.onSignIn = onSignIn
         self.onRemove = onRemove
     }
 }
@@ -85,8 +81,8 @@ public struct SubrouterAccountRowView: View {
             }
         }
         .padding(.vertical, 3)
-        // Expired accounts stay listed (they are still sign-in and remove
-        // targets) but recede so healthy accounts carry the panel.
+        // Expired accounts stay listed as remove/diagnostic targets but recede
+        // so healthy accounts carry the panel.
         .opacity(isAuthExpired ? 0.55 : 1)
         .contextMenu { contextMenuItems }
     }
@@ -273,14 +269,6 @@ public struct SubrouterAccountRowView: View {
                 defaultValue: "Switch to \(account.displayName)"
             )) {
                 onSwitch()
-            }
-        }
-        if let onSignIn = actions.onSignIn {
-            Button(String(
-                localized: "subrouter.account.signInAgain",
-                defaultValue: "Sign In Again…"
-            )) {
-                onSignIn()
             }
         }
         Button(String(

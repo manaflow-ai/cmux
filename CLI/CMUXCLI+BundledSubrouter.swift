@@ -7,15 +7,51 @@ import Darwin
 // `cmux sr …` / unknown `cmux subrouter …` verbs to it. A user-installed
 // sr on PATH always wins, so bundling only changes machines with no sr.
 extension CMUXCLI {
-    /// The directory extracted subrouter binaries live in.
-    static var bundledSubrouterInstallDirectory: URL {
+    /// The root for extracted subrouter binaries. Each app/tag gets its own
+    /// immutable child so concurrent cmux builds never replace one another's
+    /// executable or fingerprint.
+    private static var bundledSubrouterInstallRoot: URL {
         FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("cmux/bin", isDirectory: true)
     }
 
+    /// The directory extracted subrouter binaries for this app identity live
+    /// in. ``CMUX_TAG`` is preferred for tagged builds; a bundle id keeps
+    /// stable and production app installs separate when no tag is present.
+    static var bundledSubrouterInstallDirectory: URL {
+        bundledSubrouterInstallRoot.appendingPathComponent(
+            bundledSubrouterInstallScope(),
+            isDirectory: true
+        )
+    }
+
     private static var bundledSubrouterManagedMarker: URL {
         bundledSubrouterInstallDirectory.appendingPathComponent(".cmux-managed")
+    }
+
+    private static func bundledSubrouterInstallScope() -> String {
+        let environment = ProcessInfo.processInfo.environment
+        let raw = [
+            environment["CMUX_TAG"],
+            environment["CMUX_BUNDLE_ID"],
+            Bundle.main.bundleIdentifier,
+            "stable",
+        ]
+        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .first { !$0.isEmpty } ?? "stable"
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: ".-_"))
+        let mapped = raw.lowercased().unicodeScalars.map { scalar -> Character in
+            allowed.contains(scalar) ? Character(scalar) : "-"
+        }
+        var scope = String(mapped).replacingOccurrences(
+            of: "-+",
+            with: "-",
+            options: .regularExpression
+        )
+        scope = scope.trimmingCharacters(in: CharacterSet(charactersIn: ".-_"))
+        if scope.isEmpty { scope = "stable" }
+        return "scope-" + String(scope.prefix(96))
     }
 
     /// The compressed binary inside the app bundle, located relative to the
@@ -114,12 +150,16 @@ extension CMUXCLI {
     }
 
     /// Installs the bundled binary into `~/bin` as `subrouter` + `sr`
-    /// symlinks (the layout the official installer produces, and the one
-    /// the app's account switcher and plain terminals resolve). Returns the
-    /// `sr` path, or `nil` when nothing is bundled.
+    /// symlinks for an untagged app (the layout the official installer
+    /// produces). Tagged builds return their private scoped path instead and
+    /// never write global links, so one dev build cannot repoint another.
+    /// Returns the `sr` path, or `nil` when nothing is bundled.
     func installBundledSubrouterIntoHomeBin() -> String? {
         guard let extracted = Self.extractedSubrouterBinary(persona: "subrouter") else {
             return nil
+        }
+        if Self.isTaggedBuild {
+            return Self.extractedSubrouterBinary(persona: "sr")
         }
         let fileManager = FileManager.default
         let homeBin = FileManager.default.homeDirectoryForCurrentUser
@@ -153,16 +193,23 @@ extension CMUXCLI {
         return fileManager.isExecutableFile(atPath: sr) ? sr : nil
     }
 
+    private static var isTaggedBuild: Bool {
+        guard let tag = ProcessInfo.processInfo.environment["CMUX_TAG"] else { return false }
+        return !tag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     /// Resolves sr like `resolveSubrouterBinary()`, but when the resolved
     /// path is — or symlinks into — the managed extraction directory (the
-    /// layout the welcome flow installs into `~/bin`), refreshes the
-    /// extraction first. Without this, the `~/bin/sr` shortcut would pin
-    /// users to the binary extracted at first install and ignore every
+    /// layout the welcome flow may install into `~/bin`), refreshes the
+    /// extraction first. Without this, a managed `~/bin/sr` shortcut would
+    /// pin users to the binary extracted at first install and ignore every
     /// newer bundled version an app update ships.
     func resolveSubrouterBinaryRefreshingManagedInstall() -> String? {
         guard let resolved = resolveSubrouterBinary() else { return nil }
         let target = URL(fileURLWithPath: resolved).resolvingSymlinksInPath().path
         let managedDir = Self.bundledSubrouterInstallDirectory
+            .resolvingSymlinksInPath().path
+        let managedRoot = Self.bundledSubrouterInstallRoot
             .resolvingSymlinksInPath().path
         let homeBin = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("bin", isDirectory: true)
@@ -178,7 +225,13 @@ extension CMUXCLI {
         if target == managedDir || target.hasPrefix(managedDir + "/") {
             // Best-effort: a failed refresh leaves the previous (still
             // executable) extraction in place.
-            _ = Self.extractedSubrouterBinary(persona: "subrouter")
+            return Self.extractedSubrouterBinary(persona: "sr") ?? resolved
+        }
+        if target.hasPrefix(managedRoot + "/") {
+            // A global ~/bin/sr link may still point at another tagged build's
+            // managed directory. Prefer this process's scoped extraction so a
+            // stable app and a tagged build cannot execute one another's sr.
+            return Self.extractedSubrouterBinary(persona: "sr") ?? resolved
         }
         return resolved
     }

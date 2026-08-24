@@ -20,14 +20,6 @@ import Testing
             SubrouterMaintenanceCommand.removeAccount(provider: .claude, accountID: "work")
                 == "SUBROUTER_SERVER=local SUBROUTER_CODEX_SERVER=local cmux sr claude remove 'work'"
         )
-        #expect(
-            SubrouterMaintenanceCommand.signIn(provider: .codex, accountID: "a@b.com")
-                == "SUBROUTER_SERVER=local SUBROUTER_CODEX_SERVER=local cmux sr add codex"
-        )
-        #expect(
-            SubrouterMaintenanceCommand.signIn(provider: .claude, accountID: "work")
-                == nil
-        )
     }
 
     @Test func connectServerIsAPreTypedTemplate() {
@@ -70,13 +62,6 @@ import Testing
         #expect(
             SubrouterMaintenanceCommand.removeAccount(provider: .claude, accountID: "a'b")
                 == "SUBROUTER_SERVER=local SUBROUTER_CODEX_SERVER=local cmux sr claude remove 'a'\\''b'"
-        )
-        #expect(
-            SubrouterMaintenanceCommand.signIn(
-                provider: .codex,
-                accountID: "a@b.com",
-                target: .server(name: "team")
-            ) == "SUBROUTER_SERVER='team' SUBROUTER_CODEX_SERVER='team' cmux sr add codex"
         )
     }
 

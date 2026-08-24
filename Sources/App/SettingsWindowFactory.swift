@@ -159,10 +159,9 @@ struct SettingsWindowHostRoot: View {
     @ViewBuilder
     private var content: some View {
         if let runtime = AppDelegate.shared?.settingsRuntime {
-            var visibleSections = Set(SettingsSectionID.allCases)
-            if !featureFlags.isSubrouterUIEnabled {
-                visibleSections.remove(.subrouter)
-            }
+            let visibleSections = Set(SettingsSectionID.allCases.filter { section in
+                section != .subrouter || featureFlags.isSubrouterUIEnabled
+            })
             SettingsWindowRoot(runtime: runtime, visibleSections: visibleSections)
                 .settingsRuntime(runtime)
         } else {

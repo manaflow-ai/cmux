@@ -41,8 +41,7 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
                     // Where the cmux CLI extracts the app-bundled subrouter
                     // binary (CLI/CMUXCLI+BundledSubrouter.swift), so
                     // switching works without a separately installed sr.
-                    (NSHomeDirectory() as NSString)
-                        .appendingPathComponent("Library/Application Support/cmux/bin"),
+                    Self.bundledSubrouterInstallDirectory.path,
                 ]
         )
         self.workingDirectory = workingDirectory
@@ -167,9 +166,10 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
         }
     }
 
-    /// Extracts the app-bundled binary into the same Application Support
-    /// directory searched by the default ``CommandRunner``. User-installed
-    /// binaries still win; this is only a fallback for a pristine install.
+    /// Extracts the app-bundled binary into the same tag-scoped Application
+    /// Support directory searched by the default ``CommandRunner``.
+    /// User-installed binaries still win; this is only a fallback for a
+    /// pristine install.
     private static func ensureBundledSubrouter() -> String? {
         guard let archiveURL = Bundle.main.url(
             forResource: "subrouter",
@@ -177,10 +177,7 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
             subdirectory: "bin"
         ) else { return nil }
         let fileManager = FileManager.default
-        let installDirectory = fileManager.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        )[0].appendingPathComponent("cmux/bin", isDirectory: true)
+        let installDirectory = bundledSubrouterInstallDirectory
         let binaryURL = installDirectory.appendingPathComponent("subrouter")
         let personaURL = installDirectory.appendingPathComponent("sr")
         let fingerprintURL = installDirectory.appendingPathComponent(".subrouter.fingerprint")
@@ -233,5 +230,37 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
             )
         }
         return fileManager.isExecutableFile(atPath: personaURL.path) ? personaURL.path : nil
+    }
+
+    /// Mirrors the CLI extraction layout so the app's switcher and `cmux sr`
+    /// resolve the same immutable binary for a given tagged app.
+    private static var bundledSubrouterInstallDirectory: URL {
+        let root = fileManagerApplicationSupportDirectory()
+            .appendingPathComponent("cmux/bin", isDirectory: true)
+        let environment = ProcessInfo.processInfo.environment
+        let raw = [
+            environment["CMUX_TAG"],
+            environment["CMUX_BUNDLE_ID"],
+            Bundle.main.bundleIdentifier,
+            "stable",
+        ]
+        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .first { !$0.isEmpty } ?? "stable"
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: ".-_"))
+        let mapped = raw.lowercased().unicodeScalars.map { scalar -> Character in
+            allowed.contains(scalar) ? Character(scalar) : "-"
+        }
+        var scope = String(mapped).replacingOccurrences(
+            of: "-+",
+            with: "-",
+            options: .regularExpression
+        )
+        scope = scope.trimmingCharacters(in: CharacterSet(charactersIn: ".-_"))
+        if scope.isEmpty { scope = "stable" }
+        return root.appendingPathComponent("scope-" + String(scope.prefix(96)), isDirectory: true)
+    }
+
+    private static func fileManagerApplicationSupportDirectory() -> URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     }
 }

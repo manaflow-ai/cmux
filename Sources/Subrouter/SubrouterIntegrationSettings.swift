@@ -74,7 +74,7 @@ struct SubrouterIntegrationSettings {
         serverSelection: SubrouterServerSelection.Server?,
         serverRegistryIsUnreadable: Bool = false
     ) -> SubrouterConfiguration {
-        let endpointSetting = (defaults.string(forKey: endpointKey) ?? "")
+        let endpointSetting = (defaults.string(forKey: Self.endpointKey) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitEndpoint = SubrouterEndpoint(configurationString: endpointSetting)
         // Fail closed on a malformed explicit endpoint: a typo in an
@@ -94,7 +94,7 @@ struct SubrouterIntegrationSettings {
         let registryBlocksConfiguration = serverRegistryIsUnreadable
             && explicitEndpoint == nil
             && serverSelection == nil
-        let commandPath = (defaults.string(forKey: commandPathKey) ?? "")
+        let commandPath = (defaults.string(forKey: Self.commandPathKey) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return SubrouterConfiguration(
             isEnabled: isEnabled
