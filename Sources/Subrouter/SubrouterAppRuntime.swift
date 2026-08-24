@@ -52,11 +52,6 @@ final class SubrouterAppRuntime {
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)
             .first?
             .appendingPathComponent("cmux/subrouter-usage-history.json")
-        // The Agents panel can switch accounts before a user has run any
-        // `cmux subrouter` command. Materialize the app-bundled `sr` binary
-        // at composition time so the injected switcher sees the same fallback
-        // executable as the CLI entrypoint.
-        _ = CMUXCLI.extractedSubrouterBinary(persona: "sr")
         store = SubrouterStore(historyStorageURL: historyURL)
         applyServerRegistryState(SubrouterIntegrationSettings.loadServerRegistryState())
         applyCurrentConfiguration()
@@ -74,7 +69,10 @@ final class SubrouterAppRuntime {
             task.cancel()
         }
         selectionRefreshTask?.cancel()
-        stopServerRegistryWatch()
+        // `deinit` is nonisolated for a main-actor class; cancelling the
+        // source directly avoids an actor hop while its cancel handler closes
+        // the descriptor.
+        serverRegistryWatch?.cancel()
     }
 
     /// Called by the footer switcher button as it appears/disappears. The

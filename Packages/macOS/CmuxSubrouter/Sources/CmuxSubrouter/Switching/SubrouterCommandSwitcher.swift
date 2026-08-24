@@ -32,6 +32,10 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
         commandRunner: (any CommandRunning)? = nil,
         workingDirectory: String = NSHomeDirectory()
     ) {
+        // The app bundle carries a pinned `subrouter.gz` even when the user
+        // has never run `cmux subrouter`. Extract it before constructing the
+        // default runner so panel/footer switches work on a fresh install.
+        _ = Self.ensureBundledSubrouter()
         self.commandRunner = commandRunner ?? CommandRunner(
             fallbackSearchDirectories: CommandRunner.defaultFallbackSearchDirectories
                 + [
@@ -114,5 +118,69 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
         Self.logger.error(
             "sr command failed: status=\(status, privacy: .public) stderr=\(stderr, privacy: .private(mask: .hash)) stdout=\(stdout, privacy: .private(mask: .hash))"
         )
+    }
+
+    /// Extracts the app-bundled binary into the same Application Support
+    /// directory searched by the default ``CommandRunner``. User-installed
+    /// binaries still win; this is only a fallback for a pristine install.
+    private static func ensureBundledSubrouter() -> String? {
+        guard let archiveURL = Bundle.main.url(
+            forResource: "subrouter",
+            withExtension: "gz",
+            subdirectory: "bin"
+        ) else { return nil }
+        let fileManager = FileManager.default
+        let installDirectory = fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0].appendingPathComponent("cmux/bin", isDirectory: true)
+        let binaryURL = installDirectory.appendingPathComponent("subrouter")
+        let personaURL = installDirectory.appendingPathComponent("sr")
+        let fingerprintURL = installDirectory.appendingPathComponent(".subrouter.fingerprint")
+        guard let attributes = try? fileManager.attributesOfItem(atPath: archiveURL.path),
+              let size = attributes[.size] as? Int64,
+              let modified = attributes[.modificationDate] as? Date else {
+            return nil
+        }
+        let fingerprint = "\(size)-\(Int(modified.timeIntervalSince1970))"
+        let current = (try? String(contentsOf: fingerprintURL, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if current != fingerprint || !fileManager.isExecutableFile(atPath: binaryURL.path) {
+            do {
+                try fileManager.createDirectory(at: installDirectory, withIntermediateDirectories: true)
+                let stagingURL = installDirectory.appendingPathComponent(
+                    ".subrouter.extracting.\(ProcessInfo.processInfo.processIdentifier)"
+                )
+                try? fileManager.removeItem(at: stagingURL)
+                defer { try? fileManager.removeItem(at: stagingURL) }
+                guard fileManager.createFile(atPath: stagingURL.path, contents: nil) else {
+                    return nil
+                }
+                let output = try FileHandle(forWritingTo: stagingURL)
+                defer { output.closeFile() }
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/gunzip")
+                process.arguments = ["-c", archiveURL.path]
+                process.standardOutput = output
+                try process.run()
+                process.waitUntilExit()
+                guard process.terminationStatus == 0 else { return nil }
+                output.closeFile()
+                try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stagingURL.path)
+                try? fileManager.removeItem(at: binaryURL)
+                try fileManager.moveItem(at: stagingURL, to: binaryURL)
+                try fingerprint.write(to: fingerprintURL, atomically: true, encoding: .utf8)
+            } catch {
+                return nil
+            }
+        }
+        if (try? fileManager.destinationOfSymbolicLink(atPath: personaURL.path)) != "subrouter" {
+            try? fileManager.removeItem(at: personaURL)
+            try? fileManager.createSymbolicLink(
+                atPath: personaURL.path,
+                withDestinationPath: "subrouter"
+            )
+        }
+        return fileManager.isExecutableFile(atPath: personaURL.path) ? personaURL.path : nil
     }
 }
