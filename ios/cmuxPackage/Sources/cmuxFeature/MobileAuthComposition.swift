@@ -37,13 +37,25 @@ public struct MobileAuthComposition {
     public let appNamespace: MobileIOSAppNamespace?
     /// Exact Keychain group claimed by this signed bundle.
     public let keychainAccessGroup: String?
-    /// The runtime Production/Staging switch surface for Settings: the ACTIVE
-    /// environment THIS composition resolved when it was built, and whether a
-    /// build-time override (`LocalConfig.plist` or an Info.plist bake) pins
-    /// this build's backend. The live switch transaction rebuilds the whole
-    /// composition after storing the override, so `active` converges to the
-    /// user's choice by re-injection from the new graph (no relaunch notice).
+    /// The runtime backend switch surface for Settings: the SELECTION this
+    /// composition resolved when it was built (`.explicit` when the wholesale
+    /// choice key was persisted, `.lane` otherwise) and this build's own lane
+    /// (what the build is baked to). The live switch transaction rebuilds the
+    /// whole composition after storing the selection, so `selection` converges
+    /// to the user's choice by re-injection from the new graph.
     public let backendEnvironmentSwitch: CMUXBackendEnvironmentSwitchState
+
+    /// The persisted explicit choice this composition resolved, or `nil` when
+    /// the build runs its own lane. Threaded into the resolvers that read
+    /// their own bakes outside the auth override table (the iroh broker base
+    /// URL, the presence service URL) so an explicit choice stays a WHOLESALE
+    /// override across every backend endpoint.
+    public var backendEnvironmentExplicitChoice: CMUXBackendEnvironmentOverride? {
+        if case .explicit(let choice) = backendEnvironmentSwitch.selection {
+            return choice
+        }
+        return nil
+    }
 
     /// iOS OAuth must not inherit Safari cookies from another cmux build.
     nonisolated static let oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .ephemeral
@@ -99,15 +111,27 @@ public struct MobileAuthComposition {
                 forInfoDictionaryKey: Self.apiBaseURLInfoPlistKey
             ) as? String
         )
-        // The Settings picker's persisted choice, read from the same injected
-        // defaults the caches use. It merges BELOW every build-time override,
-        // so tagged dev builds keep their baked isolation and the runtime
-        // switch takes effect exactly where nothing is baked (TestFlight/App
-        // Store builds).
-        let runtimeBackendOverride = CMUXBackendEnvironmentOverride.load(from: defaults)
-        let overrides = Self.mergingRuntimeBackendOverride(
-            runtimeBackendOverride,
-            into: buildOverrides
+        // Dev-rig determinism hook: the reload/launch scripts inject
+        // CMUX_DEV_CLEAR_BACKEND_ENV_CHOICE=1 (SIMCTL_CHILD_/DEVICECTL_CHILD_
+        // variants) so a persisted explicit choice from an earlier dogfood
+        // round cannot beat the freshly baked launch environment on a device,
+        // where no external `defaults delete` exists. Consumed BEFORE the
+        // choice is read, and the one-shot switch-rebuild marker goes with it
+        // (a leaked arm would suppress the next organic project-flip clear).
+        // Reads the launch environment exactly like CMUX_UITEST_CLEAR_AUTH.
+        if environment["CMUX_DEV_CLEAR_BACKEND_ENV_CHOICE"] == "1" {
+            CMUXBackendEnvironmentOverride.clearChoice(in: defaults)
+            _ = CMUXBackendEnvironmentSwitchRebuildMarker.consume(from: defaults)
+        }
+        // The Settings picker's persisted EXPLICIT choice, read from the same
+        // injected defaults the caches use. Tri-state: an absent (or
+        // unrecognized) key keeps the build's own lane byte-identical, while
+        // a persisted choice is a WHOLESALE override replacing the entire
+        // backend key set — bakes and LocalConfig included.
+        let explicitChoice = CMUXBackendEnvironmentOverride.explicitChoice(from: defaults)
+        let overrides = Self.resolvedOverrides(
+            explicitChoice: explicitChoice,
+            buildOverrides: buildOverrides
         )
         let resolvedEnvironment = Self.resolvedAuthEnvironment(
             isDevelopmentBuild: Self.isDevelopmentBuild,
@@ -119,13 +143,17 @@ public struct MobileAuthComposition {
             overrides: overrides
         )
         self.config = resolvedConfig
+        // The lane classifies from the BUILD overrides alone (the explicit
+        // choice is ignored), so it is a stable descriptor of the installed
+        // build powering the picker's "Build lane (…)" option.
+        let buildLane = Self.resolvedBackendEnvironmentBuildLane(
+            isDevelopmentBuild: Self.isDevelopmentBuild,
+            buildOverrides: buildOverrides
+        )
         self.backendEnvironmentSwitch = CMUXBackendEnvironmentSwitchState(
-            active: Self.activeBackendEnvironment(
-                resolvedAPIBaseURL: resolvedConfig.apiBaseURL
-            ),
-            isPinnedByBuild: Self.backendEnvironmentIsPinned(
-                buildOverrides: buildOverrides
-            )
+            selection: explicitChoice.map { .explicit($0) }
+                ?? .lane(resolves: buildLane.resolvedEnvironment),
+            buildLane: buildLane
         )
 
         let client = StackAuthClient(
@@ -169,9 +197,13 @@ public struct MobileAuthComposition {
         // flip (rebaked tagged build) keeps today's pinned clear semantics.
         let authProjectSwitched = Self.detectAuthProjectSwitch(
             resolvedProjectID: resolvedConfig.stack.projectId,
+            // Lane inference: the project an install with NO explicit choice
+            // would have resolved comes from the BUILD overrides (an explicit
+            // choice's fresh table must not distort what a pre-marker
+            // session could have belonged to).
             buildDefaultProjectID: AuthConfig(
                 environment: Self.isDevelopmentBuild ? .development : .production,
-                overrides: overrides
+                overrides: buildOverrides
             ).stack.projectId,
             defaults: defaults
         )
@@ -314,63 +346,91 @@ public struct MobileAuthComposition {
         return overrides
     }
 
-    /// Merge the Settings picker's persisted backend override BELOW every
-    /// build-time override: each key is contributed only when nothing already
-    /// decides it, so the per-key precedence is `LocalConfig.plist` > baked
-    /// Info.plist > runtime override > build default. Baked values are the
-    /// tagged-dev-build isolation mechanism and keep winning; TestFlight and
-    /// App Store builds bake nothing, so the runtime override applies exactly
-    /// there. A production override contributes nothing ("no key" and
-    /// production are indistinguishable by design), leaving today's
-    /// resolution byte-identical.
-    nonisolated static func mergingRuntimeBackendOverride(
-        _ backendOverride: CMUXBackendEnvironmentOverride,
-        into overrides: [String: String]
-    ) -> [String: String] {
-        guard backendOverride == .staging else { return overrides }
-        var merged = overrides
-        let contribution: [String: String] = [
-            // The staging web deployment authenticates against the
-            // development Stack project.
-            authEnvironmentOverrideKey: "development",
-            apiBaseURLOverrideKey: CMUXBackendEnvironmentOverride.stagingWebOrigin,
-            // Moves the magic-link callback with the API base, so staging
-            // magic-link emails cannot point at the per-environment default.
-            webOriginURLOverrideKey: CMUXBackendEnvironmentOverride.stagingWebOrigin,
-        ]
-        for (key, value) in contribution where merged[key] == nil {
-            merged[key] = value
-        }
-        return merged
-    }
-
-    /// Whether a build-time source (`LocalConfig.plist` or an Info.plist
-    /// bake) already decides a backend key, so the runtime override cannot
-    /// steer this build. Settings uses this to explain that a tagged dev
-    /// build's backend is pinned at build time instead of offering a picker
-    /// that would not take effect.
-    nonisolated static func backendEnvironmentIsPinned(
+    /// Resolve the override table the composition builds against.
+    ///
+    /// NO explicit choice (`nil`): the build overrides pass through
+    /// byte-identical, so tagged dev builds keep their baked isolation and
+    /// every no-choice install behaves exactly as before the wholesale
+    /// switcher existed.
+    ///
+    /// An explicit choice: a FRESH three-key table replacing the ENTIRE
+    /// build-time override surface — baked Info.plist values AND
+    /// `LocalConfig.plist` entries. Dropping LocalConfig is deliberate: no
+    /// LocalConfig.plist ships anywhere today, and a choice must be a
+    /// wholesale, atomic override so a switched build can never run half on
+    /// one environment and half on another (the mixed-environment hazard
+    /// that used to justify pinning). This also strips any
+    /// `STACK_PROJECT_ID_*` / `STACK_PUBLISHABLE_CLIENT_KEY_*` LocalConfig
+    /// overrides while a choice is active — the choice's environment
+    /// resolves the built-in Stack project for that channel — and the lane
+    /// position (clearing the choice) restores LocalConfig supremacy.
+    nonisolated static func resolvedOverrides(
+        explicitChoice: CMUXBackendEnvironmentOverride?,
         buildOverrides: [String: String]
-    ) -> Bool {
-        [
-            authEnvironmentOverrideKey,
-            apiBaseURLOverrideKey,
-            webOriginURLOverrideKey,
-        ].contains { buildOverrides[$0] != nil }
+    ) -> [String: String] {
+        guard let explicitChoice else { return buildOverrides }
+        let webOrigin: String
+        switch explicitChoice {
+        case .production:
+            webOrigin = "https://cmux.com"
+        case .staging:
+            webOrigin = CMUXBackendEnvironmentOverride.stagingWebOrigin
+        }
+        return [
+            // Staging authenticates against the development Stack project;
+            // explicit production pins the production project even on a
+            // DEBUG build.
+            authEnvironmentOverrideKey: explicitChoice == .staging
+                ? "development"
+                : "production",
+            apiBaseURLOverrideKey: webOrigin,
+            // Moves the magic-link callback with the API base, so a switched
+            // build's magic-link emails cannot point at the per-environment
+            // default.
+            webOriginURLOverrideKey: webOrigin,
+        ]
     }
 
-    /// Map the resolved web API origin back to the picker's two channels: the
-    /// staging origin means the staging backend is ACTIVE for this
-    /// composition; anything else (cmux.com, a tagged build's isolated
-    /// localhost origin, the localhost dev default) reports as production, so
-    /// the staging badge and the Settings picker key off the origin the
-    /// process actually talks to.
-    nonisolated static func activeBackendEnvironment(
-        resolvedAPIBaseURL: String
-    ) -> CMUXBackendEnvironmentOverride {
-        resolvedAPIBaseURL == CMUXBackendEnvironmentOverride.stagingWebOrigin
-            ? .staging
-            : .production
+    /// Classify this build's LANE: the backend the process resolves with NO
+    /// explicit choice, from the build-time overrides alone. The former
+    /// origin-equality active classifier survives here as the LANE
+    /// classifier: a lane whose api base resolves the staging origin is the
+    /// staging lane (device dev rigs default there), a lane resolving
+    /// cmux.com under the production Stack channel (the unpinned Release
+    /// shape) is the production lane, and every other bake — tagged dev
+    /// builds on an isolated localhost origin, untagged Debug builds on the
+    /// localhost dev default — is a custom lane labeled host[:port] of the
+    /// lane api base. Whether a backend key is baked at build time now only
+    /// feeds this classification; it is no longer a refusal.
+    nonisolated static func resolvedBackendEnvironmentBuildLane(
+        isDevelopmentBuild: Bool,
+        buildOverrides: [String: String]
+    ) -> CMUXBackendEnvironmentBuildLane {
+        let laneEnvironment = resolvedAuthEnvironment(
+            isDevelopmentBuild: isDevelopmentBuild,
+            overrides: buildOverrides
+        )
+        let laneAPIBaseURL = AuthConfig(
+            environment: laneEnvironment,
+            overrides: buildOverrides
+        ).apiBaseURL
+        if laneAPIBaseURL == CMUXBackendEnvironmentOverride.stagingWebOrigin {
+            return .staging
+        }
+        if laneEnvironment == .production, laneAPIBaseURL == "https://cmux.com" {
+            return .production
+        }
+        return .custom(label: Self.buildLaneLabel(forOrigin: laneAPIBaseURL))
+    }
+
+    /// Human label for a custom lane: host, or host:port (falls back to the
+    /// raw origin string when it does not parse as a URL with a host).
+    nonisolated private static func buildLaneLabel(forOrigin origin: String) -> String {
+        guard let url = URL(string: origin), let host = url.host else {
+            return origin
+        }
+        guard let port = url.port else { return host }
+        return "\(host):\(port)"
     }
 
     /// Resolve which Stack project this build signs in to: an explicit
@@ -478,7 +538,7 @@ public struct MobileAuthComposition {
     /// Stack-project flip keeps today's pinned clear semantics, while a
     /// backend-environment-switch rebuild (which PARKED the old session and
     /// must restore the target's parked slot) arms the one-shot marker inside
-    /// its `storeOverride` step and is suppressed here exactly once. The
+    /// its `storeSelection` step and is suppressed here exactly once. The
     /// marker is consumed unconditionally so a crash-recovered arm cannot
     /// leak into a later organic flip.
     nonisolated static func resolvedClearStaleAuthOnLaunch(

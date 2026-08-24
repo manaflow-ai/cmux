@@ -7056,6 +7056,23 @@
         }
       }
     },
+    "mobile.settings.backend.buildLaneOption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Build lane (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビルドレーン（%@）"
+          }
+        }
+      }
+    },
     "mobile.settings.backend.confirmAction": {
       "extractionState": "manual",
       "localizations": {
@@ -7090,6 +7107,23 @@
         }
       }
     },
+    "mobile.settings.backend.confirmMessageLane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your %1$@ session is kept on this iPhone, and cmux returns to what this build is baked to (%2$@). Each environment has separate accounts and data."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@のセッションはこのiPhoneに保持され、cmuxはこのビルドに組み込まれた環境（%2$@）に戻ります。環境ごとにアカウントとデータは別々です。"
+          }
+        }
+      }
+    },
     "mobile.settings.backend.confirmTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -7103,6 +7137,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ に切り替えますか？"
+          }
+        }
+      }
+    },
+    "mobile.settings.backend.confirmTitleLane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch back to the build lane (%@)?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビルドレーン（%@）に戻しますか？"
           }
         }
       }
@@ -7175,19 +7226,19 @@
         }
       }
     },
-    "mobile.settings.backend.pinnedFooter": {
+    "mobile.settings.backend.laneFooter": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This build's backend is pinned at build time. The environment choice takes effect only in TestFlight and App Store builds."
+            "value": "This build's own lane is %@, baked in at build time. The build lane option returns to it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このビルドのバックエンドはビルド時に固定されています。環境の選択は TestFlight および App Store ビルドでのみ有効です。"
+            "value": "このビルド自体のレーンは%@で、ビルド時に組み込まれています。ビルドレーンの選択肢でそこに戻ります。"
           }
         }
       }
@@ -7409,6 +7460,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "現在 %@ を使用しています。"
+          }
+        }
+      }
+    },
+    "mobile.settings.backend.switchedLane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Now on the build lane (%@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在ビルドレーン（%@）を使用しています。"
           }
         }
       }

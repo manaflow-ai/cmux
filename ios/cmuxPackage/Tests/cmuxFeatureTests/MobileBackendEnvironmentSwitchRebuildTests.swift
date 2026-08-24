@@ -19,11 +19,11 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
 /// session instead of clearing it, while an organic Stack-project flip (a
 /// tagged Debug bundle rebaked with different auth) keeps today's pinned
 /// clear semantics. The switch transaction arms
-/// `CMUXBackendEnvironmentSwitchRebuildMarker` inside every `storeOverride`
-/// step (both directions, including a revert's), and the composition consumes
-/// it where `clearStaleAuthOnLaunch` is computed — `detectAuthProjectSwitch`
-/// still RUNS (it must update the stored project id); only its verdict is
-/// suppressed, exactly once.
+/// `CMUXBackendEnvironmentSwitchRebuildMarker` inside every `storeSelection`
+/// step (explicit stores and lane clears alike, including a revert's), and
+/// the composition consumes it where `clearStaleAuthOnLaunch` is computed —
+/// `detectAuthProjectSwitch` still RUNS (it must update the stored project
+/// id); only its verdict is suppressed, exactly once.
 @MainActor
 @Suite struct MobileBackendEnvironmentSwitchRebuildTests {
     /// The production Stack project id (`CmuxAuthRuntime.AuthConfig`).
@@ -66,7 +66,7 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
     // MARK: - The clear verdict seam
 
     @Test func organicProjectFlipStillRequestsTheClear() throws {
-        // Today's pinned semantics: a project flip with NO armed marker (a
+        // Pinned semantics: a project flip with NO armed marker (a
         // rebaked tagged build, a STACK_PROJECT_ID_* change) always clears.
         let defaults = try freshDefaults()
         #expect(MobileAuthComposition.resolvedClearStaleAuthOnLaunch(
@@ -77,7 +77,7 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
 
     @Test func armedMarkerSuppressesTheSwitchRebuildClearExactlyOnce() throws {
         let defaults = try freshDefaults()
-        // The transaction's storeOverride step armed the marker; the rebuild
+        // The transaction's storeSelection step armed the marker; the rebuild
         // over the flipped project must NOT clear (it must restore the
         // target's parked slot instead).
         CMUXBackendEnvironmentSwitchRebuildMarker.arm(in: defaults)
@@ -160,13 +160,13 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
             defaults: defaults
         ) == false)
 
-        // The transaction's storeOverride (commit) step: override + marker.
-        CMUXBackendEnvironmentOverride.staging.store(in: defaults)
+        // The transaction's storeSelection (commit) step: choice + marker.
+        CMUXBackendEnvironmentOverride.staging.storeChoice(in: defaults)
         CMUXBackendEnvironmentSwitchRebuildMarker.arm(in: defaults)
 
-        let rebuiltOverrides = MobileAuthComposition.mergingRuntimeBackendOverride(
-            CMUXBackendEnvironmentOverride.load(from: defaults),
-            into: launchOverrides
+        let rebuiltOverrides = MobileAuthComposition.resolvedOverrides(
+            explicitChoice: CMUXBackendEnvironmentOverride.explicitChoice(from: defaults),
+            buildOverrides: launchOverrides
         )
         let rebuiltProjectID = AuthConfig(
             environment: MobileAuthComposition.resolvedAuthEnvironment(

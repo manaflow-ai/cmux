@@ -13,13 +13,14 @@ import CMUXAuthCore
 /// host explicitly chooses what each path does.
 struct MobileAccountSignOutActions {
     /// The root's confirming sign-out choke point (the same path every
-    /// chrome sign-out button takes): on staging it first warns that signing
-    /// out returns this iPhone to Production.
+    /// chrome sign-out button takes): on explicit staging it first warns
+    /// that signing out returns this iPhone to its build lane (Production on
+    /// every unpinned build).
     let interactive: @MainActor @Sendable () -> Void
     /// The root's direct sign-out chain for a just-deleted account: skips
     /// the staging warning (the account is gone; there is nothing left to
-    /// keep a staging session for) but still chains the return to
-    /// Production when the device is on staging.
+    /// keep a staging session for) but still chains the return to the lane
+    /// when the device is on explicit staging.
     let direct: @MainActor @Sendable () -> Void
 
     init(
@@ -38,11 +39,13 @@ struct MobileAccountSignOutActions {
 }
 
 /// Pure routing for a sign-out request against the active backend
-/// environment, extracted from `CMUXMobileRootView` so the per-environment
-/// interception matrix is directly testable: staging warns before an
-/// interactive sign-out and chains the return to Production, production
-/// never warns and never chains, and the delete-account direct path skips
-/// the warning but still chains.
+/// SELECTION, extracted from `CMUXMobileRootView` so the per-environment
+/// interception matrix is directly testable: ONLY explicit staging warns
+/// before an interactive sign-out and chains the return to the build's lane;
+/// a staging-LANE build keeps plain sign-outs (its home IS staging — a
+/// dev-rig sign-out must stay a plain sign-out), production never warns and
+/// never chains, and the delete-account direct path skips the warning but
+/// still chains.
 enum MobileSignOutInterception {
     /// How the sign-out was requested.
     enum Request: Equatable {
@@ -56,40 +59,42 @@ enum MobileSignOutInterception {
 
     /// What the root does with the request.
     enum Route: Equatable {
-        /// Run the sign-out chain now. `returnsToProduction` chains the
-        /// backend switch back to Production after the sign-out completes
-        /// (parking the just-signed-out coordinator is a safe no-op, and the
-        /// production restore never gates or prompts).
-        case perform(returnsToProduction: Bool)
+        /// Run the sign-out chain now. `returnsToLane` chains the backend
+        /// switch back to the build's LANE after the sign-out completes
+        /// (parking the just-signed-out coordinator is a safe no-op, and a
+        /// lane target never gates or prompts; on an unpinned build the lane
+        /// is production, so this is the identical return-to-production
+        /// behavior).
+        case perform(returnsToLane: Bool)
         /// Present the staging warning first; the confirmed sign-out then
-        /// routes as `.perform(returnsToProduction: true)` via
+        /// routes as `.perform(returnsToLane: true)` via
         /// ``confirmedStagingRoute``.
         case confirmStagingFirst
     }
 
-    /// Route one request. Sign-out is per-environment: only an ACTIVE
-    /// staging environment intercepts or chains anything; production keeps
-    /// the plain chain untouched.
+    /// Route one request. Sign-out is per-environment and keyed on the
+    /// SELECTION: only `.explicit(.staging)` intercepts or chains anything;
+    /// every lane selection (a staging lane included) and explicit
+    /// production keep the plain chain untouched.
     static func route(
         for request: Request,
-        active: CMUXBackendEnvironmentOverride
+        selection: CMUXBackendEnvironmentSelection
     ) -> Route {
-        guard active == .staging else {
-            return .perform(returnsToProduction: false)
+        guard selection == .explicit(.staging) else {
+            return .perform(returnsToLane: false)
         }
         switch request {
         case .interactive:
             return .confirmStagingFirst
         case .direct:
-            return .perform(returnsToProduction: true)
+            return .perform(returnsToLane: true)
         }
     }
 
     /// The route a CONFIRMED staging warning resolves to: the real sign-out
     /// under the staging defaults (revocation hits staging), then the
-    /// chained switch back to Production restoring the parked production
-    /// session.
+    /// chained switch back to the build's lane restoring its parked session.
     static var confirmedStagingRoute: Route {
-        .perform(returnsToProduction: true)
+        .perform(returnsToLane: true)
     }
 }

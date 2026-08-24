@@ -1,10 +1,12 @@
+public import CMUXAuthCore
 public import Foundation
 
 /// Service-resolution members: which presence service (the `workers/presence`
 /// Cloudflare Worker) this app talks to. Mirrors the Mac's `PresenceSettings`
-/// resolution: an env override wins (dev/tagged builds), then the defaults
-/// key, then the worker matching the resolved auth channel (development or
-/// production).
+/// resolution: an explicit persisted backend-environment choice heads
+/// everything (wholesale override), then an env override (dev/tagged builds),
+/// then the defaults key, then the worker matching the resolved auth channel
+/// (development or production).
 extension PresenceClient {
     /// Env override, mirroring the Mac's `CMUX_PRESENCE_BASE_URL`.
     public static let serviceURLEnvKey = "CMUX_PRESENCE_BASE_URL"
@@ -24,11 +26,19 @@ extension PresenceClient {
     /// subscribes to the same presence service stable Macs heartbeat to.
     public static let productionServiceURL = "https://presence.cmux.dev"
 
-    /// The presence service base URL for this process. Override precedence: env,
-    /// then UserDefaults, then the baked Info.plist value, then the build default
+    /// The presence service base URL for this process. Override precedence:
+    /// the explicit persisted backend-environment choice, then env, then
+    /// UserDefaults, then the baked Info.plist value, then the build default
     /// (dev worker on Debug, production worker on Release). Never `nil` now — the
     /// phone always has a presence service to subscribe to; whether a given Mac
     /// shows up depends on that Mac heartbeating (mobile enabled) to the same one.
+    ///
+    /// `explicitChoice` (threaded from the composition root, which resolved
+    /// the persisted choice) is a WHOLESALE override and therefore heads
+    /// every other tier — including the env var and baked Info.plist values
+    /// tagged dev rigs use: explicit staging signs into the dev Stack
+    /// project, which only the dev/staging worker verifies; explicit
+    /// production is the production worker.
     ///
     /// The default follows the AUTH CHANNEL when the composition root supplies
     /// one (`isDevelopmentAuthChannel`), not just the build config: each worker
@@ -42,8 +52,14 @@ extension PresenceClient {
         defaults: UserDefaults = .standard,
         infoPlistValue: String? = Bundle.main.object(forInfoDictionaryKey: serviceURLInfoPlistKey) as? String,
         isDebugBuild: Bool = PresenceClient.isDebugBuild,
-        isDevelopmentAuthChannel: Bool? = nil
+        isDevelopmentAuthChannel: Bool? = nil,
+        explicitChoice: CMUXBackendEnvironmentOverride? = nil
     ) -> String? {
+        if let explicitChoice {
+            return explicitChoice == .staging
+                ? debugDefaultServiceURL
+                : productionServiceURL
+        }
         let override = environment[serviceURLEnvKey]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             ?? defaults.string(forKey: serviceURLDefaultsKey)?

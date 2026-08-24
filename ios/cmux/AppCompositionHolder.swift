@@ -14,9 +14,11 @@ import cmuxFeature
 /// new graph, which is what replaces the old "close and reopen cmux" step.
 /// The switch itself runs through the shared
 /// ``CmuxAuthRuntime/BackendEnvironmentSwitchTransaction`` so the ordering
-/// invariant (PARK the session under the OLD defaults → quiesce → store
-/// override → rebuild → establish a session on the target) has a single owner
-/// across both apps.
+/// invariant (PARK the session under the OLD defaults → quiesce → store the
+/// selection → rebuild → establish a session on the target) has a single
+/// owner across both apps. Targets are SELECTIONS: an explicit choice
+/// persists its raw value, a lane target clears the key, and the no-op guard
+/// compares selection identity.
 @MainActor
 @Observable
 final class AppCompositionHolder {
@@ -56,10 +58,11 @@ final class AppCompositionHolder {
         appDelegate.analytics = root.analytics.emitter
     }
 
-    /// Performs one live switch to `target` through the shared transaction.
-    /// Concurrent calls join the in-flight run; pinned builds and no-op
-    /// targets are refused by the engine's guards.
-    func performBackendSwitch(to target: CMUXBackendEnvironmentOverride) async {
+    /// Performs one live switch to the `target` SELECTION through the shared
+    /// transaction. Concurrent calls join the in-flight run; a no-op target
+    /// (same selection identity — so a staging-LANE build may still pick
+    /// explicit staging) is refused by the engine's guard.
+    func performBackendSwitch(to target: CMUXBackendEnvironmentSelection) async {
         await switchTransaction.run(to: target, steps: makeSwitchSteps())
     }
 
@@ -72,11 +75,9 @@ final class AppCompositionHolder {
     /// second caller can never act on a stale graph.
     private func makeSwitchSteps() -> BackendEnvironmentSwitchTransaction.Steps {
         BackendEnvironmentSwitchTransaction.Steps(
-            isPinnedByBuild: { [weak self] in
-                self?.root.auth.backendEnvironmentSwitch.isPinnedByBuild ?? true
-            },
-            activeEnvironment: { [weak self] in
-                self?.root.auth.backendEnvironmentSwitch.active ?? .production
+            activeSelection: { [weak self] in
+                self?.root.auth.backendEnvironmentSwitch.selection
+                    ?? .lane(resolves: .production)
             },
             parkSession: { [weak self] in
                 guard let root = self?.root else { return }
@@ -97,12 +98,22 @@ final class AppCompositionHolder {
             quiesce: { [weak self] in
                 await self?.root.shutdown()
             },
-            storeOverride: { target in
-                target.store(in: .standard)
-                // EVERY committed override (including a revert's) arms the
-                // one-shot suppression so the immediate rebuild — or the next
-                // launch after a crash — restores the target's PARKED slot
-                // instead of running the organic project-flip clear.
+            storeSelection: { target in
+                // The commit point: an explicit choice persists its raw value
+                // (production included — tri-state), a lane target clears the
+                // key so the build's own bake resolves again.
+                switch target {
+                case .explicit(let choice):
+                    choice.storeChoice(in: .standard)
+                case .lane:
+                    CMUXBackendEnvironmentOverride.clearChoice(in: .standard)
+                }
+                // EVERY committed selection (including a revert's, and lane
+                // clears — a lane↔explicit flip can change the Stack project
+                // too) arms the one-shot suppression so the immediate rebuild
+                // — or the next launch after a crash — restores the target's
+                // PARKED slot instead of running the organic project-flip
+                // clear.
                 CMUXBackendEnvironmentSwitchRebuildMarker.arm(in: .standard)
             },
             rebuild: { [weak self] _ in

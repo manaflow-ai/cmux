@@ -3,30 +3,34 @@ import Foundation
 /// The runtime backend-environment switch surface a composition root hands to
 /// Settings.
 ///
-/// ``active`` is the environment the owning composition resolved when it was
-/// built. The live switch transaction (sign out under the old environment,
-/// quiesce the old graph, store the override, rebuild the composition) replaces
-/// the whole root, so `active` converges to the user's choice by re-injection
-/// from the new root; there is no pending/relaunch divergence left to display,
-/// and the persisted override is written only by the transaction's commit
-/// step, never by the picker directly. ``isPinnedByBuild`` reports that a
-/// build-time override (`LocalConfig.plist` or a baked Info.plist value)
-/// already decides a backend key, so the runtime override cannot steer this
-/// build; the picker explains the pin instead.
+/// ``selection`` is the backend selection the owning composition resolved when
+/// it was built: `.explicit` when the wholesale choice key was persisted,
+/// `.lane` otherwise. The live switch transaction (park the session under the
+/// old defaults, quiesce the old graph, store the selection, rebuild the
+/// composition) replaces the whole root, so `selection` converges to the
+/// user's choice by re-injection from the new root; the persisted choice is
+/// written only by the transaction's commit step, never by the picker
+/// directly. ``buildLane`` is the build's own lane — what this install is
+/// baked to when NO explicit choice is persisted — classified once per build
+/// pass from the build-time overrides alone. It powers the picker's option-set
+/// rule (a production-lane build keeps the two-position picker; every other
+/// lane adds a "Build lane (…)" position) and the lane footer that explains
+/// the bake. There is no pinned/refusal state left: an explicit choice is a
+/// wholesale override that beats every bake, so the picker always works.
 public struct CMUXBackendEnvironmentSwitchState: Equatable, Sendable {
-    /// The backend environment the owning composition root resolved.
-    public let active: CMUXBackendEnvironmentOverride
+    /// The backend selection the owning composition root resolved.
+    public let selection: CMUXBackendEnvironmentSelection
 
-    /// Whether `LocalConfig.plist` or a baked Info.plist value pins a backend
-    /// key for this build, shadowing the runtime override (tagged dev builds).
-    public let isPinnedByBuild: Bool
+    /// The build's own lane (the backend resolved with no explicit choice),
+    /// classified from build-time overrides with the choice ignored.
+    public let buildLane: CMUXBackendEnvironmentBuildLane
 
     /// Creates the switch state for one composition root.
     public init(
-        active: CMUXBackendEnvironmentOverride,
-        isPinnedByBuild: Bool
+        selection: CMUXBackendEnvironmentSelection,
+        buildLane: CMUXBackendEnvironmentBuildLane
     ) {
-        self.active = active
-        self.isPinnedByBuild = isPinnedByBuild
+        self.selection = selection
+        self.buildLane = buildLane
     }
 }

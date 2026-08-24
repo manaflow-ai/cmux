@@ -77,6 +77,13 @@ private struct AppCompositionRootHost: View {
     /// Mirrors the transaction phase into the Settings-facing action value;
     /// reading `switchTransaction.phase` here re-injects a fresh action on
     /// every phase change so the picker disables while a switch runs.
+    ///
+    /// The picker option maps to the host SELECTION here (the app-root
+    /// equivalent of macOS `HostAccountFlow.hostSelection(from:)`):
+    /// `.buildLane` is the lane, and on a PRODUCTION lane the picker's
+    /// "Production" option also maps to the lane (clearChoice — the key stays
+    /// absent, preserving the two-position picker's pre-tri-state semantics),
+    /// while on any other lane "Production" is the explicit wholesale choice.
     private var backendEnvironmentSwitchAction: BackendEnvironmentSwitchAction {
         let phase: BackendEnvironmentSwitchAction.Phase
         switch composition.switchTransaction.phase {
@@ -89,7 +96,21 @@ private struct AppCompositionRootHost: View {
         }
         let composition = composition
         return BackendEnvironmentSwitchAction(phase: phase) { target in
-            Task { await composition.performBackendSwitch(to: target) }
+            // The lane is read at begin time from the CURRENT root, so a
+            // second switch after a rebuild maps against live state.
+            let lane = composition.root.auth.backendEnvironmentSwitch.buildLane
+            let hostTarget: CMUXBackendEnvironmentSelection
+            switch target {
+            case .buildLane:
+                hostTarget = .lane(resolves: lane.resolvedEnvironment)
+            case .production:
+                hostTarget = lane == .production
+                    ? .lane(resolves: .production)
+                    : .explicit(.production)
+            case .staging:
+                hostTarget = .explicit(.staging)
+            }
+            Task { await composition.performBackendSwitch(to: hostTarget) }
         }
     }
 
@@ -176,11 +197,13 @@ private struct BackendEnvironmentSwitchOverlay: View {
             case .parking, .retargeting, .reverting:
                 blockingProgress(phase: transaction.phase)
             case .establishing:
-                // Only a gated target waits on a sign-in; production's
+                // Only a gated target waits on a sign-in; an ungated target's
                 // establishing is just its parked-slot restore and needs no
-                // overlay (and must not offer a "Back to Production" revert
-                // of a switch TO production).
-                if composition.root.auth.backendEnvironmentSwitch.active.requiresGatedSession {
+                // overlay (and must not offer a revert of a switch TO it).
+                // After the rebuild the CURRENT root's selection IS the
+                // target, and only explicit staging gates — a staging LANE
+                // never does.
+                if composition.root.auth.backendEnvironmentSwitch.selection.requiresGatedSession {
                     establishingBanner(transaction: transaction)
                 }
             case .finished(let outcome):
@@ -307,13 +330,24 @@ private struct BackendEnvironmentSwitchOverlay: View {
 
     /// The outcome copy, formatted with the environment the REBUILT root
     /// resolved: after a switch that is the user's choice, after a revert it
-    /// is the previous environment the run restored.
+    /// is the previous environment the run restored. A switch that landed on
+    /// the LANE selection names the lane (its bake), not just the resolved
+    /// environment.
     private func outcomeText(
         _ outcome: BackendEnvironmentSwitchTransaction.Outcome
     ) -> String {
         let name = activeEnvironmentName
         switch outcome {
         case .switched:
+            if case .lane = composition.root.auth.backendEnvironmentSwitch.selection {
+                return String(
+                    format: L10n.string(
+                        "mobile.settings.backend.switchedLane",
+                        defaultValue: "Now on the build lane (%@)."
+                    ),
+                    buildLaneLabel
+                )
+            }
             return String(
                 format: L10n.string(
                     "mobile.settings.backend.switched",
@@ -349,11 +383,24 @@ private struct BackendEnvironmentSwitchOverlay: View {
     }
 
     private var activeEnvironmentName: String {
-        switch composition.root.auth.backendEnvironmentSwitch.active {
+        switch composition.root.auth.backendEnvironmentSwitch.selection.resolvedEnvironment {
         case .production:
             L10n.string("mobile.settings.backend.production", defaultValue: "Production")
         case .staging:
             L10n.string("mobile.settings.backend.staging", defaultValue: "Staging")
+        }
+    }
+
+    /// The human name substituted into "Now on the build lane (%@)." — the
+    /// lane's environment name, or a custom lane's baked host[:port] label.
+    private var buildLaneLabel: String {
+        switch composition.root.auth.backendEnvironmentSwitch.buildLane {
+        case .production:
+            L10n.string("mobile.settings.backend.production", defaultValue: "Production")
+        case .staging:
+            L10n.string("mobile.settings.backend.staging", defaultValue: "Staging")
+        case .custom(let label):
+            label
         }
     }
 }

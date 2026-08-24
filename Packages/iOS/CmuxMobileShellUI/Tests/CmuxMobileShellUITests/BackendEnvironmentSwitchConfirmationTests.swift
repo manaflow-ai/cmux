@@ -3,17 +3,53 @@ import CMUXAuthCore
 import Testing
 @testable import CmuxMobileShellUI
 
+/// The picker's option-set rule: a production-lane build keeps the
+/// two-position Production/Staging picker (its "Production" maps to the lane
+/// in the app root), every other lane adds a "Build lane (…)" position ahead
+/// of the explicit pair.
+@Suite
+struct MobileBackendEnvironmentSelectionOptionSetTests {
+    @Test
+    func productionLaneKeepsTheTwoPositionPicker() {
+        #expect(MobileBackendEnvironmentSelection.pickerOptions(for: .production)
+            == [.production, .staging])
+    }
+
+    @Test
+    func nonProductionLanesAddTheBuildLanePosition() {
+        #expect(MobileBackendEnvironmentSelection.pickerOptions(for: .staging)
+            == [.buildLane, .production, .staging])
+        #expect(MobileBackendEnvironmentSelection.pickerOptions(
+            for: .custom(label: "localhost:9450")
+        ) == [.buildLane, .production, .staging])
+    }
+
+    @Test
+    func optionsResolveTheirEnvironmentAgainstTheLane() {
+        // The lane option resolves whatever the lane resolves; the explicit
+        // options are lane-independent.
+        #expect(MobileBackendEnvironmentSelection.buildLane
+            .resolvedEnvironment(lane: .staging) == .staging)
+        #expect(MobileBackendEnvironmentSelection.buildLane
+            .resolvedEnvironment(lane: .custom(label: "localhost:9450")) == .production)
+        #expect(MobileBackendEnvironmentSelection.production
+            .resolvedEnvironment(lane: .staging) == .production)
+        #expect(MobileBackendEnvironmentSelection.staging
+            .resolvedEnvironment(lane: .production) == .staging)
+    }
+}
+
 /// The confirmation seam behind the Settings backend picker: flipping the
 /// picker must never invoke the switch action by itself, confirming invokes it
 /// exactly once with the parked target, and cancelling reverts the visible
-/// selection to the active environment.
+/// selection to the active option.
 @Suite
 struct BackendEnvironmentSwitchConfirmationTests {
     @MainActor
     private final class SwitchInvocationRecorder {
-        private(set) var targets: [CMUXBackendEnvironmentOverride] = []
+        private(set) var targets: [MobileBackendEnvironmentSelection] = []
 
-        func record(_ target: CMUXBackendEnvironmentOverride) {
+        func record(_ target: MobileBackendEnvironmentSelection) {
             targets.append(target)
         }
 
@@ -67,7 +103,7 @@ struct BackendEnvironmentSwitchConfirmationTests {
         confirmation.cancel()
 
         #expect(confirmation.pendingTarget == nil)
-        // The picker snaps back to the active environment.
+        // The picker snaps back to the active option.
         #expect(confirmation.selection(active: .production) == .production)
         #expect(recorder.targets.isEmpty)
         _ = recorder.action
@@ -75,7 +111,7 @@ struct BackendEnvironmentSwitchConfirmationTests {
 
     @Test
     @MainActor
-    func reselectingTheActiveEnvironmentClearsThePendingTarget() {
+    func reselectingTheActiveOptionClearsThePendingTarget() {
         var confirmation = BackendEnvironmentSwitchConfirmation()
         confirmation.select(.staging, active: .production)
         #expect(confirmation.pendingTarget == .staging)
@@ -96,6 +132,28 @@ struct BackendEnvironmentSwitchConfirmationTests {
 
         confirmation.confirm(using: nil)
 
+        #expect(confirmation.pendingTarget == nil)
+    }
+
+    @Test
+    @MainActor
+    func buildLaneTargetRoutesThroughTheSameDialogMachinery() {
+        // A device-lane pick in reverse: from explicit staging back to the
+        // build lane option on a non-production-lane build. The lane target
+        // parks behind the dialog and only confirm begins the switch —
+        // exactly once, to `.buildLane` (the app root maps it to clearing
+        // the choice).
+        let recorder = SwitchInvocationRecorder()
+        var confirmation = BackendEnvironmentSwitchConfirmation()
+
+        confirmation.select(.buildLane, active: .staging)
+
+        #expect(confirmation.pendingTarget == .buildLane)
+        #expect(recorder.targets.isEmpty)
+
+        confirmation.confirm(using: recorder.action)
+
+        #expect(recorder.targets == [.buildLane])
         #expect(confirmation.pendingTarget == nil)
     }
 

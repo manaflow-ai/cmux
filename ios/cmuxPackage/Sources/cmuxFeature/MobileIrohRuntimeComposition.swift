@@ -1,3 +1,4 @@
+public import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
 public import CmuxIrohTransport
@@ -268,12 +269,18 @@ public final class MobileIrohRuntimeComposition:
     ///
     /// - Parameters:
     ///   - apiBaseURL: The authenticated cmux web API origin.
+    ///   - backendEnvironmentExplicitChoice: The persisted explicit backend
+    ///     environment choice the auth composition resolved, or `nil` on the
+    ///     build's own lane. An explicit choice is a WHOLESALE override, so
+    ///     it heads the broker base-URL resolution above the baked
+    ///     `CMUXIrohBrokerBaseURL` Info.plist value.
     ///   - reachability: The process-wide network path observer.
     ///   - defaults: This app installation's defaults domain.
     ///   - infoDictionary: Build metadata used to derive tagged-build scope.
     ///   - bundleIdentifier: The installed app identifier used as a scope fallback.
     public convenience init(
         apiBaseURL: String,
+        backendEnvironmentExplicitChoice: CMUXBackendEnvironmentOverride? = nil,
         reachability: any ReachabilityProviding,
         discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
         defaults: UserDefaults = .standard,
@@ -309,6 +316,7 @@ public final class MobileIrohRuntimeComposition:
         #endif
         let baseURL = Self.resolvedBrokerBaseURL(
             apiBaseURL: apiBaseURL,
+            explicitChoice: backendEnvironmentExplicitChoice,
             infoDictionary: infoDictionary,
             bundleIdentifier: bundleIdentifier,
             allowsLoopback: allowsLoopbackBrokerOrigin
@@ -2420,10 +2428,23 @@ public final class MobileIrohRuntimeComposition:
 
     static func resolvedBrokerBaseURL(
         apiBaseURL: String,
+        explicitChoice: CMUXBackendEnvironmentOverride? = nil,
         infoDictionary: [String: Any]?,
         bundleIdentifier: String? = nil,
         allowsLoopback: Bool = true
     ) -> URL? {
+        // An explicit persisted environment choice is a WHOLESALE override:
+        // it heads this resolution ABOVE the baked CMUXIrohBrokerBaseURL, so
+        // a switched build's broker follows the chosen backend instead of the
+        // rig's bake. Each environment's web deployment serves its own broker.
+        if let explicitChoice {
+            switch explicitChoice {
+            case .production:
+                return URL(string: "https://cmux.com")
+            case .staging:
+                return URL(string: CMUXBackendEnvironmentOverride.stagingWebOrigin)
+            }
+        }
         if let baked = infoDictionary?["CMUXIrohBrokerBaseURL"] as? String {
             let trimmed = baked.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {

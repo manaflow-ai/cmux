@@ -524,6 +524,11 @@ extension AppCompositionRoot {
         )
         let iroh = MobileIrohRuntimeComposition(
             apiBaseURL: auth.config.apiBaseURL,
+            // An explicit persisted environment choice is a WHOLESALE
+            // override: the broker resolution must follow it above the baked
+            // CMUXIrohBrokerBaseURL, or a switched build would pair against
+            // the rig's baked broker while auth talks to the chosen backend.
+            backendEnvironmentExplicitChoice: auth.backendEnvironmentExplicitChoice,
             reachability: reachability,
             discoveryCompatibilityPolicy: buildCompatibilityPolicy,
             appNamespace: auth.appNamespace,
@@ -532,7 +537,8 @@ extension AppCompositionRoot {
         )
         let connectivityInvalidationServiceURL = PresenceClient
             .resolvedServiceBaseURL(
-                isDevelopmentAuthChannel: auth.authEnvironment == .development
+                isDevelopmentAuthChannel: auth.authEnvironment == .development,
+                explicitChoice: auth.backendEnvironmentExplicitChoice
             )
         let connectivityInvalidationBaseURL = connectivityInvalidationServiceURL
             .flatMap { URL(string: $0) }

@@ -78,10 +78,11 @@ struct MobileSettingsView: View {
 
                 MobileSettingsAccountSection(signOutActions: signOutActions)
 
-                // Runtime Production/Staging backend switch, applied on the
-                // next launch. The section gates its own visibility (team
-                // accounts, DEBUG builds, or an existing non-production
-                // override) and explains build-time pins.
+                // Live runtime backend switch (build lane / Production /
+                // Staging). The section gates its own visibility (team
+                // accounts, DEBUG builds, or a selection resolving staging)
+                // and explains the build's lane; an explicit choice is a
+                // wholesale override, so nothing is pinned.
                 if let backendEnvironmentSwitch {
                     MobileBackendEnvironmentSection(state: backendEnvironmentSwitch)
                 }
@@ -478,7 +479,9 @@ struct MobileSettingsView: View {
 
                     // Like the dev tag in the version string, a non-default
                     // backend must be visible at a glance when reading builds.
-                    if backendEnvironmentSwitch?.active == .staging {
+                    // Keys on the RESOLVED environment: a staging-lane build
+                    // is on staging just like an explicit staging choice.
+                    if backendEnvironmentSwitch?.selection.resolvedEnvironment == .staging {
                         LabeledContent {
                             Text(L10n.string(
                                 "mobile.settings.backend.staging",

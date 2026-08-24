@@ -284,8 +284,10 @@ struct CMUXMobileRootView: View {
         .animation(.snappy(duration: 0.18), value: store.phase)
         #if os(iOS)
         // Per-environment sign-out interception: an interactive sign-out on
-        // staging warns that it returns this iPhone to Production before the
-        // real sign-out chain runs.
+        // EXPLICIT staging warns that it returns this iPhone to its build
+        // lane (Production on every unpinned build) before the real sign-out
+        // chain runs. Lane selections — a staging-lane dev rig included —
+        // never reach this alert.
         .alert(
             L10n.string(
                 "mobile.signOut.stagingConfirmTitle",
@@ -307,9 +309,9 @@ struct CMUXMobileRootView: View {
                 ),
                 role: .destructive
             ) {
-                guard case .perform(let returnsToProduction) =
+                guard case .perform(let returnsToLane) =
                     MobileSignOutInterception.confirmedStagingRoute else { return }
-                performSignOut(returnsToProduction: returnsToProduction)
+                performSignOut(returnsToLane: returnsToLane)
             }
         } message: {
             Text(L10n.string(
@@ -1307,45 +1309,46 @@ struct CMUXMobileRootView: View {
 
     /// The ONE interactive sign-out choke point (Settings account section,
     /// workspace-list chrome menu, disconnected shell, recovery banners all
-    /// land here). Sign-out is per-environment: on production it is the
-    /// plain chain; on staging it first presents the root-view warning that
-    /// signing out returns this iPhone to Production, and the confirmed
-    /// sign-out chains the switch back (restoring the parked production
-    /// session — production never gates, so the chain can't prompt).
+    /// land here). Sign-out is per-environment and keyed on the SELECTION:
+    /// only EXPLICIT staging presents the root-view warning that signing out
+    /// returns this iPhone to its build lane, then chains the switch back
+    /// (restoring the lane's parked session — a lane target never gates, so
+    /// the chain can't prompt). Every lane selection — a staging-LANE dev
+    /// rig included — and explicit production keep the plain chain.
     private func signOut() {
         #if os(iOS)
         switch MobileSignOutInterception.route(
             for: .interactive,
-            active: backendEnvironmentSwitch?.active ?? .production
+            selection: backendEnvironmentSwitch?.selection ?? .lane(resolves: .production)
         ) {
         case .confirmStagingFirst:
             isConfirmingStagingSignOut = true
-        case .perform(let returnsToProduction):
-            performSignOut(returnsToProduction: returnsToProduction)
+        case .perform(let returnsToLane):
+            performSignOut(returnsToLane: returnsToLane)
         }
         #else
-        performSignOut(returnsToProduction: false)
+        performSignOut(returnsToLane: false)
         #endif
     }
 
     /// The post-account-deletion sign-out: the account no longer exists, so
-    /// the staging warning is skipped, but a staging device still chains the
-    /// return to Production. Handed to Settings through
+    /// the staging warning is skipped, but an explicit-staging device still
+    /// chains the return to its build lane. Handed to Settings through
     /// ``MobileAccountSignOutActions/direct``.
     private func signOutDirectAfterAccountDeletion() {
         #if os(iOS)
         switch MobileSignOutInterception.route(
             for: .direct,
-            active: backendEnvironmentSwitch?.active ?? .production
+            selection: backendEnvironmentSwitch?.selection ?? .lane(resolves: .production)
         ) {
         case .confirmStagingFirst:
             // Unreachable: the direct request never routes to the warning.
             isConfirmingStagingSignOut = true
-        case .perform(let returnsToProduction):
-            performSignOut(returnsToProduction: returnsToProduction)
+        case .perform(let returnsToLane):
+            performSignOut(returnsToLane: returnsToLane)
         }
         #else
-        performSignOut(returnsToProduction: false)
+        performSignOut(returnsToLane: false)
         #endif
     }
 
@@ -1359,11 +1362,12 @@ struct CMUXMobileRootView: View {
         )
     }
 
-    /// The real sign-out chain. `returnsToProduction` chains the backend
-    /// switch back to Production AFTER the sign-out completes, so the
+    /// The real sign-out chain. `returnsToLane` chains the backend switch
+    /// back to the build's LANE after the sign-out completes, so the
     /// revocation runs under the staging defaults and the switch then
-    /// restores the parked production session.
-    private func performSignOut(returnsToProduction: Bool) {
+    /// restores the lane's parked session (production, on every unpinned
+    /// build).
+    private func performSignOut(returnsToLane: Bool) {
         diagnosticLog?.recordAppEvent(.authSignOutStarted)
         Task {
             // Local shell teardown first so the whole UI lands signed out
@@ -1386,11 +1390,11 @@ struct CMUXMobileRootView: View {
                 failure: authManager.isAuthenticated ? .protocolViolation : nil
             )
             #if os(iOS)
-            if returnsToProduction {
+            if returnsToLane {
                 // The SAME transaction as the Settings picker: parking the
-                // just-signed-out coordinator is a safe no-op, and the
-                // production restore never gates or prompts.
-                backendEnvironmentSwitchAction?.beginSwitch(to: .production)
+                // just-signed-out coordinator is a safe no-op, and a lane
+                // restore never gates or prompts.
+                backendEnvironmentSwitchAction?.beginSwitch(to: .buildLane)
             }
             #endif
         }

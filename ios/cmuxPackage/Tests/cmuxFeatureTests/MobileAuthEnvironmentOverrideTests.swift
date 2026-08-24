@@ -360,19 +360,19 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         ) == true)
     }
 
-    // MARK: - Runtime backend override (Settings Production/Staging picker)
+    // MARK: - Wholesale explicit choice (Settings backend picker, tri-state)
 
-    /// The staging web origin the runtime override selects.
+    /// The staging web origin an explicit staging choice selects.
     private static let stagingOrigin = CMUXBackendEnvironmentOverride.stagingWebOrigin
 
-    @Test func persistedStagingOverrideResolvesStagingBackendInReleaseResolution() {
+    @Test func explicitStagingChoiceResolvesStagingBackendInReleaseResolution() {
         // TestFlight/App Store shape: no LocalConfig.plist, nothing baked, a
-        // Release build default. The persisted staging override must flip the
+        // Release build default. The explicit staging choice must flip the
         // whole backend: development Stack project, staging API base, and a
         // staging magic-link callback (WebOriginURL moves both together).
-        let overrides = MobileAuthComposition.mergingRuntimeBackendOverride(
-            .staging,
-            into: MobileAuthComposition.authOverrides(
+        let overrides = MobileAuthComposition.resolvedOverrides(
+            explicitChoice: .staging,
+            buildOverrides: MobileAuthComposition.authOverrides(
                 localConfig: [:],
                 bakedAuthEnvironment: nil,
                 bakedAPIBaseURL: nil
@@ -389,65 +389,94 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         #expect(config.magicLinkCallbackURL == "\(Self.stagingOrigin)/auth/callback")
     }
 
-    @Test func bakedInfoPlistValuesBeatTheRuntimeStagingOverride() {
-        // Baked values are the tagged-dev-build isolation mechanism; a
-        // persisted staging override merges only into keys nothing decides.
-        let overrides = MobileAuthComposition.mergingRuntimeBackendOverride(
-            .staging,
-            into: MobileAuthComposition.authOverrides(
-                localConfig: [:],
-                bakedAuthEnvironment: "production",
-                bakedAPIBaseURL: "http://localhost:9450"
-            )
-        )
-        #expect(overrides["AuthEnvironment"] == "production")
-        #expect(overrides["ApiBaseURL"] == "http://localhost:9450")
-    }
-
-    @Test func localConfigBeatsBakeAndRuntimeOverride() {
-        // The full per-key precedence: LocalConfig.plist > baked Info.plist >
-        // runtime override > build default.
-        let overrides = MobileAuthComposition.mergingRuntimeBackendOverride(
-            .staging,
-            into: MobileAuthComposition.authOverrides(
-                localConfig: [
-                    "AuthEnvironment": "production",
-                    "ApiBaseURL": "http://localhost:8123",
-                    "WebOriginURL": "http://localhost:8123",
-                ],
-                bakedAuthEnvironment: "development",
-                bakedAPIBaseURL: "http://localhost:9450"
-            )
-        )
-        #expect(overrides["AuthEnvironment"] == "production")
-        #expect(overrides["ApiBaseURL"] == "http://localhost:8123")
-        #expect(overrides["WebOriginURL"] == "http://localhost:8123")
-    }
-
-    @Test func productionRuntimeOverrideContributesNothing() {
-        // "No key" and production are indistinguishable by design, so a
-        // production override must leave the table byte-identical.
+    @Test func laneWithBakesResolvesByteIdentical() {
+        // NO explicit choice: the build overrides pass through byte-identical
+        // — plain and baked tables alike — so every no-choice install keeps
+        // its lane exactly as before the wholesale switcher existed.
         let base = MobileAuthComposition.authOverrides(
             localConfig: [:],
             bakedAuthEnvironment: nil,
             bakedAPIBaseURL: nil
         )
-        #expect(MobileAuthComposition.mergingRuntimeBackendOverride(.production, into: base) == base)
+        #expect(MobileAuthComposition.resolvedOverrides(
+            explicitChoice: nil,
+            buildOverrides: base
+        ) == base)
 
         let baked = MobileAuthComposition.authOverrides(
             localConfig: [:],
             bakedAuthEnvironment: "production",
             bakedAPIBaseURL: "http://localhost:9450"
         )
-        #expect(MobileAuthComposition.mergingRuntimeBackendOverride(.production, into: baked) == baked)
+        #expect(MobileAuthComposition.resolvedOverrides(
+            explicitChoice: nil,
+            buildOverrides: baked
+        ) == baked)
     }
 
-    @Test func persistedStagingOverrideFlipsTheComposition() throws {
-        // Full composition over injected defaults: the persisted override is
+    @Test func explicitProductionChoiceContributesTheFullProductionSetBeatingBakesAndLocalConfig() {
+        // An explicit choice is a WHOLESALE override: a fresh three-key table
+        // REPLACES the baked Info.plist values AND LocalConfig entries —
+        // including LocalConfig STACK_PROJECT_ID_* / publishable-key
+        // overrides, which are stripped while a choice is active (the lane
+        // position restores their supremacy).
+        let buildOverrides = MobileAuthComposition.authOverrides(
+            localConfig: [
+                "AuthEnvironment": "development",
+                "ApiBaseURL": "http://localhost:8123",
+                "WebOriginURL": "http://localhost:8123",
+                "STACK_PROJECT_ID_PROD": "someone-elses-project",
+            ],
+            bakedAuthEnvironment: "development",
+            bakedAPIBaseURL: "http://localhost:9450"
+        )
+        let overrides = MobileAuthComposition.resolvedOverrides(
+            explicitChoice: .production,
+            buildOverrides: buildOverrides
+        )
+        #expect(overrides == [
+            "AuthEnvironment": "production",
+            "ApiBaseURL": "https://cmux.com",
+            "WebOriginURL": "https://cmux.com",
+        ])
+        let environment = MobileAuthComposition.resolvedAuthEnvironment(
+            isDevelopmentBuild: true,
+            overrides: overrides
+        )
+        #expect(environment == .production)
+        let config = AuthConfig(environment: environment, overrides: overrides)
+        #expect(config.stack.projectId == Self.productionProjectID)
+        #expect(config.apiBaseURL == "https://cmux.com")
+        #expect(config.magicLinkCallbackURL == "https://cmux.com/auth/callback")
+    }
+
+    @Test func explicitStagingChoiceBeatsAStagingBake() {
+        // A staging-baked build (device dev rig) with an EXPLICIT staging
+        // choice resolves the same staging table wholesale — and the choice
+        // stays DISTINCT from the lane at the selection level, which is what
+        // lets the transaction's selection-identity guard accept the
+        // device-lane pick (lane(staging) ≠ explicit(staging)).
+        let overrides = MobileAuthComposition.resolvedOverrides(
+            explicitChoice: .staging,
+            buildOverrides: MobileAuthComposition.authOverrides(
+                localConfig: [:],
+                bakedAuthEnvironment: nil,
+                bakedAPIBaseURL: Self.stagingOrigin
+            )
+        )
+        #expect(overrides == [
+            "AuthEnvironment": "development",
+            "ApiBaseURL": Self.stagingOrigin,
+            "WebOriginURL": Self.stagingOrigin,
+        ])
+    }
+
+    @Test func persistedStagingChoiceFlipsTheComposition() throws {
+        // Full composition over injected defaults: the persisted choice is
         // read from the SAME defaults the caches use, resolves the staging
-        // backend, and reports staging as ACTIVE.
+        // backend, and reports the EXPLICIT staging selection.
         let defaults = try freshDefaults()
-        CMUXBackendEnvironmentOverride.staging.store(in: defaults)
+        CMUXBackendEnvironmentOverride.staging.storeChoice(in: defaults)
         let composition = try makeComposition(
             bundle: fixtureBundle(localConfig: [:]),
             defaults: defaults
@@ -456,28 +485,35 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         #expect(composition.config.stack.projectId == Self.developmentProjectID)
         #expect(composition.config.apiBaseURL == Self.stagingOrigin)
         #expect(composition.config.magicLinkCallbackURL == "\(Self.stagingOrigin)/auth/callback")
-        #expect(composition.backendEnvironmentSwitch.active == .staging)
-        #expect(!composition.backendEnvironmentSwitch.isPinnedByBuild)
+        #expect(composition.backendEnvironmentSwitch.selection == .explicit(.staging))
+        #expect(composition.backendEnvironmentExplicitChoice == .staging)
     }
 
-    @Test func productionPersistedOverrideKeepsTodaysResolution() throws {
-        // Storing production removes the key; either way the composition must
-        // reproduce the untouched build default (tests compile DEBUG, so the
-        // development project and localhost web origin).
+    @Test func persistedProductionChoiceIsAWholesaleProductionPin() throws {
+        // Tri-state persistence: storing production WRITES the key, and an
+        // explicit production choice pins the production backend even on a
+        // DEBUG (development-lane) build — production Stack project and
+        // cmux.com replace the localhost dev defaults. The resolved
+        // production channel also disables the dev auto-login for free
+        // (includesDevAuth keys on the resolved environment).
         let defaults = try freshDefaults()
-        CMUXBackendEnvironmentOverride.production.store(in: defaults)
+        CMUXBackendEnvironmentOverride.production.storeChoice(in: defaults)
         let composition = try makeComposition(
             bundle: fixtureBundle(localConfig: [:]),
             defaults: defaults
         )
-        #expect(composition.config.stack.projectId == Self.developmentProjectID)
-        #expect(composition.config.apiBaseURL == "http://localhost:3000")
-        #expect(composition.backendEnvironmentSwitch.active == .production)
+        #expect(composition.authEnvironment == .production)
+        #expect(composition.config.stack.projectId == Self.productionProjectID)
+        #expect(composition.config.apiBaseURL == "https://cmux.com")
+        #expect(composition.backendEnvironmentSwitch.selection == .explicit(.production))
+        #expect(composition.backendEnvironmentExplicitChoice == .production)
     }
 
-    @Test func unknownPersistedOverrideBehavesAsProduction() throws {
-        // A corrupted or future raw value must never strand the build on a
-        // non-production backend: it loads as production and changes nothing.
+    @Test func unknownPersistedChoiceBehavesAsTheLane() throws {
+        // A corrupted or future raw value fails safe toward the build's own
+        // bake: it loads as NO choice, so the composition reproduces the
+        // untouched build default (tests compile DEBUG: the development
+        // project and localhost web origin) and reports the LANE selection.
         let defaults = try freshDefaults()
         defaults.set("qa", forKey: CMUXBackendEnvironmentOverride.defaultsKey)
         let composition = try makeComposition(
@@ -486,54 +522,164 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         )
         #expect(composition.config.stack.projectId == Self.developmentProjectID)
         #expect(composition.config.apiBaseURL == "http://localhost:3000")
-        #expect(composition.backendEnvironmentSwitch.active == .production)
+        #expect(composition.backendEnvironmentSwitch.selection
+            == .lane(resolves: .production))
+        #expect(composition.backendEnvironmentExplicitChoice == nil)
     }
 
-    @Test func bakedBuildReportsPinnedBackendEnvironment() throws {
-        // A tagged dev build (LocalConfig/Info.plist decides a backend key)
-        // reports the pin so Settings explains it instead of showing a picker
-        // that cannot steer the build; the baked origin still wins.
+    @Test func explicitChoiceBeatsATaggedBuildBake() throws {
+        // The former pinned refusal, inverted: a tagged dev build
+        // (LocalConfig/Info.plist decides a backend key) no longer blocks the
+        // picker — the explicit choice REPLACES the bake wholesale, and the
+        // bake survives only as the build's custom LANE descriptor.
         let defaults = try freshDefaults()
-        CMUXBackendEnvironmentOverride.staging.store(in: defaults)
+        CMUXBackendEnvironmentOverride.staging.storeChoice(in: defaults)
         let composition = try makeComposition(
             bundle: fixtureBundle(localConfig: ["ApiBaseURL": "http://localhost:9450"]),
             defaults: defaults
         )
-        #expect(composition.backendEnvironmentSwitch.isPinnedByBuild)
-        #expect(composition.config.apiBaseURL == "http://localhost:9450")
-        #expect(composition.backendEnvironmentSwitch.active == .production)
+        #expect(composition.config.apiBaseURL == Self.stagingOrigin)
+        #expect(composition.backendEnvironmentSwitch.selection == .explicit(.staging))
+        #expect(composition.backendEnvironmentSwitch.buildLane
+            == .custom(label: "localhost:9450"))
+    }
+
+    // MARK: - Lane classification (the build's own bake)
+
+    @Test func laneClassifiesFromTheBuildOverridesAlone() {
+        // Unpinned Release shape → the production lane.
+        #expect(MobileAuthComposition.resolvedBackendEnvironmentBuildLane(
+            isDevelopmentBuild: false,
+            buildOverrides: [:]
+        ) == .production)
+        // A staging-baked build (device dev rigs) → the staging lane.
+        #expect(MobileAuthComposition.resolvedBackendEnvironmentBuildLane(
+            isDevelopmentBuild: false,
+            buildOverrides: ["ApiBaseURL": Self.stagingOrigin]
+        ) == .staging)
+        #expect(MobileAuthComposition.resolvedBackendEnvironmentBuildLane(
+            isDevelopmentBuild: true,
+            buildOverrides: ["ApiBaseURL": Self.stagingOrigin]
+        ) == .staging)
+        // An untagged Debug build (localhost dev default) → a custom lane
+        // labeled with its origin.
+        #expect(MobileAuthComposition.resolvedBackendEnvironmentBuildLane(
+            isDevelopmentBuild: true,
+            buildOverrides: [:]
+        ) == .custom(label: "localhost:3000"))
+        // A tagged dev build's isolated origin → a custom lane.
+        #expect(MobileAuthComposition.resolvedBackendEnvironmentBuildLane(
+            isDevelopmentBuild: true,
+            buildOverrides: ["ApiBaseURL": "http://localhost:9450"]
+        ) == .custom(label: "localhost:9450"))
+        // A --prod-auth dev build (production channel + cmux.com bake)
+        // resolves cmux.com under the production Stack channel → the
+        // production lane, mirroring the macOS classifier.
+        #expect(MobileAuthComposition.resolvedBackendEnvironmentBuildLane(
+            isDevelopmentBuild: true,
+            buildOverrides: [
+                "AuthEnvironment": "production",
+                "ApiBaseURL": "https://cmux.com",
+            ]
+        ) == .production)
+        // cmux.com on the DEVELOPMENT channel is not the production lane
+        // (mixed bake): classify custom so gating and recovery fail safe.
+        #expect(MobileAuthComposition.resolvedBackendEnvironmentBuildLane(
+            isDevelopmentBuild: true,
+            buildOverrides: ["ApiBaseURL": "https://cmux.com"]
+        ) == .custom(label: "cmux.com"))
+    }
+
+    @Test func laneIgnoresThePersistedExplicitChoice() throws {
+        // The lane is a stable property of the installed build: an explicit
+        // choice flips the SELECTION and the resolved config, never the lane.
+        let defaults = try freshDefaults()
+        CMUXBackendEnvironmentOverride.staging.storeChoice(in: defaults)
+        let composition = try makeComposition(
+            bundle: fixtureBundle(localConfig: [:]),
+            defaults: defaults
+        )
+        // Tests compile DEBUG with no bakes: the localhost custom lane.
+        #expect(composition.backendEnvironmentSwitch.buildLane
+            == .custom(label: "localhost:3000"))
+        #expect(composition.backendEnvironmentSwitch.selection == .explicit(.staging))
+    }
+
+    // MARK: - Device clear hook (dev-rig determinism)
+
+    @Test func clearHookReturnsTheBuildToItsLaneAndRemovesBothKeys() throws {
+        // scripts/mobile-dev-launch.sh injects
+        // CMUX_DEV_CLEAR_BACKEND_ENV_CHOICE=1 on every dev launch: a
+        // persisted staging choice (and an armed switch-rebuild marker) from
+        // an earlier dogfood round must be cleared BEFORE the choice is
+        // read, so the freshly baked build resolves its own lane.
+        let defaults = try freshDefaults()
+        CMUXBackendEnvironmentOverride.staging.storeChoice(in: defaults)
+        CMUXBackendEnvironmentSwitchRebuildMarker.arm(in: defaults)
+
+        let composition = MobileAuthComposition(
+            environment: ["CMUX_DEV_CLEAR_BACKEND_ENV_CHOICE": "1"],
+            bundle: try fixtureBundle(localConfig: [:]),
+            defaults: defaults,
+            reachability: OfflineReachabilityStub(),
+            policy: .current
+        )
+
+        #expect(composition.backendEnvironmentSwitch.selection
+            == .lane(resolves: .production))
+        #expect(composition.config.apiBaseURL == "http://localhost:3000")
+        #expect(defaults.string(forKey: CMUXBackendEnvironmentOverride.defaultsKey) == nil)
+        #expect(defaults.object(
+            forKey: CMUXBackendEnvironmentSwitchRebuildMarker.defaultsKey
+        ) == nil)
+    }
+
+    @Test func withoutTheClearHookThePersistedChoiceIsHonored() throws {
+        // Control: a normal launch (no hook) keeps the explicit choice.
+        let defaults = try freshDefaults()
+        CMUXBackendEnvironmentOverride.staging.storeChoice(in: defaults)
+        let composition = try makeComposition(
+            bundle: fixtureBundle(localConfig: [:]),
+            defaults: defaults
+        )
+        #expect(composition.backendEnvironmentSwitch.selection == .explicit(.staging))
+        #expect(defaults.string(
+            forKey: CMUXBackendEnvironmentOverride.defaultsKey
+        ) == CMUXBackendEnvironmentOverride.staging.rawValue)
     }
 
     // MARK: - Rebuild without relaunch (the live switch's commit + rebuild)
 
-    @Test func rebuildOverSameDefaultsAppliesStoredStagingOverride() throws {
-        // The live switch stores the override and assembles a SECOND
+    @Test func rebuildOverSameDefaultsAppliesStoredStagingChoice() throws {
+        // The live switch stores the choice and assembles a SECOND
         // composition over the same defaults suite, in the same process. The
         // new composition must resolve the staging origin + the development
         // Stack project (what the staging web deployment authenticates
         // against) with no relaunch anywhere, and its switch state must
-        // report staging as ACTIVE so the Settings badge converges by
-        // re-injection alone.
+        // report the explicit staging selection so the Settings badge
+        // converges by re-injection alone.
         let defaults = try freshDefaults()
         let bundle = try fixtureBundle(localConfig: [:])
         let first = try makeComposition(bundle: bundle, defaults: defaults)
-        #expect(first.backendEnvironmentSwitch.active == .production)
+        #expect(first.backendEnvironmentSwitch.selection == .lane(resolves: .production))
 
-        // The transaction's storeOverride (commit) step.
-        CMUXBackendEnvironmentOverride.staging.store(in: defaults)
+        // The transaction's storeSelection (commit) step for an explicit
+        // target.
+        CMUXBackendEnvironmentOverride.staging.storeChoice(in: defaults)
 
         let second = try makeComposition(bundle: bundle, defaults: defaults)
         #expect(second.authEnvironment == .development)
         #expect(second.config.stack.projectId == Self.developmentProjectID)
         #expect(second.config.apiBaseURL == Self.stagingOrigin)
         #expect(second.config.magicLinkCallbackURL == "\(Self.stagingOrigin)/auth/callback")
-        #expect(second.backendEnvironmentSwitch.active == .staging)
+        #expect(second.backendEnvironmentSwitch.selection == .explicit(.staging))
 
-        // And back: storing production restores the untouched build default
-        // on the next rebuild (tests compile DEBUG: localhost origin).
-        CMUXBackendEnvironmentOverride.production.store(in: defaults)
+        // And back to the LANE: the storeSelection step for a lane target
+        // CLEARS the key, restoring the untouched build default on the next
+        // rebuild (tests compile DEBUG: localhost origin).
+        CMUXBackendEnvironmentOverride.clearChoice(in: defaults)
         let third = try makeComposition(bundle: bundle, defaults: defaults)
-        #expect(third.backendEnvironmentSwitch.active == .production)
+        #expect(third.backendEnvironmentSwitch.selection == .lane(resolves: .production))
         #expect(third.config.apiBaseURL == "http://localhost:3000")
     }
 
@@ -566,10 +712,10 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
             defaults: defaults
         ) == false)
 
-        CMUXBackendEnvironmentOverride.staging.store(in: defaults)
-        let rebuiltOverrides = MobileAuthComposition.mergingRuntimeBackendOverride(
-            CMUXBackendEnvironmentOverride.load(from: defaults),
-            into: launchOverrides
+        CMUXBackendEnvironmentOverride.staging.storeChoice(in: defaults)
+        let rebuiltOverrides = MobileAuthComposition.resolvedOverrides(
+            explicitChoice: CMUXBackendEnvironmentOverride.explicitChoice(from: defaults),
+            buildOverrides: launchOverrides
         )
         let rebuiltProjectID = AuthConfig(
             environment: MobileAuthComposition.resolvedAuthEnvironment(
@@ -587,13 +733,13 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
     }
 
     @Test func stagingSwitchOnReleaseFlipsStackProjectAndRequestsSessionClear() throws {
-        // A Release build defaults to the production project; the staging
-        // override resolves the development project, so the existing
+        // A Release build defaults to the production project; the explicit
+        // staging choice resolves the development project, so the existing
         // project-switch detection clears the per-project session state on
         // the first staging launch (tokens/user ids never cross projects).
-        let overrides = MobileAuthComposition.mergingRuntimeBackendOverride(
-            .staging,
-            into: MobileAuthComposition.authOverrides(
+        let overrides = MobileAuthComposition.resolvedOverrides(
+            explicitChoice: .staging,
+            buildOverrides: MobileAuthComposition.authOverrides(
                 localConfig: [:],
                 bakedAuthEnvironment: nil,
                 bakedAPIBaseURL: nil
@@ -622,16 +768,67 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         ) == true)
     }
 
-    @Test func activeBackendEnvironmentTracksTheResolvedOrigin() {
-        #expect(MobileAuthComposition.activeBackendEnvironment(
-            resolvedAPIBaseURL: CMUXBackendEnvironmentOverride.stagingWebOrigin
-        ) == .staging)
-        #expect(MobileAuthComposition.activeBackendEnvironment(
-            resolvedAPIBaseURL: "https://cmux.com"
-        ) == .production)
-        #expect(MobileAuthComposition.activeBackendEnvironment(
-            resolvedAPIBaseURL: "http://localhost:3000"
-        ) == .production)
+    // MARK: - Gap-fix heads (broker + presence follow the explicit choice)
+
+    @Test func explicitChoiceHeadsTheBrokerResolutionAboveTheBake() {
+        // The baked CMUXIrohBrokerBaseURL is read FIRST in lane resolution;
+        // under an explicit choice the broker must follow the chosen backend
+        // instead (each environment's web deployment serves its own broker),
+        // or a switched build would pair against the rig's baked broker
+        // while auth talks to the chosen backend.
+        let bakedInfo: [String: Any] = [
+            "CMUXIrohBrokerBaseURL": "https://broker.example.dev"
+        ]
+        #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
+            apiBaseURL: "http://localhost:3000",
+            explicitChoice: .production,
+            infoDictionary: bakedInfo
+        ) == URL(string: "https://cmux.com"))
+        #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
+            apiBaseURL: "http://localhost:3000",
+            explicitChoice: .staging,
+            infoDictionary: bakedInfo
+        ) == URL(string: Self.stagingOrigin))
+        // NO choice: the bake keeps winning, byte-identical to today.
+        #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
+            apiBaseURL: "http://localhost:3000",
+            explicitChoice: nil,
+            infoDictionary: bakedInfo
+        ) == URL(string: "https://broker.example.dev"))
+    }
+
+    @Test func explicitChoiceHeadsThePresenceResolutionAboveEnvAndDefaults() throws {
+        // Presence env/defaults/bake overrides are the dev-rig isolation
+        // mechanism; the explicit choice is a WHOLESALE override and beats
+        // them all: explicit staging signs into the dev Stack project, which
+        // only the dev/staging worker verifies, and explicit production is
+        // the production worker.
+        let isolatedWorker = "https://cmux-presence-dev-alice.acct.workers.dev"
+        #expect(PresenceClient.resolvedServiceBaseURL(
+            environment: [PresenceClient.serviceURLEnvKey: isolatedWorker],
+            defaults: try freshDefaults(),
+            infoPlistValue: "https://cmux-presence-dev-baked.acct.workers.dev",
+            isDebugBuild: true,
+            isDevelopmentAuthChannel: false,
+            explicitChoice: .staging
+        ) == PresenceClient.debugDefaultServiceURL)
+        #expect(PresenceClient.resolvedServiceBaseURL(
+            environment: [PresenceClient.serviceURLEnvKey: isolatedWorker],
+            defaults: try freshDefaults(),
+            infoPlistValue: nil,
+            isDebugBuild: true,
+            isDevelopmentAuthChannel: true,
+            explicitChoice: .production
+        ) == PresenceClient.productionServiceURL)
+        // NO choice: the env override keeps winning, byte-identical.
+        #expect(PresenceClient.resolvedServiceBaseURL(
+            environment: [PresenceClient.serviceURLEnvKey: isolatedWorker],
+            defaults: try freshDefaults(),
+            infoPlistValue: nil,
+            isDebugBuild: true,
+            isDevelopmentAuthChannel: false,
+            explicitChoice: nil
+        ) == isolatedWorker)
     }
 
     // MARK: - Presence follows the auth channel
