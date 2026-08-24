@@ -114,6 +114,14 @@ public struct FrameDecoder: Sendable {
 
     public init() {}
 
+    /// Graduation bridge: hands back undecoded buffered bytes when a stream
+    /// switches from framed handshake to raw passthrough.
+    public mutating func drainRemainder() -> Data {
+        let remainder = buffer
+        buffer.removeAll()
+        return remainder
+    }
+
     public mutating func feed(_ chunk: Data) throws -> [Frame] {
         buffer.append(chunk)
         var frames: [Frame] = []

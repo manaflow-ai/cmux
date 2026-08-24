@@ -149,6 +149,7 @@ public actor IrohPeerConnection: PeerConnection {
     }
 
     static let laneOpenType = "lane.open"
+    static let rawOpenType = "raw.open"
 
     private let connection: Connection
     private let role: Role
@@ -156,6 +157,8 @@ public actor IrohPeerConnection: PeerConnection {
     private var lanes: [String: IrohLane] = [:]
     private var laneWaiters: [String: [CheckedContinuation<any TransportLane, Never>]] = [:]
     private var acceptLoop: Task<Void, Never>?
+    private var rawStreamHandler: (@Sendable (String, RawByteStream) async -> Void)?
+    private var pendingRawStreams: [(String, RawByteStream)] = []
     private var closedFlag = false
     private var localTermination: ConnectionTermination?
 
@@ -178,6 +181,31 @@ public actor IrohPeerConnection: PeerConnection {
 
     public var isClosed: Bool {
         closedFlag || connection.closeReason() != nil
+    }
+
+    /// Graduation bridge: registers the single owner of inbound raw
+    /// application streams. Streams that arrived before registration are
+    /// delivered immediately, in arrival order.
+    public func onRawStream(
+        _ handler: @escaping @Sendable (String, RawByteStream) async -> Void
+    ) {
+        rawStreamHandler = handler
+        for (preamble, stream) in pendingRawStreams {
+            Task { await handler(preamble, stream) }
+        }
+        pendingRawStreams.removeAll()
+    }
+
+    /// Graduation bridge: opens one raw application stream. One handshake
+    /// frame carries the preamble; every byte after it is unframed and owned
+    /// by the caller (identical wire shape to the legacy transport's lanes).
+    public func openRawStream(preamble: String) async throws -> RawByteStream {
+        guard !closedFlag else { throw TransportError.pipeClosed }
+        let stream = try await connection.openBi()
+        let channel = IrohLaneChannel(send: stream.send(), recv: stream.recv())
+        try await channel.sendFrame(
+            Frame(type: Self.rawOpenType, payload: ["preamble": .string(preamble)]))
+        return RawByteStream(send: stream.send(), recv: stream.recv(), buffered: Data())
     }
 
     public func lane(_ name: String) async -> any TransportLane {
@@ -266,8 +294,24 @@ public actor IrohPeerConnection: PeerConnection {
             do {
                 let stream = try await connection.acceptBi()
                 let channel = IrohLaneChannel(send: stream.send(), recv: stream.recv())
-                guard let open = await channel.receiveFrame(),
-                    open.type == Self.laneOpenType,
+                guard let open = await channel.receiveFrame() else { continue }
+                // Raw application streams (graduation bridge): after the one
+                // handshake frame the stream is unframed bytes, handed whole
+                // to the registered owner. Decoder leftovers are re-injected
+                // so no early raw bytes are lost to frame parsing.
+                if open.type == Self.rawOpenType {
+                    let preamble = open.payload["preamble"]?.stringValue ?? ""
+                    let raw = RawByteStream(
+                        send: stream.send(), recv: stream.recv(),
+                        buffered: await channel.drainBufferedBytes())
+                    if let handler = rawStreamHandler {
+                        Task { await handler(preamble, raw) }
+                    } else {
+                        pendingRawStreams.append((preamble, raw))
+                    }
+                    continue
+                }
+                guard open.type == Self.laneOpenType,
                     let name = open.payload["name"]?.stringValue
                 else { continue }
                 let lane = IrohLane(name: name, channel: channel)
@@ -367,6 +411,57 @@ actor IrohLaneChannel {
 
     func finish() async {
         try? await sendStream.finish()
+    }
+
+    /// Graduation bridge: bytes the frame decoder read past the handshake
+    /// frame. Raw handoff must re-inject them ahead of the stream reads.
+    func drainBufferedBytes() -> Data {
+        var out = Data()
+        for frame in pending {
+            // A raw peer never sends more frames after raw.open; anything
+            // decoded here IS raw payload that happened to parse-attempt.
+            if let data = try? FrameEncoder().encode(frame) { out.append(data) }
+        }
+        pending.removeAll()
+        out.append(decoder.drainRemainder())
+        return out
+    }
+}
+
+/// One raw application stream from the graduation bridge: unframed QUIC
+/// bytes with the legacy transport's exact wire behavior (bounded reads,
+/// backpressured writes, half-close both ways).
+public struct RawByteStream: Sendable {
+    let send: SendStream
+    let recv: RecvStream
+    let buffered: Data
+
+    /// Reads at most `maximumByteCount`; nil on clean peer finish. The
+    /// handshake leftover (if any) is served before live stream bytes.
+    public func read(maximumByteCount: Int, consumedBuffer: inout Data) async throws -> Data? {
+        if !consumedBuffer.isEmpty {
+            let chunk = consumedBuffer.prefix(maximumByteCount)
+            consumedBuffer.removeFirst(chunk.count)
+            return Data(chunk)
+        }
+        let data = try await recv.read(sizeLimit: UInt32(clamping: maximumByteCount))
+        return data.isEmpty ? nil : data
+    }
+
+    public func write(_ data: Data) async throws {
+        try await send.writeAll(buf: data)
+    }
+
+    public func finishSend() async throws {
+        try await send.finish()
+    }
+
+    public func stopReceiving(errorCode: UInt64) async {
+        try? await recv.stop(errorCode: errorCode)
+    }
+
+    public func resetSend(errorCode: UInt64) async {
+        try? await send.reset(errorCode: errorCode)
     }
 }
 

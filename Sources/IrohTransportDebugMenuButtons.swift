@@ -120,6 +120,6 @@ struct NextTransportDebugMenuButtons: View {
 
     private var nextTransportStateSuffix: String {
         let state = MobileHostNextTransportRuntime.shared.state
-        return state == "off" ? "" : " — \(state)"
+        return state == "off" ? "" : " · \(state)"
     }
 }
