@@ -296,6 +296,7 @@ extension GhosttySurfaceView {
         cellPixelSize = .zero
         lastRenderRect = .zero
         hostedContentBottomRowCount = nil
+        lastLayoutGeometrySyncSize = .zero
         lastAppliedContentScale = 0
 
         surfaceGeneration &+= 1

@@ -679,6 +679,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// second set_size round-trip.
     var lastRenderRect: CGRect = .zero
     private var viewportCoordinator = TerminalViewportCoordinator()
+    /// The bounds size the last layout-driven geometry sync ran for. Layout
+    /// passes with unchanged bounds (host keyboard animation, sibling churn)
+    /// must not re-enter `set_size`: every other geometry input (composer
+    /// band, chrome, safe area, fonts) schedules its own sync at its
+    /// mutation site, so bounds are the only layout-borne input.
+    var lastLayoutGeometrySyncSize: CGSize = .zero
     private var bottomDockToKeyboardConstraint: NSLayoutConstraint?
     private var bottomDockHostConstraints: [NSLayoutConstraint] = []
     private weak var bottomDockHostView: UIView?
@@ -2683,7 +2689,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         inputProxy.updateAccessoryLayoutInsets()
         layoutZoomOverlay()
         MobileDebugLog.anchormux("surface.layout bounds=\(Int(bounds.width))x\(Int(bounds.height)) window=\(window != nil)")
-        setNeedsGeometrySync()
+        if bounds.size != lastLayoutGeometrySyncSize {
+            lastLayoutGeometrySyncSize = bounds.size
+            setNeedsGeometrySync()
+        }
         syncSurfaceVisibility()
     }
 
