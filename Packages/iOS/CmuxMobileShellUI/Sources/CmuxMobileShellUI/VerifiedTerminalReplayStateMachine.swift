@@ -89,10 +89,6 @@ final class VerifiedTerminalReplayStateMachine {
            frame.renderRevision <= floor {
             return rejectFrame()
         }
-        if let hold = holdForViewportRenegotiation(frame: frame) {
-            return hold
-        }
-
         let startsNewEpoch = activeRenderEpoch != frame.renderEpoch
         if startsNewEpoch {
             guard frame.full,
@@ -101,6 +97,13 @@ final class VerifiedTerminalReplayStateMachine {
             }
         } else if !isNewerThanPresentationFloor(frame) {
             return rejectFrame()
+        }
+        // Only frames that survived every staleness filter may renegotiate:
+        // a delayed frame from a retired epoch or below the presentation
+        // floor is plain-rejected above and must not consume hold budget,
+        // invalidate the settlement, or trigger a viewport reassert.
+        if let hold = holdForViewportRenegotiation(frame: frame) {
+            return hold
         }
 
         let expected: MobileTerminalRenderGridVisualSnapshot?

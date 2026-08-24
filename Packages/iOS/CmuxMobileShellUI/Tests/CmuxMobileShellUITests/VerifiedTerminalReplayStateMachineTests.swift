@@ -675,6 +675,58 @@ struct VerifiedTerminalReplayStateMachineTests {
         #expect(machine.visibleSnapshot?.rows.first?.first?.text == "constrained")
     }
 
+    @Test("a retired-epoch frame is rejected before it can renegotiate")
+    func retiredEpochFrameCannotRenegotiate() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let oldEpoch = try frame(
+            renderEpoch: "epoch-before-reconnect",
+            renderRevision: 5,
+            stateSeq: 1,
+            columns: 80,
+            text: "old epoch"
+        )
+        commit(oldEpoch, to: machine)
+        let newEpoch = try frame(
+            renderEpoch: "epoch-after-reconnect",
+            renderRevision: 1,
+            stateSeq: 2,
+            columns: 80,
+            text: "new epoch"
+        )
+        commit(newEpoch, to: machine)
+        _ = machine.updateExpectedViewportDimensions(columns: 80, rows: 3, reportID: 1)
+
+        // A delayed mis-sized frame from the RETIRED epoch is plain stale:
+        // it must be rejected without consuming hold budget or triggering a
+        // renegotiation.
+        let delayedRetired = try frame(
+            renderEpoch: "epoch-before-reconnect",
+            renderRevision: 6,
+            stateSeq: 3,
+            columns: 41,
+            text: "retired stale"
+        )
+        guard case .keepFrozenAndRequestReplay = machine.begin(frame: delayedRetired) else {
+            Issue.record("a retired-epoch frame must be rejected, not renegotiated")
+            return
+        }
+
+        // The budget is untouched: a genuine stale-grid frame in the LIVE
+        // epoch still gets the first-hold renegotiation decision.
+        let liveStale = try frame(
+            renderEpoch: "epoch-after-reconnect",
+            renderRevision: 2,
+            stateSeq: 4,
+            columns: 41,
+            text: "live stale"
+        )
+        guard case .renegotiateViewportAndKeepFrozen = machine.begin(frame: liveStale) else {
+            Issue.record("the live epoch's first hold must still renegotiate")
+            return
+        }
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "new epoch")
+    }
+
     @Test("a delayed acknowledgement from a previous session settles nothing")
     func preResetAcknowledgementCannotSettle() throws {
         let machine = VerifiedTerminalReplayStateMachine()
