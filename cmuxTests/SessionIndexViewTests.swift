@@ -341,6 +341,109 @@ struct SessionIndexViewTests {
     }
 
     @Test
+    func searchProjectionKeepsRecentDaySections() {
+        preservingSessionIndexDefaults {
+            let calendar = Calendar.current
+            let today = calendar.startOfDay(for: Date())
+            let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+            let store = SessionIndexStore()
+            store.grouping = .recency
+
+            let sections = store.sectionsForEntries([
+                makeEntry(
+                    sessionId: "yesterday-match",
+                    title: "matching yesterday",
+                    modified: yesterday.addingTimeInterval(60 * 60)
+                ),
+                makeEntry(
+                    sessionId: "today-match",
+                    title: "matching today",
+                    modified: today.addingTimeInterval(60 * 60)
+                )
+            ])
+
+            #expect(sections.count == 2)
+            #expect(sections.allSatisfy { $0.key.isDayBucket })
+            #expect(sections.flatMap(\.entries).map(\.sessionId) == [
+                "today-match",
+                "yesterday-match"
+            ])
+        }
+    }
+
+    @Test
+    func searchProjectionKeepsAgentOrderAndAppendsNewAgents() {
+        preservingSessionIndexDefaults {
+            let store = SessionIndexStore()
+            store.grouping = .agent
+            store.agentOrder = [.codex, .claude]
+
+            let sections = store.sectionsForEntries([
+                makeEntry(
+                    agent: .grok,
+                    sessionId: "grok-match",
+                    title: "grok match",
+                    modified: Date(timeIntervalSince1970: 30)
+                ),
+                makeEntry(
+                    agent: .claude,
+                    sessionId: "claude-match",
+                    title: "claude match",
+                    modified: Date(timeIntervalSince1970: 20)
+                ),
+                makeEntry(
+                    agent: .codex,
+                    sessionId: "codex-match",
+                    title: "codex match",
+                    modified: Date(timeIntervalSince1970: 10)
+                )
+            ])
+
+            #expect(sections.map(\.key.raw) == [
+                "agent:codex",
+                "agent:claude",
+                "agent:grok"
+            ])
+        }
+    }
+
+    @Test
+    func searchProjectionKeepsFolderOrderAndAppendsNewFolders() {
+        preservingSessionIndexDefaults {
+            let store = SessionIndexStore()
+            store.grouping = .directory
+            store.directoryOrder = ["/project-b", "/project-a"]
+
+            let sections = store.sectionsForEntries([
+                makeEntry(
+                    sessionId: "project-c-match",
+                    title: "project c match",
+                    cwd: "/project-c",
+                    modified: Date(timeIntervalSince1970: 30)
+                ),
+                makeEntry(
+                    sessionId: "project-a-match",
+                    title: "project a match",
+                    cwd: "/project-a",
+                    modified: Date(timeIntervalSince1970: 20)
+                ),
+                makeEntry(
+                    sessionId: "project-b-match",
+                    title: "project b match",
+                    cwd: "/project-b",
+                    modified: Date(timeIntervalSince1970: 10)
+                )
+            ])
+
+            #expect(sections.map(\.key.raw) == [
+                "dir:/project-b",
+                "dir:/project-a",
+                "dir:/project-c"
+            ])
+        }
+    }
+
+    @Test
     func codexSQLSearchMatchesRolloutTranscriptContent() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
