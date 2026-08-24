@@ -9,8 +9,10 @@ import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+private typealias StoredShortcut = cmux_DEV.StoredShortcut
 #elseif canImport(cmux)
 @testable import cmux
+private typealias StoredShortcut = cmux.StoredShortcut
 #endif
 private let appDelegateLastSurfaceCloseShortcutDefaultsKey = "closeWorkspaceOnLastSurfaceShortcut"
 private final class FakeWKInspectorContainerView: NSView {}
