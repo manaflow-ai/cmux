@@ -3,7 +3,7 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `aggregate-final`.
-Current integration code tip before this documentation commit: `35be8f8c8a3868631d27dfa0b8009dace5b70f4c` (`Merge concurrent TUI review fixes, retain aggregate tree`).
+Current integration code tip before this documentation commit: `4538c10aa528a6c4c0435fba238d1a9573acbb82` (`fix(relay): resolve preview proxy clippy diagnostics`).
 Exact worktree HEAD: run `git rev-parse HEAD` (documentation commits change this value).
 The aggregate branch is `aggregate-final`; the review branch is
 `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
@@ -38,7 +38,7 @@ out of scope. No new session was counted for documentation-only bookkeeping;
 the ledger remains a lower bound on substantive turns, not a fabricated
 10,000-session total.
 
-Subagent ledger: at least 200 substantive agent turns are complete in this
+Subagent ledger: at least 205 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
 reviews, and merge gates. It excludes empty or duplicate turns. The requested
 10,000-session target is not reached. I will not create empty sessions to

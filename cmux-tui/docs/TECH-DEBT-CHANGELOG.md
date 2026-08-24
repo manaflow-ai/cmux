@@ -188,8 +188,22 @@ goal was not reached. Empty or duplicate turns were not created to inflate it.
 | `57b598c863714e1d074231f7ed8a9c0222963139` | Restore Go's canonical temporary-socket fallback. | Go fallback contract checks; hosted Go matrix remains required. | `git revert 57b598c863714e1d074231f7ed8a9c0222963139` |
 | `5abb5e0a6088fd4a16e764fd063f4b72bcfde9e3` | Expose the exact C++ parent include and add the CMake include path. | C++ configure/build check required; package consumers remain unverified. | `git revert 5abb5e0a6088fd4a16e764fd063f4b72bcfde9e3` |
 | `ed634f53afa5367749584f9c0dc2d3ba5b96b964` | Bound Rust workspace reads and hashes. | Hosted Rust SDK check required; limits may reject unusually large workspaces. | `git revert ed634f53afa5367749584f9c0dc2d3ba5b96b964` |
-| `a483b6cc8391b318a83a44a4ba5f2768bddd6995` | Make watcher sink termination explicit. | Hosted relay shutdown check required; producer cancellation remains separate. | `git revert a483b6cc8391b318a83a44a4ba5f2768bddd6995` |
-| `702a840ef5b0ed56e9856523bab5ce14accc21d4` | Fix preview and shell ownership review findings. | Hosted preview and process-cleanup checks required. | `git revert 702a840ef5b0ed56e9856523bab5ce14accc21d4` |
+| `ab75ec0fdd6c3a649e1d938e92d6d852cd7eb2a3` | Stop the watcher after outbound sink failure. | Hosted relay shutdown check required; producer cancellation remains separate. | `git revert ab75ec0fdd6c3a649e1d938e92d6d852cd7eb2a3` |
+| `5218c11559b56e902a713e68024dd954a0a15e8c`, `527626f6311a2b99cf51c682048af2509169943f` | Borrow owned cleanup tasks and own the shell-start waiter and manager clone. | Hosted preview and process-cleanup checks required. | `git revert 527626f6311a2b99cf51c682048af2509169943f 5218c11559b56e902a713e68024dd954a0a15e8c` |
+
+## Current exact-head tail
+
+| Commit | Change | Exact revert |
+| --- | --- | --- |
+| `84f5a54428c2d61d4768aeda0f14afcf5678436e` | Record the prior wave review and fix ledger. | `git revert 84f5a54428c2d61d4768aeda0f14afcf5678436e` |
+| `d4c17024fc567f1bff2877da049a8493908e4287` | Merge the relay tech-debt branch into the aggregate. | `git revert -m 1 d4c17024fc567f1bff2877da049a8493908e4287` |
+| `e41620873cc1f6bfeca672b7d9ec4b6f7dbd460e` | Declare the Windows job-object dependency. | `git revert e41620873cc1f6bfeca672b7d9ec4b6f7dbd460e` |
+| `2d55654d2be47dfa62ee2266a0b6b6412af106b8` | Record the Windows dependency in the lockfile. | `git revert 2d55654d2be47dfa62ee2266a0b6b6412af106b8` |
+| `96d8f406a1288e644a40d3b950ea544d9898f3d8` | Expose path validation and classify configuration errors. | `git revert 96d8f406a1288e644a40d3b950ea544d9898f3d8` |
+| `67fbafa3d67b223bb79b9bdd7cfd2bac1e406b72` | Remove unused shell cwd state. | `git revert 67fbafa3d67b223bb79b9bdd7cfd2bac1e406b72` |
+| `2bffa3dcc83808f66718a84bad05e3384e6ca313` | Tighten watch registry API and conditions. | `git revert 2bffa3dcc83808f66718a84bad05e3384e6ca313` |
+| `954d80df6ac54ff767e9d56a4caaad83e02c48bd` | Resolve workspace clippy diagnostics. | `git revert 954d80df6ac54ff767e9d56a4caaad83e02c48bd` |
+| `4538c10aa528a6c4c0435fba238d1a9573acbb82` | Resolve preview proxy clippy diagnostics. | `git revert 4538c10aa528a6c4c0435fba238d1a9573acbb82` |
 
 The exact-head autoreview was clean for in-scope changes. It reported two
 out-of-scope remote-tmux findings, which were intentionally ignored: they do
