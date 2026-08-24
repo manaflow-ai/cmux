@@ -15,18 +15,38 @@ public struct WorkspaceChecklistReplacementItem: Sendable, Equatable {
     /// The origin for newly created items; `nil` defaults to `.user`.
     /// Matched items always keep their existing origin.
     public let origin: WorkspaceChecklistItem.Origin?
+    /// Agent task ownership to persist on the resulting row.
+    public let agentTaskRef: WorkspaceAgentTaskRef?
+    /// Dispatch target to persist on the resulting row.
+    public let dispatchTarget: WorkspaceTaskDispatchTarget?
+    /// Bound workspace id to persist on the resulting row.
+    public let boundWorkspaceID: UUID?
+    /// Bound agent/provider to persist on the resulting row.
+    public let boundAgent: String?
+    /// Last activity timestamp to persist on the resulting row.
+    public let lastActivityAt: Date?
 
     /// Creates a replacement item.
     public init(
         id: UUID? = nil,
         text: String,
         state: WorkspaceChecklistItem.State? = nil,
-        origin: WorkspaceChecklistItem.Origin? = nil
+        origin: WorkspaceChecklistItem.Origin? = nil,
+        agentTaskRef: WorkspaceAgentTaskRef? = nil,
+        dispatchTarget: WorkspaceTaskDispatchTarget? = nil,
+        boundWorkspaceID: UUID? = nil,
+        boundAgent: String? = nil,
+        lastActivityAt: Date? = nil
     ) {
         self.id = id
         self.text = text
         self.state = state
         self.origin = origin
+        self.agentTaskRef = agentTaskRef
+        self.dispatchTarget = dispatchTarget
+        self.boundWorkspaceID = boundWorkspaceID
+        self.boundAgent = boundAgent
+        self.lastActivityAt = lastActivityAt
     }
 }
 
@@ -85,14 +105,24 @@ extension Array where Element == WorkspaceChecklistItem {
                     text: normalized,
                     state: item.state ?? existing.state,
                     origin: existing.origin,
-                    attachments: existing.attachments
+                    attachments: existing.attachments,
+                    agentTaskRef: item.agentTaskRef ?? existing.agentTaskRef,
+                    dispatchTarget: item.dispatchTarget ?? existing.dispatchTarget,
+                    boundWorkspaceID: item.boundWorkspaceID ?? existing.boundWorkspaceID,
+                    boundAgent: item.boundAgent ?? existing.boundAgent,
+                    lastActivityAt: item.lastActivityAt ?? existing.lastActivityAt
                 ))
             } else {
                 result.append(WorkspaceChecklistItem(
                     id: item.id ?? UUID(),
                     text: normalized,
                     state: item.state ?? .pending,
-                    origin: item.origin ?? .user
+                    origin: item.origin ?? .user,
+                    agentTaskRef: item.agentTaskRef,
+                    dispatchTarget: item.dispatchTarget,
+                    boundWorkspaceID: item.boundWorkspaceID,
+                    boundAgent: item.boundAgent,
+                    lastActivityAt: item.lastActivityAt
                 ))
             }
         }

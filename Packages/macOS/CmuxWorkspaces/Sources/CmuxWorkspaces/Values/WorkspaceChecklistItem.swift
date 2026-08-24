@@ -27,6 +27,16 @@ public struct WorkspaceChecklistItem: Codable, Sendable, Identifiable, Hashable 
     public var origin: Origin
     /// User-owned image files attached to the item.
     public var attachments: [WorkspaceChecklistAttachment]
+    /// The agent task mirrored by this row, when it came from a hook.
+    public var agentTaskRef: WorkspaceAgentTaskRef?
+    /// Optional target used when this row is dispatched as a new agent.
+    public var dispatchTarget: WorkspaceTaskDispatchTarget?
+    /// The workspace created by the last dispatch, when any.
+    public var boundWorkspaceID: UUID?
+    /// The agent/provider bound by the last dispatch or hook update.
+    public var boundAgent: String?
+    /// Last hook or queue mutation timestamp for this row.
+    public var lastActivityAt: Date?
 
     /// Number of attachments available for compact UI counts.
     public var attachmentCount: Int {
@@ -39,13 +49,23 @@ public struct WorkspaceChecklistItem: Codable, Sendable, Identifiable, Hashable 
         text: String,
         state: State = .pending,
         origin: Origin = .user,
-        attachments: [WorkspaceChecklistAttachment] = []
+        attachments: [WorkspaceChecklistAttachment] = [],
+        agentTaskRef: WorkspaceAgentTaskRef? = nil,
+        dispatchTarget: WorkspaceTaskDispatchTarget? = nil,
+        boundWorkspaceID: UUID? = nil,
+        boundAgent: String? = nil,
+        lastActivityAt: Date? = nil
     ) {
         self.id = id
         self.text = text
         self.state = state
         self.origin = origin
         self.attachments = attachments
+        self.agentTaskRef = agentTaskRef
+        self.dispatchTarget = dispatchTarget
+        self.boundWorkspaceID = boundWorkspaceID
+        self.boundAgent = boundAgent
+        self.lastActivityAt = lastActivityAt
     }
 
     /// Checks whether any attachment file is currently missing.
@@ -59,6 +79,11 @@ public struct WorkspaceChecklistItem: Codable, Sendable, Identifiable, Hashable 
         case state
         case origin
         case attachments
+        case agentTaskRef
+        case dispatchTarget
+        case boundWorkspaceID
+        case boundAgent
+        case lastActivityAt
     }
 
     public init(from decoder: any Decoder) throws {
@@ -68,6 +93,11 @@ public struct WorkspaceChecklistItem: Codable, Sendable, Identifiable, Hashable 
         self.state = try container.decode(State.self, forKey: .state)
         self.origin = try container.decode(Origin.self, forKey: .origin)
         self.attachments = (try? container.decode(LossyWorkspaceChecklistAttachments.self, forKey: .attachments))?.attachments ?? []
+        self.agentTaskRef = try container.decodeIfPresent(WorkspaceAgentTaskRef.self, forKey: .agentTaskRef)
+        self.dispatchTarget = try container.decodeIfPresent(WorkspaceTaskDispatchTarget.self, forKey: .dispatchTarget)
+        self.boundWorkspaceID = try container.decodeIfPresent(UUID.self, forKey: .boundWorkspaceID)
+        self.boundAgent = try container.decodeIfPresent(String.self, forKey: .boundAgent)
+        self.lastActivityAt = try container.decodeIfPresent(Date.self, forKey: .lastActivityAt)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -76,6 +106,11 @@ public struct WorkspaceChecklistItem: Codable, Sendable, Identifiable, Hashable 
         try container.encode(text, forKey: .text)
         try container.encode(state, forKey: .state)
         try container.encode(origin, forKey: .origin)
+        try container.encodeIfPresent(agentTaskRef, forKey: .agentTaskRef)
+        try container.encodeIfPresent(dispatchTarget, forKey: .dispatchTarget)
+        try container.encodeIfPresent(boundWorkspaceID, forKey: .boundWorkspaceID)
+        try container.encodeIfPresent(boundAgent, forKey: .boundAgent)
+        try container.encodeIfPresent(lastActivityAt, forKey: .lastActivityAt)
         if !attachments.isEmpty {
             try container.encode(attachments, forKey: .attachments)
         }

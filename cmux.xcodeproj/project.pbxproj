@@ -1163,6 +1163,7 @@
 		FEED0A00000000000000F007 /* feed-tui in Resources */ = {isa = PBXBuildFile; fileRef = FEED0A00000000000000F006 /* feed-tui */; };
 		9466A07A0000000000000001 /* FeedAttentionTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9466A07A0000000000000002 /* FeedAttentionTarget.swift */; };
 		FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */; };
+		A8E100000000000000000002 /* FeedCoordinator+AgentTodos.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8E100000000000000000001 /* FeedCoordinator+AgentTodos.swift */; };
 		8672D0018672D0018672D001 /* FeedCoordinator+DeliveryTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672D0028672D0028672D002 /* FeedCoordinator+DeliveryTarget.swift */; };
 		B7F100090000000000000001 /* FeedCoordinator+NotificationDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100090000000000000002 /* FeedCoordinator+NotificationDelivery.swift */; };
 		FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F001 /* FeedCoordinator.swift */; };
@@ -4165,6 +4166,7 @@
 		FEED0A00000000000000F006 /* feed-tui */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "feed-tui"; sourceTree = "<group>"; };
 		9466A07A0000000000000002 /* FeedAttentionTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedAttentionTarget.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedButtonStyleDebugWindowController.swift; sourceTree = "<group>"; };
+		A8E100000000000000000001 /* FeedCoordinator+AgentTodos.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeedCoordinator+AgentTodos.swift"; sourceTree = "<group>"; };
 		8672D0028672D0028672D002 /* FeedCoordinator+DeliveryTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeedCoordinator+DeliveryTarget.swift"; sourceTree = "<group>"; };
 		B7F100090000000000000002 /* FeedCoordinator+NotificationDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeedCoordinator+NotificationDelivery.swift"; sourceTree = "<group>"; };
 		FEED0000000000000000F001 /* FeedCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedCoordinator.swift; sourceTree = "<group>"; };
@@ -9139,6 +9141,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			isa = PBXGroup;
 			children = (
 				FEED0000000000000000F001 /* FeedCoordinator.swift */,
+				A8E100000000000000000001 /* FeedCoordinator+AgentTodos.swift */,
 				8672D0028672D0028672D002 /* FeedCoordinator+DeliveryTarget.swift */,
 				B7F100090000000000000002 /* FeedCoordinator+NotificationDelivery.swift */,
 				B7F1000A0000000000000002 /* FeedJumpResolver.swift */,
@@ -10289,6 +10292,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */,
 				9466A07A0000000000000001 /* FeedAttentionTarget.swift in Sources */,
 				FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */,
+				A8E100000000000000000002 /* FeedCoordinator+AgentTodos.swift in Sources */,
 				8672D0018672D0018672D001 /* FeedCoordinator+DeliveryTarget.swift in Sources */,
 				B7F100090000000000000001 /* FeedCoordinator+NotificationDelivery.swift in Sources */,
 				FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */,
