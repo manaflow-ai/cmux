@@ -1,16 +1,18 @@
-/// The durable activation milestone reached by the iOS onboarding flow.
+/// The durable milestone reached by the iOS onboarding flow.
 ///
-/// Only milestones that matter across launches are persisted. The two product
-/// demonstration scenes are intentionally grouped into ``welcome`` so people
-/// can move through them freely, while ``connect`` resumes at the one remaining
-/// prerequisite after they have chosen to set up cmux.
+/// Only milestones that matter across launches are persisted. Each case names
+/// the step the person should resume at: the welcome pitch, connecting a Mac
+/// (which sign-in precedes when needed), or the push-notification offer.
 public enum MobileOnboardingProgress: String, Equatable, Sendable {
-    /// The product demonstration has not been completed yet.
+    /// The welcome pitch has not been completed yet.
     case welcome
 
-    /// The value tour is complete and the next step is connecting a computer.
+    /// The pitch is done; the next step is sign-in and connecting a computer.
     case connect
 
-    /// Onboarding was skipped or a computer connection completed successfully.
+    /// Connection setup was finished or skipped; the push offer remains.
+    case push
+
+    /// Onboarding finished. Individual steps may have been skipped.
     case complete
 }

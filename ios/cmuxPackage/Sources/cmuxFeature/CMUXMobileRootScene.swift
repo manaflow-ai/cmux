@@ -55,6 +55,9 @@ public struct CMUXMobileRootScene: View {
     /// it gates the one-time onboarding screen ahead of the never-paired
     /// add-device state.
     package let onboardingStore: MobileOnboardingStore
+    /// One-time in-app guidance tips, injected into the environment so shell
+    /// surfaces continue onboarding in place after the first-run flow.
+    private let guidanceStore: MobileGuidanceStore
     #endif
     /// The app-root tailnet detector (behind the shell UI's read-only
     /// observing port), injected into the environment so pairing and
@@ -99,6 +102,8 @@ public struct CMUXMobileRootScene: View {
     ///     eligibility and acknowledgement injected into the root view.
     ///   - onboardingStore: The app-root first-run onboarding "seen" flag store,
     ///     injected into the root view to gate the one-time onboarding screen.
+    ///   - guidanceStore: One-time in-app guidance tips, injected into the
+    ///     environment so shell surfaces can continue onboarding in place.
     ///   - tailscaleStatusMonitor: The app-root tailnet detector, injected into
     ///     the environment for the pairing and disconnected surfaces.
     ///   - personalIrohRouteCatalog: Authenticated personal-account Iroh routes
@@ -122,6 +127,7 @@ public struct CMUXMobileRootScene: View {
         connectionMethodStore: MobileConnectionMethodStore,
         autoConnectMigrationStore: MobileAutoConnectMigrationStore,
         onboardingStore: MobileOnboardingStore,
+        guidanceStore: MobileGuidanceStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
         personalIrohRouteCatalog: MobileIrohRouteCatalog? = nil,
         personalIrohDiscovery: (any MobileIrohMacDiscovering)? = nil,
@@ -140,6 +146,7 @@ public struct CMUXMobileRootScene: View {
         self.connectionMethodStore = connectionMethodStore
         self.autoConnectMigrationStore = autoConnectMigrationStore
         self.onboardingStore = onboardingStore
+        self.guidanceStore = guidanceStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.personalIrohRouteCatalog = personalIrohRouteCatalog
         self.personalIrohDiscovery = personalIrohDiscovery
@@ -376,6 +383,7 @@ public struct CMUXMobileRootScene: View {
             .terminalFilesChipEnabled(featureFlags.terminalFilesChipEnabled)
             .environment(connectionMethodStore)
             .environment(autoConnectMigrationStore)
+            .environment(guidanceStore)
             #endif
     }
 

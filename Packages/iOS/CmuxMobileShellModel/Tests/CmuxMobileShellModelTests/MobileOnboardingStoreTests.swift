@@ -24,6 +24,16 @@ import Testing
         #expect(MobileOnboardingStore(defaults: defaults).progress == .connect)
     }
 
+    @Test func pushMilestonePersistsAcrossStoreInstances() {
+        let defaults = makeDefaults()
+        let store = MobileOnboardingStore(defaults: defaults)
+        store.markReadyToConnect()
+        store.markReadyForPush()
+
+        #expect(store.progress == .push)
+        #expect(MobileOnboardingStore(defaults: defaults).progress == .push)
+    }
+
     @Test func completionPersistsAcrossStoreInstances() {
         let defaults = makeDefaults()
         MobileOnboardingStore(defaults: defaults).markComplete()
@@ -31,14 +41,18 @@ import Testing
         #expect(MobileOnboardingStore(defaults: defaults).progress == .complete)
     }
 
-    @Test func completedLegacyTourDoesNotSuppressRedesign() {
+    @Test func completedLegacyToursDoNotSuppressThisDesign() {
         let defaults = makeDefaults()
         defaults.set(true, forKey: "dev.cmux.mobile.onboarding.seen.v1")
+        defaults.set(
+            "complete",
+            forKey: "dev.cmux.mobile.onboarding.redesign.progress.v1"
+        )
 
         #expect(MobileOnboardingStore(defaults: defaults).progress == .welcome)
     }
 
-    @Test func redesignProgressPersistsIndependentlyFromLegacyFlag() {
+    @Test func progressPersistsIndependentlyFromLegacyKeys() {
         let defaults = makeDefaults()
         defaults.set(true, forKey: "dev.cmux.mobile.onboarding.seen.v1")
         defaults.set(
@@ -55,8 +69,24 @@ import Testing
         #expect(store.progress == .complete)
 
         store.markReadyToConnect()
+        store.markReadyForPush()
         store.markComplete()
 
         #expect(defaults.string(forKey: MobileOnboardingStore.progressKey) == nil)
+    }
+
+    @Test func persistedProgressIgnoresForceCompleteBypass() {
+        let defaults = makeDefaults()
+        defaults.set(
+            MobileOnboardingProgress.connect.rawValue,
+            forKey: MobileOnboardingStore.progressKey
+        )
+        let store = MobileOnboardingStore(defaults: defaults, forceComplete: true)
+
+        #expect(store.progress == .complete)
+        #expect(store.persistedProgress == .connect)
+
+        defaults.removeObject(forKey: MobileOnboardingStore.progressKey)
+        #expect(store.persistedProgress == .welcome)
     }
 }

@@ -2,6 +2,9 @@
 import CmuxMobileShellModel
 import CmuxMobileSupport
 
+/// Per-stage header and footer configuration. Every step is skippable: the
+/// header Skip advances past welcome and connect, and the push stage carries
+/// its own "Not Now" secondary instead of a second dismissal in the header.
 struct OnboardingSceneChrome: Equatable {
     let showsBack: Bool
     let showsSkip: Bool
@@ -10,35 +13,21 @@ struct OnboardingSceneChrome: Equatable {
 
     init(
         stage: OnboardingStage,
-        isAuthenticated: Bool,
         connectionPhase: OnboardingConnectionPhase,
         connectionMethod: MobileConnectionMethod = .automatic
     ) {
-        showsBack = stage != .agents
-        showsSkip = stage != .connect
+        showsBack = stage != .welcome
 
         switch stage {
-        case .agents:
+        case .welcome:
+            showsSkip = true
             primaryTitle = L10n.string(
-                "mobile.onboarding.agents.primary",
-                defaultValue: "Continue"
-            )
-            secondaryTitle = nil
-        case .notifications:
-            primaryTitle = L10n.string(
-                "mobile.onboarding.continue",
-                defaultValue: "Continue"
+                "mobile.onboarding.welcome.primary",
+                defaultValue: "Get Started"
             )
             secondaryTitle = nil
         case .connect:
-            guard isAuthenticated else {
-                primaryTitle = L10n.string(
-                    "mobile.onboarding.continue",
-                    defaultValue: "Continue"
-                )
-                secondaryTitle = nil
-                return
-            }
+            showsSkip = connectionPhase != .ready
 
             switch connectionPhase {
             case .idle:
@@ -57,24 +46,28 @@ struct OnboardingSceneChrome: Equatable {
             case .fallback:
                 if connectionMethod == .tailscale {
                     primaryTitle = Self.scanPairingCodeTitle
-                    secondaryTitle = L10n.string(
-                        "mobile.onboarding.connect.primary",
-                        defaultValue: "Check Again"
-                    )
+                    secondaryTitle = Self.checkAgainTitle
                 } else {
-                    primaryTitle = L10n.string(
-                        "mobile.onboarding.connect.primary",
-                        defaultValue: "Check Again"
-                    )
-                    secondaryTitle = nil
+                    primaryTitle = Self.checkAgainTitle
+                    secondaryTitle = Self.scanPairingCodeTitle
                 }
             case .ready:
                 primaryTitle = L10n.string(
-                    "mobile.onboarding.ready.primary",
-                    defaultValue: "Open Workspaces"
+                    "mobile.onboarding.continue",
+                    defaultValue: "Continue"
                 )
                 secondaryTitle = nil
             }
+        case .push:
+            showsSkip = false
+            primaryTitle = L10n.string(
+                "mobile.onboarding.push.primary",
+                defaultValue: "Enable Notifications"
+            )
+            secondaryTitle = L10n.string(
+                "mobile.onboarding.push.secondary",
+                defaultValue: "Not Now"
+            )
         }
     }
 
@@ -82,6 +75,13 @@ struct OnboardingSceneChrome: Equatable {
         L10n.string(
             "mobile.onboarding.connect.scanTailscaleCode",
             defaultValue: "Scan Pairing Code"
+        )
+    }
+
+    private static var checkAgainTitle: String {
+        L10n.string(
+            "mobile.onboarding.connect.primary",
+            defaultValue: "Check Again"
         )
     }
 }

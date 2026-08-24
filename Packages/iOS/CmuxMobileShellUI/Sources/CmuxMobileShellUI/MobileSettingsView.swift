@@ -19,6 +19,9 @@ struct MobileSettingsView: View {
 
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
+    /// Optional so previews and package hosts without the app root still render.
+    @Environment(MobileGuidanceStore.self) private var guidanceStore:
+        MobileGuidanceStore?
     @Environment(MobileDisplaySettings.self) private var displaySettings
     /// Optional so previews and hosts without the app root still render; the
     /// Connection Method section is hidden when absent.
@@ -29,6 +32,10 @@ struct MobileSettingsView: View {
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     let connectedHostName: String
     let startPairingScanner: (() -> Void)?
+    /// Opens the pairing scanner for the onboarding replay. Unlike
+    /// `startPairingScanner`, never nil-gated on the already-selected method:
+    /// the replayed flow adopts Tailscale as part of the scan action itself.
+    let startOnboardingPairingScanner: () -> Void
     let signOut: (() -> Void)?
     /// The shell store, used for the live connection rows and the onboarding
     /// replay's connection state. `nil` in previews.
@@ -158,6 +165,9 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsSetUpYourMac")
                     Button {
+                        // Replaying the introduction also revives the one-time
+                        // in-app tips, so "show me around again" means both.
+                        guidanceStore?.reset()
                         showingOnboarding = true
                     } label: {
                         Label(
@@ -469,12 +479,13 @@ struct MobileSettingsView: View {
             }
             #endif
             .sheet(isPresented: $showingOnboarding) {
-                // Re-entry never writes first-run progress. The final scene reads
-                // live connection state and can reopen pairing from offline Settings.
+                // Re-entry never writes first-run progress. The connect scene
+                // reads live connection state and can reopen pairing from
+                // offline Settings, and the push scene drives the same
+                // coordinator as the Settings toggle.
                 OnboardingFlowView(
-                    initialStage: .agents,
+                    initialStage: .welcome,
                     context: .replay,
-                    isAuthenticated: true,
                     connectionPhase: OnboardingConnectionPhase(
                         isMacReady: store?.connectionState == .connected,
                         isSearching: store?.isReconnectingStoredMac == true,
@@ -483,11 +494,24 @@ struct MobileSettingsView: View {
                     connectionMethod: connectionMethodStore?.method ?? .automatic,
                     onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
                     onReachedConnection: {},
-                    onSkip: { showingOnboarding = false },
+                    onReachedPush: {},
+                    onSkipFlow: { showingOnboarding = false },
                     onRetryConnection: retryAutomaticConnection,
                     onStartTailscalePairing: {
                         showingOnboarding = false
-                        startPairingScanner?()
+                        startOnboardingPairingScanner()
+                    },
+                    onEnablePush: { [pushCoordinator] in
+                        let granted = await pushCoordinator.enable(
+                            trigger: "onboarding_replay"
+                        )
+                        if !granted {
+                            pushCoordinator.recordOnboardingPushDecline()
+                        }
+                        return granted
+                    },
+                    onDeclinePush: { [pushCoordinator] in
+                        pushCoordinator.recordOnboardingPushDecline()
                     },
                     onComplete: { showingOnboarding = false }
                 )

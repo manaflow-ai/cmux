@@ -81,6 +81,9 @@ public final class MobilePushCoordinator {
     // the opt-in flag for the menu UI without awaiting the actor service.
     private nonisolated(unsafe) let defaults: UserDefaults
     private static let enabledKey = "cmux.notifications.pushEnabled"
+    /// Set when the onboarding push offer was explicitly declined; gates only
+    /// the workspace list's automatic prompt, never an explicit user action.
+    private static let onboardingDeclinedKey = "cmux.notifications.onboardingPushDeclined"
     private var enabledMirror: Bool
     @ObservationIgnored private var settingsIntentGeneration: UInt64 = 0
     @ObservationIgnored private var settingsIntentTask: Task<Bool, Never>?
@@ -274,9 +277,14 @@ public final class MobilePushCoordinator {
     /// Commits a Settings toggle choice synchronously, then reconciles OS and
     /// backend state for that generation. A later choice invalidates every
     /// continuation of the older operation, so Settings never waits behind a
-    /// stalled permission or registration call.
+    /// stalled permission or registration call. `trigger` attributes the
+    /// opt-in analytics to the surface that asked (Settings, onboarding, an
+    /// in-app guidance callout).
     @discardableResult
-    public func setEnabledIntent(_ enabled: Bool) -> Task<Bool, Never> {
+    public func setEnabledIntent(
+        _ enabled: Bool,
+        trigger: String = "settings_toggle"
+    ) -> Task<Bool, Never> {
         settingsIntentTask?.cancel()
         let generation = beginSettingsIntent(enabled)
         let registration = registration
@@ -294,7 +302,7 @@ public final class MobilePushCoordinator {
             let result: Bool
             if enabled {
                 result = await self.reconcileEnable(
-                    trigger: "settings_toggle",
+                    trigger: trigger,
                     generation: generation,
                     registrationIntentOwnedByService: true
                 )
@@ -380,14 +388,34 @@ public final class MobilePushCoordinator {
 
     /// Opt in: request system authorization, register for remote notifications,
     /// and persist the flag. Returns whether authorization was granted.
+    /// `trigger` attributes the opt-in analytics to the asking surface.
     @discardableResult
-    public func enable() async -> Bool {
-        await setEnabledIntent(true).value
+    public func enable(trigger: String = "settings_toggle") async -> Bool {
+        await setEnabledIntent(true, trigger: trigger).value
+    }
+
+    /// Records that the person declined the push offer during onboarding, so
+    /// the workspace list's automatic authorization request does not re-ask
+    /// them moments later. Settings and in-app guidance stay available.
+    public func recordOnboardingPushDecline() {
+        defaults.set(true, forKey: Self.onboardingDeclinedKey)
+    }
+
+    /// Whether onboarding recorded an explicit push decline.
+    public var didDeclinePushDuringOnboarding: Bool {
+        defaults.bool(forKey: Self.onboardingDeclinedKey)
     }
 
     /// Requests or recovers push only after the authenticated workspace shell
     /// is mounted. An explicit app opt-out remains authoritative.
-    public func workspaceListDidBecomeVisible() async {
+    /// `allowsAuthorizationPrompt` gates only the never-asked (`notDetermined`)
+    /// OS prompt: until first-run onboarding truly completes, that one prompt
+    /// belongs to the onboarding Enable button, so bypass launches (dogfood
+    /// attach, mock harnesses) must not pre-burn it. Recovery of an already
+    /// authorized or denied registration always runs.
+    public func workspaceListDidBecomeVisible(
+        allowsAuthorizationPrompt: Bool = true
+    ) async {
         let initialSettingsGeneration = settingsIntentGeneration
         if defaults.object(forKey: Self.enabledKey) as? Bool == false {
             return
@@ -409,6 +437,10 @@ public final class MobilePushCoordinator {
             // a later foreground return can recover without another app launch.
             persistEnabledIntent()
         case .notDetermined:
+            guard allowsAuthorizationPrompt else { return }
+            // Someone who just said "Not Now" in onboarding must not be
+            // re-prompted the moment the workspace list appears.
+            guard !didDeclinePushDuringOnboarding else { return }
             guard !workspaceAuthorizationRequestInFlight else { return }
             workspaceAuthorizationRequestInFlight = true
             defer { workspaceAuthorizationRequestInFlight = false }

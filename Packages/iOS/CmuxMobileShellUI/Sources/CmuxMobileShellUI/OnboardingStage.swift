@@ -1,16 +1,16 @@
 #if os(iOS)
 enum OnboardingStage: Int, CaseIterable, Hashable, Sendable {
-    case agents
-    case notifications
+    case welcome
     case connect
+    case push
 
     var position: Int { rawValue + 1 }
 
     var analyticsValue: String {
         switch self {
-        case .agents: "agents"
-        case .notifications: "notifications"
+        case .welcome: "welcome"
         case .connect: "connect"
+        case .push: "push"
         }
     }
 }
