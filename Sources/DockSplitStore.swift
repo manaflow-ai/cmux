@@ -538,7 +538,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         url: URL? = nil,
         initialRequest: URLRequest? = nil,
         command: String? = nil,
-        initialInput: String? = nil,
         workingDirectory: String? = nil,
         sourcePanelId: UUID? = nil,
         environment: [String: String] = [:],
@@ -566,7 +565,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         guard let panel = makePanel(
             kind: kind,
             command: command,
-            initialInput: initialInput,
             url: url,
             initialRequest: initialRequest,
             configTemplate: kind == .terminal
@@ -623,7 +621,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         url: URL? = nil,
         initialRequest: URLRequest? = nil,
         command: String? = nil,
-        initialInput: String? = nil,
         workingDirectory: String? = nil,
         environment: [String: String] = [:],
         tmuxStartCommand: String? = nil,
@@ -650,7 +647,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         guard let panel = makePanel(
             kind: kind,
             command: command,
-            initialInput: initialInput,
             url: url,
             initialRequest: initialRequest,
             configTemplate: kind == .terminal
@@ -922,7 +918,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     private func makePanel(
         kind: DockSurfaceKind,
         command: String?,
-        initialInput: String?,
         url: URL?,
         initialRequest: URLRequest? = nil,
         configTemplate: CmuxSurfaceConfigTemplate? = nil,
@@ -944,7 +939,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         case .terminal:
             return makeTerminalPanel(
                 command: command,
-                initialInput: initialInput,
                 useLoginShellWrapper: false,
                 workingDirectory: workingDirectory,
                 environment: environment,
@@ -1002,7 +996,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
 
     private func makeTerminalPanel(
         command: String?,
-        initialInput: String? = nil,
         useLoginShellWrapper: Bool,
         workingDirectory: String,
         environment: [String: String],
