@@ -315,7 +315,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         /// between batches is overwritten on the next frame instead of
         /// hijacking the gesture. Cleared on dock/typing snaps and surface
         /// replacement, where the live viewport becomes the truth again.
-        var lastApplied: (row: UInt64, remainderPx: Double, revision: UInt64, total: UInt64)?
+        /// `positionPx` is the exact (unrounded) content-space position so
+        /// sub-pixel deltas accumulate across batches; `remainderPx` is the
+        /// whole-pixel offset actually applied to Ghostty. `revision` guards
+        /// the row space: the held anchor is only valid while it matches.
+        var lastApplied: (row: UInt64, remainderPx: Double, positionPx: Double, revision: UInt64, total: UInt64)?
         #if DEBUG
         /// Rate-limits slow-batch perf log lines (scroll-hitch investigation).
         var lastPerfLogTime: CFTimeInterval = 0
@@ -325,7 +329,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         OSAllocatedUnfairLock<LocalPixelScrollState>(initialState: .init())
     #if DEBUG
     /// Last pixel-precise viewport position the pixel pump applied.
-    var debugLastPixelScroll: (row: UInt64, remainderPx: Double, revision: UInt64, total: UInt64)? {
+    var debugLastPixelScroll: (row: UInt64, remainderPx: Double, positionPx: Double, revision: UInt64, total: UInt64)? {
         localPixelScrollState.withLock { $0.lastApplied }
     }
     #endif

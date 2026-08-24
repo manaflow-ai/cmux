@@ -185,19 +185,23 @@ extension GhosttySurfaceView {
             // Mid-gesture the held position is the authority: a verified
             // replay may have reset the live viewport to the bottom between
             // batches, and deriving from it would make the reset hijack the
-            // gesture. Clamping to maxPosition keeps the held value valid
-            // across content growth and eviction.
+            // gesture. The exact (unrounded) position carries sub-pixel
+            // deltas across batches, and the anchor is only trusted while
+            // its row space is unchanged: replays repaint in place and keep
+            // the revision, while eviction or reflow renumber rows, so a
+            // revision change falls back to the live viewport.
             let current: Double
-            if rebaseFromHeldPosition, let held {
-                current = min(Double(held.row) * cellHeightPx + held.remainderPx, maxPosition)
+            if rebaseFromHeldPosition, let held,
+               held.revision == scrollbar.row_space_revision {
+                current = min(held.positionPx, maxPosition)
             } else {
                 current = min(Double(scrollbar.offset) * cellHeightPx + remainder, maxPosition)
             }
             let next = min(max(current + deltaPixels, 0), maxPosition)
             var row = UInt64((next / cellHeightPx).rounded(.down))
-            // Round to whole device pixels: a fractional-pixel offset makes
-            // glyph antialiasing resample every frame (shimmer); native
-            // scrollers always move content by integral pixels.
+            // Ghostty gets whole device pixels: a fractional-pixel offset
+            // makes glyph antialiasing resample every frame (shimmer);
+            // native scrollers always move content by integral pixels.
             var pixelOffset = (next - Double(row) * cellHeightPx).rounded()
             if pixelOffset >= cellHeightPx {
                 row += 1
@@ -219,6 +223,7 @@ extension GhosttySurfaceView {
             ) {
                 let appliedRow = row
                 let appliedOffset = pixelOffset
+                let appliedPosition = next
                 let appliedRevision = applied.row_space_revision
                 let appliedTotal = applied.total
                 pixelState.withLock {
@@ -230,6 +235,7 @@ extension GhosttySurfaceView {
                     $0.lastApplied = (
                         row: appliedRow,
                         remainderPx: appliedOffset,
+                        positionPx: appliedPosition,
                         revision: appliedRevision,
                         total: appliedTotal
                     )
