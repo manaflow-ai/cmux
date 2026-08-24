@@ -16,4 +16,22 @@ public struct CmxIrohDialPlan: Equatable, Sendable {
         self.publicPaths = publicPaths
         self.privateFallbackPaths = privateFallbackPaths
     }
+
+    /// The exclusive plan for the per-Computer Direct connection method.
+    ///
+    /// The user-enabled addresses are the COMPLETE allowlist and form the
+    /// single unconditional attempt; no relay path may enter and no fallback
+    /// leg exists, so an unreachable allowlist fails the dial instead of
+    /// substituting another path. Only socket-address hints are accepted,
+    /// preserving this type's guarantee that a relay cannot ride the plan
+    /// unreviewed. Returns `nil` for an empty or non-address hint set.
+    public static func directOnly(
+        pinnedPaths: [CmxIrohPathHint]
+    ) -> Self? {
+        guard !pinnedPaths.isEmpty,
+              pinnedPaths.allSatisfy({ $0.kind == .directAddress }) else {
+            return nil
+        }
+        return Self(publicPaths: pinnedPaths, privateFallbackPaths: [])
+    }
 }
