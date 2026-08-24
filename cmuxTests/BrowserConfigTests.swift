@@ -5536,6 +5536,34 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
             )
         )
     }
+
+    func testExternalOpenIssueRegexPatternMatchesWithoutPrefix() {
+        defaults.set(
+            ".*example\\.com.*",
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                "https://example.com/",
+                defaults: defaults
+            )
+        )
+    }
+
+    func testExternalOpenIssueArrayValueMatches() {
+        defaults.set(
+            ["example.com"],
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                "https://example.com/",
+                defaults: defaults
+            )
+        )
+    }
 }
 
 
