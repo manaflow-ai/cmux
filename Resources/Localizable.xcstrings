@@ -267619,6 +267619,167 @@
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "未找到所需的 CLI。请安装该命令后重试。" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "找不到必要的 CLI。請安裝該命令後再試一次。" } }
       }
+    },
+    "menu.window.taskQueue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Task Queue..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タスクキュー..." } }
+      }
+    },
+    "taskQueue.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Task Queue" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タスクキュー" } }
+      }
+    },
+    "taskQueue.windowTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Task Queue" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タスクキュー" } }
+      }
+    },
+    "taskQueue.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refresh" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "更新" } }
+      }
+    },
+    "taskQueue.sort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sort" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "並べ替え" } }
+      }
+    },
+    "taskQueue.sort.activity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Last activity" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "最終アクティビティ" } }
+      }
+    },
+    "taskQueue.sort.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Status" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ステータス" } }
+      }
+    },
+    "taskQueue.sort.workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース" } }
+      }
+    },
+    "taskQueue.filter.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Status" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ステータス" } }
+      }
+    },
+    "taskQueue.filter.status.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All statuses" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのステータス" } }
+      }
+    },
+    "taskQueue.filter.status.pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pending" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "保留中" } }
+      }
+    },
+    "taskQueue.filter.status.inProgress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "In progress" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "進行中" } }
+      }
+    },
+    "taskQueue.filter.status.completed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Completed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "完了" } }
+      }
+    },
+    "taskQueue.filter.workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース" } }
+      }
+    },
+    "taskQueue.filter.workspace.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All workspaces" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのワークスペース" } }
+      }
+    },
+    "taskQueue.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No queued tasks" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キューにタスクがありません" } }
+      }
+    },
+    "taskQueue.empty.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tasks from every workspace appear here." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのワークスペースのタスクがここに表示されます。" } }
+      }
+    },
+    "taskQueue.error.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Task queue is unavailable while cmux is starting." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux の起動中はタスクキューを利用できません。" } }
+      }
+    },
+    "taskQueue.error.noTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add a working directory and agent command before dispatching this task." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このタスクをディスパッチする前に作業ディレクトリとエージェントコマンドを追加してください。" } }
+      }
+    },
+    "taskQueue.error.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "That task is no longer available." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "そのタスクは利用できなくなりました。" } }
+      }
+    },
+    "taskQueue.bound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Running" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "実行中" } }
+      }
+    },
+    "taskQueue.dispatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Dispatch" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ディスパッチ" } }
+      }
+    },
+    "taskQueue.reveal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reveal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "表示" } }
+      }
     }
   },
   "version": "1.0"

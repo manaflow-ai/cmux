@@ -43,7 +43,12 @@ extension Array where Element == WorkspaceChecklistItem {
         _ text: String,
         state: WorkspaceChecklistItem.State = .pending,
         origin: WorkspaceChecklistItem.Origin = .user,
-        id: UUID = UUID()
+        id: UUID = UUID(),
+        agentTaskRef: WorkspaceAgentTaskRef? = nil,
+        dispatchTarget: WorkspaceTaskDispatchTarget? = nil,
+        boundWorkspaceID: UUID? = nil,
+        boundAgent: String? = nil,
+        lastActivityAt: Date? = nil
     ) -> Result<WorkspaceChecklistItem, WorkspaceChecklistItem.AddError> {
         guard let normalized = WorkspaceChecklistItem.normalizedText(text) else {
             return .failure(.emptyText)
@@ -51,7 +56,17 @@ extension Array where Element == WorkspaceChecklistItem {
         guard count < WorkspaceChecklistItem.maxChecklistItems else {
             return .failure(.checklistFull)
         }
-        let item = WorkspaceChecklistItem(id: id, text: normalized, state: state, origin: origin)
+        let item = WorkspaceChecklistItem(
+            id: id,
+            text: normalized,
+            state: state,
+            origin: origin,
+            agentTaskRef: agentTaskRef,
+            dispatchTarget: dispatchTarget,
+            boundWorkspaceID: boundWorkspaceID,
+            boundAgent: boundAgent,
+            lastActivityAt: lastActivityAt
+        )
         append(item)
         return .success(item)
     }

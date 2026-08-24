@@ -3671,6 +3671,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
         scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
+        todoState.ownerWorkspace = self
 
         // Forward shared agent-index refreshes so the bonsplit tab-bar re-evaluates
         // Fork Conversation availability when a background refresh lands.

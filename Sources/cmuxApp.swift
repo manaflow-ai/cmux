@@ -925,6 +925,9 @@ struct cmuxApp: App {
             Button(String(localized: "menu.window.taskManager", defaultValue: "Task Manager...")) {
                 TaskManagerWindowController.shared.show()
             }
+            Button(String(localized: "menu.window.taskQueue", defaultValue: "Task Queue...")) {
+                WorkspaceTaskQueueWindowController.shared.show()
+            }
         }
         helpCommands
         historyCommands

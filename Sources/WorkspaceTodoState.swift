@@ -22,5 +22,19 @@ final class WorkspaceTodoState: ObservableObject {
     /// infers and shows a glyph). Selecting Auto or any lane clears it.
     @Published var statusHidden: Bool = true
     /// The persisted checklist, in display order.
-    @Published var checklist: [WorkspaceChecklistItem] = []
+    @Published var checklist: [WorkspaceChecklistItem] = [] {
+        didSet {
+            NotificationCenter.default.post(
+                name: .workspaceTaskQueueDidChange,
+                object: nil,
+                userInfo: ["workspaceId": ownerWorkspaceID ?? NSNull()]
+            )
+        }
+    }
+
+    /// Workspace id is injected by ``Workspace`` after construction so queue
+    /// refresh notifications can identify the changed owner without owning a
+    /// second checklist store.
+    weak var ownerWorkspace: Workspace?
+    private var ownerWorkspaceID: UUID? { ownerWorkspace?.id }
 }

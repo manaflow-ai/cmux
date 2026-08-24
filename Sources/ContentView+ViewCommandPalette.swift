@@ -21,6 +21,12 @@ extension ContentView {
                 keywords: ["task", "manager", "process", "cpu", "memory", "kill"]
             ),
             CommandPaletteCommandContribution(
+                commandId: "palette.openTaskQueue",
+                title: constant(String(localized: "taskQueue.title", defaultValue: "Task Queue")),
+                subtitle: constant(String(localized: "command.closeWindow.subtitle", defaultValue: "Window")),
+                keywords: ["task", "queue", "todo", "workspace", "agent", "dispatch"]
+            ),
+            CommandPaletteCommandContribution(
                 commandId: "palette.sleepyMode",
                 title: constant(String(localized: "command.sleepyMode.title", defaultValue: "Sleepy Mode")),
                 subtitle: constant(String(localized: "command.sleepyMode.subtitle", defaultValue: "View")),
@@ -77,6 +83,9 @@ extension ContentView {
         }
         registry.register(commandId: "palette.openTaskManager") {
             TaskManagerWindowController.shared.show()
+        }
+        registry.register(commandId: "palette.openTaskQueue") {
+            WorkspaceTaskQueueWindowController.shared.show()
         }
         registry.register(commandId: "palette.sleepyMode") {
             SleepyModeController.shared.activate()

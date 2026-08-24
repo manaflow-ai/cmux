@@ -9783,6 +9783,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         TaskManagerWindowController.shared.show()
     }
 
+    func openTaskQueueWindow() {
+        WorkspaceTaskQueueWindowController.shared.show()
+    }
+
     func captureMainWindowVisibilityRestoreTargetsForApplicationHide() {
         mainWindowVisibilityController.captureHiddenWindowRestoreTargets(windows: mainWindowsForVisibilityController())
     }

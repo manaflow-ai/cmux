@@ -19,6 +19,9 @@ final class FakeWorkspaceTodoControlCommandContext: ControlCommandContext {
     var lastSetItems: [ControlWorkspaceTodoSetItemParam]?
     var lastOpenRequestedFocus: Bool?
     var lastWorkspaceID: UUID??
+    var queueResolution: ControlWorkspaceTaskQueueResolution = .tabManagerUnavailable
+    var queueDispatchResolution: ControlWorkspaceTaskQueueDispatchResolution = .tabManagerUnavailable
+    var queueRevealResolution: ControlWorkspaceTaskQueueRevealResolution = .tabManagerUnavailable
 
     func controlWorkspaceTaskStatus(
         routing: ControlRoutingSelectors,
@@ -104,6 +107,26 @@ final class FakeWorkspaceTodoControlCommandContext: ControlCommandContext {
         lastWorkspaceID = workspaceID
         lastOpenRequestedFocus = requestedFocus
         return openResolution
+    }
+
+    func controlWorkspaceTaskQueueList(
+        statusRaw: String?,
+        workspaceID: UUID?
+    ) -> ControlWorkspaceTaskQueueResolution {
+        queueResolution
+    }
+
+    func controlWorkspaceTaskQueueDispatch(
+        itemID: UUID,
+        routing: ControlRoutingSelectors
+    ) -> ControlWorkspaceTaskQueueDispatchResolution {
+        queueDispatchResolution
+    }
+
+    func controlWorkspaceTaskQueueReveal(
+        itemID: UUID
+    ) -> ControlWorkspaceTaskQueueRevealResolution {
+        queueRevealResolution
     }
 }
 

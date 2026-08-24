@@ -470,3 +470,210 @@ extension TerminalController: ControlWorkspaceTodoContext {
         }
     }
 }
+
+// MARK: - Cross-workspace task queue
+
+extension TerminalController: ControlWorkspaceTaskQueueContext {
+    func controlWorkspaceTaskQueueList(
+        statusRaw: String?,
+        workspaceID: UUID?
+    ) -> ControlWorkspaceTaskQueueResolution {
+        guard let app = AppDelegate.shared else { return .tabManagerUnavailable }
+        let workspaces = app.allWorkspacesForAgentTodoRetirement
+        let workspacesByID = Dictionary(workspaces.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let items = workspaces.flatMap { workspace -> [ControlWorkspaceTaskQueueItem] in
+            let windowID = app.windowId(for: app.tabManagerFor(tabId: workspace.id) ?? tabManager)
+            return workspace.todoState.checklist.compactMap { item in
+                guard statusRaw == nil || item.state.rawValue == statusRaw else { return nil }
+                let projected = queueItem(
+                    item,
+                    workspace: workspace,
+                    windowID: windowID,
+                    boundWorkspace: item.boundWorkspaceID.flatMap { workspacesByID[$0] }
+                )
+                guard workspaceID == nil || projected.workspaceID == workspaceID else { return nil }
+                return projected
+            }
+        }
+        return .resolved(items.sorted {
+            if $0.state != $1.state { return queueStateRank($0.state) < queueStateRank($1.state) }
+            if $0.workspaceTitle != $1.workspaceTitle { return $0.workspaceTitle < $1.workspaceTitle }
+            return $0.text.localizedStandardCompare($1.text) == .orderedAscending
+        })
+    }
+
+    func controlWorkspaceTaskQueueDispatch(
+        itemID: UUID,
+        routing _: ControlRoutingSelectors
+    ) -> ControlWorkspaceTaskQueueDispatchResolution {
+        guard let app = AppDelegate.shared else { return .tabManagerUnavailable }
+        guard let source = app.allWorkspacesForAgentTodoRetirement.first(where: {
+            $0.todoState.checklist.contains(where: { $0.id == itemID })
+        }), let item = source.todoState.checklist.first(where: { $0.id == itemID }) else {
+            return .notFound
+        }
+        guard let target = item.dispatchTarget,
+              !target.agentCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .notDispatchable
+        }
+        var params: [String: Any] = [
+            "focus": false,
+            "initial_command": target.agentCommand,
+            "working_directory": target.workingDirectory ?? source.currentDirectory,
+            "eager_load_terminal": false,
+        ]
+        if let sourceWindowID = app.windowId(for: app.tabManagerFor(tabId: source.id) ?? tabManager) {
+            params["window_id"] = sourceWindowID.uuidString
+        }
+        guard case .ok(let rawResult) = v2WorkspaceCreate(
+            params: params,
+            tabManager: app.tabManagerFor(tabId: source.id) ?? tabManager
+        ), let result = rawResult as? [String: Any],
+              let createdRaw = result["workspace_id"] as? String,
+              let createdID = UUID(uuidString: createdRaw) else {
+            return .notDispatchable
+        }
+        guard source.bindChecklistItem(
+            id: itemID,
+            toWorkspace: createdID,
+            agent: target.agentName,
+            at: Date()
+        ) else { return .notFound }
+        WorkspaceTodoFeature.markUsed()
+        let owner = app.tabManagerFor(tabId: source.id) ?? tabManager
+        return .created(
+            item: queueItem(
+                source.todoState.checklist.first(where: { $0.id == itemID }) ?? item,
+                workspace: source,
+                windowID: app.windowId(for: owner),
+                boundWorkspace: app.tabManagerFor(tabId: createdID)?.tabs.first { $0.id == createdID }
+            ),
+            createdWorkspaceID: createdID,
+            windowID: app.windowId(for: owner)
+        )
+    }
+
+    func controlWorkspaceTaskQueueReveal(
+        itemID: UUID
+    ) -> ControlWorkspaceTaskQueueRevealResolution {
+        guard let app = AppDelegate.shared else { return .tabManagerUnavailable }
+        guard let workspace = app.allWorkspacesForAgentTodoRetirement.first(where: {
+            $0.todoState.checklist.contains(where: { $0.id == itemID })
+        }), let item = workspace.todoState.checklist.first(where: { $0.id == itemID }) else {
+            return .notFound
+        }
+        // Open the owning workspace's todo surface without focusing it. This
+        // is the concrete reveal action; the notification lets a sidebar host
+        // scroll its row as well. Neither path selects a workspace or activates
+        // a window.
+        let displayedWorkspace = item.boundWorkspaceID.flatMap { boundID in
+            app.allWorkspacesForAgentTodoRetirement.first { $0.id == boundID }
+        } ?? workspace
+        _ = WorkspaceTodoActions.openTodoPane(for: displayedWorkspace, focus: false)
+        NotificationCenter.default.post(
+            name: .workspaceTaskQueueRevealRequested,
+            object: nil,
+            userInfo: ["workspaceId": displayedWorkspace.id]
+        )
+        return .revealed(
+            item: queueItem(
+                item,
+                workspace: workspace,
+                windowID: app.windowId(for: app.tabManagerFor(tabId: workspace.id) ?? tabManager),
+                boundWorkspace: item.boundWorkspaceID.flatMap { boundID in
+                    app.allWorkspacesForAgentTodoRetirement.first { $0.id == boundID }
+                }
+            )
+        )
+    }
+
+    func controlWorkspaceTaskQueueSetTarget(
+        itemID: UUID,
+        workingDirectory: String?,
+        agentCommand: String?,
+        agentName: String?
+    ) -> ControlWorkspaceTaskQueueTargetResolution {
+        guard let app = AppDelegate.shared else { return .tabManagerUnavailable }
+        guard let workspace = app.allWorkspacesForAgentTodoRetirement.first(where: {
+            $0.todoState.checklist.contains(where: { $0.id == itemID })
+        }), let item = workspace.todoState.checklist.first(where: { $0.id == itemID }) else {
+            return .notFound
+        }
+        let normalizedCommand = agentCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let target: WorkspaceTaskDispatchTarget?
+        if let normalizedCommand, !normalizedCommand.isEmpty {
+            target = WorkspaceTaskDispatchTarget(
+                workingDirectory: workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                agentCommand: normalizedCommand,
+                agentName: agentName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            )
+        } else {
+            target = nil
+        }
+        guard workspace.setChecklistItemDispatchTarget(id: itemID, target: target) else {
+            return .notFound
+        }
+        WorkspaceTodoFeature.markUsed()
+        return .updated(
+            item: queueItem(
+                workspace.todoState.checklist.first(where: { $0.id == itemID }) ?? item,
+                workspace: workspace,
+                windowID: app.windowId(for: app.tabManagerFor(tabId: workspace.id) ?? tabManager),
+                boundWorkspace: item.boundWorkspaceID.flatMap { boundID in
+                    app.allWorkspacesForAgentTodoRetirement.first { $0.id == boundID }
+                }
+            )
+        )
+    }
+
+    private func queueItem(
+        _ item: WorkspaceChecklistItem,
+        workspace: Workspace,
+        windowID: UUID?,
+        boundWorkspace: Workspace?
+    ) -> ControlWorkspaceTaskQueueItem {
+        let displayedWorkspace = boundWorkspace ?? workspace
+        let displayedManager = AppDelegate.shared?.tabManagerFor(tabId: displayedWorkspace.id)
+        let displayedWindowID = displayedManager.flatMap { AppDelegate.shared?.windowId(for: $0) } ?? windowID
+        return ControlWorkspaceTaskQueueItem(
+            id: item.id,
+            text: item.text,
+            state: item.state.rawValue,
+            workspaceID: displayedWorkspace.id,
+            workspaceTitle: displayedWorkspace.title,
+            windowID: displayedWindowID,
+            owningAgent: item.boundAgent ?? item.agentTaskRef?.workstreamId,
+            lastActivityAt: item.lastActivityAt,
+            targetWorkingDirectory: item.dispatchTarget?.workingDirectory,
+            targetAgentCommand: item.dispatchTarget?.agentCommand,
+            targetAgentName: item.dispatchTarget?.agentName,
+            boundWorkspaceID: item.boundWorkspaceID
+        )
+    }
+
+    private func queueStateRank(_ raw: String) -> Int {
+        switch raw {
+        case "in-progress": 0
+        case "pending": 1
+        case "completed": 2
+        default: 3
+        }
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
+extension Notification.Name {
+    /// Posted whenever a workspace checklist changes, allowing the queue view
+    /// to refresh its projection without polling or selecting a workspace.
+    static let workspaceTaskQueueDidChange = Notification.Name(
+        "cmux.workspaceTaskQueueDidChange"
+    )
+
+    /// Requests a non-focus-changing queue/sidebar reveal for one workspace.
+    static let workspaceTaskQueueRevealRequested = Notification.Name(
+        "cmux.workspaceTaskQueueRevealRequested"
+    )
+}

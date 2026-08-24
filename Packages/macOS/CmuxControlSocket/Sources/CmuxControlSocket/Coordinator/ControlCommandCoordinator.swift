@@ -78,6 +78,7 @@ public final class ControlCommandCoordinator {
         if let result = handleLayout(request) { return result }
         if let result = handleWorkspaceGroup(request) { return result }
         if let result = handleWorkspaceTodo(request) { return result }
+        if let result = handleWorkspaceTaskQueue(request) { return result }
         if let result = handlePane(request) { return result }
         if let result = handleCanvas(request) { return result }
         if let result = handleMobileHost(request) { return result }

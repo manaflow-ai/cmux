@@ -104,11 +104,55 @@ extension Workspace {
     func addChecklistItem(
         text: String,
         state: WorkspaceChecklistItem.State = .pending,
-        origin: WorkspaceChecklistItem.Origin = .user
+        origin: WorkspaceChecklistItem.Origin = .user,
+        agentTaskRef: WorkspaceAgentTaskRef? = nil,
+        dispatchTarget: WorkspaceTaskDispatchTarget? = nil,
+        boundWorkspaceID: UUID? = nil,
+        boundAgent: String? = nil,
+        lastActivityAt: Date? = nil
     ) -> Result<WorkspaceChecklistItem, WorkspaceChecklistItem.AddError> {
         notifyingChecklistCompletion {
-            todoState.checklist.addChecklistItem(text, state: state, origin: origin)
+            todoState.checklist.addChecklistItem(
+                text,
+                state: state,
+                origin: origin,
+                agentTaskRef: agentTaskRef,
+                dispatchTarget: dispatchTarget,
+                boundWorkspaceID: boundWorkspaceID,
+                boundAgent: boundAgent,
+                lastActivityAt: lastActivityAt
+            )
         }
+    }
+
+    /// Binds a checklist item to a dispatched workspace and marks it active.
+    /// This is the single mutation path used by queue dispatchers.
+    @discardableResult
+    func bindChecklistItem(
+        id: UUID,
+        toWorkspace workspaceID: UUID,
+        agent: String?,
+        at date: Date = Date()
+    ) -> Bool {
+        guard let index = todoState.checklist.firstIndex(where: { $0.id == id }) else { return false }
+        todoState.checklist[index].state = .inProgress
+        todoState.checklist[index].boundWorkspaceID = workspaceID
+        todoState.checklist[index].boundAgent = agent
+        todoState.checklist[index].lastActivityAt = date
+        return true
+    }
+
+    /// Sets or clears a task's dispatch target through the shared workspace
+    /// mutation owner.
+    @discardableResult
+    func setChecklistItemDispatchTarget(
+        id: UUID,
+        target: WorkspaceTaskDispatchTarget?
+    ) -> Bool {
+        guard let index = todoState.checklist.firstIndex(where: { $0.id == id }) else { return false }
+        todoState.checklist[index].dispatchTarget = target
+        todoState.checklist[index].lastActivityAt = Date()
+        return true
     }
 
     /// Sets one checklist item's state (keeping completed items last in

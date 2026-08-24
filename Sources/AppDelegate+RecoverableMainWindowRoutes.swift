@@ -400,4 +400,19 @@ extension AppDelegate {
         }
         return tabManager
     }
+
+    /// Returns every live workspace without selecting a window or workspace.
+    /// Queue aggregation and agent-task retirement use this read-only
+    /// projection so refreshes cannot steal the user's focus.
+    @MainActor
+    var allWorkspacesForAgentTodoRetirement: [Workspace] {
+        var result: [Workspace] = []
+        var seen = Set<UUID>()
+        for window in scriptableMainWindows() {
+            for workspace in window.tabManager.tabs where seen.insert(workspace.id).inserted {
+                result.append(workspace)
+            }
+        }
+        return result
+    }
 }
