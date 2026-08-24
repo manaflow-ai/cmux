@@ -1690,6 +1690,7 @@ mod tests {
         assert_eq!(env.get("TERM").map(String::as_str), Some("dumb"));
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn read_write_ls_round_trip_inside_allowed_roots() {
         let root = scratch("rw");
@@ -1721,6 +1722,7 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn file_verbs_outside_roots_are_path_forbidden() {
         let root = scratch("scoped");
@@ -1737,6 +1739,7 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn symlinks_cannot_escape_allowed_roots() {
         let root = scratch("symlink");
@@ -1814,6 +1817,7 @@ mod tests {
         std::fs::remove_dir_all(&outside).ok();
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn exec_runs_with_cwd_discipline_and_returns_exit_code_and_output() {
         let root = scratch("exec");
@@ -1835,6 +1839,7 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn exec_receives_scoped_process_environment_values() {
         let root = scratch("procenv");
@@ -1853,6 +1858,7 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn observe_trust_refuses_mutating_verbs_allows_reads() {
         let root = scratch("observe");
@@ -1884,6 +1890,31 @@ mod tests {
                 .await;
         assert_eq!(result["ok"], false);
         assert_eq!(result["code"], "unsupported_verb");
+    }
+
+    #[cfg(not(unix))]
+    #[tokio::test]
+    async fn scoped_actions_answer_typed_unsupported() {
+        let root = scratch("unsupported-scope");
+        std::fs::write(root.join("file.txt"), "content").expect("write fixture");
+        let roots = vec![root.display().to_string()];
+        let context = ctx("supervised", Some(roots.clone()), root.clone());
+        let result = perform_action(
+            &json!({
+                "version": 3,
+                "verb": "read",
+                "actionId": "a1",
+                "allowedRoots": roots,
+                "args": { "path": "file.txt" },
+            }),
+            &context,
+        )
+        .await;
+        assert_eq!(result["type"], "action_result");
+        assert_eq!(result["actionId"], "a1");
+        assert_eq!(result["ok"], false);
+        assert_eq!(result["code"], "unsupported_verb");
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[tokio::test]

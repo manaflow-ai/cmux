@@ -1935,6 +1935,23 @@ mod tests {
         assert_eq!(answer["requestId"], "req_1");
     }
 
+    #[cfg(not(unix))]
+    #[tokio::test]
+    async fn dispatch_refuses_scoped_paths_when_the_platform_cannot_pin_them() {
+        let root = scratch("dispatch-unsupported-scope");
+        write(&root, "file.txt", "content\n");
+        let read_op = serde_json::json!({
+            "op": "fs_read",
+            "path": "file.txt",
+            "maxBytes": 1000,
+        });
+        let answer = dispatch(&root, request_json(read_op, "supervised")).await;
+        assert_eq!(answer["type"], "workspace_result");
+        assert_eq!(answer["requestId"], "req_1");
+        assert_eq!(answer["ok"], false);
+        assert_eq!(answer["code"], "unsupported_verb");
+    }
+
     #[tokio::test]
     async fn dispatch_times_out_typed() {
         let root = scratch("dispatch-timeout");
