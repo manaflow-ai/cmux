@@ -103,10 +103,10 @@ impl fmt::Display for CmuxError {
             }
             Self::Decode(message)
             | Self::Connection(message)
-            | Self::ConnectionIo { message, .. }
             | Self::Timeout(message)
             | Self::Cancelled(message)
             | Self::InvalidArgument(message) => formatter.write_str(message),
+            Self::ConnectionIo { .. } => formatter.write_str("cannot connect to cmux session"),
             Self::MutationTransport { operation, idempotency_key, .. } => write!(
                 formatter,
                 "{operation} transport failed after dispatch; mutation outcome is uncertain \
@@ -1149,5 +1149,16 @@ mod tests {
         assert!(matches!(result, Err(CmuxError::QueueOverflow { limit: 1 })));
         server.join().unwrap();
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn connection_io_display_omits_socket_path_and_os_detail() {
+        let error = CmuxError::ConnectionIo {
+            message: "cannot connect to session socket /private/secret.sock: permission denied"
+                .to_string(),
+            kind: std::io::ErrorKind::PermissionDenied,
+        };
+        assert_eq!(error.to_string(), "cannot connect to cmux session");
+        assert!(format!("{error:?}").contains("/private/secret.sock"));
     }
 }
