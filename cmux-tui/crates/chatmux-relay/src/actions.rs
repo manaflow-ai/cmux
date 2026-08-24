@@ -1375,6 +1375,21 @@ fn run_reply(
     }
 }
 
+#[cfg(unix)]
+fn find_regular_file_output(path: &HostScopedPath, pattern: Option<&str>) -> String {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let matches = pattern.is_none_or(|pattern| {
+        let Some(name) = path.path.file_name() else { return false };
+        let Ok(name) = CString::new(name.as_bytes()) else { return false };
+        let Ok(pattern) = CString::new(pattern) else { return false };
+        // SAFETY: both strings are NUL-terminated and contain no interior NUL.
+        unsafe { libc::fnmatch(pattern.as_ptr(), name.as_ptr(), 0) == 0 }
+    });
+    if matches { format!("{}\n", path.path.display()) } else { String::new() }
+}
+
 fn fail_result(version: i64, action_id: &str, code: &str, message: &str) -> Value {
     json!({
         "version": version,
@@ -1596,6 +1611,21 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 Err(HostError::Refusal(message)) => return fail("path_forbidden", &message),
                 Err(HostError::Io(error)) => return io_fail(error),
             };
+            #[cfg(unix)]
+            if path.path.is_file() {
+                let pattern = args.get("pattern").and_then(Value::as_str).filter(|p| !p.is_empty());
+                return run_reply(
+                    version,
+                    &action_id,
+                    RunOutcome::Done {
+                        exit_code: 0,
+                        output: find_regular_file_output(&path, pattern),
+                    },
+                    args.get("limit"),
+                    Some(500),
+                    timeout_ms,
+                );
+            }
             #[cfg(not(unix))]
             let process_path = path.path.display().to_string();
             let command_cwd = match scoped(".", false) {
@@ -1854,6 +1884,22 @@ mod tests {
         )
         .await;
         assert_eq!(find["ok"], true, "{find}");
+        let matching_find = perform_action(
+            &json!({ "verb": "find", "actionId": "a3", "allowedRoots": roots,
+                     "args": { "path": file, "pattern": "note.txt" }, "timeoutMs": 10000 }),
+            &context,
+        )
+        .await;
+        assert_eq!(matching_find["ok"], true, "{matching_find}");
+        assert!(matching_find["result"]["output"].as_str().unwrap().contains("note.txt"));
+        let nonmatching_find = perform_action(
+            &json!({ "verb": "find", "actionId": "a4", "allowedRoots": roots,
+                     "args": { "path": file, "pattern": "other.txt" }, "timeoutMs": 10000 }),
+            &context,
+        )
+        .await;
+        assert_eq!(nonmatching_find["ok"], true, "{nonmatching_find}");
+        assert_eq!(nonmatching_find["result"]["output"], "");
         std::fs::remove_dir_all(&root).ok();
     }
 
