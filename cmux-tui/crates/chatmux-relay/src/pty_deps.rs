@@ -28,12 +28,30 @@ use crate::pty::{
 
 const DAEMON_SOCKET_WAIT_MS: u64 = 5_000;
 
-async fn control_ready(control: &Arc<dyn ControlHandle>) -> bool {
-    control
-        .request("list", serde_json::Value::Null)
-        .await
-        .and_then(|response| response.get("ok").and_then(serde_json::Value::as_bool))
-        == Some(true)
+async fn control_ready(control: &Arc<dyn ControlHandle>, session: &str) -> bool {
+    control.request("identify", serde_json::Value::Null).await.is_some_and(|response| {
+        response.get("ok").and_then(serde_json::Value::as_bool) == Some(true)
+            && response
+                .get("data")
+                .and_then(|data| data.get("app"))
+                .and_then(serde_json::Value::as_str)
+                == Some("cmux-tui")
+            && response
+                .get("data")
+                .and_then(|data| data.get("session"))
+                .and_then(serde_json::Value::as_str)
+                == Some(session)
+            && response
+                .get("data")
+                .and_then(|data| data.get("protocol"))
+                .and_then(serde_json::Value::as_u64)
+                .is_some_and(|protocol| protocol >= 12)
+            && response
+                .get("data")
+                .and_then(|data| data.get("lifecycle_ready"))
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+    })
 }
 
 /// Resolve the same bounded socket path that cmux-tui-core uses for a
@@ -470,15 +488,16 @@ impl PtyDeps for RealPtyDeps {
         let socket_path = session_socket_path(socket_dir, self.uid, session)?;
         if socket_exists(&socket_path).await {
             let ready = match connect_control(&socket_path, CONTROL_TIMEOUT_MS).await {
-                Ok(control) => control_ready(&control).await,
+                Ok(control) => control_ready(&control, session).await,
                 Err(_) => false,
             };
             if ready {
                 return Ok(EnsureDaemon { created: false, socket_path });
             }
-            // A dead listener leaves a pathname behind. Remove it so a retry
-            // can bind a fresh daemon instead of being permanently poisoned.
-            let _ = tokio::fs::remove_file(&socket_path).await;
+            return Err(format!(
+                "pre-existing cmux-tui socket {} failed identity/readiness validation",
+                socket_path.display()
+            ));
         }
         let mut args = cmux_tui.prefix.clone();
         args.extend([
@@ -506,7 +525,7 @@ impl PtyDeps for RealPtyDeps {
                 // Probe a control round-trip before declaring readiness.
                 while Instant::now() < deadline {
                     match connect_control(&socket_path, CONTROL_TIMEOUT_MS).await {
-                        Ok(control) if control_ready(&control).await => {
+                        Ok(control) if control_ready(&control, session).await => {
                             return Ok(EnsureDaemon { created: true, socket_path });
                         }
                         _ => tokio::time::sleep(Duration::from_millis(50)).await,
