@@ -40,10 +40,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var liveFontSize: Float32
     /// The user's EXPLICIT font choice: the init font until a pinch, accessory
     /// zoom step, overlay reset, or Mac-pushed `set_font` changes it. The
-    /// stretch-to-fill auto-fit renders at a derived size but never moves this
-    /// baseline, and viewport reports advertise the row capacity at THIS size
-    /// (see `TerminalRowCapacityFit`) so the daemon negotiation can always
-    /// recover when the constraining device grows.
+    /// rendered font never moves off this baseline on its own (no auto-fit),
+    /// and viewport reports advertise the row capacity at THIS size (see
+    /// `TerminalRowCapacityFit`) so the daemon negotiation can always recover
+    /// when the constraining device grows.
     var userBaseFontSize: Float32
     /// Latest zoom target awaiting a coalesced apply. The display link applies
     /// it once per frame via an absolute `set_font_size` so a burst of zoom
@@ -302,10 +302,25 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the main actor. Same lock discipline as `viewportRestoreGate`: held
     /// only for field reads and writes, never across a Ghostty C call.
     nonisolated struct LocalPixelScrollState {
+        /// Bumped by every clear (dock/typing snap, surface replacement,
+        /// alt routing). Batches capture the epoch at pump time and only
+        /// commit results while it still matches, so an in-flight batch
+        /// cannot resurrect a held position that a snap just cleared.
+        var epoch: UInt64 = 0
         var remainderPx: Double = 0
         var lastFallbackLogTime: CFTimeInterval = 0
+        /// The last (row, remainder) the pixel pump applied. While a gesture
+        /// is active this is the position AUTHORITY: batches rebase from it
+        /// instead of the live viewport, so a verified-replay bottom-reset
+        /// between batches is overwritten on the next frame instead of
+        /// hijacking the gesture. Cleared on dock/typing snaps and surface
+        /// replacement, where the live viewport becomes the truth again.
+        /// `positionPx` is the exact (unrounded) content-space position so
+        /// sub-pixel deltas accumulate across batches; `remainderPx` is the
+        /// whole-pixel offset actually applied to Ghostty. `revision` guards
+        /// the row space: the held anchor is only valid while it matches.
+        var lastApplied: (row: UInt64, remainderPx: Double, positionPx: Double, revision: UInt64, total: UInt64)?
         #if DEBUG
-        var lastApplied: (row: UInt64, remainderPx: Double, revision: UInt64, total: UInt64)?
         /// Rate-limits slow-batch perf log lines (scroll-hitch investigation).
         var lastPerfLogTime: CFTimeInterval = 0
         #endif
@@ -314,7 +329,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         OSAllocatedUnfairLock<LocalPixelScrollState>(initialState: .init())
     #if DEBUG
     /// Last pixel-precise viewport position the pixel pump applied.
-    var debugLastPixelScroll: (row: UInt64, remainderPx: Double, revision: UInt64, total: UInt64)? {
+    var debugLastPixelScroll: (row: UInt64, remainderPx: Double, positionPx: Double, revision: UInt64, total: UInt64)? {
         localPixelScrollState.withLock { $0.lastApplied }
     }
     #endif
@@ -429,6 +444,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Frame counter + one-shot latch for the scripted headless scroll
     /// (`Debug/GhosttySurfaceView+ScrollScriptDebug.swift`).
     var debugScrollScriptFrame = 0
+    /// Scroll-smoothness audit: aggregates display-link cadence while a scroll
+    /// gesture or its deceleration is active, logging one summary per second.
+    struct DebugScrollFrameRateStats {
+        var windowStart: CFTimeInterval = 0
+        var lastTick: CFTimeInterval = 0
+        var ticks = 0
+        var missed = 0
+        var maxGapMs: Double = 0
+        var loggedDisplayInfo = false
+    }
+    var debugScrollFrameRateStats = DebugScrollFrameRateStats()
+    /// Whether a scroll gesture or its deceleration currently owns the
+    /// scroll mechanics view (narrow seam for the frame-rate audit).
+    var scrollInteractionActive: Bool {
+        scrollMechanicsView.isTracking
+            || scrollMechanicsView.isDragging
+            || scrollMechanicsView.isDecelerating
+    }
     var debugScrollScriptDone = false
 
     /// The live `key=value;…` description of the bottom dock, read by
@@ -603,10 +636,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// True from the moment a natural-grid report is handed to the delegate
     /// until the daemon's round-trip resolves for the NEWEST report (echo
     /// confirmed, or the bounded retries are exhausted). While set, the
-    /// stretch-to-fill auto-fit is deferred: `effectiveGrid` is about to be
-    /// superseded by the grant answering this report, and fitting the
-    /// rendered font against the outgoing value produces a transient zoom
-    /// that reverts one round-trip later.
+    /// viewport layout treats the negotiation as unsettled (see
+    /// `viewportSnapshot()`): `effectiveGrid` is about to be superseded by
+    /// the grant answering this report, so layout decisions must not treat
+    /// the outgoing value as final.
     private var awaitingViewportEcho = false
     /// Frames of "no zoom in progress" required before the natural grid is
     /// reported to the Mac. Active zoom is already gated separately
@@ -2126,11 +2159,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var pendingLocalPixelScrollInteractionGeneration: UInt64?
     var localPixelScrollApplyInFlight = false
     var localPixelScrollApplyInFlightGeneration: UInt64?
+    /// A verified replay completed mid-gesture: run one zero-delta pixel
+    /// batch to re-assert the held position over the replay's bottom reset.
+    var pendingLocalPixelScrollReassert = false
+    /// When line-path (alt/TUI) deceleration began; the flush kills the
+    /// momentum tail after ``linePathDecelerationBudget`` so a flick cannot
+    /// keep scrolling a full-screen app for seconds.
+    private var linePathDecelerationStartedAt: CFTimeInterval?
+    private static let linePathDecelerationBudget: CFTimeInterval = 0.45
+    /// Sub-line remainder from whole-line dispatch on the line path. Kept
+    /// out of `pendingScrollLines` so a leftover fraction cannot re-trigger
+    /// the flush (and record interactions) with no real gesture delta.
+    private var linePathFractionCarry: Double = 0
     var pendingLocalScrollDrains: [(generation: UInt64, continuation: CheckedContinuation<Bool, Never>)] = []
 
     /// Drops scroll work tied to a surface generation that will no longer run.
     func resetScrollStateForSurfaceReplacement() {
         pendingScrollLines = 0
+        linePathFractionCarry = 0
         pendingScrollPixels = 0
         pendingScrollInteractionGeneration = nil
         pendingLocalScrollLines = 0
@@ -2145,7 +2191,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         localPixelScrollApplyInFlightGeneration = nil
         localPixelScrollApplyStartedAt = nil
         localPixelScrollApplyToken = nil
-        localPixelScrollState.withLock { $0 = .init() }
+        pendingLocalPixelScrollReassert = false
+        localPixelScrollState.withLock {
+            let epoch = $0.epoch
+            $0 = .init()
+            $0.epoch = epoch &+ 1
+        }
         scrollToBottomInFlight = false
         scrollToBottomRequested = false
         scrollToBottomRetryCount = 0
@@ -2177,6 +2228,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pendingScrollPixels = 0
         pendingScrollInteractionGeneration = nil
         let appliedLocally = scrollPresentationAuthority.appliesLocally
+        var dispatchLines = lines
         if appliedLocally {
             // Pixel-precise local scroll only where the phone owns
             // primary-screen scrolling (the confirmed-primary condition that
@@ -2184,20 +2236,70 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // transports keep the row-quantized line path.
             if pixels != 0,
                delegate?.ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(self) == true {
+                // Entering the pixel path: drop any line-path residue so a
+                // sub-line fraction from an earlier alt gesture cannot leak
+                // into a later line-path dispatch.
+                linePathFractionCarry = 0
+                linePathDecelerationStartedAt = nil
                 applyLocalPixelScroll(
                     pixels: pixels,
                     interactionGeneration: generation
                 )
             } else {
-                applyLocalScrollbackScroll(
-                    lines: lines,
-                    col: cell.col,
-                    row: cell.row,
-                    interactionGeneration: generation
-                )
+                // Routing to the line path (alt screen or legacy transport):
+                // drop any pixel-path residue so a primary->alt flip cannot
+                // carry a held anchor or re-assert into the TUI's screen.
+                pendingLocalScrollPixels = 0
+                pendingLocalPixelScrollReassert = false
+                localPixelScrollState.withLock {
+                    $0.epoch &+= 1
+                    $0.remainderPx = 0
+                    $0.lastApplied = nil
+                }
+                // TUI scroll feel: dispatch whole lines only, carrying the
+                // fraction in its own accumulator, so the app sees clean
+                // steps instead of a 120Hz fragment stream; and cap the
+                // momentum tail so a flick cannot keep scrolling a
+                // full-screen app for seconds. The carry lives OUTSIDE
+                // pendingScrollLines so a sub-line leftover cannot re-trigger
+                // the flush every frame and churn interaction generations.
+                let totalLines = linePathFractionCarry + lines
+                let wholeLines = totalLines < 0
+                    ? totalLines.rounded(.up)
+                    : totalLines.rounded(.down)
+                linePathFractionCarry = totalLines - wholeLines
+                dispatchLines = wholeLines
+                if scrollMechanicsView.isDecelerating {
+                    let now = CACurrentMediaTime()
+                    if let startedAt = linePathDecelerationStartedAt {
+                        if now - startedAt > Self.linePathDecelerationBudget {
+                            scrollMechanicsView.setContentOffset(
+                                scrollMechanicsView.contentOffset,
+                                animated: false
+                            )
+                            pendingScrollLines = 0
+                            linePathFractionCarry = 0
+                            dispatchLines = 0
+                        }
+                    } else {
+                        linePathDecelerationStartedAt = now
+                    }
+                } else {
+                    linePathDecelerationStartedAt = nil
+                }
+                if dispatchLines != 0 {
+                    applyLocalScrollbackScroll(
+                        lines: dispatchLines,
+                        col: cell.col,
+                        row: cell.row,
+                        interactionGeneration: generation
+                    )
+                }
             }
         }
-        delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
+        if dispatchLines != 0 {
+            delegate?.ghosttySurfaceView(self, didScrollLines: dispatchLines, atCol: cell.col, row: cell.row)
+        }
         return (generation, appliedLocally)
     }
 
@@ -2354,9 +2456,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard surface != nil else { return false }
 
         pendingFontSize = target
-        // A pinch/accessory step is an explicit choice: it rebases the user
-        // font so the stretch-to-fill auto-fit re-derives from the new size
-        // instead of fighting the gesture.
+        // A pinch/accessory step is an explicit choice: it moves the user
+        // baseline that capacity reports (and the converge-to-base step)
+        // derive from.
         userBaseFontSize = target
         MobileDebugLog.anchormux("zoom.queue dir=\(direction) \(base)->\(target) live=\(liveFontSize)")
         scheduleDisplayLinkWork()
@@ -2437,7 +2539,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Set the live zoom to an absolute size (clamped to the font range),
     /// driving the same coalesced apply path as a pinch step. Does NOT move
-    /// the user baseline — the stretch-to-fill auto-fit funnels through here.
+    /// the user baseline; the geometry pass funnels its converge-to-base
+    /// step through here.
     func applyAbsoluteFontSize(_ target: Float32) {
         guard surface != nil else { return }
         let clamped = min(
@@ -2930,11 +3033,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// stall never fans out into one lock-taking queue item per event.
     func enqueueScrollToBottom() {
         // The bottom snap resets Ghostty's fractional pixel offset; drop the
-        // pixel batch and remainder so the next gesture rebases from bottom.
+        // pixel batch, remainder, and held position so the next gesture
+        // rebases from the bottom.
         pendingScrollPixels = 0
         pendingLocalScrollPixels = 0
         pendingLocalPixelScrollInteractionGeneration = nil
-        localPixelScrollState.withLock { $0.remainderPx = 0 }
+        pendingLocalPixelScrollReassert = false
+        localPixelScrollState.withLock {
+            $0.epoch &+= 1
+            $0.remainderPx = 0
+            $0.lastApplied = nil
+        }
         let interactionGeneration = recordFollowBottomInteraction()
         scrollToBottomInteractionGeneration = interactionGeneration
         if !scrollToBottomRequested && !scrollToBottomInFlight {
@@ -3516,6 +3625,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // pending deltas and freeze the scroll mechanics at the current offset
         // (kill-deceleration idiom) so typed input lands at the bottom.
         pendingScrollLines = 0
+        linePathFractionCarry = 0
         pendingScrollPixels = 0
         pendingScrollInteractionGeneration = nil
         pendingLocalScrollLines = 0
@@ -3551,6 +3661,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         #if DEBUG
         debugStepScrollScriptIfNeeded()
+        debugRecordScrollFrameRateTick(now: now)
         #endif
         #if DEBUG
         // Main-thread liveness heartbeat + presented-surface state. Time-gated,
@@ -3831,12 +3942,31 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlight = true
         renderInFlightSince = CACurrentMediaTime()
         let enqueuedAt = CACurrentMediaTime()
-        outputQueue.async { [weak self] in
+        let workQueue = outputQueue
+        workQueue.async { [weak self] in
             let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
             if lagMs > 150 { MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms") }
             switch submission.kind {
             case .ordinary, .localScroll:
+                #if DEBUG
+                let renderStartedAt = CACurrentMediaTime()
+                #endif
                 ghostty_surface_render_now_with_token(submission.surface, submission.token)
+                #if DEBUG
+                // Scroll-smoothness audit: the draw shares this serial queue
+                // with VT applies and scroll batches, so a slow frame
+                // stretches everything behind it.
+                let renderMs = (CACurrentMediaTime() - renderStartedAt) * 1000
+                if renderMs > 8 {
+                    let perfNow = CACurrentMediaTime()
+                    if perfNow - workQueue.lastRenderPerfLogTime >= 0.25 {
+                        workQueue.lastRenderPerfLogTime = perfNow
+                        MobileDebugLog.anchormux(
+                            "perf.render_now ms=\(Int(renderMs)) kind=\(String(describing: submission.kind))"
+                        )
+                    }
+                }
+                #endif
             case .verifiedReplay:
                 guard let read = submission.verifiedReplayRead else {
                     ghostty_surface_render_now_with_token(
@@ -4208,10 +4338,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public func retryViewportReport() {
         guard viewportReportRetries < Self.maxViewportReportRetries,
               let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else {
-            // Round-trip permanently failed (or nothing to retry): release
-            // the deferred auto-fit so the rendered font converges on the
-            // best-known (stale) grant instead of staying parked until some
-            // future confirmation that may never come.
+            // Round-trip permanently failed (or nothing to retry): stop
+            // treating the negotiation as unsettled so layout converges on
+            // the best-known (stale) grant instead of staying parked until
+            // some future confirmation that may never come.
             if awaitingViewportEcho {
                 awaitingViewportEcho = false
                 setNeedsGeometrySync(reassertNaturalSize: false)
@@ -4271,21 +4401,48 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     /// Mark the round-trip for `reportID` as resolved. Only the NEWEST
-    /// report's confirmation releases the deferred stretch-to-fill auto-fit:
-    /// an out-of-order reply for an older report means the grant answering
-    /// the current capacity is still in flight.
+    /// report's confirmation settles the negotiation: an out-of-order reply
+    /// for an older report means the grant answering the current capacity is
+    /// still in flight.
     public func markViewportReportConfirmed(reportID: UInt64) {
         viewportReportRetries = 0
         guard reportID == viewportReportID else { return }
         if awaitingViewportEcho {
             awaitingViewportEcho = false
-            // Run the auto-fit that was deferred while the round-trip was in
-            // flight. `applyViewSize` schedules a sync only when the echoed
-            // grid CHANGED, so an unchanged echo needs this explicit resync
-            // for the fit (and it re-reports nothing: reassert is false and
-            // the natural grid is unchanged).
+            // Re-run layout now that the negotiation settled. `applyViewSize`
+            // schedules a sync only when the echoed grid CHANGED, so an
+            // unchanged echo needs this explicit resync (and it re-reports
+            // nothing: reassert is false and the natural grid is unchanged).
             setNeedsGeometrySync(reassertNaturalSize: false)
         }
+    }
+
+    /// Start a fresh viewport negotiation even though the phone's capacity is
+    /// unchanged: re-queue the current capacity report so the display link
+    /// hands it to the delegate with a NEW report ID. Used when a replay
+    /// frame arrives sized for a grid that does not match this phone's
+    /// capacity (stale daemon state after a transport drop), so the daemon
+    /// relearns the phone's grid immediately instead of waiting for the next
+    /// natural-size change.
+    public func reassertViewportCapacityReport() {
+        guard let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else { return }
+        viewportReportRetries = 0
+        // A pending report always mirrors `lastReportedSize` (they are
+        // assigned together in the geometry pass), but never clobber one if
+        // that invariant ever changes: the queued report is at least as new.
+        if pendingViewportReport == nil {
+            pendingViewportReport = pending
+            viewportReportSettleFrames = 0
+        }
+        MobileDebugLog.anchormux(
+            "zoom.viewport.reassert grid=\(pending.columns)x\(pending.rows)"
+        )
+        // The report is serviced by the display link, and this method is
+        // called from the replay consumer where the link can be idle or torn
+        // down; without a wake the queued report would wait for unrelated UI
+        // activity while the caller keeps the presentation frozen.
+        needsDraw = true
+        startDisplayLink()
     }
 
     private func applyViewSize(cols: Int, rows: Int, confirmedViewportEcho: Bool) {
@@ -4381,13 +4538,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         /// grid; nil means fill the container.
         let pinnedSize: CGSize?
         /// The font size the surface was rendering at when `cellPixelSize`
-        /// was measured. Capacity reports and the stretch-to-fill auto-fit
-        /// must normalize with THIS font, not the main-actor `liveFontSize`
-        /// read at apply time: a zoom queued between the measurement and the
-        /// apply makes the pair incoherent and the base-font normalization
-        /// off by the zoom ratio — the phone then reports a grid several
-        /// times too small (or too large) and the daemon grants a bogus
-        /// shared PTY size (the keyboard-transition font-oscillation bug).
+        /// was measured. Capacity reports must normalize with THIS font, not
+        /// the main-actor `liveFontSize` read at apply time: a zoom queued
+        /// between the measurement and the apply makes the pair incoherent
+        /// and the base-font normalization off by the zoom ratio — the phone
+        /// then reports a grid several times too small (or too large) and
+        /// the daemon grants a bogus shared PTY size (the
+        /// keyboard-transition font-oscillation bug).
         let measuredFontSize: Float32
         /// False when this pass deferred the `set_size` (unsettled shrink):
         /// the measured natural grid and render size still describe the
@@ -4643,11 +4800,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
         let naturalSize = result.naturalSize
         let reportContainerWidth = columnReportContainerWidth(currentWidth: containerW)
-        // Report capacity at the user's base font, not the rendered font: a
-        // report derived from the fitted font would ratchet the negotiated
-        // minimum down and the phone could never learn when the constraining
-        // device grew back. Columns use the same base-font normalization as
-        // rows so a row-stretched font cannot under-report the phone's width.
+        // Report capacity at the user's base font, not whatever font was
+        // rendering when the cell was measured (a coalescing pinch step can
+        // make them differ for a frame): a report derived from a transient
+        // rendered font would ratchet the negotiated minimum down and the
+        // phone could never learn when the constraining device grew back.
         let reportGrid = capacityReportGrid(
             for: naturalSize,
             containerPixelWidth: reportContainerWidth * scale,
@@ -4656,43 +4813,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             cellPixelHeight: result.cellPixelSize.height,
             measuredFontSize: result.measuredFontSize
         )
-        // Stretch-to-fill: keep the RENDERED font tracking only real row
-        // constraints. When the daemon grants the base-font natural grid back,
-        // decay to the user's base font so the full-width grid can render
-        // without horizontal overflow.
-        //
-        // Re-fit ONLY when the negotiation is settled: this pass's capacity
-        // matches the last report the daemon actually saw, no report is
-        // debouncing or awaiting its echo, and no keyboard transition is in
-        // flight. During a keyboard show/hide the container changes
-        // immediately while `effectiveGrid` is still the PREVIOUS grant (the
-        // phone itself caused the mismatch, and the corrected grant is one
-        // round-trip away) — fitting against that stale grant stretched the
-        // font toward filling the new container and then snapped back when
-        // the echo landed: the "text zooms in when the keyboard closes" bug.
-        // The settle paths (keyboard animation completion, report echo) each
-        // schedule another geometry sync, so exactly one fit runs on the
-        // settled grant.
-        if !keyboardPresentationTransitionActive,
-           pendingViewportReport == nil,
-           !awaitingViewportEcho,
-           reportGrid == lastReportedSize {
-            autoFitFontToEffectiveRows(
-                renderedRows: naturalSize.rows,
-                containerPixelWidth: reportContainerWidth * scale,
-                containerPixelHeight: containerH * scale,
-                cellPixelWidth: result.cellPixelSize.width,
-                cellPixelHeight: result.cellPixelSize.height,
-                measuredFontSize: result.measuredFontSize
-            )
-        } else {
+        // The rendered font is always the user's explicit choice. A grant with
+        // fewer rows or columns than the phone's capacity letterboxes inside
+        // the render rect (with the border); it never rescales text. The old
+        // stretch-to-fill auto-fit re-derived the rendered font from the
+        // granted grid, and any window where the grant was stale (reconnect
+        // replays, keyboard transitions, lost echoes) momentarily zoomed the
+        // terminal past the screen edges until the next negotiation
+        // round-trip. Converge any residual drift back to the base size; with
+        // no auto-fit, `liveFontSize` can differ from `userBaseFontSize` only
+        // while an explicit font change is still coalescing.
+        if pendingFontSize == nil, abs(liveFontSize - userBaseFontSize) >= 0.25 {
             MobileDebugLog.anchormux(
-                "zoom.autofit.deferred kbAnim=\(keyboardPresentationTransitionActive ? 1 : 0) "
-                + "pendingReport=\(pendingViewportReport != nil ? 1 : 0) "
-                + "awaitingEcho=\(awaitingViewportEcho ? 1 : 0) "
-                + "reportGrid=\(reportGrid.columns)x\(reportGrid.rows) "
-                + "lastReported=\(lastReportedSize.map { "\($0.columns)x\($0.rows)" } ?? "nil")"
+                "zoom.converge live=\(liveFontSize) base=\(userBaseFontSize)"
             )
+            applyAbsoluteFontSize(userBaseFontSize)
         }
         let effectiveMatchesNatural = effectiveGrid.map { grid in
             grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
