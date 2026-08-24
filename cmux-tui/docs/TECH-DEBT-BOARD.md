@@ -3,7 +3,7 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `aggregate-final`.
-Current integration code tip before this documentation commit: `52fbf8153ff2c4a1e518ea8e0b792c25c6439964` (`Merge remote-tracking branch 'origin/codex/chatmux-relay-techdebt' into aggregate-final`).
+Current integration code tip before this documentation commit: `f7471b21e6a4a0e5cac745e78202d4470b87abb5` (`Merge remote-tracking branch 'origin/codex/chatmux-relay-techdebt' into aggregate-final`).
 Exact worktree HEAD: run `git rev-parse HEAD` (documentation commits change this value).
 The aggregate branch is `aggregate-final`; the review branch is
 `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
@@ -25,7 +25,7 @@ reservation cleanup, explicit PTY overflow, preview saturation disconnect,
 cross-language transport cleanup, CLI metadata, capability documentation,
 credential-child reaping, journal-writer ownership/finalization, explicit socket
 parent and lease cleanup, package-mode preservation, and C1 parser support
-through `35be8f8c8a`. The exact-head tail adds bounded preview and Windows
+through `f7471b21e6a4a0e5cac745e78202d4470b87abb5`. The exact-head tail adds bounded preview and Windows
 process cleanup, safe socket fallback precedence, Python cancellation
 propagation, and the Rust fallback-test contract. Documentation-only bridge commits are
 [`42b776a327`](https://github.com/manaflow-ai/cmux/commit/42b776a327c17386d131ef1b1f8a382b02683954)
@@ -34,7 +34,7 @@ The 25-file relay/TUI integration merge is `05c0b30277`. The latest code tail
 also includes exact socket-parent matching, bounded workspace reads, watcher
 sink termination, cross-language fallback correction, Windows dependency
 declarations, path-error classification, shell and preview task ownership,
-and clippy cleanup through `4538c10aa528a6c4c0435fba238d1a9573acbb82`.
+and clippy cleanup through `f7471b21e6a4a0e5cac745e78202d4470b87abb5`.
 
 Latest wave follow-ups are recorded in the changelog. The exact-head
 autoreview was clean for this scope. Two remote-tmux findings were ignored as
@@ -545,7 +545,7 @@ commits:
 - No local Rust compile or end-to-end hosted result is claimed here. Manual-IO,
   durable restore, cloud lifecycle, and complete child reaping remain open.
 
-The ledger still records at least 180 substantive agent turns. It counts named
+The ledger still records at least 205 substantive agent turns. It counts named
 audits, fixes, reviews, and merge gates, and excludes empty or duplicate turns.
 The requested 10,000-session target is not reached, and no sessions are being
 created to inflate the count.
@@ -877,6 +877,6 @@ unless its acceptance column says that a narrow implementation slice exists.
   parsing now have source-level tests. Hosted Windows execution remains the
   acceptance boundary.
 
-The ledger remains an honest lower bound of at least 180 substantive agent
+The ledger remains an honest lower bound of at least 205 substantive agent
 turns. It is not an exact session-file count. The requested 10,000-session
 target is not reached, and no empty sessions were created to inflate it.

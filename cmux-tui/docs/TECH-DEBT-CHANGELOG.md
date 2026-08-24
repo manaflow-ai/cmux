@@ -1,6 +1,6 @@
 # cmux-tui aggregate change log
 
-Snapshot: 2026-08-23. Aggregate branch: `aggregate-final`, current code tip [`52fbf8153f`](https://github.com/manaflow-ai/cmux/commit/52fbf8153ff2c4a1e518ea8e0b792c25c6439964). The prior documented code tip was [`4538c10aa5`](https://github.com/manaflow-ai/cmux/commit/4538c10aa528a6c4c0435fba238d1a9573acbb82). The branch is 550 commits ahead of `origin/main`, including this documentation commit. This update records cross-platform relay and SDK path hardening, bounded HTML error classification, clippy cleanup, and the normal merge of concurrent review history.
+Snapshot: 2026-08-23. Aggregate branch: `aggregate-final`, current code tip [`f7471b21e6a4a0e5cac745e78202d4470b87abb5`](https://github.com/manaflow-ai/cmux/commit/f7471b21e6a4a0e5cac745e78202d4470b87abb5). The prior documented code tip was [`4538c10aa5`](https://github.com/manaflow-ai/cmux/commit/4538c10aa528a6c4c0435fba238d1a9573acbb82). The branch is 555 commits ahead of `origin/main`, including this documentation commit. This update records cross-platform relay and SDK path hardening, bounded HTML error classification, clippy cleanup, and the normal merge of concurrent review history.
 
 Earlier aggregate rows retained for history:
 
@@ -204,6 +204,9 @@ goal was not reached. Empty or duplicate turns were not created to inflate it.
 | `2bffa3dcc83808f66718a84bad05e3384e6ca313` | Tighten watch registry API and conditions. | `git revert 2bffa3dcc83808f66718a84bad05e3384e6ca313` |
 | `954d80df6ac54ff767e9d56a4caaad83e02c48bd` | Resolve workspace clippy diagnostics. | `git revert 954d80df6ac54ff767e9d56a4caaad83e02c48bd` |
 | `4538c10aa528a6c4c0435fba238d1a9573acbb82` | Resolve preview proxy clippy diagnostics. | `git revert 4538c10aa528a6c4c0435fba238d1a9573acbb82` |
+| `925d1e7a54573e3fceea193207a53200fca4c5a1` | Preserve preview ping payload ownership. | `git revert 925d1e7a54573e3fceea193207a53200fca4c5a1` |
+| `ea4348b827ef7fc55cc8bc0775b8c8ae4c8f753e` | Remove an unused shell cwd test binding. | `git revert ea4348b827ef7fc55cc8bc0775b8c8ae4c8f753e` |
+| `f7471b21e6a4a0e5cac745e78202d4470b87abb5` | Merge the latest relay tech-debt history into the aggregate. | `git revert -m 1 f7471b21e6a4a0e5cac745e78202d4470b87abb5` |
 | `52fbf8153ff2c4a1e518ea8e0b792c25c6439964` | Merge the pushed remote relay history while retaining the reviewed aggregate tree. | `git revert -m 1 52fbf8153ff2c4a1e518ea8e0b792c25c6439964` |
 | `08ac5efcc55c10b6055448538b72390fe0ffec52` | Record the current exact tip, review result, and revert ledger. | `git revert 08ac5efcc55c10b6055448538b72390fe0ffec52` |
 | `769a8eb5c0a95c2fbcc024127bc3d2e435dfce02` | Refresh the aggregate head, branch-count, and PR-board metadata. | `git revert 769a8eb5c0a95c2fbcc024127bc3d2e435dfce02` |
