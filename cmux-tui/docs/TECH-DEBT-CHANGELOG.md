@@ -1,6 +1,6 @@
 # cmux-tui aggregate change log
 
-Snapshot: 2026-08-23. Aggregate branch: `aggregate-final`, current code tip [`8200e92d9c8181a113600f9e55e540f2761dc864`](https://github.com/manaflow-ai/cmux/commit/8200e92d9c8181a113600f9e55e540f2761dc864). The prior documented code tip was [`b0d35b3396a217d468275e50c91e79e4e65cba0c`](https://github.com/manaflow-ai/cmux/commit/b0d35b3396a217d468275e50c91e79e4e65cba0c). The code branch is 578 commits ahead of `origin/main` before this documentation update. This update records cross-platform relay and SDK path hardening, bounded HTML error classification, clippy cleanup, and the normal merge of concurrent review history.
+Snapshot: 2026-08-23. Aggregate branch: `aggregate-final`, current code tip [`17413db11cc0ebb7b0b5c254447cede3faaad0cf`](https://github.com/manaflow-ai/cmux/commit/17413db11cc0ebb7b0b5c254447cede3faaad0cf). The prior documented code tip was [`c599fa778e506574bddf12393d4a9bb91c4772e5`](https://github.com/manaflow-ai/cmux/commit/c599fa778e506574bddf12393d4a9bb91c4772e5). The code branch is 585 commits ahead of `origin/main` before this documentation update. This update records cross-platform relay and SDK path hardening, bounded HTML error classification, clippy cleanup, task reaping, and the normal merge of concurrent review history.
 
 Earlier aggregate rows retained for history:
 
@@ -221,9 +221,9 @@ The branch is 556 commits ahead of `origin/main`. The substantive-turn lower
 bound is at least 205.
 # Post-correction exact tail
 
-The previous aggregate tip was `b0d35b3396a217d468275e50c91e79e4e65cba0c`,
-569 commits ahead of `origin/main`. The current code tip is
-`8200e92d9c8181a113600f9e55e540f2761dc864`, 578 commits ahead before this
+The previous aggregate tip was `c599fa778e506574bddf12393d4a9bb91c4772e5`,
+583 commits ahead of `origin/main`. The current code tip is
+`17413db11cc0ebb7b0b5c254447cede3faaad0cf`, 585 commits ahead before this
 documentation update.
 
 | Commit | Change | Exact revert |
@@ -240,3 +240,8 @@ documentation update.
 | `fcb5d410784f31fa34249e1c39e6213cc4140360` | Collapse the inline global-option parser condition. | Hosted Rust clippy confirms the let-chain on the exact head. | `git revert fcb5d410784f31fa34249e1c39e6213cc4140360` |
 | `d3374b01b800cab1f13a62148804e84a3ddd26fb` | Apply hosted rustfmt to TUI session code. | Formatter-only; hosted compile remains required. | `git revert d3374b01b800cab1f13a62148804e84a3ddd26fb` |
 | `8200e92d9c8181a113600f9e55e540f2761dc864` | Merge the latest remote TUI fixes into the aggregate. | Remote ancestry is preserved with the reviewed aggregate tree. | `git revert -m 1 8200e92d9c8181a113600f9e55e540f2761dc864` |
+| `99d8911076450e3dd0be58faf5aab1228968a7f3` | Reap completed preview connection tasks before accepting more requests. | Tokio JoinSet cleanup is nonblocking; active tasks still join on shutdown. | `git revert 99d8911076450e3dd0be58faf5aab1228968a7f3` |
+| `8ca169c9e8761fa360d33966a46d25fe11c36e43` | Reap completed relay action and PTY tasks during a live connection. | Unexpected task failure ends the session for safe reconnect; shutdown still awaits all tasks. | `git revert 8ca169c9e8761fa360d33966a46d25fe11c36e43` |
+| `1dea79f1ac19a2f7c45a1b813c69039bff17dd19` | Bound unknown frame-type diagnostics to 64 recent names. | Diagnostic retention is bounded; repeated evictions can log a type again. | `git revert 1dea79f1ac19a2f7c45a1b813c69039bff17dd19` |
+| `c599fa778e506574bddf12393d4a9bb91c4772e5` | Apply hosted rustfmt to task-reaping changes. | Formatter-only; hosted relay behavior remains required. | `git revert c599fa778e506574bddf12393d4a9bb91c4772e5` |
+| `17413db11cc0ebb7b0b5c254447cede3faaad0cf` | Bound preview task reaping to 32 completions per event-loop turn. | Preserves listener and shutdown fairness under instant connection churn. | `git revert 17413db11cc0ebb7b0b5c254447cede3faaad0cf` |

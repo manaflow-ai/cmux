@@ -444,6 +444,16 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRu
         let mut connections = tokio::task::JoinSet::new();
         let _ = ready_tx.send(());
         loop {
+            // Reap every connection that finished since the previous
+            // accept. `try_join_next` is non-blocking, so a busy listener
+            // cannot accumulate completed JoinSet entries indefinitely.
+            // Bound cleanup per turn so a stream of immediately-completing
+            // connections cannot starve the listener or shutdown signal.
+            for _ in 0..32 {
+                if connections.try_join_next().is_none() {
+                    break;
+                }
+            }
             tokio::select! {
                 _ = stopped.changed() => break,
                 accepted = listener.accept() => {

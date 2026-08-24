@@ -3,10 +3,10 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `aggregate-final`.
-Current integration code tip before this documentation commit: `8200e92d9c8181a113600f9e55e540f2761dc864` (`Merge remote-tracking branch 'origin/codex/chatmux-relay-techdebt' into aggregate-final`).
+Current integration code tip before this documentation commit: `17413db11cc0ebb7b0b5c254447cede3faaad0cf` (`fix(chatmux-relay): bound preview task reaping`).
 
-Current exact aggregate tip is `8200e92d9c8181a113600f9e55e540f2761dc864`,
-578 commits ahead of `origin/main` before this documentation update.
+Current exact aggregate tip is `17413db11cc0ebb7b0b5c254447cede3faaad0cf`,
+585 commits ahead of `origin/main` before this documentation update.
 Exact worktree HEAD: run `git rev-parse HEAD` (documentation commits change this value).
 The aggregate branch is `aggregate-final`; the review branch is
 `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
@@ -37,10 +37,11 @@ The 25-file relay/TUI integration merge is `05c0b30277`. The latest code tail
 also includes exact socket-parent matching, bounded workspace reads, watcher
 sink termination, cross-language fallback correction, Windows dependency
 declarations, path-error classification, shell and preview task ownership,
-and clippy cleanup through `8200e92d9c8181a113600f9e55e540f2761dc864`.
+and clippy cleanup through `17413db11cc0ebb7b0b5c254447cede3faaad0cf`.
 
-Latest wave follow-ups are recorded in the changelog. The exact-head
-autoreview was clean for this scope. Two remote-tmux findings were ignored as
+Latest wave follow-ups are recorded in the changelog. The prior exact-head
+autoreview found three relay retention issues, now fixed in the latest tail;
+the final review is pending. Two earlier remote-tmux findings were ignored as
 out of scope. No new session was counted for documentation-only bookkeeping;
 the ledger remains a lower bound on substantive turns, not a fabricated
 10,000-session total.
@@ -54,7 +55,7 @@ sessions. New turns must have a named deliverable.
 
 ## Current state
 
-The latest code tail is `8200e92d9c8181a113600f9e55e540f2761dc864`. It carries the watch compatibility,
+The latest code tail is `17413db11cc0ebb7b0b5c254447cede3faaad0cf`. It carries the watch compatibility,
 queue-ownership, fairness, timer-bound, shell-reservation, PTY overflow,
 preview saturation, SDK lifecycle, CLI grammar, capability documentation,
 credential-child reaping, journal-writer ownership/finalization, explicit
@@ -515,7 +516,7 @@ fixed.
 | [#10605](https://github.com/manaflow-ai/cmux/pull/10605) | Lawrence Chen | Merged 2026-08-23, merge `51294051938830a1e3d3013a256d851ad4cfa1d3` | Merged workflow simplification. |
 | [#10606](https://github.com/manaflow-ai/cmux/pull/10606) | Lawrence Chen | Merged 2026-08-23, merge `8af5331e27b832eb517bb5c1892391348b5cb6e9` | Merged diagnostics routing. |
 | [#10608](https://github.com/manaflow-ai/cmux/pull/10608) | Lawrence Chen | Merged 2026-08-23, merge `2ee1e355c0a9b405ada3e2b812b0cec5e2ae4278` | Merged cross-language socket contract docs. |
-| [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Open, head `5ce10b76303038392f4550b4f654dbd19ad50348` | Aggregate implementation. Requires exact-head hosted checks, replay/safe-attach parity, and lifecycle review. |
+| [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Open, head `17413db11cc0ebb7b0b5c254447cede3faaad0cf` | Aggregate implementation. Requires exact-head hosted checks, replay/safe-attach parity, and lifecycle review. |
 | [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Open, head `67b7e6814f8355235e3930a6f3360a58dc0ba3c0` | Focused hardening stack. Treat as superseded by #10603 if all unique deltas are present. |
 | [#10607](https://github.com/manaflow-ai/cmux/pull/10607) | Lawrence Chen | Open, head `126d772a131ce71f245ae56c3048aa99f3607d17` | Superseded by aggregate [#10603](https://github.com/manaflow-ai/cmux/pull/10603), which contains the capability-shape and protocol-compatibility fixes. |
 | [#10609](https://github.com/manaflow-ai/cmux/pull/10609) | Lawrence Chen | Open, head `bdcbb8c8049e` | Action-result enqueue refactor. Keep separate until queue ownership and backpressure tests pass. |
@@ -577,7 +578,7 @@ product request.
 | [#10611](https://github.com/manaflow-ai/cmux/pull/10611) | Lawrence Chen | Merged 2026-08-23, merge `91b991496de2667a22e65176a8f11f715e6c089b` | Keep the TypeScript empty-path validation. No further action. |
 | [#10607](https://github.com/manaflow-ai/cmux/pull/10607) | Lawrence Chen | Open, head `126d772a131ce71f245ae56c3048aa99f3607d17` | Superseded by [#10603](https://github.com/manaflow-ai/cmux/pull/10603); its identity-shape and protocol-compatibility fixes are in the aggregate. |
 | [#10609](https://github.com/manaflow-ai/cmux/pull/10609) | Lawrence Chen | Open, head `bdcbb8c8049eb552a0d646cdce78d58d294b7b82` | Keep separate until action-result queue ownership, saturation, cancellation, and retry behavior have tests. |
-| [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Open, head `5ce10b76303038392f4550b4f654dbd19ad50348` | Aggregate remains the likely integration vehicle, but do not merge until the unresolved queue and child-lifecycle risks have evidence. |
+| [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Open, head `17413db11cc0ebb7b0b5c254447cede3faaad0cf` | Aggregate remains the likely integration vehicle, but do not merge until the final exact-head review and hosted lifecycle evidence pass. |
 
 ## Residual risks, updated
 
