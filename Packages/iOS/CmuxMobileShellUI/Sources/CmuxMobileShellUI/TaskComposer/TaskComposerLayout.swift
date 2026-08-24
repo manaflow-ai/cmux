@@ -37,6 +37,8 @@ struct TaskComposerLayout: View {
     /// directory candidates, so it must not run on every keystroke's body
     /// rebuild, only when Task Options is actually presented.
     let optionsSheet: () -> TaskComposerOptionsSheet
+    /// Presents the saved-drafts list; `nil` hides the drafts button.
+    let openDrafts: (() -> Void)?
     let endEditing: () -> Void
     let selectTemplate: (MobileTaskTemplate.ID) -> Void
     let selectModel: (MobileTaskAgentModel?) -> Void
@@ -76,6 +78,19 @@ struct TaskComposerLayout: View {
                     defaultValue: "Cancel"
                 ))
                 .accessibilityIdentifier("MobileTaskComposerCancelButton")
+            }
+            if let openDrafts {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: openDrafts) {
+                        Image(systemName: "tray.full")
+                    }
+                    .disabled(locksDismissal)
+                    .accessibilityLabel(L10n.string(
+                        "mobile.taskComposer.drafts.title",
+                        defaultValue: "Drafts"
+                    ))
+                    .accessibilityIdentifier("MobileTaskComposerDraftsButton")
+                }
             }
         }
         .sheet(isPresented: $isOptionsPresented) {
