@@ -35,7 +35,8 @@ struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View, Equatable {
             hasTrailingCluster: value.hasTrailingCluster,
             measuredTrailingItemsWidth: value.measuredTrailingItemsWidth,
             measuredTrailingItemCount: value.measuredTrailingItemCount,
-            trailingItemCount: value.trailingItemCount
+            trailingItemCount: value.trailingItemCount,
+            hadTrailingCollapse: value.hadTrailingCollapse
         ).cap
 
         return label()
