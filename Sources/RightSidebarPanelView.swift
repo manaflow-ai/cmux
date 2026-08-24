@@ -402,7 +402,11 @@ struct RightSidebarPanelView: View {
                 SessionIndexView(
                     store: sessionIndexStore,
                     onResume: onResumeSession,
-                    onOpen: onOpenSession
+                    onOpen: onOpenSession,
+                    activeSessionKeys: SessionEntryResumeCoordinator.inPaneSessionKeys(tabManager: tabManager),
+                    onFocus: { entry in
+                        _ = SessionEntryResumeCoordinator.focusIfActive(entry, tabManager: tabManager)
+                    }
                 )
                     .onAppear {
                         sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)

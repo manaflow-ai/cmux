@@ -140,6 +140,10 @@ struct IndexSection: Identifiable, Equatable {
     let title: String
     let icon: SectionIcon
     let entries: [SessionEntry]
+    /// Entries whose managed session is currently represented by a real pane.
+    /// This is a presentation snapshot supplied by `SessionIndexView`; the
+    /// store itself remains independent of the tab manager.
+    let activeEntryIDs: Set<String>
     /// Extra per-row display facts (live status, folder/branch detail) keyed
     /// by `SessionEntry.id`. Populated for Recent projections, including
     /// Recent search results; Agent and Folder sections keep their compact row
@@ -151,13 +155,15 @@ struct IndexSection: Identifiable, Equatable {
         title: String,
         icon: SectionIcon,
         entries: [SessionEntry],
-        accessories: [String: VaultSessionRowAccessory] = [:]
+        accessories: [String: VaultSessionRowAccessory] = [:],
+        activeEntryIDs: Set<String> = []
     ) {
         self.key = key
         self.title = title
         self.icon = icon
         self.entries = entries
         self.accessories = accessories
+        self.activeEntryIDs = activeEntryIDs
     }
 
     var id: SectionKey { key }

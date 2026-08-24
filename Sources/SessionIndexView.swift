@@ -9,18 +9,16 @@ import UniformTypeIdentifiers
 
 @MainActor
 enum SessionEntryResumeCoordinator {
-    /// Opens an indexed session in the most useful existing surface. A live
-    /// session is focused in place; an ended or stale session follows the
-    /// normal Vault resume path and gets a fresh surface.
-    static func open(_ entry: SessionEntry, tabManager: TabManager) {
-        guard !focusIfActive(entry, tabManager: tabManager) else { return }
-        resume(entry, tabManager: tabManager)
-    }
-
-    /// Focuses the current surface for `entry` when the live agent index still
-    /// points at a real panel in this tab manager.
-    @discardableResult
-    static func focusIfActive(_ entry: SessionEntry, tabManager: TabManager) -> Bool {
+    /// Returns the in-pane target for an indexed session, if one is currently
+    /// represented by a real surface in the tab manager.
+    ///
+    /// Keeping target discovery separate from the focus mutation lets the Vault
+    /// row expose an honest enabled/disabled state without focusing anything
+    /// while SwiftUI is rendering a context menu.
+    static func activeTarget(
+        for entry: SessionEntry,
+        tabManager: TabManager
+    ) -> (workspaceID: UUID, surfaceID: UUID)? {
         // Prefer the tab manager's authoritative surface snapshots. This
         // catches an open-but-idle session even while the process index is
         // between refreshes.
@@ -34,8 +32,7 @@ enum SessionEntryResumeCoordinator {
                         rhs: entry.sessionId
                     )
             }) {
-                tabManager.focusTab(workspace.id, surfaceId: panel.key)
-                return true
+                return (workspace.id, panel.key)
             }
         }
 
@@ -53,10 +50,47 @@ enum SessionEntryResumeCoordinator {
                       && tabManager.tabs.contains(where: { $0.id == panelKey.workspaceId })
                       && tabManager.tabs.first(where: { $0.id == panelKey.workspaceId })?.panels[panelKey.panelId] != nil
               }) else {
-            return false
+            return nil
         }
 
-        tabManager.focusTab(match.0.workspaceId, surfaceId: match.0.panelId)
+        return (match.0.workspaceId, match.0.panelId)
+    }
+
+    /// Returns the managed-session identities currently represented by real
+    /// panes. This is a read-only presentation snapshot; it never focuses or
+    /// selects a workspace and is safe to hand across the Vault row boundary.
+    static func inPaneSessionKeys(tabManager: TabManager) -> Set<String> {
+        var keys: Set<String> = []
+        for workspace in tabManager.tabs {
+            for (panelID, snapshot) in workspace.restoredAgentSnapshotsByPanelId
+                where workspace.panels[panelID] != nil {
+                keys.insert(
+                    VaultLiveSessionKeys.key(
+                        kind: snapshot.kind.rawValue,
+                        sessionID: snapshot.sessionId
+                    )
+                )
+            }
+        }
+        return keys
+    }
+
+    /// Opens an indexed session in the most useful existing surface. A live
+    /// session is focused in place; an ended or stale session follows the
+    /// normal Vault resume path and gets a fresh surface.
+    static func open(_ entry: SessionEntry, tabManager: TabManager) {
+        guard !focusIfActive(entry, tabManager: tabManager) else { return }
+        resume(entry, tabManager: tabManager)
+    }
+
+    /// Focuses the current surface for `entry` when the live agent index still
+    /// points at a real panel in this tab manager.
+    @discardableResult
+    static func focusIfActive(_ entry: SessionEntry, tabManager: TabManager) -> Bool {
+        guard let target = activeTarget(for: entry, tabManager: tabManager) else {
+            return false
+        }
+        tabManager.focusTab(target.workspaceID, surfaceId: target.surfaceID)
         return true
     }
 
@@ -123,8 +157,29 @@ struct SessionIndexView: View {
     /// Opens an existing live session in place, falling back to resume when
     /// the indexed surface is no longer present.
     let onOpen: ((SessionEntry) -> Void)?
+    /// Snapshot of managed sessions currently represented by real panes. Rows
+    /// use it only for status and menu presentation; the actual focus mutation
+    /// still goes through `onOpen`/`onFocus` and `SessionEntryResumeCoordinator`.
+    let activeSessionKeys: Set<String>
+    /// Focus-only action. Unlike `onOpen`, it never falls back to resuming a
+    /// session if the pane disappears between menu presentation and click.
+    let onFocus: ((SessionEntry) -> Void)?
     /// Rows shown per section before "Show more" is tapped.
     private static let collapsedRowLimit = 5
+
+    init(
+        store: SessionIndexStore,
+        onResume: ((SessionEntry) -> Void)?,
+        onOpen: ((SessionEntry) -> Void)?,
+        activeSessionKeys: Set<String> = [],
+        onFocus: ((SessionEntry) -> Void)? = nil
+    ) {
+        self.store = store
+        self.onResume = onResume
+        self.onOpen = onOpen
+        self.activeSessionKeys = activeSessionKeys
+        self.onFocus = onFocus
+    }
     static let relativeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .abbreviated
@@ -152,7 +207,30 @@ struct SessionIndexView: View {
     /// disclosure state by the normal section key.
     private var projectedSearchSections: [IndexSection] {
         guard isShowingSearchResults else { return [] }
-        return store.sectionsForEntries(searchResults)
+        return sectionsWithActiveEntries(store.sectionsForEntries(searchResults))
+    }
+
+    /// Adds the immutable in-pane status snapshot above the AppKit table
+    /// boundary. Including it in `IndexSection` equality lets recycled cells
+    /// repaint when a session enters or leaves a real pane.
+    private func sectionsWithActiveEntries(_ sections: [IndexSection]) -> [IndexSection] {
+        sections.map { section in
+            let activeEntryIDs = Set(
+                section.entries.compactMap { entry in
+                    activeSessionKeys.contains(VaultLiveSessionKeys.key(for: entry))
+                        ? entry.id
+                        : nil
+                }
+            )
+            return IndexSection(
+                key: section.key,
+                title: section.title,
+                icon: section.icon,
+                entries: section.entries,
+                accessories: section.accessories,
+                activeEntryIDs: activeEntryIDs
+            )
+        }
     }
 
     var body: some View {
@@ -222,25 +300,9 @@ struct SessionIndexView: View {
                 }
             }
 
-            Spacer(minLength: 4)
-
-            if !isShowingSearchResults {
-                ScopeButton(
-                    isOn: $store.scopeToCurrentDirectory,
-                    isEnabled: store.currentDirectory != nil,
-                    label: String(localized: "sessionIndex.scope.thisFolder", defaultValue: "This folder only")
-                )
-                .frame(height: RightSidebarChromeMetrics.controlHeight)
-                .reportRightSidebarChromeNamedGeometryForBonsplitUITest(keyPrefix: "rightSidebarSecondaryControl_scope", isVisible: true)
-                .accessibilityIdentifier("SessionScopeToggle.thisFolder")
-                .titlebarInteractiveControl()
-
-                VaultOverflowMenu(
-                    isLoading: store.isLoading,
-                    onReload: { store.reload() }
-                )
-                .accessibilityIdentifier("SessionIndexOverflowMenu")
-            }
+            // Keep the category selector intentionally quiet. Folder scope
+            // and reload remain model capabilities, but the secondary icon
+            // controls competed with the three primary grouping choices.
         }
         // Match the right-sidebar mode bar above: the same 4/6-point outer
         // insets and the same 28-point chrome rhythm.
@@ -280,7 +342,7 @@ struct SessionIndexView: View {
     private var sessionsList: some View {
         let sections = isShowingSearchResults
             ? projectedSearchSections
-            : store.sectionsForCurrentGrouping()
+            : sectionsWithActiveEntries(store.sectionsForCurrentGrouping())
         // Read draggedKey once per body eval so every child gets a snapshot
         // of the same value. Children are Equatable value views, so a
         // draggedKey transition only re-renders the two sections whose
@@ -294,6 +356,7 @@ struct SessionIndexView: View {
         let dragCoordinator = self.dragCoordinator
         let onResumeClosure = onResume
         let onOpenClosure = onOpen
+        let onFocusClosure = onFocus
         let gapActions = SectionGapActions(
             currentDraggedKey: { dragCoordinator.draggedKey },
             moveSection: { key, before in store.moveSection(key, before: before) },
@@ -332,6 +395,7 @@ struct SessionIndexView: View {
                 },
                 onResume: onResumeClosure,
                 onOpen: onOpenClosure,
+                onFocus: onFocusClosure,
                 search: searchFn,
                 loadSnapshot: loadSnapshotFn
             )
@@ -559,98 +623,6 @@ private struct GroupingButton: View {
     }
 }
 
-/// Compact scope toggle for the Vault toolbar. The full label stays available
-/// to accessibility and the tooltip while the visible control remains a
-/// predictable 20-point utility button in narrow sidebars.
-private struct ScopeButton: View {
-    @Binding var isOn: Bool
-    let isEnabled: Bool
-    let label: String
-    @State private var isHovered = false
-
-    var body: some View {
-        Button {
-            guard isEnabled else { return }
-            isOn.toggle()
-        } label: {
-            HeaderChromeIconStyle.symbol(isOn ? "folder.fill" : "folder")
-                .frame(
-                    width: RightSidebarChromeMetrics.headerIconFrameSize,
-                    height: RightSidebarChromeMetrics.headerIconFrameSize
-                )
-                .frame(
-                    width: RightSidebarChromeMetrics.headerControlSize,
-                    height: RightSidebarChromeMetrics.headerControlSize
-                )
-                .foregroundStyle(
-                    isOn
-                        ? Color.accentColor
-                        : HeaderChromeIconStyle.foregroundColor.opacity(
-                            isEnabled
-                                ? (isHovered ? HeaderChromeIconStyle.hoveredOpacity : HeaderChromeIconStyle.opacity)
-                                : HeaderChromeIconStyle.disabledOpacity
-                        )
-                )
-                .background {
-                    if isOn || isHovered {
-                        RoundedRectangle(
-                            cornerRadius: RightSidebarChromeMetrics.headerControlCornerRadius,
-                            style: .continuous
-                        )
-                        .fill(
-                            isOn
-                                ? Color.accentColor.opacity(0.12)
-                                : Color.primary.opacity(0.07)
-                        )
-                    }
-                }
-                .contentShape(
-                    RoundedRectangle(
-                        cornerRadius: RightSidebarChromeMetrics.headerControlCornerRadius,
-                        style: .continuous
-                    )
-                )
-        }
-        .buttonStyle(.plain)
-        .disabled(!isEnabled)
-        .onHover { isHovered = $0 }
-        .help(label)
-        .accessibilityLabel(Text(label))
-        .accessibilityAddTraits(isOn ? [.isSelected] : [])
-    }
-}
-
-/// Overflow actions for the Vault toolbar. Reload is intentionally secondary
-/// chrome: it remains discoverable without competing with grouping, scope, or
-/// search controls on every row.
-private struct VaultOverflowMenu: View {
-    let isLoading: Bool
-    let onReload: () -> Void
-
-    var body: some View {
-        Menu {
-            Button {
-                onReload()
-            } label: {
-                Label(
-                    String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload Vault"),
-                    systemImage: "arrow.clockwise"
-                )
-            }
-            .disabled(isLoading)
-        } label: {
-            HeaderChromeIconStyle.symbol("ellipsis")
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarSecondaryControl_more"))
-        .help(String(localized: "sessionIndex.more.tooltip", defaultValue: "More Vault actions"))
-        .accessibilityLabel(Text(String(localized: "sessionIndex.more.tooltip", defaultValue: "More Vault actions")))
-        .titlebarInteractiveControl()
-    }
-}
-
 /// Closure type for paginated session search. Handed down into the popover
 /// instead of a `SessionIndexStore` reference so views inside the lazy list
 /// subtree cannot observe the store by accident.
@@ -678,8 +650,31 @@ struct IndexSectionActions {
     let onDismissPreview: (SessionEntry.ID) -> Void
     let onResume: ((SessionEntry) -> Void)?
     let onOpen: ((SessionEntry) -> Void)?
+    let onFocus: ((SessionEntry) -> Void)?
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
+
+    init(
+        onBeginDrag: @escaping @MainActor () -> Void,
+        beginSessionDrag: @escaping SessionDragBeginAction,
+        onPreviewEntry: @escaping (SessionEntry) -> Void,
+        onDismissPreview: @escaping (SessionEntry.ID) -> Void,
+        onResume: ((SessionEntry) -> Void)?,
+        onOpen: ((SessionEntry) -> Void)?,
+        onFocus: ((SessionEntry) -> Void)? = nil,
+        search: @escaping SessionSearchFn,
+        loadSnapshot: @escaping DirectorySnapshotFn
+    ) {
+        self.onBeginDrag = onBeginDrag
+        self.beginSessionDrag = beginSessionDrag
+        self.onPreviewEntry = onPreviewEntry
+        self.onDismissPreview = onDismissPreview
+        self.onResume = onResume
+        self.onOpen = onOpen
+        self.onFocus = onFocus
+        self.search = search
+        self.loadSnapshot = loadSnapshot
+    }
 }
 
 /// Callback bundle for `SectionReorderGap` / `SectionGapDropDelegate`.
@@ -737,6 +732,8 @@ struct IndexSectionView: View, Equatable {
                         onPreview: { actions.onPreviewEntry(row.entry) },
                         onResume: actions.onResume,
                         onOpen: actions.onOpen,
+                        onFocus: actions.onFocus,
+                        isActive: section.activeEntryIDs.contains(row.entry.id),
                         leadingPadding: 32
                     )
                         .equatable()
@@ -958,6 +955,8 @@ private struct SessionRow: View, Equatable {
     let onPreview: () -> Void
     let onResume: ((SessionEntry) -> Void)?
     let onOpen: ((SessionEntry) -> Void)?
+    let onFocus: ((SessionEntry) -> Void)?
+    let isActive: Bool
     let leadingPadding: CGFloat
     @State private var isHovered: Bool = false
 
@@ -967,6 +966,7 @@ private struct SessionRow: View, Equatable {
         lhs.entry == rhs.entry
             && lhs.accessory == rhs.accessory
             && lhs.isPreviewPresented == rhs.isPreviewPresented
+            && lhs.isActive == rhs.isActive
             && lhs.leadingPadding == rhs.leadingPadding
     }
 
@@ -985,7 +985,13 @@ private struct SessionRow: View, Equatable {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 8)
-                if let accessory {
+                if isActive {
+                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                        .fill(Color.green)
+                        .frame(width: 6, height: 6)
+                        .help(Self.activeSessionLabel)
+                        .accessibilityLabel(Text(Self.activeSessionLabel))
+                } else if let accessory {
                     Circle()
                         .fill(accessory.liveStatus.dotColor)
                         .frame(width: 6, height: 6)
@@ -1033,9 +1039,20 @@ private struct SessionRow: View, Equatable {
             onDoubleClick: onPreview
         ))
         .contextMenu {
-            sessionRowMenuItems(entry: entry, onResume: onResume, onOpen: onOpen)
+            sessionRowMenuItems(
+                entry: entry,
+                onResume: onResume,
+                onOpen: onOpen,
+                onFocus: onFocus,
+                isActive: isActive
+            )
         }
     }
+
+    private static let activeSessionLabel = String(
+        localized: "sessionIndex.status.activeInPane",
+        defaultValue: "Active in pane"
+    )
 
     static func messageCountText(_ count: Int) -> String {
         String(
@@ -1087,14 +1104,26 @@ private struct SessionRow: View, Equatable {
 private func sessionRowMenuItems(
     entry: SessionEntry,
     onResume: ((SessionEntry) -> Void)?,
-    onOpen: ((SessionEntry) -> Void)? = nil
+    onOpen: ((SessionEntry) -> Void)? = nil,
+    onFocus: ((SessionEntry) -> Void)? = nil,
+    isActive: Bool = false
 ) -> some View {
+    if let onFocus {
+        Button {
+            onFocus(entry)
+        } label: {
+            Text(String(localized: "sessionIndex.row.focusSession", defaultValue: "Focus Session"))
+        }
+        .disabled(!isActive)
+    }
     if let onOpen {
         Button {
             onOpen(entry)
         } label: {
             Text(String(localized: "sessionIndex.row.openSession", defaultValue: "Open Session"))
         }
+    }
+    if onFocus != nil || onOpen != nil {
         Divider()
     }
     if let onResume {
@@ -2445,6 +2474,7 @@ struct SectionPopoverView: View {
     let beginSessionDrag: SessionDragBeginAction
     let onResume: ((SessionEntry) -> Void)?
     let onOpen: ((SessionEntry) -> Void)?
+    let onFocus: ((SessionEntry) -> Void)?
     let onDismiss: () -> Void
 
     @State private var query: String = ""
@@ -2556,7 +2586,9 @@ struct SectionPopoverView: View {
                                         open(entry)
                                         onDismiss()
                                     }
-                                }
+                                },
+                                onFocus: onFocus,
+                                isActive: section.activeEntryIDs.contains(row.entry.id)
                             ) {
                                 onResume?(row.entry)
                                 onDismiss()
@@ -2797,12 +2829,14 @@ private struct PopoverRow: View, Equatable {
     let entry: SessionEntry
     let beginSessionDrag: SessionDragBeginAction
     let onOpen: ((SessionEntry) -> Void)?
+    let onFocus: ((SessionEntry) -> Void)?
+    let isActive: Bool
     let onActivate: () -> Void
 
     @State private var isHovered: Bool = false
 
     static func == (lhs: PopoverRow, rhs: PopoverRow) -> Bool {
-        lhs.entry == rhs.entry
+        lhs.entry == rhs.entry && lhs.isActive == rhs.isActive
     }
 
     fileprivate static func flatten(_ s: String) -> String {
@@ -2844,6 +2878,13 @@ private struct PopoverRow: View, Equatable {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
+            if isActive {
+                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                    .fill(Color.green)
+                    .frame(width: 6, height: 6)
+                    .help(String(localized: "sessionIndex.status.activeInPane", defaultValue: "Active in pane"))
+                    .accessibilityLabel(Text(String(localized: "sessionIndex.status.activeInPane", defaultValue: "Active in pane")))
+            }
             modifiedText
         }
         .padding(.horizontal, 12)
@@ -2862,7 +2903,9 @@ private struct PopoverRow: View, Equatable {
             sessionRowMenuItems(
                 entry: entry,
                 onResume: { _ in onActivate() },
-                onOpen: onOpen
+                onOpen: onOpen,
+                onFocus: onFocus,
+                isActive: isActive
             )
         }
     }

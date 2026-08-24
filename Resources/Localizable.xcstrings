@@ -526,6 +526,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "終了" } }
       }
     },
+    "sessionIndex.status.activeInPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Active in pane" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペインでアクティブ" } }
+      }
+    },
     "sessionIndex.sort.lastActivity": {
       "extractionState": "manual",
       "localizations": {
@@ -150665,6 +150672,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "再開コマンドをコピー"
+          }
+        }
+      }
+    },
+    "sessionIndex.row.focusSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションにフォーカス"
           }
         }
       }

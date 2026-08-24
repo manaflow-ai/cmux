@@ -140,10 +140,12 @@ final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
                     loadSnapshot: loadSnapshot,
                     beginSessionDrag: beginSessionDrag,
                     onResume: onResume,
-                    onOpen: onOpen
-                ) { [weak self] in
-                    self?.dismissAndNotify()
-                }
+                    onOpen: onOpen,
+                    onFocus: currentPresentation.onFocus,
+                    onDismiss: { [weak self] in
+                        self?.dismissAndNotify()
+                    }
+                )
                 .id(presentationCount)
             )
         case .transcript(let entry, let onResume):
@@ -263,7 +265,8 @@ extension SessionIndexTableRow {
                     onResume: actions.onResume,
                     onOpen: actions.onOpen
                 ),
-                onDismiss: { setPopoverOpen(false) }
+                onDismiss: { setPopoverOpen(false) },
+                onFocus: actions.onFocus
             )
         }
     }
