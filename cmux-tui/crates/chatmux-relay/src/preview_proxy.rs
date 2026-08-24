@@ -732,10 +732,11 @@ async fn run_peer<S>(
                     PeerRole::Devtools => send_to_slot(&shared, PeerRole::Page, text),
                 }
             }
-            Message::Ping(payload)
-                if enqueue_message(&tx, &queued_bytes, Message::Pong(payload)).is_err() =>
-            {
-                break;
+            Message::Ping(payload) => {
+                match enqueue_message(&tx, &queued_bytes, Message::Pong(payload)) {
+                    Ok(()) => {}
+                    Err(_) => break,
+                }
             }
             Message::Close(_) => break,
             _ => {}
