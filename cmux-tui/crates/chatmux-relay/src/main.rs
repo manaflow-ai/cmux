@@ -185,10 +185,14 @@ async fn prepare_existing_trust(config: &mut Config, config_path: &Path, interac
 /// `CHATMUX_RELAY_ALLOWED_ROOTS` (platform path-list separated; empty string clears).
 /// Persisted in the local config and advertised in the hello so the server
 /// records it on the machine.
-fn apply_allowed_roots(config: &mut Config, allow_root_args: &[String], config_path: &Path) {
+fn apply_allowed_roots(
+    config: &mut Config,
+    allow_root_args: &[String],
+    config_path: &Path,
+) -> Result<(), String> {
     let from_env = std::env::var("CHATMUX_RELAY_ALLOWED_ROOTS").ok();
     if allow_root_args.is_empty() && from_env.is_none() {
-        return;
+        return Ok(());
     }
     let roots: Vec<String> = if allow_root_args.is_empty() {
         parse_allowed_roots_environment(from_env.as_deref().unwrap_or_default())
@@ -196,21 +200,17 @@ fn apply_allowed_roots(config: &mut Config, allow_root_args: &[String], config_p
         allow_root_args.to_vec()
     };
     if roots.is_empty() {
-        config.allowed_roots = None;
-        println!("Agent path scoping cleared (unscoped).");
+        return Err("allowed root configuration is empty; refusing to continue unscoped".to_owned());
     } else {
-        if let Err(error) = validate_allowed_roots(&roots) {
-            eprintln!("Invalid allowed roots: {error}");
-            return;
-        }
+        validate_allowed_roots(&roots).map_err(str::to_owned)?;
         if let Some(error) = roots.iter().find_map(|root| validate_request_path(root).err()) {
-            eprintln!("Invalid allowed root: {error}");
-            return;
+            return Err(format!("invalid allowed root: {error}"));
         }
         println!("Agent access on this machine is limited to: {}", roots.join(", "));
         config.allowed_roots = Some(roots);
     }
     persist(config, config_path);
+    Ok(())
 }
 
 /// Parse the environment form with the platform path-list separator. A plain
@@ -651,7 +651,9 @@ async fn main() {
             }
         }
     };
-    apply_allowed_roots(&mut config, &parsed.allow_root, &runtime.config_path);
+    if let Err(error) = apply_allowed_roots(&mut config, &parsed.allow_root, &runtime.config_path) {
+        fatal_exit(&RelayError::fatal(error));
+    }
     stay_online(
         config,
         &runtime.config_path,
