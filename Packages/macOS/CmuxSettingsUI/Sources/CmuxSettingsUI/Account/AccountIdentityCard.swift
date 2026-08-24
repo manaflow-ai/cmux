@@ -21,8 +21,13 @@ struct AccountIdentityCard: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(titleText)
-                        .cmuxFont(size: 13, weight: .medium)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(titleText)
+                            .cmuxFont(size: 13, weight: .medium)
+                        if flow?.activeBackendEnvironment == .staging {
+                            StagingEnvironmentBadge()
+                        }
+                    }
                     if let subtitle = subtitleText {
                         Text(subtitle)
                             .cmuxFont(size: 11)

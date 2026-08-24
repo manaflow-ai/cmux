@@ -6,12 +6,17 @@ import StackAuth
 
 /// The macOS auth composition root.
 ///
-/// Constructs the de-singletonized auth graph once at app startup, mirroring
-/// the iOS `MobileAuthComposition`: the keychain/file fallback token store, a
+/// Constructs the de-singletonized auth graph, mirroring the iOS
+/// `MobileAuthComposition`: the keychain/file fallback token store, a
 /// `StackClientApp` over it (wrapped in ``CmuxAuthRuntime/StackAuthClient``),
 /// the shared ``CmuxAuthRuntime/AuthCoordinator`` bound to the historical mac
 /// defaults keys, and the ``HostBrowserSignInFlow``. Replaces
 /// `AuthManager.shared`.
+///
+/// Built once at app startup, and rebuilt in-process by the live
+/// backend-environment switch through ``init(rebinding:environment:defaults:)``,
+/// which reuses the existing ``HostAccountFlow`` and hands the fresh graph to
+/// `AppDelegate.adoptRebuiltAuth(_:)`.
 @MainActor
 struct MacAuthComposition {
     /// The shared auth orchestrator (session state, tokens, teams).
@@ -27,7 +32,24 @@ struct MacAuthComposition {
     /// Shared observable account projection used by Settings and sidebar UI.
     let accountFlow: HostAccountFlow
 
-    /// Build the auth graph.
+    /// The environment-frozen pieces one build pass produces. Shared by the
+    /// startup initializer and the live-switch rebinding initializer so the
+    /// graph is constructed identically both times.
+    private struct Graph {
+        let coordinator: AuthCoordinator
+        let callbackRouter: AuthCallbackRouter
+        let tokenStore: any StackAuthTokenStoreProtocol
+        let browserSignIn: HostBrowserSignInFlow
+        let browserAppSession: BrowserAppSessionController
+        /// The backend selection this pass resolved against: `.explicit`
+        /// when the wholesale choice key is persisted, `.lane` otherwise.
+        let backendEnvironmentSelection: CMUXBackendEnvironmentSelection
+        /// The build's own lane, classified from the launch environment with
+        /// the explicit choice ignored (a per-process constant).
+        let backendEnvironmentBuildLane: CMUXBackendEnvironmentBuildLane
+    }
+
+    /// Build the auth graph at app startup.
     /// - Parameters:
     ///   - environment: The process environment (UI-test launch options).
     ///   - defaults: Persistence for the cached user / has-tokens flag /
@@ -36,26 +58,200 @@ struct MacAuthComposition {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard
     ) {
+        let graph = Self.buildGraph(environment: environment, defaults: defaults)
+        coordinator = graph.coordinator
+        callbackRouter = graph.callbackRouter
+        tokenStore = graph.tokenStore
+        browserSignIn = graph.browserSignIn
+        browserAppSession = graph.browserAppSession
+        let accountFlow = HostAccountFlow(
+            coordinator: graph.coordinator,
+            browserSignIn: graph.browserSignIn,
+            activeBackendEnvironmentSelection: graph.backendEnvironmentSelection,
+            backendEnvironmentBuildLane: graph.backendEnvironmentBuildLane,
+            backendEnvironmentDefaults: defaults,
+            confirmStagingSignOut: {
+                StagingSignOutConfirmationPresenter().confirmStagingSignOut()
+            }
+        )
+        self.accountFlow = accountFlow
+        accountFlow.attachBackendEnvironmentSwitchController(
+            Self.makeBackendEnvironmentSwitchController(
+                accountFlow: accountFlow,
+                environment: environment,
+                defaults: defaults
+            )
+        )
+    }
+
+    /// Build a fresh auth graph for the (already committed) new backend
+    /// environment and rebind the existing ``HostAccountFlow`` to it, instead
+    /// of constructing a new flow. Used by the live backend-environment
+    /// switch: the flow object, its attached switch controller, and every
+    /// Settings view observing it survive; only the environment-frozen graph
+    /// underneath is replaced. The fresh ``AuthLaunchOptions`` re-run
+    /// ``detectAuthProjectSwitch(resolvedProjectID:buildDefaultProjectID:defaults:)``,
+    /// so a project flip primes `clearStaleAuthOnLaunch` on the new
+    /// coordinator's `start()`.
+    init(
+        rebinding accountFlow: HostAccountFlow,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        defaults: UserDefaults = .standard
+    ) {
+        let graph = Self.buildGraph(environment: environment, defaults: defaults)
+        coordinator = graph.coordinator
+        callbackRouter = graph.callbackRouter
+        tokenStore = graph.tokenStore
+        browserSignIn = graph.browserSignIn
+        browserAppSession = graph.browserAppSession
+        self.accountFlow = accountFlow
+        accountFlow.rebind(
+            coordinator: graph.coordinator,
+            browserSignIn: graph.browserSignIn,
+            activeBackendEnvironmentSelection: graph.backendEnvironmentSelection,
+            backendEnvironmentBuildLane: graph.backendEnvironmentBuildLane
+        )
+    }
+
+    /// The production step wiring for the live backend-environment switch.
+    /// Every closure resolves the flow's CURRENT graph at run time (weakly,
+    /// so the controller the flow owns never retains the flow back), which
+    /// keeps a second switch correct after the first rebind.
+    private static func makeBackendEnvironmentSwitchController(
+        accountFlow: HostAccountFlow,
+        environment: [String: String],
+        defaults: UserDefaults
+    ) -> MacBackendEnvironmentSwitchController {
+        MacBackendEnvironmentSwitchController(
+            steps: BackendEnvironmentSwitchTransaction.Steps(
+                activeSelection: { [weak accountFlow] in
+                    accountFlow?.activeBackendEnvironmentHostSelection
+                        ?? .lane(resolves: .production)
+                },
+                parkSession: { [weak accountFlow] in
+                    // Park under the OLD defaults: HostBrowserSignInFlow
+                    // .parkSession() (cancels in-flight sign-in attempts,
+                    // clears the cmux web session, detaches the coordinator
+                    // session while its token slot survives — NO revocation,
+                    // NO iroh binding teardown) plus the flow's Pro-state
+                    // reset.
+                    await accountFlow?.parkSession()
+                },
+                quiesce: {
+                    // Stop mobile RPC (listener + iroh + caller verification)
+                    // so nothing verifies tokens against flipped defaults
+                    // while the old coordinator still lives. Restarted by
+                    // AppDelegate.adoptRebuiltAuth(_:) after the rebuild.
+                    MobileHostService.shared.stop()
+                },
+                storeSelection: { selection in
+                    // The commit point: an explicit choice persists its raw
+                    // value (production included — tri-state), a lane target
+                    // clears the key so the build's own bake resolves again.
+                    switch selection {
+                    case .explicit(let choice):
+                        choice.storeChoice(in: defaults)
+                    case .lane:
+                        CMUXBackendEnvironmentOverride.clearChoice(in: defaults)
+                    }
+                    // EVERY committed selection (including a revert's, and
+                    // lane clears — a lane↔explicit flip can change the Stack
+                    // project too) arms the one-shot suppression so the
+                    // immediate rebuild — or the next launch after a crash —
+                    // restores the target's PARKED slot instead of running
+                    // the organic project-flip clear.
+                    CMUXBackendEnvironmentSwitchRebuildMarker.arm(in: defaults)
+                },
+                rebuild: { [weak accountFlow] _ in
+                    guard let accountFlow, let appDelegate = AppDelegate.shared else { return }
+                    appDelegate.adoptRebuiltAuth(
+                        MacAuthComposition(
+                            rebinding: accountFlow,
+                            environment: environment,
+                            defaults: defaults
+                        )
+                    )
+                },
+                awaitRestoredUser: { [weak accountFlow] in
+                    // Resolves the CURRENT (rebound) coordinator's launch
+                    // restore of the target's parked slot.
+                    await accountFlow?.awaitRestoredUser()
+                },
+                promptSignIn: { [weak accountFlow] in
+                    await accountFlow?.promptSignInForBackendSwitch()
+                },
+                cancelSignInPrompt: { [weak accountFlow] in
+                    accountFlow?.cancelBackendSwitchSignInPrompt()
+                },
+                signOutEstablishedSession: { [weak accountFlow] in
+                    // The REAL sign-out chain under the CURRENT (target)
+                    // defaults, through the internal direct path that
+                    // bypasses the staging sign-out confirmation.
+                    await accountFlow?.signOutDirect()
+                },
+                isEligible: { user in
+                    CMUXBackendEnvironmentSwitchGate.allows(user) || Self.isDebugBuild
+                },
+                signInPromptFailure: { [weak accountFlow] in
+                    accountFlow?.backendSwitchSignInPromptFailure() ?? .failed
+                }
+            )
+        )
+    }
+
+    /// One environment-frozen build pass over the persisted selection.
+    private static func buildGraph(
+        environment: [String: String],
+        defaults: UserDefaults
+    ) -> Graph {
         let bundleIdentifier = Bundle.main.bundleIdentifier
-        let resolvedAuthEnvironment = AuthEnvironment.resolvedStackAuthEnvironment(
+        // The persisted explicit choice resolves ONCE per build pass (at
+        // startup, and again when the live switch rebuilds the graph). A
+        // choice is a WHOLESALE override — it beats explicit env, including
+        // the LSEnvironment values tagged dev builds bake in — while an
+        // absent key keeps the build's own lane byte-identical to the
+        // pre-choice behavior.
+        let explicitChoice = CMUXBackendEnvironmentOverride.explicitChoice(from: defaults)
+        // The lane classifies with the choice IGNORED: it is the stable
+        // "what this build is baked to" descriptor powering the picker's
+        // "Build lane (…)" option and the return-to-lane sign-out chain.
+        let backendEnvironmentBuildLane = AuthEnvironment.resolvedBackendEnvironmentBuildLane(
             environment: environment,
             isDebugBuild: Self.isDebugBuild
+        )
+        let backendEnvironmentSelection: CMUXBackendEnvironmentSelection =
+            explicitChoice.map { .explicit($0) }
+                ?? .lane(resolves: backendEnvironmentBuildLane.resolvedEnvironment)
+        let resolvedAuthEnvironment = AuthEnvironment.resolvedStackAuthEnvironment(
+            environment: environment,
+            isDebugBuild: Self.isDebugBuild,
+            explicitChoice: explicitChoice
         )
         let stackProjectID = AuthEnvironment.resolvedStackProjectID(
             environment: environment,
-            isDebugBuild: Self.isDebugBuild
+            isDebugBuild: Self.isDebugBuild,
+            explicitChoice: explicitChoice
         )
         let stackPublishableClientKey = AuthEnvironment.resolvedStackPublishableClientKey(
             environment: environment,
-            isDebugBuild: Self.isDebugBuild
+            isDebugBuild: Self.isDebugBuild,
+            explicitChoice: explicitChoice
         )
+        // Per-project token slots: keying the stores by the resolved Stack
+        // project lets a live backend-environment switch PARK the old
+        // environment's session (its slot survives untouched) and restore it
+        // on return. Each store adopts the pre-per-project single slot on
+        // first read.
         let tokenStore = FallbackTokenStore(
             primary: KeychainStackTokenStore(
-                service: KeychainStackTokenStore.serviceName(bundleIdentifier: bundleIdentifier)
+                service: KeychainStackTokenStore.serviceName(bundleIdentifier: bundleIdentifier),
+                projectID: stackProjectID
             ),
-            fallback: FileStackTokenStore(directory: Self.credentialsDirectory(bundleIdentifier: bundleIdentifier))
+            fallback: FileStackTokenStore(
+                directory: Self.credentialsDirectory(bundleIdentifier: bundleIdentifier),
+                projectID: stackProjectID
+            )
         )
-        self.tokenStore = tokenStore
 
         let userCache = CMUXAuthIdentityStore(
             keyValueStore: defaults,
@@ -106,6 +302,11 @@ struct MacAuthComposition {
         // existing `CMUXAuthAutoLoginCredentials` + `shouldStartAutoLogin` gate
         // then fires unchanged. Compiled out of release builds.
         let resolvedEnvironment = Self.environmentWithDogfoodAutoSignIn(environment)
+        // detectAuthProjectSwitch must RUN unconditionally (it updates the
+        // stored project id); the switch-rebuild marker only suppresses its
+        // verdict. A backend-environment switch parks the old session and
+        // must restore the target's parked slot, while an organic project
+        // flip (rebaked tagged build) keeps today's pinned clear semantics.
         let authProjectSwitched = Self.detectAuthProjectSwitch(
             resolvedProjectID: stackProjectID,
             buildDefaultProjectID: AuthEnvironment.resolvedStackProjectID(
@@ -114,6 +315,8 @@ struct MacAuthComposition {
             ),
             defaults: defaults
         )
+        let switchRebuildSuppressesClear =
+            CMUXBackendEnvironmentSwitchRebuildMarker.consume(from: defaults)
         let includesDevAuth = Self.includesDevAuth(
             resolvedAuthEnvironment: resolvedAuthEnvironment
         )
@@ -124,7 +327,7 @@ struct MacAuthComposition {
             mockDataEnabled: false,
             environment: resolvedEnvironment,
             includesDevAuth: includesDevAuth,
-            clearStaleAuthOnLaunch: authProjectSwitched,
+            clearStaleAuthOnLaunch: authProjectSwitched && !switchRebuildSuppressesClear,
             replaceStoredSessionWithAutoLogin: replacesStoredDevSession
         )
 
@@ -148,14 +351,12 @@ struct MacAuthComposition {
                 await browserAppSessionSignInRelay.signedIn()
             }
         )
-        self.coordinator = coordinator
         let browserAppSession = BrowserAppSessionController(
             coordinator: coordinator,
             webOrigin: AuthEnvironment.appSessionHandoffOrigin,
             projectID: stackProjectID,
             defaults: defaults
         )
-        self.browserAppSession = browserAppSession
         browserAppSessionSignInRelay.bind(
             beginTransition: { [weak browserAppSession] in
                 browserAppSession?.beginAuthTransition()
@@ -167,7 +368,6 @@ struct MacAuthComposition {
         let callbackRouter = AuthCallbackRouter(
             extraAllowedScheme: AuthEnvironment.callbackScheme
         )
-        self.callbackRouter = callbackRouter
         let browserSignIn = HostBrowserSignInFlow(
             coordinator: coordinator,
             tokenStore: tokenStore,
@@ -180,6 +380,13 @@ struct MacAuthComposition {
                 browserAppSession.beginAuthTransition()
                 MobileHostIrohRuntime.shared.beginSignOutPreparation()
             },
+            // Park (backend-environment switch) clears the browser session
+            // like sign-out but must NOT touch iroh: beginSignOutPreparation
+            // durably queues a binding revocation, which would kill the
+            // parked environment's pairing.
+            beginSessionPark: {
+                browserAppSession.beginAuthTransition()
+            },
             localSignOut: {
                 await browserAppSession.clearCmuxWebSession()
             },
@@ -190,10 +397,14 @@ struct MacAuthComposition {
                 )
             }
         )
-        self.browserSignIn = browserSignIn
-        self.accountFlow = HostAccountFlow(
+        return Graph(
             coordinator: coordinator,
-            browserSignIn: browserSignIn
+            callbackRouter: callbackRouter,
+            tokenStore: tokenStore,
+            browserSignIn: browserSignIn,
+            browserAppSession: browserAppSession,
+            backendEnvironmentSelection: backendEnvironmentSelection,
+            backendEnvironmentBuildLane: backendEnvironmentBuildLane
         )
     }
 
@@ -233,6 +444,9 @@ struct MacAuthComposition {
 
     /// Keep cached identities and Stack tokens from crossing projects when one
     /// tagged Debug bundle is rebuilt with `--prod-auth`, or switched back.
+    /// The persisted explicit backend environment choice flows through the same
+    /// check: flipping production<->staging flips the resolved Stack project
+    /// id, so the next launch wipes the stale session automatically.
     nonisolated static func detectAuthProjectSwitch(
         resolvedProjectID: String,
         buildDefaultProjectID: String,

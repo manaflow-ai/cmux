@@ -1221,6 +1221,15 @@ if [[ -n "$TAG" ]]; then
   fi
   cleanup_stale_cli_pointer_target || true
   cleanup_stale_tag_state "$TAG_SLUG" || true
+  # Rig determinism: a persisted explicit backend-environment choice is a
+  # WHOLESALE override that would beat the freshly baked CMUX_* launch
+  # environment, so a leftover pick (or the one-shot switch-rebuild marker)
+  # from an earlier dogfood round must not leak into this reload. Clear both
+  # tri-state keys for the tagged bundle before the app relaunches
+  # (precedent: scripts/lib/mobile-attach.sh writing the pairing-host
+  # default pre-launch).
+  defaults delete "$BUNDLE_ID" cmux.backendEnvironmentOverride 2>/dev/null || true
+  defaults delete "$BUNDLE_ID" cmux.backendEnvironmentSwitch.suppressAuthClearOnce 2>/dev/null || true
 fi
 
 CMUX_DEV_PORT="$(choose_cmux_dev_port)"

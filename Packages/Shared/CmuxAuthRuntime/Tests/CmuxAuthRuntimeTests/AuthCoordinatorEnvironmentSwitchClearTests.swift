@@ -135,6 +135,139 @@ import Testing
         #expect(coordinator.currentUser == selectedUser)
     }
 
+    @Test func secondCoordinatorInSameProcessPrimesSignedOutAndClearsLocally() async throws {
+        // The live backend-environment switch rebuilds the auth graph
+        // IN-PROCESS: coordinator A (the old environment) is signed in over
+        // the shared stores, then coordinator B is built over the SAME
+        // stores with clearStaleAuthOnLaunch. B must prime signed-out
+        // synchronously at init (no stale-identity flash while A still
+        // exists) and clear the local session on start() without any network
+        // revocation (the switch's sign-out step already revoked under the
+        // old environment).
+        let store = FakeKeyValueStore()
+        let signedInUser = CMUXAuthUser(id: "old-env-user", primaryEmail: "old@x.com", displayName: "Old")
+        let clientA = FakeAuthClient(user: signedInUser)
+        let coordinatorA = AuthCoordinator(
+            client: clientA,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain()
+        )
+        try await coordinatorA.signInWithPassword(email: "old@x.com", password: "pw")
+        #expect(coordinatorA.isAuthenticated)
+        #expect(store.bool(forKey: "has_tokens"))
+
+        let clientB = FakeAuthClient(access: "old-env-access", refresh: "old-env-refresh")
+        let coordinatorB = AuthCoordinator(
+            client: clientB,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: AuthLaunchOptions(
+                clearAuthRequested: false,
+                mockDataEnabled: false,
+                environment: [:],
+                includesDevAuth: false,
+                clearStaleAuthOnLaunch: true
+            )
+        )
+
+        // Synchronous priming, before start(): the shared caches are already
+        // signed out even though coordinator A lives on in the process.
+        #expect(coordinatorB.isAuthenticated == false)
+        #expect(coordinatorB.currentUser == nil)
+        #expect(store.bool(forKey: "has_tokens") == false)
+
+        coordinatorB.start()
+        await coordinatorB.awaitBootstrapped()
+
+        // Local clear only: the persisted tokens were dropped through B's
+        // client, with no network revocation from either coordinator.
+        let clears = await clientB.clearLocalSessionCount
+        #expect(clears >= 1)
+        #expect(coordinatorB.isAuthenticated == false)
+        #expect(coordinatorB.currentUser == nil)
+        let revokesA = await clientA.revokeCount
+        let revokesB = await clientB.revokeCount
+        #expect(revokesA == 0)
+        #expect(revokesB == 0)
+    }
+
+    @Test func suppressedClearRebuildRestoresAParkedSession() async throws {
+        // The backend-environment switch parks the old session
+        // (detachSessionLeavingTokens leaves the token slot intact) and arms
+        // the one-shot rebuild marker, so the rebuilt coordinator is
+        // composed WITHOUT clearStaleAuthOnLaunch even though the resolved
+        // Stack project changed. The rebuilt coordinator must restore the
+        // TARGET's parked session from its surviving tokens: no local clear,
+        // no revocation, signed in without any prompt.
+        let store = FakeKeyValueStore()
+        let parkedUser = CMUXAuthUser(
+            id: "parked-user",
+            primaryEmail: "aziz@manaflow.ai",
+            displayName: "Aziz"
+        )
+        let clientA = FakeAuthClient(user: parkedUser)
+        let coordinatorA = AuthCoordinator(
+            client: clientA,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain()
+        )
+        try await coordinatorA.signInWithPassword(email: "aziz@manaflow.ai", password: "pw")
+        await coordinatorA.detachSessionLeavingTokens()
+        #expect(coordinatorA.isAuthenticated == false)
+        let parkedAccess = await clientA.storedAccessToken()
+        try #require(parkedAccess != nil)
+
+        // The rebuilt coordinator resolves the parked project's own slot
+        // (per-project stores), so its client still holds the parked tokens.
+        let clientB = FakeAuthClient(
+            access: parkedAccess,
+            refresh: "parked-refresh",
+            user: parkedUser
+        )
+        let coordinatorB = AuthCoordinator(
+            client: clientB,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: AuthLaunchOptions(
+                clearAuthRequested: false,
+                mockDataEnabled: false,
+                environment: [:],
+                includesDevAuth: false,
+                // The consumed rebuild marker suppressed the project-switch
+                // verdict, so the composition passes false here.
+                clearStaleAuthOnLaunch: false
+            )
+        )
+
+        coordinatorB.start()
+        await coordinatorB.awaitBootstrapped()
+
+        #expect(coordinatorB.isAuthenticated)
+        #expect(coordinatorB.currentUser == parkedUser)
+        let clearsA = await clientA.clearLocalSessionCount
+        let clearsB = await clientB.clearLocalSessionCount
+        let revokesA = await clientA.revokeCount
+        let revokesB = await clientB.revokeCount
+        #expect(clearsA == 0)
+        #expect(clearsB == 0)
+        #expect(revokesA == 0)
+        #expect(revokesB == 0)
+    }
+
     @Test func uiTestClearKeepsSuppressingAutoLogin() async throws {
         // The pre-existing CMUX_UITEST_CLEAR_AUTH contract is untouched: it
         // clears and stops, credentials and all.

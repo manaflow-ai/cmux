@@ -1,4 +1,5 @@
 import AppKit
+import CMUXAuthCore
 import Foundation
 import Testing
 
@@ -531,6 +532,389 @@ struct AuthEnvironmentTests {
         defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
 
         #expect(appDelegate.focusProUpgradeWorkspace(workspaceId: workspace.id, url: pricingURL) == false)
+    }
+
+    @Test("explicit staging is a wholesale set of fixed staging values")
+    func explicitStagingWholesaleValues() {
+        let staging = "https://cmux-staging.vercel.app"
+        #expect(AuthEnvironment.resolvedDefaultWebOrigin(
+            environment: [:],
+            isDebugBuild: false,
+            explicitChoice: .staging
+        ) == staging)
+        #expect(AuthEnvironment.resolvedDefaultAPIBaseURL(
+            environment: [:],
+            isDebugBuild: false,
+            explicitChoice: .staging
+        ) == staging)
+        #expect(AuthEnvironment.resolvedDefaultVMAPIOrigin(
+            environment: [:],
+            isDebugBuild: false,
+            explicitChoice: .staging
+        ) == staging)
+        #expect(AuthEnvironment.resolvedPushAPIBaseURL(
+            environment: [:],
+            isDebugBuild: false,
+            explicitChoice: .staging
+        ).absoluteString == staging)
+        #expect(AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: [:],
+            isDebugBuild: false,
+            explicitChoice: .staging
+        )?.absoluteString == staging)
+        #expect(AuthEnvironment.resolvedStackAuthEnvironment(
+            environment: [:],
+            isDebugBuild: false,
+            explicitChoice: .staging
+        ) == .development)
+        #expect(AuthEnvironment.resolvedStackProjectID(
+            environment: [:],
+            isDebugBuild: false,
+            explicitChoice: .staging
+        ) == "454ecd03-1db2-4050-845e-4ce5b0cd9895")
+        #expect(AuthEnvironment.resolvedWebsiteOrigin(
+            environment: [:],
+            isDebugBuild: false,
+            explicitChoice: .staging
+        ).absoluteString == staging)
+        #expect(AuthEnvironment.resolvedAfterSignInOrigin(
+            environment: [:],
+            isDebugBuild: false,
+            explicitChoice: .staging
+        ).absoluteString == staging)
+    }
+
+    @Test("explicit production is a wholesale set matching the unpinned Release lane")
+    func explicitProductionWholesaleValues() {
+        #expect(AuthEnvironment.resolvedDefaultWebOrigin(
+            environment: [:],
+            isDebugBuild: false,
+            explicitChoice: .production
+        ) == "https://cmux.com")
+        // api.cmux.sh, for Release-lane parity.
+        #expect(AuthEnvironment.resolvedDefaultAPIBaseURL(
+            environment: [:],
+            isDebugBuild: false,
+            explicitChoice: .production
+        ) == "https://api.cmux.sh")
+        #expect(AuthEnvironment.resolvedDefaultVMAPIOrigin(
+            environment: [:],
+            isDebugBuild: false,
+            explicitChoice: .production
+        ) == "https://cmux.com")
+        // Push follows the VM-API origin under a choice.
+        #expect(AuthEnvironment.resolvedPushAPIBaseURL(
+            environment: [:],
+            isDebugBuild: false,
+            explicitChoice: .production
+        ).absoluteString == "https://cmux.com")
+        #expect(AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: [:],
+            isDebugBuild: false,
+            explicitChoice: .production
+        )?.absoluteString == "https://cmux.com")
+        #expect(AuthEnvironment.resolvedStackAuthEnvironment(
+            environment: [:],
+            isDebugBuild: false,
+            explicitChoice: .production
+        ) == .production)
+        #expect(AuthEnvironment.resolvedStackProjectID(
+            environment: [:],
+            isDebugBuild: false,
+            explicitChoice: .production
+        ) == "9790718f-14cd-4f7e-824d-eaf527a82b82")
+        #expect(AuthEnvironment.resolvedWebsiteOrigin(
+            environment: [:],
+            isDebugBuild: false,
+            explicitChoice: .production
+        ).absoluteString == "https://cmux.com")
+    }
+
+    @Test("PIN: an explicit choice beats explicit environment variables, per function")
+    func wholesaleBeatsEnvironmentVariablesPerFunction() {
+        let staging = "https://cmux-staging.vercel.app"
+        // Part F reverses the old layering: the persisted choice used to sit
+        // BELOW env (tagged dev builds' LSEnvironment bakes won); a wholesale
+        // choice now beats every CMUX_* knob, per function.
+        #expect(AuthEnvironment.resolvedDefaultWebOrigin(
+            environment: ["CMUX_WWW_ORIGIN": "https://web.example.test"],
+            isDebugBuild: false,
+            explicitChoice: .staging
+        ) == staging)
+        #expect(AuthEnvironment.resolvedWebsiteOrigin(
+            environment: ["CMUX_WWW_ORIGIN": "https://web.example.test"],
+            isDebugBuild: false,
+            explicitChoice: .staging
+        ).absoluteString == staging)
+        #expect(AuthEnvironment.resolvedDefaultAPIBaseURL(
+            environment: ["CMUX_API_BASE_URL": "https://api.example.test"],
+            isDebugBuild: false,
+            explicitChoice: .staging
+        ) == staging)
+        #expect(AuthEnvironment.resolvedPushAPIBaseURL(
+            environment: [
+                "CMUX_PUSH_API_BASE_URL": "https://push.example.test",
+                "CMUX_VM_API_BASE_URL": "https://vm.example.test",
+            ],
+            isDebugBuild: false,
+            explicitChoice: .staging
+        ).absoluteString == staging)
+        #expect(AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: ["CMUX_IROH_BROKER_BASE_URL": "https://broker.example.test"],
+            isDebugBuild: false,
+            explicitChoice: .staging
+        )?.absoluteString == staging)
+        #expect(AuthEnvironment.resolvedStackAuthEnvironment(
+            environment: ["CMUX_AUTH_ENVIRONMENT": "production"],
+            isDebugBuild: false,
+            explicitChoice: .staging
+        ) == .development)
+        #expect(AuthEnvironment.resolvedStackProjectID(
+            environment: ["CMUX_STACK_PROJECT_ID": "explicit-project"],
+            isDebugBuild: false,
+            explicitChoice: .staging
+        ) == "454ecd03-1db2-4050-845e-4ce5b0cd9895")
+        #expect(AuthEnvironment.resolvedStackPublishableClientKey(
+            environment: ["CMUX_STACK_PUBLISHABLE_CLIENT_KEY": "explicit-key"],
+            isDebugBuild: false,
+            explicitChoice: .staging
+        ) == "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g")
+        #expect(AuthEnvironment.resolvedAfterSignInOrigin(
+            environment: ["CMUX_AUTH_WWW_ORIGIN": "https://auth.example.test"],
+            isDebugBuild: false,
+            explicitChoice: .staging
+        ).absoluteString == staging)
+        // The other direction too: explicit production beats a baked
+        // development auth environment.
+        #expect(AuthEnvironment.resolvedStackAuthEnvironment(
+            environment: ["CMUX_AUTH_ENVIRONMENT": "development"],
+            isDebugBuild: false,
+            explicitChoice: .production
+        ) == .production)
+    }
+
+    @Test("PIN: an explicit choice beats the DEBUG compile defaults and baked dev ports")
+    func wholesaleBeatsDebugDefaults() {
+        // Explicit production on a Debug build selects the production Stack
+        // channel (the DEBUG development default yields), which also
+        // disables dev auto-login for free (it keys on the resolved
+        // channel).
+        #expect(AuthEnvironment.resolvedStackAuthEnvironment(
+            environment: [:],
+            isDebugBuild: true,
+            explicitChoice: .production
+        ) == .production)
+        #expect(AuthEnvironment.resolvedStackProjectID(
+            environment: [:],
+            isDebugBuild: true,
+            explicitChoice: .production
+        ) == "9790718f-14cd-4f7e-824d-eaf527a82b82")
+        #expect(AuthEnvironment.resolvedStackAuthEnvironment(
+            environment: [:],
+            isDebugBuild: true,
+            explicitChoice: .staging
+        ) == .development)
+        // A tagged Debug build's baked dev port no longer outranks the
+        // choice (the old pinning rationale): the whole point of Part F is
+        // that the picker works in pinned dev builds.
+        #expect(AuthEnvironment.resolvedDefaultWebOrigin(
+            environment: ["CMUX_PORT": "4123"],
+            isDebugBuild: true,
+            explicitChoice: .staging
+        ) == "https://cmux-staging.vercel.app")
+        #expect(AuthEnvironment.resolvedDefaultWebOrigin(
+            environment: ["CMUX_PORT": "4123"],
+            isDebugBuild: true,
+            explicitChoice: .production
+        ) == "https://cmux.com")
+        #expect(AuthEnvironment.resolvedDefaultAPIBaseURL(
+            environment: ["CMUX_PORT": "4123"],
+            isDebugBuild: true,
+            explicitChoice: .production
+        ) == "https://api.cmux.sh")
+    }
+
+    @Test("PIN: the lane (no explicit choice) is byte-identical to the pre-choice defaults")
+    func laneResolutionIsByteIdenticalToPreChoiceDefaults() {
+        // Release lane defaults.
+        #expect(AuthEnvironment.resolvedDefaultWebOrigin(
+            environment: [:],
+            isDebugBuild: false
+        ) == "https://cmux.com")
+        #expect(AuthEnvironment.resolvedDefaultAPIBaseURL(
+            environment: [:],
+            isDebugBuild: false
+        ) == "https://api.cmux.sh")
+        #expect(AuthEnvironment.resolvedDefaultVMAPIOrigin(
+            environment: [:],
+            isDebugBuild: false
+        ) == "https://cmux.com")
+        #expect(AuthEnvironment.resolvedPushAPIBaseURL(
+            environment: [:],
+            isDebugBuild: false
+        ).absoluteString == "https://cmux.com")
+        #expect(AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: [:],
+            isDebugBuild: false
+        )?.absoluteString == "https://cmux.com")
+        #expect(AuthEnvironment.resolvedStackAuthEnvironment(
+            environment: [:],
+            isDebugBuild: false
+        ) == .production)
+        // Env vars keep winning on the lane (the dev-rig isolation
+        // mechanism).
+        #expect(AuthEnvironment.resolvedDefaultWebOrigin(
+            environment: ["CMUX_WWW_ORIGIN": "https://web.example.test"],
+            isDebugBuild: false
+        ) == "https://web.example.test")
+        #expect(AuthEnvironment.resolvedDefaultAPIBaseURL(
+            environment: ["CMUX_API_BASE_URL": "https://api.example.test"],
+            isDebugBuild: false
+        ) == "https://api.example.test")
+        #expect(AuthEnvironment.resolvedStackProjectID(
+            environment: ["CMUX_STACK_PROJECT_ID": "explicit-project"],
+            isDebugBuild: false
+        ) == "explicit-project")
+        #expect(AuthEnvironment.resolvedPushAPIBaseURL(
+            environment: ["CMUX_PUSH_API_BASE_URL": "https://push.example.test"],
+            isDebugBuild: false
+        ).absoluteString == "https://push.example.test")
+        // Debug lane defaults: tag-local ports, dev Stack channel, shared
+        // staging push/broker.
+        #expect(AuthEnvironment.resolvedDefaultWebOrigin(
+            environment: ["CMUX_PORT": "4123"],
+            isDebugBuild: true
+        ) == "http://localhost:4123")
+        #expect(AuthEnvironment.resolvedStackAuthEnvironment(
+            environment: [:],
+            isDebugBuild: true
+        ) == .development)
+        #expect(AuthEnvironment.resolvedPushAPIBaseURL(
+            environment: ["CMUX_VM_API_BASE_URL": "http://localhost:4123"],
+            isDebugBuild: true
+        ).absoluteString == "https://cmux-staging.vercel.app")
+        // Release push follows the VM-API env when set.
+        #expect(AuthEnvironment.resolvedPushAPIBaseURL(
+            environment: ["CMUX_VM_API_BASE_URL": "https://vm.example.test"],
+            isDebugBuild: false
+        ).absoluteString == "https://vm.example.test")
+    }
+
+    @Test("session handoff pins explicit choices to exactly their fixed origins")
+    func sessionHandoffPinsExplicitChoicesToFixedOrigins() {
+        #expect(AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: [:],
+            isDebugBuild: false,
+            explicitChoice: .staging
+        ).absoluteString == "https://cmux-staging.vercel.app")
+        // Env-injected origins never become a credential destination, even
+        // with a choice active.
+        #expect(AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: ["CMUX_WWW_ORIGIN": "https://attacker.example"],
+            isDebugBuild: false,
+            explicitChoice: .staging
+        ).absoluteString == "https://cmux-staging.vercel.app")
+        #expect(AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: ["CMUX_WWW_ORIGIN": "https://attacker.example"],
+            isDebugBuild: false,
+            explicitChoice: .production
+        ).absoluteString == "https://cmux.com")
+        // Without a choice the pin stays on production even when env points
+        // at the (publicly known) staging origin.
+        #expect(AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: ["CMUX_WWW_ORIGIN": "https://cmux-staging.vercel.app"],
+            isDebugBuild: false
+        ).absoluteString == "https://cmux.com")
+        #expect(AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: [:],
+            isDebugBuild: false
+        ).absoluteString == "https://cmux.com")
+    }
+
+    @Test("build lane classification: production, staging, and custom bakes")
+    func buildLaneClassification() {
+        // Unpinned Release: the production lane.
+        #expect(AuthEnvironment.resolvedBackendEnvironmentBuildLane(
+            environment: [:],
+            isDebugBuild: false
+        ) == .production)
+        // A staging-baked build (device rigs, the STAGING Release app).
+        #expect(AuthEnvironment.resolvedBackendEnvironmentBuildLane(
+            environment: ["CMUX_WWW_ORIGIN": "https://cmux-staging.vercel.app"],
+            isDebugBuild: false
+        ) == .staging)
+        // A tagged Debug build baked to a localhost origin.
+        #expect(AuthEnvironment.resolvedBackendEnvironmentBuildLane(
+            environment: [
+                "CMUX_WWW_ORIGIN": "http://localhost:4123",
+                "CMUX_PORT": "4123",
+            ],
+            isDebugBuild: true
+        ) == .custom(label: "localhost:4123"))
+        // An untagged Debug build: cmux.com web fallback but the development
+        // Stack channel, so it is NOT the production lane — it gets a custom
+        // lane (and thereby the three-position picker).
+        #expect(AuthEnvironment.resolvedBackendEnvironmentBuildLane(
+            environment: [:],
+            isDebugBuild: true
+        ) == .custom(label: "cmux.com"))
+        // A Release build pinned to prod-auth but a custom web origin.
+        #expect(AuthEnvironment.resolvedBackendEnvironmentBuildLane(
+            environment: ["CMUX_WWW_ORIGIN": "https://preview.example.test"],
+            isDebugBuild: false
+        ) == .custom(label: "preview.example.test"))
+    }
+
+    @MainActor
+    @Test("presence service URL: the explicit choice heads env, defaults key, and build default")
+    func presenceServiceURLExplicitChoiceHead() throws {
+        let suiteName = "cmuxTests.presenceChoiceHead.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let devWorker = PresenceSettings.debugDefaultServiceURL
+        let prodWorker = PresenceSettings.productionServiceURL
+
+        // Explicit staging → the dev worker (the only one that verifies dev
+        // Stack tokens), even when the env override AND the defaults tuning
+        // knob point elsewhere: a leftover per-build pin must not outlive a
+        // switch.
+        CMUXBackendEnvironmentOverride.staging.storeChoice(in: defaults)
+        defaults.set("https://tuned.example.test", forKey: PresenceSettings.serviceURLKey)
+        #expect(PresenceHeartbeatClient.resolvedServiceURL(
+            environment: [PresenceSettings.serviceURLEnvKey: "https://env.example.test"],
+            defaults: defaults
+        )?.absoluteString == devWorker)
+
+        // Explicit production → the production worker, same tiers beaten.
+        CMUXBackendEnvironmentOverride.production.storeChoice(in: defaults)
+        #expect(PresenceHeartbeatClient.resolvedServiceURL(
+            environment: [PresenceSettings.serviceURLEnvKey: "https://env.example.test"],
+            defaults: defaults
+        )?.absoluteString == prodWorker)
+
+        // No choice: today's tiers, byte-identical — env first, then the
+        // defaults key.
+        CMUXBackendEnvironmentOverride.clearChoice(in: defaults)
+        #expect(PresenceHeartbeatClient.resolvedServiceURL(
+            environment: [PresenceSettings.serviceURLEnvKey: "https://env.example.test"],
+            defaults: defaults
+        )?.absoluteString == "https://env.example.test")
+        #expect(PresenceHeartbeatClient.resolvedServiceURL(
+            environment: [:],
+            defaults: defaults
+        )?.absoluteString == "https://tuned.example.test")
+
+        // No choice, no env, no key: the build default.
+        defaults.removeObject(forKey: PresenceSettings.serviceURLKey)
+        #if DEBUG
+        let expectedBuildDefault = devWorker
+        #else
+        let expectedBuildDefault = prodWorker
+        #endif
+        #expect(PresenceHeartbeatClient.resolvedServiceURL(
+            environment: [:],
+            defaults: defaults
+        )?.absoluteString == expectedBuildDefault)
     }
 }
 

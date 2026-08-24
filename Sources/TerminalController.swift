@@ -1414,12 +1414,26 @@ class TerminalController {
             return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: !signedIn))
         case "auth.sign_out":
             let semaphore = DispatchSemaphore(value: 0)
+            nonisolated(unsafe) var returnedToLane = false
             Task { @MainActor [weak self] in
-                await self?.accountFlow?.signOut(timeout: 5)
+                // Non-interactive sign-out: skips the staging confirmation
+                // but chains the same return-to-lane switch, so a socket
+                // sign-out can never strand the device on explicit staging.
+                returnedToLane = await self?.accountFlow?.signOut(timeout: 5) ?? false
                 semaphore.signal()
             }
             semaphore.wait()
-            return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
+            var result = v2AuthStatusPayload(timedOut: false)
+            if returnedToLane {
+                // `returned_to_production` is the historical key, kept true
+                // whenever the chain ran so existing automation keeps
+                // working; `returned_to_lane` is the accurate name (the
+                // chain restores the build's own lane, which is production
+                // on unpinned Release builds).
+                result["returned_to_production"] = true
+                result["returned_to_lane"] = true
+            }
+            return v2Ok(id: request.id, result: result)
         case "feedback.submit":
             return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
         case "feed.push":

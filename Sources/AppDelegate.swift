@@ -817,7 +817,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // cluster did move into the package this wave: the reveal-in-Finder side effect now lives in
     // `NotificationClickPerformer` (behind `FinderRevealing`), and the entire focused-mark state
     // machine lives in `FocusedNotificationMarker` (behind `FocusedNotificationResolving`).
-    /// The auth graph, injected once via `configure(...)` at app startup.
+    /// The auth graph: injected via `configure(...)` at app startup and
+    /// replaced by ``adoptRebuiltAuth(_:)`` when a live backend-environment
+    /// switch rebuilds it. This is the live handle; `cmuxApp.authComposition`
+    /// is init-only wiring.
     private(set) var auth: MacAuthComposition?
     /// Strongly-held observers for every active TabManager. Each observer owns
     /// Combine subscriptions that publish workspace.updated to mobile clients.
@@ -2324,11 +2327,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         self.auth = auth
-        VMClient.bootstrap(auth: auth.coordinator)
-        RemotesClient.bootstrap(auth: auth.coordinator)
-        AIAccountsClient.bootstrap(auth: auth.coordinator)
-        PhonePushClient.shared.configure(auth: auth.coordinator)
-        MobileHostService.shared.configure(auth: auth.coordinator)
+        bootstrapAuthConsumers(auth: auth)
         caffeineController.onStateChange = { [weak self] enabled in
             self?.menuBarExtraController?.refreshForDebugControls()
             MobileHostService.emitEvent(
@@ -2336,14 +2335,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 payload: ["enabled": enabled]
             )
         }
-        DeviceRegistryClient.shared.configure(auth: auth.coordinator)
-        PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
-        connectivityInvalidationSubscriberCoordinator.configure(auth: auth.coordinator)
-        // DEV-only: auto-publish this Mac's attach route to the signed-in user's
-        // pairedMacs backup so a fresh dev iOS build restores it (no manual host
-        // entry). No-op on Release / when the flag is off.
-        MacPairedMacBackupPublisher.shared.configure(auth: auth.coordinator)
-        TerminalController.shared.attachAuth(coordinator: auth.coordinator, accountFlow: auth.accountFlow)
         TerminalController.shared.attachCaffeineController(caffeineController)
         TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
         if !isRunningUnderXCTest(ProcessInfo.processInfo.environment) {
@@ -2384,6 +2375,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // keeps working. No-op when already set or the legacy file is absent.
         Task { await DevWindowDisplayDefault.migrateLegacyFileIfNeeded(runtime: settingsRuntime) }
 #endif
+    }
+
+    /// Wire every auth-consuming service to `auth`'s coordinator. Extracted
+    /// from `configure(...)` unchanged so it runs identically at startup and
+    /// again from ``adoptRebuiltAuth(_:)`` after a live backend-environment
+    /// switch; each call either rebuilds its shared instance or re-arms its
+    /// observation on the new coordinator.
+    private func bootstrapAuthConsumers(auth: MacAuthComposition) {
+        VMClient.bootstrap(auth: auth.coordinator)
+        RemotesClient.bootstrap(auth: auth.coordinator)
+        AIAccountsClient.bootstrap(auth: auth.coordinator)
+        PhonePushClient.shared.configure(auth: auth.coordinator)
+        MobileHostService.shared.configure(auth: auth.coordinator)
+        DeviceRegistryClient.shared.configure(auth: auth.coordinator)
+        PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
+        connectivityInvalidationSubscriberCoordinator.configure(auth: auth.coordinator)
+        // DEV-only: auto-publish this Mac's attach route to the signed-in user's
+        // pairedMacs backup so a fresh dev iOS build restores it (no manual host
+        // entry). No-op on Release / when the flag is off.
+        MacPairedMacBackupPublisher.shared.configure(auth: auth.coordinator)
+        TerminalController.shared.attachAuth(coordinator: auth.coordinator, accountFlow: auth.accountFlow)
+    }
+
+    /// Adopt the rebuilt auth graph after a live backend-environment switch
+    /// (the transaction's `rebuild` step). Replaces the live handle every
+    /// runtime consumer reads (`AppDelegate.shared?.auth`), rewires the
+    /// auth-consuming services, moves app-session store/panel ownership onto
+    /// the new `BrowserAppSessionController` so open browser panels stay
+    /// registered, then starts the new coordinator (whose fresh
+    /// `AuthLaunchOptions` prime the project-switch clear) and restarts
+    /// `MobileHostService`, ending the quiesce window the switch opened.
+    func adoptRebuiltAuth(_ auth: MacAuthComposition) {
+        let previousBrowserAppSession = self.auth?.browserAppSession
+        self.auth = auth
+        bootstrapAuthConsumers(auth: auth)
+        if let previousBrowserAppSession {
+            auth.browserAppSession.adoptAppSessionOwnership(from: previousBrowserAppSession)
+        }
+        auth.start()
+        MobileHostService.shared.start()
     }
 
     private func scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: TerminalNotificationStore) {

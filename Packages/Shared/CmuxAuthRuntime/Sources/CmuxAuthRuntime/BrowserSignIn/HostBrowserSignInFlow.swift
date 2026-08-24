@@ -29,6 +29,15 @@ public final class HostBrowserSignInFlow {
     private let browserAttemptTimeout: TimeInterval
     private let slowSignInThreshold: TimeInterval
     private let signOutCoordinator: HostBrowserSignOutCoordinator
+    /// The browser-session-only prologue for ``parkSession()`` (macOS wires
+    /// `browserAppSession.beginAuthTransition()`); deliberately NOT
+    /// `beginSignOut`, which also durably queues an iroh binding revocation
+    /// that would kill the parked environment's pairing.
+    private let beginSessionPark: @MainActor @Sendable () -> Void
+    /// The browser-session teardown shared with sign-out (macOS wires
+    /// `browserAppSession.clearCmuxWebSession()`); kept for ``parkSession()``,
+    /// which runs it without the coordinator's real sign-out.
+    private let localSignOut: @MainActor @Sendable () async -> Void
     private let callbackStateGenerator = HostBrowserCallbackStateGenerator()
     private let deadline: HostBrowserDeadline
     private let log = AuthDebugLog()
@@ -60,6 +69,7 @@ public final class HostBrowserSignInFlow {
         browserAttemptTimeout: TimeInterval = 10 * 60,
         slowSignInThreshold: TimeInterval = 30,
         beginSignOut: @escaping @MainActor @Sendable () -> Void = {},
+        beginSessionPark: @escaping @MainActor @Sendable () -> Void = {},
         localSignOut: @escaping @MainActor @Sendable () async -> Void = {},
         onSignedOut: @escaping @Sendable (
             _ accessToken: String?,
@@ -76,6 +86,8 @@ public final class HostBrowserSignInFlow {
         self.clock = clock
         self.browserAttemptTimeout = browserAttemptTimeout
         self.slowSignInThreshold = slowSignInThreshold
+        self.beginSessionPark = beginSessionPark
+        self.localSignOut = localSignOut
         deadline = HostBrowserDeadline(clock: clock)
         signOutCoordinator = HostBrowserSignOutCoordinator(
             beginSignOut: beginSignOut,
@@ -183,6 +195,37 @@ public final class HostBrowserSignInFlow {
             return true
         }
         _ = await deadline.resolve(attempt, timeout: timeout)
+    }
+
+    /// Park the session for a backend-environment switch: end the published
+    /// session and clear the cmux web panes' session, but leave the token
+    /// store untouched (the slot survives for the return switch) and skip
+    /// the iroh sign-out closures entirely (`beginSignOut` durably queues a
+    /// binding revocation that would kill the parked environment's pairing).
+    ///
+    /// Mirrors ``signOut()``'s local prologue — generation bump so a late
+    /// callback cannot resurrect the parked session, active-attempt cancel —
+    /// then runs only the browser-session closures plus
+    /// ``AuthCoordinator/detachSessionLeavingTokens()``.
+    public func parkSession() async {
+        log.log("auth.browser.parkSession.begin signingIn=\(isSigningIn) activeAttempt=\(activeAttemptID.map(String.init) ?? "nil") generation=\(signOutGeneration)")
+        signOutGeneration &+= 1
+        lastFailure = nil
+        cancelActiveAttempt()
+        beginSessionPark()
+        async let localCleanup: Void = localSignOut()
+        await coordinator.detachSessionLeavingTokens()
+        await localCleanup
+        log.log("auth.browser.parkSession.end generation=\(signOutGeneration)")
+    }
+
+    /// Cancel the active hosted-browser sign-in attempt (popup, timers,
+    /// parked continuation) without touching the session. The attempt
+    /// resolves as not-signed-in with ``lastFailure`` left `nil`, which is
+    /// how the backend-environment switch distinguishes a user cancel from a
+    /// failure when it revokes an in-flight `promptSignIn`.
+    public func cancelSignIn() {
+        cancelActiveAttempt()
     }
 
     // MARK: - Attempt lifecycle

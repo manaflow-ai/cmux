@@ -150058,6 +150058,380 @@
         }
       }
     },
+    "settings.account.backendEnvironment.buildLaneOption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Build lane (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビルドレーン（%@）"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.confirmAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Environment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "環境を切り替える"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.confirmMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your %1$@ session is kept on this Mac, and you'll be asked to sign in to %2$@. Each environment has separate accounts and data, and your Mac and iPhone must be on the same environment to pair."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@のセッションはこのMacに保持され、%2$@へのサインインを求められます。環境ごとにアカウントとデータは別々で、MacとiPhoneをペアリングするには両方が同じ環境である必要があります。"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.confirmMessageLane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your %1$@ session is kept on this Mac, and cmux returns to what this build is baked to (%2$@). Each environment has separate accounts and data."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@のセッションはこのMacに保持され、cmuxはこのビルドに組み込まれた環境（%2$@）に戻ります。環境ごとにアカウントとデータは別々です。"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.confirmTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch to %@?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@に切り替えますか？"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.confirmTitleLane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch back to the build lane (%@)?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビルドレーン（%@）に戻しますか？"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staging is a separate environment with separate accounts and data. Each environment keeps its own session on this Mac, and your Mac and iPhone must be on the same environment to pair."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステージングはアカウントとデータが別の独立した環境です。環境ごとのセッションはこのMacに保持されます。MacとiPhoneをペアリングするには両方が同じ環境である必要があります。"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.laneFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This build's own lane is %@, baked in at build time. The build lane option returns to it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルド自体のレーンは%@で、ビルド時に組み込まれています。ビルドレーンの選択肢でそこに戻ります。"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.production": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Production"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本番"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.progressEstablishing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for sign-in…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインを待っています…"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.progressParking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saving your session…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションを保存しています…"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.progressReverting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switching back…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の環境に戻しています…"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.progressSwitching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switching backend…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックエンドを切り替え中…"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.recovery.explanation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This cmux is using the Staging environment, a separate deployment with separate accounts and data. Switch back to Production to use your normal account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このcmuxはステージング環境（アカウントとデータが別の独立した環境）を使用しています。通常のアカウントを使用するには本番環境に戻してください。"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.recovery.switchBack": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Back to Production"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本番環境に戻す"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.revertedNotEligible": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That account can't use Staging, so you're back on %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのアカウントはステージングを利用できないため、%@に戻りました。"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.revertedSignInCancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in was cancelled, so you're back on %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインがキャンセルされたため、%@に戻りました。"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.revertedSignInFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in didn't complete, so you're back on %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインが完了しなかったため、%@に戻りました。"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.staging": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staging"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステージング"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.switched": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Now on %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在%@を使用しています。"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.switchedLane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Now on the build lane (%@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在ビルドレーン（%@）を使用しています。"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend Environment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックエンド環境"
+          }
+        }
+      }
+    },
     "settings.account.error.invalidCallback": {
       "extractionState": "manual",
       "localizations": {
@@ -150446,6 +150820,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ви не ввійшли"
+          }
+        }
+      }
+    },
+    "settings.account.stagingBadge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staging"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステージング"
+          }
+        }
+      }
+    },
+    "settings.account.stagingSignOut.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        }
+      }
+    },
+    "settings.account.stagingSignOut.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign Out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウト"
+          }
+        }
+      }
+    },
+    "settings.account.stagingSignOut.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signing out here signs you out of Staging and returns this Mac to Production, restoring your saved Production session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここでサインアウトするとステージングからサインアウトし、このMacは本番環境に戻り、保存された本番環境のセッションが復元されます。"
+          }
+        }
+      }
+    },
+    "settings.account.stagingSignOut.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign out and return to Production?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウトして本番環境に戻りますか？"
           }
         }
       }

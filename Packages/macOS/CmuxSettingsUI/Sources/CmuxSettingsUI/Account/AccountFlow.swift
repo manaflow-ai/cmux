@@ -81,6 +81,59 @@ public protocol AccountFlow: AnyObject {
     /// Whether the current Pro entitlement can be managed through the hosted
     /// Stripe billing portal.
     var canManageBilling: Bool { get }
+
+    /// Whether the current user may use the FULL backend environment picker:
+    /// gate-allowed (verified team email) or a DEBUG build — nothing else.
+    /// Visibility itself is derived through
+    /// ``AccountFlow/backendEnvironmentCardVisibility``, whose recovery tier
+    /// keeps a "Switch Back to Production" card reachable on a non-production
+    /// device even when this is `false`.
+    var backendEnvironmentPickerAllowed: Bool { get }
+
+    /// The backend environment the running process actually resolved at
+    /// launch. Drives the "Staging" badge on the account card.
+    var activeBackendEnvironment: AccountBackendEnvironment { get }
+
+    /// The persisted backend selection. With the live switch this normally
+    /// matches ``activeBackendEnvironment``; it only diverges when another
+    /// writer changed the persisted value outside the switch transaction.
+    var pendingBackendEnvironment: AccountBackendEnvironment { get }
+
+    /// The active SELECTION: `.buildLane` when no explicit choice is
+    /// persisted, otherwise the explicit environment. Distinct from
+    /// ``activeBackendEnvironment`` (the resolved environment) because a
+    /// staging-lane build resolves staging without an explicit choice —
+    /// the picker's selected option, the recovery card's switch-back
+    /// affordance, and the lane confirm copy all key on this.
+    var activeBackendEnvironmentSelection: AccountBackendEnvironmentSelection { get }
+
+    /// The build's own lane. Drives the picker's option set (two positions
+    /// on the production lane, three with "Build lane (…)" otherwise) and
+    /// the lane footers explaining the bake.
+    var backendEnvironmentBuildLane: AccountBackendEnvironmentBuildLane { get }
+
+    /// Where the host's live backend-environment switch currently is. The
+    /// card replaces the picker with a progress row while this is a
+    /// transitional phase and shows the outcome note at
+    /// ``AccountBackendEnvironmentSwitchPhase/finished(_:)``.
+    var backendEnvironmentSwitchPhase: AccountBackendEnvironmentSwitchPhase { get }
+
+    /// Runs the host's live backend-environment switch to `value`: the
+    /// current environment's session is PARKED on this device (kept for the
+    /// return switch), the auth stack retargets, and the target's parked
+    /// session restores — with an inline sign-in for a gated target
+    /// (explicit staging only), which reverts to the previous selection on
+    /// cancel / failure / an ineligible account. No relaunch. A no-op when
+    /// `value` is already the active selection (on a production-lane build
+    /// the host maps `.production` to the lane, keeping the two-position
+    /// picker's semantics). Returns when the switch has finished.
+    func applyBackendEnvironment(_ value: AccountBackendEnvironmentSelection) async
+
+    /// Returns ``backendEnvironmentSwitchPhase`` to
+    /// ``AccountBackendEnvironmentSwitchPhase/idle`` after the UI has shown
+    /// the finished note (the card calls this when it disappears or when a
+    /// new selection starts).
+    func resetBackendEnvironmentSwitchPhase()
 }
 
 extension AccountFlow {

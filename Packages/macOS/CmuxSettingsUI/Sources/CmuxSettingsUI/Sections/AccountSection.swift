@@ -32,6 +32,22 @@ public struct AccountSection: View {
                 AccountIdentityCard(flow: accountFlow)
             }
             .settingsSearchAnchors(["setting:account:account"])
+            if let accountFlow {
+                switch accountFlow.backendEnvironmentCardVisibility {
+                case .fullPicker:
+                    SettingsCard {
+                        BackendEnvironmentCard(flow: accountFlow, variant: .fullPicker)
+                    }
+                    .settingsSearchAnchors(["setting:account:backend-environment"])
+                case .recovery:
+                    SettingsCard {
+                        BackendEnvironmentCard(flow: accountFlow, variant: .recovery)
+                    }
+                    .settingsSearchAnchors(["setting:account:backend-environment"])
+                case .hidden:
+                    EmptyView()
+                }
+            }
             if accountFlow?.isProUpgradeAvailable ?? false {
                 SettingsCard {
                     ProUpgradeCard(flow: accountFlow)
