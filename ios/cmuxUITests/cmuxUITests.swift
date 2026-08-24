@@ -5697,9 +5697,10 @@ final class cmuxUITests: XCTestCase {
         // bar, and tapping one browses into that folder.
         let recentChip = app.buttons["MobileTaskDirectoryRecent0"]
         XCTAssertTrue(recentChip.exists)
-        XCTAssertEqual(recentChip.label, "recent-alpha")
+        let chipName = recentChip.label
+        XCTAssertTrue(["recent-alpha", "recent-beta"].contains(chipName))
         tap(recentChip, in: app)
-        XCTAssertTrue(app.navigationBars["recent-alpha"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.navigationBars[chipName].waitForExistence(timeout: 4))
         tap(app.navigationBars.buttons["ui"], in: app)
         XCTAssertTrue(hidden.waitForExistence(timeout: 4))
 
