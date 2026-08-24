@@ -2906,6 +2906,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         #endif
         let forwarded = Self.forwardDaemonOutputBytes(data)
+        // The blank-band measurement only steers live absorption while a
+        // keyboard is up; keep a slow warm value otherwise so the NEXT raise
+        // has one, without scanning the viewport on every output burst.
+        let contentMeasurementInterval: CFTimeInterval = keyboardVisible ? 0.25 : 1.0
         let generation = surfaceGeneration
         let outputConfigTheme = outputConfigTheme?.validatedOrDefault()
         let configThemeToApply = outputConfigTheme.flatMap { theme in
@@ -2975,9 +2979,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // accessibility read above; only the row count crosses to main.
             var contentBottomRows: Int?
             let contentNow = CACurrentMediaTime()
-            if contentNow - workQueue.lastContentBottomTime > 0.25 {
+            if contentNow - workQueue.lastContentBottomTime > contentMeasurementInterval {
                 workQueue.lastContentBottomTime = contentNow
-                if let viewportText = Self.surfaceText(surface, pointTag: GHOSTTY_POINT_VIEWPORT) {
+                // The viewport read is bounded by the visible screen (a few
+                // KB at phone grid sizes), never scrollback; the cap is a
+                // defensive guard against a pathological viewport.
+                if let viewportText = Self.surfaceText(surface, pointTag: GHOSTTY_POINT_VIEWPORT),
+                   viewportText.utf8.count <= 131_072 {
                     contentBottomRows = Self.contentRowCount(inViewportText: viewportText)
                 }
             }

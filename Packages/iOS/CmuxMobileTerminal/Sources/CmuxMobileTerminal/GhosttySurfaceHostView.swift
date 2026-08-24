@@ -50,6 +50,12 @@ public final class GhosttySurfaceHostView: UIView {
     /// display-link paths must not retarget the constants the leg owns.
     private var keyboardTransitionActive = false
     private var keyboardTransitionGeneration: UInt64 = 0
+    /// Set at window attach and consumed by the first laid-out pass: the
+    /// guide's frame is not resolved yet inside `didMoveToWindow`, so an
+    /// immediate read there reported keyboard-hidden even when a keyboard was
+    /// up across the reattach. A real keyboard notification clears it first
+    /// when one arrives (notifications are authoritative while attached).
+    private var pendingAttachSensorHeal = false
     /// Forces the passive `keyboardLayoutGuide` to RESOLVE: an unconstrained
     /// layout guide never updates its `layoutFrame`, which silently turned
     /// the sensor into a stale-model echo. Hidden, zero-sized, and nothing
@@ -152,23 +158,11 @@ public final class GhosttySurfaceHostView: UIView {
         }
         keyboardTransitionGeneration &+= 1
         keyboardTransitionActive = false
-        if usesKeyboardGuideSensor {
-            // Self-heal ONLY at attach for transitions missed while detached
-            // (workspace switches): the settled guide is the keyboard's live
-            // seat, and the VISIBILITY heals too — the model lives on the
-            // persistent surface, so a dismissal that happened while this
-            // host was detached leaves it stuck at "visible" and the
-            // toolbar's keyboard toggle opens a fresh workspace in the wrong
-            // state. While ATTACHED the notifications are authoritative; a
-            // per-layout sensor read front-ran them during toggles (the
-            // resolved guide updates a layout pass before the notification
-            // arrives) and snapped the constants without animation.
-            let overlap = keyboardLayoutGuideOverlap
-            surfaceView.setHostedKeyboardState(
-                height: overlap,
-                isVisible: overlap > 0.5
-            )
-        }
+        // Self-heal happens on the first LAID-OUT pass after attach (see
+        // `layoutSubviews`): the guide's frame is not resolved yet here, so
+        // reading it now would report keyboard-hidden even when a keyboard
+        // stayed up across the reattach.
+        pendingAttachSensorHeal = usesKeyboardGuideSensor
         seatDockWithoutAnimation()
     }
 
@@ -177,6 +171,22 @@ public final class GhosttySurfaceHostView: UIView {
         // A keyboard leg owns both constants until its animation completes;
         // layout passes inside the leg must not reseat them.
         guard !keyboardTransitionActive else { return }
+        if pendingAttachSensorHeal, bounds.height > 0 {
+            // Attach-window self-heal for transitions missed while detached
+            // (workspace switches): the now-resolved settled guide is the
+            // keyboard's live seat, and the VISIBILITY heals too — the model
+            // lives on the persistent surface, so a dismissal that happened
+            // while this host was detached leaves it stuck at "visible" and
+            // the toolbar's keyboard toggle opens a fresh workspace in the
+            // wrong state. Bounded to the attach window so it can never
+            // front-run a mid-session keyboard notification.
+            pendingAttachSensorHeal = false
+            let overlap = keyboardLayoutGuideOverlap
+            surfaceView.setHostedKeyboardState(
+                height: overlap,
+                isVisible: overlap > 0.5
+            )
+        }
         syncPresentationReservation()
         let reservation = surfaceView.hostedBottomReservation(
             keyboardHeight: surfaceView.hostedKeyboardHeight,
@@ -196,6 +206,7 @@ public final class GhosttySurfaceHostView: UIView {
     @objc private func keyboardWillChangeFrame(_ notification: Notification) {
         guard window != nil,
               let transition = MobileKeyboardTransition(notification: notification) else { return }
+        pendingAttachSensorHeal = false
         let targetHeight = max(0, transition.overlap(in: self))
         surfaceView.setHostedKeyboardState(
             height: targetHeight,
