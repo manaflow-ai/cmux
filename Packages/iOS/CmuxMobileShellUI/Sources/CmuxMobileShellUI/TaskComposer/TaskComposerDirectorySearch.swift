@@ -59,9 +59,15 @@ extension View {
         query: String,
         searchMac: @escaping (
             String
-        ) async -> Result<MobileTaskDirectorySearchResponse, MobileTaskDirectorySearchFailure>
+        ) async -> Result<MobileTaskDirectorySearchResponse, MobileTaskDirectorySearchFailure>,
+        debounceClock: any Clock<Duration> = ContinuousClock()
     ) -> some View {
-        modifier(TaskComposerDirectorySearchDriver(state: state, query: query, searchMac: searchMac))
+        modifier(TaskComposerDirectorySearchDriver(
+            state: state,
+            query: query,
+            searchMac: searchMac,
+            debounceClock: debounceClock
+        ))
     }
 }
 
@@ -71,6 +77,7 @@ private struct TaskComposerDirectorySearchDriver: ViewModifier {
     let searchMac: (
         String
     ) async -> Result<MobileTaskDirectorySearchResponse, MobileTaskDirectorySearchFailure>
+    let debounceClock: any Clock<Duration>
 
     private struct Request: Hashable {
         let query: String
@@ -96,8 +103,9 @@ private struct TaskComposerDirectorySearchDriver: ViewModifier {
         state.failure = nil
         state.isSearching = true
         do {
-            // The cancellable delay is the search debounce itself, not synchronization.
-            try await Task.sleep(for: .milliseconds(140))
+            // The cancellable delay is the search debounce itself, not
+            // synchronization; the clock is injectable so tests control it.
+            try await debounceClock.sleep(for: .milliseconds(140))
             let result = await searchMac(trimmedQuery)
             guard !Task.isCancelled else { return }
             switch result {

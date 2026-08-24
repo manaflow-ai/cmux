@@ -282,12 +282,13 @@ actor MobileTaskDirectorySearchService {
     ) -> [String] {
         let home = homeDirectory.standardizedFileURL.path
         var roots = [home]
+        var seen: Set<String> = [home]
         let homePrefix = home.hasSuffix("/") ? home : home + "/"
         for candidate in contextual {
             let parent = URL(fileURLWithPath: candidate.path, isDirectory: true)
                 .deletingLastPathComponent().standardizedFileURL.path
             guard parent != "/", parent != home, !parent.hasPrefix(homePrefix) else { continue }
-            if !roots.contains(parent) {
+            if seen.insert(parent).inserted {
                 roots.append(parent)
             }
         }
