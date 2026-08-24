@@ -445,6 +445,14 @@ struct ClaudeAutomaticTeamTaskSyncHookTests {
                 && ($0["items"] as? [[String: Any]])?.isEmpty == true
         })
         #expect(try teamBindingRecords(in: context.storeURL).isEmpty)
+        let deletedSessionRecord = try #require(
+            try ClaudeHookLiveDeliveryHarness.sessionRecord(
+                in: context.storeURL,
+                sessionId: "deleted-session"
+            )
+        )
+        #expect(deletedSessionRecord["claudeTaskDirectoryName"] == nil)
+        #expect(deletedSessionRecord["claudeTaskStoreID"] == nil)
         #expect(FileManager.default.fileExists(
             atPath: taskDirectory.appendingPathComponent("1.json").path
         ))
