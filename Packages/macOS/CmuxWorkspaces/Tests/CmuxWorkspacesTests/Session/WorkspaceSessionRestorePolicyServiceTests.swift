@@ -362,4 +362,13 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         #expect(service.restorableTmuxStartCommand("hudson omx") == nil)
         #expect(service.restorableTmuxStartCommand("omx hud") == "omx hud")
     }
+
+    @Test("cmux-generated local tmux attach commands are restorable")
+    func restorableTmuxStartCommandAcceptsLocalTmuxMarker() {
+        let service = makeService()
+        let command = "TMUX= CMUX_LOCAL_TMUX=1 exec '/usr/local/bin/tmux' -S '/tmp/cmux-local.sock' attach-session -t 'work'"
+
+        #expect(service.restorableTmuxStartCommand(command) == command)
+        #expect(service.restorableTmuxStartCommand("CMUX_LOCAL_TMUX=1 exec tmux attach -t work") == nil)
+    }
 }

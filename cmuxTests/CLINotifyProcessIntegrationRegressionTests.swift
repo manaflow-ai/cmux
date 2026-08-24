@@ -15,6 +15,26 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         super.tearDown()
     }
 
+    func testLocalTmuxHelpExposesPersistentSessionContract() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["local-tmux", "--help"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("local-tmux"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("list"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("detach"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("cleanup"), result.stdout)
+    }
+
     func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-running")
         defer { context.cleanup() }
