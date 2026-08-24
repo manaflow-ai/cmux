@@ -5,6 +5,7 @@ extension GitMetadataService {
     ///
     /// - Parameter repository: The already-resolved repository to inspect.
     /// - Returns: A consistent branch, commit, and head-signature snapshot.
+    @concurrent
     nonisolated func gitReferenceSnapshot(
         repository: ResolvedGitRepository
     ) async -> GitReferenceSnapshot {
