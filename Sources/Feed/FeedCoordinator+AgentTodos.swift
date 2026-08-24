@@ -96,9 +96,12 @@ extension FeedCoordinator {
         })
         guard !completedText.isEmpty else { return }
         for workspace in app.allWorkspacesForAgentTodoRetirement {
-            for checklistItem in workspace.todoState.checklist where
-                checklistItem.boundWorkspaceID == agentWorkspace.id &&
-                completedText.contains(WorkspaceChecklistItem.normalizedText(checklistItem.text) ?? checklistItem.text) {
+            let boundItems = workspace.todoState.checklist.filter {
+                $0.boundWorkspaceID == agentWorkspace.id
+            }
+            for checklistItem in boundItems where
+                completedText.contains(WorkspaceChecklistItem.normalizedText(checklistItem.text) ?? checklistItem.text)
+                || (boundItems.count == 1 && tasks.count == 1) {
                 _ = workspace.setChecklistItemState(id: checklistItem.id, state: .completed)
             }
         }

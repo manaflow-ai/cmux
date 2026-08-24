@@ -134,8 +134,8 @@ extension Workspace {
         agent: String?,
         at date: Date = Date()
     ) -> Bool {
-        guard let index = todoState.checklist.firstIndex(where: { $0.id == id }) else { return false }
-        todoState.checklist[index].state = .inProgress
+        guard setChecklistItemState(id: id, state: .inProgress),
+              let index = todoState.checklist.firstIndex(where: { $0.id == id }) else { return false }
         todoState.checklist[index].boundWorkspaceID = workspaceID
         todoState.checklist[index].boundAgent = agent
         todoState.checklist[index].lastActivityAt = date
@@ -161,9 +161,11 @@ extension Workspace {
     /// - Returns: `true` if the item existed.
     @discardableResult
     func setChecklistItemState(id: UUID, state: WorkspaceChecklistItem.State) -> Bool {
-        notifyingChecklistCompletion {
+        let changed = notifyingChecklistCompletion {
             todoState.checklist.setChecklistItemState(id: id, state: state)
         }
+        if changed { touchChecklistItem(id: id) }
+        return changed
     }
 
     /// Moves one checklist item toward a new 0-based position, staying within
@@ -172,7 +174,9 @@ extension Workspace {
     /// - Returns: `true` if the item existed.
     @discardableResult
     func moveChecklistItem(id: UUID, toIndex: Int) -> Bool {
-        todoState.checklist.moveChecklistItem(id: id, toIndex: toIndex)
+        let changed = todoState.checklist.moveChecklistItem(id: id, toIndex: toIndex)
+        if changed { touchChecklistItem(id: id) }
+        return changed
     }
 
     /// Rewrites one checklist item's text (same normalization as add).
@@ -180,7 +184,9 @@ extension Workspace {
     /// - Returns: `true` if the item existed and the text was non-empty.
     @discardableResult
     func setChecklistItemText(id: UUID, text: String) -> Bool {
-        todoState.checklist.setChecklistItemText(id: id, text: text)
+        let changed = todoState.checklist.setChecklistItemText(id: id, text: text)
+        if changed { touchChecklistItem(id: id) }
+        return changed
     }
 
     /// Appends image attachment references to one checklist item.
@@ -197,6 +203,7 @@ extension Workspace {
             return false
         }
         todoState.checklist[index].attachments.append(contentsOf: attachments)
+        todoState.checklist[index].lastActivityAt = Date()
         return true
     }
 
@@ -210,6 +217,7 @@ extension Workspace {
             return false
         }
         todoState.checklist[itemIndex].attachments.remove(at: attachmentIndex)
+        todoState.checklist[itemIndex].lastActivityAt = Date()
         return true
     }
 
@@ -245,6 +253,11 @@ extension Workspace {
         notifyingChecklistCompletion {
             todoState.checklist.replaceChecklist(with: items)
         }
+    }
+
+    private func touchChecklistItem(id: UUID, at date: Date = Date()) {
+        guard let index = todoState.checklist.firstIndex(where: { $0.id == id }) else { return }
+        todoState.checklist[index].lastActivityAt = date
     }
 
     /// The checklist item at a 0-based display index, if in bounds.

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(CryptoKit)
+import CryptoKit
+#endif
 
 extension WorkstreamTaskTodo {
     /// Returns a stable identity for this task inside one agent workstream.
@@ -11,12 +14,17 @@ extension WorkstreamTaskTodo {
     /// Returns the stable identity for a task that is no longer in the current
     /// list (for example, a task removed by `TaskUpdate`).
     public static func checklistItemId(workstreamId: String, taskId: String) -> UUID {
-        var bytes = Array(repeating: UInt8(0), count: 16)
-        for (index, byte) in Data("cmux.workstream.todo\u{0}\(workstreamId)\u{0}\(taskId)".utf8).enumerated() {
+        let seed = Data("cmux.workstream.todo\u{0}\(workstreamId)\u{0}\(taskId)".utf8)
+        var bytes: [UInt8]
+#if canImport(CryptoKit)
+        bytes = Array(SHA256.hash(data: seed).prefix(16))
+#else
+        bytes = Array(repeating: 0, count: 16)
+        for (index, byte) in seed.enumerated() {
             let slot = index % bytes.count
-            bytes[slot] = bytes[slot] &+ byte &+ UInt8(truncatingIfNeeded: index * 17)
-            bytes[(slot + 5) % bytes.count] ^= byte &* 31
+            bytes[slot] = bytes[slot] &+ byte &+ UInt8(truncatingIfNeeded: index)
         }
+#endif
         bytes[6] = (bytes[6] & 0x0F) | 0x40
         bytes[8] = (bytes[8] & 0x3F) | 0x80
         return UUID(uuid: (

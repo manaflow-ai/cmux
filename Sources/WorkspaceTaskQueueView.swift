@@ -47,9 +47,9 @@ struct WorkspaceTaskQueueView: View {
             }
             .labelsHidden()
             Picker(String(localized: "taskQueue.filter.workspace", defaultValue: "Workspace"), selection: $model.workspaceFilter) {
-                Text(String(localized: "taskQueue.filter.workspace.all", defaultValue: "All workspaces")).tag(UUID?.none)
+                Text(String(localized: "taskQueue.filter.workspace.all", defaultValue: "All workspaces")).tag(Optional<UUID>.none)
                 ForEach(model.workspaceOptions, id: \.id) { option in
-                    Text(option.title).tag(UUID?.some(option.id))
+                    Text(option.title).tag(Optional(option.id))
                 }
             }
             .labelsHidden()

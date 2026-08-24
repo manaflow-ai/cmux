@@ -229,7 +229,10 @@ extension CMUXCLI {
             guard let selector = rest.first(where: { !$0.hasPrefix("--") }) else {
                 throw CLIError(message: "Usage: cmux todo dispatch <index|id>")
             }
-            var dispatchParams = try workspaceTodoItemSelectorParams(selector)
+            var dispatchParams = params
+            for (key, value) in try workspaceTodoItemSelectorParams(selector) {
+                dispatchParams[key] = value
+            }
             dispatchParams["focus"] = false
             let payload = try client.sendV2(method: "workspace.todo.queue.dispatch", params: dispatchParams)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK (focused: false)")
@@ -237,9 +240,13 @@ extension CMUXCLI {
             guard let selector = rest.first(where: { !$0.hasPrefix("--") }) else {
                 throw CLIError(message: "Usage: cmux todo reveal <index|id>")
             }
+            var revealParams = params
+            for (key, value) in try workspaceTodoItemSelectorParams(selector) {
+                revealParams[key] = value
+            }
             let payload = try client.sendV2(
                 method: "workspace.todo.queue.reveal",
-                params: try workspaceTodoItemSelectorParams(selector)
+                params: revealParams
             )
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK (focused: false)")
         case "target":
