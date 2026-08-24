@@ -68,6 +68,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     private let maxPendingEvents: Int
     private let consentGenerationGate: AnalyticsConsentGenerationGate
     private let consentObserver: AnalyticsConsentRevocationObserver
+    private let diagnosticLog: DiagnosticLog?
 
     private let stream: AsyncStream<Item>
     private let continuation: AsyncStream<Item>.Continuation
@@ -117,6 +118,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     ///     unboundedly across the lifecycle/pairing/terminal fire-sites. Once the
     ///     backlog exceeds this cap, the oldest events are dropped (newest kept).
     ///     Default 1000.
+    ///   - diagnosticLog: Optional privacy-safe app diagnostic recorder.
     public init(
         uploader: any AnalyticsUploading,
         consent: any AnalyticsConsentProviding,
@@ -126,7 +128,8 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         flushBatchSize: Int = 50,
         flushInterval: Duration = .seconds(30),
         maxPendingEvents: Int = 1000,
-        notificationCenter: NotificationCenter = .default
+        notificationCenter: NotificationCenter = .default,
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         self.uploader = uploader
         self.consent = consent
@@ -136,6 +139,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         self.flushBatchSize = flushBatchSize
         self.flushInterval = flushInterval
         self.maxPendingEvents = max(flushBatchSize, maxPendingEvents)
+        self.diagnosticLog = diagnosticLog
         self.distinctID = anonymousID
         let (stream, continuation) = AsyncStream<Item>.makeStream(bufferingPolicy: .unbounded)
         self.stream = stream
@@ -256,6 +260,10 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
             case let .superProperties(properties):
                 for (key, value) in properties { superProperties[key] = value }
             case let .consentChanged(consent):
+                diagnosticLog?.recordAppEvent(
+                    .analyticsConsentChanged,
+                    count: consent.isEnabled ? 1 : 0
+                )
                 if !consent.isEnabled {
                     pending.removeAll()
                     uploadOutageOpen = false
@@ -356,14 +364,31 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         if pending.isEmpty { uploadOutageOpen = false }
         while !pending.isEmpty {
             let batch = pending.map(\.event)
+            diagnosticLog?.recordAppEvent(.analyticsUploadStarted, count: batch.count)
             let result = await uploader.upload(batch)
             switch result {
-            case .accepted, .drop:
+            case .accepted:
+                diagnosticLog?.recordAppEvent(.analyticsUploadSucceeded, count: batch.count)
+                // Remove exactly the events we attempted; events appended during
+                // the await stay queued for the next pass.
+                pending.removeFirst(min(batch.count, pending.count))
+                uploadOutageOpen = false
+            case .drop:
+                diagnosticLog?.recordAppEvent(
+                    .analyticsUploadDropped,
+                    failure: .protocolViolation,
+                    count: batch.count
+                )
                 // Remove exactly the events we attempted; events appended during
                 // the await stay queued for the next pass.
                 pending.removeFirst(min(batch.count, pending.count))
                 uploadOutageOpen = false
             case .retry:
+                diagnosticLog?.recordAppEvent(
+                    .analyticsUploadFailed,
+                    failure: .connectionClosed,
+                    count: batch.count
+                )
                 // Leave the buffer intact; the cadence barrier or the next flush
                 // retries. Stop draining now to avoid a tight failure loop, and
                 // mark the outage so per-event drains are suppressed until upload

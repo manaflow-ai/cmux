@@ -47,6 +47,24 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     private let teamIDProvider: @Sendable () async -> String?
     private let session: CmxCredentialedHTTPSession
     private let requestTimeout: TimeInterval
+    private struct RegistryResponse: Sendable {
+        let data: Data
+        let statusCode: Int
+    }
+    private struct RegistryRequestScope: Hashable, Sendable {
+        let accessToken: String
+        let refreshToken: String
+        let teamID: String?
+    }
+    private struct RegistryListRequest: Sendable {
+        let request: URLRequest
+        let scope: RegistryRequestScope
+    }
+    private struct InFlightRegistryRequest: Sendable {
+        let id: UUID
+        let task: Task<RegistryResponse?, Never>
+    }
+    private var listResponseTasks: [RegistryRequestScope: InFlightRegistryRequest] = [:]
 
     /// - Parameters:
     ///   - apiBaseURL: The cmux web API base URL (no trailing slash).
@@ -119,7 +137,6 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             evidence: evidence
         )
     }
-
     /// Testable core of ``deviceID(defaults:)`` with an injectable identity store.
     static func deviceID(
         store: any DeviceIdentityStoring,
@@ -205,7 +222,6 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         KeychainDeviceIdentityStore()
         #endif
     }
-
     /// Testable core of ``durableDeviceID(defaults:)`` with an injectable store.
     static func durableDeviceID(
         store: any DeviceIdentityStoring,
@@ -475,7 +491,25 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     ) -> [CmxAttachRoute]? {
         guard let registry, !registry.isEmpty else { return nil }
         guard registry != local else { return nil }
-        return registry
+        // Keep a locally persisted Tailscale destination alongside a newly
+        // published Iroh route. The local route may carry the pre-Iroh grant
+        // needed to reconnect an older Mac while the registry has already
+        // converged on Iroh-only publication.
+        guard registry.contains(where: { $0.kind == .iroh }) else {
+            return registry
+        }
+        // The registry remains authoritative when it publishes any current
+        // Tailscale route. Only an Iroh-only response needs one legacy local
+        // fallback for Macs paired before the Iroh migration.
+        guard registry.allSatisfy({ $0.kind == .iroh }) else {
+            return registry
+        }
+        var selected = registry
+        if let legacyTailscale = local.first(where: { $0.kind == .tailscale }),
+           !selected.contains(where: { $0.endpoint == legacyTailscale.endpoint }) {
+            selected.append(legacyTailscale)
+        }
+        return selected == local ? nil : selected
     }
 
     /// Whether a background registry refresh may write back into the paired-Mac
@@ -508,24 +542,12 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         forMacDeviceID macDeviceID: String,
         instanceTag: String?
     ) async -> [CmxAttachRoute]? {
-        guard let request = await makeRequest(method: "GET", path: "/api/devices", body: nil) else {
-            return nil
-        }
-        let data: Data
-        do {
-            let (responseData, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                return nil
-            }
-            data = responseData
-        } catch {
-            deviceRegistryLog.debug("freshRoutes request failed: \(String(describing: error), privacy: .public)")
-            return nil
-        }
+        guard let response = await fetchListResponse(),
+              (200...299).contains(response.statusCode) else { return nil }
         return Self.routes(
             forMacDeviceID: macDeviceID,
             pairedMacInstanceTag: instanceTag,
-            in: data
+            in: response.data
         )
     }
 
@@ -534,34 +556,57 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         // transient failure rather than an auth rejection, since this is the
         // signed-out / not-yet-bootstrapped case, not the registry actively
         // rejecting the caller's scope.
-        guard let request = await makeRequest(method: "GET", path: "/api/devices", body: nil) else {
+        guard let response = await fetchListResponse() else {
             return .transientFailure
         }
-        let data: Data
-        do {
-            let (responseData, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                return .transientFailure
-            }
-            // An auth/scope rejection (401/403) must clear the cached team-scoped
-            // data; any other non-2xx (5xx, etc.) is transient and keeps it.
-            if http.statusCode == 401 || http.statusCode == 403 {
-                return .authRejected
-            }
-            guard (200...299).contains(http.statusCode) else {
-                return .transientFailure
-            }
-            data = responseData
-        } catch {
-            deviceRegistryLog.debug("listDevices request failed: \(String(describing: error), privacy: .public)")
+        // An auth/scope rejection (401/403) must clear the cached team-scoped
+        // data; any other non-2xx (5xx, etc.) is transient and keeps it.
+        if response.statusCode == 401 || response.statusCode == 403 {
+            return .authRejected
+        }
+        guard (200...299).contains(response.statusCode) else {
             return .transientFailure
         }
         // A 2xx with an undecodable body is a server/contract glitch, not an auth
         // rejection: keep the current tree rather than blanking it.
-        guard let devices = Self.parseDeviceList(in: data) else {
+        guard let devices = Self.parseDeviceList(in: response.data) else {
             return .transientFailure
         }
         return .ok(devices)
+    }
+
+    /// Share one in-flight `/api/devices` read across the device tree and the
+    /// reconnect route refresher when both callers have the exact same auth and
+    /// team scope. This removes duplicate provider work without returning an old
+    /// account or team's response after a session switch.
+    private func fetchListResponse() async -> RegistryResponse? {
+        guard let input = await makeListRequest() else { return nil }
+        if let inFlight = listResponseTasks[input.scope] {
+            return await inFlight.task.value
+        }
+        let id = UUID()
+        let task = Task { [self] in
+            await performListResponseRequest(input.request)
+        }
+        listResponseTasks[input.scope] = InFlightRegistryRequest(id: id, task: task)
+        let response = await task.value
+        if listResponseTasks[input.scope]?.id == id {
+            listResponseTasks[input.scope] = nil
+        }
+        return response
+    }
+
+    private func performListResponseRequest(_ request: URLRequest) async -> RegistryResponse? {
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                return nil
+            }
+            return RegistryResponse(data: data, statusCode: http.statusCode)
+        } catch {
+            deviceRegistryLog.debug("registry list request failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
     }
 
     // MARK: - Parsing (pure, testable)
@@ -681,25 +726,92 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
 
     // MARK: - Request building
 
-    private func makeRequest(method: String, path: String, body: [String: Any]?) async -> URLRequest? {
+    private func makeListRequest() async -> RegistryListRequest? {
         guard let accessToken = await tokenSource.accessToken(),
               let refreshToken = await tokenSource.refreshToken(),
-              let url = URL(string: apiBaseURL + path) else {
+              let url = URL(string: apiBaseURL + "/api/devices") else {
             return nil
         }
+        let providedTeamID = await teamIDProvider()
+        let teamID = providedTeamID?.isEmpty == false ? providedTeamID : nil
         var request = URLRequest(url: url)
-        request.httpMethod = method
+        request.httpMethod = "GET"
         request.timeoutInterval = requestTimeout
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
-        if let teamID = await teamIDProvider(), !teamID.isEmpty {
+        if let teamID {
             request.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }
-        if let body {
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        }
-        return request
+        return RegistryListRequest(
+            request: request,
+            scope: RegistryRequestScope(
+                accessToken: accessToken,
+                refreshToken: refreshToken,
+                teamID: teamID
+            )
+        )
+    }
+}
+
+/// Provides Keychain-scoped device identities for one exact iOS app namespace.
+public extension MobileIOSAppNamespace {
+    /// Returns this app bundle's stable device-registry identity.
+    ///
+    /// The exact bundle namespace selects a device-only Keychain service. The
+    /// best-effort registry read may return a process-stable ephemeral value
+    /// when protected storage is unavailable, but that value is never used for
+    /// an Iroh binding.
+    ///
+    /// - Parameters:
+    ///   - keychainAccessGroup: This app's exact signed Keychain access group.
+    ///   - defaults: Legacy mirror storage, injectable for tests.
+    func deviceRegistryDeviceID(
+        keychainAccessGroup: String?,
+        defaults: UserDefaults = .standard,
+        deviceWitness: String? = nil,
+        evidence: any SameDeviceEvidenceProbing = IrohEndpointIdentityEvidenceProbe()
+    ) -> String {
+        DeviceRegistryService.deviceID(
+            store: KeychainDeviceIdentityStore(
+                service: keychainService(
+                    base: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
+                ),
+                accessGroup: keychainAccessGroup,
+                legacyService: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
+            ),
+            defaults: defaults,
+            deviceWitness: deviceWitness,
+            evidence: evidence
+        )
+    }
+
+    /// Returns this app bundle's durable Iroh device identity.
+    ///
+    /// A `nil` result means protected storage is unavailable or a fresh value
+    /// could not be persisted. Callers must defer broker registration instead
+    /// of substituting an ephemeral identity.
+    ///
+    /// - Parameters:
+    ///   - keychainAccessGroup: This app's exact signed Keychain access group.
+    ///   - defaults: Legacy mirror storage, injectable for tests.
+    func durableDeviceRegistryDeviceID(
+        keychainAccessGroup: String?,
+        defaults: UserDefaults = .standard,
+        deviceWitness: String? = nil,
+        evidence: any SameDeviceEvidenceProbing = IrohEndpointIdentityEvidenceProbe()
+    ) -> String? {
+        DeviceRegistryService.durableDeviceID(
+            store: KeychainDeviceIdentityStore(
+                service: keychainService(
+                    base: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
+                ),
+                accessGroup: keychainAccessGroup,
+                legacyService: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
+            ),
+            defaults: defaults,
+            deviceWitness: deviceWitness,
+            evidence: evidence
+        )
     }
 }
 

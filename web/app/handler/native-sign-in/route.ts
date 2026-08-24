@@ -5,7 +5,6 @@ import {
   NATIVE_HANDOFF_QUERY_PARAM,
 } from "../native-handoff-cookie";
 
-export const dynamic = "force-dynamic";
 
 function canSetAutoHandoff(request: NextRequest): boolean {
   const fetchSite = request.headers.get("sec-fetch-site");

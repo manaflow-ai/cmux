@@ -11,14 +11,17 @@ import Testing
             shellState: .promptIdle
         )
 
-        let acceptsSeededTitleBeforeCommand = boundary.shouldApply(rawTitle: seededTitle)
-        #expect(!acceptsSeededTitleBeforeCommand)
+        let appliesSeededTitleBeforeBootstrap = boundary.shouldApply(rawTitle: seededTitle)
+        #expect(!appliesSeededTitleBeforeBootstrap)
+
         let bufferedTitle = boundary.observe(shellState: .commandRunning)
         #expect(bufferedTitle == nil)
-        let acceptsSeededTitleDuringBootstrap = boundary.shouldApply(rawTitle: seededTitle)
-        #expect(!acceptsSeededTitleDuringBootstrap)
-        let acceptsAgentTitle = boundary.shouldApply(rawTitle: "Resumed Codex session")
-        #expect(acceptsAgentTitle)
+
+        let appliesSeededTitleDuringBootstrap = boundary.shouldApply(rawTitle: seededTitle)
+        #expect(!appliesSeededTitleDuringBootstrap)
+
+        let appliesResumedAgentTitle = boundary.shouldApply(rawTitle: "Resumed Codex session")
+        #expect(appliesResumedAgentTitle)
         #expect(!boundary.isReleased)
     }
 
@@ -28,13 +31,15 @@ import Testing
             shellState: .promptIdle
         )
 
-        let acceptsCommandTitleBeforeRunning = boundary.shouldApply(rawTitle: "cd /tmp/cmux")
-        #expect(!acceptsCommandTitleBeforeRunning)
-        let releasedTitle = boundary.observe(shellState: .commandRunning)
-        #expect(releasedTitle == "cd /tmp/cmux")
+        let appliesPreexecTitle = boundary.shouldApply(rawTitle: "cd /tmp/cmux")
+        #expect(!appliesPreexecTitle)
+
+        let bufferedTitle = boundary.observe(shellState: .commandRunning)
+        #expect(bufferedTitle == "cd /tmp/cmux")
         #expect(boundary.isReleased)
-        let acceptsSubsequentTitle = boundary.shouldApply(rawTitle: "/tmp/cmux")
-        #expect(acceptsSubsequentTitle)
+
+        let appliesReleasedTitle = boundary.shouldApply(rawTitle: "/tmp/cmux")
+        #expect(appliesReleasedTitle)
     }
 
     @Test func alreadyRunningUnseededShellStartsReleased() {
@@ -43,8 +48,9 @@ import Testing
             shellState: .commandRunning
         )
 
+        let appliesRunningCommandTitle = boundary.shouldApply(rawTitle: "Genuine running command")
+
         #expect(boundary.isReleased)
-        let acceptsRunningTitle = boundary.shouldApply(rawTitle: "Genuine running command")
-        #expect(acceptsRunningTitle)
+        #expect(appliesRunningCommandTitle)
     }
 }

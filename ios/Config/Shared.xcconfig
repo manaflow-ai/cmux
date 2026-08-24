@@ -38,11 +38,10 @@ CMUX_PRESENCE_BASE_URL =
 
 // Auth-environment override, baked into the CMUXAuthEnvironment Info.plist key
 // so a normally-tapped dev device build (no shell env) can sign in against the
-// PRODUCTION Stack project when testing production-account behavior. Build
-// compatibility remains separate: a tagged DEV iOS build may connect only to
-// the same tagged DEV Mac build. Empty by default (DEBUG -> development,
-// Release -> production). ios/scripts/reload.sh --prod-auth sets it to
-// "production". Keep the Info.plist key name in sync with
+// PRODUCTION Stack project when testing production-account behavior. Empty by
+// default (DEBUG -> development, Release -> production).
+// ios/scripts/reload.sh --prod-auth sets it to "production". Keep the Info.plist
+// key name in sync with
 // MobileAuthComposition.authEnvironmentInfoPlistKey.
 CMUX_IOS_AUTH_ENV =
 
@@ -89,14 +88,7 @@ INFOPLIST_KEY_NSCameraUsageDescription = Scan cmux pairing QR codes from your Ma
 CODE_SIGN_ENTITLEMENTS = Config/cmux.entitlements
 
 // ==========================================
-// Pairing URL scheme (channel-specific)
+// Pairing URL scheme (exact bundle)
 // ==========================================
-// The cmux pairing/attach deep-link scheme this build registers in
-// CFBundleURLTypes (Config/Info.plist). Channel-specific so the system Camera
-// app can never hand a beta/prod pairing QR to a dev build that also claimed
-// the scheme: dev (Debug/tagged) builds register cmux-ios-dev, Release
-// (TestFlight beta + App Store) overrides this to cmux-ios in
-// Release.xcconfig. The default here is the dev scheme so an unknown build
-// configuration can never hijack release links. Keep both values in sync with
-// CmxPairingURLScheme in Packages/Shared/CMUXMobileCore.
-CMUX_IOS_URL_SCHEME = cmux-ios-dev
+// Every bundle registers only its full-bundle-derived scheme.
+CMUX_IOS_URL_SCHEME = cmux-ios-$(PRODUCT_BUNDLE_IDENTIFIER)

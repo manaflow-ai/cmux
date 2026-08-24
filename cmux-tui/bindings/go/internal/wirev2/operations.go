@@ -46,6 +46,7 @@ var (
 	SessionSnapshot               = Operation{"session.snapshot", Read}
 	SessionCreationResolve        = Operation{"session.creation.resolve", Read}
 	SessionEvents                 = Operation{"session.events", StreamOpen}
+	SessionJournalSubscribe       = Operation{"session.journal.subscribe", StreamOpen}
 	SessionPing                   = Operation{"session.ping", Read}
 	SessionShutdown               = Operation{"session.shutdown", Mutation}
 	SessionReloadConfig           = Operation{"session.reload_config", Mutation}
@@ -189,6 +190,7 @@ const (
 	FieldLayout          = "layout"
 	FieldDirection       = "direction"
 	FieldRatio           = "ratio"
+	FieldViewportWidth   = "viewport_width"
 	FieldWidth           = "width"
 	FieldCols            = "cols"
 	FieldRows            = "rows"
