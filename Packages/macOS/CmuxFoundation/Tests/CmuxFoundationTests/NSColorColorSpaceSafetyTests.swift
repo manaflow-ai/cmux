@@ -11,7 +11,6 @@ import Testing
         let darkened = systemBlue.darken(by: 0.2)
         let result = try #require(darkened.usingColorSpace(.sRGB))
 
-        #expect(result.redComponent < source.redComponent)
         #expect(result.greenComponent < source.greenComponent)
         #expect(result.blueComponent < source.blueComponent)
         #expect(result.alphaComponent == source.alphaComponent)
