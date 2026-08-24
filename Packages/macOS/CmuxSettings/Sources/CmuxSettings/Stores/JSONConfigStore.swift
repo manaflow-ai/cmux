@@ -236,7 +236,7 @@ public actor JSONConfigStore {
     private nonisolated func makeValueStream<Element: Equatable & Sendable>(
         read: @escaping @Sendable (JSONConfigStore) async -> Element
     ) -> AsyncStream<Element> {
-        AsyncStream<Element> { continuation in
+        AsyncStream<Element>(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task { [weak self] in
                 guard let self else {
                     continuation.finish()

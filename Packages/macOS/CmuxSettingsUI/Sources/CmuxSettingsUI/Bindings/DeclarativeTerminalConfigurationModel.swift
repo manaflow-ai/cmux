@@ -54,6 +54,9 @@ public final class DeclarativeTerminalConfigurationModel {
     private let fileURL: URL
     private var observationTasks = MainActorTaskStore<String>()
     private var saveTasks = MainActorTaskStore<String>()
+    private var fixedPathWatcher: FileWatcher?
+    private var fixedPathWatcherTask: Task<Void, Never>?
+    private var fixedPathWatchPath: String?
     private var snapshotRevision: UInt64 = 0
 
     /// The single presence-preserving view of the shared JSON authority.
@@ -92,6 +95,7 @@ public final class DeclarativeTerminalConfigurationModel {
     }
 
     deinit {
+        fixedPathWatcherTask?.cancel()
     }
 
     /// Starts one cancellable observation owner. Repeated calls are idempotent.
@@ -176,17 +180,67 @@ public final class DeclarativeTerminalConfigurationModel {
     private func refreshJSON() async {
         let revision = await jsonStore.coherentSnapshot()
         let terminal = await reader.decode(revision)
-        cache.replace(terminal, fileURL: fileURL)
-        snapshotRevision &+= 1
+        publish(terminal)
     }
 
     private func observeTerminalConfiguration() async {
         for await revision in jsonStore.snapshots() {
             if Task.isCancelled { return }
             let terminal = await reader.decode(revision)
-            cache.replace(terminal, fileURL: fileURL)
-            snapshotRevision &+= 1
+            publish(terminal)
         }
+    }
+
+    private func publish(_ terminal: DeclarativeTerminalConfiguration.Snapshot) {
+        cache.replace(terminal, fileURL: fileURL)
+        configureFixedPathWatcher(for: terminal)
+        snapshotRevision &+= 1
+    }
+
+    /// Watches the configured fixed path's ancestor and revalidates it off the
+    /// main actor when the filesystem changes. Spawn paths consume only the
+    /// latest cached result, so a deleted directory fails closed without a
+    /// synchronous metadata lookup during workspace creation.
+    private func configureFixedPathWatcher(
+        for terminal: DeclarativeTerminalConfiguration.Snapshot
+    ) {
+        let desiredPath = terminal.workingDirectoryPolicy == .fixedPath
+            ? DeclarativeTerminalConfigurationReader.expandedFixedPath(terminal.workingDirectoryPath)
+            : nil
+        guard desiredPath != fixedPathWatchPath else { return }
+
+        fixedPathWatcherTask?.cancel()
+        fixedPathWatcherTask = nil
+        fixedPathWatcher = nil
+        fixedPathWatchPath = desiredPath
+
+        guard let desiredPath else { return }
+        let watcher = FileWatcher(path: desiredPath)
+        fixedPathWatcher = watcher
+        let reader = self.reader
+        fixedPathWatcherTask = Task { @MainActor [weak self, watcher, reader] in
+            for await _ in watcher.events {
+                guard !Task.isCancelled else { return }
+                let isUsable = await reader.validateFixedPath(desiredPath)
+                guard !Task.isCancelled, let self else { return }
+                self.applyFixedPathValidation(isUsable, for: desiredPath)
+            }
+        }
+    }
+
+    private func applyFixedPathValidation(_ isUsable: Bool, for path: String) {
+        guard fixedPathWatchPath == path else { return }
+        var snapshot = cache.snapshot(fileURL: fileURL)
+        guard snapshot.workingDirectoryPolicy == .fixedPath,
+              DeclarativeTerminalConfigurationReader.expandedFixedPath(
+                  snapshot.workingDirectoryPath
+              ) == path,
+              snapshot.fixedPathIsUsable != isUsable else {
+            return
+        }
+        snapshot.fixedPathIsUsable = isUsable
+        cache.replace(snapshot, fileURL: fileURL)
+        snapshotRevision &+= 1
     }
 
     private func observeLegacyInheritance() async {
