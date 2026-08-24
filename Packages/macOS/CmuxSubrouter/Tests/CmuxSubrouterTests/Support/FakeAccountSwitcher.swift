@@ -25,7 +25,8 @@ actor FakeAccountSwitcher: SubrouterAccountSwitching {
     func switchAccount(
         provider: SubrouterProvider,
         accountID: String,
-        commandPath: String?
+        commandPath: String?,
+        target: SubrouterAccountTarget = .local
     ) async throws {
         invocations.append(
             Invocation(provider: provider, accountID: accountID, commandPath: commandPath)

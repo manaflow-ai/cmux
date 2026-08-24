@@ -155,10 +155,21 @@ final class SubrouterAppRuntime {
 
     private func startServerRegistryWatchIfNeeded() {
         guard serverRegistryWatch == nil else { return }
-        let registryDirectory = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".subrouter/codex", isDirectory: true)
-        guard FileManager.default.fileExists(atPath: registryDirectory.path) else {
-            return
+        let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
+        let subrouterDirectory = homeDirectory
+            .appendingPathComponent(".subrouter", isDirectory: true)
+        let codexDirectory = subrouterDirectory
+            .appendingPathComponent("codex", isDirectory: true)
+        // Watch the nearest existing parent on first run. Setup may create
+        // `.subrouter/codex` after the panel is already visible; the parent
+        // event then triggers a refresh and this method re-arms on codex.
+        let registryDirectory: URL
+        if FileManager.default.fileExists(atPath: codexDirectory.path) {
+            registryDirectory = codexDirectory
+        } else if FileManager.default.fileExists(atPath: subrouterDirectory.path) {
+            registryDirectory = subrouterDirectory
+        } else {
+            registryDirectory = homeDirectory
         }
         let descriptor = open(registryDirectory.path, O_EVTONLY)
         guard descriptor >= 0 else { return }

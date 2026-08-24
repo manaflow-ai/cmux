@@ -37,6 +37,26 @@ public protocol CommandRunning: Sendable {
     ) async -> CommandResult
 }
 
+/// Optional subprocess seam for callers that must pass a per-invocation
+/// environment without mutating process-global state.
+public protocol EnvironmentCommandRunning: CommandRunning {
+    /// Runs a command with the supplied environment snapshot.
+    /// - Parameters:
+    ///   - directory: The process working directory.
+    ///   - executable: The executable name or absolute path.
+    ///   - arguments: The child argv, excluding the executable.
+    ///   - timeout: The maximum runtime in seconds.
+    ///   - environmentOverrides: Values merged into the runner's environment.
+    /// - Returns: The captured command result.
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?,
+        environmentOverrides: [String: String]
+    ) async -> CommandResult
+}
+
 extension CommandRunning {
     /// Runs a command and returns its standard output only when it exited cleanly.
     ///

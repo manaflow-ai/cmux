@@ -389,6 +389,20 @@ import Testing
         #expect(expanded.hasPrefix("/"))
     }
 
+    @Test func switchForcesTheSelectedServerEnvironment() async throws {
+        let runner = FakeCommandRunner()
+        runner.resultsByExecutable["sr"] = FakeCommandRunner.success()
+        let switcher = SubrouterCommandSwitcher(commandRunner: runner, workingDirectory: "/tmp")
+
+        try await switcher.switchAccount(
+            provider: .codex,
+            accountID: "dev@example.com",
+            commandPath: nil,
+            target: .local
+        )
+        #expect(runner.invocations.first?.environmentOverrides["SUBROUTER_CODEX_SERVER"] == "local")
+    }
+
     @Test func fallsBackFromSrToSubrouter() async throws {
         let runner = FakeCommandRunner()
         runner.resultsByExecutable["subrouter"] = FakeCommandRunner.success()

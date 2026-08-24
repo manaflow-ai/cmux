@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 // The bundled subrouter binary: the app ships Resources/bin/subrouter.gz
 // (built from the pinned submodule by scripts/build-subrouter.sh); the CLI
@@ -173,7 +174,14 @@ extension CMUXCLI {
         var argv: [UnsafeMutablePointer<CChar>?] = [strdup(persona)]
         argv.append(contentsOf: arguments.map { strdup($0) })
         argv.append(nil)
-        execv(executable, argv)
-        throw CLIError(message: "failed to exec \(executable): \(String(cString: strerror(errno)))")
+        let execErrno: Int32 = argv.withUnsafeMutableBufferPointer { buffer in
+            guard let baseAddress = buffer.baseAddress else { return EINVAL }
+            execv(executable, baseAddress)
+            return errno
+        }
+        for pointer in argv.compactMap({ $0 }) {
+            free(pointer)
+        }
+        throw CLIError(message: "failed to exec \(executable): \(String(cString: strerror(execErrno)))")
     }
 }

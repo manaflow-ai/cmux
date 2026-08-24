@@ -53,7 +53,8 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
     public func switchAccount(
         provider: SubrouterProvider,
         accountID: String,
-        commandPath: String?
+        commandPath: String?,
+        target: SubrouterAccountTarget = .local
     ) async throws {
         let arguments = try Self.switchArguments(provider: provider, accountID: accountID)
         let executables: [String]
@@ -68,13 +69,25 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
         }
 
         var sawLaunchFailure = false
+        let environmentOverrides = Self.serverEnvironment(for: provider, target: target)
         for executable in executables {
-            let result = await commandRunner.run(
-                directory: workingDirectory,
-                executable: executable,
-                arguments: arguments,
-                timeout: Self.commandTimeout
-            )
+            let result: CommandResult
+            if let environmentRunner = commandRunner as? any EnvironmentCommandRunning {
+                result = await environmentRunner.run(
+                    directory: workingDirectory,
+                    executable: executable,
+                    arguments: arguments,
+                    timeout: Self.commandTimeout,
+                    environmentOverrides: environmentOverrides
+                )
+            } else {
+                result = await commandRunner.run(
+                    directory: workingDirectory,
+                    executable: executable,
+                    arguments: arguments,
+                    timeout: Self.commandTimeout
+                )
+            }
             if result.executionError != nil {
                 sawLaunchFailure = true
                 continue
@@ -118,6 +131,21 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
         Self.logger.error(
             "sr command failed: status=\(status, privacy: .public) stderr=\(stderr, privacy: .private(mask: .hash)) stdout=\(stdout, privacy: .private(mask: .hash))"
         )
+    }
+
+    private static func serverEnvironment(
+        for provider: SubrouterProvider,
+        target: SubrouterAccountTarget
+    ) -> [String: String] {
+        let key = provider == .claude ? "SUBROUTER_SERVER" : "SUBROUTER_CODEX_SERVER"
+        let value: String
+        switch target {
+        case .local:
+            value = "local"
+        case .server(let name):
+            value = name
+        }
+        return [key: value]
     }
 
     /// Extracts the app-bundled binary into the same Application Support

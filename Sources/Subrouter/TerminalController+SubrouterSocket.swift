@@ -39,6 +39,11 @@ extension TerminalController {
                     await Self.subrouterGateResult()
                 }
             }
+            if params["probe"] as? String == "health" {
+                return v2AsyncResultCall(id: id, timeoutSeconds: 3) {
+                    await Self.subrouterHealthProbeResult()
+                }
+            }
             return v2AsyncResultCall(id: id, timeoutSeconds: Self.subrouterDataResponseTimeoutSeconds) {
                 await Self.subrouterRefreshResult(requiresHealthyDaemon: false) { snapshot, configuration in
                     var payload = Self.subrouterStatusPayload(snapshot: snapshot)
@@ -103,6 +108,30 @@ extension TerminalController {
             "enabled": true,
             "endpoint": configuration.endpoint.baseURL.absoluteString,
         ])
+    }
+
+    /// Performs only the cheap daemon health request for onboarding readiness.
+    private nonisolated static func subrouterHealthProbeResult() async -> TerminalController.V2CallResult {
+        let runtime = await MainActor.run { SubrouterAppRuntime.shared }
+        await runtime.refreshServerSelectionAndApply()
+        let store = await MainActor.run { runtime.store }
+        let enabled = await MainActor.run { store.configuration.isEnabled }
+        guard enabled else { return Self.subrouterDisabledError }
+        do {
+            let healthy = try await store.checkDaemonHealth()
+            return .ok(["healthy": healthy])
+        } catch let error as SubrouterClientError {
+            return .err(code: "daemon_unreachable", message: error.shortDescription, data: nil)
+        } catch {
+            return .err(
+                code: "daemon_unreachable",
+                message: String(
+                    localized: "socket.subrouter.unexpectedError",
+                    defaultValue: "The subrouter daemon could not be reached."
+                ),
+                data: nil
+            )
+        }
     }
 
     /// Refreshes through the shared store (single-flight with UI polling)

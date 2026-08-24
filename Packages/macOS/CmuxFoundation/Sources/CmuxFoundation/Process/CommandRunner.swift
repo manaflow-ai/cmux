@@ -16,7 +16,7 @@ public import Foundation
 ///     directory: ".", executable: "gh", arguments: ["auth", "token"], timeout: 5
 /// )
 /// ```
-public struct CommandRunner: CommandRunning, Sendable {
+public struct CommandRunner: EnvironmentCommandRunning, Sendable {
     /// The default fallback `PATH` directories searched when a command is not on `PATH`.
     public static let defaultFallbackSearchDirectories: [String] = [
         "/opt/homebrew/bin",
@@ -68,6 +68,27 @@ public struct CommandRunner: CommandRunning, Sendable {
         arguments: [String],
         timeout: TimeInterval?
     ) async -> CommandResult {
+        await run(
+            directory: directory,
+            executable: executable,
+            arguments: arguments,
+            timeout: timeout,
+            environmentOverrides: [:]
+        )
+    }
+
+    /// Runs a command with a per-invocation environment snapshot.
+    public func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?,
+        environmentOverrides: [String: String]
+    ) async -> CommandResult {
+        var effectiveEnvironment = environment
+        for (key, value) in environmentOverrides {
+            effectiveEnvironment[key] = value
+        }
         let executableURL: URL
         let resolvedArguments: [String]
         if let resolved = resolvedCommandPath(executable: executable) {
@@ -81,7 +102,8 @@ public struct CommandRunner: CommandRunning, Sendable {
             let execution = try CommandExecution(
                 executableURL: executableURL,
                 arguments: resolvedArguments,
-                currentDirectoryURL: URL(fileURLWithPath: directory)
+                currentDirectoryURL: URL(fileURLWithPath: directory),
+                environment: effectiveEnvironment
             )
             return await execution.run(timeout: timeout)
         } catch {
@@ -93,6 +115,20 @@ public struct CommandRunner: CommandRunning, Sendable {
                 executionError: String(describing: error)
             )
         }
+    }
+
+    /// Returns a runner with immutable environment overrides for one logical
+    /// command lane. The original runner remains unchanged for later calls.
+    public func withEnvironmentOverrides(_ overrides: [String: String]) -> CommandRunner {
+        var merged = environment
+        for (key, value) in overrides {
+            merged[key] = value
+        }
+        return CommandRunner(
+            environment: merged,
+            bundledBinPath: bundledBinPath,
+            fallbackSearchDirectories: fallbackSearchDirectories
+        )
     }
 
     /// Resolves `executable` to an absolute path, searching `PATH`, the bundled

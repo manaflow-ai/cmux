@@ -159,6 +159,17 @@ public final class SubrouterStore {
         configurationStorage
     }
 
+    /// Probes only the daemon health endpoint without replacing the current
+    /// account snapshot. Used by onboarding readiness checks that must not
+    /// trigger a cold usage/session fan-out.
+    ///
+    /// - Returns: `true` when the configured daemon answers healthy.
+    /// - Throws: ``SubrouterClientError`` when the health request fails.
+    public func checkDaemonHealth() async throws -> Bool {
+        guard configurationStorage.isEnabled else { return false }
+        return try await client.health(endpoint: configurationStorage.endpoint)
+    }
+
     /// Applies a new configuration from settings.
     ///
     /// Disabling goes fully idle and clears the snapshot; enabling (or an

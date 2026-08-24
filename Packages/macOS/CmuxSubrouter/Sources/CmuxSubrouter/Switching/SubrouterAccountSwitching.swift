@@ -10,12 +10,14 @@ public protocol SubrouterAccountSwitching: Sendable {
     /// - Parameters:
     ///   - provider: The provider to switch (Codex or Claude).
     ///   - accountID: The daemon account id (Codex email / Claude profile).
+    ///   - target: The server selection to force for this invocation.
     ///   - commandPath: An explicit `sr` binary path, or `nil` to resolve
     ///     from `PATH` and the standard install locations.
     /// - Throws: ``SubrouterSwitchError`` describing the failure.
     func switchAccount(
         provider: SubrouterProvider,
         accountID: String,
-        commandPath: String?
+        commandPath: String?,
+        target: SubrouterAccountTarget
     ) async throws
 }

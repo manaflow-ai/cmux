@@ -63,11 +63,22 @@ ARCH_KEY="$(echo "$requested_archs" | tr ' ' '-')"
 CACHE_DIR="${CMUX_SUBROUTER_CACHE_DIR:-${HOME}/.cache/cmux-subrouter}"
 CACHE_PATH="${CACHE_DIR}/subrouter-${SUBMODULE_SHA}-${ARCH_KEY}.gz"
 
+publish_atomic() {
+  local source="$1"
+  local destination="$2"
+  local staging="${destination}.tmp.$$"
+  cp -f "$source" "$staging"
+  mv -f "$staging" "$destination"
+}
+
 mkdir -p "$OUT_DIR"
-if [[ -f "$CACHE_PATH" ]]; then
-  cp -f "$CACHE_PATH" "$OUT_PATH"
+if [[ -f "$CACHE_PATH" ]] && gzip -t "$CACHE_PATH" >/dev/null 2>&1; then
+  publish_atomic "$CACHE_PATH" "$OUT_PATH"
   echo "bundled subrouter ${SUBMODULE_SHA:0:12} (${ARCH_KEY}, cached)"
   exit 0
+elif [[ -f "$CACHE_PATH" ]]; then
+  echo "warning: ignoring invalid cached subrouter archive; rebuilding" >&2
+  rm -f "$CACHE_PATH"
 fi
 
 WORK_DIR="$(mktemp -d /tmp/cmux-subrouter-build.XXXXXX)"
@@ -106,6 +117,6 @@ codesign -s - -f "$BINARY"
 gzip -9 -n -c "$BINARY" > "${WORK_DIR}/subrouter.gz"
 
 mkdir -p "$CACHE_DIR"
-cp -f "${WORK_DIR}/subrouter.gz" "$CACHE_PATH"
-cp -f "${WORK_DIR}/subrouter.gz" "$OUT_PATH"
+publish_atomic "${WORK_DIR}/subrouter.gz" "$CACHE_PATH"
+publish_atomic "${WORK_DIR}/subrouter.gz" "$OUT_PATH"
 echo "bundled subrouter ${SUBMODULE_SHA:0:12} (${ARCH_KEY}, $(du -h "$OUT_PATH" | cut -f1 | tr -d ' '))"

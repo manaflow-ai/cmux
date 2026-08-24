@@ -3,13 +3,14 @@ import CmuxFoundation
 
 /// A scriptable ``CommandRunning``: returns per-executable results and
 /// records every invocation, so switcher tests never spawn a process.
-final class FakeCommandRunner: CommandRunning, @unchecked Sendable {
+final class FakeCommandRunner: EnvironmentCommandRunning, @unchecked Sendable {
     // Test-only fake; mutated and read on the test's single task.
     struct Invocation: Equatable {
         var directory: String
         var executable: String
         var arguments: [String]
         var timeout: TimeInterval?
+        var environmentOverrides: [String: String] = [:]
     }
 
     /// Results keyed by executable name; unlisted executables fail to launch.
@@ -46,12 +47,29 @@ final class FakeCommandRunner: CommandRunning, @unchecked Sendable {
         arguments: [String],
         timeout: TimeInterval?
     ) async -> CommandResult {
+        await run(
+            directory: directory,
+            executable: executable,
+            arguments: arguments,
+            timeout: timeout,
+            environmentOverrides: [:]
+        )
+    }
+
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?,
+        environmentOverrides: [String: String]
+    ) async -> CommandResult {
         invocations.append(
             Invocation(
                 directory: directory,
                 executable: executable,
                 arguments: arguments,
-                timeout: timeout
+                timeout: timeout,
+                environmentOverrides: environmentOverrides
             )
         )
         return resultsByExecutable[executable] ?? Self.launchFailure

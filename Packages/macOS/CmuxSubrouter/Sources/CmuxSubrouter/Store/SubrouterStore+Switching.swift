@@ -62,7 +62,8 @@ extension SubrouterStore {
                 try await switcher.switchAccount(
                     provider: provider,
                     accountID: accountID,
-                    commandPath: configuration.commandPath
+                    commandPath: configuration.commandPath,
+                    target: configuration.accountTarget ?? .local
                 )
             }
         } catch let error as SubrouterSwitchError {

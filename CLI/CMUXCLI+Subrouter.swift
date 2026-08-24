@@ -232,13 +232,23 @@ extension CMUXCLI {
             print("Starting the local subrouter daemon…")
             let daemonSetup = CLIProcessRunner.runProcess(executablePath: srPath, arguments: ["install-daemon"], timeout: 60)
             if daemonSetup.status == 0 {
-                // Poll readiness instead of one fixed sleep: stop as soon
-                // as the daemon reports healthy, give up after ~5s.
+                // Poll the cheap health probe instead of the full status
+                // refresh: stop as soon as the daemon reports healthy, and
+                // give up after one aggregate five-second deadline.
+                let readinessDeadline = Date(timeIntervalSinceNow: 5)
                 for _ in 0..<10 {
                     waitForSubrouterReadinessInterval()
-                    statusResponse = try? client.sendV2(method: "subrouter.status", responseTimeout: Self.subrouterDataResponseTimeout)
-                    if let daemon = statusResponse?["daemon"] as? [String: Any],
-                       (daemon["state"] as? String) == "healthy" {
+                    guard Date() < readinessDeadline else { break }
+                    let probe = try? client.sendV2(
+                        method: "subrouter.status",
+                        params: ["probe": "health"],
+                        responseTimeout: 4
+                    )
+                    if probe?["healthy"] as? Bool == true {
+                        statusResponse = try? client.sendV2(
+                            method: "subrouter.status",
+                            responseTimeout: Self.subrouterDataResponseTimeout
+                        )
                         break
                     }
                 }
