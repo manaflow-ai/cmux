@@ -379,6 +379,27 @@ async fn relay_session(
     let mut critical_burst = 0_u8;
 
     let result = loop {
+        // Retire completed per-request tasks before accepting more work. A
+        // long-lived relay connection can otherwise retain one JoinSet entry
+        // for every completed action until socket shutdown.
+        let mut task_failure = None;
+        while let Some(joined) = connection_tasks.try_join_next() {
+            if let Err(error) = joined {
+                task_failure = Some(if error.is_panic() {
+                    RelayError::transient(
+                        "relay request task panicked; reconnecting".to_owned(),
+                    )
+                } else {
+                    RelayError::transient(
+                        "relay request task was cancelled unexpectedly; reconnecting".to_owned(),
+                    )
+                });
+                break;
+            }
+        }
+        if let Some(error) = task_failure {
+            break Err(error);
+        }
         enum Wake {
             Heartbeat,
             Outbound(bool, Option<OutboundFrame>),
