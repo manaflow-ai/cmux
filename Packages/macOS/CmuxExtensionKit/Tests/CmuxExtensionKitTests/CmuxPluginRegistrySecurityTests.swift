@@ -219,7 +219,18 @@ struct CmuxPluginRegistrySecurityTests {
         #expect(snapshot.entrypointExecution == .interpreter(["/bin/sh"]))
 
         let markerURL = root.appendingPathComponent("launch-marker", isDirectory: false)
-        try Data("#!/bin/sh\nprintf replacement > \"$CMUX_TEST_MARKER\"\n".utf8)
+        // An attacker may try either an atomic pathname replacement or an
+        // in-place rewrite. The immutable snapshot must reject the former (or
+        // leave the open descriptor untouched) and always execute the original.
+        do {
+            let writableHandle = try FileHandle(forWritingTo: snapshot.entrypointURL)
+            try writableHandle.write(contentsOf: Data([0x78]))
+            try? writableHandle.close()
+            Issue.record("A sealed snapshot entrypoint must reject in-place writes")
+        } catch {
+            // Expected: the descriptor seal removes owner-write access.
+        }
+        try? Data("#!/bin/sh\nprintf replacement > \"$CMUX_TEST_MARKER\"\n".utf8)
             .write(to: snapshot.entrypointURL, options: .atomic)
 
         let process = Process()

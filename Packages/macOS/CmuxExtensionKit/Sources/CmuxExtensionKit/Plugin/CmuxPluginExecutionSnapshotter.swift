@@ -165,6 +165,26 @@ public actor CmuxPluginExecutionSnapshotter {
             throw CmuxPluginExecutionSnapshotError.missingEntrypoint
         }
 
+        guard Darwin.fchflags(pinnedEntrypoint.descriptor, UF_IMMUTABLE) == 0 else {
+            closeEntrypointDescriptor(pinnedEntrypoint.descriptor)
+            removeStagingRoot(stagingRoot)
+            throw CmuxPluginExecutionSnapshotError.entrypointDescriptorFailed
+        }
+
+        // Seal the descriptor before the final artifact read. A write that
+        // raced the first validation is therefore either observed here and
+        // rejected, or prevented from changing the bytes used at launch.
+        let finalReport = await CmuxPluginDirectoryLoader(directoryURL: stagingRoot).load()
+        guard finalReport.failures.isEmpty,
+              let finalPlugin = finalReport.plugins.first(where: {
+                  $0.manifest.id == plugin.manifest.id
+              }),
+              finalPlugin.manifestFingerprint == plugin.manifestFingerprint else {
+            closeEntrypointDescriptor(pinnedEntrypoint.descriptor)
+            removeStagingRoot(stagingRoot)
+            throw CmuxPluginExecutionSnapshotError.fingerprintMismatch
+        }
+
         return CmuxPluginExecutionSnapshot(
             directoryURL: copiedPlugin.directoryURL,
             manifestURL: copiedPlugin.directoryURL
@@ -241,6 +261,7 @@ public actor CmuxPluginExecutionSnapshotter {
 
     private func closeEntrypointDescriptor(_ descriptor: Int32) {
         guard descriptor >= 0, openEntrypointDescriptors.remove(descriptor) != nil else { return }
+        _ = Darwin.fchflags(descriptor, 0)
         Darwin.close(descriptor)
     }
 
