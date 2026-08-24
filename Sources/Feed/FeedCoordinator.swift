@@ -29,6 +29,9 @@ final class FeedCoordinator: @unchecked Sendable {
     // The store runs on the main actor. The coordinator is not isolated,
     // so it hops to main explicitly when touching the store.
     @MainActor private(set) var store: WorkstreamStore!
+    /// Last workspace that each workstream updated. This is a fast path for
+    /// task re-homing; persisted row ownership remains the correctness source.
+    @MainActor var lastTodoWorkspaceByWorkstream: [String: UUID] = [:]
     @MainActor private var userNotificationCenter: (any UserNotificationCenterServing)?
 
     /// The bounded notification-center boundary. `install(store:)` injects it;
@@ -143,7 +146,11 @@ final class FeedCoordinator: @unchecked Sendable {
     @MainActor
     func ingestRevalidatedOnMainActor(_ event: WorkstreamEvent) -> UUID? {
         guard let store else { return nil }
+        recoverAgentTodosIfNeeded(for: event)
         store.ingest(event)
+        if let item = store.items.last {
+            applyAgentTodos(from: item, event: event)
+        }
         if let ppid = event.ppid, ppid > 0 {
             armPidWatcher(ppid: ppid)
         }

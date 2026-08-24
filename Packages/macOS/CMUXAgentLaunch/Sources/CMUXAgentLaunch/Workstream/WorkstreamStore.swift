@@ -47,6 +47,13 @@ public final class WorkstreamStore {
     /// carries forward prompt/preamble context from nearby telemetry rows.
     private var lastContextByWorkstream: [String: WorkstreamContext] = [:]
 
+    /// Running task lists keyed by agent workstream. The accumulator is
+    /// bounded and is only a transport projection; workspace checklists stay
+    /// authoritative in the app's `WorkspaceTodoState`.
+    private var taskToolTodosByWorkstream: [String: WorkstreamTaskToolTodos] = [:]
+    private var taskToolWorkstreamsByRecency: [String] = []
+    private static let maxTrackedTaskToolWorkstreams = 64
+
     /// Creates a store for Feed workstream items.
     ///
     /// - Parameters:
@@ -139,6 +146,27 @@ public final class WorkstreamStore {
                 try? await persistence.append(item)
             }
         }
+    }
+
+    /// Returns the task ids this workstream has reported, including ids that
+    /// were deleted from its current list. The latter lets the workspace sync
+    /// retire stale rows without confusing another agent's task.
+    public func ownedTaskIds(forWorkstream workstreamId: String) -> [String] {
+        guard let accumulator = taskToolTodosByWorkstream[workstreamId] else { return [] }
+        return accumulator.ownedIDList
+    }
+
+    /// Seeds task-tool state from persisted workspace rows before applying a
+    /// resumed session's first status-only update.
+    public func seedTaskTodos(
+        forWorkstream workstreamId: String,
+        todos: [WorkstreamTaskTodo]
+    ) {
+        var accumulator = taskToolTodosByWorkstream[workstreamId] ?? WorkstreamTaskToolTodos()
+        accumulator.seed(with: todos)
+        taskToolTodosByWorkstream[workstreamId] = accumulator
+        touchTaskToolWorkstream(workstreamId)
+        trimTaskToolWorkstreams()
     }
 
     // MARK: - Actions
@@ -308,11 +336,48 @@ public final class WorkstreamStore {
                 )
             )
         case .preToolUse:
-            return (.toolUse, .toolUse(toolName: event.toolName ?? "", toolInputJSON: toolInput))
+            let toolName = event.toolName ?? ""
+            if let taskTool = WorkstreamTaskTool(rawValue: toolName) {
+                var accumulator = taskToolTodosByWorkstream[event.sessionId] ?? WorkstreamTaskToolTodos()
+                let outcome: WorkstreamTaskToolOutcome
+                if event.toolResponseJSON != nil {
+                    outcome = accumulator.applyPost(
+                        tool: taskTool,
+                        inputJSON: event.toolInputJSON,
+                        responseJSON: event.toolResponseJSON,
+                        isError: event.isError ?? false
+                    )
+                } else {
+                    outcome = accumulator.applyPre(tool: taskTool, inputJSON: event.toolInputJSON)
+                }
+                taskToolTodosByWorkstream[event.sessionId] = accumulator
+                touchTaskToolWorkstream(event.sessionId)
+                trimTaskToolWorkstreams()
+                if case .list(let todos) = outcome {
+                    return (.todos, .todos(todos))
+                }
+            }
+            return (.toolUse, .toolUse(toolName: toolName, toolInputJSON: toolInput))
         case .postToolUse:
+            let toolName = event.toolName ?? ""
+            if let taskTool = WorkstreamTaskTool(rawValue: toolName) {
+                var accumulator = taskToolTodosByWorkstream[event.sessionId] ?? WorkstreamTaskToolTodos()
+                let outcome = accumulator.applyPost(
+                    tool: taskTool,
+                    inputJSON: event.toolInputJSON,
+                    responseJSON: event.toolResponseJSON,
+                    isError: event.isError ?? false
+                )
+                taskToolTodosByWorkstream[event.sessionId] = accumulator
+                touchTaskToolWorkstream(event.sessionId)
+                trimTaskToolWorkstreams()
+                if case .list(let todos) = outcome {
+                    return (.todos, .todos(todos))
+                }
+            }
             return (
                 .toolResult,
-                .toolResult(toolName: event.toolName ?? "", resultJSON: toolInput, isError: event.isError ?? false)
+                .toolResult(toolName: toolName, resultJSON: toolInput, isError: event.isError ?? false)
             )
         case .preCompact:
             return (.toolUse, .toolUse(toolName: titleProvider(event) ?? event.hookEventName.rawValue, toolInputJSON: toolInput))
@@ -341,7 +406,15 @@ public final class WorkstreamStore {
         case .stop:
             return (.stop, .stop(reason: Self.stopReason(from: event.toolInputJSON)))
         case .todoWrite:
-            return (.todos, .todos(Self.todos(from: event.toolInputJSON)))
+            var accumulator = taskToolTodosByWorkstream[event.sessionId] ?? WorkstreamTaskToolTodos()
+            let outcome = accumulator.applyPre(tool: .todoWrite, inputJSON: event.toolInputJSON)
+            taskToolTodosByWorkstream[event.sessionId] = accumulator
+            touchTaskToolWorkstream(event.sessionId)
+            trimTaskToolWorkstreams()
+            if case .list(let todos) = outcome {
+                return (.todos, .todos(todos))
+            }
+            return (.toolUse, .toolUse(toolName: event.hookEventName.rawValue, toolInputJSON: toolInput))
         case .notification:
             return (.toolResult, .toolResult(toolName: "notification", resultJSON: toolInput, isError: false))
         }
@@ -352,6 +425,20 @@ public final class WorkstreamStore {
             return tool
         }
         return titleProvider(event)
+    }
+
+    private func touchTaskToolWorkstream(_ workstreamId: String) {
+        taskToolWorkstreamsByRecency.removeAll { $0 == workstreamId }
+        taskToolWorkstreamsByRecency.append(workstreamId)
+    }
+
+    private func trimTaskToolWorkstreams() {
+        guard taskToolWorkstreamsByRecency.count > Self.maxTrackedTaskToolWorkstreams else { return }
+        let overflow = taskToolWorkstreamsByRecency.count - Self.maxTrackedTaskToolWorkstreams
+        for workstreamId in taskToolWorkstreamsByRecency.prefix(overflow) {
+            taskToolTodosByWorkstream.removeValue(forKey: workstreamId)
+        }
+        taskToolWorkstreamsByRecency.removeFirst(overflow)
     }
 
     private static func jsonObject(from json: String?) -> Any? {
@@ -439,37 +526,4 @@ public final class WorkstreamStore {
         return nil
     }
 
-    private static func todos(from json: String?) -> [WorkstreamTaskTodo] {
-        let rawTodos: [Any]
-        if let dict = jsonObject(from: json) as? [String: Any] {
-            rawTodos = dict["todos"] as? [Any] ?? []
-        } else {
-            rawTodos = jsonObject(from: json) as? [Any] ?? []
-        }
-        return rawTodos.enumerated().compactMap { idx, raw in
-            guard let dict = raw as? [String: Any] else { return nil }
-            let content = (dict["content"] as? String)
-                ?? (dict["text"] as? String)
-                ?? (dict["title"] as? String)
-                ?? ""
-            guard !content.isEmpty else { return nil }
-            let rawState = (dict["state"] as? String)
-                ?? (dict["status"] as? String)
-                ?? "pending"
-            let state: WorkstreamTaskTodo.State
-            switch rawState {
-            case "completed", "done":
-                state = .completed
-            case "inProgress", "in_progress", "active":
-                state = .inProgress
-            default:
-                state = .pending
-            }
-            return WorkstreamTaskTodo(
-                id: (dict["id"] as? String) ?? "todo\(idx)",
-                content: content,
-                state: state
-            )
-        }
-    }
 }
