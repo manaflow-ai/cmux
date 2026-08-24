@@ -396,8 +396,12 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
             surfaceRaw = nil
         }
 
-        let workspaceParamKey = preserveCallerContext ? "preferred_workspace_id" : "workspace_id"
-        let surfaceParamKey = preserveCallerContext ? "preferred_surface_id" : "surface_id"
+        // A complete caller request remains an explicit target for the cloud
+        // bridge (the historical, membership-confined path). Preserve caller
+        // metadata only for the workspace-only tmux contract.
+        let forwardCallerContext = preserveCallerContext && surfaceRaw == nil
+        let workspaceParamKey = forwardCallerContext ? "preferred_workspace_id" : "workspace_id"
+        let surfaceParamKey = forwardCallerContext ? "preferred_surface_id" : "surface_id"
         var forwardedParams: [String: Any] = [
             workspaceParamKey: requestedWorkspaceID.uuidString,
         ]
@@ -409,7 +413,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 forwardedParams[key] = value
             }
         }
-        if preserveCallerContext {
+        if forwardCallerContext {
             if let callerTTY = (params["caller_tty"] as? String)?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
                !callerTTY.isEmpty {
@@ -421,7 +425,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         }
         let forwarded: [String: Any] = [
             "id": requestID ?? NSNull(),
-            "method": preserveCallerContext
+            "method": forwardCallerContext
                 ? "notification.create_for_caller"
                 : (surfaceRaw == nil ? "notification.create" : "notification.create_for_target"),
             "params": forwardedParams,
