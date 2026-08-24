@@ -8,7 +8,11 @@ mock.module("../app/lib/stack", () => ({
   stackServerApp: { getUser },
 }));
 
-const { verifyRequest, clearNativeAuthCacheForTests } = await import("../services/vms/auth");
+const {
+  verifyRequest,
+  clearNativeAuthCacheForTests,
+  invalidateNativeAuthCacheForTokens,
+} = await import("../services/vms/auth");
 
 const fakeStackUser = {
   id: "user-1",
@@ -96,6 +100,14 @@ describe("native auth verification cache", () => {
     await verifyRequest(nativeRequest("access-1"));
     await new Promise((resolve) => setTimeout(resolve, 40));
     await verifyRequest(nativeRequest("access-1"));
+
+    expect(getUser).toHaveBeenCalledTimes(2);
+  });
+
+  test("explicit sign-out revocation invalidates cached native credentials", async () => {
+    await verifyRequest(nativeRequest("access-1", "refresh-1"));
+    invalidateNativeAuthCacheForTokens({ accessToken: "access-1", refreshToken: "refresh-1" });
+    await verifyRequest(nativeRequest("access-1", "refresh-1"));
 
     expect(getUser).toHaveBeenCalledTimes(2);
   });
