@@ -53,3 +53,7 @@ func envSocketPath() string {
 	}
 	return os.Getenv("CMUX_MUX_SOCKET")
 }
+
+// Windows uses named pipes in the high-level client. Keep this helper for
+// platform-independent contract tests; it is not used to size pipe names.
+func unixSocketPathCapacity(string) int { return 108 }

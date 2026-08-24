@@ -327,11 +327,16 @@ func firstNonEmptyEnv(names ...string) string {
 }
 
 func unixSocketPathFits(path string) bool {
-	capacity := 108
-	if runtime.GOOS == "darwin" {
-		capacity = 104
+	return len([]byte(path)) < unixSocketPathCapacity(runtime.GOOS)
+}
+
+func unixSocketPathCapacity(goos string) int {
+	switch goos {
+	case "darwin", "dragonfly", "freebsd", "netbsd", "openbsd":
+		return 104
+	default:
+		return 108
 	}
-	return len([]byte(path)) < capacity
 }
 
 func (c *Client) Close() error {
