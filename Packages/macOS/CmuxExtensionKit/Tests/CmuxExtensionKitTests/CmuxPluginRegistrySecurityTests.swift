@@ -212,6 +212,14 @@ struct CmuxPluginRegistrySecurityTests {
             to: root,
             executableContents: "#!/bin/sh\nprintf original > \"$CMUX_TEST_MARKER\"\n"
         )
+        let siblingURL = root
+            .appendingPathComponent(manifest.id, isDirectory: true)
+            .appendingPathComponent("lib/helper", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: siblingURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("helper-original".utf8).write(to: siblingURL)
         let loader = CmuxPluginDirectoryLoader(directoryURL: root)
         let plugin = try #require((await loader.load()).plugins.first)
         let snapshotter = CmuxPluginExecutionSnapshotter(rootDirectoryURL: snapshotRoot)
@@ -229,6 +237,13 @@ struct CmuxPluginRegistrySecurityTests {
             Issue.record("A sealed snapshot entrypoint must reject in-place writes")
         } catch {
             // Expected: the descriptor seal removes owner-write access.
+        }
+        do {
+            try Data("helper-replacement".utf8).write(to: snapshot.directoryURL
+                .appendingPathComponent("lib/helper", isDirectory: false))
+            Issue.record("A sealed snapshot sibling must reject replacement writes")
+        } catch {
+            // Expected: the copied bundle is sealed as one read-only artifact.
         }
         try? Data("#!/bin/sh\nprintf replacement > \"$CMUX_TEST_MARKER\"\n".utf8)
             .write(to: snapshot.entrypointURL, options: .atomic)

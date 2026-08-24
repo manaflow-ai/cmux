@@ -165,7 +165,16 @@ public actor CmuxPluginExecutionSnapshotter {
             throw CmuxPluginExecutionSnapshotError.missingEntrypoint
         }
 
-        guard Darwin.fchflags(pinnedEntrypoint.descriptor, UInt32(UF_IMMUTABLE)) == 0 else {
+        do {
+            try sealSnapshot(at: stagingRoot)
+            guard Darwin.fchflags(pinnedEntrypoint.descriptor, UInt32(UF_IMMUTABLE)) == 0 else {
+                throw CmuxPluginExecutionSnapshotError.entrypointDescriptorFailed
+            }
+        } catch let error as CmuxPluginExecutionSnapshotError {
+            closeEntrypointDescriptor(pinnedEntrypoint.descriptor)
+            removeStagingRoot(stagingRoot)
+            throw error
+        } catch {
             closeEntrypointDescriptor(pinnedEntrypoint.descriptor)
             removeStagingRoot(stagingRoot)
             throw CmuxPluginExecutionSnapshotError.entrypointDescriptorFailed
@@ -265,10 +274,93 @@ public actor CmuxPluginExecutionSnapshotter {
         Darwin.close(descriptor)
     }
 
+    private func sealSnapshot(at stagingRoot: URL) throws {
+        guard let enumerator = fileManager.enumerator(
+            at: stagingRoot,
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey],
+            options: []
+        ) else {
+            throw CmuxPluginExecutionSnapshotError.validationFailed
+        }
+
+        var directories: [URL] = []
+        for case let url as URL in enumerator {
+            let values = try url.resourceValues(forKeys: [
+                .isDirectoryKey,
+                .isRegularFileKey,
+                .isSymbolicLinkKey,
+            ])
+            guard values.isSymbolicLink != true else {
+                throw CmuxPluginExecutionSnapshotError.validationFailed
+            }
+            if values.isDirectory == true {
+                directories.append(url)
+            } else if values.isRegularFile == true {
+                try sealFile(at: url)
+            } else {
+                throw CmuxPluginExecutionSnapshotError.validationFailed
+            }
+        }
+
+        // Seal children before parents so cleanup can reverse the operation
+        // without attempting to mutate an immutable directory.
+        for directory in directories.sorted(by: { depth(of: $0) > depth(of: $1) }) {
+            try sealFile(at: directory, isDirectory: true)
+        }
+        try sealFile(at: stagingRoot, isDirectory: true)
+    }
+
+    private func sealFile(at url: URL, isDirectory: Bool = false) throws {
+        let flags = O_RDONLY | O_NOFOLLOW | (isDirectory ? O_DIRECTORY : 0)
+        let descriptor = Darwin.open(url.path, flags)
+        guard descriptor >= 0 else {
+            throw CmuxPluginExecutionSnapshotError.entrypointDescriptorFailed
+        }
+        defer { Darwin.close(descriptor) }
+        guard Darwin.fchflags(descriptor, UInt32(UF_IMMUTABLE)) == 0 else {
+            throw CmuxPluginExecutionSnapshotError.entrypointDescriptorFailed
+        }
+    }
+
+    private func clearImmutableFlags(at root: URL) {
+        guard fileManager.fileExists(atPath: root.path),
+              let enumerator = fileManager.enumerator(
+                  at: root,
+                  includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                  options: []
+              ) else { return }
+        var directories: [URL] = []
+        for case let url as URL in enumerator {
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            if values?.isDirectory == true {
+                directories.append(url)
+                continue
+            }
+            clearImmutableFlag(at: url)
+        }
+        for directory in directories.sorted(by: { depth(of: $0) > depth(of: $1) }) {
+            clearImmutableFlag(at: directory, isDirectory: true)
+        }
+        clearImmutableFlag(at: root, isDirectory: true)
+    }
+
+    private func clearImmutableFlag(at url: URL, isDirectory: Bool = false) {
+        let flags = O_RDONLY | O_NOFOLLOW | (isDirectory ? O_DIRECTORY : 0)
+        let descriptor = Darwin.open(url.path, flags)
+        guard descriptor >= 0 else { return }
+        _ = Darwin.fchflags(descriptor, UInt32(0))
+        Darwin.close(descriptor)
+    }
+
+    private func depth(of url: URL) -> Int {
+        url.standardizedFileURL.pathComponents.count
+    }
+
     private func removeStagingRoot(_ stagingRoot: URL) {
         let root = rootDirectoryURL.standardizedFileURL
         let candidate = stagingRoot.standardizedFileURL
         guard candidate.path.hasPrefix(root.path + "/") else { return }
+        clearImmutableFlags(at: candidate)
         try? fileManager.removeItem(at: candidate)
     }
 }
