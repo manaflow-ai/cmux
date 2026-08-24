@@ -360,6 +360,13 @@ extension Array where Element == CuratedSettingEntry {
                 detailText: String(localized: "settings.browser.askWhereToSaveDownloads.subtitle", defaultValue: "When off, browser downloads save directly to Downloads without a save panel."),
                 synonyms: String(localized: "settings.search.alias.setting.browser.ask-where-to-save-downloads", defaultValue: "browser.askWhereToSaveDownloads downloads save panel folder attachments files pdf gmail")
             ),
+            .init(
+                section: .browser,
+                id: "capture-keyboard-shortcuts",
+                title: String(localized: "settings.browser.captureKeyboardShortcuts", defaultValue: "Allow Browser to Capture Keyboard Shortcuts"),
+                detailText: String(localized: "settings.browser.captureKeyboardShortcuts.subtitle", defaultValue: "When enabled, focused web pages receive shortcuts that would otherwise trigger cmux actions."),
+                synonyms: String(localized: "settings.search.alias.setting.browser.capture-keyboard-shortcuts", defaultValue: "browser.captureKeyboardShortcuts browser web page keyboard shortcuts capture cmux vscode command p focus")
+            ),
             .init(section: .browser, id: "terminal-links", title: "Open Terminal Links in cmux Browser", synonyms: "browser.openTerminalLinksInCmuxBrowser click url terminal links open in browser href"),
             .init(section: .browser, id: "intercept-open", title: "Intercept open http(s) in Terminal", synonyms: "browser.interceptTerminalOpenCommandInCmuxBrowser open command http https url terminal intercept"),
             .init(section: .browser, id: "host-whitelist", title: "Hosts to Open in Embedded Browser", synonyms: "browser.hostsToOpenInEmbeddedBrowser allowlist whitelist host wildcard domain embedded browser"),

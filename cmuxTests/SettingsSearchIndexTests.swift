@@ -16,6 +16,7 @@ struct SettingsSearchIndexTests {
         assertSearch("sound file", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "notification-sound"))
         assertSearch("disable browser", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "enable-browser"))
         assertSearch("default browser zoom", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "default-zoom-level"))
+        assertSearch("browser keyboard shortcuts", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "capture-keyboard-shortcuts"))
         assertSearch("http allowlist", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "http-allowlist"))
         assertSearch("browser url allowlist", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "url-allowlist"))
         assertSearch("claude executable", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "claude-path"))
@@ -72,6 +73,13 @@ struct SettingsSearchIndexTests {
         #expect(
             SettingsSearchIndex.anchorID(forSettingsPath: "browser.defaultZoomLevel")
                 == SettingsSearchIndex.settingID(for: .browser, idSuffix: "default-zoom-level")
+        )
+    }
+
+    @Test func settingsPathAnchorIncludesBrowserKeyboardShortcutCapture() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "browser.captureKeyboardShortcuts")
+                == SettingsSearchIndex.settingID(for: .browser, idSuffix: "capture-keyboard-shortcuts")
         )
     }
 

@@ -683,6 +683,16 @@ final class CmuxWebView: WKWebView {
         }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
+        if AppDelegate.shared?.shouldCaptureBrowserKeyboardShortcuts(for: self) == true {
+            if cmuxBrowserWebKitKeyDownDispatchIsActive() {
+                return finish(true)
+            }
+            let result = super.performKeyEquivalent(with: event)
+            // A page that declines a Command equivalent may be resent through
+            // keyDown by WebKit. Claim it here so AppKit's main menu cannot
+            // consume the same chord on the way back up the responder chain.
+            return finish(result || normalizedFlags.contains(.command))
+        }
         if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
             event,
             webView: self,
@@ -809,6 +819,13 @@ final class CmuxWebView: WKWebView {
 #if DEBUG
             route = "diffViewerNavigation"
 #endif
+            return
+        }
+        if AppDelegate.shared?.shouldCaptureBrowserKeyboardShortcuts(for: self) == true {
+#if DEBUG
+            route = "captureShortcutsWebView"
+#endif
+            forwardKeyDownToWebKit(event)
             return
         }
         if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(

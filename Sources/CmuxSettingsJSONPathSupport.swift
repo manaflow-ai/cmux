@@ -357,6 +357,10 @@ enum BrowserSettingsFileMapping {
             defaultsKey: SettingCatalog().browser.askWhereToSaveDownloads.userDefaultsKey
         ),
         .init(
+            jsonKey: "captureKeyboardShortcuts",
+            defaultsKey: SettingCatalog().browser.captureKeyboardShortcuts.userDefaultsKey
+        ),
+        .init(
             jsonKey: "openTerminalLinksInCmuxBrowser",
             defaultsKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey
         ),
@@ -520,6 +524,7 @@ extension CmuxSettingsFileStore {
         "browser.discardHiddenWebViews",
         "browser.hiddenWebViewDiscardDelaySeconds",
         "browser.askWhereToSaveDownloads",
+        "browser.captureKeyboardShortcuts",
         "browser.openTerminalLinksInCmuxBrowser",
         "browser.interceptTerminalOpenCommandInCmuxBrowser",
         "browser.hostsToOpenInEmbeddedBrowser",

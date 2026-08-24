@@ -92,6 +92,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   // For an unlisted provider, set "defaultSearchEngine": "custom" and fill these:
   //   "customSearchEngineName": "My Search",
   //   "customSearchEngineURLTemplate": "https://search.example.com/?q={query}",
+  //   "captureKeyboardShortcuts": true,
   //   "openTerminalLinksInCmuxBrowser": true,
   //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
   // },

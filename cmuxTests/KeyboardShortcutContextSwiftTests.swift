@@ -14,6 +14,19 @@ private typealias SimulatorStoredShortcut = cmux.StoredShortcut
 
 @Suite("Keyboard shortcut context")
 struct KeyboardShortcutContextSwiftTests {
+    @Test("browser keyboard shortcut capture setting defaults off and reads live overrides")
+    func browserKeyboardShortcutCaptureSetting() {
+        let suiteName = "cmux.browserKeyboardShortcutCapture.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(!KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled(defaults: defaults))
+        defaults.set(true, forKey: SettingCatalog().browser.captureKeyboardShortcuts.userDefaultsKey)
+        #expect(KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled(defaults: defaults))
+        defaults.set(false, forKey: SettingCatalog().browser.captureKeyboardShortcuts.userDefaultsKey)
+        #expect(!KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled(defaults: defaults))
+    }
+
     @Test("focus history and browser history partition their shared default shortcuts by focus")
     func focusAndBrowserHistoryContextsAreMutuallyExclusive() throws {
         let pairs: [(KeyboardShortcutSettings.Action, KeyboardShortcutSettings.Action)] = [

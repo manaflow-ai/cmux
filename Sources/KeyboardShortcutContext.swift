@@ -370,12 +370,19 @@ extension AppDelegate {
     /// focus and the default Cmd+I (Show Notifications) keeps working otherwise
     /// (issue #6776).
     func shortcutEventFirstResponderOwnsBrowserWebView(_ event: NSEvent) -> Bool {
+        shortcutEventBrowserWebView(event) != nil
+    }
+
+    /// Returns the focused browser web view that owns an event's responder
+    /// chain, excluding browser chrome such as the address and find bars.
+    func shortcutEventBrowserWebView(_ event: NSEvent) -> CmuxWebView? {
         let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
         guard let responder = shortcutWindow?.firstResponder,
-              let webView = shortcutOwningWebView(for: responder) else {
-            return false
+              let webView = shortcutOwningWebView(for: responder) as? CmuxWebView else {
+            return nil
         }
-        return shortcutBrowserPanel(webView: webView) != nil
+        guard shortcutBrowserPanel(webView: webView) != nil else { return nil }
+        return webView
     }
 
     private func shortcutFocusedBrowserPanel(in window: NSWindow?) -> BrowserPanel? {

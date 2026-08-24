@@ -7,7 +7,7 @@ import SwiftUI
 /// row-for-row inside a single `SettingsCard`: Enable cmux Browser,
 /// Default Search Engine, conditional Custom Search Engine fields,
 /// Show Search Suggestions, Browser Theme, Browser Memory Saver +
-/// Memory Saver Delay, Open Terminal Links / Intercept open,
+/// Memory Saver Delay, Browser Keyboard Shortcut Capture, Open Terminal Links / Intercept open,
 /// conditional Hosts / External Patterns text editors, HTTP Hosts
 /// Allowed in Embedded Browser editor, URL Allowlist editor, Import Browser Data
 /// subsection, React Grab Version, Browsing History.
@@ -27,6 +27,7 @@ public struct BrowserSection: View {
     @State private var discardEnabled: DefaultsValueModel<Bool>
     @State private var discardDelay: DefaultsValueModel<Double>
     @State private var askWhereToSaveDownloads: DefaultsValueModel<Bool>
+    @State private var captureKeyboardShortcuts: DefaultsValueModel<Bool>
     @State private var openTermLinks: DefaultsValueModel<Bool>
     @State private var interceptOpen: DefaultsValueModel<Bool>
     @State private var hosts: DefaultsValueModel<String>
@@ -74,6 +75,7 @@ public struct BrowserSection: View {
         _discardEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.discardHiddenWebViews))
         _discardDelay = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hiddenWebViewDiscardDelaySeconds))
         _askWhereToSaveDownloads = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.askWhereToSaveDownloads))
+        _captureKeyboardShortcuts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.captureKeyboardShortcuts))
         _openTermLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.openTerminalLinksInCmuxBrowser))
         _interceptOpen = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.interceptTerminalOpenCommandInCmuxBrowser))
         _hosts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hostsToOpenInEmbeddedBrowser))
@@ -103,7 +105,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
+        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, captureKeyboardShortcuts, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
                 browserManagedByPolicy = ManagedDevicePolicy().isBrowserDisableLocked(
@@ -297,6 +299,19 @@ public struct BrowserSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsBrowserAskWhereToSaveDownloadsToggle")
+            }
+            SettingsCardDivider()
+
+            // Browser keyboard shortcut capture
+            SettingsCardRow(
+                configurationReview: .json("browser.captureKeyboardShortcuts"),
+                String(localized: "settings.browser.captureKeyboardShortcuts", defaultValue: "Allow Browser to Capture Keyboard Shortcuts"),
+                subtitle: String(localized: "settings.browser.captureKeyboardShortcuts.subtitle", defaultValue: "When enabled, focused web pages receive shortcuts that would otherwise trigger cmux actions.")
+            ) {
+                Toggle("", isOn: Binding(get: { captureKeyboardShortcuts.current }, set: { captureKeyboardShortcuts.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsBrowserCaptureKeyboardShortcutsToggle")
             }
             SettingsCardDivider()
 

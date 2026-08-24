@@ -13547,6 +13547,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        if shouldCaptureBrowserKeyboardShortcuts(for: event) {
+#if DEBUG
+            cmuxDebugLog("browser.captureShortcuts.bypass \(debugShortcutRouteSnapshot(event: event))")
+#endif
+            return false
+        }
+
         if browserFocusModePanelForShortcutEvent(event) != nil {
 #if DEBUG
             cmuxDebugLog("browser.focusMode.shortcutMonitor.bypass \(debugShortcutRouteSnapshot(event: event))")
@@ -16665,6 +16672,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if event.window is NSPanel || keyWindow is NSPanel || NSApp.modalWindow != nil || keyWindow?.attachedSheet != nil {
             return false
         }
+        if shouldCaptureBrowserKeyboardShortcuts(for: event) {
+            return false
+        }
         let flags = event.modifierFlags
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
@@ -17209,6 +17219,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         browserPanelOwning(webView)?.isBrowserFocusModeActive == true
     }
 
+    /// Whether the focused browser page has opted into receiving cmux's
+    /// keyboard shortcuts as ordinary web-page input.
+    func shouldCaptureBrowserKeyboardShortcuts(for webView: CmuxWebView) -> Bool {
+        guard KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled(),
+              browserPanelOwning(webView) != nil,
+              let window = webView.window,
+              let responder = window.firstResponder as? NSView else {
+            return false
+        }
+        return responder === webView || responder.isDescendant(of: webView)
+    }
+
+    /// Event-oriented companion used by the app and window routing layers.
+    /// Resolving from the responder chain keeps browser chrome (address/find
+    /// bars) under cmux control while a page owns the keyboard.
+    func shouldCaptureBrowserKeyboardShortcuts(for event: NSEvent) -> Bool {
+        guard KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled() else {
+            return false
+        }
+        return shortcutEventBrowserWebView(event) != nil
+    }
+
+    /// Delivers a remapped-away menu shortcut to the focused browser page.
+    /// Both application-level and window-level stale-menu guards use this one
+    /// path so a browser event cannot be dropped at either AppKit boundary.
+    @discardableResult
+    func forwardStaleShortcutToFocusedBrowser(_ event: NSEvent) -> Bool {
+        guard let browserWebView = shortcutEventBrowserWebView(event),
+              let window = browserWebView.window else {
+            return false
+        }
+        return window.cmuxForceDispatchKeyDownOnce(
+            event,
+            to: browserWebView,
+            reason: "stale cmux menu shortcut browser bypass"
+        )
+    }
+
     private func isWebViewFocused(_ panel: BrowserPanel) -> Bool {
         guard let window = panel.webView.window else { return false }
         guard let fr = window.firstResponder as? NSView else { return false }
@@ -17682,7 +17730,11 @@ private extension NSApplication {
             let responder = event.window?.firstResponder
                 ?? AppDelegate.shared?.shortcutRoutingKeyWindow?.firstResponder
                 ?? mainWindow?.firstResponder
-            if let ghosttyView = responder.cmuxTerminalKeyEquivalentOwningGhosttyView() {
+            if AppDelegate.shared?.forwardStaleShortcutToFocusedBrowser(event) == true {
+#if DEBUG
+                cmuxDebugLog("app.sendEvent suppressed stale cmux menu shortcut and forwarded to browser")
+#endif
+            } else if let ghosttyView = responder.cmuxTerminalKeyEquivalentOwningGhosttyView() {
                 ghosttyView.keyDown(with: event)
 #if DEBUG
                 cmuxDebugLog("app.sendEvent suppressed stale cmux menu shortcut and forwarded to terminal")
@@ -18140,6 +18192,19 @@ private extension NSWindow {
             guard let textView = self.firstResponder as? NSTextView else { return false }
             return textView.isEditable && !textView.isFieldEditor
         }()
+        if let firstResponderWebView,
+           AppDelegate.shared?.shouldCaptureBrowserKeyboardShortcuts(for: firstResponderWebView) == true {
+            if cmuxBrowserWebKitKeyDownDispatchIsActive() {
+                return true
+            }
+            let result = firstResponderWebView.performKeyEquivalent(with: event)
+#if DEBUG
+            cmuxDebugLog(
+                "  → browser capture setting routed before cmux/menu fallback handled=\(result ? 1 : 0)"
+            )
+#endif
+            return result
+        }
         if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(event, preferredWindow: self) {
             return true
         }
@@ -18192,6 +18257,12 @@ private extension NSWindow {
             if AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
 #if DEBUG
                 cmuxDebugLog("  → consumed by configured shortcut before stale cmux menu shortcut")
+#endif
+                return true
+            }
+            if AppDelegate.shared?.forwardStaleShortcutToFocusedBrowser(event) == true {
+#if DEBUG
+                cmuxDebugLog("  → browser received command equivalent bypassing stale cmux menu shortcut")
 #endif
                 return true
             }

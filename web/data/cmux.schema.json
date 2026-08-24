@@ -1422,6 +1422,12 @@
           "descriptionKey": "schemaDescriptions.browser.askWhereToSaveDownloads",
           "description": "Show a save panel for browser downloads instead of saving directly to Downloads."
         },
+        "captureKeyboardShortcuts": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.browser.captureKeyboardShortcuts",
+          "description": "Let the focused browser page receive keyboard shortcuts that would otherwise trigger cmux actions."
+        },
         "openTerminalLinksInCmuxBrowser": {
           "type": "boolean",
           "default": true,

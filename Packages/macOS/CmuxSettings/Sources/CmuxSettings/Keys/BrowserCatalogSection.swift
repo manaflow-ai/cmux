@@ -59,6 +59,14 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserAskWhereToSaveDownloads"
     )
 
+    /// Lets the focused browser page receive keyboard shortcuts that would
+    /// otherwise be handled by cmux.
+    public let captureKeyboardShortcuts = DefaultsKey<Bool>(
+        id: "browser.captureKeyboardShortcuts",
+        defaultValue: false,
+        userDefaultsKey: "browserCaptureKeyboardShortcuts"
+    )
+
     public let openTerminalLinksInCmuxBrowser = DefaultsKey<Bool>(
         id: "browser.openTerminalLinksInCmuxBrowser",
         defaultValue: true,

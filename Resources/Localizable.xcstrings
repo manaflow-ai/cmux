@@ -169478,6 +169478,40 @@
         }
       }
     },
+    "settings.browser.captureKeyboardShortcuts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Browser to Capture Keyboard Shortcuts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザにキーボードショートカットを渡す"
+          }
+        }
+      }
+    },
+    "settings.browser.captureKeyboardShortcuts.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When enabled, focused web pages receive shortcuts that would otherwise trigger cmux actions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効にすると、通常は cmux の操作になるショートカットを、フォーカス中のWebページが受け取ります。"
+          }
+        }
+      }
+    },
     "settings.browser.customSearchEngineName": {
       "extractionState": "manual",
       "localizations": {
@@ -192352,6 +192386,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "browser.askWhereToSaveDownloads downloads save panel folder attachments files pdf gmail ダウンロード 保存先 保存パネル 添付ファイル PDF"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.browser.capture-keyboard-shortcuts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.captureKeyboardShortcuts browser web page keyboard shortcuts capture cmux vscode command p focus"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.captureKeyboardShortcuts ブラウザ Webページ キーボード ショートカット キャプチャ cmux VS Code コマンド P フォーカス"
           }
         }
       }
