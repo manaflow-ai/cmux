@@ -437,10 +437,9 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         let end = browserPane.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.70))
         start.press(forDuration: 0.2, thenDragTo: end)
 
+        let copiedChip = toolbarElement(app, identifier: "BrowserScreenshotPageCopied")
         XCTAssertTrue(
-            waitForCondition(timeout: 10.0) {
-                toolbarElement(app, identifier: "BrowserScreenshotPageCopied").exists
-            },
+            waitForCondition(timeout: 10.0) { copiedChip.exists },
             "Screenshot Section should surface the same Copied feedback chip as Screenshot Page"
         )
     }
