@@ -4,7 +4,6 @@ import AppKit
 import Carbon.HIToolbox
 import Combine
 import SwiftUI
-import ObjectiveC.runtime
 @testable import CmuxSettingsUI
 
 #if canImport(cmux_DEV)
@@ -104,30 +103,6 @@ private final class GhosttyCommandEquivalentProbeView: GhosttyNSView {
     override func pasteAsPlainText(_ sender: Any?) {
         pasteAsPlainTextCallCount += 1
     }
-}
-
-private var cmuxUnitTestBrowserKeyDownHook: ((CmuxWebView, NSEvent) -> Void)?
-private var cmuxUnitTestBrowserKeyDownOverrideInstalled = false
-
-private extension CmuxWebView {
-    @objc func cmuxUnitTest_keyDown(with event: NSEvent) {
-        cmuxUnitTestBrowserKeyDownHook?(self, event)
-        cmuxUnitTest_keyDown(with: event)
-    }
-}
-
-private func installCmuxUnitTestBrowserKeyDownOverride() {
-    guard !cmuxUnitTestBrowserKeyDownOverrideInstalled else { return }
-
-    let originalSelector = #selector(NSResponder.keyDown(with:))
-    let swizzledSelector = #selector(CmuxWebView.cmuxUnitTest_keyDown(with:))
-    guard let originalMethod = class_getInstanceMethod(CmuxWebView.self, originalSelector),
-          let swizzledMethod = class_getInstanceMethod(CmuxWebView.self, swizzledSelector) else {
-        fatalError("Unable to locate CmuxWebView keyDown methods for swizzling")
-    }
-
-    method_exchangeImplementations(originalMethod, swizzledMethod)
-    cmuxUnitTestBrowserKeyDownOverrideInstalled = true
 }
 
 @MainActor
@@ -12392,10 +12367,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testBrowserCaptureShortcutSettingYieldsConfiguredShortcutToWebPage() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
         guard let harness = makeBrowserFocusModeHarness() else { return }
         defer { closeWindow(withId: harness.windowId) }
 
@@ -12410,6 +12381,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
         UserDefaults.standard.set(true, forKey: settingKey)
 
+        installCmuxUnitTestCmuxWebViewKeyDownOverride()
+        var browserKeyDownCount = 0
+        setCmuxUnitTestCmuxWebViewKeyDownHook { webView, _ in
+            if webView === harness.webView {
+                browserKeyDownCount += 1
+            }
+            return false
+        }
+        defer { setCmuxUnitTestCmuxWebViewKeyDownHook(nil) }
+
         guard let commandR = makeKeyDownEvent(
             key: "r",
             modifiers: [.command],
@@ -12421,12 +12402,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertFalse(
-            appDelegate.debugHandleCustomShortcut(event: commandR),
-            "Enabling browser shortcut capture must yield even cmux browser shortcuts to the page"
+        NSApp.sendEvent(commandR)
+        XCTAssertEqual(
+            browserKeyDownCount,
+            1,
+            "Enabling browser shortcut capture must deliver even cmux browser shortcuts to the page"
         )
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+        XCTFail("browser keyDown test hooks are only available in DEBUG")
 #endif
     }
 
@@ -12434,14 +12417,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         guard let harness = makeBrowserFocusModeHarness() else { return }
         defer { closeWindow(withId: harness.windowId) }
 
-        installCmuxUnitTestBrowserKeyDownOverride()
         var browserKeyDownCount = 0
-        cmuxUnitTestBrowserKeyDownHook = { webView, _ in
+        installCmuxUnitTestCmuxWebViewKeyDownOverride()
+        setCmuxUnitTestCmuxWebViewKeyDownHook { webView, _ in
             if webView === harness.webView {
                 browserKeyDownCount += 1
             }
+            return false
         }
-        defer { cmuxUnitTestBrowserKeyDownHook = nil }
+        defer { setCmuxUnitTestCmuxWebViewKeyDownHook(nil) }
 
         let previousMainMenu = NSApp.mainMenu
         let menuProbe = MenuActionProbe()

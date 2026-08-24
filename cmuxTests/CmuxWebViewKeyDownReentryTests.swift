@@ -35,7 +35,7 @@ extension CmuxWebView {
     }
 }
 
-private func installCmuxUnitTestCmuxWebViewKeyDownOverride() {
+func installCmuxUnitTestCmuxWebViewKeyDownOverride() {
     guard !cmuxUnitTestCmuxWebViewKeyDownOverrideInstalled else { return }
 
     let originalSelector = #selector(CmuxWebView.keyDown(with:))
@@ -48,6 +48,12 @@ private func installCmuxUnitTestCmuxWebViewKeyDownOverride() {
 
     method_exchangeImplementations(originalMethod, swizzledMethod)
     cmuxUnitTestCmuxWebViewKeyDownOverrideInstalled = true
+}
+
+func setCmuxUnitTestCmuxWebViewKeyDownHook(
+    _ hook: ((CmuxWebView, NSEvent) -> Bool)?
+) {
+    cmuxUnitTestCmuxWebViewKeyDownHook = hook
 }
 
 @Suite(.serialized)
