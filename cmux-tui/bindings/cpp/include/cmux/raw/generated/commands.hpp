@@ -58,6 +58,7 @@ public:
     [[nodiscard]] Result<EmptyResult> browser_wheel_guarded(const BrowserWheelGuardedRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> clear_history(const ClearHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> clear_window_title(const ClearWindowTitleRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<ClientFocusResult> client_focus(const ClientFocusRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> close_pane(const ClosePaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ProviderWorkspaceMutationResult> close_provider_managed_workspace(const CloseProviderManagedWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> close_screen(const CloseScreenRequest& request, RequestOptions options = {});
@@ -113,6 +114,7 @@ public:
     [[nodiscard]] Result<EmptyResult> rename_surface(const RenameSurfaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<WorkspaceMutationResult> rename_workspace(const RenameWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReportAgentResult> report_agent(const ReportAgentRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> report_focus(const ReportFocusRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<AttachedViewResizeResult> resize_attached_view(const ResizeAttachedViewRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ResizeSurfaceResult> resize_surface(const ResizeSurfaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ResolveTerminalResult> resolve_terminal(const ResolveTerminalRequest& request, RequestOptions options = {});

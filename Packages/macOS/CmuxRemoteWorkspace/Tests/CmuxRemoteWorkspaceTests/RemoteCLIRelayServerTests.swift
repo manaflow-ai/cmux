@@ -217,12 +217,15 @@ struct RemoteCLIRelayServerTests {
             String(decoding: data, as: UTF8.self).contains("\"ok\":true")
         })
 
-        // Forward one command; response comes from the fake unix socket.
-        client.send(Data("workspace.list {}\n".utf8))
+        // Forward one authenticated JSON command; response comes from the
+        // fake unix socket. Legacy mutating commands are intentionally blocked
+        // before this point.
+        let request = #"{"id":"relay-test","method":"system.ping","params":{}}"#
+        client.send(Data((request + "\n").utf8))
         #expect(client.wait { data, closed in
             String(decoding: data, as: UTF8.self).contains("\"result\":42") && closed
         })
-        #expect(String(decoding: unixServer.request, as: UTF8.self) == "rewritten:workspace.list {}\n")
+        #expect(String(decoding: unixServer.request, as: UTF8.self) == "rewritten:" + request + "\n")
         let call = try #require(rewriter.calls.first)
         #expect(call.workspace == [workspaceAlias.remote: workspaceAlias.local])
         #expect(call.surface.isEmpty)
@@ -251,5 +254,85 @@ struct RemoteCLIRelayServerTests {
         #expect(client.wait { data, closed in
             String(decoding: data, as: UTF8.self).contains("\"ok\":false") && closed
         })
+    }
+
+    @Test("non-JSON control commands are rejected before unix forwarding")
+    func nonJSONControlCommandRejected() throws {
+        let unixServer = try FakeUnixSocketServer(response: Data("PONG\n".utf8))
+        defer { unixServer.close() }
+        let rewriter = RecordingRelayRewriter()
+        let server = try RemoteCLIRelayServer(
+            localSocketPath: unixServer.path,
+            relayID: "relay-1",
+            relayTokenHex: tokenHex,
+            commandRewriter: rewriter
+        )
+        defer { server.stop() }
+        let port = try server.start()
+
+        let client = RelayTestClient(port: port)
+        defer { client.cancel() }
+        #expect(client.wait { data, _ in data.contains(0x0A) })
+        let challenge = try #require(client.receivedJSONLines().first)
+        let nonce = try #require(challenge["nonce"] as? String)
+        let token = try #require(RemoteCLIRelayServer.Session.hexData(from: tokenHex))
+        let message = Data("relay_id=relay-1\nnonce=\(nonce)\nversion=1".utf8)
+        let mac = RemoteCLIRelayServer.Session.authMAC(token: token, message: message)
+        let auth: [String: Any] = [
+            "relay_id": "relay-1",
+            "mac": mac.map { String(format: "%02x", $0) }.joined(),
+        ]
+        client.send(try JSONSerialization.data(withJSONObject: auth) + Data([0x0A]))
+        #expect(client.wait { data, _ in
+            String(decoding: data, as: UTF8.self).contains("\"ok\":true")
+        })
+
+        client.send(Data("new-window\n".utf8))
+        #expect(client.wait { data, closed in
+            String(decoding: data, as: UTF8.self).contains("ERROR") && closed
+        })
+        #expect(unixServer.request.isEmpty)
+        #expect(rewriter.calls.isEmpty)
+    }
+
+    @Test("malformed JSON control commands are rejected before unix forwarding")
+    func malformedJSONControlCommandRejected() throws {
+        for command in ["{not-json", #"{"method":"x"} trailing"#] {
+            let unixServer = try FakeUnixSocketServer(response: Data("PONG\n".utf8))
+            defer { unixServer.close() }
+            let rewriter = RecordingRelayRewriter()
+            let server = try RemoteCLIRelayServer(
+                localSocketPath: unixServer.path,
+                relayID: "relay-1",
+                relayTokenHex: tokenHex,
+                commandRewriter: rewriter
+            )
+            defer { server.stop() }
+            let port = try server.start()
+
+            let client = RelayTestClient(port: port)
+            defer { client.cancel() }
+            #expect(client.wait { data, _ in data.contains(0x0A) })
+            let challenge = try #require(client.receivedJSONLines().first)
+            let nonce = try #require(challenge["nonce"] as? String)
+            let token = try #require(RemoteCLIRelayServer.Session.hexData(from: tokenHex))
+            let message = Data("relay_id=relay-1\nnonce=\(nonce)\nversion=1".utf8)
+            let mac = RemoteCLIRelayServer.Session.authMAC(token: token, message: message)
+            let auth: [String: Any] = [
+                "relay_id": "relay-1",
+                "mac": mac.map { String(format: "%02x", $0) }.joined(),
+            ]
+            client.send(try JSONSerialization.data(withJSONObject: auth) + Data([0x0A]))
+            #expect(client.wait { data, _ in
+                String(decoding: data, as: UTF8.self).contains("\"ok\":true")
+            })
+
+            client.send(Data((command + "\n").utf8))
+            #expect(client.wait { data, closed in
+                String(decoding: data, as: UTF8.self).contains("ERROR") && closed
+            })
+            #expect(unixServer.request.isEmpty)
+            #expect(rewriter.calls.isEmpty)
+        }
     }
 }

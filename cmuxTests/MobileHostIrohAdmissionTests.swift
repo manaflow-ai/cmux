@@ -117,39 +117,19 @@ extension MobileHostAuthorizationTests {
         let attachURL = try #require(payload["attach_url"] as? String)
         let decoded = try CmxAttachTicketInput.decode(attachURL)
 
-        #expect(!CmxPairingQRCode().isPairingCodeURLString(attachURL))
+        // The compatibility code is the plain v2 grammar: the Iroh route is
+        // dropped (it rides the primary v3 code), the Tailscale route
+        // survives, and nothing token- or identity-shaped is encoded beyond
+        // the opaque `ub` account binding.
+        #expect(CmxPairingQRCode().isPairingCodeURLString(attachURL))
         #expect(decoded.routes == [tailscale])
         #expect(decoded.authToken == nil)
-        let sourceExpiry = try #require(ticket.expiresAt)
-        let legacyExpiry = try #require(decoded.expiresAt)
-        #expect(legacyExpiry > sourceExpiry.addingTimeInterval(365 * 24 * 60 * 60))
+        #expect(decoded.expiresAt == nil)
+        #expect(decoded.macUserEmail == nil)
+        #expect(decoded.macUserID == "opaque-user-id")
+        #expect(!attachURL.contains("payload="))
         #expect(!attachURL.contains(String(repeating: "a", count: 64)))
-
-        let components = try #require(URLComponents(string: attachURL))
-        let encoded = try #require(
-            components.queryItems?.first(where: { $0.name == "payload" })?.value
-        )
-        let legacyData = try #require(Self.decodeBase64URL(encoded))
-        let legacyObject = try #require(
-            JSONSerialization.jsonObject(with: legacyData) as? [String: Any]
-        )
-        #expect(legacyObject["version"] as? Int == CmxAttachTicket.currentVersion)
-        #expect(legacyObject["expiresAt"] != nil)
-        #expect(legacyObject["auth_token"] == nil)
-        #expect(legacyObject["macUserEmail"] == nil)
-        #expect(legacyObject["macUserID"] as? String == "opaque-user-id")
-        #expect((legacyObject["routes"] as? [[String: Any]])?.count == 1)
-    }
-
-    private static func decodeBase64URL(_ value: String) -> Data? {
-        var base64 = value
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        let padding = base64.count % 4
-        if padding > 0 {
-            base64.append(String(repeating: "=", count: 4 - padding))
-        }
-        return Data(base64Encoded: base64)
+        #expect(!attachURL.contains("private@example.com"))
     }
 
     @Test func testBindingPublicationDoesNotWaitForPersistence() async {
@@ -401,6 +381,7 @@ struct IrohTailscaleVersionSkewMacGateTests {
             buildFlavor: .stable
         )
         let plan = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: enabled,
             legacyListenerRunning: false
         )
@@ -420,6 +401,7 @@ struct IrohTailscaleVersionSkewMacGateTests {
             buildFlavor: .stable
         )
         let plan = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: enabled,
             legacyListenerRunning: false
         )

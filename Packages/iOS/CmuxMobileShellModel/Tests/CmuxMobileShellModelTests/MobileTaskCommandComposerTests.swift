@@ -98,6 +98,79 @@ import Testing
         }
     }
 
+    @Test func modelSpecificEffortUsesEachProvidersNativeFlag() {
+        let seeds = MobileTaskTemplate.seedDefaults(
+            claudeName: "Claude",
+            codexName: "Codex",
+            openCodeName: "OpenCode",
+            shellName: "Shell"
+        )
+        let cases = [
+            (seeds[0], "claude-opus", "high", "claude --effort 'high' --model 'claude-opus' -- \"$CMUX_TASK_PROMPT\""),
+            (seeds[1], "gpt-5.6", "medium", "codex -c model_reasoning_effort='medium' -m 'gpt-5.6' -- \"$CMUX_TASK_PROMPT\""),
+            (seeds[2], "openai/gpt-5.6", "low", "opencode --variant 'low' --model 'openai/gpt-5.6' --prompt \"$CMUX_TASK_PROMPT\""),
+        ]
+
+        for (template, modelID, effortID, expectedCommand) in cases {
+            let result = composer.compose(
+                template: template,
+                prompt: "Fix the race",
+                modelID: modelID,
+                effortID: effortID
+            )
+            #expect(result.initialCommand == expectedCommand)
+        }
+    }
+
+    @Test func defaultModelEffortLeavesModelUnpinned() {
+        let seeds = MobileTaskTemplate.seedDefaults(
+            claudeName: "Claude",
+            codexName: "Codex",
+            openCodeName: "OpenCode",
+            shellName: "Shell"
+        )
+        let cases = [
+            (seeds[0], "claude --effort 'high' -- \"$CMUX_TASK_PROMPT\""),
+            (seeds[1], "codex -c model_reasoning_effort='high' -- \"$CMUX_TASK_PROMPT\""),
+            (seeds[2], "opencode --variant 'high' --prompt \"$CMUX_TASK_PROMPT\""),
+        ]
+
+        for (template, expectedCommand) in cases {
+            let result = composer.compose(
+                template: template,
+                prompt: "Fix the race",
+                modelID: nil,
+                effortID: "high"
+            )
+            #expect(result.initialCommand == expectedCommand)
+        }
+    }
+
+    @Test func selectedEffortReplacesEveryStaleProviderValue() {
+        let cases = [
+            (
+                MobileTaskTemplate(name: "Claude", icon: "agent:claude", command: "claude --effort low --effort=medium"),
+                "claude --effort 'high' --effort='high'"
+            ),
+            (
+                MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex -c model_reasoning_effort='low' --config=model_reasoning_effort=medium"),
+                "codex -c model_reasoning_effort='high' --config=model_reasoning_effort='high'"
+            ),
+            (
+                MobileTaskTemplate(name: "OpenCode", icon: "agent:opencode", command: "opencode --variant low --variant=medium"),
+                "opencode --variant 'high' --variant='high'"
+            ),
+        ]
+
+        for (template, expectedCommand) in cases {
+            #expect(composer.compose(
+                template: template,
+                prompt: "Fix",
+                effortID: "high"
+            ).initialCommand == expectedCommand)
+        }
+    }
+
     @Test func agentDiscoveredIdentifierFlowsToCommandWithoutDeviceCatalogKnowledge() {
         let template = MobileTaskTemplate(
             name: "Claude",
