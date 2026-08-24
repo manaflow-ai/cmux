@@ -494,7 +494,9 @@ async fn relay_session(
                         } else {
                             effective_local_trust(config)
                         };
-                        if !state.managed && configured != local_trust {
+                        if !state.managed
+                            && (configured != local_trust || local_trust == Trust::Autonomous)
+                        {
                             config.pending_trust = Some(local_trust.as_str().to_owned());
                             save(config, config_path);
                         }
@@ -591,6 +593,14 @@ async fn relay_session(
                     ServerFrame::HeartbeatAck => {}
                     ServerFrame::TrustAck { trust } => {
                         let Some(ack) = Trust::parse(&trust) else { continue };
+                        // A trust acknowledgement is only valid as the response to
+                        // the exact local reconciliation request. Managed relays
+                        // never accept server trust ACKs as local authority because
+                        // their session trust is supplied by hello_accepted.
+                        if state.managed || config.pending_trust.as_deref() != Some(ack.as_str()) {
+                            eprintln!("Ignoring unsolicited trust acknowledgement for {ack}.");
+                            continue;
+                        }
                         if ack == Trust::Autonomous && !has_yolo_confirmation(config) {
                             config.trust = Some(DEFAULT_RELAY_TRUST.as_str().to_owned());
                             config.pending_trust = Some(DEFAULT_RELAY_TRUST.as_str().to_owned());
