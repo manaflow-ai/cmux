@@ -488,6 +488,26 @@ def test_ghosttykit_checksum_pr_uses_release_guard_only() -> None:
     ]
 
 
+def test_ghosttykit_guard_wiring_pr_stays_on_release_guard() -> None:
+    result, outputs = run_detect_step_for_paths(
+        [
+            "ghostty",
+            "scripts/download-prebuilt-ghosttykit.sh",
+            "scripts/ghosttykit-checksums.txt",
+            "tests/test_ci_ghosttykit_release_check.sh",
+            ".github/workflows/ci.yml",
+        ]
+    )
+
+    assert "GhosttyKit provenance-only PR; running the release guard." in result.stdout
+    assert outputs == [
+        "macos=false",
+        "web=false",
+        "go=false",
+        "agent_session_web=false",
+    ]
+
+
 def test_app_bundled_markdown_runs_macos() -> None:
     assert_areas(["THIRD_PARTY_LICENSES.md"], macos=True, web=False, go=False)
 

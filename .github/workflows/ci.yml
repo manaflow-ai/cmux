@@ -71,14 +71,19 @@ jobs:
 
             # A provenance-only PR gets the cheap Linux guard and avoids
             # queuing the unrelated macOS/web/Go suites. Keep this exception
-            # narrow: any workflow edit or source/configuration file opts back
-            # into normal routing below.
+            # narrow: an unrelated workflow edit or source/configuration file
+            # opts back into normal routing below. The workflow edit is allowed
+            # only when this PR also contains one of the explicit provenance
+            # inputs, so this guard's own wiring does not queue unrelated app
+            # suites.
             ghosttykit_guard_only=true
             has_ghosttykit_guard_file=false
             while IFS= read -r changed_file; do
               case "$changed_file" in
                 ghostty|scripts/download-prebuilt-ghosttykit.sh|scripts/ghosttykit-checksums.txt|tests/test_ci_ghosttykit_release_check.sh)
                   has_ghosttykit_guard_file=true
+                  ;;
+                .github/workflows/ci.yml)
                   ;;
                 *)
                   ghosttykit_guard_only=false
