@@ -1775,6 +1775,37 @@ mod tests {
     use std::sync::{Arc as TestArc, Barrier, Mutex as StdMutex};
     use std::thread;
 
+    static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+    /// A unique, real directory for tests that exercise cwd canonicalization.
+    /// Do not reuse a process-id-only path: tests run in parallel and a stale
+    /// path from an interrupted run must never be removed or reused.
+    struct TestDirectory {
+        path: PathBuf,
+    }
+
+    impl TestDirectory {
+        fn new(label: &str) -> TestDirectory {
+            loop {
+                let sequence = NEXT_TEST_DIRECTORY.fetch_add(1, AtomicOrdering::Relaxed);
+                let process_id = std::process::id();
+                let path = std::env::temp_dir()
+                    .join(format!("chatmux-pty-{label}-{process_id}-{sequence}"));
+                match std::fs::create_dir(&path) {
+                    Ok(()) => return TestDirectory { path },
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => panic!("create PTY test directory failed: {error}"),
+                }
+            }
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+
     /// A fake PTY: emit() calls the subscribed sink synchronously, like the
     /// JS fakePty. Records writes/resizes/pause/kill for assertions.
     #[derive(Default)]
@@ -1915,13 +1946,15 @@ mod tests {
         sent: Arc<StdMutex<Vec<Value>>>,
         buffered: Arc<AtomicU64>,
         owner: Option<String>,
+        home: PathBuf,
+        _home: TestDirectory,
     }
 
-    fn env_map() -> HashMap<String, String> {
+    fn env_map(home: &Path) -> HashMap<String, String> {
         HashMap::from([
             ("SHELL".to_owned(), "/bin/fakesh".to_owned()),
             ("PATH".to_owned(), "/usr/bin".to_owned()),
-            ("HOME".to_owned(), "/home/u".to_owned()),
+            ("HOME".to_owned(), home.to_string_lossy().into_owned()),
         ])
     }
 
@@ -1934,10 +1967,13 @@ mod tests {
         read_dir: Option<Vec<String>>,
         ensure_socket_path: Option<PathBuf>,
     ) -> Harness {
+        let home = TestDirectory::new("harness");
+        let home_path = home.path.clone();
+        let env = env_map(&home_path);
         let recorded = Arc::new(StdMutex::new(Recorded::default()));
         let socket_dir = PathBuf::from("/run/cmux-tui-501");
         let deps = Arc::new(FakeDeps {
-            env: env_map(),
+            env: env.clone(),
             recorded: Arc::clone(&recorded),
             resolve,
             socket_dir,
@@ -1946,8 +1982,8 @@ mod tests {
         });
         let manager = PtyManager::with_limits(
             deps,
-            PathBuf::from("/home/u"),
-            env_map(),
+            home_path.clone(),
+            env,
             MAX_PTYS,
             SCROLLBACK_LIMIT,
             OUTPUT_BUFFER_CAP,
@@ -1958,6 +1994,8 @@ mod tests {
             sent: Arc::new(StdMutex::new(Vec::new())),
             buffered: Arc::new(AtomicU64::new(0)),
             owner: Some("user_owner".to_owned()),
+            home: home_path,
+            _home: home,
         }
     }
 
@@ -2097,7 +2135,7 @@ mod tests {
         assert_eq!(opened["cols"], 80);
         let pty = h.spawned()[0].clone();
         assert_eq!(pty.spawn_file, "/bin/fakesh");
-        assert_eq!(pty.spawn_cwd, PathBuf::from("/home/u"));
+        assert_eq!(pty.spawn_cwd, std::fs::canonicalize(&h.home).unwrap());
         assert_eq!(pty.spawn_term, "xterm-256color");
 
         pty.emit("hello\r\n");
@@ -2184,9 +2222,12 @@ mod tests {
 
     #[tokio::test]
     async fn scrollback_ring_is_bounded() {
+        let home = TestDirectory::new("scrollback");
+        let home_path = home.path.clone();
+        let env = env_map(&home_path);
         let recorded = Arc::new(StdMutex::new(Recorded::default()));
         let deps = Arc::new(FakeDeps {
-            env: env_map(),
+            env: env.clone(),
             recorded: Arc::clone(&recorded),
             resolve: None,
             socket_dir: PathBuf::from("/run/cmux-tui-501"),
@@ -2195,8 +2236,8 @@ mod tests {
         });
         let manager = PtyManager::with_limits(
             deps,
-            PathBuf::from("/home/u"),
-            env_map(),
+            home_path.clone(),
+            env,
             MAX_PTYS,
             32,
             OUTPUT_BUFFER_CAP,
@@ -2207,6 +2248,8 @@ mod tests {
             sent: Arc::new(StdMutex::new(Vec::new())),
             buffered: Arc::new(AtomicU64::new(0)),
             owner: Some("user_owner".to_owned()),
+            home: home_path,
+            _home: home,
         };
         h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
         let pty = h.spawned()[0].clone();
@@ -2360,7 +2403,8 @@ mod tests {
 
     #[test]
     fn pty_env_scrubs_secrets_but_keeps_a_real_term() {
-        let mut base = env_map();
+        let home = TestDirectory::new("env");
+        let mut base = env_map(&home.path);
         base.insert("OPENAI_API_KEY".to_owned(), "secret".to_owned());
         let env = pty_env(&base);
         assert!(!env.contains_key("OPENAI_API_KEY"));
@@ -2370,39 +2414,35 @@ mod tests {
 
     #[test]
     fn scoped_cwd_accepts_absolute_and_home_relative_paths() {
-        let root = std::env::temp_dir().join(format!("cmux-pty-cwd-{}", std::process::id()));
-        let nested = root.join("nested");
+        let root = TestDirectory::new("cwd");
+        let nested = root.path.join("nested");
         std::fs::create_dir_all(&nested).unwrap();
-        let home = root.to_string_lossy().into_owned();
+        let home = root.path.to_string_lossy().into_owned();
         assert_eq!(
             scoped_cwd(Some(&home), Path::new(&home), None, None).unwrap(),
-            std::fs::canonicalize(&root).unwrap()
+            std::fs::canonicalize(&root.path).unwrap()
         );
         assert_eq!(
             scoped_cwd(Some("~/nested"), Path::new(&home), None, None).unwrap(),
             std::fs::canonicalize(nested).unwrap()
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn scoped_cwd_rejects_relative_requests_and_defaults_null_or_empty() {
-        let root =
-            std::env::temp_dir().join(format!("cmux-pty-cwd-default-{}", std::process::id()));
-        std::fs::create_dir_all(&root).unwrap();
+        let root = TestDirectory::new("cwd-default");
         assert_eq!(
-            scoped_cwd(Some("relative"), &root, None, None).unwrap_err(),
+            scoped_cwd(Some("relative"), &root.path, None, None).unwrap_err(),
             "cwd must be absolute or home-relative"
         );
         assert_eq!(
-            scoped_cwd(None, &root, None, None).unwrap(),
-            std::fs::canonicalize(&root).unwrap()
+            scoped_cwd(None, &root.path, None, None).unwrap(),
+            std::fs::canonicalize(&root.path).unwrap()
         );
         assert_eq!(
-            scoped_cwd(Some(""), &root, None, None).unwrap(),
-            std::fs::canonicalize(&root).unwrap()
+            scoped_cwd(Some(""), &root.path, None, None).unwrap(),
+            std::fs::canonicalize(&root.path).unwrap()
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

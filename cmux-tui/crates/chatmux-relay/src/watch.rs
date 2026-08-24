@@ -589,7 +589,7 @@ mod tests {
             assert_eq!(opened["type"], "fs_watch_opened", "watch {index}");
         }
         let mut over_cap = open_frame("w-past-cap", &root);
-        over_cap.root = Some("/path/that/does/not/exist".to_owned());
+        over_cap.root = Some(root.to_string_lossy().into_owned());
         registry.open(over_cap, None);
         let capped = next_frame(&mut critical, &mut watch, "watch_limit").await;
         assert_eq!(capped["type"], "fs_watch_error");
