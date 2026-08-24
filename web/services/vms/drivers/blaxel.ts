@@ -13,6 +13,7 @@ import {
   type SnapshotRef,
   type VMHandle,
   type VMProvider,
+  type VMStats,
   type VMStatus,
 } from "./types";
 import { withVmSpan } from "../telemetry";
@@ -112,7 +113,7 @@ const DEFAULT_HOME_VOLUME_MB = 5120;
 
 type BlaxelSandbox = {
   metadata?: { name?: string; url?: string; createdAt?: string };
-  spec?: { runtime?: { image?: string } };
+  spec?: { runtime?: { image?: string; memory?: number } };
   state?: string;
   status?: string;
 };
@@ -806,6 +807,25 @@ export class BlaxelProvider implements VMProvider {
     return token;
   }
 
+  // The Cloud panel's activity view. A control-plane read tells us whether the machine is
+  // awake; only then do we exec on it (an exec would wake a sleeping machine, and a
+  // sleeping machine costs nothing — the panel should show that, not defeat it).
+  async getStats(vmId: string): Promise<VMStats> {
+    return withVmSpan("vm.stats", { "cmux.vm.provider": "blaxel", "cmux.vm.id": vmId }, async () => {
+      const sandbox = await this.getSandbox(vmId);
+      const memoryTotalMb = sandbox.spec?.runtime?.memory;
+      const rawState = (sandbox.state ?? "").toUpperCase();
+      const state: VMStats["state"] = rawState === "RUNNING" ? "awake" : rawState ? "asleep" : "unknown";
+      const sampledAt = Date.now();
+      const sandboxUrl = sandbox.metadata?.url;
+      if (state !== "awake" || !sandboxUrl) {
+        return { state, sampledAt, memoryTotalMb };
+      }
+      const result = await this.sandboxExec(sandboxUrl, MACHINE_STATS_COMMAND, 15_000);
+      return { state, sampledAt, ...parseMachineStats(result.stdout, memoryTotalMb) };
+    });
+  }
+
   // The exe.dev "https://vmname.exe.xyz:3456" equivalent: a private, token-gated preview URL
   // for any HTTP port on the machine. The token rides as ?bl_preview_token=... (the gateway
   // sets a cookie on first load, so pages and their websockets keep working in a browser).
@@ -858,6 +878,60 @@ async function verifiedCustomDomain(): Promise<string | null> {
   }
   cachedCustomDomain = { value, checkedAt: Date.now() };
   return value;
+}
+
+// One shell round-trip that samples everything the Cloud panel's activity view shows.
+// Two /proc/stat reads half a second apart give a real CPU% (loadavg alone lags minutes).
+export const MACHINE_STATS_COMMAND =
+  "head -1 /proc/stat; sleep 0.5; head -1 /proc/stat; cat /proc/loadavg; nproc; " +
+  "grep -E '^(MemTotal|MemAvailable):' /proc/meminfo; df -kP /root | tail -1";
+
+export function parseMachineStats(
+  stdout: string,
+  memoryTotalMbFallback?: number,
+): Omit<VMStats, "state" | "sampledAt"> {
+  const lines = stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const cpuLines = lines.filter((l) => /^cpu\s/.test(l));
+  let cpuPercent: number | undefined;
+  if (cpuLines.length >= 2) {
+    const sample = (line: string) => {
+      const n = line.split(/\s+/).slice(1).map(Number);
+      const idle = (n[3] ?? 0) + (n[4] ?? 0);
+      const total = n.reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0);
+      return { idle, total };
+    };
+    const a = sample(cpuLines[0]!);
+    const b = sample(cpuLines[cpuLines.length - 1]!);
+    const total = b.total - a.total;
+    const idle = b.idle - a.idle;
+    if (total > 0) cpuPercent = Math.max(0, Math.min(100, ((total - idle) / total) * 100));
+  }
+  const loadLine = lines.find((l) => /^\d+(\.\d+)?\s+\d+(\.\d+)?\s+\d+(\.\d+)?\s+\d+\/\d+/.test(l));
+  const loadAverage1m = loadLine ? Number(loadLine.split(/\s+/)[0]) : undefined;
+  const cpusLine = lines.find((l) => /^\d+$/.test(l));
+  const cpus = cpusLine ? Number(cpusLine) : undefined;
+  const memKb = (key: string) => {
+    const line = lines.find((l) => l.startsWith(`${key}:`));
+    const value = line ? Number(line.split(/\s+/)[1]) : NaN;
+    return Number.isFinite(value) ? value : undefined;
+  };
+  const memTotalKb = memKb("MemTotal");
+  const memAvailableKb = memKb("MemAvailable");
+  const memoryTotalMb = memTotalKb !== undefined ? Math.round(memTotalKb / 1024) : memoryTotalMbFallback;
+  const memoryUsedMb =
+    memTotalKb !== undefined && memAvailableKb !== undefined
+      ? Math.max(0, Math.round((memTotalKb - memAvailableKb) / 1024))
+      : undefined;
+  // df -kP: Filesystem 1024-blocks Used Available Capacity Mounted
+  const dfLine = lines.find((l) => /^\S+\s+\d+\s+\d+\s+\d+\s+\d+%/.test(l));
+  let diskTotalMb: number | undefined;
+  let diskUsedMb: number | undefined;
+  if (dfLine) {
+    const cols = dfLine.split(/\s+/);
+    diskTotalMb = Math.round(Number(cols[1]) / 1024);
+    diskUsedMb = Math.round(Number(cols[2]) / 1024);
+  }
+  return { cpus, cpuPercent, loadAverage1m, memoryTotalMb, memoryUsedMb, diskTotalMb, diskUsedMb };
 }
 
 function brandedPreviewPrefix(vmId: string, previewName: string, port: number): string | null {

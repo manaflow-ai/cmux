@@ -6,6 +6,20 @@ export type ProviderId = "e2b" | "freestyle" | "daytona" | "blaxel";
 
 export type VMStatus = "creating" | "running" | "paused" | "destroyed";
 
+/// A point-in-time reading of one machine. Sleeping machines are never woken for a
+/// reading: they report `asleep` with only their provisioned memory.
+export type VMStats = {
+  readonly state: "awake" | "asleep" | "unknown";
+  readonly sampledAt: number;
+  readonly cpus?: number;
+  readonly cpuPercent?: number;
+  readonly loadAverage1m?: number;
+  readonly memoryTotalMb?: number;
+  readonly memoryUsedMb?: number;
+  readonly diskTotalMb?: number;
+  readonly diskUsedMb?: number;
+};
+
 export type VMHandle = {
   provider: ProviderId;
   providerVmId: string;
@@ -113,6 +127,9 @@ export interface VMProvider {
   destroy(vmId: string): Promise<void>;
 
   getStatus?(vmId: string): Promise<VMStatus>;
+  /// Live CPU/memory/disk for the Cloud panel's activity view. Must not wake a
+  /// sleeping machine.
+  getStats?(vmId: string): Promise<VMStats>;
 
   pause(vmId: string): Promise<void>;
   resume(vmId: string): Promise<VMHandle>;

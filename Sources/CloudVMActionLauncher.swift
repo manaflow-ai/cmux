@@ -177,10 +177,14 @@ final class CloudVMActionLauncher {
         let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
         let limitedOutput = String(trimmedOutput.prefix(2000))
         let safeOutput = sanitizedCloudVMStartOutput(limitedOutput)
+        // When the whole transcript is held back (it mentions backend internals),
+        // still tell the person *why* it failed: the CLI's first line is the
+        // human-readable reason ("Cloud VM state is unavailable (HTTP 503 …)").
+        let reason = safeOutput.isEmpty ? firstSafeLine(of: limitedOutput) : nil
         let whatToTry = String(localized: "command.cloudVM.failed.whatToTry", defaultValue: "What to try:")
         let details = String(localized: "command.cloudVM.failed.details", defaultValue: "Details:")
         var sections = [
-            summary,
+            reason.map { "\(summary)\n\($0)" } ?? summary,
             "\(whatToTry)\n\(action)",
         ]
         if !safeOutput.isEmpty {
@@ -204,6 +208,21 @@ final class CloudVMActionLauncher {
         } else {
             _ = alert.runModal()
         }
+    }
+
+    /// The first line of CLI output that passes the same redaction as the full
+    /// transcript, with an "Error:" prefix dropped. Nil when no line is safe.
+    private func firstSafeLine(of output: String) -> String? {
+        for rawLine in output.split(whereSeparator: \.isNewline) {
+            var line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.lowercased().hasPrefix("error:") {
+                line = String(line.dropFirst("error:".count)).trimmingCharacters(in: .whitespaces)
+            }
+            guard !line.isEmpty else { continue }
+            let safe = sanitizedCloudVMStartOutput(line)
+            if !safe.isEmpty { return String(safe.prefix(240)) }
+        }
+        return nil
     }
 
     private func sanitizedCloudVMStartOutput(_ output: String) -> String {

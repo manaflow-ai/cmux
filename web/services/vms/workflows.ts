@@ -1468,6 +1468,29 @@ export function execVm(input: {
   });
 }
 
+export function getVmStats(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+}) {
+  return Effect.gen(function* () {
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireUserVm(input);
+    // No resume preflight on purpose: a reading must never wake a sleeping machine.
+    if (!providers.getStats) {
+      return yield* Effect.fail(
+        new VmProviderOperationError({
+          provider: vm.provider,
+          operation: "getStats",
+          cause: new Error("machine stats are not supported by this deployment"),
+        }),
+      );
+    }
+    return yield* providers.getStats(vm.provider, input.providerVmId);
+  });
+}
+
 export function openVmPort(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;

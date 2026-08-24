@@ -8,7 +8,7 @@ async function body(response: Response): Promise<Record<string, unknown>> {
 
 describe("free plan VM allowance", () => {
   test("free users get 3 Cloud VMs by default", () => {
-    expect(maxActiveVmsForPlan("free", {})).toBe(2);
+    expect(maxActiveVmsForPlan("free", {})).toBe(3);
   });
 
   test("paid plans keep a higher default allowance", () => {

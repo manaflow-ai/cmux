@@ -33,6 +33,18 @@ struct MachinesPanelView: View {
                         .truncationMode(.tail)
                 }
                 .padding(.leading, 8)
+            } else if viewModel.lastErrorDescription != nil, !viewModel.machines.isEmpty {
+                HStack(spacing: 5) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(String(localized: "machines.unavailable.stale", defaultValue: "Cloud unreachable \u{2014} showing last known"))
+                        .cmuxFont(size: 11)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .foregroundColor(.orange.opacity(0.9))
+                .padding(.leading, 8)
+                .help(viewModel.lastErrorDescription ?? "")
             } else if let plan = viewModel.plan {
                 MachinePlanMeter(plan: plan)
             }
@@ -49,8 +61,7 @@ struct MachinesPanelView: View {
                 accessibilityLabel: String(localized: "machines.new", defaultValue: "New Machine"),
                 isBusy: false
             ) {
-                viewModel.beginOperation(String(localized: "machines.operation.create", defaultValue: "Creating a new machine\u{2026}"))
-                MachineRowActions.openNewMachine { [weak viewModel] _ in viewModel?.endOperation() }
+                requestNewMachine()
             }
         }
         .rightSidebarChromeBar()
@@ -64,6 +75,17 @@ struct MachinesPanelView: View {
         } else {
             machinesList
         }
+    }
+
+    /// ＋ on a free plan at its ceiling is the upgrade moment: open the Pro flow
+    /// instead of launching a create that the backend would only paywall.
+    private func requestNewMachine() {
+        if let plan = viewModel.plan, plan.isAtLimit, !plan.isPaidPlan {
+            ProUpgradePresenter.present()
+            return
+        }
+        viewModel.beginOperation(String(localized: "machines.operation.create", defaultValue: "Creating a new machine\u{2026}"))
+        MachineRowActions.openNewMachine { [weak viewModel] _ in viewModel?.endOperation() }
     }
 
     private var machinesList: some View {
@@ -85,7 +107,31 @@ struct MachinesPanelView: View {
     private var emptyState: some View {
         VStack(spacing: 10) {
             Spacer()
-            if viewModel.hasLoadedOnce {
+            if viewModel.hasLoadedOnce, viewModel.lastErrorDescription != nil {
+                // The list failed to load: say so instead of pretending the fleet is
+                // empty, and make retry one click.
+                Image(systemName: "cloud.slash")
+                    .font(.system(size: 26, weight: .light))
+                    .foregroundColor(.secondary.opacity(0.55))
+                Text(String(localized: "machines.unavailable.title", defaultValue: "Cloud is unreachable"))
+                    .cmuxFont(size: 13)
+                    .foregroundColor(.primary.opacity(0.85))
+                Text(String(
+                    localized: "machines.unavailable.subtitle",
+                    defaultValue: "Your machines are still there. cmux couldn\u{2019}t reach the Cloud service just now; it retries on its own."
+                ))
+                .cmuxFont(size: 12)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+                Button {
+                    viewModel.refresh()
+                } label: {
+                    Text(String(localized: "machines.unavailable.retry", defaultValue: "Retry"))
+                        .cmuxFont(size: 12)
+                }
+                .padding(.top, 2)
+            } else if viewModel.hasLoadedOnce {
                 Image(systemName: "server.rack")
                     .font(.system(size: 26, weight: .light))
                     .foregroundColor(.secondary.opacity(0.55))
@@ -101,8 +147,7 @@ struct MachinesPanelView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
                 Button {
-                    viewModel.beginOperation(String(localized: "machines.operation.create", defaultValue: "Creating a new machine\u{2026}"))
-                    MachineRowActions.openNewMachine { [weak viewModel] _ in viewModel?.endOperation() }
+                    requestNewMachine()
                 } label: {
                     Text(String(localized: "machines.empty.create", defaultValue: "New Machine"))
                         .cmuxFont(size: 12)
@@ -115,6 +160,87 @@ struct MachinesPanelView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// The activity-monitor line under a machine: three gauges (CPU, memory, disk)
+/// with used / total, or "Asleep · free" when the machine is hibernated.
+private struct MachineStatsLine: View {
+    let stats: VMStats
+
+    var body: some View {
+        HStack(spacing: 10) {
+            switch stats.state {
+            case .awake:
+                if let cpu = stats.cpuPercent {
+                    gauge(
+                        label: String(localized: "machines.stats.cpu", defaultValue: "CPU"),
+                        fraction: cpu / 100,
+                        text: "\(Int(cpu.rounded()))%"
+                    )
+                }
+                if let used = stats.memoryUsedMb, let total = stats.memoryTotalMb, total > 0 {
+                    gauge(
+                        label: String(localized: "machines.stats.memory", defaultValue: "Mem"),
+                        fraction: Double(used) / Double(total),
+                        text: Self.gbPair(usedMb: used, totalMb: total)
+                    )
+                }
+                if let used = stats.diskUsedMb, let total = stats.diskTotalMb, total > 0 {
+                    gauge(
+                        label: String(localized: "machines.stats.disk", defaultValue: "Disk"),
+                        fraction: Double(used) / Double(total),
+                        text: Self.gbPair(usedMb: used, totalMb: total)
+                    )
+                }
+            case .asleep:
+                Text(String(localized: "machines.stats.asleep", defaultValue: "Asleep \u{00B7} free while it sleeps"))
+                    .cmuxFont(size: 10.5)
+                    .foregroundColor(.secondary.opacity(0.7))
+                if let total = stats.memoryTotalMb {
+                    Text(String(format: String(localized: "machines.stats.provisioned", defaultValue: "%@ GB"), Self.gb(total)))
+                        .cmuxFont(size: 10.5)
+                        .foregroundColor(.secondary.opacity(0.55))
+                }
+            case .unknown:
+                EmptyView()
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func gauge(label: String, fraction: Double, text: String) -> some View {
+        let clamped = max(0, min(1, fraction))
+        return HStack(spacing: 4) {
+            Text(label)
+                .cmuxFont(size: 10)
+                .foregroundColor(.secondary.opacity(0.6))
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.primary.opacity(0.08))
+                Capsule().fill(gaugeColor(clamped)).frame(width: 34 * clamped)
+            }
+            .frame(width: 34, height: 4)
+            Text(text)
+                .cmuxFont(size: 10)
+                .foregroundColor(.secondary.opacity(0.8))
+                .monospacedDigit()
+        }
+        .accessibilityLabel("\(label) \(text)")
+    }
+
+    private func gaugeColor(_ fraction: Double) -> Color {
+        if fraction >= 0.9 { return Color.red.opacity(0.8) }
+        if fraction >= 0.7 { return Color.orange.opacity(0.85) }
+        return Color.accentColor.opacity(0.75)
+    }
+
+    static func gb(_ mb: Int) -> String {
+        let value = Double(mb) / 1024
+        return value >= 10 ? String(format: "%.0f", value) : String(format: "%.1f", value)
+    }
+
+    static func gbPair(usedMb: Int, totalMb: Int) -> String {
+        "\(gb(usedMb))/\(gb(totalMb)) GB"
     }
 }
 
@@ -292,6 +418,7 @@ struct MachineRowActions {
         arguments: [String],
         successTitle: String? = nil,
         presentOutputOnSuccess: Bool = false,
+        onSuccess: (@MainActor () -> Void)? = nil,
         onDidMutate: @escaping @MainActor () -> Void
     ) {
         let socketPath = TerminalController.shared.activeSocketPath(
@@ -303,7 +430,10 @@ struct MachineRowActions {
             arguments: arguments,
             successTitle: successTitle,
             presentOutputOnSuccess: presentOutputOnSuccess
-        ) { _ in
+        ) { completion in
+            if completion.terminationStatus == 0 {
+                onSuccess?()
+            }
             onDidMutate()
         }
     }
@@ -372,7 +502,14 @@ struct MachineRowActions {
         let respond: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .alertFirstButtonReturn else { return }
             onWillMutate(operationLabel(verb: ["rm"], id: id))
-            launch(arguments: ["vm", "rm", id], onDidMutate: onDidMutate)
+            launch(
+                arguments: ["vm", "rm", id],
+                onSuccess: {
+                    // The machine is gone; its workspaces would only sit there "Connected".
+                    AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: id)
+                },
+                onDidMutate: onDidMutate
+            )
         }
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
             alert.beginSheetModal(for: window, completionHandler: respond)
@@ -406,6 +543,10 @@ private struct MachineRow: View, Equatable {
                     .cmuxFont(size: 11)
                     .foregroundColor(.secondary.opacity(0.75))
                     .lineLimit(1)
+                if let stats = machine.stats {
+                    MachineStatsLine(stats: stats)
+                        .padding(.top, 2)
+                }
             }
             Spacer(minLength: 8)
             if isHovered {

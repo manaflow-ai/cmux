@@ -12,6 +12,7 @@ import {
   type SSHEndpoint,
   type VMHandle,
   type VMStatus,
+  type VMStats,
 } from "./drivers";
 import { VmProviderOperationError } from "./errors";
 
@@ -39,6 +40,10 @@ export type VmProviderGatewayShape = {
     vmId: string,
     port: number,
   ) => Effect.Effect<{ url: string; token: string; openUrl: string }, VmProviderOperationError>;
+  readonly getStats?: (
+    provider: ProviderId,
+    vmId: string,
+  ) => Effect.Effect<VMStats, VmProviderOperationError>;
   readonly openAttach: (
     provider: ProviderId,
     vmId: string,
@@ -103,6 +108,14 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
         throw new Error(`provider ${provider} does not support opening ports`);
       }
       return impl.openPort(vmId, port);
+    }),
+  getStats: (provider, vmId) =>
+    providerEffect(provider, "getStats", () => {
+      const impl = getProvider(provider);
+      if (!impl.getStats) {
+        throw new Error(`provider ${provider} does not report machine stats`);
+      }
+      return impl.getStats(vmId);
     }),
   openAttach: (provider, vmId, options) =>
     providerEffect(provider, "openAttach", () => getProvider(provider).openAttach(vmId, options)),

@@ -22,6 +22,8 @@ struct MachineSnapshot: Equatable, Identifiable {
     let createdAt: Date?
     /// User-chosen label; nil when the machine has no label.
     let label: String?
+    /// Latest activity reading; nil until the first sample lands.
+    var stats: VMStats?
 
     var displayName: String { label?.isEmpty == false ? label! : id }
 
@@ -64,7 +66,8 @@ enum MachineSnapshotBuilder {
             createdAt: summary.createdAt > 0
                 ? Date(timeIntervalSince1970: TimeInterval(summary.createdAt) / 1000)
                 : nil,
-            label: summary.displayName
+            label: summary.displayName,
+            stats: nil
         )
     }
 
@@ -116,6 +119,32 @@ final class MachinesPanelViewModel: ObservableObject {
 
     private var refreshTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
+    private var statsTask: Task<Void, Never>?
+    private static let statsInterval: Duration = .seconds(20)
+
+    /// Samples every machine's CPU/memory/disk. Sleeping machines report
+    /// `asleep` without being woken, so polling never costs the user anything.
+    func refreshStats() {
+        statsTask?.cancel()
+        let ids = machines.map(\.id)
+        guard !ids.isEmpty else { return }
+        statsTask = Task { [weak self] in
+            await withTaskGroup(of: (String, VMStats?).self) { group in
+                for id in ids {
+                    group.addTask {
+                        (id, try? await VMClient.shared.stats(id: id))
+                    }
+                }
+                for await (id, stats) in group {
+                    guard !Task.isCancelled, let stats else { continue }
+                    await MainActor.run { [weak self] in
+                        guard let self, let index = self.machines.firstIndex(where: { $0.id == id }) else { return }
+                        self.machines[index].stats = stats
+                    }
+                }
+            }
+        }
+    }
     private static let pollInterval: Duration = .seconds(45)
 
     func refresh() {
@@ -143,6 +172,8 @@ final class MachinesPanelViewModel: ObservableObject {
     func stopPolling() {
         pollTask?.cancel()
         pollTask = nil
+        statsTask?.cancel()
+        statsTask = nil
     }
 
     private func performRefresh() async {
@@ -152,8 +183,13 @@ final class MachinesPanelViewModel: ObservableObject {
         }
         do {
             let page = try await client.listPage()
-            let snapshots = page.vms.map(MachineSnapshotBuilder.snapshot(from:))
+            let previous = Dictionary(uniqueKeysWithValues: machines.map { ($0.id, $0.stats) })
+            var snapshots = page.vms.map(MachineSnapshotBuilder.snapshot(from:))
+            for index in snapshots.indices {
+                snapshots[index].stats = previous[snapshots[index].id] ?? nil
+            }
             machines = snapshots
+            refreshStats()
             plan = MachineSnapshotBuilder.planSnapshot(activeCount: snapshots.count, limits: page.limits)
             lastErrorDescription = nil
         } catch {

@@ -60,6 +60,26 @@ extension TerminalController {
                 let vm = try await VMClient.shared.status(id: vmId)
                 return Self.socketWorkerVMSummaryPayload(vm)
             }
+        case "vm.stats":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.stats requires `id`. Run `cmux vm ls` to find one.")
+            }
+            return v2VmCall(id: id) {
+                let stats = try await VMClient.shared.stats(id: vmId)
+                var payload: [String: Any] = [
+                    "id": vmId,
+                    "state": stats.state.rawValue,
+                    "sampled_at_unix": Int(stats.sampledAt.timeIntervalSince1970),
+                ]
+                payload["cpus"] = stats.cpus
+                payload["cpu_percent"] = stats.cpuPercent
+                payload["load_average_1m"] = stats.loadAverage1m
+                payload["memory_total_mb"] = stats.memoryTotalMb
+                payload["memory_used_mb"] = stats.memoryUsedMb
+                payload["disk_total_mb"] = stats.diskTotalMb
+                payload["disk_used_mb"] = stats.diskUsedMb
+                return payload.compactMapValues { $0 }
+            }
         case "vm.rename":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.rename requires `id`. Run `cmux vm ls` to find one.")

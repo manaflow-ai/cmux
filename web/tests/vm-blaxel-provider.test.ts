@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 import {
   BlaxelProvider,
+  parseMachineStats,
   resolveDaemonSource,
   usablePrivatePreviewUrl,
   verifyDaemonDigest,
@@ -329,5 +330,35 @@ describe("BlaxelProvider preview branding under races", () => {
       fetchMock.restore();
       restoreEnv();
     }
+  });
+});
+
+describe("BlaxelProvider machine stats parsing", () => {
+  test("turns the sampled /proc output into CPU, memory, and disk readings", () => {
+    const stdout = [
+      "cpu  1000 0 500 8000 100 0 0 0 0 0",
+      "cpu  1300 0 600 8100 100 0 0 0 0 0",
+      "0.42 0.30 0.20 1/123 4567",
+      "2",
+      "MemTotal:       4194304 kB",
+      "MemAvailable:   3145728 kB",
+      "/dev/vdb       5242880 1310720 3932160  26% /root",
+    ].join("\n");
+    const stats = parseMachineStats(stdout, 4096);
+    expect(stats.cpus).toBe(2);
+    // 500 busy ticks out of 600 total between the two samples.
+    expect(Math.round(stats.cpuPercent ?? -1)).toBe(80);
+    expect(stats.loadAverage1m).toBeCloseTo(0.42);
+    expect(stats.memoryTotalMb).toBe(4096);
+    expect(stats.memoryUsedMb).toBe(1024);
+    expect(stats.diskTotalMb).toBe(5120);
+    expect(stats.diskUsedMb).toBe(1280);
+  });
+
+  test("falls back to provisioned memory and leaves unknown fields undefined", () => {
+    const stats = parseMachineStats("", 2048);
+    expect(stats.memoryTotalMb).toBe(2048);
+    expect(stats.cpuPercent).toBeUndefined();
+    expect(stats.diskTotalMb).toBeUndefined();
   });
 });

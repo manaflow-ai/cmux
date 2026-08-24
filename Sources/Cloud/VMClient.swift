@@ -276,6 +276,27 @@ struct VMListPage {
     let limits: VMPlanLimits?
 }
 
+/// A point-in-time reading of one machine, as `GET /api/vm/{id}/stats` reports it.
+/// Sleeping machines are never woken for a reading: they come back `asleep` with
+/// only their provisioned memory.
+struct VMStats: Equatable {
+    enum State: String, Equatable {
+        case awake
+        case asleep
+        case unknown
+    }
+
+    let state: State
+    let sampledAt: Date
+    let cpus: Int?
+    let cpuPercent: Double?
+    let loadAverage1m: Double?
+    let memoryTotalMb: Int?
+    let memoryUsedMb: Int?
+    let diskTotalMb: Int?
+    let diskUsedMb: Int?
+}
+
 struct VMBaseSummary {
     let id: String
     let name: String
@@ -776,6 +797,36 @@ actor VMClient {
         let stdout = (obj["stdout"] as? String) ?? ""
         let stderr = (obj["stderr"] as? String) ?? ""
         return VMExecResult(exitCode: exitCode, stdout: stdout, stderr: stderr)
+    }
+
+    func stats(id: String) async throws -> VMStats {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)/stats", timeoutSeconds: 30)
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        let state = VMStats.State(rawValue: (obj["state"] as? String) ?? "") ?? .unknown
+        func int(_ key: String) -> Int? {
+            if let v = obj[key] as? Int { return v }
+            if let v = obj[key] as? Double { return Int(v) }
+            return nil
+        }
+        func double(_ key: String) -> Double? {
+            if let v = obj[key] as? Double { return v }
+            if let v = obj[key] as? Int { return Double(v) }
+            return nil
+        }
+        let sampledAtMs = double("sampledAt") ?? Date().timeIntervalSince1970 * 1000
+        return VMStats(
+            state: state,
+            sampledAt: Date(timeIntervalSince1970: sampledAtMs / 1000),
+            cpus: int("cpus"),
+            cpuPercent: double("cpuPercent"),
+            loadAverage1m: double("loadAverage1m"),
+            memoryTotalMb: int("memoryTotalMb"),
+            memoryUsedMb: int("memoryUsedMb"),
+            diskTotalMb: int("diskTotalMb"),
+            diskUsedMb: int("diskUsedMb")
+        )
     }
 
     func openPort(id: String, port: Int) async throws -> VMOpenPortEndpoint {

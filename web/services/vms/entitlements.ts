@@ -168,7 +168,7 @@ function activeVmLimitForPlan(planId: string, env: Record<string, string | undef
   if (planId === "free") {
     // Free users get two machines before the create path becomes the upgrade prompt
     // (vmActiveLimitExceededResponse renders the paywall variant for unpaid plans).
-    return positiveInteger(env.CMUX_VM_FREE_MAX_ACTIVE_VMS ?? "2", "CMUX_VM_FREE_MAX_ACTIVE_VMS");
+    return positiveInteger(env.CMUX_VM_FREE_MAX_ACTIVE_VMS ?? "3", "CMUX_VM_FREE_MAX_ACTIVE_VMS");
   }
 
   return positiveInteger(env.CMUX_VM_PAID_MAX_ACTIVE_VMS ?? "15", "CMUX_VM_PAID_MAX_ACTIVE_VMS");

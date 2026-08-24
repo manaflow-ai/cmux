@@ -196,7 +196,8 @@ VM subcommands:
 | `vm ls`, `vm list` | List VMs. |
 | `vm new`, `vm create` | Create a VM. Supports `--image`, `--provider`, `--detach`, and `-d`. |
 | `vm shell`, `vm attach` | Open an interactive shell for an existing VM. |
-| `vm desktop <id>`, `vm vnc <id>` | Open a shell workspace for the VM plus its noVNC desktop in a browser split (desktop-image machines). |
+| `vm stats <id>`, `vm top <id>` | Print CPU, memory, and disk for the machine right now; a sleeping machine reports `asleep` and is not woken. |
+| `vm desktop <id>`, `vm vnc <id>` | Open the VM's noVNC desktop as a browser pane in the workspace you are in (or `--workspace <id|ref|index>`); desktop-image machines only. |
 | `vm rename <id> <label>`, `vm rename <id> --clear` | Set or clear a display label; the machine id stays its address. |
 | `vm rm`, `vm destroy`, `vm delete` | Destroy a VM. |
 | `vm ssh` | Open a cmux-managed SSH workspace for an existing VM. |
