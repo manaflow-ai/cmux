@@ -276,7 +276,7 @@ struct TaskComposerDirectoryPickerView: View {
                 locationChip(
                     title: L10n.string(
                         "mobile.taskComposer.directoryPicker.browse.computer",
-                        defaultValue: "Computer"
+                        defaultValue: "Connection"
                     ),
                     systemImage: "internaldrive.fill",
                     path: "/",
@@ -542,7 +542,7 @@ struct TaskComposerDirectoryPickerView: View {
         guard path != "/" else {
             return L10n.string(
                 "mobile.taskComposer.directoryPicker.browse.computer",
-                defaultValue: "Computer"
+                defaultValue: "Connection"
             )
         }
         let name = URL(fileURLWithPath: path).lastPathComponent

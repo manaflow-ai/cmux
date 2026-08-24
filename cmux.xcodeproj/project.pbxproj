@@ -632,9 +632,9 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C9A2B00000000000000000B3 /* CmuxAppKitSupportUI in Frameworks */ = {isa = PBXBuildFile; productRef = C9A2B00000000000000000B2 /* CmuxAppKitSupportUI */; };
 		C9A2B00000000000000000C3 /* CmuxAppKitSupportUI in Frameworks */ = {isa = PBXBuildFile; productRef = C9A2B00000000000000000C2 /* CmuxAppKitSupportUI */; };
 		5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
-		A1000001A1B2C3D4E5F60718 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
+		A99940010000000000000001 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
 		53750003A0B1C2D3E4F50003 /* CmuxAuthRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */; };
-		A1000002A1B2C3D4E5F60718 /* CmuxAuthRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */; };
+		A99940020000000000000001 /* CmuxAuthRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */; };
 		D7032A060000000000000001 /* CmuxBrowser in Frameworks */ = {isa = PBXBuildFile; productRef = D7032A060000000000000002 /* CmuxBrowser */; };
 		E3B7A30000000000000000C3 /* CmuxBrowser in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000C2 /* CmuxBrowser */; };
 		947194719471947194719472 /* CmuxBundledBinPathIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 947194719471947194719471 /* CmuxBundledBinPathIntegrationTests.swift */; };
@@ -1614,6 +1614,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D1F0A003000000000000000F /* PhonePushSerialDeliveryQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A0030000000000000010 /* PhonePushSerialDeliveryQueue.swift */; };
 		D1F0A00400000000000000C1 /* PhonePushSerialDeliveryQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00400000000000000C2 /* PhonePushSerialDeliveryQueueTests.swift */; };
 		D1F0A0030000000000000011 /* PhonePushServerSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A0030000000000000012 /* PhonePushServerSummary.swift */; };
+		D1F0A0990000000000000001 /* PhoneReplyInboxClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A0990000000000000002 /* PhoneReplyInboxClient.swift */; };
+		D1F0A0990000000000000003 /* PhoneReplyInboxCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A0990000000000000004 /* PhoneReplyInboxCoordinator.swift */; };
 		C08672010000000000000007 /* PiCompactedFeedEventExpander.swift in Sources */ = {isa = PBXBuildFile; fileRef = C08672010000000000000008 /* PiCompactedFeedEventExpander.swift */; };
 		B79500210000000000000001 /* PIDPresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500210000000000000002 /* PIDPresence.swift */; };
 		8672F0038672F0038672F003 /* PiFeedDecodeErrorPrivacyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672F0048672F0048672F004 /* PiFeedDecodeErrorPrivacyTests.swift */; };
@@ -4429,6 +4431,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D1F0A0030000000000000010 /* PhonePushSerialDeliveryQueue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushSerialDeliveryQueue.swift; sourceTree = "<group>"; };
 		D1F0A00400000000000000C2 /* PhonePushSerialDeliveryQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhonePushSerialDeliveryQueueTests.swift; sourceTree = "<group>"; };
 		D1F0A0030000000000000012 /* PhonePushServerSummary.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushServerSummary.swift; sourceTree = "<group>"; };
+		D1F0A0990000000000000002 /* PhoneReplyInboxClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhoneReplyInboxClient.swift; sourceTree = "<group>"; };
+		D1F0A0990000000000000004 /* PhoneReplyInboxCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhoneReplyInboxCoordinator.swift; sourceTree = "<group>"; };
 		C08672010000000000000008 /* PiCompactedFeedEventExpander.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiCompactedFeedEventExpander.swift; sourceTree = "<group>"; };
 		B79500210000000000000002 /* PIDPresence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PIDPresence.swift; sourceTree = "<group>"; };
 		8672F0048672F0048672F004 /* PiFeedDecodeErrorPrivacyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiFeedDecodeErrorPrivacyTests.swift; sourceTree = "<group>"; };
@@ -5739,8 +5743,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			files = (
 				B057B0017E57B0017E57B001 /* Bonsplit in Frameworks */,
 				C9A2B00000000000000000C3 /* CmuxAppKitSupportUI in Frameworks */,
-				A1000001A1B2C3D4E5F60718 /* CMUXAuthCore in Frameworks */,
-				A1000002A1B2C3D4E5F60718 /* CmuxAuthRuntime in Frameworks */,
+				A99940010000000000000001 /* CMUXAuthCore in Frameworks */,
+				A99940020000000000000001 /* CmuxAuthRuntime in Frameworks */,
 				D7032A060000000000000001 /* CmuxBrowser in Frameworks */,
 				CA52A007CA52A007CA52A007 /* CmuxCanvas in Frameworks */,
 				5E55500000000000000000E4 /* CmuxCommandPalette in Frameworks */,
@@ -6018,6 +6022,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				DE71CE000000000000000003 /* DeviceRegistryClient.swift */,
 				D1F0A00100000000000000B2 /* PresenceHeartbeatClient.swift */,
 				D1F0A01100000000000000B2 /* ConnectivityInvalidationSubscriberCoordinator.swift */,
+				D1F0A0990000000000000002 /* PhoneReplyInboxClient.swift */,
+				D1F0A0990000000000000004 /* PhoneReplyInboxCoordinator.swift */,
 				D1F0A00600000000000000C2 /* MacPairedMacBackupBody.swift */,
 				D1F0A00700000000000000C2 /* MacPairedMacBackupOpWire.swift */,
 				D1F0A00100000000000000C2 /* MacPairedMacBackupPublisher.swift */,
@@ -10035,6 +10041,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D1F0A003000000000000000D /* PhonePushRetryPolicy.swift in Sources */,
 				D1F0A003000000000000000F /* PhonePushSerialDeliveryQueue.swift in Sources */,
 				D1F0A0030000000000000011 /* PhonePushServerSummary.swift in Sources */,
+				D1F0A0990000000000000001 /* PhoneReplyInboxClient.swift in Sources */,
+				D1F0A0990000000000000003 /* PhoneReplyInboxCoordinator.swift in Sources */,
 				B79500210000000000000001 /* PIDPresence.swift in Sources */,
 				D0C658660000000000000004 /* PortalSplitDividerCacheInvalidator.swift in Sources */,
 				D0C658660000000000000002 /* PortalSplitDividerRegion.swift in Sources */,

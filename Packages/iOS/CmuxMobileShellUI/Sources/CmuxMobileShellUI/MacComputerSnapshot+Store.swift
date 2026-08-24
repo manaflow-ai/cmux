@@ -45,7 +45,12 @@ extension MacComputerSnapshot {
                     rowMacDeviceID: mac.macDeviceID,
                     rowInstanceTag: mac.instanceTag
                 )
-            return MacComputerSnapshot(
+            // The Computer's own method decides its section and which route's
+            // endpoint the row leads with (generic fallback when the method
+            // has no advertised route yet).
+            let method = store.connectionMethod(for: mac)
+            let directEndpoint = mac.directAddresses.first(where: \.enabled).map(\.id)
+            var snapshot = MacComputerSnapshot(
                 deviceId: mac.macDeviceID,
                 instanceTag: mac.instanceTag,
                 title: buildScope?.computerDisplayName(mac.resolvedName) ?? mac.resolvedName,
@@ -63,7 +68,12 @@ extension MacComputerSnapshot {
                 presence: presence,
                 buildLabel: summary?.buildLabel
                     ?? MacBuildChannel().label(bundleID: nil, tag: mac.instanceTag),
-                routeDescription: CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes),
+                routeDescription: method == .direct
+                    ? directEndpoint
+                    : method.routeKind.flatMap {
+                        CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes, kind: $0)
+                    } ?? CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes),
+                routes: mac.routes,
                 lastSeenAt: mac.lastSeenAt,
                 workspaceCount: store.workspaceCount(
                     for: mac.macDeviceID,
@@ -71,6 +81,9 @@ extension MacComputerSnapshot {
                 ),
                 aliasIDs: aliases
             )
+            snapshot.connectionMethod = method
+            snapshot.routeKind = method.routeKind
+            return snapshot
         }
         markOlderDuplicates(&snapshots)
         return snapshots
