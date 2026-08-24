@@ -64,7 +64,7 @@ fn watch_error_frame(watch_id: &str, code: wire::WorkspaceErrorCode, message: &s
 }
 
 impl WatchRegistry {
-    pub fn new(outbound: OutboundSink) -> WatchRegistry {
+    pub(crate) fn new(outbound: OutboundSink) -> WatchRegistry {
         WatchRegistry {
             outbound,
             sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -79,11 +79,9 @@ impl WatchRegistry {
 
     pub fn close(&self, watch_id: &str) {
         if let Ok(mut sessions) = self.sessions.lock()
-            && let Some(task) = sessions.remove(watch_id)
+            && let Some((_, Some(task))) = sessions.remove(watch_id)
         {
-            if let Some(task) = task.1 {
-                task.abort();
-            }
+            task.abort();
         }
     }
 
@@ -157,10 +155,8 @@ impl WatchRegistry {
         } else {
             false
         };
-        if !installed {
-            if let Some(task) = task {
-                task.abort();
-            }
+        if !installed && let Some(task) = task {
+            task.abort();
         }
         if let Some((_, Some(previous))) = previous {
             previous.abort();
