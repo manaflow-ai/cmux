@@ -98,6 +98,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final ClientFocusResult clientFocus(ClientFocusRequest request) throws CmuxException {
+        Object result = execute(Commands.CLIENT_FOCUS, request.toWire());
+        return ClientFocusResult.fromWire(result);
+    }
+
     public final EmptyResult closePane(ClosePaneRequest request) throws CmuxException {
         Object result = execute(Commands.CLOSE_PANE, request.toWire());
         return EmptyResult.fromWire(result);
@@ -371,6 +376,11 @@ public abstract class GeneratedCmuxClient {
     public final ReportAgentResult reportAgent(ReportAgentRequest request) throws CmuxException {
         Object result = execute(Commands.REPORT_AGENT, request.toWire());
         return ReportAgentResult.fromWire(result);
+    }
+
+    public final EmptyResult reportFocus(ReportFocusRequest request) throws CmuxException {
+        Object result = execute(Commands.REPORT_FOCUS, request.toWire());
+        return EmptyResult.fromWire(result);
     }
 
     public final AttachedViewResizeResult resizeAttachedView(ResizeAttachedViewRequest request) throws CmuxException {

@@ -201,6 +201,19 @@ pub fn workspace_state_dir() -> Option<PathBuf> {
     }
 }
 
+/// Path of the client's bounded rolling log file: the `cmux-tui` state root
+/// (the parent of the sessions directory), so it survives session cleanup and
+/// sits where users already look for state. `CMUX_TUI_LOG_FILE` overrides it.
+pub fn client_log_path() -> Option<PathBuf> {
+    if let Some(path) = env_path("CMUX_TUI_LOG_FILE") {
+        return Some(path);
+    }
+    workspace_state_dir().map(|sessions| match sessions.parent() {
+        Some(root) => root.join("client.log"),
+        None => sessions.join("client.log"),
+    })
+}
+
 /// User config file path, honoring explicit env overrides before the default
 /// cmux config directory. `cmux-tui.json` is preferred, with `mux.json`
 /// retained as a compatibility fallback for existing installs.

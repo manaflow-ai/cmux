@@ -100,19 +100,19 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.rendererRealization.maxWarmRenderers"
     )
 
-    /// Opt-in throttle for high-frequency terminal title changes. Default-off
-    /// so existing title freshness stays unchanged unless users choose the
-    /// performance tradeoff.
+    /// Safety throttle for high-frequency terminal title changes. Default-on
+    /// because terminal titles are presentation metadata and must not drive
+    /// workspace/sidebar/window updates at an agent spinner's source cadence.
     public let titleUpdateCoalescingEnabled = DefaultsKey<Bool>(
         id: "terminal.titleUpdates.coalescing.enabled",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "terminal.titleUpdates.coalescing.enabled"
     )
 
     /// Delay used when title-update coalescing is enabled.
     public let titleUpdateCoalescingMilliseconds = DefaultsKey<Int>(
         id: "terminal.titleUpdates.coalescing.delayMilliseconds",
-        defaultValue: 500,
+        defaultValue: 1_000,
         userDefaultsKey: "terminal.titleUpdates.coalescing.delayMilliseconds",
         legacyUserDefaultsKeys: ["terminal.titleUpdates.coalescingMilliseconds"]
     )
