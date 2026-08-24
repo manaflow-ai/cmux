@@ -663,7 +663,18 @@ struct ScopedDirEntry {
     is_dir: bool,
 }
 
-fn read_dir_scoped(path: &HostScopedPath) -> Result<Vec<ScopedDirEntry>, HostError> {
+struct ScopedDirEntries {
+    entries: Vec<ScopedDirEntry>,
+    total: usize,
+}
+
+/// Read a bounded directory listing.
+///
+/// The caller needs the total count to report omitted entries, but must not
+/// retain an attacker-controlled number of directory entries in memory. Keep
+/// at most the response cap while continuing the directory walk only to count
+/// the remaining names.
+fn read_dir_scoped(path: &HostScopedPath) -> Result<ScopedDirEntries, HostError> {
     #[cfg(unix)]
     {
         use std::ffi::CStr;
@@ -681,7 +692,8 @@ fn read_dir_scoped(path: &HostScopedPath) -> Result<Vec<ScopedDirEntry>, HostErr
             unsafe { libc::close(fd) };
             return Err(HostError::Io(std::io::Error::last_os_error()));
         }
-        let mut entries = Vec::new();
+        let mut entries = Vec::with_capacity(MAX_LISTING_ENTRIES.min(64));
+        let mut total = 0_usize;
         loop {
             let entry = unsafe { libc::readdir(stream) };
             if entry.is_null() {
@@ -692,39 +704,73 @@ fn read_dir_scoped(path: &HostScopedPath) -> Result<Vec<ScopedDirEntry>, HostErr
             if name == b"." || name == b".." {
                 continue;
             }
-            entries.push(ScopedDirEntry {
-                name: std::ffi::OsString::from_vec(name.to_vec()),
-                is_dir: entry.d_type == libc::DT_DIR,
-            });
+            total = total.saturating_add(1);
+            if entries.len() < MAX_LISTING_ENTRIES {
+                entries.push(ScopedDirEntry {
+                    name: std::ffi::OsString::from_vec(name.to_vec()),
+                    is_dir: entry.d_type == libc::DT_DIR,
+                });
+            }
         }
         if unsafe { libc::closedir(stream) } != 0 {
             return Err(HostError::Io(std::io::Error::last_os_error()));
         }
-        Ok(entries)
+        Ok(ScopedDirEntries { entries, total })
     }
     #[cfg(not(unix))]
     {
-        let entries = std::fs::read_dir(&path.path).map_err(HostError::Io)?;
-        Ok(entries
-            .flatten()
-            .map(|entry| ScopedDirEntry {
-                name: entry.file_name(),
-                is_dir: entry.file_type().map(|file_type| file_type.is_dir()).unwrap_or(false),
-            })
-            .collect())
+        let mut entries = Vec::with_capacity(MAX_LISTING_ENTRIES.min(64));
+        let mut total = 0_usize;
+        for entry in std::fs::read_dir(&path.path).map_err(HostError::Io)? {
+            let entry = entry.map_err(HostError::Io)?;
+            total = total.saturating_add(1);
+            if entries.len() < MAX_LISTING_ENTRIES {
+                entries.push(ScopedDirEntry {
+                    name: entry.file_name(),
+                    is_dir: entry
+                        .file_type()
+                        .map_err(HostError::Io)?
+                        .is_dir(),
+                });
+            }
+        }
+        Ok(ScopedDirEntries { entries, total })
     }
 }
 
 #[cfg(unix)]
-fn inherited_directory_path(path: &HostScopedPath) -> Result<(std::fs::File, String), HostError> {
+fn inherited_path(path: &HostScopedPath) -> Result<(std::fs::File, String), HostError> {
     use std::os::fd::AsRawFd as _;
-    let target =
-        open_beneath(&path.anchor, &path.relative, libc::O_RDONLY | libc::O_DIRECTORY, false)?;
+    let target = open_beneath(
+        &path.anchor,
+        &path.relative,
+        libc::O_RDONLY | libc::O_NONBLOCK,
+        false,
+    )?;
+    let metadata = target.metadata()?;
+    let suffix = if metadata.is_dir() {
+        "/."
+    } else if metadata.is_file() {
+        ""
+    } else {
+        return Err(HostError::Refusal(
+            "path must be a regular file or directory".to_owned(),
+        ));
+    };
     let fd = target.as_raw_fd();
     if unsafe { libc::fcntl(fd, libc::F_SETFD, 0) } < 0 {
         return Err(HostError::Io(std::io::Error::last_os_error()));
     }
-    Ok((target, format!("/dev/fd/{fd}/.")))
+    Ok((target, format!("/dev/fd/{fd}{suffix}")))
+}
+
+#[cfg(unix)]
+fn inherited_directory_path(path: &HostScopedPath) -> Result<(std::fs::File, String), HostError> {
+    let (guard, inherited) = inherited_path(path)?;
+    if !inherited.ends_with("/.") {
+        return Err(HostError::Refusal("working directory must be a directory".to_owned()));
+    }
+    Ok((guard, inherited))
 }
 
 // ---------------------------------------------------------------------------
@@ -1016,7 +1062,15 @@ async fn run_spec(
     let mut drain_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     let mut final_wait_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     loop {
-        if exited.is_some() && !stdout_open && !stderr_open {
+        // A timed-out process group still needs its escalation pass even when
+        // the shell leader has already exited. Otherwise closing inherited
+        // pipes can make us return before SIGKILL reaches descendants.
+        if exited.is_some()
+            && !stdout_open
+            && !stderr_open
+            && kill_deadline.is_none()
+            && final_wait_deadline.is_none()
+        {
             break;
         }
         tokio::select! {
@@ -1051,14 +1105,16 @@ async fn run_spec(
                 }
             }
             status = child.wait(), if exited.is_none() => {
-                // The child is gone. Do not let a pending escalation signal
-                // fire against a PID that the OS may reuse while descendants
-                // keep the output pipes open.
-                kill_deadline = None;
+                // The child is gone, but descendants may still own the output
+                // pipes. Preserve a timeout escalation that is already in
+                // flight, and bound the remaining drain after a timeout.
+                final_wait_deadline = None;
                 if timed_out {
-                    drain_deadline = Some(Box::pin(tokio::time::sleep(
-                        std::time::Duration::from_millis(250),
-                    )));
+                    if (stdout_open || stderr_open) && drain_deadline.is_none() {
+                        drain_deadline = Some(Box::pin(tokio::time::sleep(
+                            std::time::Duration::from_millis(250),
+                        )));
+                    }
                 }
                 exited = Some(match status {
                     Ok(status) => status.code().map(i64::from).unwrap_or(1),
@@ -1071,7 +1127,11 @@ async fn run_spec(
                 // inherited stdout/stderr. Kill the whole POSIX process group
                 // so the supervisor gets its EXIT cleanup, then enforce a
                 // hard bound for processes that ignore TERM.
-                signal_process_tree(pid, false);
+                if exited.is_some() {
+                    signal_process_group(pid, false);
+                } else {
+                    signal_process_tree(pid, false);
+                }
                 #[cfg(windows)]
                 if let Some(job) = job.as_ref() {
                     job.terminate();
@@ -1082,6 +1142,11 @@ async fn run_spec(
                 kill_deadline = Some(Box::pin(tokio::time::sleep(
                     std::time::Duration::from_millis(250),
                 )));
+                if exited.is_some() && (stdout_open || stderr_open) && drain_deadline.is_none() {
+                    drain_deadline = Some(Box::pin(tokio::time::sleep(
+                        std::time::Duration::from_millis(250),
+                    )));
+                }
             }
             () = async {
                 match kill_deadline.as_mut() {
@@ -1089,15 +1154,21 @@ async fn run_spec(
                     None => std::future::pending().await,
                 }
             }, if kill_deadline.is_some() => {
-                signal_process_tree(pid, true);
+                if exited.is_some() {
+                    signal_process_group(pid, true);
+                } else {
+                    signal_process_tree(pid, true);
+                }
                 #[cfg(windows)]
                 if let Some(job) = job.as_ref() {
                     job.terminate();
                 }
                 kill_deadline = None;
-                final_wait_deadline = Some(Box::pin(tokio::time::sleep(
-                    std::time::Duration::from_millis(250),
-                )));
+                if exited.is_none() {
+                    final_wait_deadline = Some(Box::pin(tokio::time::sleep(
+                        std::time::Duration::from_millis(250),
+                    )));
+                }
             }
             () = async {
                 match drain_deadline.as_mut() {
@@ -1118,9 +1189,11 @@ async fn run_spec(
                 let _ = child.start_kill();
                 final_wait_deadline = None;
                 exited = Some(1);
-                drain_deadline = Some(Box::pin(tokio::time::sleep(
-                    std::time::Duration::from_millis(250),
-                )));
+                if stdout_open || stderr_open {
+                    drain_deadline = Some(Box::pin(tokio::time::sleep(
+                        std::time::Duration::from_millis(250),
+                    )));
+                }
             }
         }
     }
@@ -1147,8 +1220,23 @@ fn signal_process_tree(pid: Option<u32>, kill: bool) {
     }
 }
 
+#[cfg(unix)]
+fn signal_process_group(pid: Option<u32>, kill: bool) {
+    let Some(pid) = pid else { return };
+    let signal = if kill { libc::SIGKILL } else { libc::SIGTERM };
+    // Once the leader has exited, never fall back to signalling its numeric
+    // PID: the operating system may have reused it while descendants keep
+    // the process group alive. The group id is the only safe target here.
+    unsafe {
+        libc::kill(-(pid as i32), signal);
+    }
+}
+
 #[cfg(not(unix))]
 fn signal_process_tree(_pid: Option<u32>, _kill: bool) {}
+
+#[cfg(not(unix))]
+fn signal_process_group(_pid: Option<u32>, _kill: bool) {}
 
 #[cfg(windows)]
 struct WindowsJob {
@@ -1419,12 +1507,8 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 Err(HostError::Io(error)) => return io_fail(error),
             };
             let mut names: Vec<String> = Vec::new();
-            let mut total = 0_usize;
-            for entry in entries {
-                total += 1;
-                if names.len() >= MAX_LISTING_ENTRIES {
-                    continue;
-                }
+            let total = entries.total;
+            for entry in entries.entries {
                 let name = entry.name.to_string_lossy().into_owned();
                 names.push(if entry.is_dir { format!("{name}/") } else { name });
             }
@@ -1456,7 +1540,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 return fail("unsupported_verb", "grep is not available on Windows relays yet");
             }
             #[cfg(unix)]
-            let (_path_guard, process_path) = match inherited_directory_path(&path) {
+            let (_path_guard, process_path) = match inherited_path(&path) {
                 Ok(value) => value,
                 Err(HostError::Refusal(message)) => return fail("path_forbidden", &message),
                 Err(HostError::Io(error)) => return io_fail(error),
@@ -1516,7 +1600,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 return fail("unsupported_verb", "find is not available on Windows relays yet");
             }
             #[cfg(unix)]
-            let (_path_guard, process_path) = match inherited_directory_path(&path) {
+            let (_path_guard, process_path) = match inherited_path(&path) {
                 Ok(value) => value,
                 Err(HostError::Refusal(message)) => return fail("path_forbidden", &message),
                 Err(HostError::Io(error)) => return io_fail(error),
@@ -1756,6 +1840,54 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn grep_accepts_a_regular_file_path() {
+        let root = scratch("grep-file");
+        let file = root.join("note.txt");
+        std::fs::write(&file, "needle\n").unwrap();
+        let roots = vec![root.display().to_string()];
+        let mut context = ctx("supervised", Some(roots.clone()), root.clone());
+        context.env = scrubbed_env(&HashMap::from([(
+            "PATH".to_owned(),
+            "/usr/bin:/bin".to_owned(),
+        )]));
+        let grep = perform_action(
+            &json!({ "verb": "grep", "actionId": "a1", "allowedRoots": roots,
+                     "args": { "path": file, "pattern": "needle" }, "timeoutMs": 10000 }),
+            &context,
+        )
+        .await;
+        assert_eq!(grep["ok"], true, "{grep}");
+        assert!(grep["result"]["output"].as_str().unwrap().contains("needle"));
+        let find = perform_action(
+            &json!({ "verb": "find", "actionId": "a2", "allowedRoots": roots,
+                     "args": { "path": file }, "timeoutMs": 10000 }),
+            &context,
+        )
+        .await;
+        assert_eq!(find["ok"], true, "{find}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn ls_bounds_retained_entries_and_reports_omitted_names() {
+        let root = scratch("ls-bound");
+        for index in 0..(MAX_LISTING_ENTRIES + 5) {
+            std::fs::write(root.join(format!("entry-{index:04}.txt")), "").unwrap();
+        }
+        let roots = vec![root.display().to_string()];
+        let context = ctx("supervised", Some(roots.clone()), root.clone());
+        let ls = perform_action(
+            &json!({ "verb": "ls", "actionId": "a1", "allowedRoots": roots, "args": {} }),
+            &context,
+        )
+        .await;
+        assert_eq!(ls["ok"], true, "{ls}");
+        let listing = ls["result"]["listing"].as_str().unwrap();
+        assert!(listing.contains("…[5 more entries]"));
+        assert_eq!(listing.lines().count(), MAX_LISTING_ENTRIES + 1);
+        std::fs::remove_dir_all(&root).ok();
+    }
+    #[tokio::test]
     async fn file_verbs_outside_roots_are_path_forbidden() {
         let root = scratch("scoped");
         let roots = vec![root.display().to_string()];
@@ -1872,6 +2004,26 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[tokio::test]
+    async fn timeout_escalates_after_shell_exits_with_open_descendant_pipe() {
+        let env = scrubbed_env(&HashMap::from([(
+            "PATH".to_owned(),
+            "/usr/bin:/bin".to_owned(),
+        )]));
+        let outcome = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            run_spec(
+                RunSpec::Shell { command: "sleep 5 &" },
+                Path::new("/"),
+                None,
+                20,
+                &env,
+            ),
+        )
+        .await
+        .expect("timeout cleanup must not wait for a descendant pipe");
+        assert!(matches!(outcome, RunOutcome::TimedOut));
+    }
     #[tokio::test]
     async fn exec_receives_scoped_process_environment_values() {
         let root = scratch("procenv");
