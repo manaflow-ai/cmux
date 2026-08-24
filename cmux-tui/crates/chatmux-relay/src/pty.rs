@@ -293,11 +293,13 @@ struct ShellInner {
     viewers: Vec<ViewerSink>,
 }
 
+#[derive(Clone)]
 struct Attachment {
     closing: Arc<AtomicBool>,
     /// Releases this attachment (detach a viewer, close a control stream,
     /// kill a viewer PTY) — never kills a shared session.
     control: Arc<dyn PtyControl>,
+    actor_id: String,
 }
 
 struct Inner {
@@ -403,9 +405,7 @@ impl PtyManager {
                 else {
                     return;
                 };
-                if let Some(attachment) =
-                    self.inner.attachments.lock().expect("attach lock").get(pty_id)
-                {
+                if let Some(attachment) = self.inner.authorize(pty_id, context, "input") {
                     attachment.control.write(&data);
                 }
             }
@@ -416,18 +416,14 @@ impl PtyManager {
                 else {
                     return;
                 };
-                if let Some(attachment) =
-                    self.inner.attachments.lock().expect("attach lock").get(pty_id)
-                {
+                if let Some(attachment) = self.inner.authorize(pty_id, context, "resize") {
                     attachment.control.resize(cols, rows);
                 }
             }
             "pty_flow" => {
                 let Some(pty_id) = frame.get("ptyId").and_then(Value::as_str) else { return };
                 let pause = frame.get("pause").and_then(Value::as_bool).unwrap_or(false);
-                if let Some(attachment) =
-                    self.inner.attachments.lock().expect("attach lock").get(pty_id)
-                {
+                if let Some(attachment) = self.inner.authorize(pty_id, context, "flow") {
                     if pause {
                         attachment.control.pause();
                     } else {
@@ -437,7 +433,7 @@ impl PtyManager {
             }
             "pty_close" => {
                 let Some(pty_id) = frame.get("ptyId").and_then(Value::as_str) else { return };
-                self.inner.close(pty_id);
+                self.inner.close_authorized(pty_id, context);
             }
             "surface_list" => self.inner.clone().list_surfaces(frame, context).await,
             _ => {}
@@ -640,7 +636,11 @@ impl Inner {
         self.opening_ids.lock().expect("opening lock").remove(&pty_id);
         let previous = self.attachments.lock().expect("attach lock").insert(
             pty_id.clone(),
-            Attachment { closing: opened.closing, control: opened.control },
+            Attachment {
+                closing: opened.closing,
+                control: opened.control,
+                actor_id: actor.to_owned(),
+            },
         );
         if let Some(previous) = previous {
             previous.closing.store(true, Ordering::SeqCst);
@@ -684,7 +684,7 @@ impl Inner {
     }
 
     fn emit_output(&self, pty_id: &str, chunk: &Bytes, context: &FrameContext) {
-        if !self.attachments.lock().expect("attach lock").contains_key(pty_id) {
+        if self.authorize(pty_id, context, "output").is_none() {
             return;
         }
         // Zero-byte chunks carry nothing and historically crashed the web
@@ -718,6 +718,9 @@ impl Inner {
     }
 
     fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext) {
+        if self.authorize(pty_id, context, "exit").is_none() {
+            return;
+        }
         let mut attachments = self.attachments.lock().expect("attach lock");
         match attachments.get(pty_id) {
             Some(attachment) if !attachment.closing.load(Ordering::SeqCst) => {}
@@ -740,6 +743,31 @@ impl Inner {
             attachment.closing.store(true, Ordering::SeqCst);
             attachment.control.kill();
         }
+    }
+
+    fn authorize(&self, pty_id: &str, context: &FrameContext, action: &str) -> Option<Attachment> {
+        let attachment = self.attachments.lock().expect("attach lock").get(pty_id)?.clone();
+        let owner = context.owner_user_id.as_deref();
+        let allowed = !context.trust.is_empty()
+            && (context.trust != "observe"
+                || (owner.is_some() && owner == Some(attachment.actor_id.as_str())));
+        if allowed {
+            Some(attachment)
+        } else {
+            self.close(pty_id);
+            send_pty_error(
+                context,
+                pty_id,
+                "trust_revoked",
+                &format!("PTY {action} refused after trust change"),
+            );
+            None
+        }
+    }
+
+    fn close_authorized(&self, pty_id: &str, context: &FrameContext) {
+        let _ = self.authorize(pty_id, context, "close");
+        self.close(pty_id);
     }
 }
 
@@ -2045,6 +2073,10 @@ mod tests {
                 .await;
         }
 
+        async fn frame_as(&self, frame: Value, trust: &str, owner: Option<String>) {
+            self.manager.handle_frame(&frame, &self.context(trust, owner)).await;
+        }
+
         fn sent(&self) -> Vec<Value> {
             self.sent.lock().unwrap().clone()
         }
@@ -2156,6 +2188,35 @@ mod tests {
         assert!(pty.state.lock().unwrap().paused);
         h.frame(serde_json::json!({ "type": "pty_flow", "ptyId": "p1", "pause": false })).await;
         assert!(!pty.state.lock().unwrap().paused);
+    }
+
+    #[tokio::test]
+    async fn trust_downgrade_revokes_existing_non_owner_controls() {
+        let h = harness(None, None);
+        h.open(
+            "p1",
+            "main",
+            serde_json::json!({"actorId": "user_other"}),
+            "supervised",
+            h.owner.clone(),
+        )
+        .await;
+        h.frame_as(
+            serde_json::json!({"type":"pty_input","ptyId":"p1","dataB64":b64("x")}),
+            "observe",
+            h.owner.clone(),
+        )
+        .await;
+        assert!(h.sent().iter().any(|f| f["code"] == "trust_revoked"));
+        assert!(h.spawned()[0].written_string(0).is_empty());
+    }
+
+    #[tokio::test]
+    async fn close_requires_current_trust() {
+        let h = harness(None, None);
+        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+        h.frame_as(serde_json::json!({"type":"pty_close","ptyId":"p1"}), "", h.owner.clone()).await;
+        assert!(h.sent().iter().any(|f| f["code"] == "trust_revoked"));
     }
 
     #[tokio::test]
