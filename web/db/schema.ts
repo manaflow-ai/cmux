@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import type { PushFiltersDocument } from "../services/apns/pushFilters";
 import {
   bigint,
   boolean,
@@ -382,6 +383,10 @@ export const deviceTokens = pgTable(
     environment: text("environment").notNull().default("production"),
     deliveryLeaseUntil: timestamp("delivery_lease_until", { withTimezone: true }),
     deliveryLeaseToken: uuid("delivery_lease_token"),
+    // Device-authored mute rules (services/apns/pushFilters.ts document).
+    // Null = no filters. Re-validated at send time; a muted alert degrades to
+    // a silent badge-only push instead of being dropped.
+    pushFilters: jsonb("push_filters").$type<PushFiltersDocument>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
