@@ -3406,7 +3406,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let resolvedID = id ?? UUID()
         let restoredAgentLifecycle = RestoredAgentLifecycleCoordinator()
         self.id = resolvedID
-        self.todoState = WorkspaceTodoState(ownerWorkspaceID: resolvedID)
+        self.todoState = WorkspaceTodoState()
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker

@@ -13,13 +13,6 @@ import Foundation
 /// text normalization, and override anti-rot apply identically everywhere.
 @MainActor
 final class WorkspaceTodoState: ObservableObject {
-    /// The owning workspace identity used for queue refresh notifications.
-    let ownerWorkspaceID: UUID?
-
-    init(ownerWorkspaceID: UUID? = nil) {
-        self.ownerWorkspaceID = ownerWorkspaceID
-    }
-
     /// The manual status override, or `nil` when the status is automatic.
     /// Carries the inference recorded at override time so a stale override
     /// auto-expires (see `WorkspaceTaskStatusOverride.effectiveStatus`).
@@ -29,14 +22,6 @@ final class WorkspaceTodoState: ObservableObject {
     /// infers and shows a glyph). Selecting Auto or any lane clears it.
     @Published var statusHidden: Bool = true
     /// The persisted checklist, in display order.
-    @Published var checklist: [WorkspaceChecklistItem] = [] {
-        didSet {
-            NotificationCenter.default.post(
-                name: .workspaceTaskQueueDidChange,
-                object: nil,
-                userInfo: ["workspaceId": ownerWorkspaceID ?? NSNull()]
-            )
-        }
-    }
+    @Published var checklist: [WorkspaceChecklistItem] = []
 
 }

@@ -111,7 +111,7 @@ extension Workspace {
         boundAgent: String? = nil,
         lastActivityAt: Date? = nil
     ) -> Result<WorkspaceChecklistItem, WorkspaceChecklistItem.AddError> {
-        notifyingChecklistCompletion {
+        let result = notifyingChecklistCompletion {
             todoState.checklist.addChecklistItem(
                 text,
                 state: state,
@@ -123,6 +123,8 @@ extension Workspace {
                 lastActivityAt: lastActivityAt ?? Date()
             )
         }
+        if case .success = result { postTaskQueueChange() }
+        return result
     }
 
     /// Binds a checklist item to a dispatched workspace and marks it active.
@@ -139,6 +141,7 @@ extension Workspace {
         todoState.checklist[index].boundWorkspaceID = workspaceID
         todoState.checklist[index].boundAgent = agent
         todoState.checklist[index].lastActivityAt = date
+        postTaskQueueChange()
         return true
     }
 
@@ -152,6 +155,7 @@ extension Workspace {
         guard let index = todoState.checklist.firstIndex(where: { $0.id == id }) else { return false }
         todoState.checklist[index].dispatchTarget = target
         todoState.checklist[index].lastActivityAt = Date()
+        postTaskQueueChange()
         return true
     }
 
@@ -164,7 +168,10 @@ extension Workspace {
         let changed = notifyingChecklistCompletion {
             todoState.checklist.setChecklistItemState(id: id, state: state)
         }
-        if changed { touchChecklistItem(id: id) }
+        if changed {
+            touchChecklistItem(id: id)
+            postTaskQueueChange()
+        }
         return changed
     }
 
@@ -175,7 +182,10 @@ extension Workspace {
     @discardableResult
     func moveChecklistItem(id: UUID, toIndex: Int) -> Bool {
         let changed = todoState.checklist.moveChecklistItem(id: id, toIndex: toIndex)
-        if changed { touchChecklistItem(id: id) }
+        if changed {
+            touchChecklistItem(id: id)
+            postTaskQueueChange()
+        }
         return changed
     }
 
@@ -185,7 +195,10 @@ extension Workspace {
     @discardableResult
     func setChecklistItemText(id: UUID, text: String) -> Bool {
         let changed = todoState.checklist.setChecklistItemText(id: id, text: text)
-        if changed { touchChecklistItem(id: id) }
+        if changed {
+            touchChecklistItem(id: id)
+            postTaskQueueChange()
+        }
         return changed
     }
 
@@ -204,6 +217,7 @@ extension Workspace {
         }
         todoState.checklist[index].attachments.append(contentsOf: attachments)
         todoState.checklist[index].lastActivityAt = Date()
+        postTaskQueueChange()
         return true
     }
 
@@ -218,6 +232,7 @@ extension Workspace {
         }
         todoState.checklist[itemIndex].attachments.remove(at: attachmentIndex)
         todoState.checklist[itemIndex].lastActivityAt = Date()
+        postTaskQueueChange()
         return true
     }
 
@@ -226,9 +241,11 @@ extension Workspace {
     /// - Returns: `true` if the item existed.
     @discardableResult
     func removeChecklistItem(id: UUID) -> Bool {
-        notifyingChecklistCompletion {
+        let removed = notifyingChecklistCompletion {
             todoState.checklist.removeChecklistItem(id: id)
         }
+        if removed { postTaskQueueChange() }
+        return removed
     }
 
     /// Removes every checklist item.
@@ -236,7 +253,9 @@ extension Workspace {
     /// - Returns: The number of items removed.
     @discardableResult
     func clearChecklist() -> Int {
-        todoState.checklist.clearChecklist()
+        let removed = todoState.checklist.clearChecklist()
+        if removed > 0 { postTaskQueueChange() }
+        return removed
     }
 
     /// Atomically replaces the checklist, preserving identity (and origin)
@@ -250,9 +269,11 @@ extension Workspace {
     func replaceChecklist(
         with items: [WorkspaceChecklistReplacementItem]
     ) -> Result<[WorkspaceChecklistItem], WorkspaceChecklistReplaceError> {
-        notifyingChecklistCompletion {
+        let result = notifyingChecklistCompletion {
             todoState.checklist.replaceChecklist(with: items)
         }
+        if case .success = result { postTaskQueueChange() }
+        return result
     }
 
     private func touchChecklistItem(id: UUID, at date: Date = Date()) {
@@ -287,5 +308,14 @@ extension Workspace {
         todoState.statusOverride = snapshot.restoredTaskStatusOverride
         todoState.statusHidden = snapshot.taskStatusHidden ?? false
         todoState.checklist = snapshot.restoredChecklist
+        postTaskQueueChange()
+    }
+
+    private func postTaskQueueChange() {
+        NotificationCenter.default.post(
+            name: .workspaceTaskQueueDidChange,
+            object: nil,
+            userInfo: ["workspaceId": id]
+        )
     }
 }

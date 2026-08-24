@@ -345,10 +345,15 @@ public final class WorkstreamStore {
                         tool: taskTool,
                         inputJSON: event.toolInputJSON,
                         responseJSON: event.toolResponseJSON,
-                        isError: event.isError ?? false
+                        isError: event.isError ?? false,
+                        requestID: event.requestId
                     )
                 } else {
-                    outcome = accumulator.applyPre(tool: taskTool, inputJSON: event.toolInputJSON)
+                    outcome = accumulator.applyPre(
+                        tool: taskTool,
+                        inputJSON: event.toolInputJSON,
+                        requestID: event.requestId
+                    )
                 }
                 taskToolTodosByWorkstream[event.sessionId] = accumulator
                 touchTaskToolWorkstream(event.sessionId)
@@ -366,7 +371,8 @@ public final class WorkstreamStore {
                     tool: taskTool,
                     inputJSON: event.toolInputJSON,
                     responseJSON: event.toolResponseJSON,
-                    isError: event.isError ?? false
+                    isError: event.isError ?? false,
+                    requestID: event.requestId
                 )
                 taskToolTodosByWorkstream[event.sessionId] = accumulator
                 touchTaskToolWorkstream(event.sessionId)
@@ -407,7 +413,11 @@ public final class WorkstreamStore {
             return (.stop, .stop(reason: Self.stopReason(from: event.toolInputJSON)))
         case .todoWrite:
             var accumulator = taskToolTodosByWorkstream[event.sessionId] ?? WorkstreamTaskToolTodos()
-            let outcome = accumulator.applyPre(tool: .todoWrite, inputJSON: event.toolInputJSON)
+            let outcome = accumulator.applyPre(
+                tool: .todoWrite,
+                inputJSON: event.toolInputJSON,
+                requestID: event.requestId
+            )
             taskToolTodosByWorkstream[event.sessionId] = accumulator
             touchTaskToolWorkstream(event.sessionId)
             trimTaskToolWorkstreams()

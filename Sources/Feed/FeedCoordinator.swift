@@ -34,6 +34,10 @@ final class FeedCoordinator: @unchecked Sendable {
     @MainActor var lastTodoWorkspaceByWorkstream: [String: UUID] = [:]
     @MainActor private var todoWorkspaceRecency: [String] = []
     @MainActor private let maxTrackedTodoWorkstreams = 128
+    @MainActor private var dispatchedTaskOwnersByTargetWorkspace: [UUID: [DispatchedTaskOwner]] = [:]
+    @MainActor private var dispatchedTaskOwnerRecency: [UUID] = []
+    @MainActor private var dispatchTargetRecoveryScans: Set<UUID> = []
+    @MainActor private let maxTrackedDispatchTargets = 128
     @MainActor private var userNotificationCenter: (any UserNotificationCenterServing)?
 
     /// The bounded notification-center boundary. `install(store:)` injects it;
@@ -179,6 +183,42 @@ final class FeedCoordinator: @unchecked Sendable {
     private func forgetTodoWorkspace(for workstreamId: String) {
         lastTodoWorkspaceByWorkstream.removeValue(forKey: workstreamId)
         todoWorkspaceRecency.removeAll { $0 == workstreamId }
+    }
+
+    @MainActor
+    func registerDispatchedTask(
+        itemID: UUID,
+        sourceWorkspaceID: UUID,
+        targetWorkspaceID: UUID
+    ) {
+        let owner = DispatchedTaskOwner(itemID: itemID, sourceWorkspaceID: sourceWorkspaceID)
+        var owners = dispatchedTaskOwnersByTargetWorkspace[targetWorkspaceID] ?? []
+        guard !owners.contains(owner) else { return }
+        owners.append(owner)
+        dispatchedTaskOwnersByTargetWorkspace[targetWorkspaceID] = owners
+        dispatchedTaskOwnerRecency.removeAll { $0 == targetWorkspaceID }
+        dispatchedTaskOwnerRecency.append(targetWorkspaceID)
+        guard dispatchedTaskOwnerRecency.count > maxTrackedDispatchTargets else { return }
+        let overflow = dispatchedTaskOwnerRecency.count - maxTrackedDispatchTargets
+        for old in dispatchedTaskOwnerRecency.prefix(overflow) {
+            dispatchedTaskOwnersByTargetWorkspace.removeValue(forKey: old)
+        }
+        dispatchedTaskOwnerRecency.removeFirst(overflow)
+    }
+
+    @MainActor
+    func dispatchedTaskOwners(for targetWorkspaceID: UUID) -> [DispatchedTaskOwner] {
+        dispatchedTaskOwnersByTargetWorkspace[targetWorkspaceID] ?? []
+    }
+
+    @MainActor
+    func markDispatchTargetRecoveryScan(_ targetWorkspaceID: UUID) -> Bool {
+        dispatchTargetRecoveryScans.insert(targetWorkspaceID).inserted
+    }
+
+    struct DispatchedTaskOwner: Sendable, Equatable {
+        let itemID: UUID
+        let sourceWorkspaceID: UUID
     }
 
     /// Runs synchronous acknowledged ingress on the same ordered lane as zero-wait telemetry.

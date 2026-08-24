@@ -19,6 +19,7 @@ struct WorkstreamTaskToolTodos: Sendable {
     private var provisionalIDsBySubject: [String: [String]] = [:]
     private var provisionalIDsInOrder: [String] = []
     private var nextProvisionalID = 0
+    private var completedCreateRequestIDs: [String] = []
 
     var ownedIds: Set<String> { ownedIdSet }
     var ownedIDList: [String] { ownedIDsInOrder }
@@ -34,7 +35,16 @@ struct WorkstreamTaskToolTodos: Sendable {
     /// Applies a pre-execution event. This keeps compatibility with wrappers
     /// that only forward `PreToolUse`; a later completed event can reconcile a
     /// provisional create or roll back a failed call.
-    mutating func applyPre(tool: WorkstreamTaskTool, inputJSON: String?) -> WorkstreamTaskToolOutcome {
+    mutating func applyPre(
+        tool: WorkstreamTaskTool,
+        inputJSON: String?,
+        requestID: String? = nil
+    ) -> WorkstreamTaskToolOutcome {
+        if tool == .taskCreate,
+           let requestID,
+           completedCreateRequestIDs.contains(requestID) {
+            return .ignored
+        }
         let input = object(from: inputJSON)
         switch tool {
         case .todoWrite:
@@ -63,8 +73,12 @@ struct WorkstreamTaskToolTodos: Sendable {
         tool: WorkstreamTaskTool,
         inputJSON: String?,
         responseJSON: String?,
-        isError: Bool
+        isError: Bool,
+        requestID: String? = nil
     ) -> WorkstreamTaskToolOutcome {
+        if tool == .taskCreate, let requestID {
+            rememberCompletedCreateRequest(requestID)
+        }
         let input = object(from: inputJSON)
         let response = object(from: responseJSON)
         let result = (response?["task"] as? [String: Any]) ?? response
@@ -188,8 +202,27 @@ struct WorkstreamTaskToolTodos: Sendable {
     }
 
     private mutating func trim() {
-        guard todos.count > Self.maxRetainedTodos else { return }
-        todos.removeFirst(todos.count - Self.maxRetainedTodos)
+        if todos.count > Self.maxRetainedTodos {
+            todos.removeFirst(todos.count - Self.maxRetainedTodos)
+        }
+        let activeIDs = Set(todos.map(\.id))
+        provisionalIDsInOrder.removeAll { !activeIDs.contains($0) }
+        for subject in Array(provisionalIDsBySubject.keys) {
+            let retained = provisionalIDsBySubject[subject, default: []].filter(activeIDs.contains)
+            if retained.isEmpty {
+                provisionalIDsBySubject.removeValue(forKey: subject)
+            } else {
+                provisionalIDsBySubject[subject] = retained
+            }
+        }
+    }
+
+    private mutating func rememberCompletedCreateRequest(_ requestID: String) {
+        guard !completedCreateRequestIDs.contains(requestID) else { return }
+        completedCreateRequestIDs.append(requestID)
+        if completedCreateRequestIDs.count > Self.maxOwnedIds {
+            completedCreateRequestIDs.removeFirst(completedCreateRequestIDs.count - Self.maxOwnedIds)
+        }
     }
 
     private mutating func provisionalID(for subject: String) -> String {
@@ -298,7 +331,8 @@ struct WorkstreamTaskToolTodos: Sendable {
         let values: [Any]
         if let dictionary = root as? [String: Any] {
             guard let todos = (dictionary["todos"] as? [Any])
-                ?? (dictionary["tasks"] as? [Any]) else { return nil }
+                ?? (dictionary["tasks"] as? [Any])
+                ?? (dictionary["task"] as? [String: Any]).map({ [$0] }) else { return nil }
             values = todos
         } else if let array = root as? [Any] {
             values = array

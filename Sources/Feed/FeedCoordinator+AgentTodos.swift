@@ -45,13 +45,25 @@ extension FeedCoordinator {
             tasks: todos
         )
         retireAgentTodos(for: item.workstreamId, excluding: workspace.id)
+        let existingAgentItems = workspace.todoState.checklist.reduce(into: [WorkspaceAgentTaskRef: WorkspaceChecklistItem]()) { result, checklistItem in
+            if let ref = checklistItem.agentTaskRef {
+                result[ref] = checklistItem
+            }
+        }
         let tasks = todos.map { todo in
+            let state = checklistState(for: todo.state)
+            let ref = WorkspaceAgentTaskRef(workstreamId: item.workstreamId, taskId: todo.id)
+            let previous = existingAgentItems[ref]
+            let normalizedText = WorkspaceChecklistItem.normalizedText(todo.content) ?? todo.content
+            let activity = previous?.text == normalizedText && previous?.state == state
+                ? previous?.lastActivityAt ?? event.receivedAt
+                : event.receivedAt
             WorkspaceAgentChecklistTask(
                 id: todo.stableChecklistItemId(workstreamId: item.workstreamId),
-                ref: WorkspaceAgentTaskRef(workstreamId: item.workstreamId, taskId: todo.id),
+                ref: ref,
                 text: todo.content,
-                state: checklistState(for: todo.state),
-                lastActivityAt: event.receivedAt,
+                state: state,
+                lastActivityAt: activity,
                 agentName: event.source
             )
         }
@@ -81,29 +93,36 @@ extension FeedCoordinator {
         }
     }
 
-    /// A dispatched user row has no agent task id until its new workspace
-    /// emits hooks. Match the durable target workspace and normalized text so
-    /// completion can flow back through the same checklist state mutation
-    /// path without introducing a second task store.
+    /// A dispatched workspace is dedicated to one source checklist row. Once
+    /// every task reported by that workspace is complete, the indexed source
+    /// row is completed through `Workspace+Todos`. Recovery scans persisted
+    /// bindings at most once per target workspace after a restart.
     @MainActor
     private func reconcileDispatchedItems(
         in agentWorkspace: Workspace,
         tasks: [WorkstreamTaskTodo]
     ) {
         guard let app = AppDelegate.shared else { return }
-        let completedText = Set(tasks.filter { $0.state == .completed }.map {
-            WorkspaceChecklistItem.normalizedText($0.content) ?? $0.content
-        })
-        guard !completedText.isEmpty else { return }
-        for workspace in app.allWorkspacesForAgentTodoRetirement {
-            let boundItems = workspace.todoState.checklist.filter {
-                $0.boundWorkspaceID == agentWorkspace.id
-            }
-            for checklistItem in boundItems where
-                completedText.contains(WorkspaceChecklistItem.normalizedText(checklistItem.text) ?? checklistItem.text) {
-                _ = workspace.setChecklistItemState(id: checklistItem.id, state: .completed)
+        guard !tasks.isEmpty, tasks.allSatisfy({ $0.state == .completed }) else { return }
+        if dispatchedTaskOwners(for: agentWorkspace.id).isEmpty,
+           markDispatchTargetRecoveryScan(agentWorkspace.id) {
+            for workspace in app.allWorkspacesForAgentTodoRetirement {
+                for item in workspace.todoState.checklist where item.boundWorkspaceID == agentWorkspace.id {
+                    registerDispatchedTask(
+                        itemID: item.id,
+                        sourceWorkspaceID: workspace.id,
+                        targetWorkspaceID: agentWorkspace.id
+                    )
+                }
             }
         }
+        let owners = dispatchedTaskOwners(for: agentWorkspace.id)
+        guard owners.count == 1, let owner = owners.first,
+              let sourceManager = app.tabManagerFor(tabId: owner.sourceWorkspaceID),
+              let sourceWorkspace = sourceManager.tabs.first(where: { $0.id == owner.sourceWorkspaceID }) else {
+            return
+        }
+        _ = sourceWorkspace.setChecklistItemState(id: owner.itemID, state: .completed)
     }
 
     @MainActor

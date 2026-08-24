@@ -15,7 +15,9 @@ struct WorkstreamTaskToolTodoTests {
         hook: WorkstreamEvent.HookEventName = .preToolUse,
         tool: String,
         input: String,
-        response: String? = nil
+        response: String? = nil,
+        requestId: String? = nil,
+        isError: Bool = false
     ) -> WorkstreamEvent {
         WorkstreamEvent(
             sessionId: sessionId,
@@ -23,6 +25,8 @@ struct WorkstreamTaskToolTodoTests {
             source: "claude",
             toolName: tool,
             toolInputJSON: input,
+            isError: isError,
+            requestId: requestId,
             extraFieldsJSON: response.map { value in "{\"tool_response\":\(value)}" }
         )
     }
@@ -109,5 +113,61 @@ struct WorkstreamTaskToolTodoTests {
         ))
 
         #expect(store.items.last?.kind == .toolUse)
+    }
+
+    @Test("A failed create retires its provisional checklist row")
+    func failedCreateRemovesProvisionalRow() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            tool: "TaskCreate",
+            input: #"{"subject":"will fail"}"#,
+            requestId: "create-1"
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TaskCreate",
+            input: #"{"subject":"will fail"}"#,
+            response: #"{"error":"denied"}"#,
+            requestId: "create-1",
+            isError: true
+        ))
+        #expect(latestTodos(store)?.isEmpty == true)
+        #expect(store.ownedTaskIds(forWorkstream: "s1").isEmpty)
+    }
+
+    @Test("Late PreToolUse does not duplicate an authoritative create")
+    func postThenPreCreateIsDeduplicated() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TaskCreate",
+            input: #"{"subject":"one"}"#,
+            response: #"{"task":{"id":"1","subject":"one"}}"#,
+            requestId: "create-1"
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            tool: "TaskCreate",
+            input: #"{"subject":"one"}"#,
+            requestId: "create-1"
+        ))
+        #expect(latestTodos(store)?.map(\.id) == ["1"])
+    }
+
+    @Test("TaskGet accepts a single task response")
+    func taskGetSingleTask() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TaskGet",
+            input: #"{"taskId":"1"}"#,
+            response: #"{"task":{"id":"1","subject":"inspect","status":"completed"}}"#
+        ))
+        #expect(latestTodos(store)?.first?.content == "inspect")
+        #expect(latestTodos(store)?.first?.state == .completed)
     }
 }
