@@ -42,6 +42,13 @@ public final class GhosttySurfaceHostView: UIView {
     /// Points of the keyboard intrusion currently absorbed by blank rows
     /// below the terminal content (see `syncPresentationReservation`).
     private var appliedAbsorptionSlack: CGFloat = 0
+    /// True while a notification-driven keyboard leg is animating. The
+    /// keyboard-guide SENSOR must not publish mid-flight guide frames into
+    /// the model then (it lags the notification and re-poisons the settled
+    /// target — the "content dips, then heals" glitch), and the layout /
+    /// display-link paths must not retarget the constants the leg owns.
+    private var keyboardTransitionActive = false
+    private var keyboardTransitionGeneration: UInt64 = 0
     /// Whether the settled keyboard layout guide may self-heal the keyboard
     /// model (false on iOS 27, where the guide can lie at the screen bottom).
     private let usesKeyboardGuideSensor: Bool = {
@@ -120,12 +127,21 @@ public final class GhosttySurfaceHostView: UIView {
 
     public override func didMoveToWindow() {
         super.didMoveToWindow()
-        guard window != nil else { return }
+        guard window != nil else {
+            keyboardTransitionGeneration &+= 1
+            keyboardTransitionActive = false
+            return
+        }
+        keyboardTransitionGeneration &+= 1
+        keyboardTransitionActive = false
         seatDockWithoutAnimation()
     }
 
     public override func layoutSubviews() {
         super.layoutSubviews()
+        // A keyboard leg owns both constants until its animation completes;
+        // layout passes inside the leg must not reseat them.
+        guard !keyboardTransitionActive else { return }
         if usesKeyboardGuideSensor {
             // Self-heal for transitions missed while detached (workspace
             // switches): the settled guide is the keyboard's live seat.
@@ -146,6 +162,7 @@ public final class GhosttySurfaceHostView: UIView {
 
     public override func safeAreaInsetsDidChange() {
         super.safeAreaInsetsDidChange()
+        guard !keyboardTransitionActive else { return }
         seatDockWithoutAnimation()
     }
 
@@ -160,6 +177,9 @@ public final class GhosttySurfaceHostView: UIView {
         #if DEBUG
         maximumTerminalDockPresentationGap = 0
         #endif
+        keyboardTransitionGeneration &+= 1
+        let generation = keyboardTransitionGeneration
+        keyboardTransitionActive = true
         // Both constants retarget in ONE animated pass. When the slack equals
         // the whole intrusion (short content) they cancel exactly and the
         // wrapper frame does not change — the layout pass animates nothing.
@@ -176,7 +196,9 @@ public final class GhosttySurfaceHostView: UIView {
         transition.animate { [weak self] in
             self?.layoutIfNeeded()
         } completion: { [weak self] _ in
-            self?.sampleTerminalDockPresentationGap()
+            guard let self, self.keyboardTransitionGeneration == generation else { return }
+            self.keyboardTransitionActive = false
+            self.sampleTerminalDockPresentationGap()
         }
     }
 
@@ -218,7 +240,8 @@ public final class GhosttySurfaceHostView: UIView {
     /// (and re-expands after a `clear`). Driven by the surface's display
     /// link; a no-op within half a point.
     func refreshKeyboardAbsorptionIfNeeded() {
-        guard surfaceView.hostedKeyboardHeight > 0 else { return }
+        guard !keyboardTransitionActive,
+              surfaceView.hostedKeyboardHeight > 0 else { return }
         let slack = currentAbsorptionSlack()
         guard abs(slack - appliedAbsorptionSlack) > 0.5 else { return }
         appliedAbsorptionSlack = slack
