@@ -1820,15 +1820,15 @@
           "urlAllowlist": "内蔵ブラウザの移動を制限するホストまたはURLパターンです。設定画面ではローカル開発用オリジンを候補として表示します。リストを保存すると任意の制限が有効になり、エントリを削除するとそのURLをブロックします。管理ポリシーがない場合はユーザー値を空にすると無効になります。"
         },
         "sidebar": {
-          "showAccountSwitcher": "サイドバーフッターに AI エージェントのアカウントスイッチャーを表示します。subrouter.enabled が有効な場合のみ適用されます。",
+          "showAccountSwitcher": "サイドバーフッターに AI エージェントのアカウントスイッチャーを表示します。the integration が有効な場合のみ適用されます。",
           "notificationMessageLineLimit": "各ワークスペースタイトルの下に表示する最新通知の最大行数です。",
           "rightMaxWidth": "右サイドバーの最大幅（ポイント）。省略すると、組み込みの動的上限が適用されます。"
         },
-        "subrouter": {
-          "description": "設定 > エージェントアカウントから利用する、AI エージェントのアカウント切り替えと使用状況に対応したローカル subrouter デーモン連携です。",
-          "enabled": "subrouter 連携のユーザー設定によるオプトアウトです（利用可能性自体は リリースのフィーチャーフラグで制御されます）。false の場合、cmux はデーモンへ接続せず sr CLI も実行しません。",
+        "agentAccountRouting": {
+          "description": "設定 > エージェントアカウントから利用する、AI エージェントのアカウント切り替えと使用状況に対応したローカル agent-account routing デーモン連携です。",
+          "enabled": "agent-account routing 連携のユーザー設定によるオプトアウトです（利用可能性自体は リリースのフィーチャーフラグで制御されます）。false の場合、cmux はデーモンへ接続せず sr CLI も実行しません。",
           "endpoint": "host:port または完全な http(s) URL で指定するデーモンアドレスです。空の場合は http://127.0.0.1:31415 です。",
-          "commandPath": "アカウント切り替えに使用する sr/subrouter CLI の明示的なパスです。空の場合は PATH と ~/bin から解決します。"
+          "commandPath": "アカウント切り替えに使用する sr/agent-account routing CLI の明示的なパスです。空の場合は PATH と ~/bin から解決します。"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "グループ内で Cmd-N、グループヘッダーの + ボタン、設定済みグループアクションが新しいワークスペースを配置する場所のグローバル既定値です: `afterCurrent` (アクティブなグループ内ワークスペースの直後。ない場合は top)、`top` (アンカー直後の2番目の位置)、`end` (最後のメンバーの後)。",

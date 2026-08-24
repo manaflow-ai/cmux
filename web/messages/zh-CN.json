@@ -1036,15 +1036,15 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
-          "showAccountSwitcher": "Show the AI-agent account switcher in the sidebar footer. Only takes effect while subrouter.enabled is on.",
+          "showAccountSwitcher": "Show the AI-agent account switcher in the sidebar footer. Only takes effect while the integration is on.",
           "notificationMessageLineLimit": "每个工作区标题下方显示的最新通知的最大行数。",
           "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。"
         },
-        "subrouter": {
-          "description": "Local subrouter daemon integration (AI-agent account switching and usage) from Settings > Agent Accounts.",
-          "enabled": "User opt-out for the subrouter integration (availability itself is controlled by the release feature flag). When false, cmux never contacts the daemon or runs the sr CLI.",
+        "agentAccountRouting": {
+          "description": "Local agent-account routing daemon integration (AI-agent account switching and usage) from Settings > Agent Accounts.",
+          "enabled": "User opt-out for the agent-account routing integration (availability itself is controlled by the release feature flag). When false, cmux never contacts the daemon or runs the sr CLI.",
           "endpoint": "Daemon address as host:port or a full http(s) URL. Empty means http://127.0.0.1:31415.",
-          "commandPath": "Explicit path to the sr/subrouter CLI used for account switches. Empty resolves from PATH and ~/bin."
+          "commandPath": "Explicit path to the sr/agent-account routing CLI used for account switches. Empty resolves from PATH and ~/bin."
         },
         "fileExplorer": {
           "description": "右侧边栏文件浏览器（文件树）设置。",
