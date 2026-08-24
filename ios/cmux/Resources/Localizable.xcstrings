@@ -1327,6 +1327,40 @@
         }
       }
     },
+    "mobile.simulatorStream.needsRecovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator Needs Recovery"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorの復旧が必要です"
+          }
+        }
+      }
+    },
+    "mobile.simulatorStream.needsRecoveryDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator session on the Mac stopped and is showing its last frame."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacのSimulatorセッションが停止し、最後のフレームを表示しています。"
+          }
+        }
+      }
+    },
     "mobile.simulatorStream.panelClosedDetail": {
       "extractionState": "manual",
       "localizations": {
@@ -1408,6 +1442,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "高画質"
+          }
+        }
+      }
+    },
+    "mobile.simulatorStream.recover": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recover"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復旧"
           }
         }
       }
