@@ -655,11 +655,12 @@ fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
     assert_success(&remote_help);
     let remote_help = String::from_utf8(remote_help.stdout).unwrap();
     assert!(
-        remote_help
-            .contains("cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [OPTIONS]"),
+        remote_help.contains("USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]"),
         "{remote_help}"
     );
-    assert!(!remote_help.contains("known-daemons <OPTIONS>"), "{remote_help}");
+    assert!(remote_help.contains("cmux remote enroll <ACTION> [OPTIONS]"), "{remote_help}");
+    assert!(remote_help.contains("cmux remote known-daemons [OPTIONS]"), "{remote_help}");
+    assert!(remote_help.contains("cmux remote stop [OPTIONS]"), "{remote_help}");
     assert!(remote_help.contains("cmux remote stop"), "{remote_help}");
     assert!(remote_help.contains("cmux remote connect"), "{remote_help}");
 
@@ -765,7 +766,7 @@ fn local_server_lifecycle_rejects_invalid_derived_socket_sessions() {
                     String::from_utf8_lossy(&output.stderr)
                 )
             });
-        assert_eq!(error["code"], "server.invalid_session", "action={action}");
+        assert_eq!(error["code"], "usage.invalid", "action={action}");
         assert!(
             error["message"].as_str().is_some_and(|message| message.contains("invalid")),
             "action={action}: {error}"
