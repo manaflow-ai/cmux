@@ -19,7 +19,7 @@ extension MobileShellComposite {
     ) async -> [MobilePairedMac] {
         // Discovery only yields Iroh-route candidates, which the Tailscale
         // connection method can never dial; skip the broker round-trip.
-        guard connectionMethodStore?.method != .tailscale,
+        guard !selectedModeDisallowsIroh,
               let personalIrohDiscovery else { return [] }
         let discovered = await personalIrohDiscovery.discoverLiveMacs()
         guard generation == storedMacReconnectGeneration,
@@ -43,7 +43,7 @@ extension MobileShellComposite {
     ) async -> [MobilePairedMac] {
         // Discovery only yields Iroh-route candidates, which the Tailscale
         // connection method can never dial; skip the broker round-trip.
-        guard connectionMethodStore?.method != .tailscale,
+        guard !selectedModeDisallowsIroh,
               let personalIrohDiscovery else { return [] }
         let discovered = await personalIrohDiscovery.discoverLiveMacs()
         guard await isScopeCurrent(scope) else { return [] }

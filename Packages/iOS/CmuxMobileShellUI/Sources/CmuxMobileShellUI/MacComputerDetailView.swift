@@ -243,6 +243,17 @@ struct MacComputerDetailView: View {
             if isForeground {
                 LabeledContent(L10n.string("mobile.computers.field.role", defaultValue: "Role"),
                                value: L10n.string("mobile.computers.role.foreground", defaultValue: "Active (foreground)"))
+                LabeledContent(
+                    L10n.string(
+                        "mobile.settings.activeTransport",
+                        defaultValue: "Active Transport"
+                    ),
+                    value: store.activeTransportPath.mobileStatusDisplayValue
+                        ?? L10n.string(
+                            "mobile.settings.activeTransport.unavailable",
+                            defaultValue: "Transport unavailable"
+                        )
+                )
             }
             LabeledContent(L10n.string("mobile.computers.field.workspaces", defaultValue: "Workspaces"),
                            value: "\(workspaceCount)")

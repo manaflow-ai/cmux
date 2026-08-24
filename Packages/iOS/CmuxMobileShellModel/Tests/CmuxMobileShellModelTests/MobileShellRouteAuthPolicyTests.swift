@@ -49,7 +49,7 @@ import Testing
         #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(irohPeer))
     }
 
-    @Test func allowsStackAuthOnlyForLoopbackRoutes() throws {
+    @Test func allowsStackAuthForLoopbackAndAdvertisedLANRoutes() throws {
         let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleIPv6 = try hostPortRoute(
@@ -58,6 +58,7 @@ import Testing
             port: CmxMobileDefaults.defaultHostPort
         )
         let lanIP = try hostPortRoute(kind: .tailscale, host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
+        let advertisedLAN = try hostPortRoute(kind: .lan, host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
         let localDNS = try hostPortRoute(kind: .tailscale, host: "devbox.local", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleMagicDNS = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
         let pretendLoopback = try hostPortRoute(kind: .debugLoopback, host: "127.attacker.example", port: CmxMobileDefaults.defaultHostPort)
@@ -90,6 +91,7 @@ import Testing
 
         // Loopback never leaves the device and may carry the Stack bearer token.
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(loopback))
+        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(advertisedLAN))
 
         // A numeric Tailscale address and an anonymous utun path do not prove
         // which VPN owns that path or which peer accepted plaintext TCP.
@@ -100,9 +102,8 @@ import Testing
         // bearer token must never be sent to the peer or any path hint.
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(irohPeer))
 
-        // Plaintext-TCP routes must NOT carry the Stack bearer token: a `.tailscale`
-        // route to a private-LAN IP or a `.local`/Bonjour host is dialed over
-        // unencrypted TCP, so it is excluded from the Stack-auth-allowed set.
+        // A private address mislabeled as Tailscale remains untrusted; only the
+        // Mac-advertised `.lan` class can carry the LAN mode's account auth.
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(lanIP))
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(localDNS))
         // MagicDNS text is not a transport proof. The connection factory must

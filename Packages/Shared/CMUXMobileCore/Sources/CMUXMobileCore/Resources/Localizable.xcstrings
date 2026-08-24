@@ -724,7 +724,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "LAN advertisement state changed"
+            "value": "LAN publication state changed"
           }
         },
         "ja": {
@@ -1132,7 +1132,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Direct dial leg connected"
+            "value": "Direct dial leg succeeded"
           }
         },
         "ja": {
@@ -1149,7 +1149,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Direct dial plan assembled"
+            "value": "Transport dial plan built"
           }
         },
         "ja": {
@@ -1183,7 +1183,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "LAN discovery resolved"
+            "value": "LAN discovery completed"
           }
         },
         "ja": {
@@ -1217,7 +1217,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Private addresses joined broker port"
+            "value": "Private address candidate joined"
           }
         },
         "ja": {
@@ -2673,6 +2673,20 @@
             "value": "プライベートネットワーク"
           }
         }
+      }
+    },
+    "diagnostics.path.lan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "LAN" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "LAN" } }
+      }
+    },
+    "diagnostics.path.tailscale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tailscale" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Tailscale" } }
       }
     },
     "diagnostics.path.relay": {
@@ -5756,6 +5770,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "リモート切断の理由" } }
       }
     },
+    "diagnostics.event.transportModeSelected": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Transport mode selected"}},"ja":{"stringUnit":{"state":"translated","value":"トランスポートモードを選択しました"}}}},
+    "diagnostics.event.transportDialPath": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Negotiated transport path"}},"ja":{"stringUnit":{"state":"translated","value":"ネゴシエートされたトランスポート経路"}}}},
+    "diagnostics.event.transportPathMigration": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Transport path migrated"}},"ja":{"stringUnit":{"state":"translated","value":"トランスポート経路が移行しました"}}}},
+    "diagnostics.transportMode.automatic": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Auto"}},"ja":{"stringUnit":{"state":"translated","value":"自動"}}}},
+    "diagnostics.transportMode.lan": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"LAN only"}},"ja":{"stringUnit":{"state":"translated","value":"LANのみ"}}}},
+    "diagnostics.transportMode.tailscale": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tailscale only"}},"ja":{"stringUnit":{"state":"translated","value":"Tailscaleのみ"}}}},
+    "diagnostics.transportMode.iroh": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"iroh only"}},"ja":{"stringUnit":{"state":"translated","value":"irohのみ"}}}},
     "diagnostics.field.peer": {
       "extractionState": "manual",
       "localizations": {

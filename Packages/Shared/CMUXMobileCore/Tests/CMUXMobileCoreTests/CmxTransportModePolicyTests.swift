@@ -87,6 +87,56 @@ struct CmxTransportModePolicyTests {
         #expect(CmxTransportPath.irohRelay(region: "us-east").displayValue == "iroh relay us-east")
     }
 
+    @Test("the transport request boundary rejects a cross-class route")
+    func requestBoundaryRejectsCrossClassRoute() throws {
+        let route = try route(id: "tailscale", kind: .tailscale, host: "100.64.1.10")
+        let request = CmxByteTransportRequest(
+            route: route,
+            expectedPeerDeviceID: "mac",
+            authorizationMode: .stackBearer,
+            transportMode: .lanOnly
+        )
+        do {
+            try request.validateTransportMode()
+            Issue.record("expected the pinned LAN policy to reject Tailscale")
+        } catch let error as CmxTransportModeError {
+            #expect(error == .routeClassMismatch(expected: .lan, actual: .tailscale))
+        }
+    }
+
+    @Test("diagnostic path classes distinguish LAN and Tailscale")
+    func diagnosticPathClassesRemainDistinct() {
+        #expect(
+            CmxTransportPath.lan(address: "192.168.1.10").diagnosticPathKind
+                == .lan
+        )
+        #expect(
+            CmxTransportPath.tailscale(address: "100.64.1.10").diagnosticPathKind
+                == .tailscale
+        )
+        #expect(CmxTransportModePolicy(.tailscaleOnly).allows(
+            path: .irohRelay(region: "us-east")
+        ) == false)
+    }
+
+    @Test("a pinned LAN or Tailscale session cannot construct an Iroh plan")
+    func pinnedModesRejectIrohSessionConstruction() {
+        let plan = CmxIrohDialPlan(publicPaths: [], privateFallbackPaths: [])
+        for mode in [CmxTransportMode.lanOnly, .tailscaleOnly] {
+            do {
+                try CmxTransportModePolicy(mode).validate(irohDialPlan: plan)
+                Issue.record("expected (mode) to reject an Iroh session")
+            } catch let error as CmxTransportModeError {
+                #expect(error == .routeClassMismatch(
+                    expected: mode.pinnedClass ?? .iroh,
+                    actual: .iroh
+                ))
+            } catch {
+                Issue.record("unexpected error: \(error)")
+            }
+        }
+    }
+
     private func route(
         id: String,
         kind: CmxAttachTransportKind,

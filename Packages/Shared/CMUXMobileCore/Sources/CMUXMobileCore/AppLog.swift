@@ -580,7 +580,8 @@ public extension DiagnosticEventCode {
              .transportLANDiscovery, .transportDialLegSucceeded,
              .transportDialLegFailed, .lanPublicationState,
              .transportDialSessionLinked, .transportDialCancelled,
-             .transportCloseReason:
+             .transportCloseReason, .transportModeSelected,
+             .transportDialPath, .transportPathMigration:
             return .network
         case .appLifecycleChanged, .reachabilityChanged:
             return .both

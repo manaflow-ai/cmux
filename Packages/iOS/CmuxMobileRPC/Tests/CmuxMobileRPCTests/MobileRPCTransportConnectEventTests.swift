@@ -175,13 +175,15 @@ import Testing
         await session.tearDown(error: .connectionClosed)
         continuation.finish()
         let recorded = await collect(events)
-        #expect(recorded.count == 2)
+        #expect(recorded.count == 3)
         guard case .attempt = recorded[0],
-              case let .connected(_, _, _, sessionID) = recorded[1] else {
-            Issue.record("Expected attempt followed by connected")
+              case let .connected(_, _, _, sessionID) = recorded[1],
+              case let .pathObserved(_, path) = recorded[2] else {
+            Issue.record("Expected attempt, connected, then negotiated path")
             return
         }
         #expect(sessionID == 91)
+        #expect(path == .irohDirect)
     }
 
     private func collect(
@@ -196,7 +198,8 @@ import Testing
 }
 
 private actor LinkedDiagnosticSessionTransport:
-    CmxByteTransportDiagnosticSessionIdentifying
+    CmxByteTransportDiagnosticSessionIdentifying,
+    CmxByteTransportPathObserving
 {
     private let base: ControllableResponseTransport
     private let sessionID: Int
@@ -214,6 +217,13 @@ private actor LinkedDiagnosticSessionTransport:
     func send(_ data: Data) async throws { try await base.send(data) }
     func close() async { await base.close() }
     func transportDiagnosticSessionID() async -> Int? { sessionID }
+    func currentTransportPath() async -> CmxTransportPath { .irohDirect }
+    func transportPathChanges() async -> AsyncStream<CmxTransportPath> {
+        AsyncStream { continuation in
+            continuation.yield(.irohDirect)
+            continuation.finish()
+        }
+    }
 }
 
 private actor MobileRPCConnectCancellationSignal {

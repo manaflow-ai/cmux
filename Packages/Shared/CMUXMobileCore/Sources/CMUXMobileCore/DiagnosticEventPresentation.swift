@@ -64,6 +64,11 @@ public struct DiagnosticEventPresentation: Sendable {
         String(describing: kind)
     }
 
+    /// The stable machine name of a configured transport mode.
+    public func name(_ mode: DiagnosticTransportMode) -> String {
+        String(describing: mode)
+    }
+
     /// The stable machine name of a session lifecycle kind.
     public func name(_ kind: DiagnosticSessionLifecycleKind) -> String {
         String(describing: kind)
@@ -210,6 +215,7 @@ public struct DiagnosticEventPresentation: Sendable {
         case .tailscale: localized("diagnostics.transport.tailscale", defaultValue: "Tailscale")
         case .websocket: localized("diagnostics.transport.websocket", defaultValue: "WebSocket")
         case .debugLoopback: localized("diagnostics.transport.debugLoopback", defaultValue: "Debug loopback")
+        case .lan: localized("diagnostics.transport.lan", defaultValue: "LAN")
         }
     }
 
@@ -218,6 +224,8 @@ public struct DiagnosticEventPresentation: Sendable {
         switch method {
         case .automatic: localized("diagnostics.connectionMethod.automatic", defaultValue: "Auto-Connect (Iroh)")
         case .tailscale: localized("diagnostics.connectionMethod.tailscale", defaultValue: "Tailscale Only")
+        case .lan: localized("diagnostics.connectionMethod.lan", defaultValue: "LAN Only")
+        case .iroh: localized("diagnostics.connectionMethod.iroh", defaultValue: "iroh Only")
         }
     }
 
@@ -229,6 +237,8 @@ public struct DiagnosticEventPresentation: Sendable {
         case .relay: localized("diagnostics.path.relay", defaultValue: "Relay")
         case .privateNetwork: localized("diagnostics.path.privateNetwork", defaultValue: "Private network")
         case .loopback: localized("diagnostics.path.loopback", defaultValue: "Loopback")
+        case .lan: localized("diagnostics.path.lan", defaultValue: "LAN")
+        case .tailscale: localized("diagnostics.path.tailscale", defaultValue: "Tailscale")
         }
     }
 
@@ -287,7 +297,9 @@ public struct DiagnosticEventPresentation: Sendable {
                  .transportDialPlanBuilt, .transportPrivateAddressJoin,
                  .transportLANDiscovery, .transportDialLegSucceeded,
                  .transportDialLegFailed, .discoveryStarted,
-                 .discoverySucceeded, .discoveryFailed:
+                 .discoverySucceeded, .discoveryFailed,
+                 .transportModeSelected, .transportDialPath,
+                 .transportPathMigration:
                 key = "peer"
             default:
                 key = "surface"
@@ -316,7 +328,7 @@ public struct DiagnosticEventPresentation: Sendable {
 
     /// Renders an already-described event as a title followed by labeled fields.
     public func summary(_ described: DescribedEvent) -> String {
-        let visibleFields = described.fields.filter { $0.key != "session" }
+        let visibleFields = described.fields
         guard !visibleFields.isEmpty else { return described.name }
         let details = visibleFields.map { field in
             localized(
@@ -495,17 +507,23 @@ public struct DiagnosticEventPresentation: Sendable {
         case .appFeatureAction:
             localized("diagnostics.event.appFeatureAction", defaultValue: "App feature event")
         case .transportDialPlanBuilt:
-            localized("diagnostics.event.transportDialPlanBuilt", defaultValue: "Direct dial plan assembled")
+            localized("diagnostics.event.transportDialPlanBuilt", defaultValue: "Transport dial plan built")
         case .transportPrivateAddressJoin:
-            localized("diagnostics.event.transportPrivateAddressJoin", defaultValue: "Private addresses joined broker port")
+            localized("diagnostics.event.transportPrivateAddressJoin", defaultValue: "Private address candidate joined")
         case .transportLANDiscovery:
-            localized("diagnostics.event.transportLANDiscovery", defaultValue: "LAN discovery resolved")
+            localized("diagnostics.event.transportLANDiscovery", defaultValue: "LAN discovery completed")
         case .transportDialLegSucceeded:
-            localized("diagnostics.event.transportDialLegSucceeded", defaultValue: "Direct dial leg connected")
+            localized("diagnostics.event.transportDialLegSucceeded", defaultValue: "Direct dial leg succeeded")
         case .transportDialLegFailed:
             localized("diagnostics.event.transportDialLegFailed", defaultValue: "Direct dial leg failed")
         case .lanPublicationState:
-            localized("diagnostics.event.lanPublicationState", defaultValue: "LAN advertisement state changed")
+            localized("diagnostics.event.lanPublicationState", defaultValue: "LAN publication state changed")
+        case .transportModeSelected:
+            localized("diagnostics.event.transportModeSelected", defaultValue: "Transport mode selected")
+        case .transportDialPath:
+            localized("diagnostics.event.transportDialPath", defaultValue: "Negotiated transport path")
+        case .transportPathMigration:
+            localized("diagnostics.event.transportPathMigration", defaultValue: "Transport path migrated")
         }
     }
 
@@ -570,6 +588,18 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "leg", value: dialLegName(raw))
         case .lanPublicationState:
             return Field(key: "state", value: lanPublicationStateName(raw))
+        case .transportDialSessionLinked:
+            return Field(key: "attempt", value: String(raw))
+        case .transportDialCancelled:
+            return Field(key: "cancellation", value: cancellationName(raw))
+        case .transportCloseReason:
+            return Field(key: "reason", value: remoteCloseReasonName(raw))
+        case .transportModeSelected:
+            return Field(key: "mode", value: transportModeName(raw))
+        case .transportDialPath:
+            return Field(key: "path", value: pathName(raw))
+        case .transportPathMigration:
+            return Field(key: "from_path", value: pathName(raw))
         default:
             return Field(key: "detail_1", value: String(raw))
         }
@@ -586,6 +616,10 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "purpose", value: sessionPurposeName(raw))
         case .transportPathEvent:
             return Field(key: "path", value: pathName(raw))
+        case .transportDialCancelled:
+            return Field(key: "cancellation", value: cancellationName(raw))
+        case .transportCloseReason:
+            return Field(key: "reason", value: remoteCloseReasonName(raw))
         case .inputSeqBehind:
             return Field(key: "remote_sequence", value: String(raw))
         case .byteGap:
@@ -608,6 +642,8 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "hints", value: String(raw))
         case .lanPublicationState:
             return Field(key: "reason", value: lanPublicationReasonName(raw))
+        case .transportPathMigration:
+            return Field(key: "to_path", value: pathName(raw))
         case .simulatorStreamLifecycle:
             return Field(key: "owner", value: simulatorOwnershipName(raw))
         case .simulatorFrameLifecycle:
@@ -651,6 +687,14 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "relay_fleet", value: String(raw))
         case .transportDialStarted, .transportDialConnected, .transportDialFailed:
             return Field(key: "attempt", value: String(raw))
+        case .transportDialSessionLinked:
+            return Field(key: "session", value: String(raw))
+        case .transportDialCancelled, .transportModeSelected, .transportDialPath:
+            return Field(key: "attempt", value: String(raw))
+        case .transportPathMigration, .transportCloseReason:
+            return Field(key: "session", value: String(raw))
+        case .recoveryStarted, .recoverySucceeded, .recoveryFailed:
+            return Field(key: "peer", value: String(raw))
         case .sessionClosed, .transportSessionLifecycle,
              .transportCloseAttribution, .transportPathEvent:
             return Field(key: "session", value: String(raw))
@@ -758,6 +802,60 @@ public struct DiagnosticEventPresentation: Sendable {
     private func connectionMethodName(_ raw: Int) -> String {
         DiagnosticConnectionMethod(rawValue: raw).map(displayName)
             ?? unknownPayloadName(raw)
+    }
+
+    private func transportModeName(_ raw: Int) -> String {
+        guard let mode = DiagnosticTransportMode(rawValue: raw) else {
+            return unknownPayloadName(raw)
+        }
+        switch mode {
+        case .automatic:
+            return localized("diagnostics.transportMode.automatic", defaultValue: "Auto")
+        case .lan:
+            return localized("diagnostics.transportMode.lan", defaultValue: "LAN only")
+        case .tailscale:
+            return localized("diagnostics.transportMode.tailscale", defaultValue: "Tailscale only")
+        case .iroh:
+            return localized("diagnostics.transportMode.iroh", defaultValue: "iroh only")
+        }
+    }
+
+    private func cancellationName(_ raw: Int) -> String {
+        switch DiagnosticCancellationReason(rawValue: raw) {
+        case .requestCancelled:
+            return localized("diagnostics.cancellation.requestCancelled", defaultValue: "Request cancelled")
+        case .requestTimedOut:
+            return localized("diagnostics.cancellation.requestTimedOut", defaultValue: "Request timed out")
+        case .sessionTeardown:
+            return localized("diagnostics.cancellation.sessionTeardown", defaultValue: "Session teardown")
+        case .sessionDeinitialized:
+            return localized("diagnostics.cancellation.sessionDeinitialized", defaultValue: "Session deinitialized")
+        case .unknown, nil:
+            return localized("diagnostics.cancellation.unknown", defaultValue: "Unknown cancellation")
+        }
+    }
+
+    private func remoteCloseReasonName(_ raw: Int) -> String {
+        switch DiagnosticRemoteCloseReason(rawValue: raw) {
+        case .clientClosed:
+            return localized("diagnostics.closeReason.clientClosed", defaultValue: "Client closed")
+        case .serverClosed:
+            return localized("diagnostics.closeReason.serverClosed", defaultValue: "Server closed")
+        case .superseded:
+            return localized("diagnostics.closeReason.superseded", defaultValue: "Superseded session")
+        case .admissionLeaseExpired:
+            return localized("diagnostics.closeReason.admissionLeaseExpired", defaultValue: "Admission lease expired")
+        case .admissionRevalidationFailed:
+            return localized("diagnostics.closeReason.admissionRevalidationFailed", defaultValue: "Admission revalidation failed")
+        case .sendQueueOverflow:
+            return localized("diagnostics.closeReason.sendQueueOverflow", defaultValue: "Send queue overflow")
+        case .serverFailure:
+            return localized("diagnostics.closeReason.serverFailure", defaultValue: "Server failure")
+        case .serverCancelled:
+            return localized("diagnostics.closeReason.serverCancelled", defaultValue: "Server cancelled")
+        case .unknown, nil:
+            return localized("diagnostics.closeReason.unknown", defaultValue: "Unknown remote reason")
+        }
     }
 
     private func unknownPayloadName(_ raw: Int) -> String {

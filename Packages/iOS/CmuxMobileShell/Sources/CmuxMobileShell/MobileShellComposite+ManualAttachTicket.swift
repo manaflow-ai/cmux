@@ -47,7 +47,11 @@ extension MobileShellComposite {
         attemptStartedAt: Date?,
         probeClient: MobileCoreRPCClient? = nil
     ) async throws -> CmxAttachTicket {
-        let directRoute = try Self.manualHostRoute(host: host, port: port)
+        let directRoute = try Self.manualHostRoute(
+            host: host,
+            port: port,
+            preferredKind: selectedTransportMode == .lan ? .lan : nil
+        )
         let displayName = name.isEmpty ? host : name
         if MobileShellRouteAuthPolicy.routeAllowsStackAuth(directRoute) {
             do {
@@ -121,9 +125,11 @@ extension MobileShellComposite {
                 stackTokenGate: stackTokenGate,
                 stackTokenForceRefreshGate: stackTokenForceRefreshGate,
                 transportConnectObserver: transportConnectDiagnosticObserver(
-                    peerID: probeTicket.macDeviceID
+                    peerID: probeTicket.macDeviceID,
+                    transportMode: selectedTransportMode
                 ),
-                sessionPurpose: .probe
+                sessionPurpose: .probe,
+                transportMode: selectedTransportMode
             )
         }
         let timeoutNanoseconds: UInt64

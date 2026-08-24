@@ -7,6 +7,7 @@ actor CmxConnectivityByteTransport:
     CmxByteTransportClosureObserving,
     CmxByteTransportContinuityIdentifying,
     CmxByteTransportDiagnosticSessionIdentifying,
+    CmxByteTransportPathObserving,
     CmxByteTransportSessionPurposeUpdating
 {
     private var request: CmxByteTransportRequest
@@ -88,6 +89,57 @@ actor CmxConnectivityByteTransport:
         guard let session else { return nil }
         return CmxTransportClosureObservation {
             await session.waitUntilClosed()
+        }
+    }
+
+    func currentTransportPath() async -> CmxTransportPath {
+        guard let session else { return .unavailable }
+        return Self.mobileTransportPath(
+            await session.observedSelectedPath(),
+            mode: request.transportMode
+        )
+    }
+
+    func transportPathChanges() async -> AsyncStream<CmxTransportPath> {
+        guard let session else {
+            return AsyncStream { continuation in
+                continuation.yield(.unavailable)
+                continuation.finish()
+            }
+        }
+        let changes = await session.observedSelectedPathChanges()
+        let mode = request.transportMode
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let task = Task {
+                for await path in changes {
+                    guard !Task.isCancelled else { return }
+                    continuation.yield(Self.mobileTransportPath(path, mode: mode))
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private static func mobileTransportPath(
+        _ path: CmxIrohObservedConnectionPath,
+        mode: CmxTransportMode
+    ) -> CmxTransportPath {
+        switch path {
+        case .unavailable:
+            return .unavailable
+        case .direct:
+            return .irohDirect
+        case let .privateNetwork(address):
+            if mode == .iroh {
+                return .irohDirect
+            }
+            if CmxTailscalePeerAddress(address) != nil {
+                return .tailscale(address: address)
+            }
+            return .lan(address: address)
+        case .relay:
+            return .irohRelay(region: nil)
         }
     }
 

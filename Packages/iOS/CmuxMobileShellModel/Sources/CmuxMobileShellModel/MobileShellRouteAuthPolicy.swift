@@ -8,16 +8,11 @@ import Foundation
 /// vs Tailscale vs LAN vs arbitrary host) can be exhaustively tested without a live
 /// connection.
 ///
-/// The Stack-bearer-token gate (``routeAllowsStackAuth(_:)``) is intentionally
-/// restricted to **loopback**, which never leaves the machine. iOS cannot prove
-/// that a generic packet-tunnel interface belongs to Tailscale's authenticated
-/// control plane, so a Tailscale-address heuristic is insufficient for sending
-/// an account credential over plaintext TCP. Iroh sessions authenticate RPC out
-/// of band and never carry a Stack bearer token. Plain
-/// private-LAN and `.local`/Bonjour hosts are dialed
-/// over unencrypted TCP (``CmxNetworkByteTransport`` uses `NWParameters(tls: nil)`),
-/// so they are excluded from the Stack-auth-allowed set even though they may still
-/// be reachable as attach routes.
+/// The Stack-bearer-token gate (``routeAllowsStackAuth(_:)``) admits loopback
+/// and explicitly advertised `.lan` routes. iOS cannot prove that an arbitrary
+/// private address belongs to the paired Mac, so generic manual hosts and
+/// Tailscale addresses remain fail-closed. Iroh sessions authenticate RPC out
+/// of band and never carry a Stack bearer token.
 public struct MobileShellRouteAuthPolicy {
     private init() {}
 
@@ -67,22 +62,21 @@ public struct MobileShellRouteAuthPolicy {
     /// Whether the given route is trusted enough to carry the Stack bearer token.
     ///
     /// The Stack `stack_access_token` is the owner's account credential, so it must
-    /// only ever traverse loopback. This predicate gates every Stack-token-send
-    /// site and returns `true` only for `.debugLoopback` to a loopback host.
+    /// only traverse explicitly classified loopback or LAN routes. A LAN route
+    /// is advertised by the authenticated Mac and is never inferred from an
+    /// arbitrary private address, which keeps generic manual hosts fail-closed.
     ///
-    /// Plain private-LAN (`192.168/16`, `10/8`, `172.16/12`, link-local) and
-    /// `.local`/Bonjour hosts are deliberately **excluded**: they are dialed over
-    /// unencrypted TCP (``CmxNetworkByteTransport`` uses `NWParameters(tls: nil)`),
-    /// so sending the bearer token to such a host would disclose it in plaintext on
-    /// the local network before the Mac proves it is the same-account host.
-    /// Iroh routes always return `false`. Their authenticated session context
-    /// authorizes RPC without disclosing the account bearer token to the peer.
+    /// A `.lan` route is admitted only when it came from the Mac's authenticated
+    /// route advertisement; arbitrary private addresses retain the old
+    /// plaintext safety behavior and return `false`.
     /// - Parameter route: The candidate attach route.
-    /// - Returns: `true` only for a loopback route.
+    /// - Returns: `true` for a loopback route or an explicitly classified LAN route.
     public static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
+        case (.lan, .hostPort):
+            return true
         case (.tailscale, .hostPort), (.iroh, .peer):
             return false
         default:

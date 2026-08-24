@@ -358,6 +358,40 @@ actor MobileCoreRPCSession {
         }
     }
 
+    /// Returns the concrete path currently carrying the installed transport,
+    /// or `.unavailable` before admission/after teardown.
+    func currentTransportPath() async -> CmxTransportPath {
+        guard let transport,
+              let observing = transport as? any CmxByteTransportPathObserving else {
+            return .unavailable
+        }
+        return await observing.currentTransportPath()
+    }
+
+    /// Returns the process-local admitted session correlation ID, when the
+    /// installed transport exposes one for diagnostics.
+    func transportDiagnosticSessionID() async -> Int? {
+        guard let transport,
+              let identifying = transport as? any CmxByteTransportDiagnosticSessionIdentifying else {
+            return nil
+        }
+        return await identifying.transportDiagnosticSessionID()
+    }
+
+    /// Subscribes to concrete path changes for the installed transport. The
+    /// stream finishes with the transport lifecycle; callers must recreate it
+    /// after replacing this session's client.
+    func transportPathChanges() async -> AsyncStream<CmxTransportPath> {
+        guard let transport,
+              let observing = transport as? any CmxByteTransportPathObserving else {
+            return AsyncStream { continuation in
+                continuation.yield(.unavailable)
+                continuation.finish()
+            }
+        }
+        return await observing.transportPathChanges()
+    }
+
     func tearDown(error: MobileShellConnectionError) async {
         if isTearingDown {
             await withCheckedContinuation {
@@ -635,6 +669,12 @@ actor MobileCoreRPCSession {
                                 )?.transportDiagnosticSessionID()
                             )
                         )
+                        if let observing = candidate as? any CmxByteTransportPathObserving {
+                            transportConnectObserver(.pathObserved(
+                                attemptID: connectAttemptID,
+                                path: await observing.currentTransportPath()
+                            ))
+                        }
                     }
                     return candidate
                 } catch is CancellationError {

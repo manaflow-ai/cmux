@@ -9,7 +9,13 @@ public struct CmxIrohDialPlan: Equatable, Sendable {
     /// Active-profile private/LAN paths used only after the first attempt fails.
     public let privateFallbackPaths: [CmxIrohPathHint]
 
-    init(
+    /// Creates an ordered Iroh dial plan.
+    ///
+    /// - Parameters:
+    ///   - publicPaths: Native direct/relay hints attempted first.
+    ///   - privateFallbackPaths: Profile-authorized private hints attempted
+    ///     only after the public phase fails.
+    public init(
         publicPaths: [CmxIrohPathHint],
         privateFallbackPaths: [CmxIrohPathHint]
     ) {

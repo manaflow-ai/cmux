@@ -134,15 +134,17 @@ struct MobileSettingsView: View {
                                 value: connectedHostName
                             )
                         }
-                        if let store,
-                           store.connectionState == .connected,
-                           let routeKind = store.activeRoute?.kind {
+                        if let store, store.connectionState == .connected {
                             LabeledContent(
                                 L10n.string(
                                     "mobile.settings.activeTransport",
                                     defaultValue: "Active Transport"
                                 ),
-                                value: activeTransportName(routeKind)
+                                value: store.activeTransportPath.mobileStatusDisplayValue
+                                    ?? L10n.string(
+                                        "mobile.settings.activeTransport.unavailable",
+                                        defaultValue: "Transport unavailable"
+                                    )
                             )
                             .accessibilityIdentifier("MobileSettingsActiveTransport")
                         }
@@ -578,31 +580,6 @@ struct MobileSettingsView: View {
                 startPairingScanner: startPairingScanner
             )
             .id(MobileSettingsFocus.connectionMethod)
-        }
-    }
-
-    private func activeTransportName(_ kind: CmxAttachTransportKind) -> String {
-        switch kind {
-        case .tailscale:
-            L10n.string(
-                "mobile.settings.activeTransport.tailscale",
-                defaultValue: "Tailscale"
-            )
-        case .iroh:
-            L10n.string(
-                "mobile.settings.activeTransport.iroh",
-                defaultValue: "Iroh"
-            )
-        case .websocket:
-            L10n.string(
-                "mobile.settings.activeTransport.websocket",
-                defaultValue: "WebSocket"
-            )
-        case .debugLoopback:
-            L10n.string(
-                "mobile.settings.activeTransport.simulator",
-                defaultValue: "Simulator"
-            )
         }
     }
 

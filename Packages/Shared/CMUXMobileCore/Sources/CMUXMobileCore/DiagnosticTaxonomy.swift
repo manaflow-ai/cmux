@@ -10,11 +10,15 @@ public enum DiagnosticTransportKind: Int, Sendable, Codable, CaseIterable {
     case tailscale = 2
     case websocket = 3
     case debugLoopback = 4
+    /// A direct local-network TCP route.
+    case lan = 5
 
     /// Maps a pairing-route transport without preserving its address or other
     /// route metadata.
     public init(_ kind: CmxAttachTransportKind) {
         switch kind {
+        case .lan:
+            self = .lan
         case .iroh:
             self = .iroh
         case .tailscale:
@@ -206,6 +210,10 @@ public enum DiagnosticPathKind: Int, Sendable, Codable, CaseIterable {
     case relay = 2
     case privateNetwork = 3
     case loopback = 4
+    /// A direct route on the Mac's local network.
+    case lan = 5
+    /// A direct route on the Tailscale overlay.
+    case tailscale = 6
 
     /// Redacts a live Iroh path to its connection class. Managed and custom
     /// relay metadata intentionally collapse to the same ``relay`` value.
@@ -853,6 +861,8 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
 public enum DiagnosticConnectionMethod: Int, Sendable, Codable, CaseIterable {
     case automatic = 0
     case tailscale = 1
+    case lan = 2
+    case iroh = 3
 }
 
 /// High-level lifecycle state for one phone-controlled Simulator stream.

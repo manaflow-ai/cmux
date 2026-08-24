@@ -1065,8 +1065,8 @@ struct CMUXMobileRootView: View {
         presentPairing(.versionApproval)
     }
 
-    /// Manual host and pairing-code authorization create Tailscale routes, so
-    /// every ordinary Add Computer entrypoint shares this availability gate.
+    /// Manual host and pairing-code authorization create LAN/Tailscale routes,
+    /// so every ordinary Add Computer entrypoint shares this availability gate.
     private var addComputerAction: (() -> Void)? {
         guard allowsManualPairing else { return nil }
         return showAddDevice
@@ -1084,7 +1084,8 @@ struct CMUXMobileRootView: View {
         // store synchronously so the migration transition can expose pairing in
         // the same render that selects Tailscale.
         _ = connectionMethodObservationToken
-        return connectionMethodStore?.method == .tailscale
+        guard let method = connectionMethodStore?.method else { return false }
+        return method == .tailscale || method == .lan
         #else
         return true
         #endif
@@ -1095,7 +1096,8 @@ struct CMUXMobileRootView: View {
     /// a newly selected method yet.
     private var currentlyAllowsManualPairing: Bool {
         #if os(iOS)
-        connectionMethodStore?.method == .tailscale
+        guard let method = connectionMethodStore?.method else { return false }
+        return method == .tailscale || method == .lan
         #else
         true
         #endif

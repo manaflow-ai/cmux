@@ -3,10 +3,9 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-/// The Auto-Connect vs Tailscale connection-method choice, shared by Settings
-/// and (through the same store) onboarding. Choosing Tailscale surfaces the
-/// pairing-code scanner entry, because a user-entered code is what authorizes
-/// each Mac's Tailscale destination.
+/// The explicit transport-mode choice, shared by Settings and onboarding.
+/// Choosing Tailscale still surfaces the pairing-code scanner entry, because a
+/// user-entered code is what authorizes each Mac's Tailscale destination.
 struct MobileConnectionMethodSection: View {
     @Bindable var store: MobileConnectionMethodStore
     let hasUsableTailscaleAuthorization: Bool
@@ -33,15 +32,30 @@ struct MobileConnectionMethodSection: View {
                 ))
                 .tag(MobileConnectionMethod.tailscale)
                 .accessibilityIdentifier("MobileSettingsConnectionMethodTailscale")
+                Text(L10n.string(
+                    "mobile.settings.connectionMethod.lan",
+                    defaultValue: "LAN Only"
+                ))
+                .tag(MobileConnectionMethod.lan)
+                .accessibilityIdentifier("MobileSettingsConnectionMethodLAN")
+                Text(L10n.string(
+                    "mobile.settings.connectionMethod.iroh",
+                    defaultValue: "iroh Only"
+                ))
+                .tag(MobileConnectionMethod.iroh)
+                .accessibilityIdentifier("MobileSettingsConnectionMethodIroh")
             }
             .accessibilityIdentifier("MobileSettingsConnectionMethod")
             .onChange(of: store.method) { previousMethod, method in
-                guard previousMethod != .tailscale,
-                      method == .tailscale,
-                      !hasUsableTailscaleAuthorization else { return }
+                guard method == .tailscale || method == .lan,
+                      previousMethod != method,
+                      method != .tailscale || !hasUsableTailscaleAuthorization else {
+                    return
+                }
                 startPairingScanner?()
             }
-            if store.method == .tailscale, startPairingScanner != nil {
+            if (store.method == .tailscale || store.method == .lan),
+               startPairingScanner != nil {
                 Button {
                     startPairingScanner?()
                 } label: {
@@ -53,7 +67,11 @@ struct MobileConnectionMethodSection: View {
                         systemImage: "qrcode.viewfinder"
                     )
                 }
-                .accessibilityIdentifier("MobileSettingsTailscaleScanButton")
+                .accessibilityIdentifier(
+                    store.method == .lan
+                        ? "MobileSettingsLANScanButton"
+                        : "MobileSettingsTailscaleScanButton"
+                )
             }
         } footer: {
             Text(footerText)
@@ -75,6 +93,16 @@ struct MobileConnectionMethodSection: View {
                 network, then scan the Mac's pairing code once. cmux stays disconnected until that local \
                 authorization exists.
                 """
+            )
+        case .lan:
+            L10n.string(
+                "mobile.settings.connectionMethod.lanFooter",
+                defaultValue: "Uses only the Mac's local-network address. If the devices are not on the same network, cmux stays disconnected and does not switch to another transport."
+            )
+        case .iroh:
+            L10n.string(
+                "mobile.settings.connectionMethod.irohFooter",
+                defaultValue: "Uses only authenticated iroh paths (direct or relay). LAN and Tailscale routes are not used."
             )
         }
     }

@@ -12,6 +12,8 @@ public struct CmxMobileDefaults {
 }
 
 public enum CmxAttachTransportKind: String, Codable, Sendable {
+    /// A direct TCP route on the current local network.
+    case lan
     case tailscale
     case iroh
     case websocket

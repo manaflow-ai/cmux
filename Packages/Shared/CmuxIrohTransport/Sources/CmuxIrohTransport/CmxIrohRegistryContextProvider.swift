@@ -204,7 +204,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                     targetBinding: cached.targetBinding,
                     routeHints: routeHints,
                     pairGrantToken: cached.pairGrant.grant,
-                    at: clock
+                    at: clock,
+                    transportMode: request.transportMode
                 )
             }
         }
@@ -327,7 +328,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                 targetBinding: cached.targetBinding,
                 routeHints: routeHints,
                 pairGrantToken: cached.pairGrant.grant,
-                at: clock
+                at: clock,
+                transportMode: request.transportMode
             )
         }
         if let offlinePolicy {
@@ -344,7 +346,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             targetBinding: targetBinding,
             routeHints: routeHints,
             pairGrantToken: pairGrant.grant,
-            at: clock
+            at: clock,
+            transportMode: request.transportMode
         )
     }
 
@@ -560,7 +563,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         targetBinding: CmxIrohBrokerBinding,
         routeHints: [CmxIrohPathHint],
         pairGrantToken: String,
-        at clock: Date
+        at clock: Date,
+        transportMode: CmxTransportMode
     ) async throws -> CmxIrohClientContext {
         let targetIdentity = targetBinding.endpointID
         var routeHints = authoritativePrivateRouteHints(
@@ -591,7 +595,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         guard let dialPlan = endpointAddress.irohDialPlan(
             at: clock,
             managedRelayURLs: allowedRouteRelayURLs,
-            activeNetworkProfiles: profiles
+            activeNetworkProfiles: profiles,
+            transportMode: transportMode
         ) else {
             throw CmxIrohRegistryContextError.dialPlanUnavailable
         }
@@ -608,7 +613,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         return CmxIrohClientContext(
             dialPlan: dialPlan,
             credential: try .pairGrant(pairGrantToken),
-            privateFallbackAuthorization: fallbackAuthorization
+            privateFallbackAuthorization: fallbackAuthorization,
+            transportMode: transportMode
         )
     }
 
@@ -734,6 +740,15 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         for request: CmxByteTransportRequest,
         basedOn context: CmxIrohClientContext
     ) async throws -> CmxIrohClientContext {
+        // An explicit iroh-only policy means Iroh-native direct/relay paths,
+        // never provider-attributed LAN/Tailscale hints.  In particular, do
+        // not let the late LAN discovery phase reintroduce a private path after
+        // the initial policy filtering.
+        // A pinned mode is a hard route-class boundary.  In particular, do
+        // not let the late LAN discovery stage add a private hint to a
+        // Tailscale- or LAN-pinned request that happened to reach this Iroh
+        // provider through a reconnect race.
+        guard request.transportMode == .automatic else { return context }
         guard request.route.kind == .iroh,
               request.authorizationMode == .transportAdmission,
               let expectedDeviceID = request.expectedPeerDeviceID,
@@ -782,7 +797,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         ).irohDialPlan(
             at: clock,
             managedRelayURLs: allowedRouteRelayURLs,
-            activeNetworkProfiles: profiles
+            activeNetworkProfiles: profiles,
+            transportMode: request.transportMode
         ), dialPlan.publicPaths == context.dialPlan.publicPaths else {
             return context
         }
@@ -799,7 +815,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         return CmxIrohClientContext(
             dialPlan: dialPlan,
             credential: context.credential,
-            privateFallbackAuthorization: authorization
+            privateFallbackAuthorization: authorization,
+            transportMode: request.transportMode
         )
     }
 

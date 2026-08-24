@@ -69,12 +69,15 @@ extension CmxAttachEndpoint {
     public func irohDialPlan(
         at now: Date,
         managedRelayURLs: Set<String>,
-        activeNetworkProfiles: Set<CmxIrohNetworkProfileKey> = []
+        activeNetworkProfiles: Set<CmxIrohNetworkProfileKey> = [],
+        transportMode: CmxTransportMode = .automatic
     ) -> CmxIrohDialPlan? {
         guard case let .peer(_, pathHints) = self else {
             return nil
         }
-        let publicPaths = pathHints.filter { hint in
+        let policy = CmxTransportModePolicy(transportMode)
+        let filteredHints = policy.irohPathHints(pathHints)
+        let publicPaths = filteredHints.filter { hint in
             guard hint.privacyScope == .publicInternet,
                   hint.isUsable(at: now) else {
                 return false
@@ -88,7 +91,7 @@ extension CmxAttachEndpoint {
                 return false
             }
         }
-        let privateFallbackPaths = pathHints.filter { hint in
+        let privateFallbackPaths = filteredHints.filter { hint in
             guard hint.privacyScope != .publicInternet,
                   hint.isUsable(at: now),
                   let networkProfile = hint.networkProfile else {
@@ -96,10 +99,10 @@ extension CmxAttachEndpoint {
             }
             return activeNetworkProfiles.contains(networkProfile)
         }
-        return CmxIrohDialPlan(
+        return policy.irohDialPlan(CmxIrohDialPlan(
             publicPaths: publicPaths,
             privateFallbackPaths: privateFallbackPaths
-        )
+        ))
     }
 }
 

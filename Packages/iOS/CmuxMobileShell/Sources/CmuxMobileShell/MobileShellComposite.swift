@@ -211,6 +211,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 startLatencyProbeAutoNavigationIfNeeded()
                 #endif
             } else {
+                stopTransportPathObservation()
                 deactivateAllTerminalLanes()
                 startedMobileBrowserPanelIDs.removeAll()
                 diagnosedMobileBrowserFramePanelIDs.removeAll()
@@ -268,11 +269,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
     public internal(set) var connectedHostName: String
-    public private(set) var connectionError: String?
+    public internal(set) var connectionError: String?
+    /// The most recent pinned-mode route-selection failure. Kept separately
+    /// from the generic pairing category so the UI can explain exactly which
+    /// network must be restored without ever retrying another class.
+    var lastTransportModeError: CmxTransportModeError?
     /// Actionable next-step line shown beneath ``connectionError`` (for example
     /// "Check that both devices are on the same Tailscale"). Set and cleared
     /// together with the error by the pairing-failure classifier sink.
-    public private(set) var connectionErrorGuidance: String?
+    public internal(set) var connectionErrorGuidance: String?
     /// A warning that must be accepted before pairing continues, currently used
     /// for Mac/iPhone app-version skew.
     public private(set) var pairingVersionWarning: String?
@@ -957,6 +962,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// hide-computers verifier, and unit-test fixtures, which have no user
     /// preference and behave like the default automatic method.
     let connectionMethodStore: MobileConnectionMethodStore?
+    /// The immutable policy captured by every new foreground/background dial.
+    /// Keeping this conversion in the shell makes legacy preview fixtures
+    /// (which omit the store) continue to mean Auto.
+    var selectedTransportMode: CmxTransportMode {
+        connectionMethodStore?.method.transportMode ?? .automatic
+    }
+    /// Iroh discovery is a transport class, not a generic reconnect fallback.
+    /// A LAN- or Tailscale-pinned session must never enter a broker/Iroh path.
+    var selectedModeDisallowsIroh: Bool {
+        selectedTransportMode.pinnedClass == .lan
+            || selectedTransportMode.pinnedClass == .tailscale
+    }
     /// Single compatibility authority shared by registry, persistence, and live connections.
     let buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy?
     /// Single physical-Mac identity authority shared by every connection role.
@@ -1044,6 +1061,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `public` so the DEV feedback-submit affordance can ``DiagnosticLog/export()``
     /// it.
     public let diagnosticLog: DiagnosticLog?
+    /// The concrete path currently carrying the foreground session. This is
+    /// an in-process status value; diagnostics retain only its redacted class.
+    public internal(set) var activeTransportPath: CmxTransportPath = .unavailable
+    @ObservationIgnored var transportPathObservationTask: Task<Void, Never>?
     package var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
@@ -1713,6 +1734,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.workspaces = workspaces
         self.terminalInputText = ""
         self.connectionError = nil
+        self.lastTransportModeError = nil
         self.connectionErrorGuidance = nil
         self.pairingVersionWarning = nil
         self.activeTicket = nil
@@ -1815,6 +1837,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         presenceTask?.cancel()
         networkPathObservationTask?.cancel()
         connectionMethodObservationTask?.cancel()
+        transportPathObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
         terminalSubscriptionStartTask?.cancel()
         renderGridLivenessTimer?.cancel()
@@ -2497,7 +2520,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
         let directRoute = try? Self.manualHostRoute(
             host: normalizedHost,
-            port: port
+            port: port,
+            preferredKind: selectedTransportMode == .lan ? .lan : nil
         )
         let sameRouteProbeClient: MobileCoreRPCClient? = directRoute.flatMap { route in
             guard remoteClient?.sharesPhysicalTransportRoute(
@@ -2840,8 +2864,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if hasKnownStoredMac {
             setHasKnownPairedMac(true, generation: generation)
         }
-        let tailscaleOnly = connectionMethodStore?.method == .tailscale
-        let irohReconnectIsBlocked = tailscaleOnly
+        let irohReconnectIsDisallowed = selectedModeDisallowsIroh
+        let irohReconnectIsBlocked = irohReconnectIsDisallowed
             || automaticIrohReconnectIsBlocked(accountID: scope.userID)
         // Capture one coherent post-request view of the registry and paired-Mac
         // store. The store read happens after the registry await, so an
@@ -2872,7 +2896,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                       instanceTag: mac.instanceTag,
                       scope: scope
                   ) else { break }
-            let irohReconnectIsBlocked = tailscaleOnly
+            let irohReconnectIsBlocked = irohReconnectIsDisallowed
                 || automaticIrohReconnectIsBlocked(accountID: scope.userID)
             let localRoutes = storedReconnectRoutes(mac).filter {
                 !irohReconnectIsBlocked || $0.kind != .iroh
@@ -2907,7 +2931,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                 )
             }
-            if connectionState != .connected, !tailscaleOnly,
+            if connectionState != .connected, !irohReconnectIsDisallowed,
                !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
                 switch await freshReconnectRoutesAfterLocalFailure(
                     for: mac,
@@ -2946,7 +2970,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // saved candidate failed. This keeps a healthy saved Mac from sitting
         // behind an unrelated account-wide discovery request.
         var zeroTouchCandidates: [MobilePairedMac] = []
-        if connectionState != .connected, !tailscaleOnly,
+        if connectionState != .connected, !irohReconnectIsDisallowed,
            !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
             zeroTouchCandidates = await discoverZeroTouchIrohCandidates(
                 scope: scope,
@@ -4357,8 +4381,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #endif
     }
 
-    static func manualHostRoute(host: String, port: Int) throws -> CmxAttachRoute {
-        let routeKind = MobileShellRouteAuthPolicy.manualRouteKind(for: host)
+    static func manualHostRoute(
+        host: String,
+        port: Int,
+        preferredKind: CmxAttachTransportKind? = nil
+    ) throws -> CmxAttachRoute {
+        let routeKind = preferredKind ?? MobileShellRouteAuthPolicy.manualRouteKind(for: host)
         return try CmxAttachRoute(
             id: routeKind.rawValue,
             kind: routeKind,
@@ -4804,9 +4832,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             stackTokenGate: stackTokenGate,
             stackTokenForceRefreshGate: stackTokenForceRefreshGate,
             transportConnectObserver: transportConnectDiagnosticObserver(
-                peerID: mac.macDeviceID
+                peerID: mac.macDeviceID,
+                transportMode: selectedTransportMode
             ),
-            sessionPurpose: .backgroundControl
+            sessionPurpose: .backgroundControl,
+            transportMode: selectedTransportMode
         )
         var status: MobileHostStatusResponse
         switch await fetchSecondaryHostStatus(on: client) {
@@ -8848,8 +8878,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let firstRoute = supportedRoutes.first else {
             // No route kind this build can dial: set the specific category;
             // the caller records the matching analytics reason from it.
-            connectionError = MobilePairingFailureCategory.noSupportedRoute.message
-            connectionErrorGuidance = MobilePairingFailureCategory.noSupportedRoute.guidance
+            if let modeError = lastTransportModeError {
+                connectionError = modeError.mobileMessage
+                connectionErrorGuidance = modeError.mobileGuidance
+            } else {
+                connectionError = MobilePairingFailureCategory.noSupportedRoute.message
+                connectionErrorGuidance = MobilePairingFailureCategory.noSupportedRoute.guidance
+            }
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             diagnosticLog?.record(DiagnosticEvent(
@@ -9131,8 +9166,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 stackTokenGate: stackTokenGate,
                 stackTokenForceRefreshGate: stackTokenForceRefreshGate,
                 transportConnectObserver: transportConnectDiagnosticObserver(
-                    peerID: ticket.macDeviceID
-                )
+                    peerID: ticket.macDeviceID,
+                    transportMode: selectedTransportMode
+                ),
+                transportMode: selectedTransportMode
             )
             if let previousAttemptClient =
                 replaceConnectionAttemptClientOwnership(with: client) {
@@ -9453,6 +9490,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // here only adds a second connect-time round trip and can
                     // observe a different process during a rapid dev restart.
                     startTerminalRefreshPolling(initialHostStatus: status)
+                    if !runtime.supportsServerPushEvents {
+                        startTransportPathObservation(for: client)
+                    }
                     // The connect seam guarantees identity recovery for an
                     // anonymous (v2 QR) ticket on every supported runtime, not
                     // just push-event ones: when the event-listener task starts,
@@ -9586,14 +9626,48 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 supportedKinds.contains(route.kind)
             }
         }
-        let irohRoutes = supportedRoutes.filter { route in
+        let modePolicy = CmxTransportModePolicy(selectedTransportMode)
+        let modeRoutes: [CmxAttachRoute]
+        do {
+            modeRoutes = try modePolicy.routes(
+                from: supportedRoutes,
+                macDisplayName: ticket.macDisplayName
+            )
+            lastTransportModeError = nil
+        } catch let error as CmxTransportModeError {
+            lastTransportModeError = error
+            diagnosticLog?.record(DiagnosticEvent(
+                .routeUnavailable,
+                surface: DiagnosticCorrelation().handle(for: ticket.macDeviceID),
+                b: error.diagnosticFailureKind.rawValue
+            ))
+            return []
+        } catch {
+            return []
+        }
+        let modeFilteredRoutes = modeRoutes.compactMap { route -> CmxAttachRoute? in
+            guard selectedTransportMode == .iroh,
+                  case let .peer(identity, hints) = route.endpoint else {
+                return route
+            }
+            return try? CmxAttachRoute(
+                id: route.id,
+                kind: route.kind,
+                endpoint: .peer(
+                    identity: identity,
+                    pathHints: modePolicy.irohPathHints(hints)
+                ),
+                priority: route.priority
+            )
+        }
+        let irohRoutes = modeFilteredRoutes.filter { route in
             route.kind == .iroh
         }
         // The explicit Tailscale method is strict: only authorized Tailscale
         // destinations may be dialed, and an unavailable route leaves the app
         // disconnected instead of silently switching to Iroh.
         if connectionMethodStore?.method == .tailscale {
-            let authorizedTailscale = supportedRoutes.filter { route in
+            let authorizedTailscale = modeFilteredRoutes.filter { route in
                 Self.legacyTailscaleAuthorizationEvidence(
                     for: route,
                     macDeviceID: ticket.macDeviceID,
@@ -9606,7 +9680,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return authorizedTailscale
         }
-        return irohRoutes.isEmpty ? supportedRoutes : irohRoutes
+        return irohRoutes.isEmpty ? modeFilteredRoutes : irohRoutes
     }
 
     /// The user-entered pairing-code authorization covering `route`, if any.
@@ -9778,6 +9852,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func clearRemoteConnectionContext(preservingOtherMacWorkspaceState: Bool = false) {
+        stopTransportPathObservation()
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
         // Capture the tagged foreground key BEFORE the identity clears below:
@@ -9911,6 +9986,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let previous = remoteClient
         if let previous, previous !== newValue {
             previous.retire()
+            stopTransportPathObservation()
         }
         remoteClient = newValue
         if newValue != nil, previous !== newValue {
@@ -9941,6 +10017,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // begun during staging cannot cross onto the target connection.
         connectionGeneration = generation
         remoteClient = newValue
+        if connectionState == .connected {
+            startTransportPathObservation(for: newValue)
+        }
         if !preservingTerminalHandoffFences {
             terminalSubscriptionHandoffFences.removeAll()
         }

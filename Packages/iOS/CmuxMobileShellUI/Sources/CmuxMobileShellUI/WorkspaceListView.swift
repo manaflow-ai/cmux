@@ -73,6 +73,9 @@ struct WorkspaceListView: View {
     /// The shell store, forwarded to Settings to drive the multi-Mac switcher.
     /// `nil` in previews.
     var store: CMUXMobileShellStore?
+    /// Localized concrete path for the foreground connection, passed as a
+    /// value snapshot so the list boundary never retains the observable store.
+    var activeTransportPath: String? = nil
 
     /// Optional: rename a workspace on the Mac. When present, each row offers a
     /// Rename context-menu action.
@@ -897,7 +900,8 @@ struct WorkspaceListView: View {
             connectionStatus: connectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
-            initialConnectionTimedOut: initialConnectionTimedOut
+            initialConnectionTimedOut: initialConnectionTimedOut,
+            activeTransportPath: activeTransportPath
         )
     }
 

@@ -685,6 +685,9 @@ struct WorkspaceShellView: View {
             showComputers: showComputers,
             showPairingScanner: showPairingScanner,
             store: store,
+            activeTransportPath: store.connectionState == .connected
+                ? store.activeTransportPath.mobileStatusDisplayValue
+                : nil,
             renameWorkspace: renameWorkspaceClosure,
             customizeWorkspace: customizeWorkspaceClosure,
             setPinned: setWorkspacePinnedClosure,
@@ -734,7 +737,10 @@ struct WorkspaceShellView: View {
             connectionStatus: listConnectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
-            initialConnectionTimedOut: initialConnectionTimedOut
+            initialConnectionTimedOut: initialConnectionTimedOut,
+            activeTransportPath: store.connectionState == .connected
+                ? store.activeTransportPath.mobileStatusDisplayValue
+                : nil
         ).statusLine
     }
 

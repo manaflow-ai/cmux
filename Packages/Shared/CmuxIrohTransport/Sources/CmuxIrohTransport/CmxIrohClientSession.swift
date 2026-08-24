@@ -12,6 +12,7 @@ public actor CmxIrohClientSession {
     /// deadline.
     private let dialPhaseTimeout: Duration
     private let targetIdentity: CmxIrohPeerIdentity
+    private let transportMode: CmxTransportMode
     private let dialPlan: CmxIrohDialPlan
     private let credential: CmxIrohAdmissionCredential
     private let privateFallbackAuthorization: CmxIrohPrivateFallbackAuthorization?
@@ -39,6 +40,7 @@ public actor CmxIrohClientSession {
     ///   - credential: The backend grant or same-account offline pairing proof.
     ///   - privateFallbackAuthorization: The generation snapshot that admitted
     ///     the plan's private hints.
+    ///   - transportMode: The hard route-class policy captured for this dial.
     ///   - privateFallbackValidator: The provider that can re-read current
     ///     network state immediately before a private dial.
     ///   - dialPhaseTimeout: Maximum time allowed for each public or private
@@ -51,6 +53,7 @@ public actor CmxIrohClientSession {
         dialPlan: CmxIrohDialPlan,
         credential: CmxIrohAdmissionCredential,
         privateFallbackAuthorization: CmxIrohPrivateFallbackAuthorization? = nil,
+        transportMode: CmxTransportMode = .automatic,
         privateFallbackValidator: (any CmxIrohPrivateFallbackValidating)? = nil,
         privateFallbackContextProvider: PrivateFallbackContextProvider? = nil,
         dialPhaseTimeout: Duration = .seconds(5),
@@ -59,6 +62,7 @@ public actor CmxIrohClientSession {
     ) throws {
         self.endpoint = endpoint
         self.targetIdentity = targetIdentity
+        self.transportMode = transportMode
         self.dialPlan = dialPlan
         self.credential = credential
         self.privateFallbackAuthorization = privateFallbackAuthorization
@@ -68,6 +72,7 @@ public actor CmxIrohClientSession {
         self.protocolConfiguration = protocolConfiguration
         self.diagnostics = diagnostics
         self.peerAlias = DiagnosticCorrelation().handle(for: targetIdentity.endpointID)
+        try CmxTransportModePolicy(transportMode).validate(irohDialPlan: dialPlan)
         headerCodec = try CmxIrohStreamHeaderCodec(configuration: protocolConfiguration)
     }
 
@@ -347,7 +352,8 @@ public actor CmxIrohClientSession {
                     fallbackContext = CmxIrohClientContext(
                         dialPlan: dialPlan,
                         credential: credential,
-                        privateFallbackAuthorization: privateFallbackAuthorization
+                        privateFallbackAuthorization: privateFallbackAuthorization,
+                        transportMode: transportMode
                     )
                 }
             } catch {

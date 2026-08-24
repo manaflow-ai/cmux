@@ -4,7 +4,7 @@ import Foundation
 /// Defers the actor-isolated route proof until `connect()` while preserving the
 /// synchronous transport-factory contract. The proven interface is set on
 /// `NWParameters` before Network.framework starts the connection.
-actor CmxPreparingTailscaleByteTransport: CmxByteTransport {
+actor CmxPreparingTailscaleByteTransport: CmxByteTransport, CmxByteTransportPathObserving {
     private let request: CmxByteTransportRequest
     private let tailscaleRouteAuthority: any CmxTailscaleRouteAuthorizing
     private let maximumReceiveLength: Int
@@ -55,6 +55,30 @@ actor CmxPreparingTailscaleByteTransport: CmxByteTransport {
         if let transport {
             await transport.close()
         }
+    }
+
+    func currentTransportPath() async -> CmxTransportPath {
+        guard let transport,
+              let observing = transport as? any CmxByteTransportPathObserving else {
+            return .tailscale(address: Self.routeHost(request.route))
+        }
+        return await observing.currentTransportPath()
+    }
+
+    func transportPathChanges() async -> AsyncStream<CmxTransportPath> {
+        guard let transport,
+              let observing = transport as? any CmxByteTransportPathObserving else {
+            return AsyncStream { continuation in
+                continuation.yield(.tailscale(address: Self.routeHost(request.route)))
+                continuation.finish()
+            }
+        }
+        return await observing.transportPathChanges()
+    }
+
+    private static func routeHost(_ route: CmxAttachRoute) -> String {
+        guard case let .hostPort(host, _) = route.endpoint else { return "" }
+        return host
     }
 
     private func preparedTransport() async throws -> any CmxByteTransport {

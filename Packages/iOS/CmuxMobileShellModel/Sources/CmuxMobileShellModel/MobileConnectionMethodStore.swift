@@ -11,15 +11,37 @@ public enum MobileConnectionMethod: String, CaseIterable, Sendable {
     /// pairing code shown on the Mac once, which authorizes that exact peer;
     /// Iroh is never used as a fallback while this method is selected.
     case tailscale
+    /// Require a direct route on the Mac's local network.
+    case lan
+    /// Require the authenticated Iroh transport (direct or relay).
+    case iroh
 }
 
 extension MobileConnectionMethod {
+    /// The shared, extensible policy used by every dial boundary.
+    public var transportMode: CmxTransportMode {
+        switch self {
+        case .automatic: .automatic
+        case .tailscale: .tailscale
+        case .lan: .lan
+        case .iroh: .iroh
+        }
+    }
+
+    /// Source-compatible aliases for settings and tests.
+    public static var auto: Self { .automatic }
+    public static var lanOnly: Self { .lan }
+    public static var tailscaleOnly: Self { .tailscale }
+    public static var irohOnly: Self { .iroh }
+
     /// Exhaustive mapping into the diagnostics payload enum, so a future third
     /// method becomes a compile error here instead of silently misreporting.
     var diagnosticMethod: DiagnosticConnectionMethod {
         switch self {
         case .automatic: .automatic
         case .tailscale: .tailscale
+        case .lan: .lan
+        case .iroh: .iroh
         }
     }
 }

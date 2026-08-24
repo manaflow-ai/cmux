@@ -23,11 +23,11 @@ struct CmxIrohSelectedTransportPathTests {
             snapshot(address: "[fe80::1%en0]:443", isIP: true),
         ])
 
-        #expect(publicPath == .direct)
-        #expect(lanPath == .privateNetwork)
-        #expect(tailscalePath == .privateNetwork)
-        #expect(ipv6Path == .privateNetwork)
-        #expect(scopedIPv6Path == .privateNetwork)
+        #expect(publicPath == .direct(address: "203.0.113.40:443"))
+        #expect(lanPath == .privateNetwork(address: "192.168.1.20:443"))
+        #expect(tailscalePath == .privateNetwork(address: "100.100.20.40:443"))
+        #expect(ipv6Path == .privateNetwork(address: "[fd12:3456::9]:443"))
+        #expect(scopedIPv6Path == .privateNetwork(address: "[fe80::1%en0]:443"))
     }
 
     @Test

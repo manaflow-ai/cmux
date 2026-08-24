@@ -7,13 +7,20 @@ extension MobileShellComposite {
     /// The closure captures only the structured ring, and receives no raw route
     /// or error values from the RPC layer.
     func transportConnectDiagnosticObserver(
-        peerID: String?
+        peerID: String?,
+        transportMode: CmxTransportMode = .automatic
     ) -> (@Sendable (MobileRPCTransportConnectEvent) -> Void)? {
         guard let diagnosticLog else { return nil }
         let peerAlias = DiagnosticCorrelation().handle(for: peerID)
         return { event in
             switch event {
             case let .attempt(attemptID, transport):
+                diagnosticLog.record(DiagnosticEvent(
+                    .transportModeSelected,
+                    surface: peerAlias,
+                    a: transportMode.diagnosticMode.rawValue,
+                    c: attemptID
+                ))
                 diagnosticLog.record(DiagnosticEvent(
                     .transportDialStarted,
                     surface: peerAlias,
@@ -45,6 +52,12 @@ extension MobileShellComposite {
                     b: failure.rawValue,
                     c: attemptID
                 ))
+                diagnosticLog.record(DiagnosticEvent(
+                    .transportDialPath,
+                    surface: peerAlias,
+                    a: Self.diagnosticPathKind(for: transport).rawValue,
+                    c: attemptID
+                ))
             case let .cancelled(attemptID, _, reason, elapsedMilliseconds):
                 diagnosticLog.record(DiagnosticEvent(
                     .transportDialCancelled,
@@ -53,7 +66,36 @@ extension MobileShellComposite {
                     a: reason.rawValue,
                     c: attemptID
                 ))
+                diagnosticLog.record(DiagnosticEvent(
+                    .transportDialPath,
+                    surface: peerAlias,
+                    a: DiagnosticPathKind.unknown.rawValue,
+                    c: attemptID
+                ))
+            case let .pathObserved(attemptID, path):
+                diagnosticLog.record(DiagnosticEvent(
+                    .transportDialPath,
+                    surface: peerAlias,
+                    a: path.diagnosticPathKind.rawValue,
+                    c: attemptID
+                ))
             }
+        }
+    }
+
+    /// Maps a route-level transport to the best path class available before a
+    /// socket negotiates. Iroh remains unknown until its selected-path callback
+    /// reports direct or relay evidence.
+    nonisolated private static func diagnosticPathKind(
+        for transport: DiagnosticTransportKind
+    ) -> DiagnosticPathKind {
+        switch transport {
+        case .lan: .lan
+        case .tailscale: .tailscale
+        case .iroh: .unknown
+        case .websocket: .direct
+        case .debugLoopback: .loopback
+        case .unknown: .unknown
         }
     }
 

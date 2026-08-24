@@ -341,6 +341,12 @@ public extension DiagnosticEvent {
         return DiagnosticTransportKind(rawValue: a)
     }
 
+    /// Selected transport mode captured for a dial attempt.
+    var diagnosticTransportMode: DiagnosticTransportMode? {
+        guard code == .transportModeSelected, let a else { return nil }
+        return DiagnosticTransportMode(rawValue: a)
+    }
+
     /// Failure category carried by a failure event's `b` slot.
     var diagnosticFailureKind: DiagnosticFailureKind? {
         guard code.carriesDiagnosticFailureKind,
@@ -355,7 +361,9 @@ public extension DiagnosticEvent {
     /// outcome. It is intentionally not stable across launches or devices.
     var diagnosticAttemptID: Int? {
         guard code.isTransportDialEvent || code == .transportDialSessionLinked
-                || code == .transportDialCancelled,
+                || code == .transportDialCancelled
+                || code == .transportModeSelected
+                || code == .transportDialPath,
               let c,
               c > 0 else { return nil }
         return c
@@ -372,10 +380,20 @@ public extension DiagnosticEvent {
 
     /// Redacted path class carried by a selected-path or path-lifecycle event.
     var diagnosticPathKind: DiagnosticPathKind? {
-        guard code == .selectedPathChanged || code == .transportPathEvent,
-              let rawValue = code == .transportPathEvent ? b : a else {
+        guard code == .selectedPathChanged
+                || code == .transportPathEvent
+                || code == .transportDialPath
+                || code == .transportPathMigration else {
             return nil
         }
+        let rawValue: Int?
+        switch code {
+        case .transportPathEvent, .transportPathMigration:
+            rawValue = b
+        default:
+            rawValue = a
+        }
+        guard let rawValue else { return nil }
         return DiagnosticPathKind(rawValue: rawValue)
     }
 
@@ -401,7 +419,8 @@ public extension DiagnosticEvent {
                 || code == .sessionClosed
                 || code == .transportCloseAttribution
                 || code == .transportCloseReason
-                || code == .transportPathEvent,
+                || code == .transportPathEvent
+                || code == .transportPathMigration,
               let c,
               c > 0 else { return nil }
         return c

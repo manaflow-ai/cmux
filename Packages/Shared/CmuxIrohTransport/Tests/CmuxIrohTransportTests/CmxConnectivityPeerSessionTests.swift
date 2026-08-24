@@ -240,7 +240,7 @@ struct CmxConnectivityPeerSessionTests {
         try await Self.waitUntil { await recovered.hasSelectedPathObserver() }
         await recovered.publishSelectedPath(.unavailable)
         await clock.waitUntilSleeping()
-        await recovered.publishSelectedPath(.direct)
+        await recovered.publishSelectedPath(.direct(address: nil))
         try await Self.waitUntil { clock.sleepingDeadlines().isEmpty }
         clock.advance(
             by: CmxConnectivityPeerSession.allPathsClosedEvictionGraceSeconds + 1
@@ -284,7 +284,7 @@ struct CmxConnectivityPeerSessionTests {
         // The path recovered but the observation stream never delivered the
         // usable value (a dropped event). The deadline must trust the live
         // state it re-reads, not the stale event that armed it.
-        await quietlyRecovered.setSelectedPathQuietly(.direct)
+        await quietlyRecovered.setSelectedPathQuietly(.direct(address: nil))
         clock.advance(
             by: CmxConnectivityPeerSession.allPathsClosedEvictionGraceSeconds
         )
@@ -785,7 +785,7 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     private var closeGateWaiting = false
     private var closeGateWaiter: CheckedContinuation<Void, Never>?
     private var received: [Data] = []
-    private var selectedPath = CmxIrohObservedConnectionPath.direct
+    private var selectedPath = CmxIrohObservedConnectionPath.direct(address: nil)
     private var selectedPathContinuation:
         AsyncStream<CmxIrohObservedConnectionPath>.Continuation?
 

@@ -114,6 +114,31 @@ struct ReconnectRefreshSnapshot: Sendable {
 
 @MainActor
 extension MobileShellComposite {
+    /// Captures a pinned-mode selection error before the legacy non-throwing
+    /// reconnect helper returns an empty candidate list.
+    func captureTransportModeErrorIfNeeded(
+        routes: [CmxAttachRoute],
+        supportedKinds: [CmxAttachTransportKind],
+        macDisplayName: String?
+    ) {
+        guard selectedTransportMode.isPinned else { return }
+        let supported = routes.filter {
+            supportedKinds.isEmpty || supportedKinds.contains($0.kind)
+        }
+        do {
+            _ = try CmxTransportModePolicy(selectedTransportMode).routes(
+                from: supported,
+                macDisplayName: macDisplayName
+            )
+        } catch let error as CmxTransportModeError {
+            lastTransportModeError = error
+        } catch {
+            // The policy currently exposes only CmxTransportModeError; retain
+            // the empty result as a generic unsupported-route failure if a
+            // future implementation adds another error type.
+        }
+    }
+
     /// Resolves one immutable pre-Iroh capability for an exact raw Tailscale
     /// route. Fresh registry/manual routes cannot create this evidence; they
     /// must match a route retained by the local schema migration.
@@ -238,7 +263,8 @@ extension MobileShellComposite {
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool = false,
-        tailscaleRequirement: TailscaleRouteRequirement? = nil
+        tailscaleRequirement: TailscaleRouteRequirement? = nil,
+        transportMode: CmxTransportMode = .automatic
     ) -> [CmxAttachRoute] {
         let supportedKinds = Set(supportedKinds)
         var ordered = CmxAttachRoute.addingIrohPrivatePaths(
@@ -249,6 +275,25 @@ extension MobileShellComposite {
             .sorted(by: Self.routeSortsBefore)
         if preferNonLoopback {
             ordered.removeAll { $0.kind == .debugLoopback }
+        }
+        let policy = CmxTransportModePolicy(transportMode)
+        guard let modeRoutes = try? policy.routes(from: ordered) else {
+            return []
+        }
+        ordered = modeRoutes.compactMap { route in
+            guard transportMode == .iroh,
+                  case let .peer(identity, hints) = route.endpoint else {
+                return route
+            }
+            return try? CmxAttachRoute(
+                id: route.id,
+                kind: route.kind,
+                endpoint: .peer(
+                    identity: identity,
+                    pathHints: policy.irohPathHints(hints)
+                ),
+                priority: route.priority
+            )
         }
         let irohRoutes = ordered.filter { $0.kind == .iroh }
         if let tailscaleRequirement {
@@ -284,7 +329,8 @@ extension MobileShellComposite {
                     macDeviceID: mac.macDeviceID,
                     grantRoutes: mac.legacyTailscaleRoutes ?? []
                 )
-                : nil
+                : nil,
+            transportMode: selectedTransportMode
         )
     }
 
@@ -557,7 +603,8 @@ extension MobileShellComposite {
         let localRoutes = Self.storedReconnectRoutes(
             currentMac.routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            transportMode: selectedTransportMode
         )
         let requiresIroh = localRoutes.contains { $0.kind == .iroh }
             || mac.routes.contains { $0.kind == .iroh }
@@ -569,7 +616,8 @@ extension MobileShellComposite {
             let reconnectRoutes = Self.storedReconnectRoutes(
                 currentMac.routes,
                 supportedKinds: supportedKinds,
-                preferNonLoopback: Self.prefersNonLoopbackRoutes
+                preferNonLoopback: Self.prefersNonLoopbackRoutes,
+                transportMode: selectedTransportMode
             )
             if !reconnectRoutes.isEmpty,
                reconnectRoutes.contains(where: {
@@ -596,7 +644,8 @@ extension MobileShellComposite {
         let reconnectRoutes = Self.storedReconnectRoutes(
             updatedRoutes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            transportMode: selectedTransportMode
         )
         // Once this pairing has used Iroh, a cloud refresh that omits Iroh is
         // stale or downgraded input. Keep the local Iroh capability pin instead

@@ -8,7 +8,7 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
     private let tailscaleRouteAuthority: any CmxTailscaleRouteAuthorizing
 
     public init(
-        supportedKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback],
+        supportedKinds: [CmxAttachTransportKind] = [.lan, .tailscale, .debugLoopback],
         maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength,
         connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds
     ) {
@@ -19,7 +19,7 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
     }
 
     init(
-        supportedKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback],
+        supportedKinds: [CmxAttachTransportKind] = [.lan, .tailscale, .debugLoopback],
         maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength,
         connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds,
         tailscaleRouteAuthority: any CmxTailscaleRouteAuthorizing
@@ -35,15 +35,14 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
         guard supportedKinds.contains(route.kind) else {
             throw CmxNetworkByteTransportError.unsupportedRouteKind(route.kind)
         }
-        guard case let .hostPort(host, port) = route.endpoint else {
+        guard case .hostPort = route.endpoint else {
             throw CmxNetworkByteTransportError.unsupportedEndpoint(route.endpoint)
         }
         guard route.kind != .tailscale else {
             throw CmxNetworkByteTransportError.authorizationIntentRequired
         }
         return try CmxNetworkByteTransport(
-            host: host,
-            port: port,
+            route: route,
             maximumReceiveLength: maximumReceiveLength,
             connectTimeoutNanoseconds: connectTimeoutNanoseconds
         )
@@ -56,6 +55,7 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
     ) throws -> any CmxByteTransport {
         let route = request.route
         try route.validate()
+        try request.validateTransportMode()
         guard supportedKinds.contains(route.kind) else {
             throw CmxNetworkByteTransportError.unsupportedRouteKind(route.kind)
         }
@@ -86,6 +86,17 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
             return CmxPreparingTailscaleByteTransport(
                 request: request,
                 tailscaleRouteAuthority: tailscaleRouteAuthority,
+                maximumReceiveLength: maximumReceiveLength,
+                connectTimeoutNanoseconds: connectTimeoutNanoseconds
+            )
+        case .lan:
+            guard request.authorizationMode == .stackBearer else {
+                throw CmxNetworkByteTransportError.unsupportedAuthorizationMode(
+                    request.authorizationMode
+                )
+            }
+            return try CmxNetworkByteTransport(
+                route: route,
                 maximumReceiveLength: maximumReceiveLength,
                 connectTimeoutNanoseconds: connectTimeoutNanoseconds
             )

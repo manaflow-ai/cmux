@@ -25,18 +25,24 @@ public struct CmxByteTransportRequest: Equatable, Sendable {
     public let authorizationMode: CmxTransportAuthorizationMode
     /// The local owner whose network path this request represents.
     public let sessionPurpose: CmxTransportSessionPurpose
+    /// The user-selected transport policy captured for this physical dial.
+    /// Capturing it here makes the no-fallback guarantee survive route-pool,
+    /// background-lane, and reconnect boundaries.
+    public let transportMode: CmxTransportMode
 
     /// Creates a route-bound transport request with explicit peer authority.
     public init(
         route: CmxAttachRoute,
         expectedPeerDeviceID: String?,
         authorizationMode: CmxTransportAuthorizationMode,
-        sessionPurpose: CmxTransportSessionPurpose = .foregroundControl
+        sessionPurpose: CmxTransportSessionPurpose = .foregroundControl,
+        transportMode: CmxTransportMode = .automatic
     ) {
         self.route = route
         self.expectedPeerDeviceID = expectedPeerDeviceID
         self.authorizationMode = authorizationMode
         self.sessionPurpose = sessionPurpose
+        self.transportMode = transportMode
     }
 
     /// Returns the same route and authority with a different local owner role.
@@ -47,7 +53,14 @@ public struct CmxByteTransportRequest: Equatable, Sendable {
             route: route,
             expectedPeerDeviceID: expectedPeerDeviceID,
             authorizationMode: authorizationMode,
-            sessionPurpose: sessionPurpose
+            sessionPurpose: sessionPurpose,
+            transportMode: transportMode
         )
+    }
+
+    /// Enforces the selected mode at the last common boundary before a
+    /// transport factory can allocate a socket or Iroh session.
+    public func validateTransportMode() throws {
+        try CmxTransportModePolicy(transportMode).validate(route: route)
     }
 }

@@ -5,7 +5,8 @@ import Foundation
 actor CmxIrohDeferredByteTransport:
     CmxByteTransport,
     CmxByteTransportClosureObserving,
-    CmxByteTransportContinuityIdentifying
+    CmxByteTransportContinuityIdentifying,
+    CmxByteTransportPathObserving
 {
     private let request: CmxByteTransportRequest
     private let provider: any CmxIrohDeferredTransportProviding
@@ -96,5 +97,24 @@ actor CmxIrohDeferredByteTransport:
             return nil
         }
         return await observing.transportClosureObservation()
+    }
+
+    func currentTransportPath() async -> CmxTransportPath {
+        guard let transport,
+              let observing = transport as? any CmxByteTransportPathObserving else {
+            return .unavailable
+        }
+        return await observing.currentTransportPath()
+    }
+
+    func transportPathChanges() async -> AsyncStream<CmxTransportPath> {
+        guard let transport,
+              let observing = transport as? any CmxByteTransportPathObserving else {
+            return AsyncStream { continuation in
+                continuation.yield(.unavailable)
+                continuation.finish()
+            }
+        }
+        return await observing.transportPathChanges()
     }
 }

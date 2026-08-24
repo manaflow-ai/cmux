@@ -1,6 +1,34 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "mobile.settings.connectionMethod.lan" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "LAN Only" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "LANのみ" } }
+      }
+    },
+    "mobile.settings.connectionMethod.iroh" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "iroh Only" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "irohのみ" } }
+      }
+    },
+    "mobile.settings.connectionMethod.lanFooter" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Uses only the Mac's local-network address. If the devices are not on the same network, cmux stays disconnected and does not switch to another transport." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Macのローカルネットワークアドレスのみを使用します。同じネットワークにない場合、cmuxは別のトランスポートへ切り替えず接続を維持しません。" } }
+      }
+    },
+    "mobile.settings.connectionMethod.irohFooter" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Uses only authenticated iroh paths (direct or relay). LAN and Tailscale routes are not used." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "認証済みのiroh経路（直接またはリレー）のみを使用します。LANやTailscaleの経路は使用しません。" } }
+      }
+    },
     "mobile.workspaces.statusLine.notConnected" : {
       "extractionState" : "manual",
       "localizations" : {

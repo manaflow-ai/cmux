@@ -564,7 +564,7 @@ struct CmxConnectivityEngineTests {
                     ),
                     sendStream: TestIrohSendStream()
                 )],
-                selectedPath: .direct
+                selectedPath: .direct(address: nil)
             )
         }
         let endpoint = TestDialingIrohEndpoint(

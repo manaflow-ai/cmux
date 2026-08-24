@@ -474,6 +474,9 @@ extension MobileShellComposite {
             recordConnectionRecoverySucceeded(attempt)
             applyConnectionRecoveryOwnerState()
         }
+        if connectionState == .connected, let client = remoteClient {
+            startTransportPathObservation(for: client)
+        }
     }
 
     func applyConnectionRecoveryOwnerState() {
@@ -666,6 +669,12 @@ extension MobileShellComposite {
     ) async -> StoredMacReconnectOutcome {
         guard ifStillCurrent?() ?? true else { return .superseded }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
+        lastTransportModeError = nil
+        captureTransportModeErrorIfNeeded(
+            routes: routes,
+            supportedKinds: supportedKinds,
+            macDisplayName: name
+        )
         let pinnedRoutes = Self.storedReconnectRoutes(
             routes,
             supportedKinds: supportedKinds,
@@ -675,9 +684,16 @@ extension MobileShellComposite {
                     macDeviceID: pairedMacDeviceID,
                     grantRoutes: legacyTailscaleRoutes
                 )
-                : nil
+                : nil,
+            transportMode: selectedTransportMode
         )
-        guard let firstRoute = pinnedRoutes.first else { return .failed(.unsupportedRoute) }
+        guard let firstRoute = pinnedRoutes.first else {
+            if let modeError = lastTransportModeError {
+                connectionError = modeError.mobileMessage
+                connectionErrorGuidance = modeError.mobileGuidance
+            }
+            return .failed(.unsupportedRoute)
+        }
 
         var outcome: StoredMacReconnectOutcome = .failed(.unknown)
 
@@ -688,7 +704,9 @@ extension MobileShellComposite {
                 persistedRoutes: legacyTailscaleRoutes
             ) != nil
         }
-        if firstRoute.kind == .iroh || hasAuthorizedLegacyTailscaleRoute {
+        if firstRoute.kind == .iroh
+            || firstRoute.kind == .lan
+            || hasAuthorizedLegacyTailscaleRoute {
             do {
                 let ticket = try Self.storedMacTicket(
                     name: name,
@@ -879,7 +897,8 @@ extension MobileShellComposite {
         let candidateRoutes = Self.storedReconnectRoutes(
             instance.routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            transportMode: selectedTransportMode
         )
         guard !candidateRoutes.isEmpty else {
             mobileShellLog.error(
@@ -927,7 +946,8 @@ extension MobileShellComposite {
         let candidateRoutes = Self.storedReconnectRoutes(
             mac.routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            transportMode: selectedTransportMode
         )
         guard candidateRoutes.contains(where: { $0.kind == .iroh }) else { return false }
         return (await connectStoredMacOutcome(

@@ -8,6 +8,8 @@ enum WorkspaceConnectionStatusLine: Equatable {
     case reconnecting
     /// No live connection and no attempt currently in flight ("Not Connected").
     case notConnected
+    /// A healthy foreground session's concrete transport path.
+    case activeTransport(String)
 }
 
 /// Which single connection surface the workspace list presents.
@@ -32,7 +34,8 @@ enum WorkspaceListConnectionChrome: Equatable {
         connectionStatus: MobileMacConnectionStatus,
         tailscalePairingRequired: Bool = false,
         isInitialConnectionLoading: Bool = false,
-        initialConnectionTimedOut: Bool = false
+        initialConnectionTimedOut: Bool = false,
+        activeTransportPath: String? = nil
     ) {
         if hasStore && connectionRequiresReauth {
             self = .recoveryBanner
@@ -47,6 +50,8 @@ enum WorkspaceListConnectionChrome: Equatable {
             self = .statusLine(.reconnecting)
         } else if connectionStatus == .unavailable || (hasStore && connectionRecoveryFailed) {
             self = .statusLine(.notConnected)
+        } else if let activeTransportPath, !activeTransportPath.isEmpty {
+            self = .statusLine(.activeTransport(activeTransportPath))
         } else {
             self = .none
         }
