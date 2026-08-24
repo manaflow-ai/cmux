@@ -432,6 +432,13 @@ fn open_no_follow(path: &Path) -> std::io::Result<std::fs::File> {
 /// in after the canonical check (actions.mjs readUtf8NoFollow).
 fn read_bytes_no_follow(path: &Path, max_bytes: usize) -> std::io::Result<Vec<u8>> {
     use std::io::Read as _;
+    let kind = std::fs::symlink_metadata(path)?.file_type();
+    if !kind.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "workspace read requires a regular file",
+        ));
+    }
     let file = open_no_follow(path)?;
     let mut bytes = Vec::with_capacity(max_bytes.saturating_add(1));
     file.take(max_bytes.saturating_add(1) as u64).read_to_end(&mut bytes)?;
@@ -443,6 +450,13 @@ fn read_bytes_no_follow(path: &Path, max_bytes: usize) -> std::io::Result<Vec<u8
 /// use and hashing work bounded by the response cap.
 fn read_bounded_no_follow(path: &Path, max_bytes: usize) -> std::io::Result<(Vec<u8>, bool, u64)> {
     use std::io::Read as _;
+    let kind = std::fs::symlink_metadata(path)?.file_type();
+    if !kind.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "workspace read requires a regular file",
+        ));
+    }
     let file = open_no_follow(path)?;
     let size = file.metadata()?.len();
     let mut bytes = Vec::with_capacity(max_bytes.min(64 * 1024));
