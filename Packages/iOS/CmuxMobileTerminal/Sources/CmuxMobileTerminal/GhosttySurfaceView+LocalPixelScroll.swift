@@ -40,6 +40,7 @@ extension GhosttySurfaceView {
               delegate?.ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(self) == true,
               localPixelScrollState.withLock({ $0.lastApplied }) != nil else {
             localPixelScrollState.withLock {
+                $0.epoch &+= 1
                 $0.remainderPx = 0
                 $0.lastApplied = nil
             }
@@ -75,7 +76,8 @@ extension GhosttySurfaceView {
         let operation = LocalPixelScrollSurfaceOperation(
             surface: surface,
             generation: surfaceGeneration,
-            token: token
+            token: token,
+            pixelStateEpoch: localPixelScrollState.withLock { $0.epoch }
         )
         let workQueue = outputQueue
         let gate = viewportRestoreGate
@@ -167,7 +169,10 @@ extension GhosttySurfaceView {
         let size = ghostty_surface_size(operation.surface)
         let cellHeightPx = Double(size.cell_height_px)
         guard cellHeightPx >= 1 else {
-            pixelState.withLock { $0.remainderPx = 0 }
+            pixelState.withLock {
+                guard $0.epoch == operation.pixelStateEpoch else { return }
+                $0.remainderPx = 0
+            }
             return
         }
         var (remainder, held) = pixelState.withLock { ($0.remainderPx, $0.lastApplied) }
@@ -217,6 +222,10 @@ extension GhosttySurfaceView {
                 let appliedRevision = applied.row_space_revision
                 let appliedTotal = applied.total
                 pixelState.withLock {
+                    // A snap or surface replacement bumped the epoch while
+                    // this batch was in flight; its result must not
+                    // resurrect the cleared scroll authority.
+                    guard $0.epoch == operation.pixelStateEpoch else { return }
                     $0.remainderPx = appliedOffset
                     $0.lastApplied = (
                         row: appliedRow,
@@ -237,8 +246,10 @@ extension GhosttySurfaceView {
         // from `enqueueScrollMechanicsDelta` (points = px/scale, divisor 3x
         // cell height), so the fallback scrolls the same distance in rows.
         let shouldLog = pixelState.withLock { state -> Bool in
-            state.remainderPx = 0
-            state.lastApplied = nil
+            if state.epoch == operation.pixelStateEpoch {
+                state.remainderPx = 0
+                state.lastApplied = nil
+            }
             let now = CACurrentMediaTime()
             guard now - state.lastFallbackLogTime >= 1 else { return false }
             state.lastFallbackLogTime = now
@@ -265,5 +276,8 @@ private nonisolated struct LocalPixelScrollSurfaceOperation: @unchecked Sendable
     let surface: ghostty_surface_t
     let generation: UInt64
     let token: UInt64
+    /// Pixel-state epoch captured at pump time; the batch only commits its
+    /// results while the state still carries this epoch.
+    let pixelStateEpoch: UInt64
 }
 #endif

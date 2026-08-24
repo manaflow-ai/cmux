@@ -302,6 +302,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the main actor. Same lock discipline as `viewportRestoreGate`: held
     /// only for field reads and writes, never across a Ghostty C call.
     nonisolated struct LocalPixelScrollState {
+        /// Bumped by every clear (dock/typing snap, surface replacement,
+        /// alt routing). Batches capture the epoch at pump time and only
+        /// commit results while it still matches, so an in-flight batch
+        /// cannot resurrect a held position that a snap just cleared.
+        var epoch: UInt64 = 0
         var remainderPx: Double = 0
         var lastFallbackLogTime: CFTimeInterval = 0
         /// The last (row, remainder) the pixel pump applied. While a gesture
@@ -2183,7 +2188,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         localPixelScrollApplyStartedAt = nil
         localPixelScrollApplyToken = nil
         pendingLocalPixelScrollReassert = false
-        localPixelScrollState.withLock { $0 = .init() }
+        localPixelScrollState.withLock {
+            let epoch = $0.epoch
+            $0 = .init()
+            $0.epoch = epoch &+ 1
+        }
         scrollToBottomInFlight = false
         scrollToBottomRequested = false
         scrollToBottomRetryCount = 0
@@ -2239,6 +2248,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 pendingLocalScrollPixels = 0
                 pendingLocalPixelScrollReassert = false
                 localPixelScrollState.withLock {
+                    $0.epoch &+= 1
                     $0.remainderPx = 0
                     $0.lastApplied = nil
                 }
@@ -3026,6 +3036,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pendingLocalPixelScrollInteractionGeneration = nil
         pendingLocalPixelScrollReassert = false
         localPixelScrollState.withLock {
+            $0.epoch &+= 1
             $0.remainderPx = 0
             $0.lastApplied = nil
         }
