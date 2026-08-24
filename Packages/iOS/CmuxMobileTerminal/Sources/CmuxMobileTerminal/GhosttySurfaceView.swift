@@ -1281,6 +1281,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         bottomDockContainer.frame
     }
 
+    /// Strips keyboard-motion animations after a window detach so a reattach
+    /// during a transition cannot resume a stale leg from the old window.
+    func removeHostedBottomDockAnimations() {
+        bottomDockContainer.layer.removeAllAnimations()
+    }
+
     var hostedKeyboardHeight: CGFloat { keyboardHeight }
 
     /// True while the mirrored terminal is on the ALTERNATE screen (a

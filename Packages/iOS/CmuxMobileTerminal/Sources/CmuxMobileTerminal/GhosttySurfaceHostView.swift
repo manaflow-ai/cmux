@@ -154,6 +154,13 @@ public final class GhosttySurfaceHostView: UIView {
         guard window != nil else {
             keyboardTransitionGeneration &+= 1
             keyboardTransitionActive = false
+            // A detach mid-leg must strip the in-flight Core Animation state
+            // from every edge the leg was moving; a lingering presentation
+            // animation would otherwise override the freshly seated
+            // constraint model after reattachment until it expired.
+            terminalPresentationView.layer.removeAllAnimations()
+            terminalClipView.layer.removeAllAnimations()
+            surfaceView.removeHostedBottomDockAnimations()
             return
         }
         keyboardTransitionGeneration &+= 1
