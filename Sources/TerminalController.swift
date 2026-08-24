@@ -11703,6 +11703,42 @@ class TerminalController {
         #endif
     }
 
+    #if DEBUG
+    /// Serves `mobile.next_transport.pair` (graduation slice 2): the phone
+    /// requests its next-transport ticket + grant over the ALREADY
+    /// authenticated channel, replacing the dev-screen paste flow. Params
+    /// carry the phone's next-transport identity; the grant binds to it.
+    @MainActor
+    func v2MobileNextTransportPair(params: [String: Any]) -> V2CallResult {
+        guard
+            let deviceID = params["device_id"] as? String,
+            let keyB64 = params["device_public_key"] as? String,
+            let key = Data(base64Encoded: keyB64),
+            let appIdentity = params["app_identity"] as? String
+        else {
+            return .err(
+                code: "invalid_params",
+                message: "device_id, device_public_key (base64), app_identity required",
+                data: nil)
+        }
+        let runtime = MobileHostNextTransportRuntime.shared
+        guard runtime.isEnabled, let ticket = runtime.ticketJSON,
+            let grant = runtime.mintGrant(
+                deviceID: deviceID, devicePublicKey: key, appIdentity: appIdentity)
+        else {
+            return .err(
+                code: "unavailable",
+                message: "next-transport host not running (state: \(runtime.state))",
+                data: nil)
+        }
+        return .ok([
+            "schema_version": 1,
+            "ticket": ticket,
+            "grant": grant,
+        ])
+    }
+    #endif
+
     private nonisolated func readScreenText(_ args: String) -> String {
         let options: ReadScreenOptions
         switch parseReadScreenArgs(args) {
@@ -14715,6 +14751,8 @@ class TerminalController {
                 "schema_version": 1,
                 "methods": MobileHostService.irohReleaseGateRPCMethods,
             ])
+        case "mobile.next_transport.pair":
+            result = v2MobileNextTransportPair(params: request.params)
 #endif
         case "mobile.attach_ticket.create":
             result = await v2MobileAttachTicketCreate(params: request.params)

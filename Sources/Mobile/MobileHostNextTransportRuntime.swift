@@ -130,6 +130,17 @@ final class MobileHostNextTransportRuntime {
                     let now = Int64(Date().timeIntervalSince1970)
                     await host.serve(connection: connection, now: now)
                     await MainActor.run { self.admissions = self.admissions &+ 1 }
+                    // Router slice: an admitted connection gets the full
+                    // legacy application service (control RPC, lane router,
+                    // server events) bridged over its raw streams.
+                    if let admitted = await host.activeSession(for: connection) {
+                        Task {
+                            await MobileHostNextTransportBridge.run(
+                                connection: connection,
+                                grant: admitted.grant,
+                                deviceKey: admitted.deviceKey)
+                        }
+                    }
                 }
             }
             renewTask = Task { [weak self] in
