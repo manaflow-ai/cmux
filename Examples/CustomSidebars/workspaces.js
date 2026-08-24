@@ -243,20 +243,34 @@ function handleMove(id, index, extra) {
   const ws = data.workspaces() ?? [];
 
   if (extra && extra.block && id.startsWith("h:")) {
+    // Whole-group move. workspace.group.move is NOT usable here: its
+    // to_index is a group-slot index (position among groups, clamped to the
+    // pin tier), so a tabs index overshoots to "last group" and a drop
+    // between ungrouped rows is unreachable. Instead send the full tabs
+    // order with the block extracted and re-inserted contiguously (anchor
+    // first) at the drop slot - the app's contiguity normalization keeps it.
     const gid = id.slice(2);
-    const memberCount = membersOf(gid).length;
+    const memberIds = new Set(membersOf(gid).map((w) => w.id));
     const entries = flatEntries().filter((e) => e.id !== id && e.groupId !== gid);
-    const nextEntry = entries.slice(index).find((e) => e.kind === "ws");
-    const nextWorkspace = nextEntry ? ws.find((w) => w.id === (nextEntry.wsId ?? nextEntry.id)) : null;
-    const anchor = ws.find((w) => w.id === (groupById(gid)?.anchorId));
-    let to;
-    if (nextWorkspace) {
-      const movingDown = (anchor?.index ?? 0) < nextWorkspace.index;
-      to = movingDown ? nextWorkspace.index - memberCount : nextWorkspace.index;
-    } else {
-      to = ws.length - memberCount;
+    // The next entry that stays put anchors the drop. A header counts too:
+    // dropping right above a (possibly collapsed) group means "before its
+    // anchor", not "after its hidden members".
+    const nextEntry = entries.slice(index).find((e) => e.kind === "ws" || e.kind === "header");
+    const nextId = nextEntry
+      ? (nextEntry.kind === "header" ? groupById(nextEntry.groupId)?.anchorId : nextEntry.wsId)
+      : null;
+    const anchorId = groupById(gid)?.anchorId;
+    const blockIds = ws.map((x) => x.id).filter((x) => memberIds.has(x));
+    if (anchorId && blockIds.includes(anchorId)) {
+      blockIds.splice(blockIds.indexOf(anchorId), 1);
+      blockIds.unshift(anchorId);
     }
-    cmux("workspace.group.move", { group_id: gid, to_index: Math.max(0, to) });
+    const rest = ws.map((x) => x.id).filter((x) => !memberIds.has(x));
+    let insertAt = nextId ? rest.indexOf(nextId) : rest.length;
+    if (insertAt < 0) insertAt = rest.length;
+    const full = [...rest.slice(0, insertAt), ...blockIds, ...rest.slice(insertAt)];
+    setOrderOverride(full); // paint the new order now; reorder_many echoes behind it
+    cmux("workspace.reorder_many", { workspace_ids: JSON.stringify(full) });
     return;
   }
 
@@ -289,9 +303,19 @@ function handleMove(id, index, extra) {
     break;
   }
   const stays = (e) => !(e.kind === "ws" && moving.has(e.wsId ?? e.id));
-  const nextEntry = entries.slice(index).find((e) => e.kind === "ws" && stays(e));
+  // The drop's tabs-order anchor is the next entry that stays put. A header
+  // resolves to its group's ANCHOR workspace: dropping above a group means
+  // "before the whole block", never "between its anchor and members" (which
+  // would break contiguity and get normalized somewhere else).
+  const nextEntry = entries.slice(index).find((e) => {
+    if (e.kind === "header") return !moving.has(groupById(e.groupId)?.anchorId);
+    return e.kind === "ws" && stays(e);
+  });
   const nextAny = entries.slice(index).find(stays) ?? null;
-  const nextWorkspace = nextEntry ? ws.find((w) => w.id === (nextEntry.wsId ?? nextEntry.id)) : null;
+  const nextRefId = nextEntry
+    ? (nextEntry.kind === "header" ? groupById(nextEntry.groupId)?.anchorId : (nextEntry.wsId ?? nextEntry.id))
+    : null;
+  const nextWorkspace = nextRefId ? ws.find((w) => w.id === nextRefId) : null;
 
   let container;
   if (extra && extra.side === "below") {
