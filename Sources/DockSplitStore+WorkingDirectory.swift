@@ -47,7 +47,8 @@ extension DockSplitStore {
             : nil
         return WorkspaceCreationWorkingDirectoryPolicy(
             policy: policy,
-            fixedPath: declarative.workingDirectoryPath
+            fixedPath: declarative.workingDirectoryPath,
+            fixedPathIsUsable: declarative.fixedPathIsUsable
         ).resolve(
             explicitWorkingDirectory: requestedWorkingDirectory,
             inheritedWorkingDirectory: inheritedDirectory,

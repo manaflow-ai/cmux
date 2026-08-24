@@ -72,7 +72,8 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let policy = WorkspaceCreationWorkingDirectoryPolicy(
             policy: .fixedPath,
-            fixedPath: directory.path
+            fixedPath: directory.path,
+            fixedPathIsUsable: true
         )
         #expect(
             policy.resolve(
@@ -137,7 +138,8 @@ import Testing
     @Test func tildeFixedPathExpandsAgainstTheUserHome() {
         let policy = WorkspaceCreationWorkingDirectoryPolicy(
             policy: .fixedPath,
-            fixedPath: "~"
+            fixedPath: "~",
+            fixedPathIsUsable: true
         )
         #expect(
             policy.resolve(

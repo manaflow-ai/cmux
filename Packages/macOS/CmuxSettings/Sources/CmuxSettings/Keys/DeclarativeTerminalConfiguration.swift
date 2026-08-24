@@ -30,11 +30,11 @@ public final class DeclarativeTerminalConfigurationCache {
     /// The configuration URL used when callers omit an explicit URL.
     public let fileURL: URL
 
-    /// Creates a cache, optionally primed with a snapshot read before app wiring.
+    /// Creates a cache, optionally primed with an already-decoded snapshot.
     ///
-    /// Spawn paths only read the in-memory value. File I/O and JSON parsing must
-    /// happen before construction (at app startup) or through the long-lived
-    /// ``DeclarativeTerminalConfigurationModel`` observation stream.
+    /// Spawn paths only read the in-memory value. File I/O and JSON parsing flow
+    /// through the long-lived ``DeclarativeTerminalConfigurationModel``
+    /// observation stream; callers may provide a pre-decoded snapshot in tests.
     ///
     /// - Parameters:
     ///   - initialSnapshot: Immutable values to publish immediately.
@@ -160,6 +160,7 @@ public struct DeclarativeTerminalConfiguration: SettingCatalogSection {
                 for: configuration.workingDirectoryPath,
                 in: root
             ),
+            fixedPathIsUsable: false,
             shellStartupMode: JSONConfigStore.snapshotValue(
                 for: configuration.shellStartupMode,
                 in: root
@@ -179,6 +180,10 @@ public struct DeclarativeTerminalConfiguration: SettingCatalogSection {
         /// Configured fixed path, or an empty string when absent.
         public var workingDirectoryPath: String
 
+        /// Whether an actor-backed reader confirmed the fixed path is usable.
+        /// A false value is fail-closed until a fresh validation result arrives.
+        public var fixedPathIsUsable: Bool
+
         /// Configured shell invocation mode, defaulting to login.
         public var shellStartupMode: ShellStartupMode
 
@@ -191,16 +196,19 @@ public struct DeclarativeTerminalConfiguration: SettingCatalogSection {
         ///   - workingDirectoryPolicy: Parsed working-directory policy, or
         ///     `nil` when the file omitted or invalidated it.
         ///   - workingDirectoryPath: Raw fixed path value.
+        ///   - fixedPathIsUsable: Off-main validation result for the fixed path.
         ///   - shellStartupMode: Parsed shell startup mode.
         ///   - shellStartupCommand: Raw startup command value.
         public init(
             workingDirectoryPolicy: NewSurfaceWorkingDirectoryPolicy? = nil,
             workingDirectoryPath: String = "",
+            fixedPathIsUsable: Bool = false,
             shellStartupMode: ShellStartupMode = .login,
             shellStartupCommand: String = ""
         ) {
             self.workingDirectoryPolicy = workingDirectoryPolicy
             self.workingDirectoryPath = workingDirectoryPath
+            self.fixedPathIsUsable = fixedPathIsUsable
             self.shellStartupMode = shellStartupMode
             self.shellStartupCommand = shellStartupCommand
         }

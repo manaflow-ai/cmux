@@ -32,8 +32,37 @@ struct DeclarativeTerminalConfigurationTests {
         let snapshot = DeclarativeTerminalConfiguration().snapshot(fileURL: file)
         #expect(snapshot.workingDirectoryPolicy == .fixedPath)
         #expect(snapshot.workingDirectoryPath == "~/src")
+        #expect(!snapshot.fixedPathIsUsable)
         #expect(snapshot.shellStartupMode == .nonLogin)
         #expect(snapshot.shellStartupCommand == "mise activate zsh")
+    }
+
+    @Test("actor-backed reader validates fixed paths without a synchronous spawn read")
+    func readerPublishesFixedPathValidation() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-declarative-reader-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let existing = directory.appendingPathComponent("existing", isDirectory: true)
+        try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
+        let data = Data(
+            #"{"terminal":{"newSurfaceWorkingDirectory":{"policy":"fixedPath","path":"\#(existing.path)"}}}"#.utf8
+        )
+
+        let snapshot = await DeclarativeTerminalConfigurationReader().decode(
+            JSONConfigStoreSnapshot(data: data)
+        )
+        #expect(snapshot.fixedPathIsUsable)
+
+        let missingPath = directory.appendingPathComponent("missing").path
+        let missing = await DeclarativeTerminalConfigurationReader().decode(
+            JSONConfigStoreSnapshot(
+                data: Data(
+                    #"{"terminal":{"newSurfaceWorkingDirectory":{"policy":"fixedPath","path":"\#(missingPath)"}}}"#.utf8
+                )
+            )
+        )
+        #expect(!missing.fixedPathIsUsable)
     }
 
     @Test("invalid policy fails closed as absent")

@@ -18,6 +18,7 @@ extension Workspace {
 
         let policy: NewSurfaceWorkingDirectoryPolicy
         let fixedPath: String?
+        let fixedPathIsUsable: Bool
         if allowsDeclarativeDefaults {
             let legacyInheritanceEnabled = settings.value(
                 for: settingsCatalog.app.workspaceInheritWorkingDirectory
@@ -29,9 +30,11 @@ extension Workspace {
                 legacyInheritanceEnabled: legacyInheritanceEnabled
             )
             fixedPath = declarative.workingDirectoryPath
+            fixedPathIsUsable = declarative.fixedPathIsUsable
         } else {
             policy = .inheritActivePane
             fixedPath = nil
+            fixedPathIsUsable = false
         }
 
         let remoteWorkspaceOwner = isRemoteWorkspace || isRemoteTmuxMirror
@@ -67,7 +70,8 @@ extension Workspace {
                 ?? TerminalWorkingDirectoryResolver.normalized(currentDirectory)
         return WorkspaceCreationWorkingDirectoryPolicy(
             policy: policy,
-            fixedPath: fixedPath
+            fixedPath: fixedPath,
+            fixedPathIsUsable: fixedPathIsUsable
         ).resolve(
             explicitWorkingDirectory: requestedWorkingDirectory,
             inheritedWorkingDirectory: inheritedDirectory,

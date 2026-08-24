@@ -5,18 +5,22 @@ public import CmuxSettings
 public struct WorkspaceCreationWorkingDirectoryPolicy: Sendable {
     private let policy: NewSurfaceWorkingDirectoryPolicy
     private let fixedPath: String?
+    private let fixedPathIsUsable: Bool
 
     /// Creates a policy from the declarative cmux configuration.
     ///
     /// - Parameters:
     ///   - policy: Configured source for new-surface working directories.
     ///   - fixedPath: Candidate directory used by `fixedPath`.
+    ///   - fixedPathIsUsable: Actor-backed validation result for `fixedPath`.
     public init(
         policy: NewSurfaceWorkingDirectoryPolicy,
-        fixedPath: String? = nil
+        fixedPath: String? = nil,
+        fixedPathIsUsable: Bool = false
     ) {
         self.policy = policy
         self.fixedPath = fixedPath
+        self.fixedPathIsUsable = fixedPathIsUsable
     }
 
     /// Compatibility initializer for the legacy boolean setting. Existing
@@ -27,6 +31,7 @@ public struct WorkspaceCreationWorkingDirectoryPolicy: Sendable {
     public init(inheritanceEnabled: Bool) {
         self.policy = inheritanceEnabled ? .inheritActivePane : .workspaceRoot
         self.fixedPath = nil
+        self.fixedPathIsUsable = false
     }
 
     /// Applies creation precedence: an explicit request always wins, then the
@@ -40,14 +45,12 @@ public struct WorkspaceCreationWorkingDirectoryPolicy: Sendable {
     ///   - defaultWorkingDirectory: Lazily evaluated final fallback.
     ///   - workspaceRootWorkingDirectory: Immutable workspace root, when the
     ///     caller has one.
-    ///   - fileManager: Filesystem used to validate a fixed path.
     /// - Returns: A non-empty concrete working-directory path.
     public func resolve(
         explicitWorkingDirectory: String?,
         inheritedWorkingDirectory: String?,
         defaultWorkingDirectory: @autoclosure () -> String,
-        workspaceRootWorkingDirectory: String? = nil,
-        fileManager: FileManager = .default
+        workspaceRootWorkingDirectory: String? = nil
     ) -> String {
         if let explicitWorkingDirectory = normalized(explicitWorkingDirectory) {
             return explicitWorkingDirectory
@@ -62,8 +65,7 @@ public struct WorkspaceCreationWorkingDirectoryPolicy: Sendable {
         case .workspaceRoot:
             return root
         case .fixedPath:
-            guard let fixedPath = expandedFixedPath(),
-                  isUsableDirectory(fixedPath, fileManager: fileManager) else {
+            guard fixedPathIsUsable, let fixedPath = expandedFixedPath() else {
                 return root
             }
             return fixedPath
@@ -76,12 +78,6 @@ public struct WorkspaceCreationWorkingDirectoryPolicy: Sendable {
         guard !expanded.isEmpty, (expanded as NSString).isAbsolutePath else { return nil }
         let url = URL(fileURLWithPath: expanded).standardizedFileURL
         return url.path
-    }
-
-    private func isUsableDirectory(_ path: String, fileManager: FileManager) -> Bool {
-        var isDirectory: ObjCBool = false
-        return fileManager.fileExists(atPath: path, isDirectory: &isDirectory)
-            && isDirectory.boolValue
     }
 
     private func normalized(_ value: String?) -> String? {

@@ -124,13 +124,6 @@ struct cmuxApp: App {
             saveSecret: { try socketPasswordStore.savePassword($0) },
             backupTimestamp: secretMigrationTimestamp
         )
-        // Prime the shared cache once during bootstrap. Interactive spawn
-        // paths only consume this immutable value; subsequent dotfiles edits
-        // arrive through the runtime-owned JSON observation stream.
-        declarativeTerminalConfigurationCache.replace(
-            DeclarativeTerminalConfiguration().snapshot(fileURL: configFileURL),
-            fileURL: configFileURL
-        )
         let authComposition = MacAuthComposition()
         let notificationStore = TerminalNotificationStore.shared
         let closedItemHistoryStore = ClosedItemHistoryStore.shared

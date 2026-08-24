@@ -35,6 +35,8 @@ struct WorkspaceCreationWorkingDirectorySpawnPolicyTests {
 
         let sourceDirectory = temporaryDirectory.appendingPathComponent("source").path
         let fallbackDirectory = temporaryDirectory.appendingPathComponent("fallback").path
+        var initialSnapshot = DeclarativeTerminalConfiguration().snapshot(fileURL: configurationFile)
+        initialSnapshot.fixedPathIsUsable = true
         let manager = TabManager(
             initialWorkingDirectory: sourceDirectory,
             autoWelcomeIfNeeded: false,
@@ -42,7 +44,7 @@ struct WorkspaceCreationWorkingDirectorySpawnPolicyTests {
             declarativeTerminalConfigurationFileURL: configurationFile,
             defaultWorkspaceWorkingDirectoryProvider: { fallbackDirectory },
             declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache(
-                initialSnapshot: DeclarativeTerminalConfiguration().snapshot(fileURL: configurationFile),
+                initialSnapshot: initialSnapshot,
                 fileURL: configurationFile
             )
         )
