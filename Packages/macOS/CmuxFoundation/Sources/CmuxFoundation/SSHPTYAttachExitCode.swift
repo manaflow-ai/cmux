@@ -85,8 +85,8 @@ public enum SSHPTYAttachExitCode: Int32 {
         let terminalModeReset = SSHTerminalModeResetSequence().shellPrintfFormat.remoteCommandShellQuoted
 
         return [
-            "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
-            "case \"$cmux_ssh_attach_reconnect_limit\" in '') cmux_ssh_attach_reconnect_limit='∞'; cmux_ssh_attach_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_attach_reconnect_limit=20; cmux_ssh_attach_reconnect_unbounded=0 ;; *) cmux_ssh_attach_reconnect_unbounded=0 ;; esac",
+            "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
+            "case \"$cmux_ssh_attach_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_limit=20 ;; *) while [ \"${cmux_ssh_attach_reconnect_limit#0}\" != \"$cmux_ssh_attach_reconnect_limit\" ] && [ \"$cmux_ssh_attach_reconnect_limit\" != 0 ]; do cmux_ssh_attach_reconnect_limit=\"${cmux_ssh_attach_reconnect_limit#0}\"; done; case \"$cmux_ssh_attach_reconnect_limit\" in [1-9]|1[0-9]|20) ;; *) cmux_ssh_attach_reconnect_limit=20 ;; esac ;; esac",
             "cmux_ssh_attach_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "case \"$cmux_ssh_attach_reconnect_delay\" in ''|*[!0-9]*|0*) cmux_ssh_attach_reconnect_delay=2 ;; esac",
             "cmux_ssh_attach_reconnect_max_delay=\"${CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS:-30}\"",
@@ -104,7 +104,7 @@ public enum SSHPTYAttachExitCode: Int32 {
             "    if [ \"$cmux_ssh_attach_status\" -eq 0 ]; then cmux_ssh_attach_reauth_required=0; elif [ \"$cmux_ssh_attach_status\" -ne \(transientStatus) ]; then exit \"$cmux_ssh_attach_status\"; fi",
             "  fi",
             "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 0 ]; then",
-            "  if [ \"$cmux_ssh_attach_reconnect_unbounded\" -eq 1 ] || [ \"$cmux_ssh_attach_retry\" -lt \"$cmux_ssh_attach_reconnect_limit\" ]; then cmux_ssh_attach_can_retry=1; else cmux_ssh_attach_can_retry=0; fi",
+            "  if [ \"$cmux_ssh_attach_retry\" -lt \"$cmux_ssh_attach_reconnect_limit\" ]; then cmux_ssh_attach_can_retry=1; else cmux_ssh_attach_can_retry=0; fi",
             "  CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=\"$cmux_ssh_attach_can_retry\" CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY=\"$cmux_ssh_attach_no_progress_retry\" CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT=\"$cmux_ssh_attach_no_progress_limit\" \(command)",
             "  cmux_ssh_attach_status=$?",
             "  if [ \"$cmux_ssh_attach_status\" -ne 0 ] && [ -t 2 ]; then printf \(terminalModeReset) >&2 || true; fi",
@@ -116,7 +116,7 @@ public enum SSHPTYAttachExitCode: Int32 {
             "    *) exit \"$cmux_ssh_attach_status\" ;;",
             "  esac",
             "  fi",
-            "  if [ \"$cmux_ssh_attach_reconnect_unbounded\" -eq 0 ] && [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
+            "  if [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
             "  cmux_ssh_attach_retry=$((cmux_ssh_attach_retry + 1))",
             "  if [ -t 2 ]; then printf '\\n\\033[33m%s\\033[0m\\n' \"$(printf \(reattachingFormat) \"$cmux_ssh_attach_retry\" \"$cmux_ssh_attach_reconnect_limit\")\" >&2 || true; fi",
             "  if [ \"$cmux_ssh_attach_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_attach_reconnect_delay\"; fi",

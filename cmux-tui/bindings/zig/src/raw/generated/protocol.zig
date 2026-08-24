@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "0f28922d64be59160110a6e7bf5a7656132ce163e82792c474c29c26a1bee529";
+pub const ir_sha256 = "b4e69e774777172ac0198454e7f068e53f7a74501dc787b58f3ead05d17b4af6";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -2186,6 +2186,28 @@ pub fn clearWindowTitle(client: anytype, request: ClearWindowTitleRequest) !wire
     );
 }
 
+pub const ClientFocusRequest = struct {
+    client_id: []const u8,
+};
+
+pub const ClientFocusResult = struct {
+    pane: wire.Nullable(Id),
+    tab: wire.Nullable(u64),
+};
+
+pub fn clientFocus(client: anytype, request: ClientFocusRequest) !wire.Decoded(ClientFocusResult) {
+    return client.callTyped(
+        ClientFocusResult,
+        .{
+            .name = "client-focus",
+            .authority = "control",
+            .since = 12,
+            .capability = "client-focus-v1",
+        },
+        request,
+    );
+}
+
 pub const ClosePaneRequest = struct {
     pane: Id,
 };
@@ -3380,6 +3402,27 @@ pub fn reportAgent(client: anytype, request: ReportAgentRequest) !wire.Decoded(R
             .authority = "control",
             .since = 6,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const ReportFocusRequest = struct {
+    client_id: []const u8,
+    pane: Id,
+    tab: wire.Field(u64) = .absent,
+};
+
+pub const ReportFocusResult = EmptyResult;
+
+pub fn reportFocus(client: anytype, request: ReportFocusRequest) !wire.Decoded(ReportFocusResult) {
+    return client.callTyped(
+        ReportFocusResult,
+        .{
+            .name = "report-focus",
+            .authority = "control",
+            .since = 12,
+            .capability = "client-focus-v1",
         },
         request,
     );
@@ -4917,7 +4960,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 101;
+pub const command_count: usize = 103;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -4936,6 +4979,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "browser-wheel-guarded", .authority = "frontend", .since = 10, .capability = "browser-pointer-frame-guard-v1", .stream = null },
     .{ .name = "clear-history", .authority = "control", .since = 9, .capability = "clear-history-v1", .stream = null },
     .{ .name = "clear-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "client-focus", .authority = "control", .since = 12, .capability = "client-focus-v1", .stream = null },
     .{ .name = "close-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "close-provider-managed-workspace", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },
     .{ .name = "close-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
@@ -4991,6 +5035,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "rename-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "rename-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "report-agent", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "report-focus", .authority = "control", .since = 12, .capability = "client-focus-v1", .stream = null },
     .{ .name = "resize-attached-view", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "resize-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "resolve-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },

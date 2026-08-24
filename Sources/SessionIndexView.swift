@@ -1161,8 +1161,9 @@ private func sessionRowMenuItems(
     }
     if let resumeCommand = entry.copyResumeCommand {
         Button {
+            // Match the user's shell so the copied command pastes cleanly.
             GhosttyApp.terminalPasteboard.writeString(
-                resumeCommand,
+                TerminalStartupTypedShellCommand().typedInput(posixCommand: resumeCommand),
                 to: .general
             )
         } label: {
