@@ -427,7 +427,17 @@ final class cmuxUITests: XCTestCase {
 
         primaryButton.tap()
         assertPageVisible(pushScene)
-        XCTAssertTrue(notNowButton.waitForExistence(timeout: 4))
+        let secondaryAnyType = element("MobileOnboardingSecondaryButton")
+        XCTAssertTrue(
+            notNowButton.waitForExistence(timeout: 4),
+            """
+            Secondary button missing in compact height. \
+            anyTyped exists=\(secondaryAnyType.exists) \
+            type=\(secondaryAnyType.exists ? String(secondaryAnyType.elementType.rawValue) : "-") \
+            buttons=\(app.buttons.allElementsBoundByIndex.map { "\($0.identifier):\($0.label)" }) \
+            footer=\(element("MobileOnboardingFooter").debugDescription)
+            """
+        )
         recordChromeReferenceFrames()
         assertPageContentFitsWithoutScrolling(
             title: pushTitle,
