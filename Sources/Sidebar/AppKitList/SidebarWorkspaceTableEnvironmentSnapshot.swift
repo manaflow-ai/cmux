@@ -53,7 +53,7 @@ struct SidebarWorkspaceTableEnvironmentSnapshot {
     }
 #endif
 
-    func hasEquivalentPresentation(to other: Self) -> Bool {
+    nonisolated func hasEquivalentPresentation(to other: Self) -> Bool {
         colorScheme == other.colorScheme
             && colorSchemeContrast == other.colorSchemeContrast
             && globalFontMagnificationPercent == other.globalFontMagnificationPercent

@@ -9,7 +9,7 @@ import Testing
 @Suite
 @MainActor
 struct SidebarWorkspaceRowSuspensionTests {
-    private static var tableEnvironment: SidebarWorkspaceTableEnvironmentSnapshot {
+    static var tableEnvironment: SidebarWorkspaceTableEnvironmentSnapshot {
         SidebarWorkspaceTableEnvironmentSnapshot(
             environment: .sidebarTableTestValues(colorScheme: .dark),
             globalFontMagnificationPercent: 100,
@@ -146,7 +146,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             allRemoteContextMenuTargetsDisconnected: false,
             contextMenuPinState: nil,
             workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot(items: []),
-            colorScheme: model.colorSchemeIsDark ? .dark : .light,
+            colorScheme: Self.tableEnvironment.colorScheme,
             refreshSnapshot: {},
             readSelectedTabIds: { [] },
             writeSelectedTabIds: { _ in },

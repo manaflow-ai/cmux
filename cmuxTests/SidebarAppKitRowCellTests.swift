@@ -132,6 +132,7 @@ struct SidebarAppKitRowCellTests {
             settings: resolvedSettings,
             isActive: isActive,
             isMultiSelected: false,
+            hasUserCustomTitle: false,
             canCloseWorkspace: canClose,
             accessibilityWorkspaceCount: 1,
             unreadCount: 0,
@@ -231,6 +232,7 @@ struct SidebarAppKitRowCellTests {
             allRemoteContextMenuTargetsDisconnected: false,
             contextMenuPinState: nil,
             workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot(items: []),
+            colorScheme: .dark,
             refreshSnapshot: {},
             readSelectedTabIds: { [] },
             writeSelectedTabIds: { _ in },
@@ -339,7 +341,7 @@ struct SidebarAppKitRowCellTests {
         var location = 0
         while location < attributedString.length {
             var range = NSRange(location: 0, length: 0)
-            let value = attributedString.attribute(.link, at: location, effectiveRange: &range)
+            let value = attributedString.attribute(.sidebarRowLink, at: location, effectiveRange: &range)
             if linkURL(from: value) == url {
                 return true
             }

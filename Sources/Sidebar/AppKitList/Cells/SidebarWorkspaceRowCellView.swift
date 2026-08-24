@@ -631,7 +631,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     /// false, so no SwiftUI rows rebuild runs per gap change) and moves it
     /// with two direct view mutations instead of a full-list apply.
     func paintControllerDropIndicator(top: Bool, bottom: Bool) {
-        let colorScheme = model.map { $0.colorSchemeIsDark ? ColorScheme.dark : .light }
+        let colorScheme = environment?.colorScheme
             ?? SidebarAppearanceColorResolver().currentColorScheme()
         let accent = cmuxAccentNSColor(for: colorScheme)
         topDropIndicator.layer?.backgroundColor = accent.cgColor
