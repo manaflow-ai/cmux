@@ -1684,12 +1684,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// Pump-driven height corrections between applies: heightOfRow consults
     /// these before the equivalence-keyed cache (which only refreshes on the
     /// next container apply).
-    private struct PumpHeightOverride {
-        let height: CGFloat
-        let columnWidth: CGFloat
-    }
-
-    private var pumpHeightOverrides: [SidebarWorkspaceRenderItemID: PumpHeightOverride] = [:]
+    private var pumpHeightOverrides: [
+        SidebarWorkspaceRenderItemID: (height: CGFloat, columnWidth: CGFloat)
+    ] = [:]
 
     private func pumpHeightOverride(
         for rowId: SidebarWorkspaceRenderItemID,
@@ -1726,10 +1723,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 continue
             }
             let height = ceil(cell.layoutContent(model: model, width: columnWidth, apply: false))
-            pumpHeightOverrides[row.id] = PumpHeightOverride(
-                height: height,
-                columnWidth: columnWidth
-            )
+            pumpHeightOverrides[row.id] = (height: height, columnWidth: columnWidth)
             heightRows.insert(index)
         }
     }
@@ -1779,10 +1773,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             }
             return
         }
-        pumpHeightOverrides[rowId] = PumpHeightOverride(
-            height: height,
-            columnWidth: width
-        )
+        pumpHeightOverrides[rowId] = (height: height, columnWidth: width)
         if isApplyingTableGeometryUpdate {
             deferredPumpHeightRowIds.insert(rowId)
         } else {
