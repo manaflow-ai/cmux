@@ -15,7 +15,6 @@ struct TaskComposerDirectoryPickerView: View {
     @State private var path: [TaskComposerDirectoryBrowseDestination]
 
     private let suggested: [MobileTaskDirectoryCandidate]
-    private let recents: [MobileTaskDirectoryCandidate]
     private let suggestionIndex: MobileTaskDirectorySuggestionIndex
     private let selectedPath: String
     private let selectedPathID: MobileTaskDirectoryPathID
@@ -43,9 +42,6 @@ struct TaskComposerDirectoryPickerView: View {
         let index = MobileTaskDirectorySuggestionIndex(candidates: candidates)
         suggestionIndex = index
         suggested = index.suggestions(matching: "", limit: 6)
-        // Home and Computer are permanent locations on the picker root, so
-        // the quick chips only carry real remembered directories.
-        recents = suggested.prefix(5).filter { $0.path != "~" && $0.path != "/" }
         self.selectedPath = selectedPath
         selectedPathID = MobileTaskDirectoryPathID(path: selectedPath)
         self.select = select
@@ -60,7 +56,6 @@ struct TaskComposerDirectoryPickerView: View {
         NavigationStack(path: $path) {
             TaskComposerDirectoryLocationsScreen(
                 suggested: suggested,
-                recents: recents,
                 suggestionIndex: suggestionIndex,
                 selectedPath: selectedPath,
                 selectedPathID: selectedPathID,
@@ -73,7 +68,6 @@ struct TaskComposerDirectoryPickerView: View {
                     requestedPath: destination.path,
                     selectedPathID: selectedPathID,
                     suggestionIndex: suggestionIndex,
-                    recents: recents,
                     choose: choose,
                     cancel: { dismiss() },
                     searchMac: searchMac,
@@ -92,7 +86,6 @@ struct TaskComposerDirectoryPickerView: View {
 /// The picker's root: suggested folders and the browse entry points.
 private struct TaskComposerDirectoryLocationsScreen: View {
     let suggested: [MobileTaskDirectoryCandidate]
-    let recents: [MobileTaskDirectoryCandidate]
     let suggestionIndex: MobileTaskDirectorySuggestionIndex
     let selectedPath: String
     let selectedPathID: MobileTaskDirectoryPathID
@@ -141,11 +134,6 @@ private struct TaskComposerDirectoryLocationsScreen: View {
         )
         .toolbar {
             TaskComposerDirectoryCancelToolbar(cancel: cancel)
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if !isSearchActive, !recents.isEmpty {
-                TaskComposerDirectoryRecentChipsRow(recents: recents)
-            }
         }
         .overlay {
             if isSearchActive {

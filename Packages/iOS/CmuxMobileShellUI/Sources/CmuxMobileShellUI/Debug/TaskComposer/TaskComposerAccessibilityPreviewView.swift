@@ -164,20 +164,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
                     TaskTemplateFormView(template: nil, onSave: { _ in })
                 } else if presentsDirectoryPicker {
                     TaskComposerDirectoryPickerView(
-                        candidates: [
-                            MobileTaskDirectoryCandidate(
-                                path: "/Users/ui/recent-alpha",
-                                source: .recentSuccessful,
-                                context: nil,
-                                lastUsedAt: Date(timeIntervalSince1970: 2_000)
-                            ),
-                            MobileTaskDirectoryCandidate(
-                                path: "/Users/ui/recent-beta",
-                                source: .recentSuccessful,
-                                context: nil,
-                                lastUsedAt: Date(timeIntervalSince1970: 1_000)
-                            ),
-                        ],
+                        candidates: [],
                         selectedPath: selectedDirectory ?? "~",
                         select: { selectedDirectory = $0 },
                         searchMac: Self.searchPreviewDirectories,
