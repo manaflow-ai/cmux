@@ -12,25 +12,42 @@ extension WorkspaceListView {
     static let maxPipelinedWorkspaceMoves = 3
 
     var enablesWorkspaceReorder: Bool {
+        enablesWorkspaceReorder(
+            canMutateForegroundGroups: canMutateForegroundGroupsForSelection,
+            appliesRecencySort: appliesRecencySort,
+            reorderableWorkspaces: reorderableWorkspaces,
+            flatContainsPinned: rendersGroupedSections
+                ? false
+                : filteredWorkspaces.contains(where: \.isPinned)
+        )
+    }
+
+    /// Input-threaded variant for `body`, which resolves the scope-derived
+    /// gate, recency flag, and filtered/grouped projections once per
+    /// evaluation. Autoclosures keep the property wrapper above as lazy as
+    /// the original single expression (nothing filters when `moveWorkspace`
+    /// is nil).
+    func enablesWorkspaceReorder(
+        canMutateForegroundGroups: @autoclosure () -> Bool,
+        appliesRecencySort: @autoclosure () -> Bool,
+        reorderableWorkspaces: @autoclosure () -> [MobileWorkspacePreview],
+        flatContainsPinned: @autoclosure () -> Bool
+    ) -> Bool {
         moveWorkspace != nil
             && pendingWorkspaceMoveCount < Self.maxPipelinedWorkspaceMoves
-            && canMutateForegroundGroupsForSelection
+            && canMutateForegroundGroups()
             && trimmedQuery.isEmpty
             && filter.readState == .all
             && filter.machines.isEmpty
             // The recency order is derived from timestamps, so a drag has no
             // spatial position to send to the Mac.
-            && !appliesRecencySort
-            && reorderableWorkspaces.hasSingleKnownWindow
-            && (rendersGroupedSections || !filteredWorkspaces.contains(where: \.isPinned))
+            && !appliesRecencySort()
+            && reorderableWorkspaces().hasSingleKnownWindow
+            && !flatContainsPinned()
     }
 
     var reorderableWorkspaces: [MobileWorkspacePreview] {
         rendersGroupedSections ? groupedWorkspaces : filteredWorkspaces
-    }
-
-    var filteredWorkspaceOrderKey: [WorkspaceListStableOrderKey] {
-        filteredWorkspaces.map { WorkspaceListStableOrderKey(workspace: $0) }
     }
 
     var canCreateWorkspaceInGroups: Bool {

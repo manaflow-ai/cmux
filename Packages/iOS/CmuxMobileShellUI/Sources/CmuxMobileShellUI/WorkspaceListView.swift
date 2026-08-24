@@ -270,8 +270,12 @@ struct WorkspaceListView: View {
     /// scope keeps that Mac's own order — the sort exists to make the
     /// cross-computer order deterministic, not to rewrite one Mac's sidebar.
     var appliesRecencySort: Bool {
+        appliesRecencySort(visibleSelection: visibleMacSelection)
+    }
+
+    func appliesRecencySort(visibleSelection: WorkspaceMacSelection) -> Bool {
         guard workspaceSortMode == .recentActivity else { return false }
-        switch visibleMacSelection {
+        switch visibleSelection {
         case .all, .automatic:
             return true
         case .machine:
@@ -395,8 +399,19 @@ struct WorkspaceListView: View {
 
     /// Filtered workspaces for flat presentation, pinned first and otherwise stable.
     var filteredWorkspaces: [MobileWorkspacePreview] {
+        filteredWorkspaces(
+            activeFilter: activeFilter,
+            appliesRecencySort: appliesRecencySort
+        )
+    }
+
+    /// Input-threaded variant for `body`, which resolves the active filter and
+    /// recency flag once per evaluation instead of once per caller.
+    func filteredWorkspaces(
+        activeFilter currentFilter: MobileWorkspaceListFilter,
+        appliesRecencySort: Bool
+    ) -> [MobileWorkspacePreview] {
         let query = trimmedQuery
-        let currentFilter = activeFilter
         let parsedMachines = MobileWorkspaceListFilter.parsedMachineEntries(
             currentFilter.machines
         )
@@ -466,7 +481,12 @@ struct WorkspaceListView: View {
     }
 
     var groupedWorkspaces: [MobileWorkspacePreview] {
-        let currentFilter = activeFilter
+        groupedWorkspaces(activeFilter: activeFilter)
+    }
+
+    func groupedWorkspaces(
+        activeFilter currentFilter: MobileWorkspaceListFilter
+    ) -> [MobileWorkspacePreview] {
         let parsedMachines = MobileWorkspaceListFilter.parsedMachineEntries(
             currentFilter.machines
         )
@@ -476,9 +496,19 @@ struct WorkspaceListView: View {
     }
 
     var body: some View {
-        let currentMachineSnapshots = liveMachineSnapshots
-        let currentVisibleMacSelection = visibleMacSelection
-        let currentFilterMenuPresentMachineIDs = filterMenuPresentMachineIDs
+        // One selection scope, active filter, and filtered/grouped projection
+        // per body evaluation. Before this hoist each was a computed property
+        // re-resolved by every caller, so a single pass rebuilt the scope
+        // ~10x and re-filtered/re-sorted the workspaces up to 5x — pure
+        // main-thread overhead on every live list emission.
+        let currentScope = macSelectionScope
+        let currentMachineSnapshots = liveMachineSnapshots(scope: currentScope)
+        let currentVisibleMacSelection = currentScope.visibleSelection
+        let currentFilterMenuPresentMachineIDs = filterMenuPresentMachineIDs(scope: currentScope)
+        let currentActiveFilter = currentScope.activeFilter(base: filter)
+        let currentAppliesRecencySort = appliesRecencySort(
+            visibleSelection: currentVisibleMacSelection
+        )
         let displayedMachineSnapshots = machineSnapshots ?? currentMachineSnapshots
         let displayedFilterMachines = filterMenuMachines(
             machineSnapshots: displayedMachineSnapshots,
@@ -488,8 +518,14 @@ struct WorkspaceListView: View {
         // Keep displayed and authoritative caches separate so a pending
         // optimistic drag cannot evict the rendered projection on every pass.
         let currentGroupedWorkspaces = rendersGroupedSections
-            ? groupedWorkspaces
+            ? groupedWorkspaces(activeFilter: currentActiveFilter)
             : []
+        let currentFilteredWorkspaces = rendersGroupedSections
+            ? []
+            : filteredWorkspaces(
+                activeFilter: currentActiveFilter,
+                appliesRecencySort: currentAppliesRecencySort
+            )
         let currentDisplayedGroupedWorkspaces = rendersGroupedSections
             ? (optimisticGroupedState.optimisticOrder?
                 .materializedWorkspaces(from: currentGroupedWorkspaces)
@@ -499,12 +535,12 @@ struct WorkspaceListView: View {
             ? displayedGroupedProjectionCache.items(
                 workspaces: currentDisplayedGroupedWorkspaces,
                 groups: groups,
-                appliesRecencySort: appliesRecencySort
+                appliesRecencySort: currentAppliesRecencySort
             )
             : []
-        let currentFilteredWorkspaceOrderKey = rendersGroupedSections
-            ? []
-            : filteredWorkspaceOrderKey
+        let currentFilteredWorkspaceOrderKey = currentFilteredWorkspaces.map {
+            WorkspaceListStableOrderKey(workspace: $0)
+        }
         // Reconciliation must observe the authoritative host order while an
         // optimistic drag is pending. Once optimism clears, the displayed and
         // authoritative projections are identical, so reuse the render snapshot.
@@ -514,7 +550,7 @@ struct WorkspaceListView: View {
                 : authoritativeGroupedProjectionCache.items(
                     workspaces: currentGroupedWorkspaces,
                     groups: groups,
-                    appliesRecencySort: appliesRecencySort
+                    appliesRecencySort: currentAppliesRecencySort
                 ))
             : []
         let currentGroupedWorkspaceOrderKey = currentAuthoritativeGroupedListItems.map {
@@ -525,9 +561,31 @@ struct WorkspaceListView: View {
             uniquingKeysWith: { first, _ in first }
         )
         #if os(iOS)
+        let currentEnablesReorder = enablesWorkspaceReorder(
+            canMutateForegroundGroups: canMutateForegroundGroupsForSelection(scope: currentScope),
+            appliesRecencySort: currentAppliesRecencySort,
+            reorderableWorkspaces: rendersGroupedSections
+                ? currentGroupedWorkspaces
+                : currentFilteredWorkspaces,
+            flatContainsPinned: rendersGroupedSections
+                ? false
+                : currentFilteredWorkspaces.contains(where: \.isPinned)
+        )
         let baseList = workspaceTable(
             groupedItems: currentDisplayedGroupedListItems,
-            workspacesByID: currentWorkspacesByID
+            workspacesByID: currentWorkspacesByID,
+            activeFilter: currentActiveFilter,
+            displayedFlatWorkspaces: rendersGroupedSections
+                ? []
+                : (optimisticFlatState.optimisticOrder?
+                    .materializedWorkspaces(from: currentFilteredWorkspaces)
+                    ?? currentFilteredWorkspaces),
+            showsFilterEmptyRow: !rendersGroupedSections
+                && currentActiveFilter.isActive
+                && trimmedQuery.isEmpty
+                && currentFilteredWorkspaces.isEmpty
+                && !workspaces.isEmpty,
+            enablesReorder: currentEnablesReorder
         )
             .modifier(WorkspaceListBarUnderlap())
         #else

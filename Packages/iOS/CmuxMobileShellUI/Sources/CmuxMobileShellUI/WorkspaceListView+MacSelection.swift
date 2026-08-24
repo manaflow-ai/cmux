@@ -48,8 +48,15 @@ extension WorkspaceListView {
     }
 
     var liveMachineSnapshots: WorkspaceMachineSnapshots {
-        let scope = macSelectionScope
-        return WorkspaceMachineSnapshots(
+        liveMachineSnapshots(scope: macSelectionScope)
+    }
+
+    /// Scope-threaded variant for `body`, which computes one
+    /// ``WorkspaceMacSelectionScope`` per evaluation and reuses it; the
+    /// convenience properties above stay for event handlers, which run once
+    /// per interaction rather than once per render pass.
+    func liveMachineSnapshots(scope: WorkspaceMacSelectionScope) -> WorkspaceMachineSnapshots {
+        WorkspaceMachineSnapshots(
             workspaces: workspaces,
             filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },
             macPickerMachineIDs: scope.machineIDs,
@@ -104,7 +111,11 @@ extension WorkspaceListView {
     }
 
     var filterMenuPresentMachineIDs: [String] {
-        let aliasIndex = macSelectionScope.aliasIndex
+        filterMenuPresentMachineIDs(scope: macSelectionScope)
+    }
+
+    func filterMenuPresentMachineIDs(scope: WorkspaceMacSelectionScope) -> [String] {
+        let aliasIndex = scope.aliasIndex
         var seen = Set<String>()
         var present: [String] = []
         for id in MobileWorkspaceListFilter.machineIDs(in: workspaces) {
@@ -134,6 +145,10 @@ extension WorkspaceListView {
 
     #if os(iOS)
     var canMutateForegroundGroupsForSelection: Bool {
+        canMutateForegroundGroupsForSelection(scope: macSelectionScope)
+    }
+
+    func canMutateForegroundGroupsForSelection(scope: WorkspaceMacSelectionScope) -> Bool {
         #if DEBUG
         // The store-free layout fixture has no foreground Mac, so the
         // foreground-mutation gate can never pass there. Allow its isolated
@@ -142,7 +157,7 @@ extension WorkspaceListView {
             return true
         }
         #endif
-        return macSelectionScope.canMutateForegroundGroupsForSelection
+        return scope.canMutateForegroundGroupsForSelection
     }
 
     func macTitlePickerTitle(machineSnapshots: WorkspaceMachineSnapshots) -> String {

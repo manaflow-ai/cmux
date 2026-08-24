@@ -71,6 +71,7 @@ actor LivenessHostRouter {
     private var heldReplayResponsesRemaining = 0
     private var syncFetchRequestCount = 0
     private var heldSyncFetchRequestNumbers: Set<Int> = []
+    private var holdBrowserList = false
     private var viewportRequestCount = 0
     private var heldViewportRequestNumbers: Set<Int> = []
     private var hasActiveSubscription = false
@@ -116,6 +117,18 @@ actor LivenessHostRouter {
     /// issue another refresh request while a cursor fetch is still in flight.
     func holdSyncFetchRequest(number: Int) {
         heldSyncFetchRequestNumbers.insert(number)
+    }
+
+    /// Park every `mobile.browser.list` request until
+    /// ``releaseBrowserListRequests()``, so tests can pile events onto one
+    /// in-flight panel refresh deterministically.
+    func holdBrowserListRequests() {
+        holdBrowserList = true
+    }
+
+    func releaseBrowserListRequests() {
+        holdBrowserList = false
+        releaseAllHeld()
     }
 
     func record(
@@ -487,6 +500,7 @@ actor LivenessHostRouter {
         heldReplayRequestNumbers = []
         heldReplayResponsesRemaining = 0
         heldSyncFetchRequestNumbers = []
+        holdBrowserList = false
         heldViewportRequestNumbers = []
         let continuations = heldContinuations
         heldContinuations = []
@@ -749,6 +763,11 @@ actor LivenessHostRouter {
             return try? Self.resultFrame(id: id, result: [
                 "terminal_seq": terminalSequence,
             ])
+        case "mobile.browser.list":
+            if holdBrowserList {
+                await park()
+            }
+            return try? Self.resultFrame(id: id, result: ["panels": [[String: Any]]()])
         default:
             return try? Self.errorFrame(id: id, message: "Unexpected method \(method ?? "nil")")
         }
@@ -1008,7 +1027,8 @@ func makeConnectedStore(
     clock: TestClock,
     probeTimeoutNanoseconds: UInt64 = 200_000_000,
     inputAckRetryClock: any Clock<Duration> = ContinuousClock(),
-    controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock()
+    controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock(),
+    stateSyncProjectionClock: any Clock<Duration> = ContinuousClock()
 ) async throws -> MobileShellComposite {
     let runtime = LivenessTestRuntime(
         transportFactory: LivenessTransportFactory(router: router, box: box),
@@ -1018,7 +1038,8 @@ func makeConnectedStore(
     let store = MobileShellComposite.preview(
         runtime: runtime,
         terminalInputAckResubscribeClock: inputAckRetryClock,
-        controlPlaneSchedulingClock: controlPlaneSchedulingClock
+        controlPlaneSchedulingClock: controlPlaneSchedulingClock,
+        stateSyncProjectionClock: stateSyncProjectionClock
     )
     store.signIn()
     let ticket = try makeTicket(clock: clock)

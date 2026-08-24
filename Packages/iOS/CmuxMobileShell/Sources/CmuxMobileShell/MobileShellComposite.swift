@@ -1207,6 +1207,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Identifies the fetch generation that owns ``stateSyncFetchTask``, so a
     /// cancelled predecessor's deferred cleanup cannot clear its replacement.
     var stateSyncFetchGeneration = UUID()
+    /// Changes-summary scope accumulated by delta applies that are waiting for
+    /// the next coalesced projection flush, merged with `coalesced(with:)`.
+    /// The mirror itself stays delta-exact; only the projection is batched.
+    @ObservationIgnored var stateSyncPendingProjectionScope: WorkspaceChangesSummaryRefreshScope?
+    /// Single-flight handle for the frame-coalesced state-sync projection
+    /// flush. Non-nil exactly while a flush loop is scheduled or running.
+    @ObservationIgnored var stateSyncProjectionFlushTask: Task<Void, Never>?
+    /// Identifies the flush loop that owns ``stateSyncProjectionFlushTask``,
+    /// so a cancelled predecessor's deferred cleanup cannot clear a successor.
+    @ObservationIgnored var stateSyncProjectionFlushID: UUID?
+    /// Injected clock for the delta-projection coalescing window so tests can
+    /// drive flush timing deterministically.
+    @ObservationIgnored let stateSyncProjectionClock: any Clock<Duration>
+    /// Single-flight handle for the event-driven visible-workspace browser
+    /// panel refresh; bursts coalesce onto one in-flight RPC plus at most one
+    /// trailing rerun instead of stacking a task per `workspace.updated`.
+    @ObservationIgnored var visibleBrowserPanelsRefreshTask: Task<Void, Never>?
+    /// The workspace the trailing browser-panel rerun should target (the
+    /// newest requested one wins), or `nil` when no rerun is pending.
+    @ObservationIgnored var visibleBrowserPanelsRefreshFollowUpWorkspaceID: String?
     /// Number of deadline-abandoned reconnect dials that have not yet
     /// resolved. Bounds automatic retry scheduling (see
     /// ``registerAbandonedReconnectDial(_:)``).
@@ -1632,6 +1652,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceSortStore: MobileWorkspaceSortStore = MobileWorkspaceSortStore(),
         workspaceChangesHintDismissalStore: MobileWorkspaceChangesHintDismissalStore = MobileWorkspaceChangesHintDismissalStore(),
         workspaceChangesSchedulingClock: any Clock<Duration> = ContinuousClock(),
+        stateSyncProjectionClock: any Clock<Duration> = ContinuousClock(),
         controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock(),
         connectionHandoffDrainTimeoutNanoseconds: UInt64 = 3_000_000_000,
         terminalInputAckResubscribeClock: any Clock<Duration> = ContinuousClock(),
@@ -1650,6 +1671,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.workspaceComputerPriority = workspaceSortStore.computerPriority
         self.workspaceChangesHintDismissalStore = workspaceChangesHintDismissalStore
         self.workspaceChangesSchedulingClock = workspaceChangesSchedulingClock
+        self.stateSyncProjectionClock = stateSyncProjectionClock
         self.controlPlaneSchedulingClock = controlPlaneSchedulingClock
         self.connectionHandoffDrainTimeoutNanoseconds =
             connectionHandoffDrainTimeoutNanoseconds
@@ -1852,12 +1874,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public static func preview(
         runtime: (any MobileSyncRuntime)? = nil,
         terminalInputAckResubscribeClock: any Clock<Duration> = ContinuousClock(),
-        controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock()
+        controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock(),
+        stateSyncProjectionClock: any Clock<Duration> = ContinuousClock()
     ) -> CMUXMobileShellStore {
         CMUXMobileShellStore(
             runtime: runtime,
             workspaces: PreviewMobileHost.workspaces,
             deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
+            stateSyncProjectionClock: stateSyncProjectionClock,
             controlPlaneSchedulingClock: controlPlaneSchedulingClock,
             terminalInputAckResubscribeClock: terminalInputAckResubscribeClock
         )
@@ -6832,6 +6856,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard var state = workspacesByMac[ownerKey] else { return }
         state.status = .unavailable
         state.workspaceGroupsAreAuthoritative = false
+        guard workspacesByMac[ownerKey] != state else { return }
         workspacesByMac[ownerKey] = state
     }
 
@@ -6996,7 +7021,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     refreshShouldRetry = false
                     break refreshLoop
                 }
-                self.workspacesByMac[ownerKey] = MacWorkspaceState(
+                let refreshedState = MacWorkspaceState(
                     macDeviceID: macID,
                     instanceTag: subscription.storedInstanceTag,
                     displayName: displayName ?? subscription.displayName,
@@ -7011,6 +7036,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     status: .connected,
                     actionCapabilities: subscription.actionCapabilities
                 )
+                // Publishing an IDENTICAL snapshot would still fire the
+                // `workspacesByMac` didSet (full re-derivation plus an
+                // Observation invalidation of every list view) with nothing
+                // to show for it; churn coalescing upstream makes repeated
+                // identical snapshots common under a hot event stream.
+                if self.workspacesByMac[ownerKey] != refreshedState {
+                    self.workspacesByMac[ownerKey] = refreshedState
+                }
                 // One owner performs a leading pass plus at most one trailing
                 // pass. The trailing host snapshot represents churn queued
                 // during either request without creating an unbounded scan
@@ -7332,6 +7365,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             from: supportedHostCapabilities,
             allowsMacScopedMutations: allowsMacScopedWorkspaceMutations
         )
+        guard workspacesByMac[foregroundMacKey] != state else { return }
         workspacesByMac[foregroundMacKey] = state
     }
 
@@ -7414,7 +7448,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return copy
             }
         }
-        workspaces = derived
+        // Assigning an equal array would still invalidate every Observation
+        // client of `workspaces` (and bump the topology version) with nothing
+        // rendered differently; frequent per-Mac emissions often re-derive an
+        // identical aggregate.
+        if workspaces != derived {
+            workspaces = derived
+        }
         let terminalNames = derived.reduce(into: [String: String]()) { names, workspace in
             for terminal in workspace.terminals {
                 names[terminal.id.rawValue] = terminal.name
@@ -7453,7 +7493,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             foregroundMacDeviceID: foregroundKey,
             macIDsInDisplayOrder: macIDsInDisplayOrder
         )
-        workspaceGroups = groupCollapseStore.apply(to: derivedGroups)
+        let collapsedGroups = groupCollapseStore.apply(to: derivedGroups)
+        if workspaceGroups != collapsedGroups {
+            workspaceGroups = collapsedGroups
+        }
     }
 
     /// Set the user's per-Mac customizations (name / color / icon), persist them
@@ -7758,6 +7801,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             instanceTag: key.normalizedInstanceTag
         )
         body(&state.workspaces)
+        // A no-op mutation (optimistic write matching current state) must not
+        // fire the didSet re-derivation; a missing entry still writes because
+        // nil != state.
+        guard workspacesByMac[key] != state else { return }
         workspacesByMac[key] = state
     }
     /// Create a workspace locally or through the connected Mac, then select it.
@@ -12214,7 +12261,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     self.scheduleWorkspaceListRefreshFromEvent()
                     self.refreshVisibleMobileBrowserPanels()
                 } else if event.topic == "mobile.sync.delta" {
-                    self.handleStateSyncDeltaEvent(event)
+                    await self.handleStateSyncDeltaEvent(event)
                 } else if event.topic == "terminal.render_grid" {
                     self.handleTerminalRenderGridEvent(event)
                 } else if event.topic == "terminal.set_font" {

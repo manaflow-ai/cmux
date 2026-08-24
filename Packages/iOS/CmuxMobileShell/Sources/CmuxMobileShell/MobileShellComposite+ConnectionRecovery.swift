@@ -995,7 +995,17 @@ extension MobileShellComposite {
                 request,
                 timeoutNanoseconds: timeoutNanoseconds ?? runtime?.rpcRequestTimeoutNanoseconds
             )
-            let response = try MobileSyncWorkspaceListResponse.decode(data)
+            // Decode off the main actor: the full list is the largest payload
+            // on this path and previously blocked the runloop that renders
+            // scrolling. The staleness guards below already ran after an
+            // await, so they cover this suspension too.
+            let decoderTask = Task.detached(priority: .userInitiated) {
+                try MobileSyncWorkspaceListResponse.decode(data)
+            }
+            let response = try await withTaskCancellationHandler(
+                operation: { try await decoderTask.value },
+                onCancel: { decoderTask.cancel() }
+            )
             guard remoteClient === client, connectionState == .connected else {
                 recordAppEvent(
                     .workspaceListRefreshFailed,

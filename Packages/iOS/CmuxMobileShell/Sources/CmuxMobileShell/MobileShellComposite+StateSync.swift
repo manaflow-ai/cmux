@@ -29,8 +29,9 @@ extension MobileShellComposite {
 
     /// Handles one `mobile.sync.delta` event from the foreground event stream.
     /// The caller already proved the event belongs to the current client and a
-    /// connected session.
-    func handleStateSyncDeltaEvent(_ event: MobileEventEnvelope) {
+    /// connected session. Async because the JSON decode runs off the main
+    /// actor; the event loop awaits it, so delta ordering is preserved.
+    func handleStateSyncDeltaEvent(_ event: MobileEventEnvelope) async {
         // Deltas apply only while v2 is authoritative for the CURRENT client
         // (after a legacy fallback the list has a legacy writer, and mirror
         // projections must stop until renegotiation). During NEGOTIATION —
@@ -48,7 +49,14 @@ extension MobileShellComposite {
             scheduleStateSyncRepairIfActive()
             return
         }
-        guard let header = try? JSONDecoder().decode(MobileSyncDeltaEventHeader.self, from: payload) else {
+        // The authority that vouched for this delta at entry. The off-main
+        // decode suspends the main actor, so authority may move to a NEW
+        // client mid-decode; this old stream's delta must then be dropped
+        // (the new authority snapshot-fetched its own state).
+        let entryAuthorityClientID = stateSyncAuthorityClientID
+        guard let header = try? await mobileShellDecodeOffMain(
+            MobileSyncDeltaEventHeader.self, from: payload
+        ) else {
             scheduleStateSyncRepairIfActive()
             return
         }
@@ -58,7 +66,7 @@ extension MobileShellComposite {
         let removedWorkspaceIDs: [String]
         switch header.collection {
         case .workspaces:
-            guard let delta = try? JSONDecoder().decode(
+            guard let delta = try? await mobileShellDecodeOffMain(
                 MobileSyncDeltaEvent<WorkspaceSyncRecord>.self, from: payload
             ) else {
                 // A delta we KNOW is for a mirrored collection but cannot
@@ -67,17 +75,19 @@ extension MobileShellComposite {
                 scheduleStateSyncRepairIfActive()
                 return
             }
+            guard stateSyncActive, stateSyncAuthorityClientID == entryAuthorityClientID else { return }
             result = stateSyncMirror.workspaces.apply(delta: delta)
             appliedRevision = delta.toRev
             changesSummaryRefreshScope = .workspaceDelta(delta.records.map(\.id))
             removedWorkspaceIDs = delta.removedIDs
         case .groups:
-            guard let delta = try? JSONDecoder().decode(
+            guard let delta = try? await mobileShellDecodeOffMain(
                 MobileSyncDeltaEvent<GroupSyncRecord>.self, from: payload
             ) else {
                 scheduleStateSyncRepairIfActive()
                 return
             }
+            guard stateSyncActive, stateSyncAuthorityClientID == entryAuthorityClientID else { return }
             result = stateSyncMirror.groups.apply(delta: delta)
             appliedRevision = delta.toRev
             changesSummaryRefreshScope = .groupOnlyDelta
@@ -96,7 +106,7 @@ extension MobileShellComposite {
             )
             #endif
             evictWorkspaceChangesSummaryState(workspaceIDs: removedWorkspaceIDs)
-            applyStateSyncProjection(
+            queueStateSyncProjectionFlush(
                 changesSummaryRefreshScope: changesSummaryRefreshScope
             )
         case .staleIgnored:
@@ -159,6 +169,10 @@ extension MobileShellComposite {
         stateSyncAuthorityClientID = nil
         stateSyncFetchClientID = nil
         stateSyncFetchFollowUpRequested = false
+        stateSyncProjectionFlushTask?.cancel()
+        stateSyncProjectionFlushTask = nil
+        stateSyncProjectionFlushID = nil
+        stateSyncPendingProjectionScope = nil
         stateSyncMirror.reset()
     }
 
@@ -246,7 +260,13 @@ extension MobileShellComposite {
                 timeoutNanoseconds: timeoutNanoseconds ?? runtime?.rpcRequestTimeoutNanoseconds
             )
             guard remoteClient === client, connectionState == .connected, !Task.isCancelled else { return false }
-            let response = try JSONDecoder().decode(MobileSyncFetchResponse.self, from: data)
+            let response = try await mobileShellDecodeOffMain(
+                MobileSyncFetchResponse.self, from: data
+            )
+            // The decode suspended off-main; nothing below may run for a
+            // stale client, connection, or superseded fetch generation.
+            guard remoteClient === client, connectionState == .connected, !Task.isCancelled,
+                  stateSyncFetchGeneration == generation else { return false }
             // The response shape tolerates missing sections for forward
             // compatibility, but v2 must never become authoritative on a
             // partial answer: projecting an empty workspace mirror would
@@ -360,12 +380,64 @@ extension MobileShellComposite {
         }
     }
 
+    /// One coalescing window for burst deltas. Steady-state emissions are
+    /// already spaced by the Mac's 80ms observer throttle and always project;
+    /// the window only merges same-tick collection pairs and catch-up floods
+    /// (reconnect backlogs), bounding projections to at most one per window.
+    static let stateSyncProjectionCoalescingWindow: Duration = .milliseconds(16)
+
+    /// Accumulates one applied delta's changes-summary scope and arms the
+    /// single-flight flush loop. The mirror already holds the delta; only the
+    /// projection (full-list rebuild + apply + SwiftUI invalidation) is
+    /// deferred, by at most one coalescing window.
+    private func queueStateSyncProjectionFlush(
+        changesSummaryRefreshScope scope: WorkspaceChangesSummaryRefreshScope
+    ) {
+        stateSyncPendingProjectionScope =
+            stateSyncPendingProjectionScope?.coalesced(with: scope) ?? scope
+        guard stateSyncProjectionFlushTask == nil else { return }
+        let flushID = UUID()
+        stateSyncProjectionFlushID = flushID
+        stateSyncProjectionFlushTask = Task { @MainActor [weak self] in
+            defer {
+                if let self, self.stateSyncProjectionFlushID == flushID {
+                    self.stateSyncProjectionFlushTask = nil
+                    self.stateSyncProjectionFlushID = nil
+                }
+            }
+            while let self, !Task.isCancelled {
+                try? await self.stateSyncProjectionClock.sleep(
+                    for: Self.stateSyncProjectionCoalescingWindow
+                )
+                guard !Task.isCancelled else { return }
+                guard let scope = self.stateSyncPendingProjectionScope else { return }
+                self.stateSyncPendingProjectionScope = nil
+                // Authority may have moved to legacy (fetch failure fallback)
+                // or a new client mid-window. The mirror is then no longer
+                // the list's writer, so projecting would clobber the legacy
+                // apply; the pending scope is dropped with it because the
+                // legacy path schedules its own summary refresh.
+                guard self.stateSyncActive else { return }
+                self.applyStateSyncProjection(changesSummaryRefreshScope: scope)
+            }
+        }
+    }
+
     /// Projects the mirror into the legacy full-list response shape and hands
     /// it to the shared apply path. The mirror always holds full records, so
     /// the projection is always a complete, ordered list.
+    ///
+    /// A synchronous fetch-path projection absorbs any delta scope still
+    /// waiting on the flush loop: the mirror already contains those deltas,
+    /// so this projection renders them, and merging keeps their
+    /// changes-summary refresh from being lost.
     private func applyStateSyncProjection(
         changesSummaryRefreshScope: WorkspaceChangesSummaryRefreshScope
     ) {
+        let changesSummaryRefreshScope = stateSyncPendingProjectionScope
+            .map { $0.coalesced(with: changesSummaryRefreshScope) }
+            ?? changesSummaryRefreshScope
+        stateSyncPendingProjectionScope = nil
         let workspaces = stateSyncMirror.workspaces.orderedRecords.map { record in
             MobileSyncWorkspaceListResponse.Workspace(
                 id: record.id,

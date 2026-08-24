@@ -4,15 +4,10 @@ import CmuxMobileSupport
 import SwiftUI
 
 extension WorkspaceListView {
-    var showsWorkspaceTableFilterEmptyRow: Bool {
-        activeFilter.isActive
-            && trimmedQuery.isEmpty
-            && filteredWorkspaces.isEmpty
-            && !workspaces.isEmpty
-    }
-
     func workspaceTableItems(
-        groupedItems: [MobileWorkspaceListItem]
+        groupedItems: [MobileWorkspaceListItem],
+        displayedFlatWorkspaces: [MobileWorkspacePreview],
+        showsFilterEmptyRow: Bool
     ) -> [WorkspaceListTableItem] {
         var items: [WorkspaceListTableItem] = []
         switch connectionChrome {
@@ -37,7 +32,7 @@ extension WorkspaceListView {
                     .workspace(workspace.id, indented: indented)
                 }
             })
-        } else if showsWorkspaceTableFilterEmptyRow {
+        } else if showsFilterEmptyRow {
             items.append(.filterEmpty)
         } else {
             items.append(contentsOf: displayedFlatWorkspaces.map {
@@ -61,10 +56,13 @@ extension WorkspaceListView {
 
     func workspaceTable(
         groupedItems: [MobileWorkspaceListItem],
-        workspacesByID: [MobileWorkspacePreview.ID: MobileWorkspacePreview]
+        workspacesByID: [MobileWorkspacePreview.ID: MobileWorkspacePreview],
+        activeFilter: MobileWorkspaceListFilter,
+        displayedFlatWorkspaces: [MobileWorkspacePreview],
+        showsFilterEmptyRow: Bool,
+        enablesReorder: Bool
     ) -> WorkspaceListTable {
         let grouped = rendersGroupedSections
-        let enablesReorder = enablesWorkspaceReorder
         // Bound outside the member-wise init: the ternary between `nil` and a
         // closure literal inside this large expression overwhelms the type
         // checker ("failed to produce diagnostic").
@@ -75,7 +73,11 @@ extension WorkspaceListView {
                     openWorkspaceChanges(workspace)
                 }
         return WorkspaceListTable(
-            items: workspaceTableItems(groupedItems: groupedItems),
+            items: workspaceTableItems(
+                groupedItems: groupedItems,
+                displayedFlatWorkspaces: displayedFlatWorkspaces,
+                showsFilterEmptyRow: showsFilterEmptyRow
+            ),
             workspacesByID: workspacesByID,
             groupsByID: groupsByID,
             groupHasUnreadByID: workspaceTableGroupHasUnreadByID(
