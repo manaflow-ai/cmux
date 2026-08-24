@@ -173,6 +173,11 @@ struct SessionIndexView: View {
                 sessionsList
             }
         }
+        // RightSidebarPanelView offers the active mode the full remaining
+        // height. Keep Vault's chrome and search states pinned to its top
+        // edge instead of allowing a short intrinsic state to be centered in
+        // the sidebar while a query is loading or has no matches.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task(id: searchTaskKey) {
             await runGlobalSearch()
         }
