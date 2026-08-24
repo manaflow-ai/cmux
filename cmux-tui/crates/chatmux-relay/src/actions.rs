@@ -880,9 +880,8 @@ impl WindowsJob {
         }
         let mut information = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
         information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        let information_size =
-            u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
-                .expect("Windows job information fits in u32");
+        let information_size = u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
+            .expect("Windows job information fits in u32");
         if unsafe {
             SetInformationJobObject(
                 handle,
