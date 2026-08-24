@@ -91,6 +91,16 @@ struct MobileLeadingToolbarTitleWidth {
                 + unmeasured * Self.unmeasuredTrailingItemReserve
         }
         guard hasTrailingCluster else { return 0 }
+        // Nothing measured yet: the first layout pass after a (re)mount. The
+        // structural item count is already known, so reserve fallback space
+        // for every item beyond the cluster (the Changes chip on a connected
+        // workspace), or the title over-claims on that first pass and the
+        // system folds trailing items, sometimes the title itself, into the
+        // More menu. A collapse born on the first pass never produces the
+        // attach-then-detach signature the recovery ratchet watches for, so
+        // it would stick until the next full remount.
+        let extraStructuralItems = CGFloat(max(trailingItemCount - 1, 0))
         return Self.trailingReserveBase
+            + extraStructuralItems * Self.unmeasuredTrailingItemReserve
     }
 }
