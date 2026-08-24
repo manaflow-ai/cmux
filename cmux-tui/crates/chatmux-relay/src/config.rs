@@ -201,9 +201,27 @@ pub fn save_config(path: &Path, config: &Config) -> std::io::Result<()> {
     drop(file);
     let renamed = written.and_then(|()| {
         #[cfg(windows)]
-        if path.exists() {
-            std::fs::remove_file(path)?;
+        {
+            use std::os::windows::ffi::OsStrExt as _;
+            use windows_sys::Win32::Storage::FileSystem::{
+                MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+            };
+            let source: Vec<u16> = temp.as_os_str().encode_wide().chain(Some(0)).collect();
+            let destination: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+            // MoveFileExW replaces the destination without a remove-then-rename gap.
+            if unsafe {
+                MoveFileExW(
+                    source.as_ptr(),
+                    destination.as_ptr(),
+                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+                )
+            } == 0
+            {
+                return Err(std::io::Error::last_os_error());
+            }
+            return Ok(());
         }
+        #[cfg(not(windows))]
         std::fs::rename(&temp, path)
     });
     if renamed.is_err() {
