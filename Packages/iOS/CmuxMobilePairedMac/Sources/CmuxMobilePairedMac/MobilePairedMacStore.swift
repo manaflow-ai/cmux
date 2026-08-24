@@ -14,7 +14,7 @@ let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedM
 /// inject it as `any MobilePairedMacStoring`.
 public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// The schema version this build creates and migrates to.
-    public static let currentSchemaVersion: Int32 = 9
+    public static let currentSchemaVersion: Int32 = 11
 
     private let dbPath: String
     // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
@@ -114,7 +114,9 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV7()
                 try migrateToV8()
                 try migrateToV9()
-                try setUserVersion(9)
+                try migrateToV10()
+                try migrateToV11()
+                try setUserVersion(11)
             }
         case 1:
             try transaction {
@@ -126,7 +128,9 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV7()
                 try migrateToV8()
                 try migrateToV9()
-                try setUserVersion(9)
+                try migrateToV10()
+                try migrateToV11()
+                try setUserVersion(11)
             }
         case 2:
             try transaction {
@@ -137,7 +141,9 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV7()
                 try migrateToV8()
                 try migrateToV9()
-                try setUserVersion(9)
+                try migrateToV10()
+                try migrateToV11()
+                try setUserVersion(11)
             }
         case 3:
             try transaction {
@@ -147,7 +153,9 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV7()
                 try migrateToV8()
                 try migrateToV9()
-                try setUserVersion(9)
+                try migrateToV10()
+                try migrateToV11()
+                try setUserVersion(11)
             }
         case 4:
             try transaction {
@@ -156,7 +164,9 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV7()
                 try migrateToV8()
                 try migrateToV9()
-                try setUserVersion(9)
+                try migrateToV10()
+                try migrateToV11()
+                try setUserVersion(11)
             }
         case 5:
             try transaction {
@@ -164,27 +174,46 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV7()
                 try migrateToV8()
                 try migrateToV9()
-                try setUserVersion(9)
+                try migrateToV10()
+                try migrateToV11()
+                try setUserVersion(11)
             }
         case 6:
             try transaction {
                 try migrateToV7()
                 try migrateToV8()
                 try migrateToV9()
-                try setUserVersion(9)
+                try migrateToV10()
+                try migrateToV11()
+                try setUserVersion(11)
             }
         case 7:
             try transaction {
                 try migrateToV8()
                 try migrateToV9()
-                try setUserVersion(9)
+                try migrateToV10()
+                try migrateToV11()
+                try setUserVersion(11)
             }
         case 8:
             try transaction {
                 try migrateToV9()
-                try setUserVersion(9)
+                try migrateToV10()
+                try migrateToV11()
+                try setUserVersion(11)
             }
         case 9:
+            try transaction {
+                try migrateToV10()
+                try migrateToV11()
+                try setUserVersion(11)
+            }
+        case 10:
+            try transaction {
+                try migrateToV11()
+                try setUserVersion(11)
+            }
+        case 11:
             break
         default:
             // A newer build wrote a higher schema version. Schema migrations are
@@ -490,6 +519,24 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         """)
     }
 
+    /// v10: this iPhone's per-Computer connection method ("iroh" or
+    /// "tailscale"). Additive and device-local: the column never rides the
+    /// account backup, and `NULL` means "use the app's default method".
+    private func migrateToV10() throws {
+        let columns = try tableColumns("paired_macs")
+        guard !columns.contains("connection_method") else { return }
+        try exec("ALTER TABLE paired_macs ADD COLUMN connection_method TEXT;")
+    }
+
+    /// v11: this iPhone's per-Computer Direct-method dial candidates (JSON
+    /// array of {"address","port"?,"enabled"}). Additive and device-local,
+    /// like `connection_method`.
+    private func migrateToV11() throws {
+        let columns = try tableColumns("paired_macs")
+        guard !columns.contains("direct_addresses") else { return }
+        try exec("ALTER TABLE paired_macs ADD COLUMN direct_addresses TEXT;")
+    }
+
     /// Column names defined on `table` (via `PRAGMA table_info`), used to make
     /// additive column migrations idempotent.
     private func tableColumns(_ table: String) throws -> Set<String> {
@@ -664,16 +711,23 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     ) throws -> Bool {
         try ensureReady()
         let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let normalizedInputTag = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).instanceTag
         var didWrite = false
         try transaction {
             let recordInstanceTag: String?
             switch routeWriteCondition {
             case .matchingInstanceTag(let expectedInstanceTag):
-                recordInstanceTag = expectedInstanceTag
+                recordInstanceTag = CmxMacAppInstanceIdentity(
+                    macDeviceID: macDeviceID,
+                    instanceTag: expectedInstanceTag
+                ).instanceTag
             case .unclaimed:
                 recordInstanceTag = nil
             case nil:
-                recordInstanceTag = instanceTag
+                recordInstanceTag = normalizedInputTag
             }
             let ownerKey = Self.ownerKey(
                 stackUserID: stackUserID,
@@ -711,24 +765,20 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 : nil
             let current = existing ?? claimable
             if routeWriteCondition == .unclaimed {
-                let hasClaimedSibling = try fetchAllMacs(
+                guard !(try hasClaimedSibling(
+                    macDeviceID: macDeviceID,
                     stackUserID: stackUserID,
                     teamID: teamID
-                ).contains {
-                    $0.macDeviceID == macDeviceID && $0.instanceTag != nil
-                }
-                guard !hasClaimedSibling else { return }
+                )) else { return }
             }
-            if onlyIfOlder, instanceTag == nil {
-                let hasClaimedSibling = try fetchAllMacs(
+            if onlyIfOlder, recordInstanceTag == nil {
+                guard !(try hasClaimedSibling(
+                    macDeviceID: macDeviceID,
                     stackUserID: stackUserID,
                     teamID: teamID
-                ).contains {
-                    $0.macDeviceID == macDeviceID && $0.instanceTag != nil
-                }
-                guard !hasClaimedSibling else { return }
+                )) else { return }
             }
-            if onlyIfOlder, instanceTag == nil, current?.instanceTag != nil {
+            if onlyIfOlder, recordInstanceTag == nil, current?.instanceTag != nil {
                 // An authority-less backup cannot identify the process that
                 // supplied its host tuple. Reject the whole tuple instead of
                 // combining its routes or freshness with retained authority.
@@ -737,7 +787,14 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             if let routeWriteCondition {
                 switch routeWriteCondition {
                 case .matchingInstanceTag(let expectedInstanceTag):
-                    guard let current, current.instanceTag == expectedInstanceTag else { return }
+                    guard let current,
+                          CmxMacAppInstanceIdentity(
+                              macDeviceID: current.macDeviceID,
+                              instanceTag: current.instanceTag
+                          ).id == CmxMacAppInstanceIdentity(
+                              macDeviceID: macDeviceID,
+                              instanceTag: expectedInstanceTag
+                          ).id else { return }
                 case .unclaimed:
                     guard current?.instanceTag == nil else { return }
                 }
@@ -893,13 +950,14 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     ) throws {
         try ensureReady()
         let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        let instanceTag = try fetchAllMacs(
+        let matches = try fetchAllMacs(
             stackUserID: stackUserID,
             teamID: teamID
-        ).first { $0.macDeviceID == macDeviceID }?.instanceTag
+        ).filter { $0.macDeviceID == macDeviceID }
+        guard matches.count == 1, let target = matches.first else { return }
         try setActive(
             macDeviceID: macDeviceID,
-            instanceTag: instanceTag,
+            instanceTag: target.instanceTag,
             stackUserID: stackUserID,
             teamID: teamID
         )
@@ -944,13 +1002,14 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     ) throws {
         try ensureReady()
         let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        let instanceTag = try fetchAllMacs(
+        let matches = try fetchAllMacs(
             stackUserID: stackUserID,
             teamID: teamID
-        ).first { $0.macDeviceID == macDeviceID }?.instanceTag
+        ).filter { $0.macDeviceID == macDeviceID }
+        guard matches.count == 1, let target = matches.first else { return }
         try setCustomization(
             macDeviceID: macDeviceID,
-            instanceTag: instanceTag,
+            instanceTag: target.instanceTag,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,
@@ -994,27 +1053,77 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         ])
     }
 
-    /// Remove one paired Mac in a specific owner scope, or all matching legacy rows when unscoped.
+    /// Persist THIS iPhone's connection-method choice for one tagged paired
+    /// Mac ("iroh"/"tailscale", nil = revert to the app default). Deliberately
+    /// does NOT bump `last_seen_at`: the choice is device-local and must not
+    /// become the freshest write that LWW backup propagates to other devices.
+    public func setConnectionMethod(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawValue: String?,
+        stackUserID: String? = nil,
+        teamID: String? = nil
+    ) throws {
+        try ensureReady()
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        try exec("""
+            UPDATE paired_macs
+            SET connection_method = ?
+            WHERE mac_device_id = ? AND owner_key = ?;
+        """, binding: [
+            rawValue.map(BindValue.text) ?? .null,
+            .text(macDeviceID),
+            .text(Self.ownerKey(
+                stackUserID: stackUserID,
+                teamID: teamID,
+                instanceTag: instanceTag
+            )),
+        ])
+    }
+
+    /// Persist THIS iPhone's Direct-method dial candidates for one tagged
+    /// paired Mac (JSON payload owned by the shell; nil clears the list).
+    /// Device-local like `connection_method`: never bumps LWW freshness.
+    public func setDirectAddresses(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawJSON: String?,
+        stackUserID: String? = nil,
+        teamID: String? = nil
+    ) throws {
+        try ensureReady()
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        try exec("""
+            UPDATE paired_macs
+            SET direct_addresses = ?
+            WHERE mac_device_id = ? AND owner_key = ?;
+        """, binding: [
+            rawJSON.map(BindValue.text) ?? .null,
+            .text(macDeviceID),
+            .text(Self.ownerKey(
+                stackUserID: stackUserID,
+                teamID: teamID,
+                instanceTag: instanceTag
+            )),
+        ])
+    }
+
+    /// Remove a paired Mac only when the device-only compatibility lookup is unambiguous.
     public func remove(
         macDeviceID: String,
         stackUserID: String? = nil,
         teamID: String? = nil
     ) throws {
-        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        if stackUserID == nil && teamID == nil {
-            try ensureReady()
-            try exec("DELETE FROM paired_macs WHERE mac_device_id = ?;",
-                     binding: [.text(macDeviceID)])
-            return
-        }
         try ensureReady()
-        let instanceTag = try fetchAllMacs(
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let matches = try fetchAllMacs(
             stackUserID: stackUserID,
             teamID: teamID
-        ).first { $0.macDeviceID == macDeviceID }?.instanceTag
+        ).filter { $0.macDeviceID == macDeviceID }
+        guard matches.count == 1, let target = matches.first else { return }
         try remove(
             macDeviceID: macDeviceID,
-            instanceTag: instanceTag,
+            instanceTag: target.instanceTag,
             stackUserID: stackUserID,
             teamID: teamID
         )
@@ -1070,7 +1179,11 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         instanceTag: String?
     ) -> String {
-        "\(stackUserID ?? "")\u{1F}\(teamID ?? "")\u{1F}\(instanceTag ?? "")"
+        let normalizedTag = CmxMacAppInstanceIdentity(
+            macDeviceID: "",
+            instanceTag: instanceTag
+        ).instanceTag
+        return "\(stackUserID ?? "")\u{1F}\(teamID ?? "")\u{1F}\(normalizedTag ?? "")"
     }
 
 }

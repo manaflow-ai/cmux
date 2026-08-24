@@ -55,6 +55,28 @@ struct RemoteSessionReverseRelayTransportTests {
         )
     }
 
+    @Test("A duplicate relay start does not downgrade a ready forward")
+    func duplicateRelayStartPreservesReadiness() async throws {
+        let runner = RecordingProcessRunner()
+        let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
+            runner: runner
+        )
+        let coordinator = fixture.coordinator
+        defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
+
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.daemonRemotePath = "/tmp/cmuxd-remote"
+            coordinator.reverseRelayControlMasterForwardSpec =
+                "127.0.0.1:64044:127.0.0.1:55001"
+            coordinator.reverseRelayReady = true
+            coordinator.startReverseRelayLocked(remotePath: "/tmp/cmuxd-remote")
+        }
+
+        #expect(coordinator.queue.sync { coordinator.reverseRelayReady })
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
     @Test("Connection preparation retains an already-resolved path")
     func connectionPreparationRetainsResolvedPath() async throws {
         let runner = RecordingProcessRunner()
@@ -159,6 +181,7 @@ struct RemoteSessionReverseRelayTransportTests {
         }
 
         let launch = try #require(await launches.next())
+        #expect(coordinator.queue.sync { coordinator.reverseRelayReady == false })
         #expect(launch.arguments.starts(with: ["-N", "-T", "-S", "none"]))
         #expect(!runner.requests.contains(where: {
             Self.isControlCommand("forward", in: $0.arguments)
@@ -167,6 +190,9 @@ struct RemoteSessionReverseRelayTransportTests {
             coordinator.reverseRelayControlMasterForwardSpec == nil &&
                 coordinator.reverseRelayProcess === launcher.process
         })
+        launcher.emitStartupReady()
+        coordinator.queue.sync {}
+        #expect(coordinator.queue.sync { coordinator.reverseRelayReady })
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
@@ -325,8 +351,8 @@ struct RemoteSessionReverseRelayTransportTests {
         launcher.emitTermination(detail: rawFailure)
 
         let status = try #require(await statuses.next())
-        #expect(status.detail == "test relay unavailable")
-        #expect(status.detail?.contains(rawFailure) == false)
+        #expect(status.state == .bootstrapping)
+        #expect(status.detail == nil)
         #expect(await clock.nextRequestedDelay() == 2_000)
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
