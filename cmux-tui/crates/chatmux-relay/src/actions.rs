@@ -1068,57 +1068,58 @@ fn signal_process_tree(_pid: Option<u32>, _kill: bool) {}
 
 #[cfg(windows)]
 struct WindowsJob {
-    handle: windows_sys::Win32::Foundation::HANDLE,
+    handle: std::os::windows::io::OwnedHandle,
 }
 
 #[cfg(windows)]
 impl WindowsJob {
     fn attach(child: &tokio::process::Child) -> Result<Self, ()> {
         use std::mem::size_of;
+        use std::os::windows::io::{AsRawHandle, FromRawHandle};
         use std::ptr::null_mut;
         use windows_sys::Win32::System::JobObjects::{
-            CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
             JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
             SetInformationJobObject,
         };
-        use windows_sys::Win32::System::Threading::AssignProcessToJobObject;
-        let handle = unsafe { CreateJobObjectW(null_mut(), null_mut()) };
-        if handle.is_null() {
+        let raw_handle = unsafe { CreateJobObjectW(null_mut(), null_mut()) };
+        if raw_handle.is_null() {
             return Err(());
         }
+        // CreateJobObjectW returns a newly owned kernel handle. OwnedHandle
+        // supplies the correct CloseHandle drop and is Send + Sync, so the
+        // job can remain alive while run_spec awaits on Tokio I/O.
+        let handle = unsafe { std::os::windows::io::OwnedHandle::from_raw_handle(raw_handle) };
         let mut information = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
         information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         let information_size = u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
             .expect("Windows job information fits in u32");
         if unsafe {
             SetInformationJobObject(
-                handle,
+                handle.as_raw_handle(),
                 JobObjectExtendedLimitInformation,
                 std::ptr::from_ref(&information).cast(),
                 information_size,
             )
         } == 0
         {
-            unsafe { windows_sys::Win32::Foundation::CloseHandle(handle) };
             return Err(());
         }
         let process = child.raw_handle().ok_or(())?;
-        if unsafe { AssignProcessToJobObject(handle, process) } == 0 {
-            unsafe { windows_sys::Win32::Foundation::CloseHandle(handle) };
+        if unsafe { AssignProcessToJobObject(handle.as_raw_handle(), process) } == 0 {
             return Err(());
         }
         Ok(Self { handle })
     }
 
     fn terminate(&self) {
-        unsafe { windows_sys::Win32::System::JobObjects::TerminateJobObject(self.handle, 1) };
-    }
-}
-
-#[cfg(windows)]
-impl Drop for WindowsJob {
-    fn drop(&mut self) {
-        unsafe { windows_sys::Win32::Foundation::CloseHandle(self.handle) };
+        use std::os::windows::io::AsRawHandle;
+        unsafe {
+            windows_sys::Win32::System::JobObjects::TerminateJobObject(
+                self.handle.as_raw_handle(),
+                1,
+            )
+        };
     }
 }
 
