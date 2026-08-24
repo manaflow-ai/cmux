@@ -178,6 +178,9 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
     /// Local tmux ownership takes precedence over agent resume metadata: the
     /// agent process is already alive inside the durable tmux server and must
     /// not be started a second time during GUI restore.
+    ///
+    /// - Parameter rawCommand: The persisted terminal startup command.
+    /// - Returns: The validated local-tmux command, or `nil` for ordinary commands.
     public func localTmuxStartCommand(_ rawCommand: String?) -> String? {
         LocalTmuxRestoreCommandPolicy().restorableCommand(rawCommand)
     }
