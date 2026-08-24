@@ -136,6 +136,33 @@ struct TextBoxEscapePassthroughTests {
     }
 
     @Test
+    func unsupportedRunningLifecycleDoesNotReceiveEscapeFromTextBox() throws {
+        let fixture = try makeWorkspaceFixture()
+        defer { closeWindow(fixture.windowID) }
+
+        fixture.workspace.setAgentLifecycle(
+            key: "unsupported-agent",
+            panelId: fixture.panel.id,
+            lifecycle: .running
+        )
+        defer {
+            _ = fixture.workspace.clearAgentLifecycle(
+                key: "unsupported-agent",
+                panelId: fixture.panel.id
+            )
+        }
+        let before = fixture.panel.surface.debugPendingSocketInputForTesting()
+
+        fixture.panel.handleTextBoxEscape()
+
+        let after = fixture.panel.surface.debugPendingSocketInputForTesting()
+        #expect(
+            after.keyEvents == before.keyEvents,
+            "Unsupported lifecycle keys must not authorize PTY Escape passthrough"
+        )
+    }
+
+    @Test
     func runningDockAgentReceivesEscapeFromTextBox() {
         let fixture = makeDockFixture()
         defer { fixture.dock.closeAllPanels() }
