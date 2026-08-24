@@ -109,6 +109,10 @@ public final class DeclarativeTerminalConfigurationModel {
     }
 
     /// Persists a new working-directory policy through the shared JSON store.
+    /// The long-lived coherent snapshot observer is the single publisher of
+    /// ``values`` and the runtime cache. Keeping writes out of that publisher's
+    /// path prevents an observer read and a save-triggered refresh from racing
+    /// and publishing an older file revision after a newer one.
     public func setWorkingDirectoryPolicy(_ value: NewSurfaceWorkingDirectoryPolicy) {
         let key = catalog.terminal.newSurfaceWorkingDirectoryPolicy
         saveTasks.replaceOnMainActor("workingDirectoryPolicy") { [weak self] in
@@ -118,8 +122,6 @@ public final class DeclarativeTerminalConfigurationModel {
             } catch {
                 self.errorLog.recordSaveFailure(keyID: key.id)
             }
-            guard !Task.isCancelled else { return }
-            await self.refreshJSON()
         }
     }
 
@@ -133,8 +135,6 @@ public final class DeclarativeTerminalConfigurationModel {
             } catch {
                 self.errorLog.recordSaveFailure(keyID: key.id)
             }
-            guard !Task.isCancelled else { return }
-            await self.refreshJSON()
         }
     }
 
@@ -148,8 +148,6 @@ public final class DeclarativeTerminalConfigurationModel {
             } catch {
                 self.errorLog.recordSaveFailure(keyID: key.id)
             }
-            guard !Task.isCancelled else { return }
-            await self.refreshJSON()
         }
     }
 
@@ -164,8 +162,6 @@ public final class DeclarativeTerminalConfigurationModel {
             } catch {
                 self.errorLog.recordSaveFailure(keyID: key.id)
             }
-            guard !Task.isCancelled else { return }
-            await self.refreshJSON()
         }
     }
 
