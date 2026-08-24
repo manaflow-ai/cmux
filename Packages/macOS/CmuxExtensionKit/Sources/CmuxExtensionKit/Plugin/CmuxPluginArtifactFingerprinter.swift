@@ -54,17 +54,17 @@ struct CmuxPluginArtifactFingerprinter {
 
         for file in files {
             updateLengthPrefixed(Data(file.relativePath.utf8), into: &hasher)
-            let digest: (byteCount: UInt64, digest: SHA256.Digest)
+            let fileDigest: (byteCount: UInt64, digest: SHA256.Digest)
             if file.relativePath == manifestRelativePath {
-                digest = (
+                fileDigest = (
                     UInt64(currentManifestData.count),
                     SHA256.hash(data: currentManifestData)
                 )
             } else {
-                digest = try digest(of: file.url)
+                fileDigest = try digestFile(at: file.url)
             }
-            updateUInt64(digest.byteCount, into: &hasher)
-            hasher.update(data: Data(digest.digest))
+            updateUInt64(fileDigest.byteCount, into: &hasher)
+            hasher.update(data: Data(fileDigest.digest))
         }
 
         return hexadecimalString(for: hasher.finalize())
@@ -113,7 +113,7 @@ struct CmuxPluginArtifactFingerprinter {
         return files.sorted { $0.relativePath < $1.relativePath }
     }
 
-    private func digest(of url: URL) throws -> (byteCount: UInt64, digest: SHA256.Digest) {
+    private func digestFile(at url: URL) throws -> (byteCount: UInt64, digest: SHA256.Digest) {
         let handle: FileHandle
         do {
             handle = try FileHandle(forReadingFrom: url)
