@@ -82,6 +82,11 @@ struct WorkspaceDetailView: View {
     // disappearance (overflow into More) cannot release a reservation and
     // make the collapse sticky.
     @State private var trailingToolbarItemWidths: [String: CGFloat] = [:]
+    /// Ratchets on when the trailing cluster's content leaves the bar while
+    /// structurally present: the system folded it into the More menu, so the
+    /// estimate reserves undershot this device's chrome. Never cleared for
+    /// this view's lifetime; the extra recovery reserve un-collapses the bar.
+    @State private var trailingToolbarCollapseDetected = false
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
     /// Identity of the in-flight New Browser creation. A late RPC result must
@@ -390,7 +395,14 @@ struct WorkspaceDetailView: View {
 
     private var trailingClusterToolbarContent: some View {
         toolbarTrailingCluster
-            .measureTrailingToolbarItem("trailing-cluster", into: $trailingToolbarItemWidths)
+            // Only the always-structural cluster wires collapse detection: a
+            // conditional item's structural removal also detaches its probe
+            // and would be indistinguishable from a More-menu collapse.
+            .measureTrailingToolbarItem(
+                "trailing-cluster",
+                into: $trailingToolbarItemWidths,
+                onLeaveBar: { trailingToolbarCollapseDetected = true }
+            )
     }
 
     // Which trailing toolbar items are structurally in the bar right now.
@@ -412,6 +424,7 @@ struct WorkspaceDetailView: View {
             measuredTrailingItemsWidth: measuredWidths.reduce(0, +),
             measuredTrailingItemCount: measuredWidths.count,
             trailingItemCount: structuralTrailingItemKeys.count,
+            hadTrailingCollapse: trailingToolbarCollapseDetected,
             isEnabled: hasTitleMenuActions,
             workspaceName: workspace.name,
             hasUnread: workspace.hasUnread,

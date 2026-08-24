@@ -107,6 +107,37 @@ import Testing
         #expect(unmeasured.cap == cap(393))
     }
 
+    @Test func observedCollapseRatchetsTheTitleSmaller() {
+        // A trailing item's content left the bar while structurally present:
+        // the system folded it into the More menu, so the reserves undershot
+        // this device's chrome. The recovery reserve exceeds the 12pt trimmed
+        // from the estimates, so the recovered layout is strictly roomier
+        // than the original constants and the bar un-collapses.
+        let base = MobileLeadingToolbarTitleWidth(
+            contentWidth: 402,
+            hasBackButton: true,
+            hasTrailingCluster: true,
+            hasChatToggle: true,
+            measuredTrailingItemsWidth: 126,
+            measuredTrailingItemCount: 2,
+            trailingItemCount: 2
+        )
+        let recovered = MobileLeadingToolbarTitleWidth(
+            contentWidth: 402,
+            hasBackButton: true,
+            hasTrailingCluster: true,
+            hasChatToggle: true,
+            measuredTrailingItemsWidth: 126,
+            measuredTrailingItemCount: 2,
+            trailingItemCount: 2,
+            hadTrailingCollapse: true
+        )
+
+        #expect(recovered.cap
+            == base.cap - MobileLeadingToolbarTitleWidth.collapseRecoveryReserve)
+        #expect(MobileLeadingToolbarTitleWidth.collapseRecoveryReserve > 12)
+    }
+
     @Test func structuralItemWithoutMeasurementStillReservesSpace() {
         // The changes chip just appeared: the cluster has measured, the chip
         // has not. The cap must not expand into the chip's space, or the
