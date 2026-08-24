@@ -11,8 +11,7 @@
 //! channel so the socket stays single-writer; `pending_bytes` approximates
 //! the server-directed backpressure the JS relay read from `ws.bufferedAmount`.
 
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -374,7 +373,9 @@ async fn relay_session(
 
     let mut connected = false;
     let mut negotiated_version: u64 = 0;
+    const UNKNOWN_TYPE_DIAGNOSTIC_CAP: usize = 64;
     let mut unknown_types: HashSet<String> = HashSet::new();
+    let mut unknown_type_order: VecDeque<String> = VecDeque::new();
     let mut heartbeat: Option<tokio::time::Interval> = None;
     let mut critical_burst = 0_u8;
 
@@ -805,6 +806,12 @@ async fn relay_session(
                     }
                     ServerFrame::Unknown { frame_type } => {
                         if unknown_types.insert(frame_type.clone()) {
+                            unknown_type_order.push_back(frame_type.clone());
+                            if unknown_type_order.len() > UNKNOWN_TYPE_DIAGNOSTIC_CAP
+                                && let Some(evicted) = unknown_type_order.pop_front()
+                            {
+                                unknown_types.remove(&evicted);
+                            }
                             eprintln!(
                                 "Ignoring unknown server frame type \"{frame_type}\" (a newer server?)."
                             );
