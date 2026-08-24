@@ -37,7 +37,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var workspaceIds: [UUID] = []
     private var selectedScrollTargetWorkspaceId: UUID?
     private var isPresentationActive = true
-    private var isApplyingStructuralUpdate = false
+    private var structuralUpdateDepth = 0
     private var deferredHeightRowIds: Set<SidebarWorkspaceRenderItemID> = []
     private var appKitDropIndicator: SidebarDropIndicator?
     private var appKitDropIndicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
@@ -49,6 +49,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var unreadObservation: SidebarUnreadObservation?
     private var clipBoundsObserver: NSObjectProtocol?
     private var resizeDidEndObserver: NSObjectProtocol?
+
+    private var isApplyingStructuralUpdate: Bool {
+        structuralUpdateDepth > 0
+    }
     /// Latest immutable input offered while an interactive resize owns this
     /// window. Already-applied rows stay authoritative until the real end signal.
     private var deferredInteractiveResizeApply: SidebarWorkspaceTableApplyInput?
@@ -1476,14 +1480,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// their intermediate frames. The gate also defers any re-entrant height
     /// invalidation until the structural transaction has fully settled.
     private func performTableGeometryUpdateWithoutAnimation(_ update: () -> Void) {
-        isApplyingStructuralUpdate = true
+        structuralUpdateDepth += 1
         NSAnimationContext.beginGrouping()
         let context = NSAnimationContext.current
         context.duration = 0
         context.allowsImplicitAnimation = false
         defer {
             NSAnimationContext.endGrouping()
-            isApplyingStructuralUpdate = false
+            structuralUpdateDepth -= 1
+            guard structuralUpdateDepth == 0 else { return }
             guard !deferredHeightRowIds.isEmpty else { return }
             let rowIds = deferredHeightRowIds
             deferredHeightRowIds.removeAll(keepingCapacity: true)
@@ -1612,14 +1617,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         cell: SidebarWorkspaceRowTableCellView,
         model: SidebarWorkspaceRowModel
     ) {
-        guard rows.contains(where: { $0.id == rowId }) else { return }
+        guard let row = rows.first(where: { $0.id == rowId }) else { return }
         let width = currentColumnWidth()
         let height = ceil(cell.layoutContent(model: model, width: width, apply: false))
-        let row = rows.first { $0.id == rowId }
         let current = pumpHeightOverrides[rowId]
-            ?? row.flatMap { rowHeightCache.height(for: $0, columnWidth: width) }
-            ?? row?.estimatedHeight
-            ?? 0
+            ?? rowHeightCache.height(for: row, columnWidth: width)
+            ?? row.estimatedHeight
         guard abs(height - current) >= 0.5 else { return }
         pumpHeightOverrides[rowId] = height
         mutationScheduler.stageHeightChanges(for: [rowId])
