@@ -8,7 +8,11 @@ struct MobileSettingsAccountSection: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.dismiss) private var dismiss
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
-    let signOut: (() -> Void)?
+    /// Required (never an optional closure): the Sign Out button takes the
+    /// root's confirming `interactive` path, and a deleted account's
+    /// sign-out takes the root's `direct` path — there is no fallback that
+    /// could reach the coordinator behind the root's teardown chain.
+    let signOutActions: MobileAccountSignOutActions
 
     @State private var showingDeleteAccountConfirmation = false
     @State private var showingDeleteAccountFailure = false
@@ -28,18 +32,16 @@ struct MobileSettingsAccountSection: View {
             }
             .accessibilityIdentifier("MobileSettingsAccountRow")
 
-            if let signOut {
-                Button(role: .destructive) {
-                    signOut()
-                    dismiss()
-                } label: {
-                    Label(
-                        L10n.string("mobile.signOut", defaultValue: "Sign Out"),
-                        systemImage: "rectangle.portrait.and.arrow.right"
-                    )
-                }
-                .accessibilityIdentifier("MobileSettingsSignOut")
+            Button(role: .destructive) {
+                signOutActions.interactive()
+                dismiss()
+            } label: {
+                Label(
+                    L10n.string("mobile.signOut", defaultValue: "Sign Out"),
+                    systemImage: "rectangle.portrait.and.arrow.right"
+                )
             }
+            .accessibilityIdentifier("MobileSettingsSignOut")
 
             Button(role: .destructive) {
                 showingDeleteAccountConfirmation = true
@@ -104,7 +106,7 @@ struct MobileSettingsAccountSection: View {
                 switch result {
                 case .completed:
                     diagnosticLog?.recordAppEvent(.authAccountDeletionSucceeded)
-                    await signOutDeletedAccount()
+                    signOutDeletedAccount()
                     dismiss()
                 case .completedWithIncompleteServerCleanup:
                     diagnosticLog?.recordAppEvent(
@@ -130,18 +132,15 @@ struct MobileSettingsAccountSection: View {
     private func acknowledgeDeleteAccountFailure() {
         guard signOutAfterDeleteAccountFailureAcknowledgement else { return }
         signOutAfterDeleteAccountFailureAcknowledgement = false
-        Task {
-            await signOutDeletedAccount()
-            dismiss()
-        }
+        signOutDeletedAccount()
+        dismiss()
     }
 
-    private func signOutDeletedAccount() async {
-        if let signOut {
-            signOut()
-        } else {
-            await authManager.signOut()
-        }
+    /// The deleted account's sign-out: always the root's DIRECT path, which
+    /// skips the staging warning (the account is gone) but still runs the
+    /// full teardown chain and chains the return to Production on staging.
+    private func signOutDeletedAccount() {
+        signOutActions.direct()
     }
 
     private var accountEmail: String {

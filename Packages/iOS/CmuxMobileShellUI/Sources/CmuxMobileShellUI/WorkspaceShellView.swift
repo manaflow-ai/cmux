@@ -152,7 +152,9 @@ private struct WorkspaceShellRenderPresentation {
 
 struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
-    let signOut: @MainActor @Sendable () -> Void
+    /// The root's sign-out paths. Chrome (menus, recovery overlays) takes
+    /// `interactive`; the Settings account section receives the whole value.
+    let signOutActions: MobileAccountSignOutActions
     var isInitialConnectionLoading = false
     var initialConnectionTimedOut = false
     var retryInitialConnection: (() -> Void)?
@@ -678,7 +680,7 @@ struct WorkspaceShellView: View {
             },
             cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
             refresh: refreshWorkspacesClosure,
-            signOut: signOut,
+            signOutActions: signOutActions,
             reconnect: tailscalePairingRequired ? showPairingScanner : reconnectClosure,
             tailscalePairingRequired: tailscalePairingRequired,
             showAddDevice: showAddDevice,
@@ -1147,7 +1149,7 @@ struct WorkspaceShellView: View {
             closeWorkspace: closeWorkspaceClosure,
             safeAreaContext: safeAreaContext,
             backButtonConfiguration: backButtonConfiguration,
-            signOut: signOut
+            signOut: signOutActions.interactive
         )
     }
 }

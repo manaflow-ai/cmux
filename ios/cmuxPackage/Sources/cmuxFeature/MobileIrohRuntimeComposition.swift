@@ -1,3 +1,4 @@
+public import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
 public import CmuxIrohTransport
@@ -200,6 +201,10 @@ public final class MobileIrohRuntimeComposition:
     private let startNetworkPathObservation: @Sendable (
         _ onPathChange: @escaping @Sendable () async -> Void
     ) async -> Void
+    /// Stops the reachability observation `startNetworkPathObservation`
+    /// started; called only by ``shutdown()`` when the app swaps composition
+    /// roots (the process never stopped observing before the live switch).
+    private let stopNetworkPathObservation: @Sendable () async -> Void
     /// Shared client backoff armed by a failed activation. While armed, dial
     /// and preparation churn cannot re-run registration, discovery, and
     /// relay-policy against the broker; field phones wedged in that loop sent
@@ -221,7 +226,9 @@ public final class MobileIrohRuntimeComposition:
     private let authObserver = MobileIrohAuthObserver()
 
     private weak var auth: AuthCoordinator?
-    private var connectivityInvalidationSubscriber:
+    // Internal read access (like `runtime`) so the shutdown test can prove the
+    // subscriber is stopped and released; ownership remains private.
+    private(set) var connectivityInvalidationSubscriber:
         CmxConnectivityInvalidationSubscriber?
     private var connectivityInvalidationAccountID: String?
     private var authObservationTask: Task<Void, Never>?
@@ -262,12 +269,18 @@ public final class MobileIrohRuntimeComposition:
     ///
     /// - Parameters:
     ///   - apiBaseURL: The authenticated cmux web API origin.
+    ///   - backendEnvironmentExplicitChoice: The persisted explicit backend
+    ///     environment choice the auth composition resolved, or `nil` on the
+    ///     build's own lane. An explicit choice is a WHOLESALE override, so
+    ///     it heads the broker base-URL resolution above the baked
+    ///     `CMUXIrohBrokerBaseURL` Info.plist value.
     ///   - reachability: The process-wide network path observer.
     ///   - defaults: This app installation's defaults domain.
     ///   - infoDictionary: Build metadata used to derive tagged-build scope.
     ///   - bundleIdentifier: The installed app identifier used as a scope fallback.
     public convenience init(
         apiBaseURL: String,
+        backendEnvironmentExplicitChoice: CMUXBackendEnvironmentOverride? = nil,
         reachability: any ReachabilityProviding,
         discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
         defaults: UserDefaults = .standard,
@@ -303,6 +316,7 @@ public final class MobileIrohRuntimeComposition:
         #endif
         let baseURL = Self.resolvedBrokerBaseURL(
             apiBaseURL: apiBaseURL,
+            explicitChoice: backendEnvironmentExplicitChoice,
             infoDictionary: infoDictionary,
             bundleIdentifier: bundleIdentifier,
             allowsLoopback: allowsLoopbackBrokerOrigin
@@ -436,6 +450,9 @@ public final class MobileIrohRuntimeComposition:
                     }
                 )
             },
+            stopNetworkPathObservation: {
+                await networkPathState.stop()
+            },
             networkPathSnapshot: {
                 await networkPathState.snapshot()
             },
@@ -478,6 +495,7 @@ public final class MobileIrohRuntimeComposition:
         startNetworkPathObservation: @escaping @Sendable (
             _ onPathChange: @escaping @Sendable () async -> Void
         ) async -> Void = { _ in },
+        stopNetworkPathObservation: @escaping @Sendable () async -> Void = {},
         networkPathSnapshot: @escaping @Sendable () async throws -> CmxIrohNetworkPathSnapshot = {
             CmxIrohNetworkPathSnapshot(generation: 1, activeNetworkProfiles: [])
         },
@@ -515,6 +533,7 @@ public final class MobileIrohRuntimeComposition:
         self.routeCatalog = routeCatalog
         self.lanPeerDiscovery = lanPeerDiscovery
         self.startNetworkPathObservation = startNetworkPathObservation
+        self.stopNetworkPathObservation = stopNetworkPathObservation
         self.networkPathSnapshot = networkPathSnapshot
         self.activationRetryBackoff = activationRetryBackoff
             ?? CmxIrohReconnectBackoff()
@@ -586,6 +605,48 @@ public final class MobileIrohRuntimeComposition:
                 await self.applyAuthState(state)
             }
         }
+    }
+
+    /// Tears down this composition's cross-graph observation and runtime when
+    /// the app swaps composition roots (the live backend switch).
+    ///
+    /// Account-level teardown (binding revocation, local identity wipe)
+    /// already ran through ``beginSignOutPreparation()`` during the
+    /// transaction's sign-out step; this catches the stragglers nothing else
+    /// cancels today: the process-lifetime auth observation (started by
+    /// ``configure(auth:connectivityInvalidationBaseURL:)`` and never
+    /// cancelled before this), the connectivity invalidation subscriber, the
+    /// scene/permission/transition tasks, the reachability path observation,
+    /// and — defensively — any still-running runtime and LAN discovery.
+    /// Durable sign-out quarantine state is deliberately untouched: pending
+    /// revocations live in the persistent outbox, not on this object.
+    public func shutdown() async {
+        authObserver.stop()
+        authObservationTask?.cancel()
+        authObservationTask = nil
+        await connectivityInvalidationSubscriber?.stop()
+        connectivityInvalidationSubscriber = nil
+        connectivityInvalidationAccountID = nil
+        // Advance the revision before cancelling lifecycle work: any task that
+        // resumes mid-cancellation fails its revision guard and abandons its
+        // readiness slot instead of publishing into the torn-down graph.
+        lifecycleRevision &+= 1
+        transitionTask?.cancel()
+        transitionTask = nil
+        sceneTransitionTask?.cancel()
+        sceneTransitionTask = nil
+        permissionRefreshTask?.cancel()
+        permissionRefreshTask = nil
+        selectedPathObservationTask?.cancel()
+        selectedPathObservationTask = nil
+        clearRelayPolicyRuntimeState()
+        observedAuthState = nil
+        activeAccountID = nil
+        let previousRuntime = runtime
+        runtime = nil
+        await previousRuntime?.stop()
+        await lanPeerDiscovery?.stop()
+        await stopNetworkPathObservation()
     }
 
     private func setConnectivityInvalidationAccount(_ accountID: String?) async {
@@ -2367,10 +2428,23 @@ public final class MobileIrohRuntimeComposition:
 
     static func resolvedBrokerBaseURL(
         apiBaseURL: String,
+        explicitChoice: CMUXBackendEnvironmentOverride? = nil,
         infoDictionary: [String: Any]?,
         bundleIdentifier: String? = nil,
         allowsLoopback: Bool = true
     ) -> URL? {
+        // An explicit persisted environment choice is a WHOLESALE override:
+        // it heads this resolution ABOVE the baked CMUXIrohBrokerBaseURL, so
+        // a switched build's broker follows the chosen backend instead of the
+        // rig's bake. Each environment's web deployment serves its own broker.
+        if let explicitChoice {
+            switch explicitChoice {
+            case .production:
+                return URL(string: "https://cmux.com")
+            case .staging:
+                return URL(string: CMUXBackendEnvironmentOverride.stagingWebOrigin)
+            }
+        }
         if let baked = infoDictionary?["CMUXIrohBrokerBaseURL"] as? String {
             let trimmed = baked.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {

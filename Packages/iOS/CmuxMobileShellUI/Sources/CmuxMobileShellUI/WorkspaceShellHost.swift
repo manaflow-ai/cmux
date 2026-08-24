@@ -17,7 +17,9 @@ struct WorkspaceShellHost: View {
     /// True while the startup stored-Mac reconnect window is active. Drives the
     /// shell's initial-loading and timed-out inputs; never this host's identity.
     let isRestoringStoredMac: Bool
-    let signOut: @MainActor @Sendable () -> Void
+    /// The root's sign-out paths: `interactive` for the shell's chrome and
+    /// `direct` for the Settings delete-account flow.
+    let signOutActions: MobileAccountSignOutActions
     let showAddDevice: (() -> Void)?
     let showPairingScanner: (() -> Void)?
     var tailscalePairingRequired = false
@@ -34,7 +36,7 @@ struct WorkspaceShellHost: View {
     var body: some View {
         WorkspaceShellView(
             store: store,
-            signOut: signOut,
+            signOutActions: signOutActions,
             isInitialConnectionLoading: isRestoringStoredMac && !loadingTimedOut,
             initialConnectionTimedOut: isRestoringStoredMac && loadingTimedOut,
             retryInitialConnection: retry,

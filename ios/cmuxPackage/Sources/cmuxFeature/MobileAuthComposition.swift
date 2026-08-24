@@ -37,12 +37,33 @@ public struct MobileAuthComposition {
     public let appNamespace: MobileIOSAppNamespace?
     /// Exact Keychain group claimed by this signed bundle.
     public let keychainAccessGroup: String?
+    /// The runtime backend switch surface for Settings: the SELECTION this
+    /// composition resolved when it was built (`.explicit` when the wholesale
+    /// choice key was persisted, `.lane` otherwise) and this build's own lane
+    /// (what the build is baked to). The live switch transaction rebuilds the
+    /// whole composition after storing the selection, so `selection` converges
+    /// to the user's choice by re-injection from the new graph.
+    public let backendEnvironmentSwitch: CMUXBackendEnvironmentSwitchState
+
+    /// The persisted explicit choice this composition resolved, or `nil` when
+    /// the build runs its own lane. Threaded into the resolvers that read
+    /// their own bakes outside the auth override table (the iroh broker base
+    /// URL, the presence service URL) so an explicit choice stays a WHOLESALE
+    /// override across every backend endpoint.
+    public var backendEnvironmentExplicitChoice: CMUXBackendEnvironmentOverride? {
+        if case .explicit(let choice) = backendEnvironmentSwitch.selection {
+            return choice
+        }
+        return nil
+    }
 
     /// iOS OAuth must not inherit Safari cookies from another cmux build.
     nonisolated static let oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .ephemeral
 
     /// UIKit protected-data availability bridge used by auth session restore.
-    private let protectedDataAvailability: ProtectedDataAvailability
+    /// Internal (not private) so the shutdown test can prove the observation
+    /// is disconnected through the injected notification center.
+    let protectedDataAvailability: ProtectedDataAvailability
 
     /// A reachability monitor used to fail sign-in flows fast when offline.
     private let reachability: any ReachabilityProviding
@@ -61,13 +82,17 @@ public struct MobileAuthComposition {
     ///   - reachability: Connectivity probe for fail-fast sign-in.
     ///   - policy: The build-flag policy (dev-auth `42` shortcut).
     ///   - diagnosticLog: Optional privacy-safe app diagnostic recorder.
+    ///   - notificationCenter: The center delivering protected-data
+    ///     availability notifications. Injected so the shutdown test can post
+    ///     through a private center; production uses `.default`.
     public init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundle: Bundle = .main,
         defaults: UserDefaults = .standard,
         reachability: any ReachabilityProviding,
         policy: MobileAuthBuildPolicy = .current,
-        diagnosticLog: DiagnosticLog? = nil
+        diagnosticLog: DiagnosticLog? = nil,
+        notificationCenter: NotificationCenter = .default
     ) {
         self.reachability = reachability
         let appNamespace = MobileIOSAppNamespace(
@@ -77,7 +102,7 @@ public struct MobileAuthComposition {
         self.appNamespace = appNamespace
         self.keychainAccessGroup = keychainAccessGroup
 
-        let overrides = Self.authOverrides(
+        let buildOverrides = Self.authOverrides(
             localConfig: Self.localConfigStringOverrides(in: bundle),
             bakedAuthEnvironment: bundle.object(
                 forInfoDictionaryKey: Self.authEnvironmentInfoPlistKey
@@ -85,6 +110,28 @@ public struct MobileAuthComposition {
             bakedAPIBaseURL: bundle.object(
                 forInfoDictionaryKey: Self.apiBaseURLInfoPlistKey
             ) as? String
+        )
+        // Dev-rig determinism hook: the reload/launch scripts inject
+        // CMUX_DEV_CLEAR_BACKEND_ENV_CHOICE=1 (SIMCTL_CHILD_/DEVICECTL_CHILD_
+        // variants) so a persisted explicit choice from an earlier dogfood
+        // round cannot beat the freshly baked launch environment on a device,
+        // where no external `defaults delete` exists. Consumed BEFORE the
+        // choice is read, and the one-shot switch-rebuild marker goes with it
+        // (a leaked arm would suppress the next organic project-flip clear).
+        // Reads the launch environment exactly like CMUX_UITEST_CLEAR_AUTH.
+        if environment["CMUX_DEV_CLEAR_BACKEND_ENV_CHOICE"] == "1" {
+            CMUXBackendEnvironmentOverride.clearChoice(in: defaults)
+            _ = CMUXBackendEnvironmentSwitchRebuildMarker.consume(from: defaults)
+        }
+        // The Settings picker's persisted EXPLICIT choice, read from the same
+        // injected defaults the caches use. Tri-state: an absent (or
+        // unrecognized) key keeps the build's own lane byte-identical, while
+        // a persisted choice is a WHOLESALE override replacing the entire
+        // backend key set — bakes and LocalConfig included.
+        let explicitChoice = CMUXBackendEnvironmentOverride.explicitChoice(from: defaults)
+        let overrides = Self.resolvedOverrides(
+            explicitChoice: explicitChoice,
+            buildOverrides: buildOverrides
         )
         let resolvedEnvironment = Self.resolvedAuthEnvironment(
             isDevelopmentBuild: Self.isDevelopmentBuild,
@@ -96,17 +143,31 @@ public struct MobileAuthComposition {
             overrides: overrides
         )
         self.config = resolvedConfig
+        // The lane classifies from the BUILD overrides alone (the explicit
+        // choice is ignored), so it is a stable descriptor of the installed
+        // build powering the picker's "Build lane (…)" option.
+        let buildLane = Self.resolvedBackendEnvironmentBuildLane(
+            isDevelopmentBuild: Self.isDevelopmentBuild,
+            buildOverrides: buildOverrides
+        )
+        self.backendEnvironmentSwitch = CMUXBackendEnvironmentSwitchState(
+            selection: explicitChoice.map { .explicit($0) }
+                ?? .lane(resolves: buildLane.resolvedEnvironment),
+            buildLane: buildLane
+        )
 
         let client = StackAuthClient(
             config: resolvedConfig,
             tokenStore: Self.tokenStore(
                 appNamespace: appNamespace,
                 accessGroup: keychainAccessGroup,
-                legacyProjectID: resolvedConfig.stack.projectId
+                projectID: resolvedConfig.stack.projectId
             ),
             oauthBrowserSessionPrivacy: Self.oauthBrowserSessionPrivacy
         )
-        let availability = ProtectedDataAvailability()
+        let availability = ProtectedDataAvailability(
+            notificationCenter: notificationCenter
+        )
         let sessionCache = CMUXAuthSessionCache(
             keyValueStore: defaults,
             key: Self.sessionCacheDefaultsKey
@@ -128,11 +189,21 @@ public struct MobileAuthComposition {
         // cached user. This rides its own launch flag (NOT clearAuthRequested,
         // whose UI-test semantics stop priming and would suppress the dogfood
         // auto-login on the very next normal reload).
+        //
+        // detectAuthProjectSwitch must RUN unconditionally (it updates the
+        // stored project id); the switch-rebuild marker only suppresses its
+        // verdict. A backend-environment switch parks the old session and
+        // must restore the target's parked slot, while an organic project
+        // flip (rebaked tagged build) keeps today's pinned clear semantics.
         let authProjectSwitched = Self.detectAuthProjectSwitch(
             resolvedProjectID: resolvedConfig.stack.projectId,
+            // Lane inference: the project an install with NO explicit choice
+            // would have resolved comes from the BUILD overrides (an explicit
+            // choice's fresh table must not distort what a pre-marker
+            // session could have belonged to).
             buildDefaultProjectID: AuthConfig(
                 environment: Self.isDevelopmentBuild ? .development : .production,
-                overrides: overrides
+                overrides: buildOverrides
             ).stack.projectId,
             defaults: defaults
         )
@@ -145,7 +216,10 @@ public struct MobileAuthComposition {
             mockDataEnabled: UITestConfig.mockDataEnabled,
             environment: environment,
             includesDevAuth: includesDevAuth,
-            clearStaleAuthOnLaunch: authProjectSwitched,
+            clearStaleAuthOnLaunch: Self.resolvedClearStaleAuthOnLaunch(
+                authProjectSwitched: authProjectSwitched,
+                defaults: defaults
+            ),
             replaceStoredSessionWithAutoLogin: Self.shouldReplaceStoredSessionWithAutoLogin(
                 includesDevAuth: includesDevAuth,
                 environment: environment
@@ -199,6 +273,19 @@ public struct MobileAuthComposition {
         taskOwner.observeRestore(using: coordinator)
     }
 
+    /// Tears down this graph's cross-lifetime observation when the app swaps
+    /// composition roots (the live backend switch). After shutdown, a
+    /// protected-data availability notification must not trigger a session
+    /// revalidation, and the bootstrap/revalidation tasks are cancelled so no
+    /// auth work from the old environment races the new graph. Cancellation is
+    /// not joined: both tasks only touch this graph's own coordinator, which is
+    /// discarded with it. The struct may briefly outlive the swap; the task
+    /// owner's `deinit` remains the backstop.
+    public func shutdown() {
+        protectedDataAvailability.stopObserving()
+        taskOwner.cancelAll()
+    }
+
     private static var isDevelopmentBuild: Bool {
         #if DEBUG
         true
@@ -226,6 +313,14 @@ public struct MobileAuthComposition {
     /// agent's localhost server.
     nonisolated static let apiBaseURLInfoPlistKey = "CMUXApiBaseURL"
 
+    /// The override-table key carrying the cmux web API base URL.
+    nonisolated static let apiBaseURLOverrideKey = "ApiBaseURL"
+
+    /// The override-table key moving the whole web origin: it retargets the
+    /// magic-link callback and is the default API base when no explicit
+    /// ``apiBaseURLOverrideKey`` entry exists (see `CmuxAuthRuntime.AuthConfig`).
+    nonisolated static let webOriginURLOverrideKey = "WebOriginURL"
+
     /// Merge the Info.plist-baked auth environment into the `LocalConfig.plist`
     /// override table. An explicit LocalConfig entry wins over the bake
     /// (mirroring presence resolution, where the local override table beats the
@@ -242,13 +337,100 @@ public struct MobileAuthComposition {
            !baked.isEmpty {
             overrides[authEnvironmentOverrideKey] = baked
         }
-        if overrides["ApiBaseURL"] == nil,
+        if overrides[apiBaseURLOverrideKey] == nil,
            let baked = bakedAPIBaseURL?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !baked.isEmpty {
-            overrides["ApiBaseURL"] = baked
+            overrides[apiBaseURLOverrideKey] = baked
         }
         return overrides
+    }
+
+    /// Resolve the override table the composition builds against.
+    ///
+    /// NO explicit choice (`nil`): the build overrides pass through
+    /// byte-identical, so tagged dev builds keep their baked isolation and
+    /// every no-choice install behaves exactly as before the wholesale
+    /// switcher existed.
+    ///
+    /// An explicit choice: a FRESH three-key table replacing the ENTIRE
+    /// build-time override surface — baked Info.plist values AND
+    /// `LocalConfig.plist` entries. Dropping LocalConfig is deliberate: no
+    /// LocalConfig.plist ships anywhere today, and a choice must be a
+    /// wholesale, atomic override so a switched build can never run half on
+    /// one environment and half on another (the mixed-environment hazard
+    /// that used to justify pinning). This also strips any
+    /// `STACK_PROJECT_ID_*` / `STACK_PUBLISHABLE_CLIENT_KEY_*` LocalConfig
+    /// overrides while a choice is active — the choice's environment
+    /// resolves the built-in Stack project for that channel — and the lane
+    /// position (clearing the choice) restores LocalConfig supremacy.
+    nonisolated static func resolvedOverrides(
+        explicitChoice: CMUXBackendEnvironmentOverride?,
+        buildOverrides: [String: String]
+    ) -> [String: String] {
+        guard let explicitChoice else { return buildOverrides }
+        let webOrigin: String
+        switch explicitChoice {
+        case .production:
+            webOrigin = "https://cmux.com"
+        case .staging:
+            webOrigin = CMUXBackendEnvironmentOverride.stagingWebOrigin
+        }
+        return [
+            // Staging authenticates against the development Stack project;
+            // explicit production pins the production project even on a
+            // DEBUG build.
+            authEnvironmentOverrideKey: explicitChoice == .staging
+                ? "development"
+                : "production",
+            apiBaseURLOverrideKey: webOrigin,
+            // Moves the magic-link callback with the API base, so a switched
+            // build's magic-link emails cannot point at the per-environment
+            // default.
+            webOriginURLOverrideKey: webOrigin,
+        ]
+    }
+
+    /// Classify this build's LANE: the backend the process resolves with NO
+    /// explicit choice, from the build-time overrides alone. The former
+    /// origin-equality active classifier survives here as the LANE
+    /// classifier: a lane whose api base resolves the staging origin is the
+    /// staging lane (device dev rigs default there), a lane resolving
+    /// cmux.com under the production Stack channel (the unpinned Release
+    /// shape) is the production lane, and every other bake — tagged dev
+    /// builds on an isolated localhost origin, untagged Debug builds on the
+    /// localhost dev default — is a custom lane labeled host[:port] of the
+    /// lane api base. Whether a backend key is baked at build time now only
+    /// feeds this classification; it is no longer a refusal.
+    nonisolated static func resolvedBackendEnvironmentBuildLane(
+        isDevelopmentBuild: Bool,
+        buildOverrides: [String: String]
+    ) -> CMUXBackendEnvironmentBuildLane {
+        let laneEnvironment = resolvedAuthEnvironment(
+            isDevelopmentBuild: isDevelopmentBuild,
+            overrides: buildOverrides
+        )
+        let laneAPIBaseURL = AuthConfig(
+            environment: laneEnvironment,
+            overrides: buildOverrides
+        ).apiBaseURL
+        if laneAPIBaseURL == CMUXBackendEnvironmentOverride.stagingWebOrigin {
+            return .staging
+        }
+        if laneEnvironment == .production, laneAPIBaseURL == "https://cmux.com" {
+            return .production
+        }
+        return .custom(label: Self.buildLaneLabel(forOrigin: laneAPIBaseURL))
+    }
+
+    /// Human label for a custom lane: host, or host:port (falls back to the
+    /// raw origin string when it does not parse as a URL with a host).
+    nonisolated private static func buildLaneLabel(forOrigin origin: String) -> String {
+        guard let url = URL(string: origin), let host = url.host else {
+            return origin
+        }
+        guard let port = url.port else { return host }
+        return "\(host):\(port)"
     }
 
     /// Resolve which Stack project this build signs in to: an explicit
@@ -352,6 +534,22 @@ public struct MobileAuthComposition {
         return previous != resolvedProjectID
     }
 
+    /// The one place the launch-hygiene clear verdict is computed: an organic
+    /// Stack-project flip keeps today's pinned clear semantics, while a
+    /// backend-environment-switch rebuild (which PARKED the old session and
+    /// must restore the target's parked slot) arms the one-shot marker inside
+    /// its `storeSelection` step and is suppressed here exactly once. The
+    /// marker is consumed unconditionally so a crash-recovered arm cannot
+    /// leak into a later organic flip.
+    nonisolated static func resolvedClearStaleAuthOnLaunch(
+        authProjectSwitched: Bool,
+        defaults: UserDefaults
+    ) -> Bool {
+        let switchRebuildSuppressesClear =
+            CMUXBackendEnvironmentSwitchRebuildMarker.consume(from: defaults)
+        return authProjectSwitched && !switchRebuildSuppressesClear
+    }
+
     private static var apnsEnvironment: String {
         #if DEBUG
         "sandbox"
@@ -363,21 +561,30 @@ public struct MobileAuthComposition {
     private static func tokenStore(
         appNamespace: MobileIOSAppNamespace?,
         accessGroup: String?,
-        legacyProjectID: String
+        projectID: String
     ) -> TokenStoreInit {
         #if DEBUG && targetEnvironment(simulator)
+        // Already per-project: the simulator memory registry keys its slots by
+        // the resolved Stack project.
         .memory
         #else
         guard let appNamespace else {
             return .none
         }
+        // Per-project token slots: keying the store by the resolved Stack
+        // project lets a live backend-environment switch PARK the old
+        // environment's session (its slot survives untouched) and restore it
+        // on return. The same project id stays the legacy tier so the store
+        // adopts the pre-per-project single slot (and the old SDK's
+        // account-only items) on first read.
         return .custom(
             KeychainStackTokenStore(
                 service: appNamespace.keychainService(
                     base: "com.cmuxterm.app.auth"
                 ),
                 accessGroup: accessGroup,
-                legacyProjectID: legacyProjectID
+                legacyProjectID: projectID,
+                projectID: projectID
             )
         )
         #endif
@@ -457,6 +664,16 @@ private final class MobileAuthTaskOwner {
             guard !Task.isCancelled else { return }
             self?.revalidationTask = nil
         }
+    }
+
+    /// Cancels every owned task when the composition shuts down (the live
+    /// backend switch). Same teardown as `deinit`, which stays as the backstop
+    /// for owners that never call shutdown.
+    func cancelAll() {
+        restoreTask?.cancel()
+        restoreTask = nil
+        revalidationTask?.cancel()
+        revalidationTask = nil
     }
 
     deinit {

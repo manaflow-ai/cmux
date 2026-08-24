@@ -822,6 +822,20 @@ PY
   xcrun simctl boot "$SIM_ID" >/dev/null 2>&1 || true
   xcrun simctl install "$SIM_ID" "$APP_PATH"
 
+  # Rig determinism: a persisted explicit backend-environment choice is a
+  # WHOLESALE override that would beat this build's freshly baked backend
+  # keys, so a leftover pick (or the one-shot switch-rebuild marker) from an
+  # earlier dogfood round must not leak into this reload. Clear both
+  # tri-state keys in the simulator container before launch (precedent:
+  # scripts/lib/mobile-attach.sh seeding per-bundle defaults via simctl
+  # spawn). The device leg has no external defaults access; it clears through
+  # the CMUX_DEV_CLEAR_BACKEND_ENV_CHOICE launch env injected by
+  # scripts/mobile-dev-launch.sh instead.
+  xcrun simctl spawn "$SIM_ID" defaults delete "$BUNDLE_ID" \
+    cmux.backendEnvironmentOverride 2>/dev/null || true
+  xcrun simctl spawn "$SIM_ID" defaults delete "$BUNDLE_ID" \
+    cmux.backendEnvironmentSwitch.suppressAuthClearOnce 2>/dev/null || true
+
   if [[ "$LAUNCH" -eq 1 ]]; then
     xcrun simctl terminate "$SIM_ID" "$BUNDLE_ID" >/dev/null 2>&1 || true
     if [[ "$NO_SETUP" -eq 1 || "$NO_SIGN_IN" -eq 1 ]]; then

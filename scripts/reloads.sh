@@ -159,6 +159,15 @@ if [[ -z "$TAG" ]]; then
     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
   )
 fi
+# Release signs Resources/cmux.entitlements (keychain-access-groups), which
+# needs a provisioned signing identity no dev Mac has for this bundle id. A
+# local dogfood build drops the entitlements exactly like the Debug config
+# does (Debug sets CODE_SIGN_ENTITLEMENTS="" and dev keychain flows work), so
+# the ad hoc identity can sign it. Opt out with CMUX_RELOADS_KEEP_ENTITLEMENTS=1
+# when building on a machine that holds a provisioned identity.
+if [[ "${CMUX_RELOADS_KEEP_ENTITLEMENTS:-0}" != "1" ]]; then
+  XCODEBUILD_ARGS+=(CODE_SIGN_ENTITLEMENTS="")
+fi
 XCODEBUILD_ARGS+=(build)
 
 xcodebuild "${XCODEBUILD_ARGS[@]}"

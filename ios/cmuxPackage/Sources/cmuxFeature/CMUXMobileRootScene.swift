@@ -275,9 +275,12 @@ public struct CMUXMobileRootScene: View {
     @MainActor
     private func makePresenceClient() -> PresenceClient? {
         // Presence follows the resolved auth channel so each worker can verify
-        // the token. Build compatibility filters the returned Mac instances.
+        // the token; an explicit persisted environment choice heads that
+        // resolution wholesale (above env/defaults/bake overrides). Build
+        // compatibility filters the returned Mac instances.
         guard let baseURL = PresenceClient.resolvedServiceBaseURL(
-            isDevelopmentAuthChannel: auth.authEnvironment == .development
+            isDevelopmentAuthChannel: auth.authEnvironment == .development,
+            explicitChoice: auth.backendEnvironmentExplicitChoice
         ) else { return nil }
         let coordinator = auth.coordinator
         return PresenceClient(
@@ -314,7 +317,8 @@ public struct CMUXMobileRootScene: View {
         guard MobilePairedMacBackup.resolved().isEnabled,
               let appNamespace = auth.appNamespace,
               let baseURL = PresenceClient.resolvedServiceBaseURL(
-                  isDevelopmentAuthChannel: auth.authEnvironment == .development
+                  isDevelopmentAuthChannel: auth.authEnvironment == .development,
+                  explicitChoice: auth.backendEnvironmentExplicitChoice
               ) else {
             return scopedStore
         }
@@ -371,6 +375,9 @@ public struct CMUXMobileRootScene: View {
             .terminalFilesChipEnabled(featureFlags.terminalFilesChipEnabled)
             .environment(connectionMethodStore)
             .environment(autoConnectMigrationStore)
+            // The runtime Production/Staging backend switch resolved by the
+            // auth composition, consumed by the Settings backend section.
+            .environment(\.backendEnvironmentSwitch, auth.backendEnvironmentSwitch)
             #endif
     }
 

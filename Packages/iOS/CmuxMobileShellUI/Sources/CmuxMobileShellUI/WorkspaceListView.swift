@@ -58,7 +58,11 @@ struct WorkspaceListView: View {
     /// in previews, where pull-to-refresh is hidden. `@Sendable` to match
     /// SwiftUI's `refreshable(action:)` action type under Swift 6.
     var refresh: (@Sendable () async -> Void)?
-    var signOut: (() -> Void)?
+    /// The root's sign-out paths (`interactive` for the toolbar menu,
+    /// the whole value for the Settings sheet). `nil` in previews and
+    /// package tests, which hide the menu item and hand Settings the
+    /// explicit inert value.
+    var signOutActions: MobileAccountSignOutActions?
     /// Manual reconnect for the offline status row. `nil` in previews.
     var reconnect: (() -> Void)?
     /// Whether Tailscale still needs its one-time Mac authorization.
@@ -514,7 +518,7 @@ struct WorkspaceListView: View {
                         MobileConnectionRecoveryBanner(
                             connectionRequiresReauth: store.connectionRequiresReauth,
                             connectionError: store.connectionError,
-                            signOut: signOut,
+                            signOut: signOutActions?.interactive,
                             rendersInline: true
                         )
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
@@ -649,7 +653,11 @@ struct WorkspaceListView: View {
                         isSettingsPresented: settingsPresentation.isPresented
                     )
                 },
-                signOut: signOut,
+                // The live app always threads the root's actions; only
+                // previews/package tests fall back to the documented inert
+                // value (which, unlike the removed nil-closure bypass, never
+                // performs a hidden raw sign-out).
+                signOutActions: signOutActions ?? .unwired,
                 store: store
             )
         }
@@ -1089,9 +1097,9 @@ struct WorkspaceListView: View {
                 )
             }
             .accessibilityIdentifier("MobileWorkspaceTerminalShortcutsMenuItem")
-            if let signOut {
+            if let signOutActions {
                 Button(role: .destructive) {
-                    signOut()
+                    signOutActions.interactive()
                 } label: {
                     Label(
                         L10n.string("mobile.signOut", defaultValue: "Sign Out"),

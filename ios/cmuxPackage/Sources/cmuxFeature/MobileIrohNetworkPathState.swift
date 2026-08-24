@@ -30,6 +30,14 @@ actor MobileIrohNetworkPathState {
         }
     }
 
+    /// Stops the reachability observation when the owning composition shuts
+    /// down (the live backend switch), so the old graph's path callbacks stop
+    /// firing into a torn-down runtime.
+    func stop() {
+        observationTask?.cancel()
+        observationTask = nil
+    }
+
     func snapshot() -> CmxIrohNetworkPathSnapshot {
         var profiles = Set(lanProfiles.keys)
         if TailscaleStatus(
