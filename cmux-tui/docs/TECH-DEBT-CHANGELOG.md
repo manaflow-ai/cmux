@@ -1,6 +1,6 @@
 # cmux-tui aggregate change log
 
-Snapshot: 2026-08-23. Aggregate branch: `aggregate-final`, current code tip [`35be8f8c8a`](https://github.com/manaflow-ai/cmux/commit/35be8f8c8a3868631d27dfa0b8009dace5b70f4c). The prior documented code tip was [`2b0e717d63`](https://github.com/manaflow-ai/cmux/commit/2b0e717d638bc0cd66caea6db940e00593852113). The branch is 507 commits ahead of `origin/main`. This update records cross-platform relay and SDK path hardening, bounded HTML error classification, and the normal merge of concurrent review history.
+Snapshot: 2026-08-23. Aggregate branch: `aggregate-final`, current code tip [`52fbf8153f`](https://github.com/manaflow-ai/cmux/commit/52fbf8153ff2c4a1e518ea8e0b792c25c6439964). The prior documented code tip was [`4538c10aa5`](https://github.com/manaflow-ai/cmux/commit/4538c10aa528a6c4c0435fba238d1a9573acbb82). The branch is 550 commits ahead of `origin/main`, including this documentation commit. This update records cross-platform relay and SDK path hardening, bounded HTML error classification, clippy cleanup, and the normal merge of concurrent review history.
 
 Earlier aggregate rows retained for history:
 
@@ -177,7 +177,7 @@ entry is not completion evidence unless the stated behavior is exercised.
   and parser paths only. Registry installation, platform parity, and complete
   terminal escape compatibility remain unverified.
 
-Session ledger honesty: the board's lower bound is at least 180 substantive
+Session ledger honesty: the board's lower bound is at least 205 substantive
 agent turns, including audits, research, session mining, fixes, reviews, and
 merge gates. It is not an exact session-file count. The requested 10,000-session
 goal was not reached. Empty or duplicate turns were not created to inflate it.
@@ -204,6 +204,9 @@ goal was not reached. Empty or duplicate turns were not created to inflate it.
 | `2bffa3dcc83808f66718a84bad05e3384e6ca313` | Tighten watch registry API and conditions. | `git revert 2bffa3dcc83808f66718a84bad05e3384e6ca313` |
 | `954d80df6ac54ff767e9d56a4caaad83e02c48bd` | Resolve workspace clippy diagnostics. | `git revert 954d80df6ac54ff767e9d56a4caaad83e02c48bd` |
 | `4538c10aa528a6c4c0435fba238d1a9573acbb82` | Resolve preview proxy clippy diagnostics. | `git revert 4538c10aa528a6c4c0435fba238d1a9573acbb82` |
+| `52fbf8153ff2c4a1e518ea8e0b792c25c6439964` | Merge the pushed remote relay history while retaining the reviewed aggregate tree. | `git revert -m 1 52fbf8153ff2c4a1e518ea8e0b792c25c6439964` |
+| `08ac5efcc55c10b6055448538b72390fe0ffec52` | Record the current exact tip, review result, and revert ledger. | `git revert 08ac5efcc55c10b6055448538b72390fe0ffec52` |
+| `769a8eb5c0a95c2fbcc024127bc3d2e435dfce02` | Refresh the aggregate head, branch-count, and PR-board metadata. | `git revert 769a8eb5c0a95c2fbcc024127bc3d2e435dfce02` |
 
 The exact-head autoreview was clean for in-scope changes. It reported two
 out-of-scope remote-tmux findings, which were intentionally ignored: they do

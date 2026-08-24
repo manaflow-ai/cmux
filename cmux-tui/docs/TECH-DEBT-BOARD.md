@@ -3,7 +3,7 @@
 Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `aggregate-final`.
-Current integration code tip before this documentation commit: `4538c10aa528a6c4c0435fba238d1a9573acbb82` (`fix(relay): resolve preview proxy clippy diagnostics`).
+Current integration code tip before this documentation commit: `52fbf8153ff2c4a1e518ea8e0b792c25c6439964` (`Merge remote-tracking branch 'origin/codex/chatmux-relay-techdebt' into aggregate-final`).
 Exact worktree HEAD: run `git rev-parse HEAD` (documentation commits change this value).
 The aggregate branch is `aggregate-final`; the review branch is
 `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
@@ -30,7 +30,11 @@ process cleanup, safe socket fallback precedence, Python cancellation
 propagation, and the Rust fallback-test contract. Documentation-only bridge commits are
 [`42b776a327`](https://github.com/manaflow-ai/cmux/commit/42b776a327c17386d131ef1b1f8a382b02683954)
 and [`cef7c71460`](https://github.com/manaflow-ai/cmux/commit/cef7c71460f72444e874f7c9f26100e9259874c1).
-The 25-file relay/TUI integration merge is `05c0b30277`.
+The 25-file relay/TUI integration merge is `05c0b30277`. The latest code tail
+also includes exact socket-parent matching, bounded workspace reads, watcher
+sink termination, cross-language fallback correction, Windows dependency
+declarations, path-error classification, shell and preview task ownership,
+and clippy cleanup through `4538c10aa528a6c4c0435fba238d1a9573acbb82`.
 
 Latest wave follow-ups are recorded in the changelog. The exact-head
 autoreview was clean for this scope. Two remote-tmux findings were ignored as
@@ -47,7 +51,7 @@ sessions. New turns must have a named deliverable.
 
 ## Current state
 
-The latest code tail is `35be8f8c8a`. It carries the watch compatibility,
+The latest code tail is `52fbf8153ff2c4a1e518ea8e0b792c25c6439964`. It carries the watch compatibility,
 queue-ownership, fairness, timer-bound, shell-reservation, PTY overflow,
 preview saturation, SDK lifecycle, CLI grammar, capability documentation,
 credential-child reaping, journal-writer ownership/finalization, explicit
@@ -583,7 +587,7 @@ product request.
 - Relative cwd rejection is safer than accepting ambiguous paths, but callers
   need a documented absolute/home-relative migration contract.
 
-The ledger remains an honest lower bound of at least 180 substantive agent
+The ledger remains an honest lower bound of at least 205 substantive agent
 turns. It does not represent an exact session-file count, and the requested
 10,000-session target is not reached.
 
