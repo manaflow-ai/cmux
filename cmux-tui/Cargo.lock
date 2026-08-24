@@ -575,6 +575,7 @@ dependencies = [
  "time",
  "tokio",
  "tokio-tungstenite",
+ "tokio-util",
  "tungstenite",
  "url",
  "windows-sys 0.61.2",

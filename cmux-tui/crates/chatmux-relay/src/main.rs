@@ -7,6 +7,8 @@
 use std::io::IsTerminal as _;
 use std::path::{Path, PathBuf};
 
+use tokio_util::sync::CancellationToken;
+
 use chatmux_relay::actions::validate_request_path;
 use chatmux_relay::autostart;
 use chatmux_relay::cli::{Command, parse_cli_args};
@@ -270,6 +272,48 @@ struct Runtime {
     config_path: PathBuf,
     interactive: bool,
     http: reqwest::Client,
+}
+
+/// Wait for the process-level stop signal used by both managed and paired
+/// relay sessions. The signal task only owns the OS listener; the session
+/// owns all socket and request tasks through the shared cancellation token.
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("failed to install SIGTERM handler");
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => {
+                let _ = result;
+            }
+            _ = terminate.recv() => {}
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
+}
+
+/// Run one persistent session under a signal listener and wait for every
+/// session-owned task to observe cancellation before returning to `main`.
+async fn run_online(config: Config, config_path: &Path, state: SessionState) {
+    let cancellation = CancellationToken::new();
+    let signal_cancellation = cancellation.clone();
+    let signal_task = tokio::spawn(async move {
+        shutdown_signal().await;
+        signal_cancellation.cancel();
+    });
+    let result = stay_online(config, config_path, state, cancellation).await;
+    if !signal_task.is_finished() {
+        signal_task.abort();
+    }
+    let _ = signal_task.await;
+    if let Err(error) = result {
+        fatal_exit(&error);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -609,12 +653,13 @@ async fn main() {
                 std::process::exit(1);
             }
         };
-        stay_online(
+        run_online(
             managed,
             &runtime.config_path,
             SessionState { first_connect: true, first_run: false, managed: true },
         )
         .await;
+        return;
     }
 
     let existing = if parsed.command == Some(Command::Pair) {
@@ -644,7 +689,7 @@ async fn main() {
         }
     };
     apply_allowed_roots(&mut config, &parsed.allow_root, &runtime.config_path);
-    stay_online(
+    run_online(
         config,
         &runtime.config_path,
         SessionState { first_connect: true, first_run, managed: false },
