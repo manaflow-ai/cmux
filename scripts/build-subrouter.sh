@@ -63,6 +63,22 @@ ARCH_KEY="$(echo "$requested_archs" | tr ' ' '-')"
 CACHE_DIR="${CMUX_SUBROUTER_CACHE_DIR:-${HOME}/.cache/cmux-subrouter}"
 CACHE_PATH="${CACHE_DIR}/subrouter-${SUBMODULE_SHA}-${ARCH_KEY}.gz"
 
+# Keep old per-commit archives from accumulating forever. A cache entry is
+# disposable (the pinned submodule can always rebuild it), so age-based
+# cleanup is safe and avoids deleting the archive this invocation is about to
+# use. Override the retention window for a developer or CI cache if needed.
+CACHE_MAX_AGE_DAYS="${CMUX_SUBROUTER_CACHE_MAX_AGE_DAYS:-30}"
+if [[ ! "$CACHE_MAX_AGE_DAYS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "warning: invalid CMUX_SUBROUTER_CACHE_MAX_AGE_DAYS=$CACHE_MAX_AGE_DAYS; using 30" >&2
+  CACHE_MAX_AGE_DAYS=30
+fi
+
+prune_old_cache() {
+  [[ -d "$CACHE_DIR" ]] || return 0
+  find "$CACHE_DIR" -maxdepth 1 -type f -name 'subrouter-*.gz' \
+    -mtime "+$CACHE_MAX_AGE_DAYS" -delete 2>/dev/null || true
+}
+
 publish_atomic() {
   local source="$1"
   local destination="$2"
@@ -72,6 +88,8 @@ publish_atomic() {
 }
 
 mkdir -p "$OUT_DIR"
+mkdir -p "$CACHE_DIR"
+prune_old_cache
 if [[ -f "$CACHE_PATH" ]] && gzip -t "$CACHE_PATH" >/dev/null 2>&1; then
   publish_atomic "$CACHE_PATH" "$OUT_PATH"
   echo "bundled subrouter ${SUBMODULE_SHA:0:12} (${ARCH_KEY}, cached)"
@@ -116,7 +134,6 @@ fi
 codesign -s - -f "$BINARY"
 gzip -9 -n -c "$BINARY" > "${WORK_DIR}/subrouter.gz"
 
-mkdir -p "$CACHE_DIR"
 publish_atomic "${WORK_DIR}/subrouter.gz" "$CACHE_PATH"
 publish_atomic "${WORK_DIR}/subrouter.gz" "$OUT_PATH"
 echo "bundled subrouter ${SUBMODULE_SHA:0:12} (${ARCH_KEY}, $(du -h "$OUT_PATH" | cut -f1 | tr -d ' '))"

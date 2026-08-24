@@ -11,6 +11,9 @@ import os
 /// install locations (`~/bin`, Homebrew paths). Only the account id crosses
 /// the process boundary — never any credential material.
 public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
+    private static let bundledSubrouterInstallMaxAge: TimeInterval = 30 * 24 * 60 * 60
+    private static let bundledSubrouterLastUsedMarker = ".cmux-last-used"
+
     private nonisolated static let logger = Logger(
         subsystem: "com.cmuxterm.app",
         category: "SubrouterCommandSwitcher"
@@ -19,7 +22,7 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
     /// Deadline for one `sr` invocation (it may refresh a token upstream).
     public static let commandTimeout: TimeInterval = 30
 
-    private let commandRunner: any CommandRunning
+    private let commandRunner: any EnvironmentCommandRunning
     private let workingDirectory: String
 
     /// Creates the production switcher.
@@ -30,7 +33,7 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
     ///   - workingDirectory: The working directory for `sr`; defaults to the
     ///     user's home directory.
     public init(
-        commandRunner: (any CommandRunning)? = nil,
+        commandRunner: (any EnvironmentCommandRunning)? = nil,
         workingDirectory: String = NSHomeDirectory()
     ) {
         self.commandRunner = commandRunner ?? CommandRunner(
@@ -76,22 +79,13 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
         let environmentOverrides = Self.serverEnvironment(target: target)
         for executable in executables {
             let result: CommandResult
-            if let environmentRunner = commandRunner as? any EnvironmentCommandRunning {
-                result = await environmentRunner.run(
-                    directory: workingDirectory,
-                    executable: executable,
-                    arguments: arguments,
-                    timeout: Self.commandTimeout,
-                    environmentOverrides: environmentOverrides
-                )
-            } else {
-                result = await commandRunner.run(
-                    directory: workingDirectory,
-                    executable: executable,
-                    arguments: arguments,
-                    timeout: Self.commandTimeout
-                )
-            }
+            result = await commandRunner.run(
+                directory: workingDirectory,
+                executable: executable,
+                arguments: arguments,
+                timeout: Self.commandTimeout,
+                environmentOverrides: environmentOverrides
+            )
             if result.executionError != nil {
                 sawLaunchFailure = true
                 continue
@@ -157,7 +151,9 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
         let allowedPrefixes = [
             "PATH", "HOME", "USER", "LOGNAME", "SHELL", "PWD", "OLDPWD",
             "TMPDIR", "TERM", "LANG", "LC_", "SUBROUTER_", "CODEX_",
-            "CLAUDE_", "ANTHROPIC_", "OPENAI_", "XDG_"
+            "CLAUDE_", "ANTHROPIC_", "OPENAI_", "XDG_",
+            "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+            "http_proxy", "https_proxy", "all_proxy", "no_proxy"
         ]
         return ProcessInfo.processInfo.environment.filter { key, _ in
             allowedPrefixes.contains { prefix in
@@ -178,6 +174,7 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
         ) else { return nil }
         let fileManager = FileManager.default
         let installDirectory = bundledSubrouterInstallDirectory
+        pruneBundledSubrouterInstallDirectories(excluding: installDirectory)
         let binaryURL = installDirectory.appendingPathComponent("subrouter")
         let personaURL = installDirectory.appendingPathComponent("sr")
         let fingerprintURL = installDirectory.appendingPathComponent(".subrouter.fingerprint")
@@ -229,7 +226,51 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
                 withDestinationPath: "subrouter"
             )
         }
+        markBundledSubrouterUse(in: installDirectory)
         return fileManager.isExecutableFile(atPath: personaURL.path) ? personaURL.path : nil
+    }
+
+    private static func pruneBundledSubrouterInstallDirectories(excluding current: URL) {
+        let root = fileManagerApplicationSupportDirectory()
+            .appendingPathComponent("cmux/bin", isDirectory: true)
+        let fileManager = FileManager.default
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey]
+        ) else { return }
+        let cutoff = Date().addingTimeInterval(-bundledSubrouterInstallMaxAge)
+        for entry in entries where entry.lastPathComponent.hasPrefix("scope-") {
+            guard entry.standardizedFileURL != current.standardizedFileURL,
+                  let values = try? entry.resourceValues(forKeys: [.isDirectoryKey]),
+                  values.isDirectory == true,
+                  let modified = bundledSubrouterLastUsedDate(for: entry, fileManager: fileManager),
+                  modified < cutoff else { continue }
+            let isExtracting = (try? fileManager.contentsOfDirectory(atPath: entry.path))?
+                .contains { $0.hasPrefix(".subrouter.extracting.") } == true
+            guard !isExtracting else { continue }
+            try? fileManager.removeItem(at: entry)
+        }
+    }
+
+    private static func markBundledSubrouterUse(in directory: URL) {
+        let marker = directory.appendingPathComponent(bundledSubrouterLastUsedMarker)
+        let fileManager = FileManager.default
+        if !fileManager.fileExists(atPath: marker.path) {
+            _ = fileManager.createFile(atPath: marker.path, contents: Data())
+        }
+        try? fileManager.setAttributes(
+            [.modificationDate: Date()],
+            ofItemAtPath: marker.path
+        )
+    }
+
+    private static func bundledSubrouterLastUsedDate(
+        for directory: URL,
+        fileManager: FileManager
+    ) -> Date? {
+        let marker = directory.appendingPathComponent(bundledSubrouterLastUsedMarker)
+        let path = fileManager.fileExists(atPath: marker.path) ? marker.path : directory.path
+        return (try? fileManager.attributesOfItem(atPath: path))?[.modificationDate] as? Date
     }
 
     /// Mirrors the CLI extraction layout so the app's switcher and `cmux sr`

@@ -7,6 +7,9 @@ import Darwin
 // `cmux sr …` / unknown `cmux subrouter …` verbs to it. A user-installed
 // sr on PATH always wins, so bundling only changes machines with no sr.
 extension CMUXCLI {
+    private static let bundledSubrouterInstallMaxAge: TimeInterval = 30 * 24 * 60 * 60
+    private static let bundledSubrouterLastUsedMarker = ".cmux-last-used"
+
     /// The root for extracted subrouter binaries. Each app/tag gets its own
     /// immutable child so concurrent cmux builds never replace one another's
     /// executable or fingerprint.
@@ -91,6 +94,7 @@ extension CMUXCLI {
         guard let archivePath = bundledSubrouterArchivePath() else { return nil }
         let fileManager = FileManager.default
         let installDir = bundledSubrouterInstallDirectory
+        pruneBundledSubrouterInstallDirectories(excluding: installDir)
         let binaryURL = installDir.appendingPathComponent("subrouter")
         let personaURL = installDir.appendingPathComponent(persona)
         let fingerprintURL = installDir.appendingPathComponent(".subrouter.fingerprint")
@@ -144,9 +148,57 @@ extension CMUXCLI {
                 )
             }
             guard fileManager.isExecutableFile(atPath: personaURL.path) else { return nil }
+            markBundledSubrouterUse(in: installDir)
             return personaURL.path
         }
+        markBundledSubrouterUse(in: installDir)
         return binaryURL.path
+    }
+
+    /// Removes abandoned tag-scoped extractions after a generous inactivity
+    /// window. The current scope and scopes with an active extraction staging
+    /// file are always retained; the binary can be rebuilt from the pinned
+    /// archive if an old scope is needed again.
+    private static func pruneBundledSubrouterInstallDirectories(excluding current: URL) {
+        let root = bundledSubrouterInstallRoot
+        let fileManager = FileManager.default
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey]
+        ) else { return }
+        let cutoff = Date().addingTimeInterval(-bundledSubrouterInstallMaxAge)
+        for entry in entries where entry.lastPathComponent.hasPrefix("scope-") {
+            guard entry.standardizedFileURL != current.standardizedFileURL,
+                  let values = try? entry.resourceValues(forKeys: [.isDirectoryKey]),
+                  values.isDirectory == true,
+                  let modified = bundledSubrouterLastUsedDate(for: entry, fileManager: fileManager),
+                  modified < cutoff else { continue }
+            let isExtracting = (try? fileManager.contentsOfDirectory(atPath: entry.path))?
+                .contains { $0.hasPrefix(".subrouter.extracting.") } == true
+            guard !isExtracting else { continue }
+            try? fileManager.removeItem(at: entry)
+        }
+    }
+
+    private static func markBundledSubrouterUse(in directory: URL) {
+        let marker = directory.appendingPathComponent(bundledSubrouterLastUsedMarker)
+        let fileManager = FileManager.default
+        if !fileManager.fileExists(atPath: marker.path) {
+            _ = fileManager.createFile(atPath: marker.path, contents: Data())
+        }
+        try? fileManager.setAttributes(
+            [.modificationDate: Date()],
+            ofItemAtPath: marker.path
+        )
+    }
+
+    private static func bundledSubrouterLastUsedDate(
+        for directory: URL,
+        fileManager: FileManager
+    ) -> Date? {
+        let marker = directory.appendingPathComponent(bundledSubrouterLastUsedMarker)
+        let path = fileManager.fileExists(atPath: marker.path) ? marker.path : directory.path
+        return (try? fileManager.attributesOfItem(atPath: path))?[.modificationDate] as? Date
     }
 
     /// Installs the bundled binary into `~/bin` as `subrouter` + `sr`
@@ -271,7 +323,9 @@ extension CMUXCLI {
         let allowedPrefixes = [
             "PATH", "HOME", "USER", "LOGNAME", "SHELL", "PWD", "OLDPWD",
             "TMPDIR", "TERM", "LANG", "LC_", "SUBROUTER_", "CODEX_",
-            "CLAUDE_", "ANTHROPIC_", "OPENAI_", "XDG_"
+            "CLAUDE_", "ANTHROPIC_", "OPENAI_", "XDG_",
+            "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+            "http_proxy", "https_proxy", "all_proxy", "no_proxy"
         ]
         return ProcessInfo.processInfo.environment.filter { key, _ in
             allowedPrefixes.contains { prefix in

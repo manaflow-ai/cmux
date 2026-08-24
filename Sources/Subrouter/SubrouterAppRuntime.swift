@@ -273,13 +273,6 @@ final class SubrouterAppRuntime {
         await task.value
     }
 
-    /// Fire-and-forget ``refreshServerSelectionAndApply()``.
-    private func refreshServerSelection() {
-        Task { @MainActor [weak self] in
-            await self?.refreshServerSelectionAndApply()
-        }
-    }
-
     private func startObservers() {
         let center = NotificationCenter.default
         observationTasks.append(Task { @MainActor [weak self] in
@@ -306,7 +299,11 @@ final class SubrouterAppRuntime {
                 // not a defaults key — re-read it (off-main) on activation
                 // so `sr server use` in a terminal is picked up when the
                 // user returns.
-                self.refreshServerSelection()
+                // Do not re-enable a visible surface until the off-main
+                // registry read has applied. Otherwise the first activation
+                // poll can briefly hit the daemon selected before `sr server
+                // use` was run in a terminal.
+                await self.refreshServerSelectionAndApply()
                 self.syncServerRegistryWatch()
                 self.syncAgentsPanelSurfaceVisibility()
                 self.syncFooterSurfaceVisibility()
