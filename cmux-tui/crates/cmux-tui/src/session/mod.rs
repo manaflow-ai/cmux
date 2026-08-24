@@ -55,6 +55,26 @@ pub enum Session {
     Remote(Arc<RemoteSession>),
 }
 
+/// Stable frontend boundary for session reads.
+///
+/// This is deliberately small: mutations and transport recovery remain on
+/// `Session` until their command and acknowledgement semantics are migrated.
+/// Both local and remote sessions therefore expose the same snapshot contract.
+pub(crate) trait SessionPort: Send + Sync {
+    fn snapshot(&self) -> TreeView;
+    fn agents(&self) -> Vec<AgentInfo>;
+}
+
+impl SessionPort for Session {
+    fn snapshot(&self) -> TreeView {
+        self.tree()
+    }
+
+    fn agents(&self) -> Vec<AgentInfo> {
+        self.agents_impl()
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct CreationReceipt {
     origin: String,
@@ -590,6 +610,17 @@ impl Session {
         }
     }
 
+    /// Whether this session's transport can still serve requests. A remote
+    /// session whose reader hit EOF (VM paused, stream ended, network died)
+    /// flips its shutdown flag; a warm connection pool must not hand such a
+    /// corpse back to a switch.
+    pub fn is_alive(&self) -> bool {
+        match self {
+            Session::Local(_) => true,
+            Session::Remote(remote) => !remote.is_shut_down(),
+        }
+    }
+
     pub fn journal_frontend_event(
         &self,
         event: cmux_tui_core::FrontendJournalEvent,
@@ -878,6 +909,10 @@ impl Session {
     }
 
     pub fn agents(&self) -> Vec<AgentInfo> {
+        <Self as SessionPort>::agents(self)
+    }
+
+    fn agents_impl(&self) -> Vec<AgentInfo> {
         match self {
             Session::Local(mux) => mux
                 .list_agents(None, None)
@@ -2958,6 +2993,28 @@ mod tests {
 
         let error = session.set_split_ratio(999_999, 0.5).unwrap_err();
         assert_eq!(error.to_string(), "unknown split 999999");
+    }
+
+    #[test]
+    fn session_port_snapshot_matches_existing_tree_read() {
+        let session =
+            Session::Local(Mux::new("session-port-snapshot-test", SurfaceOptions::default()));
+        let direct = session.tree();
+        let port: &dyn SessionPort = &session;
+        let snapshot = port.snapshot();
+        assert_eq!(snapshot.workspace_revision, direct.workspace_revision);
+        assert_eq!(snapshot.pane_revision, direct.pane_revision);
+        assert_eq!(snapshot.active_workspace, direct.active_workspace);
+        assert_eq!(snapshot.workspaces.len(), direct.workspaces.len());
+    }
+
+    #[test]
+    fn session_port_agents_matches_existing_agent_read() {
+        let session =
+            Session::Local(Mux::new("session-port-agents-test", SurfaceOptions::default()));
+        let direct = session.agents_impl();
+        let port: &dyn SessionPort = &session;
+        assert_eq!(port.agents(), direct);
     }
 
     #[test]
