@@ -4851,7 +4851,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertTrue(state.isHidden)
     }
 
-    func testPreferredScrollerStyleChangeRestoresOverlayScrollbarWidth() {
+    func testPreferredScrollerStyleChangePreservesSystemScrollbarStyle() {
         let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
 
@@ -4881,11 +4881,6 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             XCTFail("Expected hosted terminal scroll view")
             return
         }
-        guard let initialSurfaceSize = hostedView.debugPendingSurfaceSize() else {
-            XCTFail("Expected an initial terminal surface size")
-            return
-        }
-
         func assertPendingSurfaceWidth(
             _ expectedWidth: CGFloat,
             _ message: String,
@@ -4907,6 +4902,21 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             )
         }
 
+        // Start from the overlay style so the test is independent of the
+        // machine running it. The legacy transition below models the system
+        // preference changing to "Always".
+        XCTAssertEqual(
+            scrollView.scrollerStyle,
+            NSScroller.preferredScrollerStyle,
+            "The terminal scroll view should start with AppKit's preferred system style"
+        )
+        scrollView.scrollerStyle = .overlay
+        scrollView.layoutSubtreeIfNeeded()
+        hostedView.reconcileGeometryNow()
+        guard let initialSurfaceSize = hostedView.debugPendingSurfaceSize() else {
+            XCTFail("Expected an initial terminal surface size")
+            return
+        }
         let initialContentWidth = scrollView.contentSize.width
         XCTAssertEqual(initialSurfaceSize.width, initialContentWidth, accuracy: 0.5)
 
@@ -4920,24 +4930,62 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
 
         NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(
+            waitUntil(description: "legacy terminal scrollbar geometry") {
+                scrollView.scrollerStyle == .legacy &&
+                    hostedView.debugPendingSurfaceSize().map {
+                        abs($0.width - legacyContentWidth) <= 0.5
+                    } == true
+            }
+        )
 
-        let restoredContentWidth = scrollView.contentSize.width
-        XCTAssertEqual(scrollView.scrollerStyle, .overlay)
+        let preservedLegacyContentWidth = scrollView.contentSize.width
+        XCTAssertEqual(scrollView.scrollerStyle, .legacy)
         XCTAssertGreaterThanOrEqual(
-            restoredContentWidth,
-            legacyContentWidth,
-            "Preferred scroller style changes should not shrink terminal content when overlay scrollbars return"
+            initialContentWidth,
+            preservedLegacyContentWidth,
+            "A legacy scrollbar should reserve width in the scroll view content area"
         )
         XCTAssertEqual(
-            restoredContentWidth,
-            initialContentWidth,
+            preservedLegacyContentWidth,
+            legacyContentWidth,
             accuracy: 0.5,
-            "Preferred scroller style changes should restore Ghostty's overlay scrollbar behavior so terminal content is not occluded by a persistent gutter"
+            "Preferred scroller style changes should preserve the system's legacy scrollbar choice"
         )
         assertPendingSurfaceWidth(
-            restoredContentWidth,
-            "Preferred scroller style changes should restore the wider terminal grid when overlay scrollbars return"
+            preservedLegacyContentWidth,
+            "Preferred scroller style changes should resize the terminal grid for a legacy scrollbar"
+        )
+
+        scrollView.scrollerStyle = .overlay
+        scrollView.layoutSubtreeIfNeeded()
+        let overlayContentWidth = scrollView.contentSize.width
+        XCTAssertGreaterThanOrEqual(
+            overlayContentWidth,
+            preservedLegacyContentWidth,
+            "Overlay scrollbars should restore the full terminal content width"
+        )
+        XCTAssertEqual(
+            overlayContentWidth,
+            initialContentWidth,
+            accuracy: 0.5,
+            "Overlay scrollbars should restore the full terminal content width"
+        )
+
+        NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+        XCTAssertTrue(
+            waitUntil(description: "overlay terminal scrollbar geometry") {
+                scrollView.scrollerStyle == .overlay &&
+                    hostedView.debugPendingSurfaceSize().map {
+                        abs($0.width - overlayContentWidth) <= 0.5
+                    } == true
+            }
+        )
+
+        XCTAssertEqual(scrollView.scrollerStyle, .overlay)
+        assertPendingSurfaceWidth(
+            overlayContentWidth,
+            "Preferred scroller style changes should preserve the system's overlay scrollbar choice"
         )
     }
 
