@@ -92,7 +92,7 @@ struct AppDelegateRenameShortcutContextTests {
         }
     }
 
-    @Test func defaultCmdShiftRRequestsRenameWorkspaceOnlyWhenBrowserNotFocused() throws {
+    @Test func defaultCmdOptionRRequestsRenameWorkspace() throws {
         try withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
 
@@ -120,15 +120,15 @@ struct AppDelegateRenameShortcutContextTests {
             }
             defer { NotificationCenter.default.removeObserver(renameTabToken) }
 
-            let cmdShiftR = try #require(makeKeyDownEvent(
+            let cmdOptionR = try #require(makeKeyDownEvent(
                 key: "r",
-                modifiers: [.command, .shift],
+                modifiers: [.command, .option],
                 keyCode: 15,
                 windowNumber: window.windowNumber
             ))
 
 #if DEBUG
-            #expect(appDelegate.debugHandleCustomShortcut(event: cmdShiftR))
+            #expect(appDelegate.debugHandleCustomShortcut(event: cmdOptionR))
 #else
             Issue.record("debugHandleCustomShortcut is only available in DEBUG")
 #endif
@@ -241,6 +241,59 @@ struct AppDelegateRenameShortcutContextTests {
 
             #expect(!renameWorkspacePosted.wasPosted)
             #expect(hardReloadPosted.wasPosted)
+        }
+    }
+
+    @Test func focusedBrowserCmdOptionRRequestsRenameWorkspace() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let browserPanelId = try #require(manager.openBrowser(inWorkspace: workspace.id))
+            let browserPanel = try #require(workspace.browserPanel(for: browserPanelId))
+
+            #expect(manager.focusedBrowserPanel != nil)
+
+            let renameWorkspacePosted = ShortcutNotificationFlag()
+            let renameWorkspaceToken = NotificationCenter.default.addObserver(
+                forName: .commandPaletteRenameWorkspaceRequested,
+                object: nil,
+                queue: nil
+            ) { _ in
+                renameWorkspacePosted.markPosted()
+            }
+            defer { NotificationCenter.default.removeObserver(renameWorkspaceToken) }
+
+            let hardReloadPosted = ShortcutNotificationFlag()
+            let hardReloadToken = NotificationCenter.default.addObserver(
+                forName: .debugBrowserHardReloadShortcutInvoked,
+                object: browserPanel,
+                queue: nil
+            ) { _ in
+                hardReloadPosted.markPosted()
+            }
+            defer { NotificationCenter.default.removeObserver(hardReloadToken) }
+
+            let event = try #require(makeKeyDownEvent(
+                key: "r",
+                modifiers: [.command, .option],
+                keyCode: 15,
+                windowNumber: window.windowNumber
+            ))
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            #expect(renameWorkspacePosted.wasPosted)
+            #expect(!hardReloadPosted.wasPosted)
         }
     }
 

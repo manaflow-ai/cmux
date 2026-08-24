@@ -146,8 +146,27 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
-    func testRenameWorkspaceIsScopedOutsideBrowserPanels() {
-        XCTAssertEqual(KeyboardShortcutSettings.Action.renameWorkspace.shortcutContext, .nonBrowserPanel)
+    func testRenameWorkspaceIsAvailableAcrossPanels() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.renameWorkspace.shortcutContext, .application)
+    }
+
+    func testRenameWorkspaceDefaultIsDistinctFromBrowserHardReload() {
+        let renameWorkspace = KeyboardShortcutSettings.Action.renameWorkspace.defaultShortcut
+        let browserHardReload = KeyboardShortcutSettings.Action.browserHardReload.defaultShortcut
+
+        XCTAssertEqual(renameWorkspace, StoredShortcut(key: "r", command: true, shift: false, option: true, control: false))
+        XCTAssertEqual(
+            ShortcutAction.renameWorkspace.defaultStroke,
+            ShortcutStroke(key: "r", command: true, option: true)
+        )
+        XCTAssertNotEqual(renameWorkspace, browserHardReload)
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.renameWorkspace.conflicts(
+                with: browserHardReload,
+                proposedAction: .browserHardReload,
+                configuredShortcut: browserHardReload
+            )
+        )
     }
 
     func testShowNotificationsStaysGenerallyAvailableForCustomBrowserBindings() {
