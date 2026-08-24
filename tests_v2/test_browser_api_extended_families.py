@@ -276,7 +276,37 @@ def main() -> int:
             got_cookie = c._call("browser.cookies.get", {"surface_id": sid, "name": "cmux_cookie"}) or {}
             cookies = got_cookie.get("cookies") or []
             _must(any(str(row.get("name")) == "cmux_cookie" for row in cookies), f"Expected cmux_cookie in cookies.get: {got_cookie}")
+
+            http_only_name = "cmux_cookie_http_only"
+            c._call(
+                "browser.cookies.set",
+                {
+                    "surface_id": sid,
+                    "name": http_only_name,
+                    "value": "secret_cookie_value",
+                    "url": index_url,
+                    "httpOnly": True,
+                },
+            )
+            got_http_only = c._call("browser.cookies.get", {"surface_id": sid, "name": http_only_name}) or {}
+            http_only_rows = got_http_only.get("cookies") or []
+            http_only_row = next(
+                (row for row in http_only_rows if str(row.get("name")) == http_only_name),
+                None,
+            )
+            _must(http_only_row is not None, f"Expected HttpOnly cookie in cookies.get: {got_http_only}")
+            _must(bool(http_only_row.get("httpOnly")) is True, f"Expected httpOnly=true in cookies.get: {got_http_only}")
+            document_cookie = c._call(
+                "browser.eval",
+                {"surface_id": sid, "script": "document.cookie"},
+            ) or {}
+            _must(
+                http_only_name not in str(document_cookie.get("value") or ""),
+                f"HttpOnly cookie leaked to document.cookie: {document_cookie}",
+            )
+
             c._call("browser.cookies.clear", {"surface_id": sid, "name": "cmux_cookie"})
+            c._call("browser.cookies.clear", {"surface_id": sid, "name": http_only_name})
             got_after_clear = c._call("browser.cookies.get", {"surface_id": sid, "name": "cmux_cookie"}) or {}
             _must(len(got_after_clear.get("cookies") or []) == 0, f"Expected cookie cleared: {got_after_clear}")
 

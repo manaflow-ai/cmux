@@ -10265,42 +10265,39 @@ class TerminalController {
     }
 
     private nonisolated func v2BrowserCookieFromObject(_ raw: [String: Any], fallbackURL: URL?) -> HTTPCookie? {
-        var props: [HTTPCookiePropertyKey: Any] = [:]
-        if let name = raw["name"] as? String {
-            props[.name] = name
-        }
-        if let value = raw["value"] as? String {
-            props[.value] = value
+        guard let name = raw["name"] as? String,
+              let value = raw["value"] as? String else {
+            return nil
         }
 
-        if let urlStr = raw["url"] as? String, let url = URL(string: urlStr) {
-            props[.originURL] = url
-        } else if let fallbackURL {
-            props[.originURL] = fallbackURL
-        }
-
-        if let domain = raw["domain"] as? String {
-            props[.domain] = domain
-        } else if let host = fallbackURL?.host {
-            props[.domain] = host
-        }
-
-        if let path = raw["path"] as? String {
-            props[.path] = path
+        let originURL: URL?
+        if let urlString = raw["url"] as? String, let url = URL(string: urlString) {
+            originURL = url
         } else {
-            props[.path] = "/"
+            originURL = fallbackURL
         }
-
-        if let secure = raw["secure"] as? Bool, secure {
-            props[.secure] = "TRUE"
-        }
+        let domain = (raw["domain"] as? String) ?? originURL?.host
+        let path = (raw["path"] as? String) ?? "/"
+        let secure = (raw["secure"] as? Bool) ?? false
+        let expires: Date?
         if let expires = raw["expires"] as? TimeInterval {
-            props[.expires] = Date(timeIntervalSince1970: expires)
+            expires = Date(timeIntervalSince1970: expires)
         } else if let expiresInt = raw["expires"] as? Int {
-            props[.expires] = Date(timeIntervalSince1970: TimeInterval(expiresInt))
+            expires = Date(timeIntervalSince1970: TimeInterval(expiresInt))
+        } else {
+            expires = nil
         }
 
-        return HTTPCookie(properties: props)
+        return BrowserCookieBuilder().makeCookie(
+            name: name,
+            value: value,
+            originURL: originURL,
+            domain: domain,
+            path: path,
+            secure: secure,
+            expires: expires,
+            httpOnly: (raw["httpOnly"] as? Bool) ?? false
+        )
     }
 
     private nonisolated func v2BrowserCookiesGet(params: [String: Any]) -> V2CallResult {
