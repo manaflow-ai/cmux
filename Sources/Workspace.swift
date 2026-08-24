@@ -2858,6 +2858,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         logEntries.removeAll { $0.source == "remote" }
         statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
         remoteLastErrorFingerprint = nil
+        if let key = remoteNotificationCooldownKey(target: remoteDisplayTarget ?? "") {
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, correlationKey: key)
+        }
     }
 
     private func remoteNotificationCooldownKey(target: String) -> String? {
