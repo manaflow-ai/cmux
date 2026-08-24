@@ -63,6 +63,17 @@ private struct ComputerVisibilityRow: View {
             )
         }
         .padding(.vertical, item.isVisible ? 0 : 4)
+        // A toggle that moves a row across sections (Computers screen) is a
+        // remove+insert of two row copies: identity carries a Toggle through a
+        // model update only within one ForEach. Sequencing the fades (outgoing
+        // copy gone before the incoming copy appears) keeps the two switches
+        // from blending into one malformed half-on ghost. Within a single
+        // ForEach (disconnected shell) toggles reorder in place, so this
+        // transition never fires there.
+        .transition(.asymmetric(
+            insertion: .opacity.animation(.easeIn(duration: 0.15).delay(0.25)),
+            removal: .opacity.animation(.easeOut(duration: 0.12))
+        ))
     }
 
     @ViewBuilder
