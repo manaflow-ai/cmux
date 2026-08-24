@@ -1269,13 +1269,21 @@ async fn execute(
         ));
     }
     let timeout_ms = clamp_i64(request.timeout_ms, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS);
-    let deadline = std::time::Duration::from_millis(timeout_ms.unsigned_abs());
-    match tokio::time::timeout(deadline, run_op(runtime, request, permit)).await {
-        Ok(outcome) => outcome,
-        Err(_) => Err(Refusal::new(
+    // `run_op` may contain spawn_blocking work. Tokio cannot abort a started
+    // blocking task when a timeout future is dropped, so returning early would
+    // report a destructive operation as timed out while it keeps running.
+    // Await completion first, then classify the elapsed duration. This keeps
+    // the timeout an honest response-time diagnostic and preserves operation
+    // ordering and permit ownership.
+    let started = std::time::Instant::now();
+    let outcome = run_op(runtime, request, permit).await;
+    if started.elapsed() > std::time::Duration::from_millis(timeout_ms.unsigned_abs()) {
+        Err(Refusal::new(
             wire::WorkspaceErrorCode::Timeout,
             format!("workspace op exceeded {timeout_ms}ms"),
-        )),
+        ))
+    } else {
+        outcome
     }
 }
 
