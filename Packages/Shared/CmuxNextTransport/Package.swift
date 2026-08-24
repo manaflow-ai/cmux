@@ -9,17 +9,20 @@ import PackageDescription
 // Consumed behind the dev-only next-transport gate until E1 clears.
 let package = Package(
     name: "CmuxNextTransport",
-    platforms: [.macOS(.v14), .iOS(.v17)],
+    platforms: [.macOS(.v14), .iOS("17.5")],
     products: [
         .library(name: "CmuxNextTransport", targets: ["CmuxNextTransport"])
     ],
     dependencies: [
-        // The fork-lineage release with the credential-handoff machinery
-        // (v1.0.2-cmux.8); the cmux-lite BRANCH artifact is stock upstream
-        // and must never be used here (manaflow-ai/iroh-ffi#10).
+        // Fork-lineage release WITH the credential-handoff machinery, and
+        // the same exact pin CmuxIrohTransport uses (SwiftPM unifies one
+        // iroh-ffi per graph). v1.0.2-cmux.7's artifact is fork-built —
+        // verified by binary strings; only the cmux-lite BRANCH consumed
+        // stock upstream (manaflow-ai/iroh-ffi#10). The lab pins
+        // v1.0.2-cmux.8 (same sources, rebuilt artifact).
         .package(
             url: "https://github.com/manaflow-ai/iroh-ffi.git",
-            revision: "17df7b7640377f3e21ef97a8a3349900587edc9a")
+            exact: "1.0.2-cmux.7")
     ],
     targets: [
         .target(
