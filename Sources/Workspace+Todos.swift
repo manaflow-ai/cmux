@@ -120,7 +120,7 @@ extension Workspace {
                 dispatchTarget: dispatchTarget,
                 boundWorkspaceID: boundWorkspaceID,
                 boundAgent: boundAgent,
-                lastActivityAt: lastActivityAt
+                lastActivityAt: lastActivityAt ?? Date()
             )
         }
     }

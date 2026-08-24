@@ -136,6 +136,8 @@ private struct WorkspaceTaskQueueRowView: View {
         }
         .padding(.vertical, 6)
         .background(isSelected ? Color.accentColor.opacity(0.1) : .clear)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
     }
 
     private func symbol(for state: String) -> String {

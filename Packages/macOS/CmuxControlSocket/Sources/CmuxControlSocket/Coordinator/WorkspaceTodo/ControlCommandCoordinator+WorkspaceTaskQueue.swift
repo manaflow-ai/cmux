@@ -5,13 +5,14 @@ internal import Foundation
 extension ControlCommandCoordinator {
     func handleWorkspaceTaskQueue(_ request: ControlRequest) -> ControlCallResult? {
         switch request.method {
-        case "workspace.todo.queue.list", "workspace.todo.queue.refresh":
+        case "workspace.todo.queue.list", "workspace.todo.queue.refresh",
+             "todo.queue.list", "todo.queue.refresh":
             return workspaceTaskQueueList(request.params)
-        case "workspace.todo.queue.dispatch":
+        case "workspace.todo.queue.dispatch", "todo.queue.dispatch":
             return workspaceTaskQueueDispatch(request.params)
-        case "workspace.todo.queue.reveal":
+        case "workspace.todo.queue.reveal", "todo.queue.reveal":
             return workspaceTaskQueueReveal(request.params)
-        case "workspace.todo.queue.target":
+        case "workspace.todo.queue.target", "todo.queue.target":
             return workspaceTaskQueueSetTarget(request.params)
         default:
             return nil

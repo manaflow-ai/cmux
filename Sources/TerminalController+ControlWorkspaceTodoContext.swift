@@ -516,6 +516,7 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
               !target.agentCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .notDispatchable
         }
+        guard item.boundWorkspaceID == nil else { return .notDispatchable }
         var params: [String: Any] = [
             "focus": false,
             "initial_command": target.agentCommand,
@@ -642,7 +643,7 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
             workspaceID: displayedWorkspace.id,
             workspaceTitle: displayedWorkspace.title,
             windowID: displayedWindowID,
-            owningAgent: item.boundAgent ?? item.agentTaskRef?.workstreamId,
+            owningAgent: item.boundAgent ?? item.agentTaskRef?.workstreamId ?? item.dispatchTarget?.agentName,
             lastActivityAt: item.lastActivityAt,
             targetWorkingDirectory: item.dispatchTarget?.workingDirectory,
             targetAgentCommand: item.dispatchTarget?.agentCommand,

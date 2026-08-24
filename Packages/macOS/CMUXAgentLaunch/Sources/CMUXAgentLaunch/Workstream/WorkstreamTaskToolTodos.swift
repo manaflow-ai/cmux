@@ -16,7 +16,7 @@ struct WorkstreamTaskToolTodos: Sendable {
     private var todos: [WorkstreamTaskTodo] = []
     private var ownedIDsInOrder: [String] = []
     private var ownedIdSet: Set<String> = []
-    private var provisionalIDsBySubject: [String: String] = [:]
+    private var provisionalIDsBySubject: [String: [String]] = [:]
     private var provisionalIDsInOrder: [String] = []
     private var nextProvisionalID = 0
 
@@ -69,7 +69,7 @@ struct WorkstreamTaskToolTodos: Sendable {
         let response = object(from: responseJSON)
         let result = (response?["task"] as? [String: Any]) ?? response
         if isError || response?["success"] as? Bool == false {
-            if tool == .taskCreate, let subject = content(in: input), let provisional = provisionalIDsBySubject.removeValue(forKey: subject) {
+            if tool == .taskCreate, let subject = content(in: input), let provisional = popProvisionalID(for: subject) {
                 todos.removeAll { $0.id == provisional }
                 provisionalIDsInOrder.removeAll { $0 == provisional }
             }
@@ -84,7 +84,7 @@ struct WorkstreamTaskToolTodos: Sendable {
         case .taskCreate:
             guard let authoritativeID = taskID(in: result),
                   let subject = content(in: result) ?? content(in: input) else { return .ignored }
-            let provisional = provisionalIDsBySubject.removeValue(forKey: subject)
+            let provisional = popProvisionalID(for: subject)
             if let provisional, provisional != authoritativeID {
                 todos.removeAll { $0.id == provisional }
             }
@@ -145,9 +145,7 @@ struct WorkstreamTaskToolTodos: Sendable {
                 )
                 todos[provisionalIndex] = updated
                 provisionalIDsInOrder[ordinal - 1] = id
-                provisionalIDsBySubject = provisionalIDsBySubject.reduce(into: [:]) { result, pair in
-                    result[pair.key] = pair.value == provisional ? id : pair.value
-                }
+                replaceProvisionalReference(from: provisional, to: id)
                 claim(id)
                 return .list(todos)
             }
@@ -191,12 +189,32 @@ struct WorkstreamTaskToolTodos: Sendable {
     }
 
     private mutating func provisionalID(for subject: String) -> String {
-        if let existing = provisionalIDsBySubject[subject] { return existing }
         nextProvisionalID += 1
         let id = "pending-" + String(nextProvisionalID)
-        provisionalIDsBySubject[subject] = id
+        provisionalIDsBySubject[subject, default: []].append(id)
         provisionalIDsInOrder.append(id)
         return id
+    }
+
+    private mutating func popProvisionalID(for subject: String) -> String? {
+        guard var ids = provisionalIDsBySubject[subject], !ids.isEmpty else { return nil }
+        let id = ids.removeFirst()
+        if ids.isEmpty {
+            provisionalIDsBySubject.removeValue(forKey: subject)
+        } else {
+            provisionalIDsBySubject[subject] = ids
+        }
+        return id
+    }
+
+    private mutating func replaceProvisionalReference(from oldID: String, to newID: String) {
+        for subject in Array(provisionalIDsBySubject.keys) {
+            guard var ids = provisionalIDsBySubject[subject],
+                  let index = ids.firstIndex(of: oldID) else { continue }
+            ids[index] = newID
+            provisionalIDsBySubject[subject] = ids
+            return
+        }
     }
 
     private mutating func adoptProvisionalIDIfNeeded(_ id: String) -> String {
@@ -210,9 +228,7 @@ struct WorkstreamTaskToolTodos: Sendable {
         let current = todos[index]
         todos[index] = WorkstreamTaskTodo(id: id, content: current.content, state: current.state)
         provisionalIDsInOrder[ordinal - 1] = id
-        provisionalIDsBySubject = provisionalIDsBySubject.reduce(into: [:]) { result, pair in
-            result[pair.key] = pair.value == provisional ? id : pair.value
-        }
+        replaceProvisionalReference(from: provisional, to: id)
         claim(id)
         return id
     }
