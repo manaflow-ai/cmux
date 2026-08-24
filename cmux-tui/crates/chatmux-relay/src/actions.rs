@@ -107,7 +107,7 @@ fn has_encoded_path_syntax(value: &str) -> bool {
     ["%00", "%25", "%2e", "%2f", "%5c"].iter().any(|needle| lower.contains(needle))
 }
 
-pub(crate) fn validate_request_path(value: &str) -> Result<(), String> {
+pub fn validate_request_path(value: &str) -> Result<(), String> {
     if value.len() > MAX_PATH_CHARS {
         return Err(format!("path exceeds {MAX_PATH_CHARS} characters"));
     }

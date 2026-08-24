@@ -622,7 +622,7 @@ async fn main() {
     } else {
         match load_config_checked(&runtime.config_path) {
             Ok(config) => config,
-            Err(error) => fatal_exit(&error),
+            Err(error) => fatal_exit(&RelayError::fatal(error)),
         }
     };
     let first_run = existing.is_none();
