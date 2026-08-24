@@ -107,7 +107,7 @@ class FakeTransport implements Transport {
 
   ok(request: Envelope, result: unknown): void {
     this.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "response",
       id: request.id,
       ok: true,
@@ -123,7 +123,7 @@ class FakeTransport implements Transport {
       const stream = (request.params as Envelope | undefined)?.stream;
       if (typeof stream === "string") {
         this.emit({
-          protocol: "cmux.protocol/1",
+          protocol: "cmux.protocol/2",
           type: "stream_end",
           stream_id: stream,
           reason: "canceled",
@@ -246,6 +246,76 @@ async function waitForOperation(
     await new Promise<void>((resolve) => setTimeout(resolve, 1));
   }
 }
+
+test("journal options reject invalid combinations before transport", () => {
+  const transport = new FakeTransport(() => {
+    assert.fail("invalid journal options reached the transport");
+  });
+  const client = new Client({ transport });
+  const session = client.session(SESSION);
+
+  assert.throws(
+    () => void session.journal({
+      cursor: { generation: String(SESSION), revision: decimalString("1") },
+      start: "tail",
+    }),
+    /mutually exclusive/,
+  );
+  assert.throws(
+    () => void session.journal({ subjects: [{}] }),
+    /require kind or id/,
+  );
+  assert.throws(
+    () => void session.journal({ regex: { pattern: "" } }),
+    /1 to 1024 UTF-8 bytes/,
+  );
+  assert.equal(transport.requests.length, 0);
+  client.close();
+});
+
+test("journal records must match their envelope cursor", async () => {
+  let streamId = "";
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation !== "session.journal.subscribe") return;
+    streamId = (request.params as Envelope).stream_id as string;
+    current.ok(request, { stream_id: streamId });
+  });
+  const client = new Client({ transport });
+  const stream = await client.session(SESSION).journal();
+  const next = stream.next();
+  transport.emit({
+    protocol: "cmux.protocol/2",
+    type: "stream_item",
+    stream_id: streamId,
+    sequence: "1",
+    cursor: { generation: String(SESSION), revision: "1" },
+    item: {
+      sequence: "2",
+      event_id: "event_mismatched_cursor",
+      schema_version: 1,
+      kind: "agent.turn.completed",
+      class: "observation",
+      replay: "advisory",
+      occurred_at_ms: "1",
+      committed_at_ms: "2",
+      producer: { kind: "agent_adapter", id: "cmux_agents" },
+      authority: null,
+      causation_id: null,
+      correlation_id: null,
+      causation_depth: 0,
+      subjects: [],
+      sensitivity: "metadata",
+      payload: {},
+      resource_revision: null,
+      previous_resource_revision: null,
+    },
+  });
+  await assert.rejects(
+    () => next,
+    /journal sequence must match its stream cursor/,
+  );
+  client.close();
+});
 
 test("resource protocol releases cancellation handles at dispatch", async () => {
   for (const synchronous of [true, false]) {
@@ -420,6 +490,63 @@ test("resource root, raw boundary, exact commands, and idempotency keys", async 
   client.close();
 });
 
+test("terminal project returns the new tab on its destination route", async () => {
+  const projectedTab = tabId(`tab_${HEX_C}`);
+  const transport = new FakeTransport((request, current) => {
+    const tab = {
+      id: projectedTab,
+      pane_id: PANE,
+      name: "mirror",
+      index: 2,
+      focused: false,
+      content_kind: "terminal",
+      content_id: TERMINAL,
+    };
+    current.ok(request, request.operation === "terminal.project" ? {
+      value: {
+        ...tab,
+      },
+      generation: "generation-a",
+      revision: "7",
+      replayed: false,
+    } : tab);
+  });
+  const client = new Client({ transport });
+  const projected = await client.session(SESSION).terminal(TERMINAL).project(
+    {
+      workspace: WORKSPACE,
+      screen: SCREEN,
+      pane: PANE,
+      index: 2,
+      name: "mirror",
+    },
+    { idempotencyKey: "project-terminal" },
+  );
+
+  assert.equal(projected.value.snapshot?.id, projectedTab);
+  assert.equal(projected.value.snapshot?.contentId, TERMINAL);
+  await projected.value.refresh();
+  assert.deepEqual(transport.requests[0]?.params, {
+    machine: "current",
+    session: SESSION,
+    terminal: TERMINAL,
+    destination_workspace: WORKSPACE,
+    destination_screen: SCREEN,
+    destination_pane: PANE,
+    index: 2,
+    name: "mirror",
+  });
+  assert.deepEqual(transport.requests[1]?.params, {
+    machine: "current",
+    session: SESSION,
+    workspace: WORKSPACE,
+    screen: SCREEN,
+    pane: PANE,
+    tab: projectedTab,
+  });
+  client.close();
+});
+
 test("request token bounds count UTF-8 bytes at every public boundary", async () => {
   assert.equal(Buffer.byteLength(UTF8_128, "utf8"), 128);
   assert.equal(Buffer.byteLength(UTF8_129, "utf8"), 129);
@@ -427,7 +554,7 @@ test("request token bounds count UTF-8 bytes at every public boundary", async ()
 
   const transport = new FakeTransport((request, current) => {
     current.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "response",
       id: request.id,
       ok: false,
@@ -488,7 +615,7 @@ test("request token bounds count UTF-8 bytes at every public boundary", async ()
 test("idempotency keys require a non-whitespace scalar and reject controls", async () => {
   const transport = new FakeTransport((request, current) => {
     current.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "response",
       id: request.id,
       ok: false,
@@ -523,6 +650,9 @@ test("created paths are strict runtime variants and fixed operations reject mism
   const transport = new FakeTransport((request, current) => {
     const params = request.params as Envelope;
     if (request.operation === "workspace.create") {
+      if (params.initial_content === "empty") {
+        assert.equal(params.expected_revision, "16");
+      }
       const value = params.initial_content === "empty"
         ? {
           kind: "workspace",
@@ -579,6 +709,8 @@ test("created paths are strict runtime variants and fixed operations reject mism
 
   const empty = await session.createWorkspace({
     initialContent: "empty",
+  }, {
+    expectedRevision: decimalString("16"),
   });
   assert.equal(empty.value.kind, "workspace");
   assert.deepEqual(Object.keys(empty.value), ["kind", "workspace"]);
@@ -612,7 +744,7 @@ test("created paths are strict runtime variants and fixed operations reject mism
 test("structured errors preserve fields", async () => {
   const transport = new FakeTransport((request, current) => {
     current.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "response",
       id: request.id,
       ok: false,
@@ -694,7 +826,7 @@ test("optional fields and expected revisions reach the wire", async () => {
       return;
     }
     current.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "response",
       id: request.id,
       ok: false,
@@ -727,6 +859,15 @@ test("optional fields and expected revisions reach the wire", async () => {
       expectedRevision: decimalString("8"),
       idempotencyKey: "screen-undo",
     }),
+    ResourceError,
+  );
+  await assert.rejects(
+    () => client.session(SESSION).workspace(WORKSPACE).screen(SCREEN).pane(PANE).split(
+      {
+        direction: "right",
+        viewportWidth: 0.5,
+      },
+    ),
     ResourceError,
   );
   const session = client.session(SESSION);
@@ -771,6 +912,10 @@ test("optional fields and expected revisions reach the wire", async () => {
     (request("screen.layout.undo").params as Envelope).confirmation_token,
     "undo-preview-token",
   );
+  assert.equal(
+    (request("pane.split").params as Envelope).viewport_width,
+    0.5,
+  );
   assert.equal((request("notification.list").params as Envelope).limit, 7);
   assert.equal(
     (request("agent.list").params as Envelope).terminal_id,
@@ -797,7 +942,7 @@ test("optional fields and expected revisions reach the wire", async () => {
 test("indeterminate mutations are typed and never retried", async () => {
   const transport = new FakeTransport((request, current) => {
     current.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "response",
       id: request.id,
       ok: false,
@@ -837,7 +982,7 @@ test("indeterminate mutations are typed and never retried", async () => {
 test("confirmation errors expose typed preview details", async () => {
   const transport = new FakeTransport((request, current) => {
     current.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "response",
       id: request.id,
       ok: false,
@@ -872,7 +1017,7 @@ test("structured error token bounds use UTF-8 bytes", async () => {
   const confirmation = async (token: string): Promise<void> => {
     const transport = new FakeTransport((request, current) => {
       current.emit({
-        protocol: "cmux.protocol/1",
+        protocol: "cmux.protocol/2",
         type: "response",
         id: request.id,
         ok: false,
@@ -906,7 +1051,7 @@ test("structured error token bounds use UTF-8 bytes", async () => {
   const indeterminate = async (idempotencyKey: string): Promise<void> => {
     const transport = new FakeTransport((request, current) => {
       current.emit({
-        protocol: "cmux.protocol/1",
+        protocol: "cmux.protocol/2",
         type: "response",
         id: request.id,
         ok: false,
@@ -1048,7 +1193,7 @@ test("request and stream receive bounds are operation-scoped", async () => {
     CmuxTimeoutError,
   );
   transport.emit({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "stream_item",
     stream_id: openedStream,
     sequence: "0",
@@ -1061,7 +1206,7 @@ test("request and stream receive bounds are operation-scoped", async () => {
   abort.abort();
   await assert.rejects(() => pending, CmuxAbortError);
   transport.emit({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "stream_item",
     stream_id: openedStream,
     sequence: "1",
@@ -1105,7 +1250,7 @@ test("stream completion detaches its open AbortSignal listener", async () => {
   assert.equal(listeners.size, 1);
 
   transport.emit({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "stream_end",
     stream_id: openedStream,
     reason: "closed",
@@ -1410,7 +1555,7 @@ test("unconfirmed terminal wait cancellation fail-closes without masking abort",
           (candidate) => candidate.operation === "terminal.wait",
         )!;
         current.emit({
-          protocol: "cmux.protocol/1",
+          protocol: "cmux.protocol/2",
           type: "response",
           id: target.id,
           ok: true,
@@ -1466,7 +1611,7 @@ test("auxiliary resource discriminants select their decoder and preserve extra f
   const stream = await client.session(SESSION).events();
 
   transport.emit({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "stream_item",
     stream_id: openedStream,
     sequence: "1",
@@ -1532,7 +1677,11 @@ test("auxiliary resource discriminants select their decoder and preserve extra f
           value: {
             id: PROJECTION,
             session_id: SESSION,
+            frontend_id: "swift",
+            window_id: "window-a",
+            generation: "launch-a",
             projection: { kind: "tree", tabs: 2 },
+            projection_revision: "1",
             extra: { source: "sidebar" },
           },
         },
@@ -1601,7 +1750,7 @@ test("auxiliary resource discriminants select their decoder and preserve extra f
   ]);
 
   transport.emit({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "stream_item",
     stream_id: openedStream,
     sequence: "2",
@@ -1640,7 +1789,10 @@ test("browser frames expose the exact pointer token used by mouse and wheel", as
   const transport = new FakeTransport((request, current) => {
     if (request.operation === "browser.attach") {
       openedStream = (request.params as Envelope).stream_id as string;
-      current.ok(request, { stream_id: openedStream });
+      current.ok(request, {
+        stream_id: openedStream,
+        attachment_lease: "browser-lease",
+      });
       return;
     }
     current.ok(request, {
@@ -1659,7 +1811,7 @@ test("browser frames expose the exact pointer token used by mouse and wheel", as
   const pointerFrameSeq = decimalString("18446744073709551615");
 
   transport.emit({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "stream_item",
     stream_id: openedStream,
     sequence: "1",
@@ -1680,7 +1832,7 @@ test("browser frames expose the exact pointer token used by mouse and wheel", as
   assert.equal(frame.value.value.pointerFrameSeq, pointerFrameSeq);
 
   transport.emit({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "stream_item",
     stream_id: openedStream,
     sequence: "2",
@@ -1773,7 +1925,10 @@ test("browser frames reject a missing or non-string pointer token", async () => 
     let openedStream = "";
     const transport = new FakeTransport((request, current) => {
       openedStream = (request.params as Envelope).stream_id as string;
-      current.ok(request, { stream_id: openedStream });
+      current.ok(request, {
+        stream_id: openedStream,
+        attachment_lease: "browser-lease",
+      });
     });
     const client = new Client({
       transport,
@@ -1781,7 +1936,7 @@ test("browser frames reject a missing or non-string pointer token", async () => 
     });
     const stream = await client.session(SESSION).browser(BROWSER).attach();
     transport.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "stream_item",
       stream_id: openedStream,
       sequence: "1",
@@ -1825,7 +1980,7 @@ test("terminal snapshots expose lifecycle and durable exit details", async () =>
     refreshes += 1;
     const base = {
       id: TERMINAL,
-      tab_id: TAB,
+      tab_ids: [TAB],
       title: "job",
       cols: 80,
       rows: 24,
@@ -1865,6 +2020,48 @@ test("terminal snapshots expose lifecycle and durable exit details", async () =>
   });
 
   await assert.rejects(() => terminal.refresh(), /running must be true exactly/);
+  client.close();
+});
+
+test("terminal snapshots accept the protocol-one tab_id alias", async () => {
+  let refreshes = 0;
+  const transport = new FakeTransport((request, current) => {
+    const value: Record<string, unknown> = {
+      id: TERMINAL,
+      title: "legacy",
+      cols: 80,
+      rows: 24,
+      running: true,
+      lifecycle: "running",
+    };
+    if (refreshes === 0) {
+      value.tab_id = TAB;
+    } else if (refreshes === 1) {
+      value.tab_id = null;
+    } else if (refreshes === 2) {
+      value.tab_id = TAB;
+      value.tab_ids = [TAB];
+    } else if (refreshes === 4) {
+      value.tab_id = TAB;
+      value.tab_ids = [];
+    }
+    refreshes += 1;
+    current.ok(request, value);
+  });
+  const client = new Client({ transport });
+  const terminal = client.session(SESSION).terminal(TERMINAL);
+
+  assert.deepEqual((await terminal.refresh()).tabIds, [TAB]);
+  assert.deepEqual((await terminal.refresh()).tabIds, []);
+  assert.deepEqual((await terminal.refresh()).tabIds, [TAB]);
+  await assert.rejects(
+    () => terminal.refresh(),
+    /requires tab_ids or tab_id/,
+  );
+  await assert.rejects(
+    () => terminal.refresh(),
+    /tab_id must be the first tab_ids item/,
+  );
   client.close();
 });
 
@@ -2204,7 +2401,7 @@ test("stream cancellation uses the opened route and purges buffered items", asyn
   const stream = await client.session(SESSION).events();
   for (let index = 0; index < 2; index += 1) {
     transport.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "stream_item",
       stream_id: openedStream,
       sequence: String(index),
@@ -2255,7 +2452,7 @@ test("public cancel discards stale items and shares one route cleanup", async ()
 
   for (let index = 0; index <= 256; index += 1) {
     transport.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "stream_item",
       stream_id: openedStream,
       sequence: String(index),
@@ -2286,7 +2483,7 @@ test("stream-open timeout cancels the route and restores stream quota", async ()
     if (request.operation === "session.events") {
       if (activeStream !== undefined) {
         current.emit({
-          protocol: "cmux.protocol/1",
+          protocol: "cmux.protocol/2",
           type: "response",
           id: request.id,
           ok: false,
@@ -2360,7 +2557,7 @@ test("stream-open timeout cancels the route and restores stream quota", async ()
 
   transport.ok(firstOpen, { stream_id: firstStream });
   transport.emit({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "stream_item",
     stream_id: firstStream,
     sequence: "0",
@@ -2368,7 +2565,7 @@ test("stream-open timeout cancels the route and restores stream quota", async ()
   });
   assert.equal(firstDecoded, 0);
   transport.emit({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "stream_item",
     stream_id: secondStream,
     sequence: "0",
@@ -2384,7 +2581,7 @@ test("structured stream-open rejection is conclusive and keeps the connection re
   const transport = new FakeTransport((request, current) => {
     if (request.operation === "session.events") {
       current.emit({
-        protocol: "cmux.protocol/1",
+        protocol: "cmux.protocol/2",
         type: "response",
         id: request.id,
         ok: false,
@@ -2481,7 +2678,7 @@ test("post-dispatch stream-open abort uses an independent cancellation", async (
     },
   );
   transport.emit({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "stream_item",
     stream_id: openedStream,
     sequence: "0",
@@ -2548,7 +2745,7 @@ test("malformed stream-open ACKs cancel without masking the protocol error", asy
       fixture.name,
     );
     transport.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "stream_item",
       stream_id: `stream_${HEX_A}`,
       sequence: "0",
@@ -2685,7 +2882,7 @@ test("connection failure cancels every dispatched open before one close", async 
     const id = (request.params as Envelope).stream_id;
     transport.ok(request, { stream_id: id });
     transport.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "stream_item",
       stream_id: id,
       sequence: "0",
@@ -2994,14 +3191,14 @@ test("explicit cancellation requires response and canceled end in either order",
     });
     assert.ok(cancelRequest);
     const response = {
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "response",
       id: cancelRequest.id,
       ok: true,
       result: {},
     };
     const end = {
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "stream_end",
       stream_id: openedStream,
       reason: "canceled",
@@ -3028,7 +3225,7 @@ test("explicit cancellation rejects noncanonical or wrong stream ends and caches
     {
       name: "wrong reason",
       envelope: (stream: string) => ({
-        protocol: "cmux.protocol/1",
+        protocol: "cmux.protocol/2",
         type: "stream_end",
         stream_id: stream,
         reason: "completed",
@@ -3037,7 +3234,7 @@ test("explicit cancellation rejects noncanonical or wrong stream ends and caches
     {
       name: "missing reason",
       envelope: (stream: string) => ({
-        protocol: "cmux.protocol/1",
+        protocol: "cmux.protocol/2",
         type: "stream_end",
         stream_id: stream,
       }),
@@ -3045,7 +3242,7 @@ test("explicit cancellation rejects noncanonical or wrong stream ends and caches
     {
       name: "unknown field",
       envelope: (stream: string) => ({
-        protocol: "cmux.protocol/1",
+        protocol: "cmux.protocol/2",
         type: "stream_end",
         stream_id: stream,
         reason: "canceled",
@@ -3055,7 +3252,7 @@ test("explicit cancellation rejects noncanonical or wrong stream ends and caches
     {
       name: "null cursor",
       envelope: (stream: string) => ({
-        protocol: "cmux.protocol/1",
+        protocol: "cmux.protocol/2",
         type: "stream_end",
         stream_id: stream,
         reason: "canceled",
@@ -3065,7 +3262,7 @@ test("explicit cancellation rejects noncanonical or wrong stream ends and caches
     {
       name: "null recovery",
       envelope: (stream: string) => ({
-        protocol: "cmux.protocol/1",
+        protocol: "cmux.protocol/2",
         type: "stream_end",
         stream_id: stream,
         reason: "canceled",
@@ -3075,7 +3272,7 @@ test("explicit cancellation rejects noncanonical or wrong stream ends and caches
     {
       name: "error on canceled end",
       envelope: (stream: string) => ({
-        protocol: "cmux.protocol/1",
+        protocol: "cmux.protocol/2",
         type: "stream_end",
         stream_id: stream,
         reason: "canceled",
@@ -3085,7 +3282,7 @@ test("explicit cancellation rejects noncanonical or wrong stream ends and caches
     {
       name: "missing required error",
       envelope: (stream: string) => ({
-        protocol: "cmux.protocol/1",
+        protocol: "cmux.protocol/2",
         type: "stream_end",
         stream_id: stream,
         reason: "error",
@@ -3094,7 +3291,7 @@ test("explicit cancellation rejects noncanonical or wrong stream ends and caches
     {
       name: "noncanonical embedded error",
       envelope: (stream: string) => ({
-        protocol: "cmux.protocol/1",
+        protocol: "cmux.protocol/2",
         type: "stream_end",
         stream_id: stream,
         reason: "error",
@@ -3137,7 +3334,7 @@ test("explicit cancellation rejects noncanonical or wrong stream ends and caches
     const canceling = stream.cancel();
     assert.ok(cancelRequest);
     transport.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "response",
       id: cancelRequest.id,
       ok: true,
@@ -3172,7 +3369,7 @@ test("explicit cancellation rejects noncanonical responses and caches failure", 
     {
       name: "unknown response field",
       envelope: (request: Envelope) => ({
-        protocol: "cmux.protocol/1",
+        protocol: "cmux.protocol/2",
         type: "response",
         id: request.id,
         ok: true,
@@ -3183,7 +3380,7 @@ test("explicit cancellation rejects noncanonical responses and caches failure", 
     {
       name: "result and error together",
       envelope: (request: Envelope) => ({
-        protocol: "cmux.protocol/1",
+        protocol: "cmux.protocol/2",
         type: "response",
         id: request.id,
         ok: true,
@@ -3199,7 +3396,7 @@ test("explicit cancellation rejects noncanonical responses and caches failure", 
     {
       name: "nonempty result",
       envelope: (request: Envelope) => ({
-        protocol: "cmux.protocol/1",
+        protocol: "cmux.protocol/2",
         type: "response",
         id: request.id,
         ok: true,
@@ -3209,7 +3406,7 @@ test("explicit cancellation rejects noncanonical responses and caches failure", 
     {
       name: "noncanonical structured error",
       envelope: (request: Envelope) => ({
-        protocol: "cmux.protocol/1",
+        protocol: "cmux.protocol/2",
         type: "response",
         id: request.id,
         ok: false,
@@ -3305,7 +3502,7 @@ test("explicit cancellation deadline covers missing halves and a wrong stream en
     assert.ok(cancelRequest);
     if (caseName !== "missing-response") {
       transport.emit({
-        protocol: "cmux.protocol/1",
+        protocol: "cmux.protocol/2",
         type: "response",
         id: cancelRequest.id,
         ok: true,
@@ -3314,7 +3511,7 @@ test("explicit cancellation deadline covers missing halves and a wrong stream en
     }
     if (caseName !== "missing-end") {
       transport.emit({
-        protocol: "cmux.protocol/1",
+        protocol: "cmux.protocol/2",
         type: "stream_end",
         stream_id: caseName === "wrong-stream"
           ? `stream_${HEX_B}`
@@ -3356,14 +3553,14 @@ test("malformed stale item fails cancellation closed without a second request", 
   const canceling = stream.cancel();
   assert.ok(cancelRequest);
   transport.emit({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "response",
     id: cancelRequest.id,
     ok: true,
     result: {},
   });
   transport.emit({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "stream_item",
     stream_id: openedStream,
     sequence: "0",
@@ -3414,7 +3611,7 @@ test("public cancellation validates typed stale events after end and before resp
     },
   );
   transport.emit({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "stream_end",
     stream_id: openedStream,
     reason: "canceled",
@@ -3422,7 +3619,7 @@ test("public cancellation validates typed stale events after end and before resp
   await Promise.resolve();
   assert.equal(cancelSettled, false);
   transport.emit({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "stream_item",
     stream_id: openedStream,
     sequence: "0",
@@ -3433,7 +3630,7 @@ test("public cancellation validates typed stale events after end and before resp
     },
   });
   transport.emit({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "response",
     id: cancelRequest.id,
     ok: true,
@@ -3510,7 +3707,7 @@ test("public cancellation rejects valid typed events after end and before respon
     },
   );
   transport.emit({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "stream_end",
     stream_id: openedStream,
     reason: "canceled",
@@ -3518,7 +3715,7 @@ test("public cancellation rejects valid typed events after end and before respon
   await Promise.resolve();
   assert.equal(cancelSettled, false);
   transport.emit({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "stream_item",
     stream_id: openedStream,
     sequence: "0",
@@ -3531,7 +3728,7 @@ test("public cancellation rejects valid typed events after end and before respon
     },
   });
   transport.emit({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "response",
     id: cancelRequest.id,
     ok: true,
@@ -3592,7 +3789,7 @@ test("stream item envelopes reject unknown top-level fields and fail closed", as
   );
   const next = stream.next();
   transport.emit({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "stream_item",
     stream_id: openedStream,
     sequence: "0",
@@ -3640,7 +3837,7 @@ test("stale item drip cannot restart the explicit cancellation deadline", async 
   const canceling = stream.cancel();
   assert.ok(cancelRequest);
   transport.emit({
-    protocol: "cmux.protocol/1",
+    protocol: "cmux.protocol/2",
     type: "response",
     id: cancelRequest.id,
     ok: true,
@@ -3649,7 +3846,7 @@ test("stale item drip cannot restart the explicit cancellation deadline", async 
   let sequence = 0;
   const drip = setInterval(() => {
     transport.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "stream_item",
       stream_id: openedStream,
       sequence: String(sequence),
@@ -3730,7 +3927,7 @@ test("overflow cancel failure closes the owning connection", async () => {
   );
   for (let index = 0; index <= 256; index += 1) {
     transport.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "stream_item",
       stream_id: openedStream,
       sequence: String(index),
@@ -3772,7 +3969,7 @@ test("stream overflow is isolated and sends best-effort selector cancellation", 
   const stream = await session.events();
   for (let index = 0; index <= 256; index += 1) {
     transport.emit({
-      protocol: "cmux.protocol/1",
+      protocol: "cmux.protocol/2",
       type: "stream_item",
       stream_id: openedStream,
       sequence: String(index),

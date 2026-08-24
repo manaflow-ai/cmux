@@ -105,6 +105,16 @@ import Testing
         #expect(frame.stackAccessToken == "test-stack-token")
     }
 
+    @Test func browserCreateCarriesMatchingWorkspaceTicketContext() async throws {
+        let frame = try await recordedRequest(
+            method: "mobile.browser.create",
+            params: ["workspace_id": "workspace-main"],
+            ticketWorkspaceID: "workspace-main"
+        )
+        #expect(frame.attachToken == "ticket-secret")
+        #expect(frame.stackAccessToken == "test-stack-token")
+    }
+
     @Test func panelCommandUsesMacWideTicketContext() async throws {
         let frame = try await recordedRequest(
             method: "mobile.browser.stream.start",

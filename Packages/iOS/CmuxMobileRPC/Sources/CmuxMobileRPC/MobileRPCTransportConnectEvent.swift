@@ -15,13 +15,23 @@ public enum MobileRPCTransportConnectEvent: Equatable, Sendable {
     case connected(
         attemptID: Int,
         transport: DiagnosticTransportKind,
-        elapsedMilliseconds: Int
+        elapsedMilliseconds: Int,
+        sessionID: Int?
     )
     /// The transport factory or underlying byte transport failed.
     case failed(
         attemptID: Int,
         transport: DiagnosticTransportKind,
         failure: DiagnosticFailureKind,
+        elapsedMilliseconds: Int
+    )
+    /// A pending dial was cancelled by a lifecycle owner. The eventual
+    /// `.failed(.cancelled)` event remains for transport outcome compatibility;
+    /// this event explains who requested the cancellation.
+    case cancelled(
+        attemptID: Int,
+        transport: DiagnosticTransportKind,
+        reason: DiagnosticCancellationReason,
         elapsedMilliseconds: Int
     )
 }

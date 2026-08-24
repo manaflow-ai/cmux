@@ -1,5 +1,9 @@
 //! Platform decisions for cmux-tui.
 
+use std::fs::File;
+#[cfg(windows)]
+use std::fs::OpenOptions;
+use std::io;
 use std::path::{Path, PathBuf};
 
 pub mod transport {
@@ -128,6 +132,23 @@ pub mod transport {
     }
 }
 
+/// The path to exec THIS running build again (terminal hosts, headless
+/// daemons). On Linux this is the open inode via `/proc/self/exe`, so an
+/// in-place binary upgrade can never break a running process's self-spawns:
+/// `std::env::current_exe()` resolves to "<path> (deleted)" after the file
+/// is replaced and exec then fails, which broke every new tab on a
+/// long-lived daemon. Elsewhere it is the resolved executable path.
+pub fn self_exe_for_spawn() -> io::Result<PathBuf> {
+    #[cfg(target_os = "linux")]
+    {
+        Ok(PathBuf::from("/proc/self/exe"))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        std::env::current_exe()
+    }
+}
+
 /// Runtime socket/pidfile directory for the current user.
 pub fn runtime_dir() -> PathBuf {
     runtime_base_dir().join(format!("cmux-tui-{}", user_id_component()))
@@ -178,6 +199,19 @@ pub fn workspace_state_dir() -> Option<PathBuf> {
             },
         )
     }
+}
+
+/// Path of the client's bounded rolling log file: the `cmux-tui` state root
+/// (the parent of the sessions directory), so it survives session cleanup and
+/// sits where users already look for state. `CMUX_TUI_LOG_FILE` overrides it.
+pub fn client_log_path() -> Option<PathBuf> {
+    if let Some(path) = env_path("CMUX_TUI_LOG_FILE") {
+        return Some(path);
+    }
+    workspace_state_dir().map(|sessions| match sessions.parent() {
+        Some(root) => root.join("client.log"),
+        None => sessions.join("client.log"),
+    })
 }
 
 /// User config file path, honoring explicit env overrides before the default
@@ -609,12 +643,30 @@ pub fn chrome_user_data_dir() -> Option<PathBuf> {
     }
 }
 
-pub fn restrict_directory(path: &Path) -> std::io::Result<()> {
+pub fn restrict_directory(path: &Path) -> io::Result<()> {
     restrict_permissions(path, 0o700)
 }
 
-pub fn restrict_file(path: &Path) -> std::io::Result<()> {
+pub fn restrict_file(path: &Path) -> io::Result<()> {
     restrict_permissions(path, 0o600)
+}
+
+pub fn sync_directory(path: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        if std::fs::metadata(path)?.is_dir() {
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("not a directory: {}", path.display()),
+            ))
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        File::open(path)?.sync_all()
+    }
 }
 
 pub fn is_executable_file(path: &Path) -> bool {
@@ -781,7 +833,7 @@ fn push_unique(candidates: &mut Vec<PathBuf>, path: PathBuf) {
 }
 
 #[cfg(unix)]
-fn restrict_permissions(path: &Path, mode: u32) -> std::io::Result<()> {
+fn restrict_permissions(path: &Path, mode: u32) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
@@ -861,6 +913,22 @@ mod tests {
             terminal_pwd_to_local_path("file:///C:/Users/alice/src"),
             Some(PathBuf::from(r"C:\Users\alice\src"))
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_sync_directory_accepts_existing_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-sync-directory-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        sync_directory(&root).unwrap();
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

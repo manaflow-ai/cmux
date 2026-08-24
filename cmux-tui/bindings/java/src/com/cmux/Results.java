@@ -6,7 +6,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Concrete non-resource results named by the protocol-v1 operation catalog. */
+/** Concrete non-resource results named by the protocol-v2 operation catalog. */
 public final class Results {
     public record PingResult(boolean alive, Cursor cursor) {
         public PingResult {
@@ -321,18 +321,37 @@ public final class Results {
         }
     }
 
-    public record ViewerResizeResult(boolean accepted, Snapshots.Size size) {
+    public enum ViewAttachmentOutcome {
+        APPLIED,
+        PASSIVE,
+        SUPERSEDED
+    }
+
+    public record ViewerResizeResult(
+        boolean accepted,
+        Snapshots.Size size,
+        ViewAttachmentOutcome outcome
+    ) {
         public ViewerResizeResult {
             Objects.requireNonNull(size, "size");
+            Objects.requireNonNull(outcome, "outcome");
         }
     }
 
     public record BrowserViewerResizeResult(
         boolean accepted,
-        Snapshots.PixelSize size
+        Snapshots.PixelSize size,
+        ViewAttachmentOutcome outcome
     ) {
         public BrowserViewerResizeResult {
             Objects.requireNonNull(size, "size");
+            Objects.requireNonNull(outcome, "outcome");
+        }
+    }
+
+    public record ViewerReleaseResult(ViewAttachmentOutcome outcome) {
+        public ViewerReleaseResult {
+            Objects.requireNonNull(outcome, "outcome");
         }
     }
 

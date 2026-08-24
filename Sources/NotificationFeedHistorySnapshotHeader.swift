@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated struct NotificationFeedHistorySnapshotHeader: Sendable {
+struct NotificationFeedHistorySnapshotHeader: Sendable {
     var version: Int?
     var revision: Int?
 

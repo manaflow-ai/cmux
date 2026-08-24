@@ -48,6 +48,7 @@ extension Workspace {
         let restorableAgentResumeState: RestoredAgentResumeState?
         let restoredAgentCompletedGeneration: RestoredAgentCompletedGeneration?
         let shellActivityState: PanelShellActivityState?
+        var restoredPanelTitleBoundary: RestoredPanelTitleBoundary? = nil
         let restoredResumeSessionWorkingDirectory: String?
         let resumeBinding: SurfaceResumeBindingSnapshot?
         /// Authoritative hook identity when `resumeBinding` is an effective
@@ -103,6 +104,7 @@ extension Workspace {
                 restorableAgentResumeState: restorableAgentResumeState,
                 restoredAgentCompletedGeneration: restoredAgentCompletedGeneration,
                 shellActivityState: shellActivityState,
+                restoredPanelTitleBoundary: restoredPanelTitleBoundary,
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
                 resumeBinding: resumeBinding,
                 managedAgentResumeBinding: managedAgentResumeBinding,

@@ -220,6 +220,9 @@ export async function browserOpenGraphImageResponse(): Promise<Response> {
     {
       width: size.width * scale,
       height: size.height * scale,
+      headers: {
+        "Cache-Control": "public, max-age=0, s-maxage=31536000, immutable",
+      },
     },
   );
 }

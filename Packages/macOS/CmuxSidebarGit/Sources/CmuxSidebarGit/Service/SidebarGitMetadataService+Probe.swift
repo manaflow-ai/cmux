@@ -345,7 +345,6 @@ extension SidebarGitMetadataService {
             workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
             stopWorkspaceGitMetadataWatcher(for: probeKey)
         }
-        updateWorkspaceGitMetadataFallbackTimer()
 
         let previousBranchState = host.panelGitBranch(
             workspaceId: probeKey.workspaceId,

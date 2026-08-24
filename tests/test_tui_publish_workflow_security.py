@@ -62,6 +62,21 @@ def workflow_dispatch_input(text: str, name: str) -> str:
     return match.group(1)
 
 
+def test_sdk_ci_tracks_tui_verification_and_packaging_workflows() -> None:
+    triggers = workflow_triggers(workflow("cmux-tui-sdks.yml"))
+    required_paths = {
+        ".github/workflows/cmux-tui-build-package.yml",
+        ".github/workflows/cmux-tui.yml",
+    }
+
+    for event in ("push", "pull_request"):
+        event_config = triggers[event]
+        assert isinstance(event_config, dict)
+        paths = event_config["paths"]
+        assert isinstance(paths, list)
+        assert required_paths <= set(paths)
+
+
 def test_sdk_registry_names_do_not_overlap_tui_cli_packages() -> None:
     bindings = ROOT / "cmux-tui" / "bindings"
     typescript = json.loads(
@@ -130,7 +145,7 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
     assert "npm test" in bootstrap
     assert "npm pack --pack-destination" in bootstrap
     assert "CMUX_NPM_PACKAGE" in bootstrap
-    assert 'npm publish "${packages[0]}"' in bootstrap
+    assert 'npm publish "$(realpath "${packages[0]}")"' in bootstrap
     assert "--tag bootstrap" in bootstrap
     assert "--provenance" in bootstrap
     assert "--access public" in bootstrap
