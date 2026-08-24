@@ -5,6 +5,16 @@ import Testing
 @testable import CmuxFoundation
 
 struct SSHPTYAttachRetryScriptBuilderTests {
+    @Test func defaultReconnectPolicyIsFinite() {
+        let script = SSHPTYAttachRetryScriptBuilder()
+            .lines(command: "cmux_test_attach", reauthenticates: false)
+            .joined(separator: "\n")
+
+        #expect(script.contains("cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\""))
+        #expect(!script.contains("cmux_ssh_attach_reconnect_limit='∞'"))
+        #expect(!script.contains("cmux_ssh_attach_reconnect_unbounded=1"))
+    }
+
     @Test func retriesInitialAuthenticationBeforeAttaching() throws {
         let logURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-retry-\(UUID().uuidString)")
@@ -74,7 +84,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         #expect(try String(contentsOf: logURL, encoding: .utf8) == "attach\nsleep:2\nattach\n")
     }
 
-    @Test func establishedSessionKeepsRetryingUnclassifiedAndTransientAuthenticationFailures() throws {
+    @Test func establishedSessionStopsAfterTheFiniteReconnectBudget() throws {
         let logURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-unclassified-reauth-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: logURL) }
@@ -113,10 +123,10 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             ]
         )
 
-        #expect(result.status == 7)
+        #expect(result.status == 254)
         let events = try String(contentsOf: logURL, encoding: .utf8).split(separator: "\n")
-        #expect(events.filter { $0 == "auth" }.count == 23)
-        #expect(events.filter { $0 == "attach" }.count == 2)
+        #expect(events.filter { $0 == "auth" }.count == 21)
+        #expect(events.filter { $0 == "attach" }.count == 1)
     }
 
     @Test func permanentReauthenticationStillFailsClosedAfterEstablishedSession() throws {
@@ -333,6 +343,69 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         if queuedInputReachedAttach {
             #expect(logContents == "attach\nattach\ninput:queued-input\n")
         }
+    }
+
+    @Test(arguments: ["bad", "21", "999999999999999999999999999999"])
+    func malformedOrOversizedReconnectLimitsRemainFinite(_ configuredLimit: String) throws {
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-limit-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: logURL) }
+
+        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_test_attach",
+            reauthenticates: false
+        )
+        let script = ([
+            "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
+            "sleep() { :; }",
+            "cmux_test_attach() { printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; return 255; }",
+        ] + retryLines).joined(separator: "\n")
+
+        let result = try run(
+            script,
+            environment: [
+                "CMUX_TEST_LOG": logURL.path,
+                "CMUX_SSH_RECONNECT_LIMIT": configuredLimit,
+            ]
+        )
+        let attempts = try String(contentsOf: logURL, encoding: .utf8)
+            .split(separator: "\n")
+            .count
+
+        #expect(result.status == 255)
+        // One initial attach plus at most the 20 reconnects is the hard
+        // contract, regardless of user-provided limit text.
+        #expect(attempts == 21)
+    }
+
+    @Test
+    func retryableAttachIsCappedAtTwentyReconnects() throws {
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-budget-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: logURL) }
+
+        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_test_attach",
+            reauthenticates: false
+        )
+        let script = ([
+            "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
+            "sleep() { :; }",
+            "cmux_test_attach() { printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; return 255; }",
+        ] + retryLines).joined(separator: "\n")
+
+        let result = try run(
+            script,
+            environment: [
+                "CMUX_TEST_LOG": logURL.path,
+                "CMUX_SSH_RECONNECT_LIMIT": "20",
+            ]
+        )
+
+        #expect(result.status == 255)
+        let attempts = try String(contentsOf: logURL, encoding: .utf8)
+            .split(separator: "\n")
+        #expect(attempts == Array(repeating: Substring("attach"), count: 21))
     }
 
     private func waitForFile(

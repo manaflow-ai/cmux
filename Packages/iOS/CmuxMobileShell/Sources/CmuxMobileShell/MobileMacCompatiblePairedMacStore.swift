@@ -121,8 +121,12 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         stackUserID: String?,
         teamID: String?
     ) async throws {
-        guard let target = try await loadAll(stackUserID: stackUserID, teamID: teamID)
-            .first(where: { $0.macDeviceID == macDeviceID }) else { return }
+        let matches = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+            .filter {
+                cmxCanonicalDeviceID($0.macDeviceID)
+                    == cmxCanonicalDeviceID(macDeviceID)
+            }
+        guard matches.count == 1, let target = matches.first else { return }
         try await setActive(
             macDeviceID: macDeviceID,
             instanceTag: target.instanceTag,
@@ -159,8 +163,12 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws {
-        guard let target = try await loadAll(stackUserID: stackUserID, teamID: teamID)
-            .first(where: { $0.macDeviceID == macDeviceID }) else { return }
+        let matches = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+            .filter {
+                cmxCanonicalDeviceID($0.macDeviceID)
+                    == cmxCanonicalDeviceID(macDeviceID)
+            }
+        guard matches.count == 1, let target = matches.first else { return }
         try await setCustomization(
             macDeviceID: macDeviceID,
             instanceTag: target.instanceTag,
@@ -201,8 +209,12 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         stackUserID: String?,
         teamID: String?
     ) async throws {
-        guard let target = try await loadAll(stackUserID: stackUserID, teamID: teamID)
-            .first(where: { $0.macDeviceID == macDeviceID }) else { return }
+        let matches = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+            .filter {
+                cmxCanonicalDeviceID($0.macDeviceID)
+                    == cmxCanonicalDeviceID(macDeviceID)
+            }
+        guard matches.count == 1, let target = matches.first else { return }
         try await remove(
             macDeviceID: macDeviceID,
             instanceTag: target.instanceTag,

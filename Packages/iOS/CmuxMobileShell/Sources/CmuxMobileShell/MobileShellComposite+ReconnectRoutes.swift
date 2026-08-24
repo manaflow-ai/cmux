@@ -426,8 +426,7 @@ extension MobileShellComposite {
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded
         // appear without a manual pull-to-refresh.
-        if multiMacAggregationEnabled,
-           connectionState == .connected,
+        if connectionState == .connected,
            remoteClient != nil {
             self.scheduleSecondaryAggregation(discoverLivePeers: true)
         }

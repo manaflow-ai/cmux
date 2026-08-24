@@ -17,6 +17,10 @@ A tag gives the app its own name, bundle ID, socket, and derived data path, so i
 
 Other variants: `reloadp.sh` (Release), `reloads.sh` (Release as isolated "cmux STAGING"), `reload2.sh --tag <tag>` (both).
 
+## Shared Mac fleet capacity
+
+Every healthy slot in the canonical Mac fleet is general-purpose. Builds, iOS archives, tests, profiling, simulator and UI verification, and any other resource-intensive workload may use any available slot. Do not wait for an AWS-only builder or infer capacity from a workload label. Use the shared lease state and slot-isolated paths supplied by the fleet tooling.
+
 Compile-only check, no launch:
 
 ```bash
@@ -41,6 +45,12 @@ CMUX_TAG=<tag> scripts/cmux-debug-cli.sh send --workspace workspace:1 --surface 
 ```
 
 The helper refuses to run without `CMUX_TAG`, targets `/tmp/cmux-debug-<tag>.sock`, and uses the matching tagged CLI from DerivedData. It scrubs ambient cmux terminal context (`CMUX_SOCKET`, `CMUX_SOCKET_PASSWORD`, workspace/surface/tab/panel IDs, cmuxd socket, debug log), then sets `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`, and `CMUX_BUNDLED_CLI_PATH` for the tag.
+
+## iOS UI follows the Apple HIG
+
+`Packages/iOS/AGENTS.md` requires consulting the Apple Human Interface
+Guidelines for any iOS UI change and citing the page in the PR. It applies to
+`Packages/iOS/` and `ios/`.
 
 ## iOS builds open on the iPhone by default
 
@@ -127,3 +137,7 @@ Detailed contributor rules live in `skills/`. Use the task-specific skill before
 - `cmux-shared-behavior`: shared action paths for multi-entrypoint behavior and optimistic updates.
 - `cmux-ghostty`: Ghostty submodule and GhosttyKit workflow.
 - `cmux-release`: release, version bump, changelog, pretag guard, release assets.
+- Blacksmith Testbox (remote Linux builds for cmux-tui): warm your own box before any cmux-tui Rust or Zig
+  build, and never compile cmux-tui on the Mac. The skill lives in cmuxterm-hq at
+  `skills/infra/blacksmith-testbox/SKILL.md`; the workflows, `scripts/blacksmith-*.sh`, and the
+  `tests/test_testbox_*` guards stay here. Quickest path: `./scripts/blacksmith-testbox-demo.sh`.

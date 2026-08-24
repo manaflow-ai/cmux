@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import Foundation
+import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -479,9 +480,11 @@ struct WorkspaceShellView: View {
         .taskComposerPresentation(
             isPresented: taskComposerPresentation.isPresented,
             onDismiss: taskComposerPresentation.didDismiss
-        ) {
+        ) { launch, switchDraft in
             TaskComposerSheet(
                 store: store,
+                launchIntent: launch.intent,
+                onSwitchDraft: switchDraft,
                 submitTaskComposer: submitTaskComposerFromShell
             )
         }
@@ -749,11 +752,19 @@ struct WorkspaceShellView: View {
                let name = workspace.macDisplayName,
                !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 names[id] = name
+                names[MobilePairedMac.pairingID(
+                    macDeviceID: id,
+                    instanceTag: workspace.macInstanceTag
+                )] = name
             }
         }
         for item in store.notificationFeedItems {
             if !item.macDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 names[item.macDeviceID] = item.macDisplayName
+                names[MobilePairedMac.pairingID(
+                    macDeviceID: item.macDeviceID,
+                    instanceTag: item.macInstanceTag
+                )] = item.macDisplayName
             }
         }
         for device in store.deviceTreeDevices {
@@ -772,7 +783,7 @@ struct WorkspaceShellView: View {
         let buildLabelsByID = store.pairedMacBuildLabelsByEntryID()
         let toolbarMachineSnapshots = WorkspaceMachineSnapshots(
             workspaces: store.workspaces,
-            filterMachineIDFor: { scope.aliasIndex.deviceRepresentativeID(for: $0) },
+            filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },
             macPickerMachineIDs: scope.machineIDs,
             namesByID: names,
             buildLabelsByID: buildLabelsByID,
@@ -1098,7 +1109,9 @@ struct WorkspaceShellView: View {
             notificationFeedItems: store.notificationFeedItems,
             foregroundMacDeviceID: store.connectedMacDeviceID ?? store.activeTicket?.macDeviceID,
             foregroundInstanceTag: store.connectedMacInstanceTag,
-            aliasesFor: { store.pairedMacAliasIDs(for: $0) }
+            aliasesFor: {
+                store.pairedMacAliasIDs(for: $0, instanceTag: $1)
+            }
         )
     }
 

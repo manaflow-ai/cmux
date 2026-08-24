@@ -19,7 +19,11 @@ public enum MacSurfaceRenderer: Equatable, Sendable {
     ///
     /// - Parameters:
     ///   - surface: The synced surface snapshot.
-    ///   - supportsTodo: Whether the owning Mac advertises `todo.v1`.
+    ///   - supportsTodo: Whether the owning Mac advertises `todo.v1`. Unused
+    ///     for rendering: the todo snapshot is synced data that stays valid
+    ///     while the connection recovers, so the checklist keeps rendering
+    ///     (like the terminal's last frame) and the capability only gates
+    ///     mutations at the view layer.
     ///   - supportsPanelArtifacts: Whether the connected Mac advertises
     ///     `panel.artifact.v1` panel file reads.
     /// - Returns: The renderer to mount; `.fallbackCard` whenever a required
@@ -31,7 +35,7 @@ public enum MacSurfaceRenderer: Equatable, Sendable {
     ) -> MacSurfaceRenderer {
         switch surface.kind {
         case .todo:
-            guard supportsTodo, let todo = surface.todo else { return .fallbackCard }
+            guard let todo = surface.todo else { return .fallbackCard }
             return .todo(todo)
         case .filePreview:
             guard supportsPanelArtifacts, let path = normalizedFilePath(surface) else {
