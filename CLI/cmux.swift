@@ -35645,8 +35645,11 @@ export default CMUXSessionRestore;
             ?? "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
         eventDict["_opencode_request_id"] = requestId
         if BuiltInAgentIntegration(feedSourceName: source) != nil,
-           hookEventName == "SubagentStart" || hookEventName == "SubagentStop",
-           let stableWorkId {
+           hookEventName == "SubagentStart" || hookEventName == "SubagentStop" {
+            // An uncorrelatable subagent event must still reach the durable
+            // store. Passing an empty id deliberately trips its bounded
+            // overflow latch, so a missing-id Stop remains provisional until
+            // authoritative process/session cleanup instead of settling early.
             let sessionStore = ClaudeHookSessionStore(
                 processEnv: env.merging(
                     [
@@ -35664,7 +35667,7 @@ export default CMUXSessionRestore;
                     try sessionStore.recordStructuredBackgroundWorkEvent(
                         sessionId: sessionId,
                         eventName: hookEventName,
-                        workId: stableWorkId,
+                        workId: stableWorkId ?? "",
                         turnId: firstString(
                             in: stdinObj,
                             keys: [

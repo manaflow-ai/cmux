@@ -4,15 +4,24 @@
 /// exact session and process generation prevent a reused numeric PID or a
 /// sibling session from inheriting an earlier conclusion.
 public nonisolated struct AgentObservedAttentionConclusionLedger {
+    private struct QueueEntry {
+        let key: AgentObservedAttentionConclusionKey
+        let generation: UInt64
+    }
+
     private static let maximumCount = 4_096
     private var keys: Set<AgentObservedAttentionConclusionKey> = []
-    private var insertionOrder: [AgentObservedAttentionConclusionKey] = []
+    private var insertionOrder: [QueueEntry] = []
     private var insertionOrderHead = 0
+    private var insertionGenerationByKey:
+        [AgentObservedAttentionConclusionKey: UInt64] = [:]
     private var latestBoundaryEpochs:
         [AgentObservedAttentionConclusionKey: UInt64] = [:]
-    private var boundaryInsertionOrder:
-        [AgentObservedAttentionConclusionKey] = []
+    private var boundaryInsertionOrder: [QueueEntry] = []
     private var boundaryInsertionOrderHead = 0
+    private var boundaryInsertionGenerationByKey:
+        [AgentObservedAttentionConclusionKey: UInt64] = [:]
+    private var nextQueueGeneration: UInt64 = 0
 
     /// Creates an empty conclusion ledger.
     public init() {}
@@ -130,12 +139,21 @@ public nonisolated struct AgentObservedAttentionConclusionLedger {
             return
         }
         latestBoundaryEpochs[key] = epoch
-        boundaryInsertionOrder.append(key)
+        let generation = nextQueueGenerationValue()
+        boundaryInsertionGenerationByKey[key] = generation
+        boundaryInsertionOrder.append(
+            QueueEntry(key: key, generation: generation)
+        )
         while latestBoundaryEpochs.count > Self.maximumCount,
               boundaryInsertionOrderHead < boundaryInsertionOrder.count {
             let expired = boundaryInsertionOrder[boundaryInsertionOrderHead]
             boundaryInsertionOrderHead += 1
-            latestBoundaryEpochs.removeValue(forKey: expired)
+            guard boundaryInsertionGenerationByKey[expired.key]
+                    == expired.generation else {
+                continue
+            }
+            boundaryInsertionGenerationByKey.removeValue(forKey: expired.key)
+            latestBoundaryEpochs.removeValue(forKey: expired.key)
         }
         if boundaryInsertionOrderHead >= Self.maximumCount,
            boundaryInsertionOrderHead * 2
@@ -149,17 +167,31 @@ public nonisolated struct AgentObservedAttentionConclusionLedger {
         _ key: AgentObservedAttentionConclusionKey
     ) {
         guard keys.insert(key).inserted else { return }
-        insertionOrder.append(key)
+        let generation = nextQueueGenerationValue()
+        insertionGenerationByKey[key] = generation
+        insertionOrder.append(
+            QueueEntry(key: key, generation: generation)
+        )
         while keys.count > Self.maximumCount,
               insertionOrderHead < insertionOrder.count {
             let expired = insertionOrder[insertionOrderHead]
             insertionOrderHead += 1
-            keys.remove(expired)
+            guard insertionGenerationByKey[expired.key]
+                    == expired.generation else {
+                continue
+            }
+            insertionGenerationByKey.removeValue(forKey: expired.key)
+            keys.remove(expired.key)
         }
         if insertionOrderHead >= Self.maximumCount,
            insertionOrderHead * 2 >= insertionOrder.count {
             insertionOrder.removeFirst(insertionOrderHead)
             insertionOrderHead = 0
         }
+    }
+
+    private mutating func nextQueueGenerationValue() -> UInt64 {
+        nextQueueGeneration &+= 1
+        return nextQueueGeneration
     }
 }
