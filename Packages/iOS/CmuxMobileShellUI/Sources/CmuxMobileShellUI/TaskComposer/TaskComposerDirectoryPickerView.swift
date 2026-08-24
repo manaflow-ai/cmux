@@ -236,6 +236,7 @@ private struct TaskComposerDirectorySuggestedButton: View {
                 isSelected: isSelected
             )
         }
+        .buttonStyle(.plain)
         .accessibilityLabel(TaskComposerDirectoryDisplayPath(path: candidate.path).name)
         .accessibilityValue(candidate.path)
         .accessibilityHint(

@@ -192,6 +192,7 @@ private struct TaskComposerDirectorySearchResultButton: View {
                 isSelected: isSelected
             )
         }
+        .buttonStyle(.plain)
         .accessibilityLabel(TaskComposerDirectoryDisplayPath(path: suggestion.path).name)
         .accessibilityValue(accessibilityValue)
         .accessibilityHint(

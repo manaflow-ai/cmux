@@ -48,6 +48,7 @@ struct TaskComposerDirectorySuggestionRow: View {
                     .accessibilityHidden(true)
             }
         }
+        .contentShape(Rectangle())
     }
 }
 #endif

@@ -5746,6 +5746,8 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
+        XCTAssertTrue(taskComposerPrompt(in: app).waitForExistence(timeout: 8))
+        openTaskComposerOptions(in: app)
         let directory = app.buttons["MobileTaskComposerDirectory"]
         XCTAssertTrue(directory.waitForExistence(timeout: 8))
         tap(directory, in: app)
