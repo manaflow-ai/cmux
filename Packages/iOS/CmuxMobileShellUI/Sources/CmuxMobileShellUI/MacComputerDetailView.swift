@@ -53,6 +53,11 @@ struct MacComputerDetailView: View {
     @State private var pendingCustomColor: String?
     @State private var pendingCustomIcon: String?
     @State private var pendingLastRouteRemoval: CmxAttachRoute?
+    /// Drives the Forget confirmation; Forget is the only deletion path for a
+    /// Computer whose remaining route is the permanent Iroh identity.
+    @State private var showsForgetComputer = false
+    /// Presents the revoke-failure alert so a failed Forget is never silent.
+    @State private var forgetComputerFailed = false
 
     /// Curated icon choices: a few computer/utility SF Symbols + emojis.
     private static let symbolChoices = [
@@ -146,13 +151,14 @@ struct MacComputerDetailView: View {
             ) {
                 saveDirectAddress()
             }
+            .disabled(parsedNewDirectAddress == nil)
             Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
                 editingDirectAddressID = nil
             }
         } message: {
             Text(L10n.string(
                 "mobile.connections.direct.addMessage",
-                defaultValue: "Where this computer is reachable, like 192.168.1.20 or mac.local:64000. Without a port, the Mac's advertised port is used."
+                defaultValue: "A numeric IP where this computer is reachable, like 192.168.1.20 or 192.168.1.20:64000. Without a port, the Mac's advertised port is used."
             ))
         }
         .confirmationDialog(
@@ -192,6 +198,44 @@ struct MacComputerDetailView: View {
             Text(L10n.string(
                 "mobile.connections.route.deleteComputer.message",
                 defaultValue: "This is the last route. Deleting it will delete this computer record. You can reconnect later by pairing this computer again."
+            ))
+        }
+        .confirmationDialog(
+            L10n.string(
+                "mobile.connections.forget.confirmTitle",
+                defaultValue: "Forget this computer?"
+            ),
+            isPresented: $showsForgetComputer,
+            titleVisibility: .visible
+        ) {
+            Button(
+                L10n.string(
+                    "mobile.connections.forget.confirm",
+                    defaultValue: "Forget Computer"
+                ),
+                role: .destructive
+            ) {
+                forgetComputer()
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+        } message: {
+            Text(L10n.string(
+                "mobile.computers.forget.confirmMessage",
+                defaultValue: "It's removed from all your devices. If it's still online, it reappears the next time it connects."
+            ))
+        }
+        .alert(
+            L10n.string(
+                "mobile.connections.forget.failureTitle",
+                defaultValue: "Couldn't forget computer"
+            ),
+            isPresented: $forgetComputerFailed
+        ) {
+            Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
+        } message: {
+            Text(L10n.string(
+                "mobile.connections.forget.failedMessage",
+                defaultValue: "The account revoke didn't go through. Check the connection and try again."
             ))
         }
         .onAppear {
@@ -437,19 +481,23 @@ struct MacComputerDetailView: View {
         Self.parseDirectAddress(newDirectAddress)
     }
 
-    /// Parses `host` or `host:port` (port 1...65535). IPv6 literals without
-    /// brackets keep their colons by only treating the suffix as a port when
-    /// exactly one colon is present.
+    /// Parses `host` or `host:port` (port 1...65535). The host must be a
+    /// numeric IPv4/IPv6 literal the Direct dial can actually use
+    /// (``CmxIrohCustomPrivateAddress``): hostnames, loopback, and scoped
+    /// addresses are refused at entry, because a stored entry the transport
+    /// skips would otherwise fail later with no feedback. IPv6 literals
+    /// without brackets keep their colons by only treating the suffix as a
+    /// port when exactly one colon is present.
     static func parseDirectAddress(_ raw: String) -> MobilePairedMacDirectAddress? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let parts = trimmed.split(separator: ":", omittingEmptySubsequences: false)
         if parts.count == 2, let port = Int(parts[1]), (1...65535).contains(port),
-           !parts[0].isEmpty {
-            return MobilePairedMacDirectAddress(address: String(parts[0]), port: port)
+           let host = try? CmxIrohCustomPrivateAddress(String(parts[0])) {
+            return MobilePairedMacDirectAddress(address: host.value, port: port)
         }
-        guard !trimmed.contains(" ") else { return nil }
-        return MobilePairedMacDirectAddress(address: trimmed, port: nil)
+        guard let host = try? CmxIrohCustomPrivateAddress(trimmed) else { return nil }
+        return MobilePairedMacDirectAddress(address: host.value, port: nil)
     }
 
     /// Prefills the shared add/edit alert with an existing entry. The id is
@@ -503,6 +551,31 @@ struct MacComputerDetailView: View {
     private func persistDirectAddresses(_ drafts: [MobilePairedMacDirectAddress]) {
         Task {
             await store.setDirectAddresses(drafts, macDeviceID: macDeviceID, instanceTag: instanceTag)
+        }
+    }
+
+    /// Revokes this pairing's account binding on every device, then drops the
+    /// local row (the same pipeline the hidden-computer Forget used). The
+    /// entry is built from the pairing's OWN stored scope so the delete
+    /// targets the owning account even if the display scope changed.
+    private func forgetComputer() {
+        guard let mac = pairedMac else { return }
+        let entry = MobileHiddenComputer(
+            id: mac.id,
+            macDeviceID: mac.macDeviceID,
+            instanceTag: mac.instanceTag,
+            displayName: mac.resolvedName,
+            customColor: mac.customColor,
+            customIcon: mac.customIcon,
+            stackUserID: mac.stackUserID,
+            teamID: mac.teamID
+        )
+        Task {
+            if await store.forgetHiddenComputer(entry) {
+                dismiss()
+            } else {
+                forgetComputerFailed = true
+            }
         }
     }
 
@@ -921,6 +994,24 @@ struct MacComputerDetailView: View {
             } label: {
                 Label(L10n.string("mobile.workspace.reconnect", defaultValue: "Reconnect"), systemImage: "arrow.clockwise")
             }
+            // Iroh is the permanent identity route and is deliberately not
+            // removable row-by-row, so route deletion alone can never delete
+            // an Iroh-paired Computer. Forget is that record's one deletion
+            // path: it revokes the account binding everywhere, then drops the
+            // local row.
+            Button(role: .destructive) {
+                showsForgetComputer = true
+            } label: {
+                Label(
+                    L10n.string(
+                        "mobile.connections.forget.button",
+                        defaultValue: "Forget This Computer"
+                    ),
+                    systemImage: "trash"
+                )
+            }
+            .disabled(pairedMac == nil)
+            .accessibilityIdentifier("MobileComputerForget")
         }
     }
 
