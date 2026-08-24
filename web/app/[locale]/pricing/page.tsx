@@ -33,7 +33,6 @@ import {
   visibleCompareRows,
   visibleFaqItems,
   visibleProFeatures,
-  SHOW_VAULT,
   type CompareRow,
   type FaqItem,
   type SizeRow,
@@ -49,11 +48,12 @@ import {
   TEAM_PRICING_USD,
   proBillingInterval,
 } from "../../../services/billing/plans";
+import { isVaultEnabled } from "../../../services/vault/config";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
+const HOSTED_NETWORKING_ENABLED = false;
 
-export const dynamic = "force-dynamic";
 
 export async function generateMetadata({
   params,
@@ -68,7 +68,7 @@ export async function generateMetadata({
     contentLocale,
     t,
     siteMeta,
-    SHOW_VAULT ? "metaDescription" : "metaDescriptionNoVault",
+    isVaultEnabled() ? "metaDescription" : "metaDescriptionNoVault",
   );
   const alternates = buildAlternates(
     contentLocale,
@@ -123,16 +123,27 @@ export default async function PricingPage({
   const proBaseFeatures = t.raw("pro.features") as string[];
   const proVaultFeatures = t.raw("pro.vaultFeatures") as string[];
   const proNetworkingFeatures = t.raw("pro.hostedNetworkingFeatures") as string[];
+  const featureVisibility = {
+    vault: isVaultEnabled(),
+    hostedNetworking: HOSTED_NETWORKING_ENABLED,
+  };
   const proFeatures = visibleProFeatures({
     base: proBaseFeatures,
     vault: proVaultFeatures,
     hostedNetworking: proNetworkingFeatures,
+    visibility: featureVisibility,
   });
   const teamFeatures = t.raw("team.features") as string[];
   const enterpriseFeatures = t.raw("enterprise.features") as string[];
-  const compareRows = visibleCompareRows(t.raw("compare.rows") as CompareRow[]);
+  const compareRows = visibleCompareRows(
+    t.raw("compare.rows") as CompareRow[],
+    featureVisibility,
+  );
   const sizeRows = t.raw("sizes.rows") as SizeRow[];
-  const faqItems = visibleFaqItems(t.raw("faq.items") as FaqItem[]);
+  const faqItems = visibleFaqItems(
+    t.raw("faq.items") as FaqItem[],
+    featureVisibility,
+  );
 
   const linkClass =
     "underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors";

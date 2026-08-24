@@ -10,9 +10,8 @@ import UniformTypeIdentifiers
 @MainActor
 enum SessionEntryResumeCoordinator {
     static func resume(_ entry: SessionEntry, tabManager: TabManager) {
-        guard let resumeCommand = entry.resumeCommandWithCwd else { return }
-        let inputWithReturn = resumeCommand + "\n"
-        let targetCwd = entry.resumeWorkingDirectory
+        guard let launch = entry.resumeLaunch else { return }
+        let targetCwd = launch.workingDirectory
 
         let selected = tabManager.selectedWorkspace
         let selectedTab = tabManager.selectedTabId.flatMap { id in
@@ -36,28 +35,33 @@ enum SessionEntryResumeCoordinator {
                 inPane: paneId,
                 focus: true,
                 workingDirectory: targetCwd,
-                initialInput: inputWithReturn
+                initialInput: launch.initialInput,
+                startupRestoreAgent: launch.startupRestoreAgent
             )
             return
         }
 
         tabManager.addWorkspace(
             workingDirectory: targetCwd,
-            initialTerminalInput: inputWithReturn
+            initialTerminalInput: launch.initialInput,
+            initialTerminalStartupRestoreAgent: launch.startupRestoreAgent
         )
     }
 }
 
 struct SessionIndexView: View {
     @ObservedObject var store: SessionIndexStore
+    @Environment(\.sessionDragRegistry) private var sessionDragRegistry
+    @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     /// Lives alongside the store but is owned by this view so drag-state
     /// transitions don't invalidate data-subscribed views elsewhere in the
     /// sidebar.
-    @StateObject private var dragCoordinator = SessionDragCoordinator()
+    @State private var dragCoordinator = SessionDragCoordinator()
     /// Sections the user has explicitly collapsed (default is expanded).
     @State private var collapsedSections: Set<SectionKey> = []
     /// Single source of truth for both Vault popover variants.
     @State private var popoverIdentity: SessionIndexTablePopoverIdentity?
+    let chromeBackgroundColor: NSColor
     let onResume: ((SessionEntry) -> Void)?
     /// Rows shown per section before "Show more" is tapped.
     private static let collapsedRowLimit = 5
@@ -136,7 +140,7 @@ struct SessionIndexView: View {
             .titlebarInteractiveControl()
         }
         .rightSidebarChromeBar()
-        .rightSidebarChromeBottomBorder()
+        .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
         .reportRightSidebarChromeGeometryForBonsplitUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
     }
 
@@ -194,6 +198,19 @@ struct SessionIndexView: View {
         let rows = sections.flatMap { section in
             let sectionActions = IndexSectionActions(
                 onBeginDrag: { dragCoordinator.draggedKey = section.key },
+                beginSessionDrag: { entry, sourceView, event, frame, image in
+                    guard let sessionDragRegistry,
+                          let tabDragTransferRegistry else { return false }
+                    return dragCoordinator.beginSessionDrag(
+                        entry,
+                        registry: sessionDragRegistry,
+                        tabDragTransferRegistry: tabDragTransferRegistry,
+                        from: sourceView,
+                        event: event,
+                        frame: frame,
+                        image: image
+                    )
+                },
                 onPreviewEntry: { entry in
                     popoverIdentity = .transcript(section: section.key, entry: entry.id)
                 },
@@ -329,6 +346,7 @@ typealias DirectorySnapshotFn = @MainActor (_ cwd: String?) async -> DirectorySn
 /// than a silent 100% CPU regression.
 struct IndexSectionActions {
     let onBeginDrag: @MainActor () -> Void
+    let beginSessionDrag: SessionDragBeginAction
     let onPreviewEntry: (SessionEntry) -> Void
     let onDismissPreview: (SessionEntry.ID) -> Void
     let onResume: ((SessionEntry) -> Void)?
@@ -375,29 +393,33 @@ struct IndexSectionView: View, Equatable {
     }
 
     var body: some View {
+        let rows = SessionIndexRowSnapshot.rows(
+            for: section.entries.prefix(rowLimit)
+        )
         VStack(alignment: .leading, spacing: 0) {
             sectionHeader
             if !isCollapsed {
-                ForEach(Array(section.entries.prefix(rowLimit))) { entry in
+                ForEach(rows) { row in
                     SessionRow(
-                        entry: entry,
-                        isPreviewPresented: previewEntryId == entry.id,
-                        onPreview: { actions.onPreviewEntry(entry) },
+                        entry: row.entry,
+                        isPreviewPresented: previewEntryId == row.entry.id,
+                        beginSessionDrag: actions.beginSessionDrag,
+                        onPreview: { actions.onPreviewEntry(row.entry) },
                         onResume: actions.onResume
                     )
                         .equatable()
-                        .id(entry.id)
+                        .id(row.id)
                         .onGeometryChange(for: CGRect.self) { proxy in
                             proxy.frame(in: .named(Self.popoverAnchorCoordinateSpace))
                         } action: { frame in
                             onPopoverAnchorChange(
-                                .transcript(section: section.key, entry: entry.id),
+                                .transcript(section: section.key, entry: row.entry.id),
                                 frame
                             )
                         }
                         .onDisappear {
                             onPopoverAnchorChange(
-                                .transcript(section: section.key, entry: entry.id),
+                                .transcript(section: section.key, entry: row.entry.id),
                                 nil
                             )
                         }
@@ -565,6 +587,7 @@ private struct SectionGapDropDelegate: DropDelegate {
 private struct SessionRow: View, Equatable {
     let entry: SessionEntry
     let isPreviewPresented: Bool
+    let beginSessionDrag: SessionDragBeginAction
     let onPreview: () -> Void
     let onResume: ((SessionEntry) -> Void)?
     @State private var isHovered: Bool = false
@@ -598,23 +621,11 @@ private struct SessionRow: View, Equatable {
         .background(rowBackground)
         .onHover { isHovered = $0 }
         .help(helpText)
-        .onTapGesture(count: 2) {
-            onPreview()
-        }
-        .onDrag {
-            sessionDragItemProvider(for: entry)
-        } preview: {
-            HStack(spacing: 6) {
-                AgentIconImage(agent: entry.agent, size: 12)
-                Text(entry.displayTitle)
-                    .cmuxFont(size: 12, weight: .medium)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-        }
+        .overlay(SessionDragSource(
+            entry: entry,
+            beginDrag: beginSessionDrag,
+            onDoubleClick: onPreview
+        ))
         .contextMenu {
             sessionRowMenuItems(entry: entry, onResume: onResume)
         }
@@ -682,18 +693,21 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
         }
         Divider()
         Button {
-            let pb = NSPasteboard.general
-            pb.clearContents()
-            pb.setString(url.path, forType: .string)
+            GhosttyApp.terminalPasteboard.writeString(
+                url.path,
+                to: .general
+            )
         } label: {
             Text(String(localized: "sessionIndex.row.copyPath", defaultValue: "Copy File Path"))
         }
     }
-    if let resumeCommand = entry.resumeCommand {
+    if let resumeCommand = entry.copyResumeCommand {
         Button {
-            let pb = NSPasteboard.general
-            pb.clearContents()
-            pb.setString(resumeCommand, forType: .string)
+            // Match the user's shell so the copied command pastes cleanly.
+            GhosttyApp.terminalPasteboard.writeString(
+                TerminalStartupTypedShellCommand().typedInput(posixCommand: resumeCommand),
+                to: .general
+            )
         } label: {
             Text(String(localized: "sessionIndex.row.copyResume", defaultValue: "Copy Resume Command"))
         }
@@ -1954,30 +1968,28 @@ struct SectionPopoverView: View {
     /// Used on the empty-query directory-scope scroll path so pagination
     /// is an in-memory array slice, not repeated store round-trips.
     let loadSnapshot: DirectorySnapshotFn
+    let beginSessionDrag: SessionDragBeginAction
     let onResume: ((SessionEntry) -> Void)?
     let onDismiss: () -> Void
 
     @State private var query: String = ""
     @FocusState private var searchFieldFocused: Bool
 
-    /// Rows currently rendered in the popover. In snapshot mode this is a
-    /// prefix of `fullSnapshot`; in typed-query mode it's the accumulated
-    /// pages from the store.
-    @State private var loaded: [SessionEntry] = []
+    /// Rows currently rendered in the popover. Presentation identities are
+    /// computed only when loaded data changes, never during a body update.
+    @State private var loadedRows: [SessionIndexRowSnapshot] = []
     @State private var hasMore: Bool = true
     @State private var isLoading: Bool = false
     @State private var activeQuery: String = ""
-    /// In-flight pagination task for the typed-query path. Reassigned by
-    /// `loadMore()`; the previous task is cancelled implicitly. The initial /
-    /// query-change load is owned by SwiftUI via `.task(id: query)` and
-    /// doesn't use this slot.
-    @State private var loadTask: Task<Void, Never>?
+    /// Owns the replaceable pagination task for the typed-query path. The
+    /// initial / query-change load is owned by SwiftUI via `.task(id: query)`
+    /// and doesn't use this store.
+    @State private var tasks = MainActorTaskStore<String>()
     @State private var errorMessages: [String] = []
     /// Full merged snapshot of the directory (empty-query directory scope
     /// only). When non-nil, `loadMore()` slices this array in memory
     /// instead of hitting the store.
     @State private var fullSnapshot: [SessionEntry]?
-
     private static let pageSize = 100
 
     var body: some View {
@@ -2049,9 +2061,9 @@ struct SectionPopoverView: View {
             }
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    if isLoading && loaded.isEmpty {
+                    if isLoading && loadedRows.isEmpty {
                         loadingRow
-                    } else if loaded.isEmpty {
+                    } else if loadedRows.isEmpty {
                         Text(String(localized: "sessionIndex.popover.noMatches",
                                     defaultValue: "No matches"))
                             .cmuxFont(size: 12)
@@ -2060,9 +2072,12 @@ struct SectionPopoverView: View {
                             .padding(.vertical, 10)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
-                        ForEach(loaded) { entry in
-                            PopoverRow(entry: entry) {
-                                onResume?(entry)
+                        ForEach(loadedRows) { row in
+                            PopoverRow(
+                                entry: row.entry,
+                                beginSessionDrag: beginSessionDrag
+                            ) {
+                                onResume?(row.entry)
                                 onDismiss()
                             }
                             .equatable()
@@ -2107,12 +2122,9 @@ struct SectionPopoverView: View {
         // before the sleep completes, preventing an unnecessary search.
         .task(id: query) {
             // Any pagination task from the previous query lifecycle is now
-            // superseded. Cancel explicitly; reassigning `loadTask =
-            // Task { ... }` later doesn't cancel the previous handle on its
-            // own, so without this a stale page could still land and
+            // superseded. Cancel explicitly so a stale page cannot land and
             // append rows that don't match the new query.
-            loadTask?.cancel()
-            loadTask = nil
+            tasks.cancel("loadMore")
 
             if !searchFieldFocused {
                 searchFieldFocused = true
@@ -2127,7 +2139,7 @@ struct SectionPopoverView: View {
                 // have while the full snapshot builds in parallel. On
                 // warm cache the snapshot returns immediately and the
                 // fast-path rows are replaced in the same tick.
-                loaded = section.entries
+                loadedRows = SessionIndexRowSnapshot.rows(for: section.entries)
                 hasMore = !section.entries.isEmpty
 
                 // Build-or-return the full directory snapshot. For
@@ -2148,9 +2160,11 @@ struct SectionPopoverView: View {
                     guard !Task.isCancelled else { return }
                     fullSnapshot = snapshot.entries
                     // Show the first page's worth immediately; loadMore
-                    // grows `loaded` from the snapshot on scroll.
+                    // grows `loadedRows` from the snapshot on scroll.
                     let initialWindow = min(Self.pageSize, snapshot.entries.count)
-                    loaded = Array(snapshot.entries.prefix(initialWindow))
+                    loadedRows = SessionIndexRowSnapshot.rows(
+                        for: snapshot.entries.prefix(initialWindow)
+                    )
                     hasMore = initialWindow < snapshot.entries.count
                     errorMessages = snapshot.errors
                     isLoading = false
@@ -2166,7 +2180,7 @@ struct SectionPopoverView: View {
             // keystrokes bump id: and SwiftUI cancels before the search
             // fires.
             fullSnapshot = nil
-            loaded = []
+            loadedRows = []
             hasMore = true
             isLoading = true
 
@@ -2182,11 +2196,10 @@ struct SectionPopoverView: View {
         }
         .onDisappear {
             // .task(id: query) auto-cancels on disappear, but the
-            // separate loadTask slot (used by loadMore) is ours to
-            // manage. Cancel it so a fetch in flight when the popover
-            // closes doesn't keep running to completion.
-            loadTask?.cancel()
-            loadTask = nil
+            // separate load-more slot is ours to manage. Cancel it so a fetch
+            // in flight when the popover closes doesn't keep running to
+            // completion.
+            tasks.cancel("loadMore")
             isLoading = false
         }
     }
@@ -2204,7 +2217,7 @@ struct SectionPopoverView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Append the next page to `loaded`. Triggered by the sentinel row's
+    /// Append the next page to `loadedRows`. Triggered by the sentinel row's
     /// onAppear. In snapshot mode (empty-query directory scope) this is a
     /// pure in-memory array slice with zero store calls. In typed-query mode
     /// it fires a paged search. Explicitly cancels any earlier load-more
@@ -2214,8 +2227,8 @@ struct SectionPopoverView: View {
         guard !isLoading, hasMore else { return }
 
         if let snapshot = fullSnapshot {
-            let next = min(loaded.count + Self.pageSize, snapshot.count)
-            loaded = Array(snapshot.prefix(next))
+            let next = min(loadedRows.count + Self.pageSize, snapshot.count)
+            loadedRows = SessionIndexRowSnapshot.rows(for: snapshot.prefix(next))
             hasMore = next < snapshot.count
             return
         }
@@ -2224,9 +2237,8 @@ struct SectionPopoverView: View {
         let scope = sectionSearchScope
         let search = self.search
         let query = activeQuery
-        let offset = loaded.count
-        loadTask?.cancel()
-        loadTask = Task { @MainActor in
+        let offset = loadedRows.count
+        tasks.replaceOnMainActor("loadMore") {
             let outcome = await search(query, scope, offset, Self.pageSize)
             guard !Task.isCancelled else { return }
             applyOutcome(outcome, append: true)
@@ -2239,22 +2251,24 @@ struct SectionPopoverView: View {
     @MainActor
     private func applyOutcome(_ outcome: SessionIndexStore.SearchOutcome, append: Bool) {
         // `append` is only reached from the paged path (typed query or
-        // agent scope). In both cases `offset = loaded.count` is
+        // agent scope). In both cases `offset = loadedRows.count` is
         // monotonic against the store's ordering, so raw-append is
         // correct. The empty-query directory case uses the snapshot
         // path and never reaches here.
         //
         // Earlier revisions of this method dedup-filtered outcome.entries
         // on entry.id; with `hasMore = outcome.entries.count >=
-        // pageSize` and `offset = loaded.count`, filtering caused
-        // loaded.count to advance more slowly than the raw page size,
+        // pageSize` and `offset = loadedRows.count`, filtering caused
+        // loadedRows.count to advance more slowly than the raw page size,
         // which kept hasMore perpetually true and re-requested the
         // same window. Removing the dedup makes the cursor match the
         // page boundaries the store actually returns.
         if append {
-            loaded.append(contentsOf: outcome.entries)
+            loadedRows = SessionIndexRowSnapshot.rows(
+                for: Array(loadedRows.lazy.map(\.entry)) + outcome.entries
+            )
         } else {
-            loaded = outcome.entries
+            loadedRows = SessionIndexRowSnapshot.rows(for: outcome.entries)
         }
         hasMore = outcome.entries.count >= Self.pageSize
         errorMessages = outcome.errors
@@ -2290,6 +2304,7 @@ struct SectionPopoverView: View {
 
 private struct PopoverRow: View, Equatable {
     let entry: SessionEntry
+    let beginSessionDrag: SessionDragBeginAction
     let onActivate: () -> Void
 
     @State private var isHovered: Bool = false
@@ -2345,10 +2360,11 @@ private struct PopoverRow: View, Equatable {
         .contentShape(Rectangle())
         .background(isHovered ? Color.primary.opacity(0.06) : Color.clear)
         .onHover { isHovered = $0 }
-        .onTapGesture(count: 2) { onActivate() }
-        .onDrag {
-            sessionDragItemProvider(for: entry)
-        }
+        .overlay(SessionDragSource(
+            entry: entry,
+            beginDrag: beginSessionDrag,
+            onDoubleClick: onActivate
+        ))
         .help(entry.cwdLabel ?? entry.displayTitle)
         .contextMenu {
             sessionRowMenuItems(entry: entry, onResume: { _ in onActivate() })
@@ -2375,96 +2391,10 @@ private struct RelativeTimestampSchedule: TimelineSchedule {
     }
 }
 
-// MARK: - Drag payload
-
-/// Mirrors `Bonsplit.TabItem`'s Codable shape so we can produce a JSON payload
-/// that bonsplit's external-drop path will decode and accept.
-private struct MirrorTabItem: Codable {
-    let id: UUID
-    let title: String
-    let hasCustomTitle: Bool
-    let icon: String?
-    let iconImageData: Data?
-    let kind: String?
-    let isDirty: Bool
-    let showsNotificationBadge: Bool
-    let isLoading: Bool
-    let isAudioMuted: Bool
-    let isPinned: Bool
-}
-
-/// Mirrors `Bonsplit.TabTransferData` exactly.
-private struct MirrorTabTransferData: Codable {
-    let tab: MirrorTabItem
-    let sourcePaneId: UUID
-    let sourceProcessId: Int32
-}
-
-/// Build the encoded payload bonsplit's external-drop decoder accepts.
-private func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Data? {
-    let mirror = MirrorTabTransferData(
-        tab: MirrorTabItem(
-            id: dragId,
-            title: entry.displayTitle,
-            hasCustomTitle: false,
-            icon: "terminal.fill",
-            iconImageData: nil,
-            kind: "terminal",
-            isDirty: false,
-            showsNotificationBadge: false,
-            isLoading: false,
-            isAudioMuted: false,
-            isPinned: false
-        ),
-        sourcePaneId: UUID(),
-        sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
-    )
-    return try? JSONEncoder().encode(mirror)
-}
-
-/// NSItemProvider used by `.onDrag {}`. Registers ONLY
-/// `com.splittabbar.tabtransfer` so the terminal's NSDraggingDestination
-/// (which accepts `.string` / `public.utf8-plain-text`) is not hit-tested
-/// for our drag. With the terminal out of the way, bonsplit's SwiftUI
-/// `.onDrop(of: [.tabTransfer])` overlay can render the blue insert/split
-/// zones across the entire pane (including its center).
-///
-/// Also mirrors the encoded blob onto NSPasteboard(name: .drag) since
-/// bonsplit's external-drop decoder reads from that pasteboard directly
-/// and SwiftUI's NSItemProvider bridge doesn't always surface custom
-/// UTTypes there reliably.
-@MainActor
-private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider {
-    let dragId = SessionDragRegistry.shared.register(entry)
-    let provider = NSItemProvider()
-
-    if let data = sessionTabTransferData(for: entry, dragId: dragId) {
-        provider.registerDataRepresentation(
-            forTypeIdentifier: "com.splittabbar.tabtransfer",
-            visibility: .ownProcess
-        ) { completion in
-            completion(data, nil)
-            return nil
-        }
-        let pb = NSPasteboard(name: .drag)
-        let type = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
-        pb.addTypes([type], owner: nil)
-        pb.setData(data, forType: type)
-    }
-
-    provider.suggestedName = entry.displayTitle
-    return provider
-}
-
 // MARK: - Drag cancel monitor
 
-/// Clears `dragCoordinator.draggedKey` after any mouseUp OR Escape keypress,
-/// so a cancelled drag (user releases outside any valid drop target, or
-/// presses Esc mid-drag) doesn't leave the section stuck at 0.45 opacity.
-/// Successful drops clear the key themselves via
-/// `SectionGapDropDelegate.performDrop` and that clear happens under
-/// `DispatchQueue.main.async`, so the drop path always wins the race
-/// against this fallback.
+/// Ends folder-header drag ownership after mouseUp or Escape.
+/// Vault rows use `NSDraggingSource` completion instead.
 private struct DragCancelMonitor: NSViewRepresentable {
     let dragCoordinator: SessionDragCoordinator
 
@@ -2503,12 +2433,7 @@ private struct DragCancelMonitor: NSViewRepresentable {
                 if event.type == .keyDown, event.keyCode != 53 { // 53 = kVK_Escape
                     return event
                 }
-                // Defer the clear so any `performDrop` already queued on the
-                // main actor wins first; this path only matters when no drop
-                // fires, i.e. the drag was cancelled.
-                DispatchQueue.main.async {
-                    coordinator.draggedKey = nil
-                }
+                coordinator.draggedKey = nil
                 return event
             }
         }

@@ -45,11 +45,13 @@ struct CampfireHookNotificationTests {
             "Campfire permission notification should be localized and notification-gated in Swift, saw \(notificationCommands)"
         )
         #expect(
-            notificationCommands.contains {
-                $0.hasPrefix("set_agent_lifecycle campfire needsInput --tab=\(context.workspaceId)")
-                    && $0.contains("--panel=\(context.surfaceId)")
+            AgentJournalAppendCapture.captures(in: notificationCommands).contains { capture in
+                capture.kind == "agent.approval.requested"
+                    && capture.agentKey == "campfire"
+                    && capture.workspaceId == context.workspaceId
+                    && capture.surfaceId == context.surfaceId
             },
-            "Campfire permission notification must mark the surface as needing input, saw \(notificationCommands)"
+            "Campfire permission notification must journal a needs-input approval request, saw \(notificationCommands)"
         )
 
         let stateURL = context.root.appendingPathComponent("campfire-hook-sessions.json")

@@ -52,8 +52,9 @@ struct DockSplitPanelContentView: View, Equatable {
         self.windowAppearance = windowAppearance
         self.rightSidebarOwnsInputFocus = rightSidebarOwnsInputFocus
         self.hasUnreadNotification = hasUnreadNotification
-        // Dock stores admit only terminal/browser panels; neither shared branch
-        // consumes `windowAppearance`, so it is intentionally outside this key.
+        // Dock stores admit terminal/browser panels plus file previews opened by
+        // drops; none of those shared branches consume `windowAppearance`, so it
+        // is intentionally outside this key.
         renderSnapshot = RenderSnapshot(
             storeID: ObjectIdentifier(store),
             workspaceID: store.workspaceId,

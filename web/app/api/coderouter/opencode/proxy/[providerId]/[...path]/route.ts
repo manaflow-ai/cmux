@@ -1,7 +1,5 @@
 import { proxyOpenCodeRequest } from "../../../../../../../services/coderouter/opencodeProxy";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 export const maxDuration = 1_800;
 
 type Context = {

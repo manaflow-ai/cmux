@@ -84,7 +84,7 @@ static_assert(std::is_same_v<
 static_assert(!std::is_copy_constructible_v<cmux::raw::EventStream>);
 static_assert(std::is_move_constructible_v<cmux::raw::EventStream>);
 
-constexpr std::size_t kExpectedRawCommandCount = 97U;
+constexpr std::size_t kExpectedRawCommandCount = 103U;
 constexpr std::array<std::string_view, 4> kViewportHistoryCommandNames{
     "clear-history",
     "new-pane-right",
@@ -102,7 +102,7 @@ TEST("generated command and event metadata is exhaustive and unique") {
     const auto commands = cmux::raw::command_metadata();
     const auto events = cmux::raw::event_metadata();
     CHECK_EQ(commands.size(), kExpectedRawCommandCount);
-    CHECK_EQ(events.size(), 45U);
+    CHECK_EQ(events.size(), 46U);
 
     std::set<std::string_view> command_names;
     bool checked_attach_fields = false;
