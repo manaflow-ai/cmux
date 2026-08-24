@@ -278,7 +278,7 @@ final class cmuxUITests: XCTestCase {
             "Get a push when an agent is waiting, and reply right from the Lock Screen."
         )).firstMatch
         XCTAssertTrue(pushBody.exists)
-        let pushPreview = element("MobileOnboardingPushPreview")
+        let pushPreview = element("MobileOnboardingScreenshot-push")
         XCTAssertTrue(pushPreview.waitForExistence(timeout: 4))
         XCTAssertTrue(primaryButton.label.contains("Enable Notifications"))
         let notNowButton = app.buttons["MobileOnboardingSecondaryButton"]

@@ -2,10 +2,10 @@
 import CmuxMobileSupport
 import SwiftUI
 
-/// Shows what a cmux push notification looks like, including inline reply,
-/// before the footer's Enable button triggers the one-time system permission
-/// alert. The OS is never asked before this page (HIG: show the value of a
-/// permission before requesting it).
+/// Shows a real Lock Screen capture of a cmux agent notification with its
+/// inline reply typed out, before the footer's Enable button triggers the
+/// one-time system permission alert. The OS is never asked before this page
+/// (HIG: show the value of a permission before requesting it).
 struct OnboardingPushView: View {
     var body: some View {
         ZStack {
@@ -21,7 +21,10 @@ struct OnboardingPushView: View {
                     "mobile.onboarding.push.body",
                     defaultValue: "Get a push when an agent is waiting, and reply right from the Lock Screen."
                 ),
-                visual: OnboardingPushPreview(accessibilityLabel: title)
+                visual: OnboardingScreenshot(
+                    content: .push,
+                    accessibilityLabel: title
+                )
             )
         }
     }

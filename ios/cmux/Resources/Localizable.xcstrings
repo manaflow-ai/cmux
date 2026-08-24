@@ -19937,57 +19937,6 @@
         }
       }
     },
-    "mobile.onboarding.push.previewBody": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tests are green. Merge it?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "テストは全て成功。マージしますか？"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.push.previewReply": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Merge it"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マージして"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.push.previewTime": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "now"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "今"
-          }
-        }
-      }
-    },
     "mobile.onboarding.push.title": {
       "extractionState": "manual",
       "localizations": {
