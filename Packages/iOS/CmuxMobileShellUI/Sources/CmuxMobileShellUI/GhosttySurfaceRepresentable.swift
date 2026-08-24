@@ -239,6 +239,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var outputStartViewportTimeouts = 0
         var outputStartMinimumViewportReportID: UInt64?
         var preparedViewportReportsByReportID: [UInt64: MobileTerminalViewportPreparation] = [:]
+        /// The replay state machine's negotiation generation each in-flight
+        /// viewport report was recorded under (keyed by report ID). Passed
+        /// back with the report's acknowledgement so an answer from a
+        /// previous mount can never settle the current negotiation. Consumed
+        /// on reply; cleared when the report scheduler is rebuilt.
+        var viewportReportGenerationsByReportID: [UInt64: UInt64] = [:]
         private var liveFontTask: Task<Void, Never>?
         let themeApplicationScheduler = TerminalThemeApplicationScheduler()
         var artifactCountTask: Task<Void, Never>?
@@ -394,11 +400,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     // against the capacity this phone last told the daemon,
                     // so it can hold frames sized by stale daemon state (a
                     // reconnect replay captured before this report landed).
-                    self.verifiedReplayState.updateExpectedViewportDimensions(
-                        columns: report.columns,
-                        rows: report.rows,
-                        reportID: report.id
-                    )
+                    self.viewportReportGenerationsByReportID[report.id] =
+                        self.verifiedReplayState.updateExpectedViewportDimensions(
+                            columns: report.columns,
+                            rows: report.rows,
+                            reportID: report.id
+                        )
                     if let preparation = self.preparedViewportReportsByReportID.removeValue(
                         forKey: report.id
                     ) {
@@ -428,10 +435,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     surfaceView.markViewportReportConfirmed(reportID: report.id)
                     if let renderEpoch = effectiveGrid.renderEpoch,
                        let renderRevisionFloor = effectiveGrid.renderRevisionFloor {
+                        let generation = self.viewportReportGenerationsByReportID
+                            .removeValue(forKey: report.id) ?? 0
                         self.verifiedReplayState.acknowledgeViewport(
                             renderEpoch: renderEpoch,
                             renderRevisionFloor: renderRevisionFloor,
                             reportID: report.id,
+                            negotiationGeneration: generation,
                             reportedColumns: report.columns,
                             reportedRows: report.rows,
                             grantedColumns: effectiveGrid.columns,
@@ -874,6 +884,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             outputStartContinuation?.finish()
             outputStartContinuation = nil
             preparedViewportReportsByReportID.removeAll()
+            viewportReportGenerationsByReportID.removeAll()
             outputTask?.cancel()
             outputTask = nil
             outputConsumerRecoveryAlert?.dismiss(animated: false)

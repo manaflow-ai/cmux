@@ -32,6 +32,14 @@ final class VerifiedTerminalReplayStateMachine {
     /// while the daemon's grant differs between them, and an out-of-order
     /// older acknowledgement must not overwrite the newer settlement.
     private var newestViewportReportID: UInt64 = 0
+    /// Monotonic token for the machine's negotiation lifetime. Report IDs
+    /// are minted by the surface VIEW and restart when a view is recreated,
+    /// while this machine survives remounts (`prepareForMount`), so a
+    /// delayed acknowledgement from a previous session can alias a fresh
+    /// report ID. Every reset advances the generation; an acknowledgement
+    /// settles only when it carries the generation its report was recorded
+    /// under.
+    private var negotiationGeneration: UInt64 = 1
     /// The grid the daemon granted in the acknowledgement that answered the
     /// newest capacity report, and the epoch it was granted for. Frames at
     /// this grid are the settled negotiation even when it differs from the
@@ -182,14 +190,25 @@ final class VerifiedTerminalReplayStateMachine {
     /// prior settlements and hold budgets no longer describe it. The report
     /// ID always advances, so only the acknowledgement answering the newest
     /// report can settle (see `acknowledgeViewport`).
-    func updateExpectedViewportDimensions(columns: Int, rows: Int, reportID: UInt64) {
-        guard columns > 0, rows > 0 else { return }
+    ///
+    /// - Returns: the negotiation generation this report was recorded under.
+    ///   The caller passes it back with the report's acknowledgement so an
+    ///   answer from a previous session (before a reset) can never settle
+    ///   the current one.
+    @discardableResult
+    func updateExpectedViewportDimensions(
+        columns: Int,
+        rows: Int,
+        reportID: UInt64
+    ) -> UInt64 {
+        guard columns > 0, rows > 0 else { return negotiationGeneration }
         newestViewportReportID = max(newestViewportReportID, reportID)
         let dims = Dimensions(columns: columns, rows: rows)
-        guard dims != expectedViewportDimensions else { return }
+        guard dims != expectedViewportDimensions else { return negotiationGeneration }
         expectedViewportDimensions = dims
         settledViewportGrant = nil
         renegotiationHeldFrames = 0
+        return negotiationGeneration
     }
 
     func complete(
@@ -233,18 +252,21 @@ final class VerifiedTerminalReplayStateMachine {
     /// before the Mac acknowledged the new effective grid.
     ///
     /// `reportID` identifies the capacity report this acknowledgement
-    /// answered (with `reportedColumns`/`reportedRows` as its dimensions)
-    /// and `grantedColumns`/`grantedRows` the grid the daemon granted for
-    /// it. When the answered report IS the newest recorded report and its
-    /// dimensions match the current expected capacity, the grant is recorded
-    /// as the settled negotiation (ending the stale-grid hold) and that
-    /// epoch's hold budget resets. An out-of-order acknowledgement for an
-    /// older report still raises the capture floor but settles nothing.
-    /// Zero defaults skip settlement entirely and keep floor-only semantics.
+    /// answered (with `reportedColumns`/`reportedRows` as its dimensions,
+    /// under `negotiationGeneration` as returned when the report was
+    /// recorded) and `grantedColumns`/`grantedRows` the grid the daemon
+    /// granted for it. When the answered report belongs to the current
+    /// generation, IS the newest recorded report, and its dimensions match
+    /// the current expected capacity, the grant is recorded as the settled
+    /// negotiation (ending the stale-grid hold) and the hold budget resets.
+    /// An out-of-order acknowledgement for an older report or a previous
+    /// session still raises the capture floor but settles nothing. Zero
+    /// defaults skip settlement entirely and keep floor-only semantics.
     func acknowledgeViewport(
         renderEpoch: String,
         renderRevisionFloor: UInt64,
         reportID: UInt64 = 0,
+        negotiationGeneration: UInt64 = 0,
         reportedColumns: Int = 0,
         reportedRows: Int = 0,
         grantedColumns: Int = 0,
@@ -256,6 +278,7 @@ final class VerifiedTerminalReplayStateMachine {
             renderRevisionFloor
         )
         if let expected = expectedViewportDimensions,
+           negotiationGeneration == self.negotiationGeneration,
            reportID > 0, reportID >= newestViewportReportID,
            reportedColumns > 0, reportedRows > 0,
            grantedColumns > 0, grantedRows > 0,
@@ -309,6 +332,7 @@ final class VerifiedTerminalReplayStateMachine {
         settledViewportGrant = nil
         renegotiationHeldFrames = 0
         newestViewportReportID = 0
+        negotiationGeneration &+= 1
         lastVerifiedRenderRevision = 0
         lastVerifiedStateSeq = 0
     }
