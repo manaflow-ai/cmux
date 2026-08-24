@@ -79,6 +79,34 @@ struct CodexTabTitlePresentationTests {
         #expect(tab.isLoading)
     }
 
+    @Test("same-text auto-to-user ownership removes the transient marker")
+    func sameTextOwnershipChangeReconcilesPresentation() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panelId))
+
+        #expect(
+            workspace.setPanelCustomTitle(
+                panelId: panelId,
+                title: "Generated lane",
+                source: .auto
+            )
+        )
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+        #expect(workspace.bonsplitController.tab(tabId)?.title == "◐ Generated lane")
+
+        #expect(
+            workspace.setPanelCustomTitle(
+                panelId: panelId,
+                title: "Generated lane",
+                source: .user
+            )
+        )
+        let tab = try #require(workspace.bonsplitController.tab(tabId))
+        #expect(tab.title == "Generated lane")
+        #expect(!tab.isLoading)
+    }
+
     @Test("another agent lifecycle key does not borrow Codex title markers")
     func nonCodexLifecycleIsIgnored() throws {
         let workspace = Workspace()

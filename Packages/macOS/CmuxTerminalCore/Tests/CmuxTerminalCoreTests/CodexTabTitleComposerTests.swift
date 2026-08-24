@@ -58,4 +58,14 @@ struct CodexTabTitleComposerTests {
         #expect(presentation.title == "◐ Generated lane")
         #expect(presentation.isAnimating)
     }
+
+    @Test("stable title whitespace is preserved exactly")
+    func preservesStableTitleWhitespace() {
+        let presentation = composer.presentation(
+            baseTitle: " Generated lane ",
+            lifecycle: .running,
+            hasUserOwnedTitle: false
+        )
+        #expect(presentation.title == "◐  Generated lane ")
+    }
 }
