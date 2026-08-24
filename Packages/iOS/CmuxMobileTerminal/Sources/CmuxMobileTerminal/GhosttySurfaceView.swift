@@ -2158,11 +2158,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// keep scrolling a full-screen app for seconds.
     private var linePathDecelerationStartedAt: CFTimeInterval?
     private static let linePathDecelerationBudget: CFTimeInterval = 0.45
+    /// Sub-line remainder from whole-line dispatch on the line path. Kept
+    /// out of `pendingScrollLines` so a leftover fraction cannot re-trigger
+    /// the flush (and record interactions) with no real gesture delta.
+    private var linePathFractionCarry: Double = 0
     var pendingLocalScrollDrains: [(generation: UInt64, continuation: CheckedContinuation<Bool, Never>)] = []
 
     /// Drops scroll work tied to a surface generation that will no longer run.
     func resetScrollStateForSurfaceReplacement() {
         pendingScrollLines = 0
+        linePathFractionCarry = 0
         pendingScrollPixels = 0
         pendingScrollInteractionGeneration = nil
         pendingLocalScrollLines = 0
@@ -2233,11 +2238,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     $0.lastApplied = nil
                 }
                 // TUI scroll feel: dispatch whole lines only, carrying the
-                // fraction, so the app sees clean steps instead of a 120Hz
-                // fragment stream; and cap the momentum tail so a flick
-                // cannot keep scrolling a full-screen app for seconds.
-                let wholeLines = lines < 0 ? lines.rounded(.up) : lines.rounded(.down)
-                pendingScrollLines += lines - wholeLines
+                // fraction in its own accumulator, so the app sees clean
+                // steps instead of a 120Hz fragment stream; and cap the
+                // momentum tail so a flick cannot keep scrolling a
+                // full-screen app for seconds. The carry lives OUTSIDE
+                // pendingScrollLines so a sub-line leftover cannot re-trigger
+                // the flush every frame and churn interaction generations.
+                let totalLines = linePathFractionCarry + lines
+                let wholeLines = totalLines < 0
+                    ? totalLines.rounded(.up)
+                    : totalLines.rounded(.down)
+                linePathFractionCarry = totalLines - wholeLines
                 dispatchLines = wholeLines
                 if scrollMechanicsView.isDecelerating {
                     let now = CACurrentMediaTime()
@@ -2248,6 +2259,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                                 animated: false
                             )
                             pendingScrollLines = 0
+                            linePathFractionCarry = 0
                             dispatchLines = 0
                         }
                     } else {
@@ -3593,6 +3605,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // pending deltas and freeze the scroll mechanics at the current offset
         // (kill-deceleration idiom) so typed input lands at the bottom.
         pendingScrollLines = 0
+        linePathFractionCarry = 0
         pendingScrollPixels = 0
         pendingScrollInteractionGeneration = nil
         pendingLocalScrollLines = 0
