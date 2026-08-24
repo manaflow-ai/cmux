@@ -22,13 +22,35 @@ struct OnboardingPushPreview: View {
 
     private static let typingClock = ContinuousClock()
 
+    /// The lock screen lays out once at this fixed design size (the portrait
+    /// screen slot, matching the product frame's screen aspect ratio) and is
+    /// scale-transformed into whatever slot the page offers. Text has a fixed
+    /// intrinsic height, so laying it out directly in a short landscape slot
+    /// would overflow the device frame and the page viewport; a raster
+    /// screenshot never has that problem, and this keeps the same guarantee.
+    private static let lockScreenDesignSize = CGSize(
+        width: 246,
+        height: 246 * 2868 / 1320
+    )
+
     var body: some View {
         OnboardingIPhoneScreenshotFrame(
             preferredHeight: preferredFrameHeight,
             deviceFrame: deviceFrame,
             screenMask: screenMask
         ) {
-            lockScreen
+            GeometryReader { proxy in
+                lockScreen
+                    .frame(
+                        width: Self.lockScreenDesignSize.width,
+                        height: Self.lockScreenDesignSize.height
+                    )
+                    .scaleEffect(
+                        proxy.size.width / Self.lockScreenDesignSize.width,
+                        anchor: .topLeading
+                    )
+            }
+            .clipped()
         }
         .frame(maxWidth: .infinity, maxHeight: preferredFrameHeight, alignment: .top)
         .opacity(imagesAreReady ? 1 : 0)
