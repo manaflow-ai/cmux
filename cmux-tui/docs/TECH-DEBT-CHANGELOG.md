@@ -1,6 +1,6 @@
 # cmux-tui aggregate change log
 
-Snapshot: 2026-08-23. Aggregate branch: `aggregate-final`, current code tip [`f7471b21e6a4a0e5cac745e78202d4470b87abb5`](https://github.com/manaflow-ai/cmux/commit/f7471b21e6a4a0e5cac745e78202d4470b87abb5). The prior documented code tip was [`4538c10aa5`](https://github.com/manaflow-ai/cmux/commit/4538c10aa528a6c4c0435fba238d1a9573acbb82). The branch is 555 commits ahead of `origin/main`, including this documentation commit. This update records cross-platform relay and SDK path hardening, bounded HTML error classification, clippy cleanup, and the normal merge of concurrent review history.
+Snapshot: 2026-08-23. Aggregate branch: `aggregate-final`, current code tip [`8200e92d9c8181a113600f9e55e540f2761dc864`](https://github.com/manaflow-ai/cmux/commit/8200e92d9c8181a113600f9e55e540f2761dc864). The prior documented code tip was [`b0d35b3396a217d468275e50c91e79e4e65cba0c`](https://github.com/manaflow-ai/cmux/commit/b0d35b3396a217d468275e50c91e79e4e65cba0c). The code branch is 578 commits ahead of `origin/main` before this documentation update. This update records cross-platform relay and SDK path hardening, bounded HTML error classification, clippy cleanup, and the normal merge of concurrent review history.
 
 Earlier aggregate rows retained for history:
 
@@ -18,7 +18,7 @@ Earlier aggregate rows retained for history:
 
 Known residuals: no claim is made for local Rust test execution, full end-to-end relay coverage, journal/WAL latency, deterministic shutdown of every admitted task, or complete cloud-TUI acceptance. These remain open until an exact pushed SHA has hosted evidence.
 
-Session-count honesty: the accompanying board records at least 190 substantive agent turns for this run. The requested 10,000-session target was not reached, and no empty sessions were created to inflate the count.
+Historical snapshot note: this early section recorded at least 190 turns. The current audited lower bound is at least 205 substantive agent turns. The requested 10,000-session target was not reached, and no empty sessions were created to inflate the count.
 
 ## Tail after `ace9e5f57f`
 
@@ -221,8 +221,10 @@ The branch is 556 commits ahead of `origin/main`. The substantive-turn lower
 bound is at least 205.
 # Post-correction exact tail
 
-Current aggregate tip is `b0d35b3396a217d468275e50c91e79e4e65cba0c`, 569 commits
-ahead of `origin/main`.
+The previous aggregate tip was `b0d35b3396a217d468275e50c91e79e4e65cba0c`,
+569 commits ahead of `origin/main`. The current code tip is
+`8200e92d9c8181a113600f9e55e540f2761dc864`, 578 commits ahead before this
+documentation update.
 
 | Commit | Change | Exact revert |
 | --- | --- | --- |
@@ -234,3 +236,7 @@ ahead of `origin/main`.
 | `79e46a998b8c9456293356274d13b84d763ab3b5` | Bound relay output drain after forced timeout. | `git revert 79e46a998b8c9456293356274d13b84d763ab3b5` |
 | `0e1ab67f1abe66bbdd04dbf21bdef80bcd34ba37` | Collapse the Rust legacy socket fallback condition. | `git revert 0e1ab67f1abe66bbdd04dbf21bdef80bcd34ba37` |
 | `b0d35b3396a217d468275e50c91e79e4e65cba0c` | Merge the latest relay tech-debt history. | `git revert -m 1 b0d35b3396a217d468275e50c91e79e4e65cba0c` |
+| `9d5ee3819e80e1ea5745f16a55367c130db1a760` | Use the imported JSON value type in TUI session code. | Hosted Rust formatting and package checks remain required. | `git revert 9d5ee3819e80e1ea5745f16a55367c130db1a760` |
+| `fcb5d410784f31fa34249e1c39e6213cc4140360` | Collapse the inline global-option parser condition. | Hosted Rust clippy confirms the let-chain on the exact head. | `git revert fcb5d410784f31fa34249e1c39e6213cc4140360` |
+| `d3374b01b800cab1f13a62148804e84a3ddd26fb` | Apply hosted rustfmt to TUI session code. | Formatter-only; hosted compile remains required. | `git revert d3374b01b800cab1f13a62148804e84a3ddd26fb` |
+| `8200e92d9c8181a113600f9e55e540f2761dc864` | Merge the latest remote TUI fixes into the aggregate. | Remote ancestry is preserved with the reviewed aggregate tree. | `git revert -m 1 8200e92d9c8181a113600f9e55e540f2761dc864` |
