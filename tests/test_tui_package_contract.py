@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import platform
+import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -26,6 +29,8 @@ RELAY_TARGETS = {
     name.replace("cmux-tui", "cmux-relay"): value
     for name, value in NPM_TARGETS.items()
 }
+
+RELAY_LAUNCHER = ROOT / "cmux-tui/dist/npm/cmux-relay/bin/cmux-relay.js"
 
 
 def host_npm_target() -> str:
@@ -262,6 +267,39 @@ def test_npm_contract_rejects_extra_file(tmp_path: Path) -> None:
     assert "mismatch" in result.stderr
 
 
+def test_relay_launcher_preserves_native_signal_exit_status(tmp_path: Path) -> None:
+    """The npm shim must die by the same signal as the native relay."""
+
+    if os.name == "nt":
+        return
+
+    launcher_root = tmp_path / "launcher"
+    launcher = launcher_root / "cmux-relay.js"
+    launcher_root.mkdir()
+    shutil.copy2(RELAY_LAUNCHER, launcher)
+    launcher.chmod(0o755)
+
+    relay_package = launcher_root / "node_modules" / host_npm_target().replace(
+        "cmux-tui", "cmux-relay"
+    )
+    relay_binary = relay_package / "bin" / "cmux-relay"
+    relay_binary.parent.mkdir(parents=True)
+    relay_binary.write_text(
+        "#!/usr/bin/env node\nprocess.kill(process.pid, 'SIGTERM');\n",
+        encoding="utf-8",
+    )
+    relay_binary.chmod(0o755)
+
+    result = subprocess.run(
+        ["node", str(launcher)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == -signal.SIGTERM, result.stderr
+
+
 def test_pypi_contract_requires_all_six_wheels_and_metadata(tmp_path: Path) -> None:
     wheels = make_pypi_wheels(tmp_path)
 
@@ -318,6 +356,7 @@ def main() -> None:
         lambda _directory: test_host_npm_target_rejects_unknown_architecture(),
         test_npm_contract_rejects_missing_hook,
         test_npm_contract_rejects_extra_file,
+        test_relay_launcher_preserves_native_signal_exit_status,
         test_pypi_contract_requires_all_six_wheels_and_metadata,
         test_pypi_contract_rejects_non_executable_hook,
     )
