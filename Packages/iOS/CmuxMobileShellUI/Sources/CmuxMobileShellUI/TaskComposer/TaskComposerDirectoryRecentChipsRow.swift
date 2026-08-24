@@ -21,7 +21,8 @@ struct TaskComposerDirectoryRecentChipsRow: View {
             }
         }
         .contentMargins(.horizontal, 20, for: .scrollContent)
-        .contentMargins(.vertical, 2, for: .scrollContent)
+        .contentMargins(.vertical, 8, for: .scrollContent)
+        .background(Color(uiColor: .systemGroupedBackground))
     }
 }
 

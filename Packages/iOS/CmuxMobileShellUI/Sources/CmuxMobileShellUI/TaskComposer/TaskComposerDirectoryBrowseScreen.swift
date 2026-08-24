@@ -65,7 +65,6 @@ struct TaskComposerDirectoryBrowseScreen: View {
                     choose: choose
                 )
             } else {
-                recentChipsSection
                 folderSection
             }
         }
@@ -85,6 +84,11 @@ struct TaskComposerDirectoryBrowseScreen: View {
         .toolbar {
             TaskComposerDirectoryCancelToolbar(cancel: cancel)
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if !isSearchActive, !recents.isEmpty {
+                TaskComposerDirectoryRecentChipsRow(recents: recents)
+            }
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !isSearchActive, let currentPath = browse.snapshot?.currentPath {
                 TaskComposerDirectoryChooseButton(
@@ -97,17 +101,6 @@ struct TaskComposerDirectoryBrowseScreen: View {
         .taskComposerDirectorySearch($search, query: query, searchMac: searchMac)
         .task(id: browse.pendingRequest) {
             await loadPendingDirectoryRequest()
-        }
-    }
-
-    @ViewBuilder
-    private var recentChipsSection: some View {
-        if !recents.isEmpty {
-            Section {
-                TaskComposerDirectoryRecentChipsRow(recents: recents)
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-            }
         }
     }
 

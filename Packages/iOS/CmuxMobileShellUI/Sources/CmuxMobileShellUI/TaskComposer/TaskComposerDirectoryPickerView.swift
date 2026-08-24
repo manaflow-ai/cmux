@@ -117,7 +117,6 @@ private struct TaskComposerDirectoryLocationsScreen: View {
                     choose: choose
                 )
             } else {
-                recentChipsSection
                 suggestedSection
                 locationsSection
             }
@@ -143,6 +142,11 @@ private struct TaskComposerDirectoryLocationsScreen: View {
         .toolbar {
             TaskComposerDirectoryCancelToolbar(cancel: cancel)
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if !isSearchActive, !recents.isEmpty {
+                TaskComposerDirectoryRecentChipsRow(recents: recents)
+            }
+        }
         .overlay {
             if isSearchActive {
                 TaskComposerDirectorySearchStatusOverlay(
@@ -153,17 +157,6 @@ private struct TaskComposerDirectoryLocationsScreen: View {
             }
         }
         .taskComposerDirectorySearch($search, query: query, searchMac: searchMac)
-    }
-
-    @ViewBuilder
-    private var recentChipsSection: some View {
-        if !recents.isEmpty {
-            Section {
-                TaskComposerDirectoryRecentChipsRow(recents: recents)
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-            }
-        }
     }
 
     @ViewBuilder
