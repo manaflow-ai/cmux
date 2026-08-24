@@ -11,6 +11,31 @@ import WebKit
 @MainActor
 @Suite(.serialized)
 struct CmuxWebViewContextMenuLinkCaptureTests {
+    /// Regression coverage for the browser Copy Image crash path: an
+    /// evaluation failure from WebKit must reach the page-focus repository as
+    /// data, not trip an actor assertion in the completion bridge.
+    @Test
+    func omnibarPageFocusAdapterForwardsJavaScriptErrors() async throws {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            renderInitialNavigation: false
+        )
+        defer { panel.close() }
+
+        let adapter = BrowserOmnibarPageFocusAdapter(panel: panel)
+        let outcome = await withCheckedContinuation {
+            (continuation: CheckedContinuation<(Any?, (any Error)?), Never>) in
+            adapter.evaluateOmnibarPageFocusScript(
+                "throw new Error('copy image regression')"
+            ) { result, error in
+                continuation.resume(returning: (result, error))
+            }
+        }
+
+        #expect(outcome.0 == nil)
+        #expect(outcome.1 != nil)
+    }
+
     // Regression test: "Open Link in Default Browser" must open the link the
     // user actually right-clicked (the DOM contextmenu target), not whatever a
     // later elementFromPoint hit test finds at the AppKit event coordinates.
