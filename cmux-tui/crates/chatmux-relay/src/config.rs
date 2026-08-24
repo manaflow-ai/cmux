@@ -5,7 +5,7 @@
 //! trailing newline, written with mode 0600. Unknown fields written by other
 //! (newer or older) relay builds are preserved across load/save.
 
-use std::io::Write as _;
+use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -95,11 +95,28 @@ fn home_dir() -> PathBuf {
     std::env::var_os(var).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."))
 }
 
+fn read_config(path: &Path) -> std::io::Result<Vec<u8>> {
+    let metadata = std::fs::metadata(path)?;
+    if !metadata.file_type().is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "relay config is not a regular file",
+        ));
+    }
+    let file = std::fs::File::open(path)?;
+    let mut bytes = Vec::new();
+    file.take(MAX_CONFIG_BYTES + 1).read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
 /// Load the saved pairing, or `None` when absent/unreadable/incomplete
 /// (fail-open into re-onboarding, like the JS `loadConfig`).
 pub fn load_config(path: &Path) -> Option<Config> {
-    let raw = std::fs::read_to_string(path).ok()?;
-    let config: Config = serde_json::from_str(&raw).ok()?;
+    let raw = read_config(path).ok()?;
+    if raw.len() as u64 > MAX_CONFIG_BYTES {
+        return None;
+    }
+    let config: Config = serde_json::from_slice(&raw).ok()?;
     if config.device_id.is_empty() || config.token.is_empty() {
         return None;
     }
@@ -115,21 +132,16 @@ pub fn load_config(path: &Path) -> Option<Config> {
 /// but unsafe file. Startup uses this to avoid silently re-onboarding into an
 /// unscoped session when persisted restrictions are malformed.
 pub fn load_config_checked(path: &Path) -> Result<Option<Config>, String> {
-    if let Ok(metadata) = std::fs::metadata(path)
-        && metadata.len() > MAX_CONFIG_BYTES
-    {
-        return Err("relay config exceeds the 1 MiB size limit".to_owned());
-    }
-    let raw = match std::fs::read_to_string(path) {
+    let raw = match read_config(path) {
         Ok(raw) => raw,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(format!("could not read relay config: {error}")),
     };
-    let config: Config =
-        serde_json::from_str(&raw).map_err(|error| format!("invalid relay config: {error}"))?;
     if raw.len() as u64 > MAX_CONFIG_BYTES {
         return Err("relay config exceeds the 1 MiB size limit".to_owned());
     }
+    let config: Config =
+        serde_json::from_slice(&raw).map_err(|error| format!("invalid relay config: {error}"))?;
     if config.device_id.is_empty() || config.token.is_empty() {
         return Err("relay config is incomplete".to_owned());
     }
@@ -187,7 +199,13 @@ pub fn save_config(path: &Path, config: &Config) -> std::io::Result<()> {
     let mut file = options.open(&temp)?;
     let written = file.write_all(body.as_bytes()).and_then(|()| file.sync_all());
     drop(file);
-    let renamed = written.and_then(|()| std::fs::rename(&temp, path));
+    let renamed = written.and_then(|()| {
+        #[cfg(windows)]
+        if path.exists() {
+            std::fs::remove_file(path)?;
+        }
+        std::fs::rename(&temp, path)
+    });
     if renamed.is_err() {
         let _ = std::fs::remove_file(&temp);
     }
