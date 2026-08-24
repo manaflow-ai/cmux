@@ -7,6 +7,7 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
     private static let maximumTitleUTF16Units = 120
     private static let maximumSubtitleUTF16Units = 120
     private static let maximumBodyUTF16Units = 500
+    private static let maximumWorkspaceGroupNameUTF16Units = 120
     private static let maximumIdentifierUTF16Units = 200
     private static let maximumRequestBytes = 8 * 1024
 
@@ -97,6 +98,23 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
             object["replyShape"] = payload.replyShape
             if let value = try Self.boundedIdentifier(payload.workspaceId) {
                 object["workspaceId"] = value
+            }
+            // The group id is opaque routing data used for per-device mute
+            // filters. The group name is user content: it redacts with the
+            // other visible fields and never ships without the id.
+            if let value = try Self.boundedIdentifier(payload.workspaceGroupId) {
+                object["workspaceGroupId"] = value
+                if !payload.hideContent,
+                   let name = payload.workspaceGroupName {
+                    let boundedName = Self.boundedText(
+                        name,
+                        maximumUTF16Units:
+                            Self.maximumWorkspaceGroupNameUTF16Units
+                    )
+                    if !boundedName.isEmpty {
+                        object["workspaceGroupName"] = boundedName
+                    }
+                }
             }
             if let value = try Self.boundedIdentifier(payload.surfaceId) {
                 object["surfaceId"] = value
