@@ -571,7 +571,7 @@ struct VerifiedTerminalReplayStateMachineTests {
         machine.updateExpectedViewportDimensions(columns: 80, rows: 3, reportID: 1)
 
         var revision: UInt64 = 2
-        for held in 0..<VerifiedTerminalReplayStateMachine.maxRenegotiationHeldFramesPerEpoch {
+        for held in 0..<VerifiedTerminalReplayStateMachine.maxRenegotiationHeldFrames {
             let stale = try frame(
                 renderRevision: revision,
                 stateSeq: revision,

@@ -33,20 +33,22 @@ final class VerifiedTerminalReplayStateMachine {
     /// older acknowledgement must not overwrite the newer settlement.
     private var newestViewportReportID: UInt64 = 0
     /// The grid the daemon granted in the acknowledgement that answered the
-    /// CURRENT `expectedViewportDimensions`, per epoch. Frames at this grid
-    /// are the settled negotiation even when it differs from the capacity
-    /// (another viewer constrains the shared PTY). Cleared whenever the
-    /// expected capacity changes: a grant answering an older report must not
-    /// whitelist frames against the new negotiation.
-    private var settledViewportGrantsByEpoch: [String: Dimensions] = [:]
-    /// Frames held per epoch while waiting for the daemon to acknowledge a
-    /// renegotiated viewport (see `begin`). Bounded so a lost report can
-    /// never freeze the terminal on the last verified pixels: once the
-    /// budget is spent, mismatched frames verify normally and render
-    /// letterboxed at the user's font. Reset when a negotiation settles or a
-    /// new one starts, so each negotiation gets a fresh budget.
-    private var renegotiationHeldFramesByEpoch: [String: Int] = [:]
-    static let maxRenegotiationHeldFramesPerEpoch = 4
+    /// newest capacity report, and the epoch it was granted for. Frames at
+    /// this grid are the settled negotiation even when it differs from the
+    /// capacity (another viewer constrains the shared PTY). Single-valued on
+    /// purpose: only the newest acknowledgement describes the negotiation,
+    /// and scalar state cannot grow across epoch churn. Cleared whenever the
+    /// expected capacity changes or the settled epoch retires.
+    private var settledViewportGrant: (epoch: String, grant: Dimensions)?
+    /// Frames held across ALL epochs while waiting for the daemon to
+    /// acknowledge a renegotiated viewport (see `begin`). Bounded so a lost
+    /// report — or a producer churning through epochs — can never freeze the
+    /// terminal on the last verified pixels: once the budget is spent,
+    /// mismatched frames verify normally and render letterboxed at the
+    /// user's font. Reset when a negotiation settles or a new one starts, so
+    /// each negotiation gets a fresh budget.
+    private var renegotiationHeldFrames = 0
+    static let maxRenegotiationHeldFrames = 4
 
     private(set) var visibleSnapshot: MobileTerminalRenderGridVisualSnapshot?
 
@@ -107,10 +109,10 @@ final class VerifiedTerminalReplayStateMachine {
             if let activeRenderEpoch {
                 retiredRenderEpochs.insert(activeRenderEpoch)
                 // Frames from a retired epoch are rejected outright above,
-                // so its negotiation state is dead weight; prune it so
-                // repeated reconnects cannot grow these maps unbounded.
-                settledViewportGrantsByEpoch.removeValue(forKey: activeRenderEpoch)
-                renegotiationHeldFramesByEpoch.removeValue(forKey: activeRenderEpoch)
+                // so a settlement for it is dead weight.
+                if settledViewportGrant?.epoch == activeRenderEpoch {
+                    settledViewportGrant = nil
+                }
             }
             activeRenderEpoch = frame.renderEpoch
             lastVerifiedRenderRevision = 0
@@ -148,8 +150,7 @@ final class VerifiedTerminalReplayStateMachine {
     /// normally.
     ///
     /// Never holds without last verified pixels to show, and never holds
-    /// more than ``maxRenegotiationHeldFramesPerEpoch`` frames per epoch and
-    /// negotiation: if the report is lost, the mismatched frame verifies
+    /// more than ``maxRenegotiationHeldFrames`` frames per negotiation: if the report is lost, the mismatched frame verifies
     /// normally and renders letterboxed at the user's font instead of
     /// freezing.
     private func holdForViewportRenegotiation(
@@ -160,16 +161,19 @@ final class VerifiedTerminalReplayStateMachine {
             return nil
         }
         let dims = Dimensions(columns: frame.columns, rows: frame.rows)
-        guard dims != expected,
-              dims != settledViewportGrantsByEpoch[frame.renderEpoch] else {
+        guard dims != expected else { return nil }
+        if let settled = settledViewportGrant,
+           settled.epoch == frame.renderEpoch,
+           settled.grant == dims {
             return nil
         }
-        let held = renegotiationHeldFramesByEpoch[frame.renderEpoch] ?? 0
-        guard held < Self.maxRenegotiationHeldFramesPerEpoch else { return nil }
-        renegotiationHeldFramesByEpoch[frame.renderEpoch] = held + 1
+        guard renegotiationHeldFrames < Self.maxRenegotiationHeldFrames else { return nil }
+        renegotiationHeldFrames += 1
         phase = .recovering
         activeTransaction = nil
-        return held == 0 ? .renegotiateViewportAndKeepFrozen : .keepFrozenAndRequestReplay
+        return renegotiationHeldFrames == 1
+            ? .renegotiateViewportAndKeepFrozen
+            : .keepFrozenAndRequestReplay
     }
 
     /// Records the phone's current base-font capacity so `begin` can
@@ -184,8 +188,8 @@ final class VerifiedTerminalReplayStateMachine {
         let dims = Dimensions(columns: columns, rows: rows)
         guard dims != expectedViewportDimensions else { return }
         expectedViewportDimensions = dims
-        settledViewportGrantsByEpoch.removeAll()
-        renegotiationHeldFramesByEpoch.removeAll()
+        settledViewportGrant = nil
+        renegotiationHeldFrames = 0
     }
 
     func complete(
@@ -257,11 +261,11 @@ final class VerifiedTerminalReplayStateMachine {
            grantedColumns > 0, grantedRows > 0,
            Dimensions(columns: reportedColumns, rows: reportedRows) == expected {
             newestViewportReportID = reportID
-            settledViewportGrantsByEpoch[renderEpoch] = Dimensions(
-                columns: grantedColumns,
-                rows: grantedRows
+            settledViewportGrant = (
+                epoch: renderEpoch,
+                grant: Dimensions(columns: grantedColumns, rows: grantedRows)
             )
-            renegotiationHeldFramesByEpoch[renderEpoch] = 0
+            renegotiationHeldFrames = 0
         }
         guard let activeTransaction,
               activeTransaction.renderEpoch == renderEpoch,
@@ -296,8 +300,8 @@ final class VerifiedTerminalReplayStateMachine {
         activeRenderEpoch = nil
         retiredRenderEpochs.removeAll()
         viewportRenderRevisionFloors.removeAll()
-        settledViewportGrantsByEpoch.removeAll()
-        renegotiationHeldFramesByEpoch.removeAll()
+        settledViewportGrant = nil
+        renegotiationHeldFrames = 0
         newestViewportReportID = 0
         lastVerifiedRenderRevision = 0
         lastVerifiedStateSeq = 0
