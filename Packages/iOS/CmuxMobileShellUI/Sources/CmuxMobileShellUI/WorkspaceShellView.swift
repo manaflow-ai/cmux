@@ -172,6 +172,12 @@ struct WorkspaceShellView: View {
     @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     #if os(iOS)
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
+    /// One-time What's New notice: the unseen-page snapshot captured when the
+    /// sheet presents, so remote list changes mid-presentation cannot mutate
+    /// an open sheet.
+    @Environment(MobileWhatsNewCenter.self) private var whatsNewCenter: MobileWhatsNewCenter?
+    @State private var whatsNewSheetPages: [MobileWhatsNewPage] = []
+    @State private var showsWhatsNewSheet = false
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var notificationSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var workspaceSearchNavigationPath: [MobileWorkspacePreview.ID] = []
@@ -488,9 +494,52 @@ struct WorkspaceShellView: View {
                 submitTaskComposer: submitTaskComposerFromShell
             )
         }
+        // One-time What's New notice. Only users who already HAVE Computers
+        // see it (fresh installs learn the same things in onboarding). The
+        // gate first answers from the cached remote list, then refreshes the
+        // list and re-checks. The shell can restore straight into cached
+        // workspaces without ever loading the paired-Mac list (it normally
+        // loads on the Computers sheet or a reconnect pass), so load it here
+        // and re-check, otherwise the has-Computers gate never answers.
+        .onAppear {
+            presentWhatsNewIfNeeded()
+            Task {
+                await whatsNewCenter?.refresh()
+                await store.loadPairedMacs()
+                presentWhatsNewIfNeeded()
+            }
+        }
+        .onChange(of: store.pairedMacs.isEmpty) { _, _ in
+            presentWhatsNewIfNeeded()
+        }
+        .sheet(isPresented: $showsWhatsNewSheet) {
+            MobileWhatsNewSheet(
+                pages: whatsNewSheetPages,
+                allowedWebHosts: whatsNewCenter?.allowedWebHosts ?? [],
+                dismiss: { showsWhatsNewSheet = false }
+            )
+            .presentationDetents([.large])
+        }
         #endif
         .accessibilityIdentifier("MobileWorkspaceShell")
     }
+
+    #if os(iOS)
+    /// Presents the one-time What's New sheet when there are unseen pages
+    /// and the device already has Computers. Pages are acknowledged the
+    /// moment the sheet first shows (not on dismiss) so a kill
+    /// mid-presentation cannot re-show it forever.
+    private func presentWhatsNewIfNeeded() {
+        guard let whatsNewCenter,
+              !store.pairedMacs.isEmpty,
+              !showsWhatsNewSheet else { return }
+        let pages = whatsNewCenter.unseenPages
+        guard !pages.isEmpty else { return }
+        whatsNewCenter.acknowledge(pages)
+        whatsNewSheetPages = pages
+        showsWhatsNewSheet = true
+    }
+    #endif
 
     private func stackLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationStack(path: $compactNavigationPath) {
