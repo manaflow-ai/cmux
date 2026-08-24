@@ -78,10 +78,11 @@ public final class SubrouterStore {
     /// The one-shot off-main load of the persisted history; kept so deinit
     /// cancels it and tests can await adoption deterministically.
     @ObservationIgnored private(set) var historyLoadTask: Task<Void, Never>?
-    /// The tail of the serialized history-save chain: each save awaits the
-    /// previous one so an older snapshot can never atomically replace a
-    /// newer one on disk.
+    /// The single waiter for the current off-main history save. New samples
+    /// while it is active set ``historySavePending`` instead of creating an
+    /// unbounded predecessor chain.
     @ObservationIgnored private var historySaveTask: Task<Void, Never>?
+    @ObservationIgnored private var historySavePending = false
     /// Whether the persisted history has been read and merged. No save may
     /// run before this: a refresh recording before the load lands must not
     /// overwrite the persisted file the load has not read yet.
@@ -450,16 +451,27 @@ public final class SubrouterStore {
         scheduleHistorySave()
     }
 
-    /// Chains one off-main save of the current history onto the previous
-    /// one, so writes land in order and an older snapshot can never
-    /// atomically replace a newer one.
+    /// Coalesces off-main history writes to one in-flight save plus one latest
+    /// snapshot. A slow disk can therefore delay persistence, but cannot
+    /// retain an unbounded chain of historical snapshots.
     private func scheduleHistorySave() {
         guard let historyStorageURL else { return }
+        if historySaveTask != nil {
+            historySavePending = true
+            return
+        }
         let history = usageHistory
-        let previousSave = historySaveTask
-        historySaveTask = Task.detached(priority: .utility) {
-            await previousSave?.value
+        let worker = Task.detached(priority: .utility) {
             history.save(to: historyStorageURL)
+        }
+        historySaveTask = Task { @MainActor [weak self] in
+            await worker.value
+            guard let self else { return }
+            self.historySaveTask = nil
+            if self.historySavePending {
+                self.historySavePending = false
+                self.scheduleHistorySave()
+            }
         }
     }
 

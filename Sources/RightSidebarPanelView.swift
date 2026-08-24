@@ -249,6 +249,11 @@ struct RightSidebarPanelView: View {
         .onChange(of: CmuxFeatureFlags.shared.isSubrouterUIEnabled) { _, _ in
             refreshModeAvailabilityAndFocusIfNeeded()
         }
+        .onChange(of: SubrouterAppRuntime.shared.store.configuration) { _, _ in
+            // Registry/endpoint changes can remove Agents without touching
+            // UserDefaults; move the selection immediately when that happens.
+            refreshModeAvailabilityAndFocusIfNeeded()
+        }
     }
 
     private var modeBar: some View {

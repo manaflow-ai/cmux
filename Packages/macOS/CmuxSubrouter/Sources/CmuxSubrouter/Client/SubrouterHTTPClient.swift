@@ -67,7 +67,9 @@ public struct SubrouterHTTPClient: SubrouterClienting {
     /// token (required by secured non-loopback servers) when present.
     private static func request(endpoint: SubrouterEndpoint, path: String) -> URLRequest {
         var request = URLRequest(url: endpoint.url(forPath: path))
-        if let token = endpoint.adminToken, !token.isEmpty {
+        if let token = endpoint.adminToken,
+           !token.isEmpty,
+           endpoint.isLoopback || endpoint.baseURL.scheme?.lowercased() == "https" {
             request.setValue(token, forHTTPHeaderField: "X-Subrouter-Admin-Token")
         }
         return request

@@ -69,6 +69,13 @@ public struct SubrouterServerSelection: Sendable, Equatable {
             return nil
         }
         let token = entry.adminToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !(token?.isEmpty ?? true),
+           !parsed.isLoopback,
+           parsed.baseURL.scheme?.lowercased() != "https" {
+            // Never put a bearer-like admin token on a plaintext remote
+            // connection; fail closed instead of silently downgrading auth.
+            return nil
+        }
         let endpoint = SubrouterEndpoint(
             baseURL: parsed.baseURL,
             adminToken: (token?.isEmpty ?? true) ? nil : token

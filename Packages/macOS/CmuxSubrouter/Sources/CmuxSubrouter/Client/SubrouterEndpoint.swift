@@ -23,6 +23,12 @@ public struct SubrouterEndpoint: Sendable, Hashable {
     /// Never surfaced in snapshots, status payloads, or logs.
     public let adminToken: String?
 
+    /// Whether this endpoint targets a loopback interface.
+    public var isLoopback: Bool {
+        guard let host = baseURL.host()?.lowercased() else { return false }
+        return host == "127.0.0.1" || host == "localhost" || host == "::1"
+    }
+
     /// Creates an endpoint from a base URL.
     /// - Parameters:
     ///   - baseURL: The daemon base URL (scheme + host + port).

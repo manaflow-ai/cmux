@@ -225,7 +225,7 @@ import Testing
         // Non-loopback /_subrouter/* endpoints 401 without the registry's
         // adminToken; dropping it here would break every remote request.
         let json = Data("""
-        {"servers": [{"name": "team", "url": "http://subrouter-team:31415",
+        {"servers": [{"name": "team", "url": "https://subrouter-team:31415",
                       "adminToken": "secret-token"}],
          "default": "team"}
         """.utf8)
@@ -233,7 +233,7 @@ import Testing
         let server = try #require(selection.defaultServer)
         #expect(server.endpoint.adminToken == "secret-token")
         // The token never rides in the URL user-facing surfaces render.
-        #expect(server.endpoint.baseURL.absoluteString == "http://subrouter-team:31415")
+        #expect(server.endpoint.baseURL.absoluteString == "https://subrouter-team:31415")
 
         let blank = Data("""
         {"servers": [{"name": "team", "url": "http://subrouter-team:31415", "adminToken": "  "}],
@@ -241,6 +241,14 @@ import Testing
         """.utf8)
         let blankSelection = try #require(SubrouterServerSelection(serversJSON: blank))
         #expect(blankSelection.defaultServer?.endpoint.adminToken == nil)
+    }
+
+    @Test func rejectsAdminTokenOnPlaintextRemoteServer() {
+        let json = Data("""
+        {"servers": [{"name": "team", "url": "http://subrouter-team:31415", "adminToken": "secret-token"}],
+         "default": "team"}
+        """.utf8)
+        #expect(SubrouterServerSelection(serversJSON: json) == nil)
     }
 
     @Test func missingDefaultMeansLocalDaemon() throws {
