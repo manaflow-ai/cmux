@@ -13,6 +13,21 @@ public enum CmxTransportClass: String, Codable, CaseIterable, Hashable, Sendable
     case iroh
     case websocket
     case debugLoopback = "debug_loopback"
+
+    /// Localized name for user-facing diagnostics and errors.
+    public var displayName: String {
+        switch self {
+        case .lan: Self.localized("cmux.transport.class.lan", "LAN")
+        case .tailscale: Self.localized("cmux.transport.class.tailscale", "Tailscale")
+        case .iroh: Self.localized("cmux.transport.class.iroh", "iroh")
+        case .websocket: Self.localized("cmux.transport.class.websocket", "WebSocket")
+        case .debugLoopback: Self.localized("cmux.transport.class.loopback", "Loopback")
+        }
+    }
+
+    private static func localized(_ key: StaticString, _ value: String) -> String {
+        String(localized: key, defaultValue: String.LocalizationValue(value), bundle: .module)
+    }
 }
 
 /// The user's selected transport policy.
@@ -53,12 +68,16 @@ public enum CmxTransportMode: String, Codable, CaseIterable, Hashable, Sendable 
     /// Stable human-readable name used in errors and fallback diagnostics.
     public var displayName: String {
         switch self {
-        case .automatic: "Auto"
-        case .lan: "LAN"
-        case .tailscale: "Tailscale"
-        case .iroh: "iroh"
-        case .direct: "Direct"
+        case .automatic: Self.localized("cmux.transport.mode.auto", "Auto")
+        case .lan: Self.localized("cmux.transport.mode.lan", "LAN only")
+        case .tailscale: Self.localized("cmux.transport.mode.tailscale", "Tailscale only")
+        case .iroh: Self.localized("cmux.transport.mode.iroh", "iroh only")
+        case .direct: Self.localized("cmux.transport.mode.direct", "Direct")
         }
+    }
+
+    private static func localized(_ key: StaticString, _ value: String) -> String {
+        String(localized: key, defaultValue: String.LocalizationValue(value), bundle: .module)
     }
 }
 
@@ -94,19 +113,37 @@ public enum CmxTransportPath: Codable, Equatable, Hashable, Sendable {
         case .unavailable:
             return ""
         case let .lan(address):
-            return "LAN · \(address)"
+            return Self.formatted("cmux.transport.path.lanFormat", "LAN · %@", address)
         case let .tailscale(address):
-            return "Tailscale · \(address)"
+            return Self.formatted("cmux.transport.path.tailscaleFormat", "Tailscale · %@", address)
         case .irohDirect:
-            return "iroh direct"
+            return Self.localized("cmux.transport.path.irohDirect", "iroh direct")
         case let .irohRelay(region):
-            if let region, !region.isEmpty { return "iroh relay \(region)" }
-            return "iroh relay"
+            if let region, !region.isEmpty {
+                return Self.formatted("cmux.transport.path.irohRelayFormat", "iroh relay %@", region)
+            }
+            return Self.localized("cmux.transport.path.irohRelay", "iroh relay")
         case .websocket:
-            return "WebSocket"
+            return Self.localized("cmux.transport.path.websocket", "WebSocket")
         case .debugLoopback:
-            return "Loopback"
+            return Self.localized("cmux.transport.path.loopback", "Loopback")
         }
+    }
+
+    private static func localized(_ key: StaticString, _ value: String) -> String {
+        String(localized: key, defaultValue: String.LocalizationValue(value), bundle: .module)
+    }
+
+    private static func formatted(
+        _ key: StaticString,
+        _ value: String,
+        _ argument: String
+    ) -> String {
+        String(
+            format: localized(key, value),
+            locale: .current,
+            argument
+        )
     }
 
     /// Redacted path category suitable for the structured diagnostic ring.
@@ -135,10 +172,39 @@ extension CmxTransportModeError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case let .noRoute(mode, macDisplayName):
-            let target = macDisplayName.map { " to \($0)" } ?? ""
-            return "\(mode.displayName) selected but no \(mode.displayName) route\(target) is available. Check that the selected network is up and the Mac is advertising it."
+            let target = macDisplayName.map {
+                String(
+                    format: String(
+                        localized: "cmux.transport.error.targetFormat",
+                        defaultValue: " to %@",
+                        bundle: .module
+                    ),
+                    locale: .current,
+                    $0
+                )
+            } ?? ""
+            return String(
+                format: String(
+                    localized: "cmux.transport.error.noRoute",
+                    defaultValue: "%@ selected but no %@ route%@ is available. Check that the selected network is up and the Mac is advertising it.",
+                    bundle: .module
+                ),
+                locale: .current,
+                mode.displayName,
+                mode.displayName,
+                target
+            )
         case let .routeClassMismatch(expected, actual):
-            return "Selected \(expected.rawValue) transport cannot use a \(actual.rawValue) route."
+            return String(
+                format: String(
+                    localized: "cmux.transport.error.routeClassMismatch",
+                    defaultValue: "Selected %@ transport cannot use a %@ route.",
+                    bundle: .module
+                ),
+                locale: .current,
+                expected.displayName,
+                actual.displayName
+            )
         }
     }
 }

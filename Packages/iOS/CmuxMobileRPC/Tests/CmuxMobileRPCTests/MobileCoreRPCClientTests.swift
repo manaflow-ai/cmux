@@ -589,6 +589,44 @@ import Testing
         #expect(probe?.hasAuth == false)
     }
 
+    @Test func autoModeNeverSendsStackBearerToAdvertisedLAN() async throws {
+        let route = try hostPortRoute(kind: .lan, host: "192.168.1.20", port: 58465)
+        let transport = QueuedCancellationProbeTransport()
+        let stackTokenRequested = AsyncFlag()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            stackAccessTokenProvider: {
+                await stackTokenRequested.set()
+                return "must-not-cross-auto-lan"
+            }
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: nil
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true,
+            transportMode: .automatic
+        )
+        let request = try MobileCoreRPCClient.requestData(method: "workspace.list")
+        do {
+            _ = try await client.sendRequest(request)
+            Issue.record("Expected Auto LAN bearer use to fail closed")
+        } catch MobileShellConnectionError.insecureManualRoute {
+        } catch {
+            Issue.record("Expected insecureManualRoute, got \(error)")
+        }
+        #expect(!(await stackTokenRequested.isSet()))
+        #expect(try await transport.sentRequests().isEmpty)
+    }
+
     @Test func workspaceActionsCarryMacWideAttachTicketContext() async throws {
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 58465)
         let transport = QueuedCancellationProbeTransport()

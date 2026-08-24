@@ -687,7 +687,14 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private var canSendStackBearer: Bool {
         switch transportRequest.authorizationMode {
         case .stackBearer:
+            // A plaintext LAN bearer is permitted only after the user has
+            // explicitly pinned this Computer to LAN Only. Auto never sends
+            // the account token to a LAN fallback, so an advertised LAN route
+            // cannot silently widen Auto's encrypted transport policy.
+            let explicitLANSelection = route.kind != .lan
+                || transportRequest.transportMode == .lan
             return allowsStackAuthFallback
+                && explicitLANSelection
                 && MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
         case let .legacyTailscaleBearer(evidence):
             guard route.kind == .tailscale,
