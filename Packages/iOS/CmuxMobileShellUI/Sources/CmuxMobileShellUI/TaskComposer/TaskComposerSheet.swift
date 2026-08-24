@@ -134,37 +134,50 @@ struct TaskComposerSheet: View {
         let foregroundMacInstanceTag = store.connectedMacInstanceTag
         // Restore persisted Mac IDs only while they remain paired.
         let availablePairedMacs = availableMachines ?? store.displayPairedMacs
-        let pairedMacIDs = availablePairedMacs.map(\.macDeviceID)
-        let restoredMacID = store.taskTemplateStore?.lastMacDeviceID()
-            .flatMap { id in pairedMacIDs.contains(id) ? id : nil }
-        let draftMacID = draft?.macDeviceID
-            .flatMap { id in pairedMacIDs.contains(id) ? id : nil }
-        let selectedMacID = draftMacID
-            ?? restoredMacID
-            ?? foregroundMacID.flatMap { id in pairedMacIDs.contains(id) ? id : nil }
-            ?? pairedMacIDs.first
-            ?? foregroundMacID
-            ?? ""
-        // A draft that named a specific paired build restores that exact
-        // pairing. Otherwise the authenticated foreground tag is authoritative;
-        // a persisted `isActive` flag can lag a reconnect or app rebuild.
-        let draftInstanceTag = draftMacID != nil ? draft?.macInstanceTag : nil
-        let draftMac = draftInstanceTag.flatMap { tag in
+        let restoredMac = store.taskTemplateStore?.lastMacDeviceID()
+            .flatMap { id in availablePairedMacs.first { $0.id == id } }
+        // Restore a draft only when its complete pairing identity still exists.
+        // A device-only legacy draft cannot select an arbitrary Stable/Nightly
+        // sibling that happens to sort first.
+        let draftMac = draft?.macDeviceID.flatMap { draftMacDeviceID in
             availablePairedMacs.first {
-                $0.macDeviceID == selectedMacID && $0.instanceTag == tag
+                $0.id == MobilePairedMac.pairingID(
+                    macDeviceID: draftMacDeviceID,
+                    instanceTag: draft?.macInstanceTag
+                )
             }
         }
-        let foregroundMac = (draftInstanceTag == nil && selectedMacID == foregroundMacID)
-            ? availablePairedMacs.first {
-                $0.macDeviceID == selectedMacID
-                    && $0.instanceTag == foregroundMacInstanceTag
-            }
-            : nil
-        let selectedMac = draftMac ?? foregroundMac ?? availablePairedMacs.first {
-            $0.macDeviceID == selectedMacID && $0.isActive
-        } ?? availablePairedMacs.first {
-            $0.macDeviceID == selectedMacID
+        // The authenticated foreground identity outranks a possibly stale
+        // persisted active flag.
+        let foregroundMac = availablePairedMacs.first {
+            $0.id == MobilePairedMac.pairingID(
+                macDeviceID: foregroundMacID ?? "",
+                instanceTag: foregroundMacInstanceTag
+            )
         }
+        let selectedMac = draftMac
+            ?? restoredMac
+            ?? foregroundMac
+            ?? availablePairedMacs.first(where: \.isActive)
+            ?? availablePairedMacs.first
+        let selectedMacID = selectedMac?.macDeviceID ?? foregroundMacID ?? ""
+        let selectedMacInstanceTag: String?
+        if let selectedMac {
+            selectedMacInstanceTag = selectedMac.instanceTag
+        } else {
+            selectedMacInstanceTag = selectedMacID == foregroundMacID
+                ? foregroundMacInstanceTag
+                : nil
+        }
+        let draftMatchesSelectedMac = draft == nil || draft.map {
+            MobilePairedMac.pairingID(
+                macDeviceID: $0.macDeviceID ?? "",
+                instanceTag: $0.macInstanceTag
+            ) == MobilePairedMac.pairingID(
+                macDeviceID: selectedMacID,
+                instanceTag: selectedMacInstanceTag
+            )
+        } == true
         // Keep a restored group ID until the live inventory proves whether it
         // still exists. The workspace/group projection is populated after the
         // sheet can be initialized, so an empty snapshot here means
@@ -184,7 +197,7 @@ struct TaskComposerSheet: View {
             store.discoveredTaskModelResult(
                 provider: $0,
                 macDeviceID: selectedMacID,
-                instanceTag: selectedMac?.instanceTag
+                instanceTag: selectedMacInstanceTag
             )
         }
         let initialModelAvailability = MobileTaskModelAvailability(
@@ -219,17 +232,20 @@ struct TaskComposerSheet: View {
             workspaces: store.workspaces,
             selectedWorkspaceID: store.selectedWorkspaceID,
             macDeviceID: selectedMacID,
-            connectedMacDeviceID: store.connectedMacDeviceID
+            connectedMacDeviceID: store.connectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag,
+            connectedMacInstanceTag: store.connectedMacInstanceTag
         )
         let canRestoreDraftDirectory = draft != nil && (
             draft?.didEditDirectory == true
-                || (draft?.templateID == selectedTemplateID && draft?.macDeviceID == selectedMacID)
+                || (draft?.templateID == selectedTemplateID && draftMatchesSelectedMac)
         )
         let initialDirectory = canRestoreDraftDirectory
             ? draft?.directory ?? "~"
             : Self.suggestedDirectory(
                 template: selectedTemplate,
                 macDeviceID: selectedMacID,
+                instanceTag: selectedMacInstanceTag,
                 templateStore: store.taskTemplateStore,
                 openDirectory: openDirectory
             )
@@ -240,7 +256,7 @@ struct TaskComposerSheet: View {
         let draftEffortSurvivedValidation = draft?.effortID == initialEffortID
         let restoredOperationID = (
             draft?.templateID == selectedTemplateID
-                && draft?.macDeviceID == (selectedMacID.isEmpty ? nil : selectedMacID)
+                && draftMatchesSelectedMac
                 && draft?.workspaceGroupID == initialWorkspaceGroupID
                 && canRestoreDraftDirectory
                 && draftModelSurvivedValidation
@@ -256,7 +272,7 @@ struct TaskComposerSheet: View {
                 modelID: initialModelID,
                 effortID: initialEffortID,
                 macDeviceID: selectedMacID,
-                macInstanceTag: selectedMac?.instanceTag,
+                macInstanceTag: selectedMacInstanceTag,
                 directory: initialDirectory,
                 workspaceName: initialWorkspaceName,
                 workspaceGroupID: initialWorkspaceGroupID,
@@ -265,7 +281,7 @@ struct TaskComposerSheet: View {
             )
         }
         let canRestoreCompletedOperation = draft?.templateID == selectedTemplateID
-            && draft?.macDeviceID == (selectedMacID.isEmpty ? nil : selectedMacID)
+            && draftMatchesSelectedMac
             && draft?.workspaceGroupID == initialWorkspaceGroupID
             && canRestoreDraftDirectory
             && draftModelSurvivedValidation
@@ -286,7 +302,7 @@ struct TaskComposerSheet: View {
         })
         _selectedEffortID = State(initialValue: initialEffortID)
         _selectedMacDeviceID = State(initialValue: selectedMacID)
-        _selectedMacInstanceTag = State(initialValue: selectedMac?.instanceTag)
+        _selectedMacInstanceTag = State(initialValue: selectedMacInstanceTag)
         _selectedWorkspaceGroupID = State(initialValue: initialWorkspaceGroupID)
         _pendingRestoredWorkspaceGroupID = State(initialValue: draft?.workspaceGroupID)
         _displayedModels = State(initialValue: initialModelResult?.models ?? [])
@@ -458,6 +474,7 @@ struct TaskComposerSheet: View {
                 && !workspaceGroupSelectionNeedsInventory
                 && !workspaceGroupSelectionRequiresResolution
                 && blockingCompletedOperationRecovery == nil,
+            connectionWarningText: connectionWarningText,
             failureTitle: failureTitleStyle.title,
             failureText: failureText,
             completedOperationRecovery: blockingCompletedOperationRecovery,
@@ -551,6 +568,18 @@ struct TaskComposerSheet: View {
         availableMachines ?? store.displayPairedMacs
     }
 
+    /// The "No Mac is connected" notice. The entrypoint no longer hides while
+    /// offline, so the composer itself must say why a task cannot start yet.
+    /// The accessibility harness injects deterministic machines without live
+    /// sessions, so injected machines suppress the warning.
+    private var connectionWarningText: String? {
+        guard availableMachines == nil, !store.hasAnyConnectedMac else { return nil }
+        return L10n.string(
+            "mobile.taskComposer.warning.noConnectedMac",
+            defaultValue: "No Mac is connected. Open cmux on a Mac to start this task."
+        )
+    }
+
     private var workspaceGroups: [MobileWorkspaceGroupPreview] {
         guard canSelectWorkspaceGroup else { return [] }
         return availableWorkspaceGroups ?? store.workspaceGroups
@@ -619,8 +648,7 @@ struct TaskComposerSheet: View {
 
     var selectedMachine: MobilePairedMac? {
         machines.first {
-            $0.macDeviceID == selectedMacDeviceID
-                && $0.instanceTag == selectedMacInstanceTag
+            $0.id == selectedMacPairingID
         }
     }
 
@@ -814,7 +842,10 @@ struct TaskComposerSheet: View {
     private func selectMachine(_ macDeviceID: String, _ instanceTag: String?) {
         guard !submissionPhase.disablesRequestEditing,
               machines.contains(where: {
-                  $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag
+                  $0.id == MobilePairedMac.pairingID(
+                      macDeviceID: macDeviceID,
+                      instanceTag: instanceTag
+                  )
               }) else { return }
         store.recordAppEvent(
             .taskMachineSelected,
@@ -822,7 +853,10 @@ struct TaskComposerSheet: View {
         )
         store.recordAppEvent(
             .taskRouteSelected,
-            correlationID: instanceTag ?? macDeviceID
+            correlationID: MobilePairedMac.pairingID(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
         )
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedMacDeviceID = macDeviceID
@@ -1077,47 +1111,46 @@ struct TaskComposerSheet: View {
         store.persistTaskComposerDraft(draftSnapshot(), ifSessionGeneration: sessionGeneration)
     }
 
-}
-
-private func validWorkspaceGroupID(
-    _ candidate: MobileWorkspaceGroupPreview.ID?,
-    groups: [MobileWorkspaceGroupPreview],
-    macDeviceID: String,
-    instanceTag: String?
-) -> MobileWorkspaceGroupPreview.ID? {
-    guard let candidate,
-          filteredWorkspaceGroups(
-              groups,
-              macDeviceID: macDeviceID,
-              instanceTag: instanceTag
-          ).contains(where: { $0.id == candidate }) else {
-        return nil
-    }
-    return candidate
-}
-
-private func filteredWorkspaceGroups(
-    _ groups: [MobileWorkspaceGroupPreview],
-    macDeviceID: String,
-    instanceTag: String?
-) -> [MobileWorkspaceGroupPreview] {
-    guard let macDeviceID = normalizedWorkspaceOwner(macDeviceID) else {
-        return []
-    }
-    return groups.filter { group in
-        guard let groupMacDeviceID = normalizedWorkspaceOwner(group.macDeviceID),
-              groupMacDeviceID == macDeviceID else {
-            return false
+    private func validWorkspaceGroupID(
+        _ candidate: MobileWorkspaceGroupPreview.ID?,
+        groups: [MobileWorkspaceGroupPreview],
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> MobileWorkspaceGroupPreview.ID? {
+        guard let candidate,
+              filteredWorkspaceGroups(
+                  groups,
+                  macDeviceID: macDeviceID,
+                  instanceTag: instanceTag
+              ).contains(where: { $0.id == candidate }) else {
+            return nil
         }
-        return normalizedWorkspaceOwner(group.macInstanceTag) == normalizedWorkspaceOwner(instanceTag)
+        return candidate
     }
-}
 
-private func normalizedWorkspaceOwner(_ value: String?) -> String? {
-    guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-          !value.isEmpty else {
-        return nil
+    private func filteredWorkspaceGroups(
+        _ groups: [MobileWorkspaceGroupPreview],
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> [MobileWorkspaceGroupPreview] {
+        guard let macDeviceID = normalizedWorkspaceOwner(macDeviceID) else {
+            return []
+        }
+        return groups.filter { group in
+            guard let groupMacDeviceID = normalizedWorkspaceOwner(group.macDeviceID),
+                  groupMacDeviceID == macDeviceID else {
+                return false
+            }
+            return normalizedWorkspaceOwner(group.macInstanceTag) == normalizedWorkspaceOwner(instanceTag)
+        }
     }
-    return value
+
+    private func normalizedWorkspaceOwner(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
 }
 #endif

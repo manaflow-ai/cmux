@@ -127,6 +127,7 @@ struct SettingsSearchIndexTests {
             "setting:browser:search-engine",
             "setting:browser:terminal-links",
             "setting:browser:http-allowlist",
+            "setting:browser:url-allowlist",
         ]),
         ("notification settings", [
             "setting:app:dock-badge",

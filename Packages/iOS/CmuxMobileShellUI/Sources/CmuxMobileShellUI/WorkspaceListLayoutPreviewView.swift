@@ -103,7 +103,7 @@ public struct WorkspaceListLayoutPreviewView: View {
     /// Store-free stand-ins for the device-local sort preference, so the
     /// fixture's sort menu and computer-order editor are fully interactive.
     /// `CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT` (a raw mode value) and
-    /// `..._SORT_PRIORITY` (comma-separated Mac device ids) seed them so a
+    /// `..._SORT_PRIORITY` (comma-separated pairing ids) seed them so a
     /// harness can verify each mode's rendering without driving the menu.
     @State private var fixtureSortMode: MobileWorkspaceSortMode =
         ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT"]
@@ -584,14 +584,24 @@ public struct WorkspaceListLayoutPreviewView: View {
             return model.workspaces
         }
         var rank: [String: Int] = [:]
-        for (index, deviceID) in fixtureComputerPriority.enumerated()
-            where rank[deviceID] == nil {
-            rank[deviceID] = index
+        for (index, computerID) in fixtureComputerPriority.enumerated()
+            where rank[computerID] == nil {
+            rank[computerID] = index
         }
         return model.workspaces.enumerated()
             .sorted { lhs, rhs in
-                let lhsRank = rank[lhs.element.macDeviceID ?? ""] ?? Int.max
-                let rhsRank = rank[rhs.element.macDeviceID ?? ""] ?? Int.max
+                let lhsDeviceID = lhs.element.macDeviceID ?? ""
+                let rhsDeviceID = rhs.element.macDeviceID ?? ""
+                let lhsComputerID = MobilePairedMac.pairingID(
+                    macDeviceID: lhsDeviceID,
+                    instanceTag: lhs.element.macInstanceTag
+                )
+                let rhsComputerID = MobilePairedMac.pairingID(
+                    macDeviceID: rhsDeviceID,
+                    instanceTag: rhs.element.macInstanceTag
+                )
+                let lhsRank = rank[lhsComputerID] ?? rank[lhsDeviceID] ?? Int.max
+                let rhsRank = rank[rhsComputerID] ?? rank[rhsDeviceID] ?? Int.max
                 if lhsRank != rhsRank { return lhsRank < rhsRank }
                 return lhs.offset < rhs.offset
             }

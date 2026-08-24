@@ -6,14 +6,12 @@ import Testing
     private func cap(
         _ contentWidth: CGFloat,
         hasBackButton: Bool = true,
-        hasTrailingCluster: Bool = true,
-        hasChatToggle: Bool = true
+        hasTrailingCluster: Bool = true
     ) -> CGFloat {
         MobileLeadingToolbarTitleWidth(
             contentWidth: contentWidth,
             hasBackButton: hasBackButton,
-            hasTrailingCluster: hasTrailingCluster,
-            hasChatToggle: hasChatToggle
+            hasTrailingCluster: hasTrailingCluster
         ).cap
     }
 
@@ -25,21 +23,16 @@ import Testing
         let expected = 393
             - MobileLeadingToolbarTitleWidth.backButtonReserve
             - MobileLeadingToolbarTitleWidth.trailingReserveBase
-            - MobileLeadingToolbarTitleWidth.chatToggleReserve
             - MobileLeadingToolbarTitleWidth.barMarginsAndSpacing
 
         #expect(cap(393) == expected)
-    }
-
-    @Test func titleGainsRoomWithoutChatToggle() {
-        #expect(cap(260, hasChatToggle: false) > cap(260, hasChatToggle: true))
     }
 
     @Test func titleGainsRoomWithoutBackButton() {
         #expect(cap(260, hasBackButton: false) > cap(260, hasBackButton: true))
     }
 
-    @Test func noTrailingClusterDoesNotReserveChatToggle() {
+    @Test func noTrailingClusterReservesOnlyBackAndMargins() {
         let contentWidth: CGFloat = 220
         let withoutTrailing = cap(contentWidth, hasTrailingCluster: false)
         let expected = contentWidth
@@ -55,7 +48,7 @@ import Testing
             - MobileLeadingToolbarTitleWidth.trailingReserveBase
             - MobileLeadingToolbarTitleWidth.barMarginsAndSpacing
 
-        #expect(cap(800, hasChatToggle: false) == expected)
+        #expect(cap(800) == expected)
     }
 
     @Test func measuredTrailingItemsReplaceTheConstantEstimate() {
@@ -63,7 +56,6 @@ import Testing
             contentWidth: 393,
             hasBackButton: true,
             hasTrailingCluster: true,
-            hasChatToggle: true,
             measuredTrailingItemsWidth: 150,
             measuredTrailingItemCount: 2,
             trailingItemCount: 2
@@ -77,14 +69,13 @@ import Testing
     }
 
     @Test func wideMeasuredTrailingItemsShrinkTheTitleInsteadOfOverflowing() {
-        // A changes chip plus picker plus chat toggle wider than the constant
-        // estimate must shrink the title cap, not push items into More.
+        // A changes chip plus picker wider than the constant estimate must
+        // shrink the title cap, not push items into More.
         let constantOnly = cap(393)
         let measured = MobileLeadingToolbarTitleWidth(
             contentWidth: 393,
             hasBackButton: true,
             hasTrailingCluster: true,
-            hasChatToggle: true,
             measuredTrailingItemsWidth: 200,
             measuredTrailingItemCount: 3,
             trailingItemCount: 3
@@ -98,7 +89,6 @@ import Testing
             contentWidth: 393,
             hasBackButton: true,
             hasTrailingCluster: true,
-            hasChatToggle: true,
             measuredTrailingItemsWidth: 0,
             measuredTrailingItemCount: 0,
             trailingItemCount: 1
@@ -115,7 +105,6 @@ import Testing
             contentWidth: 393,
             hasBackButton: true,
             hasTrailingCluster: true,
-            hasChatToggle: true,
             measuredTrailingItemsWidth: 90,
             measuredTrailingItemCount: 1,
             trailingItemCount: 1
@@ -124,7 +113,6 @@ import Testing
             contentWidth: 393,
             hasBackButton: true,
             hasTrailingCluster: true,
-            hasChatToggle: true,
             measuredTrailingItemsWidth: 90,
             measuredTrailingItemCount: 1,
             trailingItemCount: 2

@@ -1,3 +1,4 @@
+import CmuxMobilePairedMac
 public import CmuxMobileShellModel
 import Foundation
 
@@ -191,18 +192,23 @@ extension MobileShellComposite {
     /// Pairing-exact variant: rows carry their build's tag, and sibling builds
     /// of one Mac are distinct targets, so ambiguity fails closed.
     func workspaceListConnectedRefreshTarget() -> (macDeviceID: String, instanceTag: String?)? {
-        let connectionStatusesByMacDeviceID = macConnectionStatuses
-        let pairedMacDeviceIDs = Set(pairedMacsForIdentityMatching.map(\.macDeviceID))
+        let connectionStatusesByPairingID = macConnectionStatuses
+        let pairedMacPairingIDs = Set(pairedMacsForIdentityMatching.map(\.id))
 
         func connectedTarget(
             from workspace: MobileWorkspacePreview?
         ) -> (macDeviceID: String, instanceTag: String?)? {
-            guard let workspace,
-                  let macDeviceID = workspace.macDeviceID,
-                  (workspace.macConnectionStatus ?? connectionStatusesByMacDeviceID[macDeviceID]) == .connected,
+            guard let workspace, let macDeviceID = workspace.macDeviceID else {
+                return nil
+            }
+            let pairingID = MobilePairedMac.pairingID(
+                macDeviceID: macDeviceID,
+                instanceTag: workspace.macInstanceTag
+            )
+            guard (workspace.macConnectionStatus
+                ?? connectionStatusesByPairingID[pairingID]) == .connected,
                   isReconnectableWorkspaceMacID(macDeviceID),
-                  pairedMacDeviceIDs.contains(macDeviceID)
-            else {
+                  pairedMacPairingIDs.contains(pairingID) else {
                 return nil
             }
             return (macDeviceID, workspace.macInstanceTag)
@@ -240,17 +246,27 @@ extension MobileShellComposite {
     /// build's instance tag, and sibling builds of one Mac are distinct
     /// targets, so ambiguity across pairings fails closed.
     func workspaceListReconnectTarget() -> (macDeviceID: String, instanceTag: String?)? {
-        let pairedMacDeviceIDs = Set(pairedMacsForIdentityMatching.map(\.macDeviceID))
+        let pairedMacPairingIDs = Set(pairedMacsForIdentityMatching.map(\.id))
 
         func reconnectableTarget(
             from workspace: MobileWorkspacePreview?
         ) -> (macDeviceID: String, instanceTag: String?)? {
             guard let workspace,
-                  (workspace.macConnectionStatus ?? macConnectionStatus) != .connected,
-                  let macDeviceID = workspace.macDeviceID,
+                  let macDeviceID = workspace.macDeviceID else {
+                return nil
+            }
+            let pairingID = MobilePairedMac.pairingID(
+                macDeviceID: macDeviceID,
+                instanceTag: workspace.macInstanceTag
+            )
+            guard (workspace.macConnectionStatus
+                ?? macConnectionStatuses[pairingID]
+                ?? (matchesForegroundPairing(
+                    macDeviceID: macDeviceID,
+                    instanceTag: workspace.macInstanceTag
+                ) ? macConnectionStatus : nil)) != .connected,
                   isReconnectableWorkspaceMacID(macDeviceID),
-                  pairedMacDeviceIDs.contains(macDeviceID)
-            else {
+                  pairedMacPairingIDs.contains(pairingID) else {
                 return nil
             }
             return (macDeviceID, workspace.macInstanceTag)

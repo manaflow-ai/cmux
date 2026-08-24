@@ -249,11 +249,13 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     }
 
     public func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
-        let target = try await loadAll(stackUserID: stackUserID, teamID: teamID)
-            .first { $0.macDeviceID == macDeviceID }
+        let canonicalMacDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let matches = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+            .filter { cmxCanonicalDeviceID($0.macDeviceID) == canonicalMacDeviceID }
+        guard matches.count == 1, let target = matches.first else { return }
         try await setActive(
-            macDeviceID: macDeviceID,
-            instanceTag: target?.instanceTag,
+            macDeviceID: target.macDeviceID,
+            instanceTag: target.instanceTag,
             stackUserID: stackUserID,
             teamID: teamID
         )
@@ -326,11 +328,13 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws {
-        let target = try await loadAll(stackUserID: stackUserID, teamID: teamID)
-            .first { $0.macDeviceID == macDeviceID }
+        let canonicalMacDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let matches = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+            .filter { cmxCanonicalDeviceID($0.macDeviceID) == canonicalMacDeviceID }
+        guard matches.count == 1, let target = matches.first else { return }
         try await setCustomization(
-            macDeviceID: macDeviceID,
-            instanceTag: target?.instanceTag,
+            macDeviceID: target.macDeviceID,
+            instanceTag: target.instanceTag,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,
@@ -399,11 +403,13 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     }
 
     public func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
-        let target = try await loadAll(stackUserID: stackUserID, teamID: teamID)
-            .first { $0.macDeviceID == macDeviceID }
+        let canonicalMacDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let matches = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+            .filter { cmxCanonicalDeviceID($0.macDeviceID) == canonicalMacDeviceID }
+        guard matches.count == 1, let target = matches.first else { return }
         try await remove(
-            macDeviceID: macDeviceID,
-            instanceTag: target?.instanceTag,
+            macDeviceID: target.macDeviceID,
+            instanceTag: target.instanceTag,
             stackUserID: stackUserID,
             teamID: teamID
         )
@@ -571,7 +577,10 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         macDeviceID: String,
         instanceTag: String?
     ) -> Bool {
-        mac.macDeviceID == macDeviceID && mac.instanceTag == instanceTag
+        MacPairingKey(mac) == MacPairingKey(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
     }
 
     /// A legacy nil-tag row and a tagged row are the same app instance only
@@ -582,12 +591,12 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     ) -> [MobilePairedMac] {
         var taggedPeersByMacDeviceID: [String: Set<String>] = [:]
         for mac in rows where mac.instanceTag?.isEmpty == false {
-            taggedPeersByMacDeviceID[mac.macDeviceID, default: []]
+            taggedPeersByMacDeviceID[cmxCanonicalDeviceID(mac.macDeviceID), default: []]
                 .formUnion(irohPeerEndpointIDs(in: mac.routes))
         }
         return rows.filter { mac in
             guard mac.instanceTag == nil,
-                  let taggedPeers = taggedPeersByMacDeviceID[mac.macDeviceID] else {
+                  let taggedPeers = taggedPeersByMacDeviceID[cmxCanonicalDeviceID(mac.macDeviceID)] else {
                 return true
             }
             return taggedPeers.isDisjoint(with: irohPeerEndpointIDs(in: mac.routes))

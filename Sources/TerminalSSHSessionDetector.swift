@@ -441,8 +441,67 @@ enum TerminalSSHSessionDetector {
         return nil
     }
 
+    /// Builds a restore binding for a foreground, interactive plain-SSH
+    /// process. Managed `cmux ssh` wrappers are excluded because their stable
+    /// remote PTY binding is authoritative; this path is only the muscle-memory
+    /// `ssh host` command typed into a local pane.
+    static func resumeBinding(
+        processName: String,
+        processPath: String?,
+        arguments: [String],
+        environment: [String: String],
+        capturedAt: TimeInterval = Date().timeIntervalSince1970
+    ) -> SurfaceResumeBindingSnapshot? {
+        let executableName = processPath ?? processName
+        guard let transport = RemoteShellTransport(executableName: executableName),
+              case .ssh = transport,
+              !isManagedSSHWrapper(environment: environment),
+              isInteractiveSSHArguments(arguments),
+              let session = parseSSHCommandLine(arguments) else {
+            return nil
+        }
+
+        // libproc's argv[0] is often the bare `ssh` name even when the
+        // process was launched from a company wrapper or an absolute path.
+        // Preserve the resolved executable path so restore does not silently
+        // switch binaries (or fail when that bare name is not on PATH).
+        let resolvedExecutable = processPath?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+        let launchArguments: [String] = {
+            guard let resolvedExecutable, !arguments.isEmpty else { return arguments }
+            return [resolvedExecutable] + arguments.dropFirst()
+        }()
+        let command = launchArguments
+            .map(SurfaceResumeBindingSnapshot.shellSingleQuoted)
+            .joined(separator: " ")
+        guard SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(command) else {
+            return nil
+        }
+        let cwd = environment["CMUX_AGENT_LAUNCH_CWD"] ?? environment["PWD"]
+        return SurfaceResumeBindingSnapshot(
+            name: "ssh \(session.destination)",
+            kind: "ssh",
+            command: command,
+            cwd: cwd,
+            source: "process-detected",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: nil,
+                executablePath: resolvedExecutable ?? launchArguments.first,
+                arguments: launchArguments,
+                workingDirectory: cwd,
+                environment: nil,
+                capturedAt: capturedAt,
+                source: "process-detected"
+            ),
+            autoResume: true,
+            updatedAt: capturedAt
+        )
+    }
+
     private static let psPath = "/bin/ps"
     private static let noArgumentFlags = Set("46AaCfGgKkMNnqsTtVvXxYy")
+    private static let nonInteractiveFlags = Set("nTGV")
     private static let valueArgumentFlags = Set("BbcDEeFIiJLlmOopQRSWw")
 
     private static func normalizeTTYName(_ ttyName: String) -> String {
@@ -460,6 +519,90 @@ enum TerminalSSHSessionDetector {
             process.pgid > 0 &&
             process.tpgid > 0 &&
             process.pgid == process.tpgid
+    }
+
+    private static func isManagedSSHWrapper(environment: [String: String]) -> Bool {
+        [
+            "CMUX_SSH_PTY_SESSION_ID",
+            "CMUX_REMOTE_PTY_SESSION_ID",
+            "CMUX_SSH_ATTEMPT_ID",
+            "CMUX_SSH_STARTUP_PID",
+        ].contains { key in
+            guard let value = environment[key] else { return false }
+            return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private static func isInteractiveSSHArguments(_ arguments: [String]) -> Bool {
+        guard !arguments.isEmpty else { return false }
+        var index = RemoteShellSessionParsing.normalizedExecutableName(arguments[0]) == "ssh" ? 1 : 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                return index + 2 >= arguments.count
+            }
+            if !argument.hasPrefix("-") || argument == "-" {
+                return index == arguments.count - 1
+            }
+
+            if argument.count > 2,
+               let option = argument.dropFirst().first,
+               valueArgumentFlags.contains(option) {
+                // -W host:port is a stream forward, not an interactive shell.
+                if option == "W" { return false }
+                if option == "o",
+                   isNonInteractiveSSHOption(String(argument.dropFirst(2))) {
+                    return false
+                }
+                index += 1
+                continue
+            }
+            if argument.count == 2,
+               let option = argument.dropFirst().first,
+               valueArgumentFlags.contains(option) {
+                if option == "W" { return false }
+                if option == "o",
+                   index + 1 < arguments.count,
+                   isNonInteractiveSSHOption(arguments[index + 1]) {
+                    return false
+                }
+                index += 2
+                continue
+            }
+
+            let flags = Array(argument.dropFirst())
+            guard !flags.isEmpty, flags.allSatisfy({ noArgumentFlags.contains($0) }) else {
+                return false
+            }
+            if flags.contains(where: { nonInteractiveFlags.contains($0) }) {
+                return false
+            }
+            index += 1
+        }
+        return false
+    }
+
+    private static func isNonInteractiveSSHOption(_ rawOption: String) -> Bool {
+        let parts = rawOption
+            .split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+        let key = parts.first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let value = parts.count == 2
+            ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            : nil
+        if key == "remotecommand" {
+            // `RemoteCommand=none` is OpenSSH's explicit request for the
+            // normal interactive shell and is safe to resume.
+            return value != "none"
+        }
+        if key == "requesttty" {
+            return value == "no" || value == "false"
+        }
+        if key == "stdinnull" {
+            return value == "yes" || value == "true"
+        }
+        return key == "sessiontype" && value == "none"
     }
 
     private static func processSnapshots(forTTY ttyName: String) -> [ProcessSnapshot] {

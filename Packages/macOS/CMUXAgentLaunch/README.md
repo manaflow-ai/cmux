@@ -21,3 +21,18 @@ let decoded = transport.decodedEnvironment(from: encoded)
 The transport applies `AgentLaunchEnvironmentPolicy` while encoding and again
 while decoding, so tests can also prove that credentials and process identity
 fail closed at the transport boundary.
+
+## Testing executable search paths
+
+`AgentExecutableSearchPathResolver` accepts a deterministic directory probe, so
+relative-path traversal and malformed scalar cases can be tested without
+touching the host filesystem:
+
+```swift
+let resolver = AgentExecutableSearchPathResolver(
+    currentDirectoryPath: "/tmp/project",
+    directoryExists: { ["/tmp/project/bin"].contains($0) }
+)
+let directories = resolver.normalizedDirectories(from: ["missing/..", "bin"])
+// ["/tmp/project/bin"]
+```
