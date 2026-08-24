@@ -563,6 +563,12 @@ jobs:
     needs: validate-inputs
     permissions:
       contents: read
+      # The reusable package workflow declares an optional attestation job.
+      # GitHub validates the caller's permission ceiling before evaluating its
+      # `attest_packages` condition, so keep the ceiling explicit even though
+      # this dogfood call leaves attestations disabled.
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
       version: 0.0.0-nightly.19700101.0
