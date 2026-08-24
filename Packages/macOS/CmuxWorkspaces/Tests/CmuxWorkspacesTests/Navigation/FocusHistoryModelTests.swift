@@ -16,13 +16,15 @@ private final class FakeFocusHistoryHost: FocusHistoryHosting {
 
     var workspaces: [UUID: WorkspaceState] = [:]
     var selectedWorkspaceId: UUID?
+    var workspaceExistsCalls = 0
     var revisionBumps = 0
     var focusedPanels: [(workspaceId: UUID, panelId: UUID)] = []
     var flashedPanels: [(workspaceId: UUID, panelId: UUID)] = []
     var focusSelectedWorkspacePanelCalls = 0
 
     func workspaceExists(_ workspaceId: UUID) -> Bool {
-        workspaces[workspaceId] != nil
+        workspaceExistsCalls += 1
+        return workspaces[workspaceId] != nil
     }
 
     func panelExists(workspaceId: UUID, panelId: UUID) -> Bool {
@@ -367,6 +369,23 @@ struct FocusHistoryModelTests {
         #expect(limited.totalItemCount == 3)
         #expect(limited.isLimited)
         #expect(limited.items.allSatisfy { $0.position == .older })
+    }
+
+    @Test func menuSnapshotResolvesEachEntryOnce() {
+        let (model, host) = makeModel()
+        for index in 0..<9 {
+            let panel = UUID()
+            let workspace = host.addWorkspace(title: "ws\(index)", panels: [panel: "panel\(index)"])
+            host.selectedWorkspaceId = workspace
+            host.workspaces[workspace]?.rememberedFocusedPanelId = panel
+            model.recordFocusInHistory(workspaceId: workspace, panelId: panel, preservingForwardBranch: false)
+        }
+
+        host.workspaceExistsCalls = 0
+        let snapshot = model.focusHistoryMenuSnapshot(direction: .back, maxItemCount: nil)
+
+        #expect(snapshot.items.count == 8)
+        #expect(host.workspaceExistsCalls == snapshot.items.count)
     }
 
     @Test func menuSnapshotResolvesClosedPanelToWorkspaceLevelEntry() {
