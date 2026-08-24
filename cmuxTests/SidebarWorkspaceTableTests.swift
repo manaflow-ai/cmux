@@ -580,6 +580,103 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
+    func widthMismatchedPumpOverrideIsRenotedWhenApplyReleasesIt() async throws {
+        let workspace = Workspace()
+        let baseModel = SidebarWorkspaceRowSuspensionTests.makeModel(workspaceId: workspace.id)
+        var pumpModel = baseModel
+        pumpModel.latestNotificationText = String(repeating: "live metadata ", count: 30)
+        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: .dark,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let row = SidebarWorkspaceTableRowConfiguration(
+            workspaceRowModel: baseModel,
+            actions: SidebarWorkspaceRowSuspensionTests.makeActions(
+                model: baseModel,
+                workspace: workspace
+            ),
+            groupId: nil,
+            isPinned: false,
+            environment: environment,
+            workspace: workspace,
+            rebuild: { pumpModel },
+            unreadRebuild: { snapshot in
+                var fresh = baseModel
+                let summary = snapshot.summary(forWorkspaceId: workspace.id)
+                fresh.unreadCount = summary.unreadCount
+                fresh.latestNotificationText = summary.latestNotificationText
+                return fresh
+            }
+        )
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [workspace.id],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        let cell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
+                as? SidebarWorkspaceRowTableCellView
+        )
+        let initialPumpHeight = controller.tableView(container.tableView, heightOfRow: 0)
+        let baseHeight = ceil(
+            cell.layoutContent(model: baseModel, width: cell.bounds.width, apply: false)
+        )
+        #expect(initialPumpHeight > baseHeight)
+
+        // Change the measured width without delivering the bounds notification
+        // yet. This models a pump/apply callback arriving between AppKit's
+        // width change and the next viewport flush.
+        let clipView = container.clipView
+        let postsBoundsChanges = clipView.postsBoundsChangedNotifications
+        clipView.postsBoundsChangedNotifications = false
+        var bounds = clipView.bounds
+        bounds.size.width = 220
+        clipView.bounds = bounds
+        clipView.postsBoundsChangedNotifications = postsBoundsChanges
+
+        workspace.setCustomTitle("pump after width change")
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [workspace.id],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        let servedHeight = controller.tableView(container.tableView, heightOfRow: 0)
+        let tableHeight = container.tableView.rect(ofRow: 0).height
+            - container.tableView.intercellSpacing.height
+        #expect(
+            abs(servedHeight - tableHeight) < 0.5,
+            "Releasing a width-mismatched pump override must invalidate the installed AppKit row height."
+        )
+    }
+
+    @Test
+    @MainActor
     func rapidReorderAndRowHeightBurstKeepsTableRowsDisjoint() async throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
