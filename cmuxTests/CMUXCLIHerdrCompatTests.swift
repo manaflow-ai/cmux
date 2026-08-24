@@ -119,6 +119,37 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
     }
 
+    @Test func testHerdrCompatRejectsAliasLocalJSONBeforeLaunchingProvider() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-herdr-alias-json-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let marker = root.appendingPathComponent("provider-launched", isDirectory: false)
+        let fakeHerdr = root.appendingPathComponent("herdr", isDirectory: false)
+        try "#!/bin/sh\ntouch \"$HERDR_TEST_MARKER\"\n".write(
+            to: fakeHerdr,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeHerdr.path)
+
+        var environment = herdrCompatEnvironment(searchPath: root.path, home: root)
+        environment["HERDR_TEST_MARKER"] = marker.path
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["__herdr-compat", "snapshot", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 2, result.diagnostics)
+        XCTAssertTrue(result.stderr.contains("Usage: cmux __herdr-compat"), result.diagnostics)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path), result.diagnostics)
+    }
+
     @Test func testHerdrCompatSkipsDirectoryNamedLikeProviderOnPATH() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
