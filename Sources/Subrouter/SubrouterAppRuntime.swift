@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxSubrouter
 import Darwin
 
@@ -13,6 +14,17 @@ import Darwin
 @MainActor
 final class SubrouterAppRuntime {
     static let shared = SubrouterAppRuntime()
+
+    /// Synchronous availability mirror for nonisolated sidebar-mode callers.
+    /// The store remains the source of truth; this one-bit publication only
+    /// lets keyboard/restore paths fail closed without reaching across the
+    /// main actor. Acquire/release ordering publishes the applied
+    /// configuration transition to those readers.
+    private nonisolated static let runtimeEnabledSnapshot = AtomicBooleanGate(false)
+
+    nonisolated static var isRuntimeEnabled: Bool {
+        runtimeEnabledSnapshot.loadAcquire()
+    }
 
     let store: SubrouterStore
     private let settings = SubrouterIntegrationSettings()
@@ -205,12 +217,12 @@ final class SubrouterAppRuntime {
     }
 
     private func applyCurrentConfiguration() {
-        store.updateConfiguration(
-            settings.currentConfiguration(
-                serverSelection: serverSelection,
-                serverRegistryIsUnreadable: serverRegistryIsUnreadable
-            )
+        let configuration = settings.currentConfiguration(
+            serverSelection: serverSelection,
+            serverRegistryIsUnreadable: serverRegistryIsUnreadable
         )
+        store.updateConfiguration(configuration)
+        Self.runtimeEnabledSnapshot.storeRelease(configuration.isEnabled)
     }
 
     /// Folds one registry read into the cached selection. An unreadable

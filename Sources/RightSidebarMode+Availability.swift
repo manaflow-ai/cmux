@@ -23,11 +23,12 @@ extension RightSidebarMode {
 
     static func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
         let settings = SubrouterIntegrationSettings(defaults: defaults)
-        let runtimeEnabled = SubrouterAppRuntime.shared.store.configuration.isEnabled
         availableModes(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
-            agentsEnabled: settings.isEnabled && settings.hasValidEndpointSetting && runtimeEnabled
+            agentsEnabled: settings.isEnabled
+                && settings.hasValidEndpointSetting
+                && SubrouterAppRuntime.isRuntimeEnabled
         )
     }
 
@@ -43,11 +44,12 @@ extension RightSidebarMode {
 
     func isAvailable(defaults: UserDefaults = .standard) -> Bool {
         let settings = SubrouterIntegrationSettings(defaults: defaults)
-        let runtimeEnabled = SubrouterAppRuntime.shared.store.configuration.isEnabled
         isAvailable(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
-            agentsEnabled: settings.isEnabled && settings.hasValidEndpointSetting && runtimeEnabled
+            agentsEnabled: settings.isEnabled
+                && settings.hasValidEndpointSetting
+                && SubrouterAppRuntime.isRuntimeEnabled
         )
     }
 
