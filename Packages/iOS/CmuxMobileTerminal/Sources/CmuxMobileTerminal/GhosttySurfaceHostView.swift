@@ -50,6 +50,11 @@ public final class GhosttySurfaceHostView: UIView {
     /// display-link paths must not retarget the constants the leg owns.
     private var keyboardTransitionActive = false
     private var keyboardTransitionGeneration: UInt64 = 0
+    /// Forces the passive `keyboardLayoutGuide` to RESOLVE: an unconstrained
+    /// layout guide never updates its `layoutFrame`, which silently turned
+    /// the sensor into a stale-model echo. Hidden, zero-sized, and nothing
+    /// else depends on it, so it cannot become a second animation authority.
+    private let keyboardGuideResolutionProbe = UIView()
     /// Whether the settled keyboard layout guide may self-heal the keyboard
     /// model (false on iOS 27, where the guide can lie at the screen bottom).
     private let usesKeyboardGuideSensor: Bool = {
@@ -82,10 +87,22 @@ public final class GhosttySurfaceHostView: UIView {
         terminalPresentationView.addSubview(surfaceView)
         dockBottomConstraint = surfaceView.moveBottomDock(to: self)
         if usesKeyboardGuideSensor {
-            // Sensor only — nothing constrains to the guide. Configured so its
-            // layoutFrame tracks the keyboard the way the dock semantics do.
+            // Sensor only — the dock does not constrain to the guide.
+            // Configured so its layoutFrame tracks the keyboard the way the
+            // dock semantics do, with a hidden zero-sized probe riding its
+            // top edge so UIKit actually resolves the guide's frame.
             keyboardLayoutGuide.followsUndockedKeyboard = true
             keyboardLayoutGuide.usesBottomSafeArea = true
+            keyboardGuideResolutionProbe.isHidden = true
+            keyboardGuideResolutionProbe.isUserInteractionEnabled = false
+            keyboardGuideResolutionProbe.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(keyboardGuideResolutionProbe)
+            NSLayoutConstraint.activate([
+                keyboardGuideResolutionProbe.topAnchor.constraint(equalTo: keyboardLayoutGuide.topAnchor),
+                keyboardGuideResolutionProbe.leadingAnchor.constraint(equalTo: leadingAnchor),
+                keyboardGuideResolutionProbe.widthAnchor.constraint(equalToConstant: 0),
+                keyboardGuideResolutionProbe.heightAnchor.constraint(equalToConstant: 0),
+            ])
         }
 
         presentationBottomConstraint = terminalPresentationView.bottomAnchor.constraint(

@@ -1427,6 +1427,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // is visible above the strip.
         toolbar.layer.zPosition = Self.bottomChromeZPosition
         toolbar.clipsToBounds = false
+        // The toggle glyph reflects the CURRENT model, not just future
+        // transitions — a toolbar (re)installed mid-session must not lie
+        // until the next keyboard event.
+        inputProxy.setKeyboardShown(keyboardVisible)
         updateDockedToolbarVisibility()
     }
 
