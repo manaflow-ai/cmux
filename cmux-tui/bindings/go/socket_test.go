@@ -200,6 +200,19 @@ func TestHighLevelLongSessionUsesSharedDigestFallback(t *testing.T) {
 	}
 }
 
+func TestUnixSocketPathCapacityMatchesSupportedUnixFamilies(t *testing.T) {
+	for _, goos := range []string{"darwin", "dragonfly", "freebsd", "netbsd", "openbsd"} {
+		if got := unixSocketPathCapacity(goos); got != 104 {
+			t.Fatalf("%s Unix socket path capacity = %d, want 104", goos, got)
+		}
+	}
+	for _, goos := range []string{"linux", "solaris"} {
+		if got := unixSocketPathCapacity(goos); got != 108 {
+			t.Fatalf("%s Unix socket path capacity = %d, want 108", goos, got)
+		}
+	}
+}
+
 func TestHighLevelHashedSessionFallsBackToTmpWhenRuntimeBaseIsTooLong(t *testing.T) {
 	t.Setenv("CMUX_TUI_SOCKET", "")
 	t.Setenv("CMUX_MUX_SOCKET", "")
