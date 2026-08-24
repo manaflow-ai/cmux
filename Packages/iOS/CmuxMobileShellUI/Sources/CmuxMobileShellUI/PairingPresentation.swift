@@ -6,6 +6,12 @@ enum PairingPresentation: Equatable {
     /// The QR scanner, with the manual form still available after a scan error.
     case scanner(entry: PairingAnalyticsEntry)
 
+    /// The same add-connection sheet opened from a Computer's Tailscale
+    /// method section, titled as adding a Tailscale connection. The scanner
+    /// stays one tap away inside the sheet instead of opening the camera
+    /// directly.
+    case tailscaleSetup
+
     /// Approval for an externally supplied attach ticket whose compatibility
     /// level differs from this iPhone. This is not a manual-pairing entrypoint.
     case versionApproval
@@ -25,6 +31,8 @@ enum PairingPresentation: Equatable {
             "post_sign_in"
         case let .scanner(entry):
             entry.rawValue
+        case .tailscaleSetup:
+            "tailscale_setup"
         case .versionApproval:
             "version_approval"
         }

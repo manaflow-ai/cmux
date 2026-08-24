@@ -64,10 +64,6 @@ struct MobileSettingsView: View {
         @Bindable var displaySettings = displaySettings
         return NavigationStack {
             Form {
-                if initialFocus == .connectionMethod {
-                    connectionMethodSettingsSection
-                }
-
                 MobileSettingsAccountSection(signOut: signOut)
 
                 // Stack team switcher. Only shown when the user belongs to more than
@@ -128,7 +124,7 @@ struct MobileSettingsView: View {
                             }
                         } else if !connectedHostName.isEmpty {
                             LabeledContent(
-                                L10n.string("mobile.settings.mac", defaultValue: "Computer"),
+                                L10n.string("mobile.settings.mac", defaultValue: "Connection"),
                                 value: connectedHostName
                             )
                         }
@@ -169,10 +165,6 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsHowPairingWorks")
-                }
-
-                if initialFocus != .connectionMethod {
-                    connectionMethodSettingsSection
                 }
 
                 if let irohSettingsController {
@@ -539,19 +531,6 @@ struct MobileSettingsView: View {
             dismissAction()
         } else {
             dismiss()
-        }
-    }
-
-    /// Reuses one Connection Method section at its focused or ordinary position.
-    @ViewBuilder
-    private var connectionMethodSettingsSection: some View {
-        if let connectionMethodStore {
-            MobileConnectionMethodSection(
-                store: connectionMethodStore,
-                hasUsableTailscaleAuthorization: store?.hasUsableTailscaleAuthorization ?? false,
-                startPairingScanner: startPairingScanner
-            )
-            .id(MobileSettingsFocus.connectionMethod)
         }
     }
 

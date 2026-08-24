@@ -32,6 +32,25 @@ extension MobileShellComposite {
             MobileSimulatorStreamCapability.current.devicesIdentifier)
     }
 
+    /// Whether the connected Mac can restart a crash-fused simulator worker.
+    public var supportsSimulatorRecover: Bool {
+        supportedHostCapabilities.contains(
+            MobileSimulatorStreamCapability.current.recoverIdentifier)
+    }
+
+    /// Asks the Mac to recover the panel's simulator session (the pane's
+    /// Reconnect). Fire-and-forget: the stream's status flow shows progress.
+    public func recoverSimulator(panelID: String, workspaceID: String) async -> Bool {
+        guard supportsSimulatorRecover, let client = remoteClient else { return false }
+        do {
+            _ = try await client.recoverMobileSimulator(
+                panelID: panelID, workspaceID: workspaceID)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     /// Installed simulators the panel can stream; empty on any failure so
     /// the picker simply hides against older or unreachable hosts.
     public func listSimulatorDevices(

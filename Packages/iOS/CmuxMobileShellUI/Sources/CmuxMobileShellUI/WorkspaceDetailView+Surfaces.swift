@@ -271,6 +271,11 @@ extension WorkspaceDetailView {
                 selectDevice: { [weak store] udid in
                     await store?.selectSimulatorDevice(
                         panelID: simulator.id, workspaceID: workspaceID, udid: udid) ?? false
+                },
+                supportsRecover: store.supportsSimulatorRecover,
+                recover: { [weak store] in
+                    await store?.recoverSimulator(
+                        panelID: simulator.id, workspaceID: workspaceID) ?? false
                 }
             )
             .task {
