@@ -2,8 +2,8 @@ name: CI
 
 on:
   # Keep the full suite available for explicit validation, while always
-  # running the lightweight GhosttyKit provenance check when its pointer,
-  # checksum, or helper changes in a PR.
+  # running the lightweight provenance and bundle-architecture guards when
+  # their inputs or packaging workflow wiring changes in a PR.
   pull_request:
     paths:
       - ghostty
@@ -11,6 +11,11 @@ on:
       - scripts/validate-xcframework-archive.py
       - scripts/ghosttykit-checksums.txt
       - tests/test_ci_ghosttykit_release_check.sh
+      - scripts/verify-macos-bundle-architectures.sh
+      - scripts/macos-universal-bundle-allowlist.txt
+      - tests/test_verify_macos_bundle_architectures.sh
+      - .github/workflows/nightly.yml
+      - .github/workflows/release.yml
       - tests/test_ci_change_areas.py
       - .github/workflows/ci.yml
   workflow_dispatch:
