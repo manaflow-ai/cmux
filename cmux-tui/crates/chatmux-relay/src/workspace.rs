@@ -1509,7 +1509,11 @@ mod tests {
         let cut = read(5);
         assert_eq!(cut.content, "hello");
         assert!(cut.truncated);
-        assert_eq!(cut.sha256, sha256_hex(b"hello"), "truncated reads hash only the bounded prefix");
+        assert_eq!(
+            cut.sha256,
+            sha256_hex(b"hello"),
+            "truncated reads hash only the bounded prefix"
+        );
         assert_eq!(cut.size, 16, "size comes from metadata without scanning the file");
         let missing = run_read(
             &scope,
