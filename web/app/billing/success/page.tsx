@@ -44,7 +44,6 @@ type BillingSuccessFeatureMessage = {
   action: string;
 };
 
-export const dynamic = "force-dynamic";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { messages } = await billingSuccessMessages(await headers());
@@ -116,7 +115,7 @@ export default async function BillingSuccessPage({
     href: string;
   }[] = [
     { key: "cloudAgents", href: openCmuxHref.toString() },
-    { key: "modelGateway", href: "/dashboard/subrouter" },
+    { key: "modelGateway", href: "/dashboard/coderouter" },
     { key: "aiAccounts", href: "/dashboard/ai-accounts" },
     { key: "iosApp", href: "/dashboard/testflight" },
   ];

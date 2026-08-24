@@ -19,7 +19,10 @@ import {
   recordCheckoutCompletion as recordCheckoutCompletionDefault,
 } from "../../../../services/billing/purchase";
 import { sendProSignupWelcome as sendProSignupWelcomeDefault } from "../../../../services/billing/proFulfillment";
-import { revokeRouteTokensForUser as revokeRouteTokensForUserDefault } from "../../../../services/coderouter/repository";
+import {
+  revokeRouteTokensForTeam as revokeRouteTokensForTeamDefault,
+  revokeRouteTokensForUser as revokeRouteTokensForUserDefault,
+} from "../../../../services/coderouter/repository";
 import { isStripeBillingConfigured, stripe } from "../../../../services/billing/stripe";
 import {
   recordSpanError,
@@ -27,8 +30,6 @@ import {
   withApiRouteSpan,
 } from "../../../../services/telemetry";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 type StripeWebhookDependencies = {
   webhookSecret: () => string | undefined;
@@ -39,6 +40,7 @@ type StripeWebhookDependencies = {
   applySubscriptionUpdate: typeof applySubscriptionUpdateDefault;
   sendProSignupWelcome: typeof sendProSignupWelcomeDefault;
   revokeCoderouterRouteTokens: typeof revokeRouteTokensForUserDefault;
+  revokeCoderouterTeamRouteTokens: typeof revokeRouteTokensForTeamDefault;
   captureStripeBillingEvent: typeof captureStripeBillingEventDefault;
   defer: (task: () => Promise<void>) => void;
 };
@@ -52,6 +54,7 @@ const defaultDependencies: StripeWebhookDependencies = {
   applySubscriptionUpdate: applySubscriptionUpdateDefault,
   sendProSignupWelcome: sendProSignupWelcomeDefault,
   revokeCoderouterRouteTokens: revokeRouteTokensForUserDefault,
+  revokeCoderouterTeamRouteTokens: revokeRouteTokensForTeamDefault,
   captureStripeBillingEvent: captureStripeBillingEventDefault,
   defer: (task) => after(task),
 };
@@ -186,8 +189,14 @@ async function processStripeEvent(
     case "customer.subscription.created":
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {
+      // Stripe can deliver events late or out of order. Always reconcile the
+      // provider's current object rather than allowing an older event payload
+      // to overwrite a newer entitlement state.
+      const subscription = await dependencies.stripe().subscriptions.retrieve(
+        event.data.object.id,
+      );
       const result = await applySubscriptionEntitlementUpdate(
-        event.data.object,
+        subscription,
         dependencies,
       );
       return "skipped" in result
@@ -196,7 +205,7 @@ async function processStripeEvent(
             processed: event.type,
             analytics: () => dependencies.captureStripeBillingEvent(
               event,
-              analyticsSubject(result, result.isActive, event.data.object.status),
+              analyticsSubject(result, result.isActive, subscription.status),
             ),
           };
     }
@@ -211,6 +220,35 @@ async function processStripeEvent(
       );
       return "skipped" in result
         ? { skipped: "invoice_subscription_unmapped" }
+        : {
+            processed: event.type,
+            analytics: () => dependencies.captureStripeBillingEvent(
+              event,
+              analyticsSubject(result, result.isActive, subscription.status),
+            ),
+          };
+    }
+    case "charge.refunded": {
+      const charge = event.data.object as Stripe.Charge & {
+        invoice?: string | Stripe.Invoice | null;
+      };
+      const invoiceId = stringId(charge.invoice);
+      if (!invoiceId) return { skipped: "refund_without_invoice" };
+      const invoice = await dependencies.stripe().invoices.retrieve(invoiceId);
+      const subscriptionId = invoiceSubscriptionId(invoice);
+      if (!subscriptionId) return { skipped: "refund_without_subscription" };
+      const subscription = await dependencies.stripe().subscriptions.retrieve(
+        subscriptionId,
+      );
+      // Refunds do not inherently revoke a subscription. Re-applying Stripe's
+      // current subscription state preserves that policy while mapping the
+      // event to the correct privacy-safe analytics principal.
+      const result = await applySubscriptionEntitlementUpdate(
+        subscription,
+        dependencies,
+      );
+      return "skipped" in result
+        ? { skipped: "refund_subscription_unmapped" }
         : {
             processed: event.type,
             analytics: () => dependencies.captureStripeBillingEvent(
@@ -243,10 +281,13 @@ async function applySubscriptionEntitlementUpdate(
   const result = await dependencies.applySubscriptionUpdate(subscription);
   if (
     !("skipped" in result)
-    && result.scope === "user"
     && !result.isActive
   ) {
-    await dependencies.revokeCoderouterRouteTokens(result.stackUserId);
+    if (result.scope === "user") {
+      await dependencies.revokeCoderouterRouteTokens(result.stackUserId);
+    } else {
+      await dependencies.revokeCoderouterTeamRouteTokens(result.stackTeamId);
+    }
   }
   return result;
 }

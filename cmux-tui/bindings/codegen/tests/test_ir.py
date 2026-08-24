@@ -66,8 +66,90 @@ class IrTests(unittest.TestCase):
         copy["types"]["Id"]["kind"] = "opaque_json"
         self.assertEqual(ir.type("Id")["kind"], "alias")
 
-    def test_live_raw_v10_layout_and_history_contracts_are_exact(self) -> None:
+    def test_live_raw_v12_layout_and_history_contracts_are_exact(self) -> None:
         ir = load_ir(LIVE_SCHEMA)
+        self.assertEqual(ir.mux_protocol, 12)
+
+        def assert_field(
+            type_name: str,
+            field_name: str,
+            *,
+            kind: str,
+            name: str,
+            nullable: bool,
+            since: int | None = None,
+        ) -> None:
+            field = ir.type(type_name)["fields"][field_name]
+            self.assertEqual(field["type"], {"kind": kind, "name": name})
+            self.assertEqual(field["presence"], "required")
+            self.assertEqual(field["nullable"], nullable)
+            self.assertEqual(field.get("since"), since)
+
+        for type_name in ("RunResult", "TerminalPlacement"):
+            assert_field(type_name, "surface", kind="ref", name="Id", nullable=True)
+            assert_field(
+                type_name,
+                "terminal_id",
+                kind="scalar",
+                name="string",
+                nullable=False,
+                since=9 if type_name == "RunResult" else None,
+            )
+            for field_name in ("pane", "screen", "workspace"):
+                assert_field(type_name, field_name, kind="ref", name="Id", nullable=True)
+            assert_field(
+                type_name,
+                "lifecycle",
+                kind="ref",
+                name="TerminalLifecycle",
+                nullable=False,
+                since=11 if type_name == "RunResult" else None,
+            )
+
+        for type_name in ("RunResult", "TerminalPlacement"):
+            assert_field(
+                type_name,
+                "exit",
+                kind="ref",
+                name="TerminalExit",
+                nullable=True,
+                since=11,
+            )
+            assert_field(
+                type_name,
+                "already_exited",
+                kind="scalar",
+                name="boolean",
+                nullable=False,
+                since=11,
+            )
+        assert_field(
+            "RunResult",
+            "terminal_revision",
+            kind="scalar",
+            name="uint64",
+            nullable=False,
+            since=11,
+        )
+
+        for type_name in ("ResolveTerminalResult", "TerminalRecord"):
+            assert_field(
+                type_name,
+                "exit",
+                kind="ref",
+                name="TerminalExit",
+                nullable=True,
+            )
+
+        assert_field(
+            "MintTerminalRendererResult",
+            "protocol_version",
+            kind="scalar",
+            name="uint16",
+            nullable=False,
+            since=11,
+        )
+        self.assertEqual(ir.command("mint-terminal-renderer-by-terminal")["since"], 11)
 
         def field_signature(field: dict) -> tuple:
             type_expression = field["type"]

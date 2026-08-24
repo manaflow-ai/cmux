@@ -18,6 +18,7 @@ use smallvec::SmallVec;
 use crate::session::{SurfaceHandle, is_remote_timeout, is_remote_transport_failure};
 
 pub(crate) const PTY_OPERATION_QUEUE_CAPACITY: usize = 512;
+pub(crate) const TERMINAL_EXITED_LABEL: &str = "terminal exited";
 const MAX_QUEUED_BYTES: usize = 4 * 1024 * 1024;
 const MAX_CONCURRENT_SURFACE_OPERATIONS: usize = 32;
 const RESERVED_RELEASE_BYTES: usize = 64;
@@ -979,11 +980,6 @@ fn fail_surface_operation_spawn(
 ) {
     let lane = event.ordering_lane().expect("concurrent surface operation has an ordering lane");
     let after_operation = event.after_operation.take();
-    let mut state = queue.state.lock().unwrap();
-    state.in_flight_surface_operations.remove(&lane);
-    state.retired_in_flight_lanes.remove(&lane);
-    queue.changed.notify_all();
-    drop(state);
     on_failure(PtyOperationFailure {
         session_generation: event.session_generation,
         surface_id: Some(lane.surface_id),
@@ -994,9 +990,18 @@ fn fail_surface_operation_spawn(
         lane_failed: false,
         delivery: PtyOperationDelivery::KnownNotDelivered,
     });
+    let mut state = queue.state.lock().unwrap();
+    state.in_flight_surface_operations.remove(&lane);
+    state.retired_in_flight_lanes.remove(&lane);
+    queue.changed.notify_all();
+    drop(state);
     if let Some(after_operation) = after_operation {
         after_operation();
     }
+}
+
+fn known_exited_input(kind: PtyInputKind, surface_dead: bool) -> bool {
+    kind != PtyInputKind::Mutation && surface_dead
 }
 
 fn process_event(
@@ -1015,9 +1020,14 @@ fn process_event(
         event.remote_release_attempts = event.remote_release_attempts.saturating_add(1);
     }
     let after_operation = event.after_operation.take();
+    let reject_known_exit = known_exited_input(event.kind, event.surface.is_dead());
     #[cfg(test)]
     let is_write = event.mutation.is_none();
-    let result = if let Some(operation) = event.mutation.take() {
+    let result = if reject_known_exit {
+        Err(mark_operation_known_not_delivered(anyhow::anyhow!(
+            "terminal exited before input delivery"
+        )))
+    } else if let Some(operation) = event.mutation.take() {
         operation()
     } else {
         event.surface.write_bytes(&event.bytes)
@@ -1071,7 +1081,7 @@ fn process_event(
             surface_id,
             kind,
             reservation_id,
-            label: event.label,
+            label: if reject_known_exit { TERMINAL_EXITED_LABEL } else { event.label },
             error: if exhausted_ambiguous_release {
                 format!(
                     "mouse release timed out after {REMOTE_RELEASE_MAX_ATTEMPTS} attempts; detach and reconnect before sending more input"
@@ -1160,12 +1170,6 @@ fn process_event(
             ));
         }
     }
-    if let Some(lane) = concurrent_surface.then_some(ordering_lane).flatten() {
-        state.in_flight_surface_operations.remove(&lane);
-    } else {
-        state.in_flight = None;
-    }
-    queue.changed.notify_all();
     drop(state);
     if let Some(failure) = failure {
         on_failure(failure);
@@ -1173,6 +1177,14 @@ fn process_event(
     for failure in canceled {
         on_failure(failure);
     }
+    let mut state = queue.state.lock().unwrap();
+    if let Some(lane) = concurrent_surface.then_some(ordering_lane).flatten() {
+        state.in_flight_surface_operations.remove(&lane);
+    } else {
+        state.in_flight = None;
+    }
+    queue.changed.notify_all();
+    drop(state);
     // Completion is a barrier: publish only after timeout pruning,
     // in-flight ownership, and failure delivery have all settled.
     if let Some(after_operation) = after_operation {
@@ -1356,6 +1368,7 @@ fn prune_lane_to_recovery_releases(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cmux_tui_core::{Mux as TestMux, SurfaceOptions as TestSurfaceOptions};
 
     fn lane(surface_id: SurfaceId) -> PtyInputLane {
         PtyInputLane { session_generation: 1, surface_id }
@@ -1368,6 +1381,85 @@ mod tests {
             SmallVec::from_slice(&[bytes]),
             kind,
         )
+    }
+
+    #[test]
+    fn exited_input_is_rejected_before_transport_but_mutations_are_not() {
+        assert!(known_exited_input(PtyInputKind::Ordered, true));
+        assert!(!known_exited_input(PtyInputKind::Mutation, true));
+        assert!(!known_exited_input(PtyInputKind::Ordered, false));
+    }
+
+    #[test]
+    fn clean_terminal_exit_is_known_not_delivered_and_does_not_fail_its_lane() {
+        let mux = TestMux::new(
+            "clean-terminal-exit-lane-test",
+            TestSurfaceOptions {
+                command: Some(vec!["/bin/sh".to_string(), "-c".to_string(), "exit 0".to_string()]),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !surface.is_dead() {
+            assert!(Instant::now() < deadline, "terminal host did not exit");
+            std::thread::yield_now();
+        }
+
+        let (failure_tx, failure_rx) = std::sync::mpsc::channel();
+        let mut dispatcher = PtyInputDispatcher::spawn(move |failure| {
+            failure_tx.send(failure).unwrap();
+        })
+        .unwrap();
+        let input = || {
+            PtyInputEvent::input(
+                surface.id,
+                SurfaceHandle::Local(surface.clone(), mux.clone()),
+                PtyInputBytes::from_slice(b"x"),
+                PtyInputKind::Ordered,
+            )
+        };
+
+        assert_eq!(dispatcher.enqueue(input()), PtyInputEnqueueResult::Accepted);
+        let failure = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(failure.label, "terminal exited");
+        assert_eq!(failure.delivery, PtyOperationDelivery::KnownNotDelivered);
+        assert!(!failure.lane_failed, "a clean process exit must not poison the input lane");
+        assert_eq!(dispatcher.enqueue(input()), PtyInputEnqueueResult::Accepted);
+
+        assert!(dispatcher.shutdown(Duration::from_secs(1)));
+        mux.shutdown();
+    }
+
+    #[test]
+    fn exit_observed_after_a_failed_write_keeps_delivery_ambiguous() {
+        let mux = TestMux::new("post-write-exit-delivery-test", TestSurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let handle = SurfaceHandle::Local(surface.clone(), mux.clone());
+        let (failure_tx, failure_rx) = std::sync::mpsc::channel();
+        let dispatcher = PtyInputDispatcher::spawn(move |failure| {
+            failure_tx.send(failure).unwrap();
+        })
+        .unwrap();
+        dispatcher.sender().set_after_operation_before_cleanup(Some(Arc::new({
+            let surface = surface.clone();
+            move || surface.kill()
+        })));
+        let mut input = PtyInputEvent::input(
+            surface.id,
+            handle,
+            PtyInputBytes::from_slice(b"x"),
+            PtyInputKind::Ordered,
+        );
+        input.mutation = Some(Box::new(|| Err(anyhow::anyhow!("flush failed after acceptance"))));
+
+        assert_eq!(dispatcher.enqueue(input), PtyInputEnqueueResult::Accepted);
+        let failure = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(failure.delivery, PtyOperationDelivery::Ambiguous);
+        assert!(failure.lane_failed);
+        assert_eq!(failure.label, "PTY input");
+
+        mux.shutdown();
     }
 
     fn mutation_with_retained_bytes(retained_bytes: usize) -> PtyInputEvent {

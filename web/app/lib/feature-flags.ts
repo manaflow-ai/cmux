@@ -32,4 +32,12 @@ export const FEATURE_FLAGS = {
     reviewBy: "2026-10-01",
     defaultWhenUnavailable: false,
   },
+  iosArtifactChip: {
+    key: "ios-artifact-chip-enabled-release",
+    owner: "lawrencecchen",
+    description:
+      "Shows the integrated Terminal Files chip and its count scan in the iOS terminal toolbar.",
+    reviewBy: "2027-02-01",
+    defaultWhenUnavailable: true,
+  },
 } as const satisfies Record<string, FeatureFlagDefinition>;

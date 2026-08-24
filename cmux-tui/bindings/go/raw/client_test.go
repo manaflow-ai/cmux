@@ -20,8 +20,8 @@ import (
 
 func TestGeneratedInventoryHasTypedMethodForEveryCommand(t *testing.T) {
 	commands := AllCommandMetadata()
-	if len(commands) != 96 {
-		t.Fatalf("generated commands = %d, want 96", len(commands))
+	if len(commands) != 103 {
+		t.Fatalf("generated commands = %d, want 103", len(commands))
 	}
 	clientType := reflect.TypeOf((*Client)(nil))
 	commandNames := make(map[string]struct{}, len(commands))
@@ -51,8 +51,8 @@ func TestGeneratedInventoryHasTypedMethodForEveryCommand(t *testing.T) {
 			t.Errorf("generated command inventory is missing %s", name)
 		}
 	}
-	if events := AllEventMetadata(); len(events) != 45 {
-		t.Fatalf("generated events = %d, want 45", len(events))
+	if events := AllEventMetadata(); len(events) != 46 {
+		t.Fatalf("generated events = %d, want 46", len(events))
 	}
 }
 
@@ -136,6 +136,66 @@ func TestTypedCommandPreservesUint64RequestAndResult(t *testing.T) {
 	}
 	if result.WorkspaceRevision == nil || *result.WorkspaceRevision != ^uint64(0) {
 		t.Fatalf("workspace revision = %v", result.WorkspaceRevision)
+	}
+}
+
+func TestMintTerminalRendererByTerminalEncodesAndDispatchesExactRequest(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	protocol := uint32(MuxProtocolVersion)
+	client := &Client{
+		timeout:  time.Second,
+		conn:     &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+		protocol: &protocol,
+	}
+	defer client.Close()
+
+	terminal := "term_0123456789abcdef0123456789abcdef"
+	ttl := uint64(5000)
+	requestSeen := make(chan map[string]any, 1)
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		decoder.UseNumber()
+		var request map[string]any
+		if decoder.Decode(&request) != nil {
+			return
+		}
+		requestSeen <- request
+		_ = json.NewEncoder(serverConn).Encode(map[string]any{
+			"id": request["id"],
+			"ok": true,
+			"data": map[string]any{
+				"endpoint":         "/tmp/terminal.sock",
+				"terminal_id":      "0123456789abcdef0123456789abcdef",
+				"incarnation":      "fedcba9876543210fedcba9876543210",
+				"token":            strings.Repeat("00", 32),
+				"rights":           7,
+				"protocol_version": 3,
+				"ttl_ms":           ttl,
+			},
+		})
+	}()
+
+	result, err := client.MintTerminalRendererByTerminal(
+		context.Background(),
+		terminal,
+		MintTerminalRendererByTerminalOptions{TtlMs: &ttl},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := <-requestSeen
+	if request["cmd"] != "mint-terminal-renderer-by-terminal" {
+		t.Fatalf("command = %#v", request["cmd"])
+	}
+	if request["terminal"] != terminal {
+		t.Fatalf("terminal = %#v", request["terminal"])
+	}
+	if got := request["ttl_ms"].(json.Number).String(); got != "5000" {
+		t.Fatalf("ttl_ms = %s", got)
+	}
+	if result.ProtocolVersion != 3 || result.TtlMs != ttl {
+		t.Fatalf("renderer grant = %#v", result)
 	}
 }
 
