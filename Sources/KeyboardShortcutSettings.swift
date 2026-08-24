@@ -466,7 +466,9 @@ enum KeyboardShortcutSettings {
             case .renameTab:
                 return StoredShortcut(key: "r", command: true, shift: false, option: false, control: false)
             case .renameWorkspace:
-                return StoredShortcut(key: "r", command: true, shift: true, option: false, control: false)
+                // Option+Command+R keeps workspace rename available in every panel while
+                // leaving Command+Shift+R to the browser's hard-refresh shortcut.
+                return StoredShortcut(key: "r", command: true, shift: false, option: true, control: false)
             case .editWorkspaceDescription:
                 return StoredShortcut(key: "e", command: true, shift: false, option: true, control: false)
             case .markWorkspaceDone:

@@ -191,7 +191,7 @@ struct AppDelegateRenameShortcutContextTests {
         }
     }
 
-    @Test func focusedBrowserCmdShiftRUsesHardReloadInsteadOfRenameWorkspaceDefault() throws {
+    @Test func focusedBrowserCmdShiftRUsesHardReload() throws {
         try withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
 

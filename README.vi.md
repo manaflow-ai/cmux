@@ -156,7 +156,7 @@ Trao cho một triệu developer những nguyên thủy có thể ghép, và h�
 | ⌃ ⌘ ] | Workspace tiếp theo |
 | ⌃ ⌘ [ | Workspace trước |
 | ⌘ ⇧ W | Đóng workspace |
-| ⌘ ⇧ R | Đổi tên workspace |
+| ⌥ ⌘ R | Đổi tên workspace |
 | ⌥ ⌘ E | Sửa mô tả workspace |
 | ⌘ B | Bật/tắt sidebar |
 | ⌥ ⌘ B | Bật/tắt sidebar bên phải |

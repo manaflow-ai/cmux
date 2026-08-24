@@ -72,7 +72,8 @@ extension ShortcutAction {
         case .focusHistoryBack: return ShortcutStroke(key: "[", command: true)
         case .focusHistoryForward: return ShortcutStroke(key: "]", command: true)
         case .renameTab: return ShortcutStroke(key: "r", command: true)
-        case .renameWorkspace: return ShortcutStroke(key: "r", command: true, shift: true)
+        // Option+Command+R leaves Command+Shift+R available for browser hard refresh.
+        case .renameWorkspace: return ShortcutStroke(key: "r", command: true, option: true)
         case .editWorkspaceDescription: return ShortcutStroke(key: "e", command: true, option: true)
         // Cmd+; pins the status to done; the Cmd-"D" family is taken by
         // split/diff actions and Cmd+Ctrl+D is macOS-reserved. Mirrors the

@@ -232,8 +232,13 @@ extension KeyboardShortcutSettings.Action {
              .switchRightSidebarToFeed, .switchRightSidebarToDock, .switchRightSidebarToMachines, .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias:
             return .rightSidebarFocus
-        case .renameTab, .renameWorkspace, .sendCtrlFToTerminal, .clearScreenKeepScrollback:
+        case .renameTab, .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .nonBrowserPanel
+        case .renameWorkspace:
+            // Workspace rename is an app-level action. Its default Option+Command+R
+            // no longer overlaps browser hard refresh, so it remains available while
+            // a browser surface or sidebar has focus.
+            return .application
         case .focusHistoryBack, .focusHistoryForward:
             return .outsideBrowserPanel
         case .browserBack, .browserForward, .browserReload, .browserHardReload,

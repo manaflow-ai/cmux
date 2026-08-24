@@ -158,7 +158,7 @@ For mere information om konfiguration af cmux, [se vores dokumentation](https://
 | ⌃ ⌘ ] | Næste workspace |
 | ⌃ ⌘ [ | Forrige workspace |
 | ⌘ ⇧ W | Luk workspace |
-| ⌘ ⇧ R | Omdøb workspace |
+| ⌥ ⌘ R | Omdøb workspace |
 | ⌥ ⌘ E | Redigér workspace-beskrivelse |
 | ⌘ B | Skjul/vis sidebjælke |
 | ⌥ ⌘ B | Skjul/vis højre sidebjælke |

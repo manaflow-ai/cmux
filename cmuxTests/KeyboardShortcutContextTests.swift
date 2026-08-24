@@ -154,7 +154,10 @@ final class KeyboardShortcutContextTests: XCTestCase {
         let renameWorkspace = KeyboardShortcutSettings.Action.renameWorkspace.defaultShortcut
         let browserHardReload = KeyboardShortcutSettings.Action.browserHardReload.defaultShortcut
 
-        XCTAssertEqual(renameWorkspace, StoredShortcut(key: "r", command: true, shift: false, option: true, control: false))
+        XCTAssertEqual(
+            renameWorkspace,
+            StoredShortcut(key: "r", command: true, shift: false, option: true, control: false)
+        )
         XCTAssertEqual(
             ShortcutAction.renameWorkspace.defaultStroke,
             ShortcutStroke(key: "r", command: true, option: true)

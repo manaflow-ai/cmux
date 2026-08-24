@@ -158,7 +158,7 @@ cmux'u nasıl yapılandıracağınız hakkında daha fazla bilgi için, [doküma
 | ⌃ ⌘ ] | Sonraki çalışma alanı |
 | ⌃ ⌘ [ | Önceki çalışma alanı |
 | ⌘ ⇧ W | Çalışma alanını kapat |
-| ⌘ ⇧ R | Çalışma alanını yeniden adlandır |
+| ⌥ ⌘ R | Çalışma alanını yeniden adlandır |
 | ⌥ ⌘ E | Çalışma alanı açıklamasını düzenle |
 | ⌘ B | Kenar çubuğunu aç/kapat |
 | ⌥ ⌘ B | Sağ kenar çubuğunu aç/kapat |

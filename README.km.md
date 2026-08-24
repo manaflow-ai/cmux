@@ -158,7 +158,7 @@ cmux គឺជា primitive មិនមែនជាដំណោះស្រា�
 | ⌃ ⌘ ] | Workspace បន្ទាប់ |
 | ⌃ ⌘ [ | Workspace មុន |
 | ⌘ ⇧ W | បិទ workspace |
-| ⌘ ⇧ R | ប្ដូរឈ្មោះ workspace |
+| ⌥ ⌘ R | ប្ដូរឈ្មោះ workspace |
 | ⌥ ⌘ E | កែសម្រួលការពិពណ៌នា workspace |
 | ⌘ B | បិទ/បើក sidebar |
 | ⌥ ⌘ B | បិទ/បើក sidebar ខាងស្ដាំ |

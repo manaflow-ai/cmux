@@ -158,7 +158,7 @@ For mer informasjon om hvordan du konfigurerer cmux, [gå til dokumentasjonen v�
 | ⌃ ⌘ ] | Neste arbeidsområde |
 | ⌃ ⌘ [ | Forrige arbeidsområde |
 | ⌘ ⇧ W | Lukk arbeidsområde |
-| ⌘ ⇧ R | Gi nytt navn til arbeidsområde |
+| ⌥ ⌘ R | Gi nytt navn til arbeidsområde |
 | ⌥ ⌘ E | Rediger arbeidsområdebeskrivelse |
 | ⌘ B | Vis/skjul sidefelt |
 | ⌥ ⌘ B | Vis/skjul høyre sidefelt |
