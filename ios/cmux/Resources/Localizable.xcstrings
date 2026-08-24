@@ -20172,6 +20172,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "続ける" } }
       }
     },
+    "mobile.whatsNew.webRetry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Try Again" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再試行" } }
+      }
+    },
     "mobile.whatsNew.webUnavailable": {
       "extractionState": "manual",
       "localizations": {

@@ -220,22 +220,15 @@ public final class MobileWhatsNewCenter {
         return nil
     }
 
-    /// A webpage URL is renderable only on an allowlisted cmux-owned host.
-    /// Plain http is tolerated solely for the configured API host, which is
-    /// how local dev servers are addressed.
+    /// A webpage URL is renderable only under the shared What's New web
+    /// policy (`whatsNewWebURLAllowed`): https on an allowlisted cmux-owned
+    /// host, or http solely for a loopback development host. The webview
+    /// applies the same policy to every subsequent navigation.
     private func allowlistedWebURL(_ string: String?) -> URL? {
         guard let string,
               let url = URL(string: string),
-              let host = url.host?.lowercased(),
-              allowedWebHosts.contains(host) else { return nil }
-        switch url.scheme?.lowercased() {
-        case "https":
-            return url
-        case "http" where host == requestURL?.host?.lowercased():
-            return url
-        default:
-            return nil
-        }
+              whatsNewWebURLAllowed(url, allowedHosts: allowedWebHosts) else { return nil }
+        return url
     }
 
     private static let urlSessionLoader: Loader = { url in

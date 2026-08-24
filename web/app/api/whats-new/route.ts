@@ -64,9 +64,14 @@ function validateAnnouncement(announcement: WhatsNewAnnouncement, path: string):
       `${path} needs a nativeEntryId, a webUrl, or feature rows to render`,
     );
   }
-  // Only a native reference can borrow its title from the binary catalog.
-  if (!hasNative && announcement.title === undefined) {
-    throw new Error(`${path}.title is required without nativeEntryId`);
+  // Only a native-only announcement can borrow its title from the binary
+  // catalog. Fallback content (webUrl or features) renders on binaries that
+  // do not carry the native entry, and those binaries have no title source,
+  // so a missing title would silently drop the announcement there.
+  if (announcement.title === undefined && (!hasNative || hasWeb || hasFeatures)) {
+    throw new Error(
+      `${path}.title is required unless the announcement is native-only`,
+    );
   }
   if (announcement.title !== undefined) {
     nonemptyString(announcement.title, `${path}.title`);
@@ -94,14 +99,15 @@ function webURL(input: string | undefined, path: string): void {
   } catch {
     throw new Error(`${path} must be an absolute URL`);
   }
-  // Dev servers preview entries against their own localhost web app; the
-  // client only renders such URLs when the host matches its configured API
-  // host, so this never widens what production devices load.
-  const isLocalDev =
-    process.env.NODE_ENV !== "production" &&
+  // Dev servers preview entries against their own localhost web app. The
+  // allowance is deliberately environment-independent so validation cannot
+  // pass in development and then throw during production module
+  // initialization; production devices never render loopback URLs because
+  // the client's own allowlist restricts http to loopback dev hosts.
+  const isLoopbackDev =
     url.protocol === "http:" &&
     (url.hostname === "localhost" || url.hostname === "127.0.0.1");
-  if (isLocalDev) return;
+  if (isLoopbackDev) return;
   if (url.protocol !== "https:") {
     throw new Error(`${path} must use https`);
   }
@@ -114,7 +120,13 @@ function nonemptyString(input: string | undefined, path: string): string {
   if (typeof input !== "string" || input.trim().length === 0) {
     throw new Error(`${path} must be a nonempty string`);
   }
-  return input.trim();
+  // The served payload is the input verbatim, so committed values must
+  // already be normalized: a stray space in an id would otherwise pass
+  // validation here and then silently fail exact-match lookups on device.
+  if (input !== input.trim()) {
+    throw new Error(`${path} must not have leading or trailing whitespace`);
+  }
+  return input;
 }
 
 export async function GET(request: Request): Promise<Response> {
