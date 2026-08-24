@@ -266,7 +266,6 @@
 			inputPaths = (
 				"$(SRCROOT)/../Resources/markdown-viewer",
 				"$(SRCROOT)/scripts/copy-markdown-viewer-assets.sh",
-				"$(SRCROOT)/../scripts/compress-markdown-viewer-assets.sh",
 			);
 			name = "Copy Markdown Viewer Assets";
 			outputFileListPaths = (
