@@ -132,13 +132,13 @@ public final class MobileDisplaySettings {
     /// this device, exposed in Settings > Developer for keyboard-pinning A/B
     /// dogfood. Terminal hosts snapshot the flag when they mount, so a change
     /// applies after the workspace is reopened. Writes through to the shared
-    /// ``MobileKeyboardDockDebugSetting`` key that `GhosttySurfaceHostView`
-    /// reads.
+    /// `UserDefaults.cmuxForceLegacyKeyboardDockKey` that
+    /// `GhosttySurfaceHostView` reads.
     public var forceLegacyKeyboardDock: Bool {
         didSet {
             defaults.set(
                 forceLegacyKeyboardDock,
-                forKey: MobileKeyboardDockDebugSetting.forceLegacyDefaultsKey
+                forKey: UserDefaults.cmuxForceLegacyKeyboardDockKey
             )
         }
     }
@@ -176,7 +176,7 @@ public final class MobileDisplaySettings {
         self.taskComposerShellIconVariant = defaults.string(
             forKey: Self.taskComposerShellIconVariantKey
         ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
-        self.forceLegacyKeyboardDock = MobileKeyboardDockDebugSetting.forceLegacy(from: defaults)
+        self.forceLegacyKeyboardDock = defaults.cmuxForceLegacyKeyboardDock
         #endif
     }
 

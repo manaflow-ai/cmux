@@ -44,7 +44,7 @@ public final class GhosttySurfaceHostView: UIView {
         if UITestConfig.forceLegacyKeyboardDock { return true }
         // Settings > Developer dogfood override (per-host snapshot: applies to
         // terminals hosted after the toggle changes).
-        if MobileKeyboardDockDebugSetting.forceLegacy(from: .standard) { return true }
+        if UserDefaults.standard.cmuxForceLegacyKeyboardDock { return true }
         #endif
         return ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
     }()
