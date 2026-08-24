@@ -249,7 +249,7 @@ func (c *Client) Close(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	c.fail(&TransportError{Operation: "close", Err: ErrClosed})
+	c.failWithCleanupContext(ctx, &TransportError{Operation: "close", Err: ErrClosed}, true)
 	return nil
 }
 
@@ -1184,6 +1184,10 @@ func (c *Client) fail(err error) {
 }
 
 func (c *Client) failWithCleanup(err error, attemptCleanup bool) {
+	c.failWithCleanupContext(context.Background(), err, attemptCleanup)
+}
+
+func (c *Client) failWithCleanupContext(ctx context.Context, err error, attemptCleanup bool) {
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
@@ -1198,7 +1202,7 @@ func (c *Client) failWithCleanup(err error, attemptCleanup bool) {
 	c.streams = make(map[StreamID]*streamRoute)
 	c.mu.Unlock()
 	if attemptCleanup {
-		c.cancelFailedStreamOpens(streams)
+		c.cancelFailedStreamOpens(ctx, streams)
 	}
 	_ = c.conn.Close()
 	for _, waiter := range pending {
@@ -1211,13 +1215,19 @@ func (c *Client) failWithCleanup(err error, attemptCleanup bool) {
 }
 
 func (c *Client) cancelFailedStreamOpens(
+	ctx context.Context,
 	streams map[StreamID]*streamRoute,
 ) {
 	deadline := time.Now().Add(failedStreamOpenCleanupTimeout)
+	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+		deadline = contextDeadline
+	}
 	timer := time.NewTimer(time.Until(deadline))
 	defer timer.Stop()
 	select {
 	case <-c.writer:
+	case <-ctx.Done():
+		return
 	case <-timer.C:
 		return
 	}

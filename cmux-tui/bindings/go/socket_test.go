@@ -33,6 +33,28 @@ func TestWriteRejectsInvalidWriteCount(t *testing.T) {
 	}
 }
 
+func TestCloseCancellationDoesNotWaitForCleanupWriter(t *testing.T) {
+	clientSide, serverSide := net.Pipe()
+	defer serverSide.Close()
+	c := &Client{
+		conn:    clientSide,
+		writer:  make(chan struct{}, 1),
+		pending: make(map[string]chan pendingResponse),
+		streams: make(map[StreamID]*streamRoute),
+		done:    make(chan struct{}),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	if err := c.Close(ctx); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 200*time.Millisecond {
+		t.Fatalf("Close() took %v, want context-bounded cleanup", elapsed)
+	}
+}
+
 func TestHighLevelClientRejectsUnsafeSessionBeforeDial(t *testing.T) {
 	t.Setenv("CMUX_TUI_SOCKET", "")
 	t.Setenv("CMUX_MUX_SOCKET", "")
