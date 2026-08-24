@@ -377,7 +377,13 @@ extension AppDelegate {
     /// chain, excluding browser chrome such as the address and find bars.
     func shortcutEventBrowserWebView(_ event: NSEvent) -> CmuxWebView? {
         let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
-        guard let responder = shortcutWindow?.firstResponder,
+        guard let shortcutWindow,
+              let responder = shortcutWindow.firstResponder,
+              browserOmnibarPanelId(for: responder) == nil,
+              BrowserWindowPortalRegistry.searchOverlayPanelId(
+                  for: responder,
+                  in: shortcutWindow
+              ) == nil,
               let webView = shortcutOwningWebView(for: responder) as? CmuxWebView else {
             return nil
         }
