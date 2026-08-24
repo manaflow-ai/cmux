@@ -11109,6 +11109,48 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// iOS 27 keeps the pre-rebuild keyboard dock path (transform leg,
+    /// will-frame only) because its keyboard APIs misreport frames under the
+    /// rebuilt path. Force that runtime policy on the CI simulator and prove
+    /// the visible dock still follows the real software-keyboard edge through
+    /// the production composer path.
+    @MainActor
+    func testLegacyKeyboardDockPinsComposerToKeyboard() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port, environment: [
+            "CMUX_UITEST_FORCE_LEGACY_KEYBOARD_DOCK": "1",
+        ])
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 4))
+        composerField.tap()
+
+        guard let keyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        let dock = waitForDock(in: app, describe: "legacy dock tracks keyboard") {
+            $0["keyboardDockSource"] == "legacyNotification"
+                && ($0["keyboardHeight"].flatMap(Double.init) ?? 0) > 120
+        }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            dock,
+            surface: surface,
+            keyboard: keyboard,
+            context: "legacy keyboard dock"
+        )
+        assertTerminalPresentationPinnedToDock(
+            dock,
+            context: "legacy keyboard dock"
+        )
+    }
+
     @MainActor
     private func waitForKeyboardDismissal(in app: XCUIApplication) -> Bool {
         let expectation = XCTNSPredicateExpectation(

@@ -454,9 +454,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             ?? (keyboardPresentationTransitionActive ? 1 : -1)
         let keyboardTransitionTarget = pointValue(host?.debugKeyboardTargetHeight ?? keyboardHeight)
         let keyboardDockTargetTop = pointValue(host?.debugKeyboardTargetTop ?? bottomDockContainer.frame.maxY)
-        // The host drives the dock from keyboard notifications on every OS
-        // version; the key is kept so probe consumers need no migration.
-        let keyboardDockSource = "notification"
+        // Keyboard notifications drive the dock on every OS version; iOS 27
+        // additionally keeps the pre-rebuild transform leg (its keyboard APIs
+        // misreport frames under the rebuilt path).
+        let keyboardDockSource = host?.debugUsesLegacyKeyboardDock == true
+            ? "legacyNotification"
+            : "notification"
         let terminalDockPresentationGap = pointValue(
             host?.debugTerminalDockPresentationGap ?? 0
         )
@@ -1270,6 +1273,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// during a transition cannot resume a stale leg from the old window.
     func removeHostedKeyboardMotionAnimations() {
         bottomDockContainer.layer.removeAllAnimations()
+    }
+
+    /// The dock's live bottom edge from its presentation layer, used by the
+    /// legacy (iOS 27) keyboard path to rebase an interrupted transition at
+    /// the on-screen position before starting the next leg.
+    func hostedBottomDockPresentationBottom(in host: UIView) -> CGFloat? {
+        guard bottomDockContainer.superview != nil else { return nil }
+        let source = bottomDockContainer.layer.presentation() ?? bottomDockContainer.layer
+        let hostLayer = host.layer.presentation() ?? host.layer
+        return source.convert(
+            CGPoint(x: source.bounds.midX, y: source.bounds.maxY),
+            to: hostLayer
+        ).y
     }
 
     var hostedBottomDockHeight: CGFloat {

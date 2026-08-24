@@ -79,6 +79,17 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Forces the legacy (iOS 27) keyboard-dock path on any simulator so CI
+    /// can exercise it. DEBUG-only so production selection remains tied
+    /// exclusively to the OS version.
+    public static var forceLegacyKeyboardDock: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_FORCE_LEGACY_KEYBOARD_DOCK"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the standalone workspace-list layout preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1`, the root view renders a
