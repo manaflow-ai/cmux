@@ -11,6 +11,44 @@ import Foundation
 /// later command can't finish before an earlier browser navigate/click/wait.
 private let cmuxSidebarWorkerQueue = DispatchQueue(label: "com.cmux.sidebar-action-worker")
 
+/// Drops superseded workspace selections during a click burst. A switch costs
+/// main-actor work (terminal view swap, ~100-250ms measured), so clicking
+/// 1-2-3-4 fast serializes four switches and the last click waits for the
+/// first three. Only the NEWEST queued select matters: the sidebar already
+/// painted each click optimistically, and the intermediate switches were
+/// transient states the user has clicked past. Each single-select action gets
+/// a generation stamp at enqueue; at run time a stale stamp skips the switch.
+/// Actions mixing a select with other commands are never coalesced, so
+/// authored command sequences keep their exact semantics.
+private final class SidebarSelectCoalescer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var latest: UInt64 = 0
+
+    func stamp() -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        latest += 1
+        return latest
+    }
+
+    func isCurrent(_ generation: UInt64) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return generation == latest
+    }
+}
+
+private let sidebarSelectCoalescer = SidebarSelectCoalescer()
+
+/// A single-command `workspace.select` action is coalescable; anything else
+/// (multi-command sequences, other methods) runs unconditionally.
+private func sidebarSelectGeneration(for commands: [ActionCommand]) -> UInt64? {
+    guard commands.count == 1,
+          case let .cmux(method, _) = commands[0],
+          method == "workspace.select" else { return nil }
+    return sidebarSelectCoalescer.stamp()
+}
+
 // The custom-sidebar rendering, interpreter, JSON DSL, resizable split, and
 // the file-watching model now live in the `CmuxSwiftRender` (logic) and
 // `CmuxSwiftRenderUI` (SwiftUI) packages. The app target keeps only the
@@ -34,7 +72,13 @@ func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
         // so nothing here blocks SwiftUI and ordering is preserved end to end.
         let controller = TerminalController.shared
         let commands = action.commands
+        let selectGeneration = sidebarSelectGeneration(for: commands)
         cmuxSidebarWorkerQueue.async {
+            // A newer select is already queued behind this one: skip the heavy
+            // switch, the burst's final click defines the end state.
+            if let selectGeneration, !sidebarSelectCoalescer.isCurrent(selectGeneration) {
+                return
+            }
             for command in commands {
                 switch command {
                 case let .cmux(method, params):
