@@ -83,6 +83,9 @@ import Testing
             {"id": "21111111-2222-3333-4444-555555555555", "enabled": true, "macDeviceId": "mac-only"},
             {"id": "31111111-2222-3333-4444-555555555555", "enabled": true, "titlePattern": "\(oversized)"},
             "not-an-object",
+            null,
+            42,
+            [true],
             {"id": "41111111-2222-3333-4444-555555555555", "enabled": false, "titlePattern": "keep-2"}
         ]}
         """

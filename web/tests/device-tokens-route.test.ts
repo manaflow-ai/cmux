@@ -541,6 +541,17 @@ describe("device token route", () => {
     });
     expect(badFilters.status).toBe(400);
     expect(await badFilters.json()).toEqual({ error: "filter_rule_missing_criteria" });
+
+    const slowPattern = await put({
+      deviceToken: "b".repeat(64),
+      bundleId: "com.cmux.app",
+      filters: {
+        version: 1,
+        rules: [{ id: "r", enabled: true, titlePattern: "(a+)+$" }],
+      },
+    });
+    expect(slowPattern.status).toBe(400);
+    expect(await slowPattern.json()).toEqual({ error: "filter_rule_pattern_too_slow" });
   });
 
   dbTest("push filters PUT stores, replaces, and clears the device's rules", async () => {

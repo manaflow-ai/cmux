@@ -133,6 +133,71 @@ function equalsIgnoreCase(expected: string, actual: string | null): boolean {
   return actual != null && expected.toLowerCase() === actual.toLowerCase();
 }
 
+/**
+ * Cumulative wall-clock budget for probing every title pattern in one
+ * document. Legitimate patterns finish all probes in well under a
+ * millisecond, so this budget is orders of magnitude above them; a
+ * catastrophically backtracking pattern burns it on the short probe inputs
+ * within a bounded few hundred milliseconds.
+ */
+const PATTERN_PROBE_BUDGET_MS = 50;
+
+/**
+ * Short inputs that surface exponential backtracking (for example `(a+)+$`)
+ * while staying small enough that even a pathological pattern cannot stall a
+ * single `test` call for more than a few hundred milliseconds. Deliberately
+ * shorter than a real title: blowup grows exponentially with input length,
+ * so a pattern that is fast here is enormously faster on these lengths than
+ * the same pattern hanging on a 120-char title would be.
+ */
+const PATTERN_PROBE_INPUTS: readonly string[] = [12, 16, 20, 24].flatMap(
+  (length) => [
+    `${"a".repeat(length)}!`,
+    `${"ab".repeat(length / 2)}!`,
+    `${" a".repeat(length / 2)}!`,
+  ],
+);
+
+/**
+ * Write-time guard against regex catastrophic backtracking: probes every
+ * title pattern in the document against short adversarial inputs under one
+ * cumulative time budget. Returns the id of the first rule whose pattern
+ * exhausts the budget, or `null` when every pattern behaves. Run this where
+ * documents are ACCEPTED (the PUT route), never per delivery: the probe's
+ * own worst case is bounded but not free.
+ */
+export function findPathologicalTitlePattern(
+  filters: PushFiltersDocument | null,
+): string | null {
+  if (!filters) return null;
+  const startedAt = Date.now();
+  for (const rule of filters.rules) {
+    if (!rule.titlePattern) continue;
+    let expression: RegExp;
+    try {
+      expression = new RegExp(rule.titlePattern, "iu");
+    } catch {
+      try {
+        expression = new RegExp(rule.titlePattern, "i");
+      } catch {
+        // Never compiles, so delivery-time evaluation fails open; harmless.
+        continue;
+      }
+    }
+    for (const probe of PATTERN_PROBE_INPUTS) {
+      try {
+        expression.test(probe);
+      } catch {
+        break;
+      }
+      if (Date.now() - startedAt > PATTERN_PROBE_BUDGET_MS) {
+        return rule.id;
+      }
+    }
+  }
+  return null;
+}
+
 /** Case-insensitive regex SEARCH; an invalid pattern fails the criterion. */
 function titlePatternMatches(pattern: string, title: string): boolean {
   let expression: RegExp;

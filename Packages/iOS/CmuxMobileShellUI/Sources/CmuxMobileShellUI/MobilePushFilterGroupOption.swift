@@ -37,8 +37,6 @@ public struct MobilePushFilterGroupOption: Identifiable, Equatable, Sendable {
         guard let ruleGroupId = rule.groupId,
               ruleGroupId.caseInsensitiveCompare(groupId) == .orderedSame
         else { return false }
-        guard let ruleMacDeviceId = rule.macDeviceId else { return true }
-        guard let macDeviceId else { return false }
-        return ruleMacDeviceId.caseInsensitiveCompare(macDeviceId) == .orderedSame
+        return MobilePushFilterRule.macScopeAdmits(rule.macDeviceId, macDeviceId)
     }
 }

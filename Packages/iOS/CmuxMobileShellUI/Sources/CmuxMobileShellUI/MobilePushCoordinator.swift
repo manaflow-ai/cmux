@@ -52,6 +52,18 @@ private actor MobilePushSingleFlight<Value: Sendable> {
     }
 }
 
+/// How a push that arrived while the app is foreground should present.
+public enum MobilePushForegroundDecision: Equatable, Sendable {
+    /// Show the banner with sound and badge.
+    case present
+    /// A user mute rule matched: no banner or sound, but the badge still
+    /// applies (matching the server's badge-only muted lane).
+    case suppressedByFilter
+    /// The user is already viewing the notification's terminal: drop
+    /// everything; the live lane keeps the badge current.
+    case suppressedByContext
+}
+
 /// Bridges APNs push between the app-target `AppDelegate` and the mobile shell
 /// store: drives opt-in registration, hands device tokens to the injected
 /// ``CmuxAuthRuntime/PushRegistrationService``, and routes foreground
@@ -944,11 +956,9 @@ public final class MobilePushCoordinator {
     /// Whether to show a banner while the app is foreground, scoped to the Mac
     /// that sent the notification when the payload includes it.
     ///
-    /// User mute rules run FIRST, mirroring the server's send-time filtering
-    /// (the server degrades or drops muted pushes once the filters document
-    /// syncs; this keeps the foreground path consistent before that). Only
-    /// then does the same-workspace suppression apply. The extra parameters
-    /// default to `nil` so pre-filter call sites keep compiling.
+    /// Compatibility wrapper over ``foregroundDecision(workspaceId:surfaceId:macDeviceId:macInstanceTag:title:workspaceGroupId:workspaceGroupName:)``;
+    /// callers that must distinguish a mute from same-context suppression (to
+    /// keep the badge accurate) use the decision directly.
     public func shouldPresentInForeground(
         workspaceId: String?,
         surfaceId: String?,
@@ -958,6 +968,35 @@ public final class MobilePushCoordinator {
         workspaceGroupId: String? = nil,
         workspaceGroupName: String? = nil
     ) -> Bool {
+        foregroundDecision(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            macDeviceId: macDeviceId,
+            macInstanceTag: macInstanceTag,
+            title: title,
+            workspaceGroupId: workspaceGroupId,
+            workspaceGroupName: workspaceGroupName
+        ) == .present
+    }
+
+    /// How a foreground push should present.
+    ///
+    /// User mute rules run FIRST, mirroring the server's send-time filtering
+    /// (the server degrades or drops muted pushes once the filters document
+    /// syncs; this keeps the foreground path consistent before that). Only
+    /// then does the same-workspace suppression apply. A mute is reported
+    /// distinctly because the caller must still apply the push's badge (the
+    /// server's muted lane is a badge-only push; the local mirror keeps that
+    /// property), while same-context suppression drops everything as before.
+    public func foregroundDecision(
+        workspaceId: String?,
+        surfaceId: String?,
+        macDeviceId: String?,
+        macInstanceTag: String? = nil,
+        title: String? = nil,
+        workspaceGroupId: String? = nil,
+        workspaceGroupName: String? = nil
+    ) -> MobilePushForegroundDecision {
         diagnosticLog?.recordAppEvent(.pushReceivedInForeground)
         if let filterSettings,
            filterEvaluator.isMuted(
@@ -970,7 +1009,7 @@ public final class MobilePushCoordinator {
                rules: filterSettings.rules
            ) {
             diagnosticLog?.recordAppEvent(.pushSuppressedInForeground)
-            return false
+            return .suppressedByFilter
         }
         let shouldPresent: Bool
         if let store, let workspaceId,
@@ -990,7 +1029,7 @@ public final class MobilePushCoordinator {
         diagnosticLog?.recordAppEvent(
             shouldPresent ? .pushPresentedInForeground : .pushSuppressedInForeground
         )
-        return shouldPresent
+        return shouldPresent ? .present : .suppressedByContext
     }
 
     /// Deep-link to the workspace/terminal a tapped notification refers to.

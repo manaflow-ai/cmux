@@ -1,7 +1,13 @@
 #if os(iOS)
 import CMUXMobileCore
 import CmuxMobileSupport
+import OSLog
 import SwiftUI
+
+private let pushFilterUILog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
+    category: "push-filters-ui"
+)
 
 /// Mute-rules editor reached from Settings > Push Alerts > Notification
 /// Filters (HIG "Settings": general, infrequently changed options grouped
@@ -79,12 +85,18 @@ struct MobilePushFilterSettingsView: View {
     }
 
     private func setMuted(_ muted: Bool, group: MobilePushFilterGroupOption) {
+        pushFilterUILog.debug(
+            "setMuted muted=\(muted, privacy: .public) group=\(group.groupId, privacy: .public) storeNil=\(filterSettings == nil, privacy: .public)"
+        )
         guard let filterSettings else { return }
         if muted {
-            filterSettings.addGroupRule(
+            let added = filterSettings.addGroupRule(
                 groupId: group.groupId,
                 groupName: group.name,
                 macDeviceId: group.macDeviceId
+            )
+            pushFilterUILog.debug(
+                "addGroupRule outcome=\(added, privacy: .public) count=\(filterSettings.rules.count, privacy: .public)"
             )
         } else {
             filterSettings.removeGroupRule(
@@ -199,14 +211,20 @@ struct MobilePushFilterSettingsView: View {
                 defaultValue: "This pattern is already muted."
             )
         case .tooLong:
-            L10n.string(
-                "mobile.settings.pushFilters.error.tooLong",
-                defaultValue: "Patterns are limited to 200 characters."
+            String(
+                format: L10n.string(
+                    "mobile.settings.pushFilters.error.tooLongFormat",
+                    defaultValue: "Patterns are limited to %lld characters."
+                ),
+                Int64(MobilePushFilterRule.maxStringLength)
             )
         case .limitReached:
-            L10n.string(
-                "mobile.settings.pushFilters.error.limit",
-                defaultValue: "You can keep up to 64 filters."
+            String(
+                format: L10n.string(
+                    "mobile.settings.pushFilters.error.limitFormat",
+                    defaultValue: "You can keep up to %lld filters."
+                ),
+                Int64(MobilePushFilterRules.maxRuleCount)
             )
         }
     }

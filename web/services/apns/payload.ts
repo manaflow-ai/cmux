@@ -114,13 +114,18 @@ export function buildApnsPayload(input: ApnsNotificationInput): Record<string, u
   const cmux: Record<string, string | boolean> = {};
   if (input.workspaceId) cmux.workspaceId = input.workspaceId;
   if (input.surfaceId) cmux.surfaceId = input.surfaceId;
+  if (input.workspaceGroupId) cmux.workspaceGroupId = input.workspaceGroupId;
+  // The group display name is user content. The Mac already withholds it when
+  // content hiding is on; enforce the same policy here so no client can leak
+  // a workspace name through a content-hidden push.
+  if (input.workspaceGroupName && !hidden) {
+    cmux.workspaceGroupName = input.workspaceGroupName;
+  }
   if (typeof input.retargetsToLiveSurfaceOwner === "boolean") {
     cmux.retargetsToLiveSurfaceOwner = input.retargetsToLiveSurfaceOwner;
   }
   if (input.macDeviceId) cmux.macDeviceId = input.macDeviceId;
   if (input.macInstanceTag) cmux.macInstanceTag = input.macInstanceTag;
-  if (input.workspaceGroupId) cmux.workspaceGroupId = input.workspaceGroupId;
-  if (input.workspaceGroupName) cmux.workspaceGroupName = input.workspaceGroupName;
   if (input.notificationId) cmux.notificationId = input.notificationId;
   if (input.correlationId) cmux.correlationId = input.correlationId;
 

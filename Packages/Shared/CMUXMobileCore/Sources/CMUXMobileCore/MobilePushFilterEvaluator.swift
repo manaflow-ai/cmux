@@ -43,11 +43,10 @@ public struct MobilePushFilterEvaluator: Sendable {
         guard groupId != nil || groupName != nil || titlePattern != nil else {
             return false
         }
-        if let ruleMac = value(rule.macDeviceId) {
-            guard let pushMac = value(candidate.macDeviceId),
-                  pushMac.caseInsensitiveCompare(ruleMac) == .orderedSame
-            else { return false }
-        }
+        guard MobilePushFilterRule.macScopeAdmits(
+            value(rule.macDeviceId),
+            value(candidate.macDeviceId)
+        ) else { return false }
         if groupId != nil || groupName != nil {
             guard groupCriterionMatches(
                 candidate: candidate,

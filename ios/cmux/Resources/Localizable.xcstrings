@@ -5702,36 +5702,36 @@
         }
       }
     },
-    "mobile.settings.pushFilters.error.limit": {
+    "mobile.settings.pushFilters.error.limitFormat": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You can keep up to 64 filters."
+            "value": "You can keep up to %lld filters."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フィルタは最大64件までです。"
+            "value": "フィルタは最大%lld件まで保存できます。"
           }
         }
       }
     },
-    "mobile.settings.pushFilters.error.tooLong": {
+    "mobile.settings.pushFilters.error.tooLongFormat": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Patterns are limited to 200 characters."
+            "value": "Patterns are limited to %lld characters."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "パターンは200文字までです。"
+            "value": "パターンは%lld文字までに制限されています。"
           }
         }
       }

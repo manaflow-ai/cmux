@@ -9,7 +9,14 @@ export const MAX_PUSH_ID_CHARS = 200;
 export const MAX_PUSH_CORRELATION_ID_CHARS = 64;
 export const MAX_PUSH_REQUEST_BYTES = 8 * 1024;
 /** Per-device mute-filter documents are bigger than a push (≤64 rules). */
-export const MAX_FILTERS_REQUEST_BYTES = 32 * 1024;
+/**
+ * Request bound for the filters PUT. Deliberately smaller than the absolute
+ * worst case the rule validator could accept (64 rules of maximally
+ * escape-inflated 200-char strings): for such pathological documents the byte
+ * bound is the effective limit and the route answers 413. Real documents
+ * (hand-typed patterns, UUID ids) stay well under it.
+ */
+export const MAX_FILTERS_REQUEST_BYTES = 64 * 1024;
 /** Max dismissed-notification ids one dismiss push may carry; the Mac chunks. */
 export const MAX_PUSH_DISMISS_IDS = 64;
 /** Badge ceiling; iOS renders large numbers fine but a runaway count is a bug. */

@@ -55,7 +55,7 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
         let ids = Self.cmuxIDs(from: notification.request.content.userInfo)
-        let present = await pushCoordinator?.shouldPresentInForeground(
+        let decision = await pushCoordinator?.foregroundDecision(
             workspaceId: ids.workspaceId,
             surfaceId: ids.surfaceId,
             macDeviceId: ids.macDeviceId,
@@ -63,8 +63,18 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
             title: notification.request.content.title,
             workspaceGroupId: ids.workspaceGroupId,
             workspaceGroupName: ids.workspaceGroupName
-        ) ?? true
-        return present ? [.banner, .sound, .badge] : []
+        ) ?? .present
+        switch decision {
+        case .present:
+            return [.banner, .sound, .badge]
+        case .suppressedByFilter:
+            // A local mute must not lose the badge: the server's muted lane is
+            // a badge-only push, and an unattached foreground app has no live
+            // channel to refresh the badge otherwise.
+            return [.badge]
+        case .suppressedByContext:
+            return []
+        }
     }
 
     func userNotificationCenter(

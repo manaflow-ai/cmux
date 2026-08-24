@@ -67,6 +67,10 @@ public actor PushRegistrationService: PushRegistering {
     /// the post-registration re-push can skip redundant PUTs.
     private var acknowledgedFiltersDocument: Data?
     private var acknowledgedFiltersTokenHex: String?
+    /// Detects an `updateFilters(_:)` overtaken while suspended on the
+    /// authoring-session snapshot, so an older document cannot overwrite a
+    /// newer document or clear that persisted during the await.
+    private var filtersAuthoringGeneration = UUID()
     private var snapshotValue: PushRegistrationSnapshot
     private var snapshotContinuations:
         [UUID: AsyncStream<PushRegistrationSnapshot>.Continuation] = [:]
@@ -84,6 +88,13 @@ public actor PushRegistrationService: PushRegistering {
     /// token registration re-creates the server row.
     private static let filtersDocumentKey =
         "cmux.notifications.pushFilters.document.v1"
+    /// The account that authored ``filtersDocumentKey``, captured from the
+    /// same session source of truth the registration flow persists into
+    /// ``registeredAccountIDKey``. The document may only be PUT while that
+    /// account is the authenticated session; rules authored under account A
+    /// must never mute account B's pushes.
+    private static let filtersAccountIDKey =
+        "cmux.notifications.pushFilters.accountID.v1"
 
     private static func defaultPendingUnregisterStoreURL(
         suiteName: String?,
@@ -425,14 +436,44 @@ public actor PushRegistrationService: PushRegistering {
         if snapshotValue.backendState == .registered {
             await retryPendingUnregisterIfPossible()
         }
+        // Crash recovery: a document persisted before its PUT completed has
+        // no in-memory acknowledgement, and a launch whose registration never
+        // reaches the post-registration re-push would otherwise never re-send
+        // it. Every launch/foreground lifecycle validation lands here, so
+        // re-drive the single-flight drain; its authoring-account gate still
+        // applies.
+        if filtersSyncIsRequired {
+            scheduleFiltersSync()
+        }
     }
 
     public func updateFilters(_ documentData: Data?) async {
+        filtersAuthoringGeneration = UUID()
+        let generation = filtersAuthoringGeneration
         if let documentData {
+            // Scope the document to its authoring account, resolved from the
+            // same provider session snapshot the registration flow records
+            // into `registeredAccountIDKey`. The provider is read directly
+            // (not through `boundedSessionSnapshot`) because the phase
+            // registry is exclusive per phase: a Settings save must not fail
+            // a concurrent registration snapshot, or be failed by one.
+            // Without an authenticated session there is no owner to scope to
+            // (and no credentials to PUT with), so drop the update rather
+            // than retain an unowned document that could later follow a
+            // different account's registration.
+            let authoringAccountID = try? await tokenProvider
+                .authenticatedSessionSnapshot().accountID
+            guard generation == filtersAuthoringGeneration else { return }
+            guard let authoringAccountID else {
+                pushLog.error("filters update dropped: no authenticated authoring session")
+                return
+            }
             defaults.set(documentData, forKey: Self.filtersDocumentKey)
+            defaults.set(authoringAccountID, forKey: Self.filtersAccountIDKey)
             pendingFiltersClear = false
         } else {
             defaults.removeObject(forKey: Self.filtersDocumentKey)
+            defaults.removeObject(forKey: Self.filtersAccountIDKey)
             pendingFiltersClear = true
         }
         // The document changed: whatever the server acknowledged is stale.
@@ -477,9 +518,13 @@ public actor PushRegistrationService: PushRegistering {
         while filtersSyncIsRequired {
             guard let tokenHex = cachedTokenHex else { return }
             let document = defaults.data(forKey: Self.filtersDocumentKey)
+            let authoringAccountID = document == nil
+                ? nil
+                : defaults.string(forKey: Self.filtersAccountIDKey)
             let clearing = document == nil
             guard await sendFilters(
                 documentData: document,
+                authoringAccountID: authoringAccountID,
                 tokenHex: tokenHex,
                 allowRecovery: true
             ) else { return }
@@ -496,6 +541,7 @@ public actor PushRegistrationService: PushRegistering {
     /// - Returns: Whether the server acknowledged the update.
     private func sendFilters(
         documentData: Data?,
+        authoringAccountID: String?,
         tokenHex: String,
         allowRecovery: Bool
     ) async -> Bool {
@@ -503,8 +549,19 @@ public actor PushRegistrationService: PushRegistering {
             "deviceToken": tokenHex,
             "bundleId": bundleID,
         ]
-        if let documentData,
-           let document = try? JSONSerialization.jsonObject(with: documentData) {
+        if let documentData {
+            // Fail closed on a corrupt retained document: encoding it as
+            // `null` would clear the server-side filters and unmute every
+            // notification the user silenced. Skip the PUT and leave the
+            // document pending so a later corrected `updateFilters(_:)`
+            // supersedes it; only an explicit `updateFilters(nil)` may clear
+            // server-side.
+            guard let document = try? JSONSerialization.jsonObject(
+                with: documentData
+            ) else {
+                pushLog.error("filters update skipped: retained document is undecodable")
+                return false
+            }
             body["filters"] = document
         } else {
             body["filters"] = NSNull()
@@ -515,6 +572,17 @@ public actor PushRegistrationService: PushRegistering {
             body: body,
             authPhase: .pushRegistrationSession
         ) else { return false }
+        if documentData != nil {
+            // A document may only follow its authoring account. Comparing
+            // against the exact session that authenticates this PUT means an
+            // account switch between drains cannot apply account A's rules to
+            // account B's registration.
+            guard let authoringAccountID,
+                  context.session?.accountID == authoringAccountID else {
+                pushLog.info("filters update skipped: session does not match the document's authoring account")
+                return false
+            }
+        }
         switch await performFiltersUpdate(context.request) {
         case .success:
             return true
@@ -526,6 +594,7 @@ public actor PushRegistrationService: PushRegistering {
             guard cachedTokenHex == tokenHex else { return false }
             return await sendFilters(
                 documentData: documentData,
+                authoringAccountID: authoringAccountID,
                 tokenHex: tokenHex,
                 allowRecovery: false
             )
@@ -860,7 +929,21 @@ public actor PushRegistrationService: PushRegistering {
             if defaults.data(forKey: Self.filtersDocumentKey) != nil {
                 acknowledgedFiltersDocument = nil
                 acknowledgedFiltersTokenHex = nil
-                scheduleFiltersSync()
+                if let requestSession,
+                   defaults.string(forKey: Self.filtersAccountIDKey)
+                       != requestSession.accountID {
+                    // The registration succeeded under a different account
+                    // than the one that authored the document. Drop it rather
+                    // than retain it: rules authored by the old account must
+                    // never mute the new account's pushes, and the Settings
+                    // store still holds the rules locally, so any edit
+                    // re-authors the document under the new account.
+                    pushLog.info("retained filters document dropped: registration succeeded under a different account")
+                    defaults.removeObject(forKey: Self.filtersDocumentKey)
+                    defaults.removeObject(forKey: Self.filtersAccountIDKey)
+                } else {
+                    scheduleFiltersSync()
+                }
             }
             if pushServiceConfigured {
                 publish(PushRegistrationSnapshot(

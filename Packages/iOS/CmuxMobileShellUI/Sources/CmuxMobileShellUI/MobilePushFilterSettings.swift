@@ -163,14 +163,29 @@ public final class MobilePushFilterSettings {
         onRulesChanged(document)
     }
 
-    /// A rule authored without a Mac scope applies to any Mac; a scoped rule
-    /// only matches the same Mac (case-insensitive).
     private static func macScopeMatches(
         _ ruleMacDeviceId: String?,
         _ macDeviceId: String?
     ) -> Bool {
-        guard let ruleMacDeviceId else { return true }
-        guard let macDeviceId else { return false }
-        return ruleMacDeviceId.caseInsensitiveCompare(macDeviceId) == .orderedSame
+        MobilePushFilterRule.macScopeAdmits(ruleMacDeviceId, macDeviceId)
+    }
+}
+
+/// Serializes the store's fire-and-forget filter syncs so rapid mutations
+/// cannot reach the registration actor out of order and persist a stale
+/// document as the latest one.
+@MainActor
+public final class MobilePushFilterSyncSerializer {
+    private var tail: Task<Void, Never>?
+
+    public init() {}
+
+    /// Runs `operation` after every previously enqueued operation finishes.
+    public func enqueue(_ operation: @escaping @Sendable () async -> Void) {
+        let previous = tail
+        tail = Task {
+            await previous?.value
+            await operation()
+        }
     }
 }

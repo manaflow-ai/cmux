@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  findPathologicalTitlePattern,
   isPushMutedByFilters,
   MAX_PUSH_FILTER_RULES,
   MAX_PUSH_FILTER_STRING_CHARS,
@@ -306,5 +307,34 @@ describe("push filter send partition", () => {
     expect(partition.deliver.map((t) => t.targetId)).toEqual(["target-a"]);
     expect(partition.badgeOnly).toEqual([]);
     expect(partition.suppressed).toEqual([]);
+  });
+});
+
+describe("pathological title pattern probe", () => {
+  const document = (titlePattern: string) => ({
+    version: 1,
+    rules: [{ id: "rule-1", enabled: true, titlePattern }],
+  });
+
+  test("accepts ordinary patterns", () => {
+    const parsed = parsePushFilters(document("waiting for .*input"));
+    if (!parsed.ok) throw new Error(parsed.error);
+    expect(findPathologicalTitlePattern(parsed.value)).toBeNull();
+  });
+
+  test("accepts null and pattern-free documents", () => {
+    expect(findPathologicalTitlePattern(null)).toBeNull();
+    const parsed = parsePushFilters({
+      version: 1,
+      rules: [{ id: "rule-1", enabled: true, groupId: "g-1" }],
+    });
+    if (!parsed.ok) throw new Error(parsed.error);
+    expect(findPathologicalTitlePattern(parsed.value)).toBeNull();
+  });
+
+  test("rejects a catastrophically backtracking pattern", () => {
+    const parsed = parsePushFilters(document("(a+)+$"));
+    if (!parsed.ok) throw new Error(parsed.error);
+    expect(findPathologicalTitlePattern(parsed.value)).toBe("rule-1");
   });
 });

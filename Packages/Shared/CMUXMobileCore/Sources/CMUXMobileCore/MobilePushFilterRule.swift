@@ -105,4 +105,18 @@ public struct MobilePushFilterRule: Codable, Equatable, Hashable, Identifiable, 
         else { return nil }
         return value
     }
+
+    /// Whether a rule's optional Mac scope admits `macDeviceId`: an unscoped
+    /// rule admits any Mac, and a scoped rule requires a case-insensitive
+    /// match. The single definition shared by the evaluator, the settings
+    /// store, and the group-option matcher, because a divergence here decides
+    /// whether a mute crosses Mac boundaries.
+    public static func macScopeAdmits(
+        _ ruleMacDeviceId: String?,
+        _ macDeviceId: String?
+    ) -> Bool {
+        guard let ruleMacDeviceId else { return true }
+        guard let macDeviceId else { return false }
+        return ruleMacDeviceId.caseInsensitiveCompare(macDeviceId) == .orderedSame
+    }
 }

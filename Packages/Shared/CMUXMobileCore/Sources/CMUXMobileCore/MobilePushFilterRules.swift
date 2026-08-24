@@ -28,20 +28,17 @@ public struct MobilePushFilterRules: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.version = try container.decodeIfPresent(Int.self, forKey: .version)
             ?? Self.currentVersion
-        var rulesContainer = try container.nestedUnkeyedContainer(forKey: .rules)
-        var decoded: [MobilePushFilterRule] = []
-        while !rulesContainer.isAtEnd {
-            if let rule = try? rulesContainer.decode(MobilePushFilterRule.self) {
-                if decoded.count < Self.maxRuleCount {
-                    decoded.append(rule)
-                }
-            } else {
-                // A failed element decode does not advance the container.
-                // Consume the invalid element so the loop can continue.
-                _ = try? rulesContainer.decode(MobilePushFilterRuleSkip.self)
-            }
-        }
-        self.rules = decoded
+        // Lossy element decode that can never stall: the element wrapper's
+        // initializer swallows its own failure, so the unkeyed container
+        // always advances, including for `null` and non-object elements
+        // (a bare `try?` skip loops forever on those).
+        let lossy = try container.decodeIfPresent(
+            [MobilePushFilterRuleLossy].self,
+            forKey: .rules
+        ) ?? []
+        self.rules = Array(
+            lossy.compactMap(\.rule).prefix(Self.maxRuleCount)
+        )
     }
 
     /// The canonical wire bytes for this document (stable key order, so equal
@@ -53,6 +50,14 @@ public struct MobilePushFilterRules: Codable, Equatable, Sendable {
     }
 }
 
-/// Decodes successfully from any JSON element without reading it, letting the
-/// lossy rules decode skip an invalid entry.
-private struct MobilePushFilterRuleSkip: Decodable {}
+/// Decodes from ANY JSON element without ever throwing, carrying the rule when
+/// the element satisfies the wire contract and `nil` otherwise. This is what
+/// makes the rules decode lossy per element instead of failing (or looping on)
+/// the whole document.
+private struct MobilePushFilterRuleLossy: Decodable {
+    let rule: MobilePushFilterRule?
+
+    init(from decoder: any Decoder) {
+        self.rule = try? MobilePushFilterRule(from: decoder)
+    }
+}

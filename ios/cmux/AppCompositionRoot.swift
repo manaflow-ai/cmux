@@ -169,6 +169,10 @@ final class AppCompositionRoot {
             (@MainActor () async -> MobilePushSystemSettings)? = nil
         #endif
         let pushRegistration = auth.pushRegistration
+        // Serialized so rapid mutations reach the registration actor in
+        // authored order; unordered fire-and-forget tasks could persist a
+        // stale document as the newest one.
+        let pushFilterSyncSerializer = MobilePushFilterSyncSerializer()
         let pushFilterSettings = MobilePushFilterSettings(
             defaults: .standard
         ) { document in
@@ -176,7 +180,9 @@ final class AppCompositionRoot {
             // (bounded count, plain strings); a failure only skips one sync
             // and the next mutation re-sends the full document.
             guard let data = try? document.encodedData() else { return }
-            Task { await pushRegistration.updateFilters(data) }
+            pushFilterSyncSerializer.enqueue {
+                await pushRegistration.updateFilters(data)
+            }
         }
         self.pushFilterSettings = pushFilterSettings
         let pushCoordinator = MobilePushCoordinator(

@@ -17,7 +17,7 @@ import {
   normalizeApnsBundle,
   readBoundedJsonObject,
 } from "../../../../services/apns/routePolicy";
-import { parsePushFilters } from "../../../../services/apns/pushFilters";
+import { findPathologicalTitlePattern, parsePushFilters } from "../../../../services/apns/pushFilters";
 import {
   AccountDeletionMutationBlockedError,
   assertAccountDeletionUserMutationAllowed,
@@ -65,6 +65,12 @@ async function putDeviceTokenFilters(request: Request): Promise<Response> {
   const filters = parsePushFilters(body.value.filters);
   if (!filters.ok) {
     return jsonResponse({ error: filters.error }, 400);
+  }
+  // Refuse documents whose title regexes backtrack catastrophically, so a
+  // stored pattern can never stall the push-delivery path. Checked once at
+  // write time; delivery evaluates stored patterns without probing.
+  if (findPathologicalTitlePattern(filters.value) != null) {
+    return jsonResponse({ error: "filter_rule_pattern_too_slow" }, 400);
   }
 
   const db = cloudDb();

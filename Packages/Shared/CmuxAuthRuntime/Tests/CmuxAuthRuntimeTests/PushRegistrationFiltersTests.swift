@@ -8,12 +8,13 @@ import Testing
 // `PushRegistrationURLProtocol.script` with the lifecycle tests.
 extension PushRegistrationServiceTests {
     private func makeFiltersService(
+        tokenProvider: any TokenProviding = FakeTokenProvider(),
         suite: String = "push-filters-\(UUID().uuidString)"
     ) -> PushRegistrationService {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [PushRegistrationURLProtocol.self]
         return PushRegistrationService(
-            tokenProvider: FakeTokenProvider(),
+            tokenProvider: tokenProvider,
             apiBaseURL: "https://example.test",
             bundleID: "dev.cmux.ios.filters",
             apnsEnvironment: "sandbox",
@@ -30,9 +31,9 @@ extension PushRegistrationServiceTests {
     }
 
     private func filtersBody(_ data: Data?) throws -> [String: Any] {
-        try #require(
-            try JSONSerialization.jsonObject(with: #require(data))
-                as? [String: Any]
+        let data = try #require(data)
+        return try #require(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any]
         )
     }
 
@@ -139,5 +140,121 @@ extension PushRegistrationServiceTests {
         let bodies = await script.requestBodies
         let body = try filtersBody(bodies.last.flatMap { $0 })
         #expect(body["filters"] is NSNull)
+    }
+
+    @Test func foreignAccountDocumentIsDroppedInsteadOfFollowingReRegistration() async throws {
+        let script = PushRegistrationURLProtocol.script
+        await script.reset([
+            .response(200), // POST registration under account A
+            .response(200), // PUT filters authored by account A
+            .response(200), // POST re-registration under account B
+        ])
+        let provider = MutablePushTokenProvider(
+            accountID: "account-a",
+            accessToken: "a-access",
+            refreshToken: "a-refresh"
+        )
+        let suite = "push-filters-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        let service = makeFiltersService(tokenProvider: provider, suite: suite)
+        await service.setEnabled(true)
+        await service.register(deviceToken: Data([0x05]))
+        await service.updateFilters(filtersDocumentFixture)
+        #expect(await script.waitForRequestCount(2))
+
+        await provider.switchSession(
+            accountID: "account-b",
+            accessToken: "b-access",
+            refreshToken: "b-refresh"
+        )
+        await service.syncTokenIfPossible()
+
+        // Account A's rules must not mute account B: the retained document is
+        // dropped, not re-pushed, so no PUT follows B's registration.
+        let putFollowedReRegistration = await script.waitForRequestCount(
+            4,
+            timeout: .milliseconds(50)
+        )
+        #expect(!putFollowedReRegistration)
+        let methods = await script.requests.map { $0.httpMethod ?? "?" }
+        #expect(methods == ["POST", "PUT", "POST"])
+        #expect(
+            defaults.data(
+                forKey: "cmux.notifications.pushFilters.document.v1"
+            ) == nil
+        )
+        #expect(
+            defaults.string(
+                forKey: "cmux.notifications.pushFilters.accountID.v1"
+            ) == nil
+        )
+    }
+
+    @Test func undecodableRetainedDocumentDoesNotClearServerFilters() async throws {
+        let script = PushRegistrationURLProtocol.script
+        await script.reset([
+            .response(200), // POST registration
+            .response(200), // PUT for the corrected document
+        ])
+        let service = makeFiltersService()
+        await service.setEnabled(true)
+        await service.register(deviceToken: Data([0x06]))
+        await service.updateFilters(Data("not-json".utf8))
+
+        // Fail closed: the undecodable document must not become a `null`
+        // PUT, which would clear the server-side filters and unmute
+        // everything. `updateFilters` awaited its drain, so any wrongly
+        // issued PUT would already be captured.
+        #expect(await script.requests.map { $0.httpMethod ?? "?" } == ["POST"])
+
+        // Nothing was acknowledged: a later corrected document supersedes the
+        // undecodable one and is the first PUT the server sees.
+        await service.updateFilters(filtersDocumentFixture)
+        #expect(await script.waitForRequestCount(2))
+        let methods = await script.requests.map { $0.httpMethod ?? "?" }
+        #expect(methods == ["POST", "PUT"])
+        let bodies = await script.requestBodies
+        let body = try filtersBody(bodies.last.flatMap { $0 })
+        let filters = try #require(body["filters"] as? [String: Any])
+        #expect(filters["version"] as? Int == 1)
+    }
+
+    @Test func syncTokenIfPossibleRedrivesAnUnacknowledgedPersistedDocument() async throws {
+        let script = PushRegistrationURLProtocol.script
+        await script.reset([
+            .response(503), // POST fails: no post-registration re-push path
+            .response(200), // PUT re-driven from syncTokenIfPossible
+        ])
+        // A relaunch after the document was persisted but before its PUT
+        // completed: registration state is cached in defaults while the
+        // acknowledgement, which is in-memory only, is lost.
+        let suite = "push-filters-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        defaults.set("0a", forKey: "cmux.notifications.deviceTokenHex")
+        defaults.set(
+            "push-user-1",
+            forKey: "cmux.notifications.registeredAccountID"
+        )
+        defaults.set(
+            filtersDocumentFixture,
+            forKey: "cmux.notifications.pushFilters.document.v1"
+        )
+        defaults.set(
+            "push-user-1",
+            forKey: "cmux.notifications.pushFilters.accountID.v1"
+        )
+        let service = makeFiltersService(suite: suite)
+
+        await service.syncTokenIfPossible()
+
+        #expect(await script.waitForRequestCount(2))
+        let methods = await script.requests.map { $0.httpMethod ?? "?" }
+        #expect(methods == ["POST", "PUT"])
+        let bodies = await script.requestBodies
+        let body = try filtersBody(bodies.last.flatMap { $0 })
+        #expect(body["deviceToken"] as? String == "0a")
+        let filters = try #require(body["filters"] as? [String: Any])
+        #expect(filters["version"] as? Int == 1)
     }
 }

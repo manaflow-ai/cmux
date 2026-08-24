@@ -128,6 +128,19 @@ describe("apns payload", () => {
     expect(payload.cmux).toEqual({ workspaceId: "ws-9" });
   });
 
+  test("hideContent keeps the opaque workspace group id but never the group display name", () => {
+    const payload = buildApnsPayload({
+      title: "secret-host",
+      body: "secret",
+      workspaceGroupId: "group-1",
+      workspaceGroupName: "Secret Client Project",
+      hideContent: true,
+    }) as { cmux: Record<string, string> };
+
+    expect(payload.cmux.workspaceGroupId).toBe("group-1");
+    expect(payload.cmux.workspaceGroupName).toBeUndefined();
+  });
+
   test("preserves one opaque correlation id from Mac input through the provider body without content leakage", () => {
     const correlationId = "4d02de48-a21d-4ba1-97b5-42e9400ee09b";
     const parsed = parsePushPayload({
