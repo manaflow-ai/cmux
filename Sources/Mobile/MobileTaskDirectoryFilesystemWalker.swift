@@ -59,6 +59,9 @@ struct MobileTaskDirectoryFilesystemWalker: Sendable {
         var visited = 0
         var head = 0
         var entriesSinceClockCheck = 0
+        // Descents skipped once the enqueue budget is exhausted; the scan is
+        // then incomplete even if the bounded queue drains fully.
+        var enqueueOverflowed = false
 
         while head < queue.count {
             guard visited < budget.maximumVisitedDirectories, !Task.isCancelled else {
@@ -106,12 +109,22 @@ struct MobileTaskDirectoryFilesystemWalker: Sendable {
                         )
                     }
                 }
-                if Self.shouldDescend(into: name), enqueued.insert(path).inserted {
-                    queue.append(path)
+                if Self.shouldDescend(into: name) {
+                    // Never queue more directories than the visit budget can
+                    // process, so queue memory stays bounded by the budget.
+                    if enqueued.count >= budget.maximumVisitedDirectories {
+                        enqueueOverflowed = true
+                    } else if enqueued.insert(path).inserted {
+                        queue.append(path)
+                    }
                 }
             }
         }
-        return Outcome(matches: matches, visitedDirectoryCount: visited, complete: true)
+        return Outcome(
+            matches: matches,
+            visitedDirectoryCount: visited,
+            complete: !enqueueOverflowed
+        )
     }
 
     static func shouldDescend(into name: String) -> Bool {
