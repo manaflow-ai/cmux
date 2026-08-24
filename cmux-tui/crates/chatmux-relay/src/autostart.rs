@@ -25,6 +25,9 @@ fn is_ephemeral_npx_path(path: &Path) -> bool {
 }
 
 fn validate_autostart_executable(path: &Path) -> Result<(), String> {
+    if !path.is_absolute() {
+        return Err("autostart needs an absolute relay executable path".to_owned());
+    }
     if is_ephemeral_npx_path(path) {
         return Err(EPHEMERAL_NPX_AUTOSTART_MESSAGE.to_owned());
     }
@@ -79,8 +82,11 @@ fn atomic_write(p: &Path, b: &str) -> Result<(), String> {
     Err("could not create a unique temporary autostart file".into())
 }
 fn run(p: &str, a: &[&str]) -> Result<(), String> {
-    let s = ProcessCommand::new(p).args(a).status().map_err(|e| format!("run {p}: {e}"))?;
-    s.success().then_some(()).ok_or_else(|| format!("{p} failed with {s}"))
+    let s = ProcessCommand::new(p)
+        .args(a)
+        .status()
+        .map_err(|_| "autostart command could not run".to_owned())?;
+    s.success().then_some(()).ok_or_else(|| "autostart command failed".to_owned())
 }
 #[cfg(target_os = "macos")]
 fn install_impl(e: &Path, config: &Path) -> Result<String, String> {

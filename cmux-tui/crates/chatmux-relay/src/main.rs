@@ -551,6 +551,14 @@ async fn main() {
         .map(PathBuf::from)
         .or_else(|| env_string("CHATMUX_RELAY_CONFIG").map(PathBuf::from))
         .unwrap_or_else(default_config_path);
+    let config_path = if config_path.is_absolute() {
+        config_path
+    } else {
+        std::env::current_dir().map(|directory| directory.join(config_path)).unwrap_or_else(|_| {
+            eprintln!("could not resolve relative relay config path");
+            std::process::exit(1);
+        })
+    };
     // Legacy QR/SAS ceremony prompts only run on a real terminal.
     let interactive =
         !parsed.no_onboard && std::io::stdout().is_terminal() && std::io::stdin().is_terminal();
@@ -576,7 +584,7 @@ async fn main() {
             }
         },
         Some(Command::Autostart) => match std::env::current_exe()
-            .map_err(|e| e.to_string())
+            .map_err(|_| "could not locate relay executable".to_owned())
             .and_then(|path| autostart::install(&path, &config_path))
         {
             Ok(message) => {
