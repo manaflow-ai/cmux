@@ -25,6 +25,13 @@ final class VerifiedTerminalReplayStateMachine {
     /// This phone's current base-font capacity, fed from every prepared or
     /// sent viewport report. Nil until the first report.
     private var expectedViewportDimensions: Dimensions?
+    /// The newest report ID recorded by `updateExpectedViewportDimensions`.
+    /// Report IDs are minted monotonically by the surface, so an
+    /// acknowledgement settles a negotiation only when it answers this exact
+    /// report: two reports can carry the SAME dimensions (reassert, retry)
+    /// while the daemon's grant differs between them, and an out-of-order
+    /// older acknowledgement must not overwrite the newer settlement.
+    private var newestViewportReportID: UInt64 = 0
     /// The grid the daemon granted in the acknowledgement that answered the
     /// CURRENT `expectedViewportDimensions`, per epoch. Frames at this grid
     /// are the settled negotiation even when it differs from the capacity
@@ -99,6 +106,11 @@ final class VerifiedTerminalReplayStateMachine {
         if startsNewEpoch {
             if let activeRenderEpoch {
                 retiredRenderEpochs.insert(activeRenderEpoch)
+                // Frames from a retired epoch are rejected outright above,
+                // so its negotiation state is dead weight; prune it so
+                // repeated reconnects cannot grow these maps unbounded.
+                settledViewportGrantsByEpoch.removeValue(forKey: activeRenderEpoch)
+                renegotiationHeldFramesByEpoch.removeValue(forKey: activeRenderEpoch)
             }
             activeRenderEpoch = frame.renderEpoch
             lastVerifiedRenderRevision = 0
@@ -163,9 +175,12 @@ final class VerifiedTerminalReplayStateMachine {
     /// Records the phone's current base-font capacity so `begin` can
     /// recognize frames sized by stale daemon state. Fed from every prepared
     /// or sent viewport report. A capacity CHANGE starts a new negotiation:
-    /// prior settlements and hold budgets no longer describe it.
-    func updateExpectedViewportDimensions(columns: Int, rows: Int) {
+    /// prior settlements and hold budgets no longer describe it. The report
+    /// ID always advances, so only the acknowledgement answering the newest
+    /// report can settle (see `acknowledgeViewport`).
+    func updateExpectedViewportDimensions(columns: Int, rows: Int, reportID: UInt64) {
         guard columns > 0, rows > 0 else { return }
+        newestViewportReportID = max(newestViewportReportID, reportID)
         let dims = Dimensions(columns: columns, rows: rows)
         guard dims != expectedViewportDimensions else { return }
         expectedViewportDimensions = dims
@@ -213,17 +228,19 @@ final class VerifiedTerminalReplayStateMachine {
     /// producer epoch. A capture at or below the returned floor was taken
     /// before the Mac acknowledged the new effective grid.
     ///
-    /// `reportedColumns`/`reportedRows` identify the capacity report this
-    /// acknowledgement answered and `grantedColumns`/`grantedRows` the grid
-    /// the daemon granted for it. When the answered report matches the
-    /// CURRENT expected capacity, the grant is recorded as the settled
-    /// negotiation (ending the stale-grid hold) and that epoch's hold budget
-    /// resets. An out-of-order acknowledgement for an older report still
-    /// raises the capture floor but settles nothing. Zero dimensions (the
-    /// default) skip settlement entirely and keep floor-only semantics.
+    /// `reportID` identifies the capacity report this acknowledgement
+    /// answered (with `reportedColumns`/`reportedRows` as its dimensions)
+    /// and `grantedColumns`/`grantedRows` the grid the daemon granted for
+    /// it. When the answered report IS the newest recorded report and its
+    /// dimensions match the current expected capacity, the grant is recorded
+    /// as the settled negotiation (ending the stale-grid hold) and that
+    /// epoch's hold budget resets. An out-of-order acknowledgement for an
+    /// older report still raises the capture floor but settles nothing.
+    /// Zero defaults skip settlement entirely and keep floor-only semantics.
     func acknowledgeViewport(
         renderEpoch: String,
         renderRevisionFloor: UInt64,
+        reportID: UInt64 = 0,
         reportedColumns: Int = 0,
         reportedRows: Int = 0,
         grantedColumns: Int = 0,
@@ -235,9 +252,11 @@ final class VerifiedTerminalReplayStateMachine {
             renderRevisionFloor
         )
         if let expected = expectedViewportDimensions,
+           reportID > 0, reportID >= newestViewportReportID,
            reportedColumns > 0, reportedRows > 0,
            grantedColumns > 0, grantedRows > 0,
            Dimensions(columns: reportedColumns, rows: reportedRows) == expected {
+            newestViewportReportID = reportID
             settledViewportGrantsByEpoch[renderEpoch] = Dimensions(
                 columns: grantedColumns,
                 rows: grantedRows
@@ -279,6 +298,7 @@ final class VerifiedTerminalReplayStateMachine {
         viewportRenderRevisionFloors.removeAll()
         settledViewportGrantsByEpoch.removeAll()
         renegotiationHeldFramesByEpoch.removeAll()
+        newestViewportReportID = 0
         lastVerifiedRenderRevision = 0
         lastVerifiedStateSeq = 0
     }

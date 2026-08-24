@@ -396,7 +396,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     // reconnect replay captured before this report landed).
                     self.verifiedReplayState.updateExpectedViewportDimensions(
                         columns: report.columns,
-                        rows: report.rows
+                        rows: report.rows,
+                        reportID: report.id
                     )
                     if let preparation = self.preparedViewportReportsByReportID.removeValue(
                         forKey: report.id
@@ -430,6 +431,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         self.verifiedReplayState.acknowledgeViewport(
                             renderEpoch: renderEpoch,
                             renderRevisionFloor: renderRevisionFloor,
+                            reportID: report.id,
                             reportedColumns: report.columns,
                             reportedRows: report.rows,
                             grantedColumns: effectiveGrid.columns,

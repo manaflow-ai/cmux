@@ -415,7 +415,7 @@ struct VerifiedTerminalReplayStateMachineTests {
         let machine = VerifiedTerminalReplayStateMachine()
         let lastGood = try frame(renderRevision: 1, stateSeq: 1, columns: 80, text: "last good")
         commit(lastGood, to: machine)
-        machine.updateExpectedViewportDimensions(columns: 80, rows: 3)
+        machine.updateExpectedViewportDimensions(columns: 80, rows: 3, reportID: 1)
 
         let staleGrid = try frame(renderRevision: 2, stateSeq: 2, columns: 41, text: "stale grid")
         guard case .renegotiateViewportAndKeepFrozen = machine.begin(frame: staleGrid) else {
@@ -437,6 +437,7 @@ struct VerifiedTerminalReplayStateMachineTests {
         machine.acknowledgeViewport(
             renderEpoch: "epoch-default",
             renderRevisionFloor: 3,
+            reportID: 1,
             reportedColumns: 80,
             reportedRows: 3,
             grantedColumns: 80,
@@ -464,7 +465,7 @@ struct VerifiedTerminalReplayStateMachineTests {
         let machine = VerifiedTerminalReplayStateMachine()
         let lastGood = try frame(renderRevision: 1, stateSeq: 1, columns: 80, text: "last good")
         commit(lastGood, to: machine)
-        machine.updateExpectedViewportDimensions(columns: 80, rows: 3)
+        machine.updateExpectedViewportDimensions(columns: 80, rows: 3, reportID: 1)
 
         let staleGrid = try frame(renderRevision: 2, stateSeq: 2, columns: 41, text: "stale grid")
         guard case .renegotiateViewportAndKeepFrozen = machine.begin(frame: staleGrid) else {
@@ -479,6 +480,7 @@ struct VerifiedTerminalReplayStateMachineTests {
         machine.acknowledgeViewport(
             renderEpoch: "epoch-default",
             renderRevisionFloor: 2,
+            reportID: 1,
             reportedColumns: 80,
             reportedRows: 3,
             grantedColumns: 41,
@@ -502,10 +504,11 @@ struct VerifiedTerminalReplayStateMachineTests {
         let machine = VerifiedTerminalReplayStateMachine()
         let lastGood = try frame(renderRevision: 1, stateSeq: 1, columns: 80, text: "last good")
         commit(lastGood, to: machine)
-        machine.updateExpectedViewportDimensions(columns: 80, rows: 3)
+        machine.updateExpectedViewportDimensions(columns: 80, rows: 3, reportID: 1)
         machine.acknowledgeViewport(
             renderEpoch: "epoch-default",
             renderRevisionFloor: 1,
+            reportID: 1,
             reportedColumns: 80,
             reportedRows: 3,
             grantedColumns: 80,
@@ -516,7 +519,7 @@ struct VerifiedTerminalReplayStateMachineTests {
         // Frames still sized for the OLD negotiation must hold even though
         // the epoch has a recorded acknowledgement — that acknowledgement
         // answered the previous capacity, not this one.
-        machine.updateExpectedViewportDimensions(columns: 70, rows: 3)
+        machine.updateExpectedViewportDimensions(columns: 70, rows: 3, reportID: 2)
         let staleOldGrid = try frame(renderRevision: 2, stateSeq: 2, columns: 80, text: "old grid")
         guard case .renegotiateViewportAndKeepFrozen = machine.begin(frame: staleOldGrid) else {
             Issue.record("an acknowledgement for an older report must not bypass the hold")
@@ -524,14 +527,17 @@ struct VerifiedTerminalReplayStateMachineTests {
         }
         #expect(machine.visibleSnapshot?.rows.first?.first?.text == "last good")
 
-        // An out-of-order acknowledgement answering the OLD report settles
-        // nothing; frames at the old grid keep holding.
+        // An out-of-order acknowledgement answering an OLDER report settles
+        // nothing, even when its dimensions happen to match the current
+        // capacity (a reassert can re-ask the same grid): only the newest
+        // report's answer settles. Frames at the old grid keep holding.
         machine.acknowledgeViewport(
             renderEpoch: "epoch-default",
             renderRevisionFloor: 2,
-            reportedColumns: 80,
+            reportID: 1,
+            reportedColumns: 70,
             reportedRows: 3,
-            grantedColumns: 80,
+            grantedColumns: 70,
             grantedRows: 3
         )
         let stillStale = try frame(renderRevision: 3, stateSeq: 3, columns: 80, text: "still old")
@@ -545,6 +551,7 @@ struct VerifiedTerminalReplayStateMachineTests {
         machine.acknowledgeViewport(
             renderEpoch: "epoch-default",
             renderRevisionFloor: 3,
+            reportID: 2,
             reportedColumns: 70,
             reportedRows: 3,
             grantedColumns: 70,
@@ -561,7 +568,7 @@ struct VerifiedTerminalReplayStateMachineTests {
         let machine = VerifiedTerminalReplayStateMachine()
         let lastGood = try frame(renderRevision: 1, stateSeq: 1, columns: 80, text: "last good")
         commit(lastGood, to: machine)
-        machine.updateExpectedViewportDimensions(columns: 80, rows: 3)
+        machine.updateExpectedViewportDimensions(columns: 80, rows: 3, reportID: 1)
 
         var revision: UInt64 = 2
         for held in 0..<VerifiedTerminalReplayStateMachine.maxRenegotiationHeldFramesPerEpoch {
@@ -601,7 +608,7 @@ struct VerifiedTerminalReplayStateMachineTests {
     @Test("a mismatched grid never holds without last verified pixels")
     func mismatchedGridWithoutSnapshotApplies() throws {
         let machine = VerifiedTerminalReplayStateMachine()
-        machine.updateExpectedViewportDimensions(columns: 80, rows: 3)
+        machine.updateExpectedViewportDimensions(columns: 80, rows: 3, reportID: 1)
 
         let coldMount = try frame(renderRevision: 1, stateSeq: 1, columns: 41, text: "cold mount")
         let transaction = try #require(extractTransaction(from: machine.begin(frame: coldMount)))

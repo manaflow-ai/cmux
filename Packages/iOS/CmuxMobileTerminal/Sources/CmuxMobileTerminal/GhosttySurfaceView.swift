@@ -4298,8 +4298,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public func reassertViewportCapacityReport() {
         guard let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else { return }
         viewportReportRetries = 0
-        pendingViewportReport = pending
-        viewportReportSettleFrames = 0
+        // A pending report always mirrors `lastReportedSize` (they are
+        // assigned together in the geometry pass), but never clobber one if
+        // that invariant ever changes: the queued report is at least as new.
+        if pendingViewportReport == nil {
+            pendingViewportReport = pending
+            viewportReportSettleFrames = 0
+        }
         MobileDebugLog.anchormux(
             "zoom.viewport.reassert grid=\(pending.columns)x\(pending.rows)"
         )
