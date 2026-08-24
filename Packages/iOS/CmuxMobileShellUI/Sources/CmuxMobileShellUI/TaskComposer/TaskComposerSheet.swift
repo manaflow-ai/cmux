@@ -58,6 +58,11 @@ struct TaskComposerSheet: View {
     @State var hasRecordedDraftChange = false
     @State private var isDraftsListPresented = false
     @State var isLeaveConfirmationPresented = false
+    /// Whether the user explicitly picked a model or effort this session.
+    /// Tracked as an action, not by comparing values: catalog refreshes
+    /// auto-reconcile those pickers, and an automatic adjustment must not
+    /// prompt to save on leave, while a deliberate pick must.
+    @State var hasUserPickedModelOrEffort = false
     /// True until this session's preserved attachments finish re-staging, so
     /// an early leave still persists their references instead of dropping
     /// them with the not-yet-populated live list.
@@ -80,8 +85,8 @@ struct TaskComposerSheet: View {
     /// re-evaluation stability as `draftID`.
     @State var restoredDraftAttachments: [MobileTaskComposerDraftAttachment]
     /// Leave-relevant state as this session opened; leaving with anything
-    /// different (except model/effort picks) asks before discarding. State
-    /// so a mid-session save cannot move the baseline on re-evaluation.
+    /// different asks before discarding. State so a mid-session save cannot
+    /// move the baseline on re-evaluation.
     @State var initialSessionFingerprint: TaskComposerSessionFingerprint
     private let restoredDraftAtInitialization: Bool
     private let availableMachines: [MobilePairedMac]?
@@ -941,9 +946,11 @@ struct TaskComposerSheet: View {
     }
 
     /// Whether leaving now would abandon anything the user changed this
-    /// session (model and effort picks excluded by design).
+    /// session, including deliberate model and effort picks (automatic
+    /// catalog reconciliation does not count).
     var hasUnsavedComposerChanges: Bool {
         currentSessionFingerprint != initialSessionFingerprint
+            || hasUserPickedModelOrEffort
     }
 
     private func cancelComposer() {

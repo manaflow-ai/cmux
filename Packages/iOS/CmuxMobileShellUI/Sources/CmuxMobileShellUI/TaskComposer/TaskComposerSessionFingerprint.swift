@@ -3,8 +3,9 @@ import CmuxMobileShellModel
 import Foundation
 
 /// The leave-relevant composer state, captured when a session opens and
-/// compared when it closes. Model and effort picker choices are deliberately
-/// excluded: changing only those never prompts to save a draft.
+/// compared when it closes. Model and effort picker VALUES are excluded
+/// because catalog refreshes auto-reconcile them; deliberate picker taps are
+/// tracked separately as an action flag so they still prompt on leave.
 struct TaskComposerSessionFingerprint: Equatable {
     var prompt: String
     var workspaceName: String
