@@ -276,20 +276,20 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
         // follow an equals sign (for example, `--socket=/tmp/cmux.sock`).
         // This keeps one-token invocations convenient without changing the
         // existing separated-value grammar.
-        if let Some((flag, inline_value)) = value.split_once('=') {
-            if matches!(flag, "--socket" | "--session" | "--machine") {
-                if inline_value.is_empty() {
-                    return Err((UsageError::new(format!("{flag} needs a value")), global.output));
-                }
-                match flag {
-                    "--socket" => global.socket = Some(PathBuf::from(inline_value)),
-                    "--session" => global.session = Some(inline_value.to_owned()),
-                    "--machine" => global.machine = Some(inline_value.to_owned()),
-                    _ => unreachable!(),
-                }
-                index += 1;
-                continue;
+        if let Some((flag, inline_value)) = value.split_once('=')
+            && matches!(flag, "--socket" | "--session" | "--machine")
+        {
+            if inline_value.is_empty() {
+                return Err((UsageError::new(format!("{flag} needs a value")), global.output));
             }
+            match flag {
+                "--socket" => global.socket = Some(PathBuf::from(inline_value)),
+                "--session" => global.session = Some(inline_value.to_owned()),
+                "--machine" => global.machine = Some(inline_value.to_owned()),
+                _ => unreachable!(),
+            }
+            index += 1;
+            continue;
         }
         match value.as_str() {
             "--socket" => {
