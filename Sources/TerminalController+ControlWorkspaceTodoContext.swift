@@ -540,6 +540,11 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
             agent: target.agentName,
             at: Date()
         ) else { return .notFound }
+        FeedCoordinator.shared.registerDispatchedTask(
+            itemID: itemID,
+            sourceWorkspaceID: source.id,
+            targetWorkspaceID: createdID
+        )
         WorkspaceTodoFeature.markUsed()
         let owner = app.tabManagerFor(tabId: source.id) ?? tabManager
         return .created(
