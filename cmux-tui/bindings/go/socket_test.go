@@ -18,6 +18,10 @@ import (
 
 type invalidCountConn struct{}
 
+type zeroWriteConn struct{ invalidCountConn }
+
+func (zeroWriteConn) Write([]byte) (int, error) { return 0, nil }
+
 func (invalidCountConn) Read([]byte) (int, error)         { return 0, io.EOF }
 func (invalidCountConn) Write([]byte) (int, error)        { return -1, nil }
 func (invalidCountConn) Close() error                     { return nil }
@@ -49,6 +53,58 @@ func TestWriteRejectsInvalidWriteCount(t *testing.T) {
 			fullyWritten,
 			err,
 		)
+	}
+}
+
+func TestWriteRejectsZeroProgress(t *testing.T) {
+	c := &Client{
+		conn:            zeroWriteConn{},
+		timeout:         time.Second,
+		maxRequestBytes: 1024,
+		writer:          make(chan struct{}, 1),
+		done:            make(chan struct{}),
+	}
+	c.writer <- struct{}{}
+	mayHaveSent, fullyWritten, err := c.write(
+		context.Background(), "test", map[string]any{"x": 1}, nil,
+	)
+	if mayHaveSent || fullyWritten || !errors.Is(err, io.ErrNoProgress) {
+		t.Fatalf("write result = (%v, %v, %v), want no-progress without send", mayHaveSent, fullyWritten, err)
+	}
+}
+
+func TestHighLevelClientSessionTriState(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	t.Setenv("TMPDIR", "")
+	uid := fmt.Sprintf("cmux-tui-%d", os.Getuid())
+	for _, test := range []struct {
+		name    string
+		options ClientOptions
+		want    string
+	}{
+		{name: "omitted", options: ClientOptions{}, want: filepath.Join("/run/user-test", uid, "main.sock")},
+		{name: "non-empty", options: ClientOptions{Session: "agent"}, want: filepath.Join("/run/user-test", uid, "agent.sock")},
+		{name: "explicit empty", options: ClientOptions{SessionSet: true}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var paths []string
+			test.options.DialContext = func(_ context.Context, _ string, address string) (net.Conn, error) {
+				paths = append(paths, address)
+				return nil, syscall.ENOENT
+			}
+			_, err := NewClient(context.Background(), test.options)
+			if test.want == "" {
+				if !errors.Is(err, ErrInvalidArgument) || len(paths) != 0 {
+					t.Fatalf("explicit empty result = (%v, %q), want invalid before dial", err, paths)
+				}
+				return
+			}
+			if err == nil || len(paths) != 1 || paths[0] != test.want {
+				t.Fatalf("result = (%v, %q), want one dial to %q", err, paths, test.want)
+			}
+		})
 	}
 }
 

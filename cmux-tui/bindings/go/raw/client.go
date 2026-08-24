@@ -126,6 +126,10 @@ type Client struct {
 type Options struct {
 	SocketPath string
 	Session    string
+	// SessionSet distinguishes an explicitly supplied Session from omission.
+	// When false, an empty Session selects "main". When true, an empty Session
+	// is invalid if socket discovery needs a session name.
+	SessionSet bool
 	Timeout    time.Duration
 
 	// MaxRequestBytes, MaxResponseBytes, and MaxBufferedStreamEvents set
@@ -148,7 +152,7 @@ type Options struct {
 
 func NewClient(options Options) (*Client, error) {
 	session := options.Session
-	if session == "" {
+	if session == "" && !options.SessionSet {
 		session = "main"
 	}
 	socketPath, err := ResolveSocketPath(options.SocketPath, session)

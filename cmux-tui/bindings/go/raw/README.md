@@ -44,6 +44,10 @@ invalid-session directory, but it is not a connector route.
 Valid names that exceed the Unix socket limit use the same digest in
 `<runtime-base>/cmux-tui-hashed-<uid>` when it fits, with
 `/tmp/cmux-tui-hashed-<uid>` as the length-only fallback used by the server.
+An empty `Options.Session` with `SessionSet: false` is omitted and selects
+`main`. Set `SessionSet: true` for caller-supplied session text so an explicitly
+empty value is rejected before socket discovery. Existing non-empty session
+values remain explicit without the flag.
 
 Every command method accepts `context.Context`. The client serializes commands
 on one connection. Subscribe and attach streams own dedicated connections, so

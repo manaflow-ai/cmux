@@ -38,8 +38,12 @@ type DialContextFunc func(context.Context, string, string) (net.Conn, error)
 type IdempotencyKeyFunc func() (string, error)
 
 type ClientOptions struct {
-	SocketPath       string
-	Session          string
+	SocketPath string
+	Session    string
+	// SessionSet distinguishes an explicitly supplied Session from omission.
+	// When false, an empty Session selects "main". When true, an empty Session
+	// is invalid if socket discovery needs a session name.
+	SessionSet       bool
 	Timeout          time.Duration
 	DialContext      DialContextFunc
 	IdempotencyKey   IdempotencyKeyFunc
@@ -191,7 +195,7 @@ func NewClient(ctx context.Context, options ClientOptions) (*Client, error) {
 	}
 	socket := options.SocketPath
 	session := options.Session
-	if session == "" {
+	if session == "" && !options.SessionSet {
 		session = "main"
 	}
 	if socket == "" {

@@ -402,6 +402,43 @@ func TestSocketResolutionFallsBackWhenUnixPathIsTooLong(t *testing.T) {
 	}
 }
 
+func TestClientSessionTriState(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	t.Setenv("TMPDIR", "")
+	oldDial := dialUnixContext
+	t.Cleanup(func() { dialUnixContext = oldDial })
+	uid := fmt.Sprintf("cmux-tui-%d", os.Getuid())
+	for _, test := range []struct {
+		name    string
+		options Options
+		want    string
+	}{
+		{name: "omitted", options: Options{}, want: filepath.Join("/run/user-test", uid, "main.sock")},
+		{name: "non-empty", options: Options{Session: "agent"}, want: filepath.Join("/run/user-test", uid, "agent.sock")},
+		{name: "explicit empty", options: Options{SessionSet: true}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var paths []string
+			dialUnixContext = func(_ context.Context, path string) (net.Conn, error) {
+				paths = append(paths, path)
+				return nil, syscall.ENOENT
+			}
+			_, err := NewClient(test.options)
+			if test.want == "" {
+				if !errors.Is(err, ErrInvalidArgument) || len(paths) != 0 {
+					t.Fatalf("explicit empty result = (%v, %q), want invalid before dial", err, paths)
+				}
+				return
+			}
+			if err == nil || len(paths) != 1 || paths[0] != test.want {
+				t.Fatalf("result = (%v, %q), want one dial to %q", err, paths, test.want)
+			}
+		})
+	}
+}
+
 func TestNewClientDoesNotProbeLegacySocketForNormalRuntimePath(t *testing.T) {
 	t.Setenv("CMUX_TUI_SOCKET", "")
 	t.Setenv("CMUX_MUX_SOCKET", "")
