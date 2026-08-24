@@ -53,6 +53,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     // other files use.
     public typealias NamedKeySendResult = CmuxTerminalCore.NamedKeySendResult
     public typealias InputSendResult = CmuxTerminalCore.InputSendResult
+    /// The result of one compound prompt paste-and-submit transaction.
+    public typealias PromptSubmissionSendResult =
+        CmuxTerminalCore.PromptSubmissionSendResult
     public typealias AgentCommandShimSet = TerminalSurfaceAgentCommandShimSet
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
     private var runtimeSurface: ghostty_surface_t?
@@ -284,6 +287,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var pendingSocketInputQueue: [PendingSocketInput] = []
     var pendingSocketInputBytes: Int = 0
     let maxPendingSocketInputBytes = 1_048_576
+    /// Main-actor ledger for conservative agent-composer ownership.
+    var promptInputLedger = TerminalPromptInputLedger()
+    /// Whether Ctrl-Return is a prompt boundary for the bound agent.
+    var controlReturnIsPromptSubmissionBoundary = false
     var backgroundSurfaceStartQueued = false
     var backgroundSurfaceStartSource: RuntimeSurfaceCreationSource = .normal
     var paneHostAttachCreationSource: RuntimeSurfaceCreationSource = .normal

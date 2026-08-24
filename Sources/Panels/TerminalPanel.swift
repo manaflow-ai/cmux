@@ -716,6 +716,57 @@ final class TerminalPanel: Panel, ObservableObject {
         return surface.sendNamedKey(keyName)
     }
 
+    /// Delivers one complete agent prompt transaction, including any app-owned
+    /// preparation keys, without touching a human-owned TextBox draft or
+    /// merging with unconfirmed physical terminal input. Guarded callers fail
+    /// closed while the agent scope is unavailable; the app-level service
+    /// retains that request for retry.
+    @discardableResult
+    func sendPromptSubmissionResult(
+        _ text: String,
+        submitKey: String,
+        preparationKeys: [String] = [],
+        agentInputScope: String?,
+        rejectIfHumanComposerBusy: Bool,
+        hookRecordingSource: String?,
+        hookConfirmsHumanInput: Bool = false
+    ) -> TerminalSurface.PromptSubmissionSendResult {
+        if rejectIfHumanComposerBusy {
+            guard let agentInputScope else {
+                return .agentScopeUnavailable
+            }
+            guard !terminalComposerIsBusy(
+                agentInputScope: agentInputScope
+            ) else {
+                return .composerBusy
+            }
+        } else {
+            surface.synchronizePromptInputAgentScope(agentInputScope)
+        }
+        resumeForExplicitInputIfNeeded()
+        return surface.sendPromptSubmission(
+            text,
+            submitKey: submitKey,
+            preparationKeys: preparationKeys,
+            rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
+            hookRecordingSource: hookRecordingSource,
+            hookConfirmsHumanInput: hookConfirmsHumanInput
+        )
+    }
+
+    /// Synchronizes the agent ownership epoch and reports whether the terminal
+    /// TUI composer can contain a human draft.
+    ///
+    /// The native TextBox is separate app-owned state: a compound terminal
+    /// submission bypasses it and therefore preserves that draft as its own
+    /// future submission. The terminal composer cannot be extracted safely, so
+    /// unconfirmed input is reported to the app-level queue rather than
+    /// overwritten.
+    func terminalComposerIsBusy(agentInputScope: String?) -> Bool {
+        surface.synchronizePromptInputAgentScope(agentInputScope)
+        return surface.hasUnconfirmedHumanPromptInput
+    }
+
     @discardableResult
     func sendNamedKey(_ keyName: String) -> Bool {
         switch sendNamedKeyResult(keyName) {

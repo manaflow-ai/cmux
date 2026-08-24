@@ -10,6 +10,18 @@ public enum PendingSocketInput: Sendable {
     case processOutput(Data)
     /// A named-key press to replay.
     case key(PendingKeyEvent)
+    /// One indivisible composed prompt: app-owned preparation keys followed by
+    /// bracketed-paste text and its agent-aware submit key. Hook attribution is
+    /// carried with the queued transaction but is not recorded until the item
+    /// is actually flushed.
+    case promptSubmission(
+        preparationKeys: [PendingKeyEvent],
+        text: Data,
+        submitKey: PendingKeyEvent,
+        hookRecordingSource: String?,
+        hookConfirmedHumanInputSnapshot:
+            TerminalPromptInputLedger.HumanInputSnapshot?
+    )
 
     /// The byte cost this entry contributes to the pending-input budget.
     public var estimatedBytes: Int {
@@ -18,6 +30,18 @@ public enum PendingSocketInput: Sendable {
             return data.count
         case .key(let event):
             return event.queuedByteCost
+        case .promptSubmission(
+            let preparationKeys,
+            let text,
+            let submitKey,
+            _,
+            _
+        ):
+            return preparationKeys.reduce(
+                text.count + submitKey.queuedByteCost
+            ) { byteCount, event in
+                byteCount + event.queuedByteCost
+            }
         }
     }
 }

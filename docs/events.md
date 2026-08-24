@@ -243,7 +243,15 @@ path and include ordered `workspace_ids`, `moved_workspace_ids`,
 `workspace.prompt.submitted` payloads include `workspace_id`, a redacted
 `message`, `message_preview`, `message_length`, and `redacted_fields`. This is
 local sensitive data, so consumers should only forward it with explicit user
-opt-in.
+opt-in. Prompts accepted through `workspace.agent_submit` also carry the
+opaque `message_id` when the matching agent hook confirms delivery.
+
+Addressed prompt admission publishes `workspace.agent_prompt.delivery` with
+`message_id`, `workspace_id`, `surface_id`, and a state of `queued`, `accepted`,
+`confirmed`, or `failed`. A queued message is retained by cmux while a human
+draft, an active agent turn, or a temporary process-identity gap owns the
+composer. No event means the app never admitted the request; a `failed` event
+names a stable protocol reason without exposing prompt text.
 
 Extension sidebars should bootstrap from the v2 socket method
 `extension.sidebar.snapshot`, then subscribe to `cmux events --category

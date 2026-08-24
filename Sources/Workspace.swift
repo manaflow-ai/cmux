@@ -5286,6 +5286,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             if let terminalPanel = panels[panelId] as? TerminalPanel {
                 terminalPanel.updateShellActivityState(state)
             }
+            if state == .promptIdle {
+                TerminalController.shared.drainAgentPromptQueue(workspaceID: id)
+            }
             return
         }
         let pendingRestoredTitle = restoredPanelTitleAfterShellActivity(
@@ -5311,6 +5314,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
         if state == .promptIdle { _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) }
+        if state == .promptIdle {
+            TerminalController.shared.drainAgentPromptQueue(workspaceID: id)
+        }
 #if DEBUG
         cmuxDebugLog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +

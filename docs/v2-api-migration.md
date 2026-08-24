@@ -95,6 +95,21 @@ Panes:
 Input:
 - [x] send / send_surface -> `surface.send_text`
 - [x] send_key / send_key_surface -> `surface.send_key`
+- [x] atomic agent prompt submission -> `workspace.agent_submit` (per-workspace FIFO admission, one compound terminal transaction, stable `message_id` acknowledgments, and queued delivery that leaves an uncertain human composer untouched until it is safe)
+
+Mobile composed-input compatibility:
+
+- `terminal.paste` / `mobile.terminal.paste` now accepts paste plus submit as one
+  atomic transaction. The old successful response with `submitted: false` and
+  `submit_error` represented a partial write and is no longer emitted. A failed
+  RPC either accepts the complete compound transaction or leaves the message
+  queued with an explicit delivery state; clients never need to infer outcome
+  from rendered terminal text.
+- Current iOS terminal-composer code already retains its draft on every RPC
+  error. Mobile chat likewise keeps a failed retry row, and its RPC layer
+  preserves the server message for transient `agent_scope_unavailable` and
+  `agent_busy` outcomes. Addressed submissions expose a `message_id` and
+  delivery events instead of relying on screen parsing.
 
 Notifications:
 - [x] notify -> `notification.create`

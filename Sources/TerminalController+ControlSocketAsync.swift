@@ -109,6 +109,14 @@ extension TerminalController {
     private nonisolated func socketWorkerV2ResponseAsync(
         _ request: ControlRequest
     ) async -> String? {
+        if request.method == "workspace.agent_submit" {
+            let result = await v2WorkspaceAgentSubmitAsync(
+                params: request.params.mapValues(\.foundationObject),
+                id: request.id
+            )
+            return result
+        }
+
         if ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
            let snapshotResult = socketReadSnapshotStore.response(
                 method: request.method,

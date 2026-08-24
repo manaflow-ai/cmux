@@ -4566,6 +4566,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             requestInputRecoveryAfterSurfaceMiss(reason: reason)
             return false
         }
+        terminalSurface?.recordHumanPromptInput(.unknown)
         return true
     }
     func performBindingAction(_ action: String) -> Bool {
@@ -5654,6 +5655,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return isBinding ? flags : nil
     }
 
+    /// Records ownership only after Ghostty accepts a forwarded physical key.
+    /// Key bindings are agent-specific, so unknown keys remain fail-closed.
+    private func recordPromptOwnershipAfterAcceptedGhosttyKey(
+        _ keyEvent: ghostty_input_key_s
+    ) {
+        terminalSurface?.recordHumanPromptKey(
+            keycode: keyEvent.keycode,
+            mods: keyEvent.mods
+        )
+    }
+
     private func ghosttyConsumeMenuAction(
         _ action: String,
         for event: NSEvent,
@@ -5837,7 +5849,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // If Ghostty handled the key (action/encoding), we're done.
             // If not (e.g. `ignore` keybind), fall through to interpretKeyEvents
             // so the IME gets a chance to process this event.
-            if handled { return }
+            if handled {
+                recordPromptOwnershipAfterAcceptedGhosttyKey(keyEvent)
+                terminalSurface?.didAcceptExplicitInput()
+                return
+            }
         }
 
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
@@ -5946,6 +5962,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // A forwarded keyDown owns its keyUp. Clear any stale IME suppression
         // entry left by an earlier suppressed repeat for the same physical key.
         imeConsumedKeyUps.remove(event.keyCode)
+
+        // Physical input can precede agent-process binding. Keep conservative
+        // evidence in the surface ledger until a hook or process transition
+        // proves the boundary.
+        if let terminalSurface {
+            if hasMarkedText() {
+                terminalSurface.recordHumanPromptInput(.unknown)
+            } else {
+                terminalSurface.recordHumanPromptKey(
+                    keycode: UInt32(event.keyCode),
+                    mods: modsFromEvent(event)
+                )
+            }
+        }
 
         // Build the key event
         var keyEvent = ghostty_input_key_s()
@@ -12030,6 +12060,7 @@ extension GhosttyNSView: NSTextInputClient {
     fileprivate func sendTextToSurface(_ chars: String, preserveLiteralEscape: Bool) {
         guard !chars.isEmpty else { return }
         terminalSurface?.didReceiveExplicitInput()
+        terminalSurface?.recordHumanPromptInput(.unknown)
         recordDirectAgentHibernationTerminalInput()
         sendTextToSurfaceAfterInputNotification(
             chars,
@@ -12128,6 +12159,7 @@ extension GhosttyNSView: NSTextInputClient {
             return
         }
         guard let surface = ensureSurfaceReadyForInput() else { return }
+        terminalSurface?.recordHumanPromptInput(.unknown)
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
         keyEvent.keycode = 0

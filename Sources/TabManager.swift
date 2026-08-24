@@ -2199,6 +2199,9 @@ class TabManager: ObservableObject {
         // lives in another window or was already detached kills terminals nobody
         // asked to close and announces a close that did not happen.
         guard tabs.contains(where: { $0.id == workspace.id }) else { return }
+        TerminalController.shared.discardAgentPromptQueue(
+            workspaceID: workspace.id
+        )
         panelTitleUpdateCoalescer.flushNow()
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         // Closing a mirrored remote tmux workspace DETACHES from the remote session,

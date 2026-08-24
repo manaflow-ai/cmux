@@ -38,6 +38,7 @@ extension TerminalController {
         "surface.report_shell_state",
         "surface.ports_kick",
         "agent.resolve_delivery_target",
+        "workspace.agent_submit",
         "notification.create",
         "notification.create_for_target",
     ]
@@ -62,6 +63,7 @@ extension TerminalController {
         "surface.ports_kick",
         "notification.create",
         "notification.create_for_target",
+        "workspace.agent_submit",
     ]
 
     private nonisolated static let remoteRelaySurfaceRequiredMethods: Set<String> = [

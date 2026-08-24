@@ -1,6 +1,2382 @@
 {
   "sourceLanguage": "en",
   "strings": {
+
+      "cli.agentSubmit.agentFlag": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "--agent، --atomic  استخدم تسليم الوكيل الموجّه وأعد message_id"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "--agent, --atomic  Koristite adresiranu isporuku agenta i vratite message_id"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "--agent, --atomic  Brug adresseret agentlevering og returnér message_id"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "--agent, --atomic  Adressierte Agent-Zustellung mit message_id verwenden"
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "--agent, --atomic            Use addressed atomic agent delivery and return a message_id"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "--agent, --atomic  Usa la entrega atómica al agente y devuelve message_id"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "--agent, --atomic  Utiliser la livraison atomique adressée et renvoyer message_id"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "--agent, --atomic  Usa la consegna atomica indirizzata e restituisci message_id"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "--agent, --atomic            アドレス指定のアトミック配信を使い message_id を返します"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "--agent, --atomic  ប្រើការបញ្ជូនភ្នាក់ងារជាឯកតា ហើយត្រឡប់ message_id"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "--agent, --atomic            주소 지정 원자적 에이전트 전달을 사용하고 message_id를 반환합니다"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "--agent, --atomic  Bruk adressert atomisk agentlevering og returner message_id"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "--agent, --atomic  Użyj adresowanego dostarczania atomowego i zwróć message_id"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "--agent, --atomic  Use entrega atômica endereçada e retorne message_id"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "--agent, --atomic  Использовать адресную атомарную доставку и вернуть message_id"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "--agent, --atomic  ใช้การส่งไปยังเอเจนต์แบบอะตอมิกและส่งคืน message_id"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "--agent, --atomic  Adresli atomik aracı teslimini kullan ve message_id döndür"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "--agent, --atomic  Використати адресну атомарну доставку й повернути message_id"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "--agent, --atomic            使用定向原子代理传递并返回 message_id"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "--agent, --atomic            使用定址原子代理傳遞並返回 message_id"
+            }
+          }
+        }
+      },
+      "cli.agentSubmit.error.missingText": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "يتطلب agent-submit نص المطالبة"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit zahtijeva tekst upita"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit kræver prompttekst"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit benötigt einen Prompt-Text"
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit requires prompt text"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit requiere texto para el prompt"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit nécessite le texte du prompt"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit richiede il testo del prompt"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit にはプロンプトのテキストが必要です"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit ត្រូវការអត្ថបទប្រអប់បញ្ចូល"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit에는 프롬프트 텍스트가 필요합니다"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit krever prompttekst"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit wymaga treści promptu"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit requer o texto do prompt"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit требует текст запроса"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit ต้องการข้อความพรอมต์"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit komut metni gerektirir"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit потребує текст запиту"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit 需要提示文本"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit 需要提示文字"
+            }
+          }
+        }
+      },
+      "cli.agentSubmit.error.missingWorkspace": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "يتطلب agent-submit الخيار --workspace خارج مساحة cmux"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit izvan cmux radnog prostora zahtijeva --workspace"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit kræver --workspace uden for et cmux-workspace"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit benötigt außerhalb eines cmux-Workspace --workspace"
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit requires --workspace outside a cmux workspace"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit requiere --workspace fuera de un espacio cmux"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit nécessite --workspace hors d’un espace cmux"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit richiede --workspace fuori da un workspace cmux"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux ワークスペースの外部で agent-submit を使うには --workspace が必要です"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit ត្រូវការ --workspace នៅក្រៅ workspace របស់ cmux"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux 워크스페이스 밖에서는 agent-submit에 --workspace가 필요합니다"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit krever --workspace utenfor et cmux-workspace"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit wymaga --workspace poza workspace cmux"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit requer --workspace fora de um workspace cmux"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "вне рабочего пространства cmux для agent-submit нужен --workspace"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit ต้องใช้ --workspace นอกเวิร์กสเปซของ cmux"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux çalışma alanı dışında agent-submit için --workspace gerekir"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "поза робочим простором cmux для agent-submit потрібен --workspace"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "在 cmux 工作区外使用 agent-submit 需要 --workspace"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "在 cmux 工作區外使用 agent-submit 需要 --workspace"
+            }
+          }
+        }
+      },
+      "cli.agentSubmit.success": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "تم إرسال المطالبة"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Upit je poslan"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt sendt"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt gesendet"
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt submitted"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt enviado"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt envoyé"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt inviato"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "プロンプトを送信しました"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "បានផ្ញើប្រអប់បញ្ចូល"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "프롬프트가 제출되었습니다"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt sendt"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt wysłany"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt enviado"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Запрос отправлен"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ส่งพรอมต์แล้ว"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "İstem gönderildi"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Запит надіслано"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "提示已提交"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "提示已提交"
+            }
+          }
+        }
+      },
+      "cli.agentSubmit.usageLine": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+            }
+          }
+        }
+      },
+      "cli.help.agentSubmit": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "الاستخدام: cmux agent-submit [flags] <text>\n\nضع مطالبة كاملة واحدة في قائمة انتظار طرفية الوكيل دون تغيير محرر المستخدم."
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Upotreba: cmux agent-submit [flags] <text>\n\nStavite jedan potpuni upit u red agenta bez promjene ljudskog sastavljača."
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Brug: cmux agent-submit [flags] <text>\n\nSæt én komplet prompt i kø til agentterminalen uden at ændre brugerens editor."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Verwendung: cmux agent-submit [flags] <text>\n\nStellt einen vollständigen Prompt in die Agent-Warteschlange, ohne den Editor zu ändern."
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Usage: cmux agent-submit [flags] <text>\n\nQueue one complete prompt for an agent terminal without changing the human composer."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Uso: cmux agent-submit [flags] <text>\n\nEncola un prompt completo para el terminal del agente sin cambiar el compositor humano."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Utilisation : cmux agent-submit [flags] <text>\n\nMet en file un prompt complet pour l’agent sans modifier le composeur humain."
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Uso: cmux agent-submit [flags] <text>\n\nMette in coda un prompt completo per l’agente senza modificare il compositore umano."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "使い方: cmux agent-submit [flags] <text>\n\n人間の入力欄を変更せず、エージェント端末に完全なプロンプトを1件キューします。"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ការប្រើប្រាស់៖ cmux agent-submit [flags] <text>\n\nដាក់ប្រអប់បញ្ចូលពេញលេញមួយក្នុងជួរភ្នាក់ងារ ដោយមិនប្តូរកម្មវិធីសរសេររបស់មនុស្ស។"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "사용법: cmux agent-submit [flags] <text>\n\n사람의 작성기를 변경하지 않고 에이전트 터미널에 완전한 프롬프트 하나를 대기열에 넣습니다."
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Bruk: cmux agent-submit [flags] <text>\n\nSett én komplett prompt i kø til agentterminalen uten å endre menneskets skrivefelt."
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Użycie: cmux agent-submit [flags] <text>\n\nDodaje kompletny prompt do kolejki agenta bez zmiany kompozytora użytkownika."
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Uso: cmux agent-submit [flags] <text>\n\nEnfileira um prompt completo para o terminal do agente sem alterar o compositor humano."
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Использование: cmux agent-submit [flags] <text>\n\nСтавит полный запрос в очередь терминала агента, не меняя поле пользователя."
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "การใช้งาน: cmux agent-submit [flags] <text>\n\nจัดคิวพรอมต์สมบูรณ์หนึ่งรายการให้เทอร์มินัลเอเจนต์โดยไม่เปลี่ยนช่องเขียนของผู้ใช้"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Kullanım: cmux agent-submit [flags] <text>\n\nİnsan oluşturucusunu değiştirmeden aracı terminaline tek bir tam istemi kuyruğa alır."
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Використання: cmux agent-submit [flags] <text>\n\nСтавить повний запит у чергу термінала агента, не змінюючи поле користувача."
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "用法：cmux agent-submit [flags] <text>\n\n在不改变人工编辑器的情况下，将一条完整提示排入代理终端队列。"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "用法：cmux agent-submit [flags] <text>\n\n在不改變人類編輯器的情況下，將一則完整提示排入代理終端佇列。"
+            }
+          }
+        }
+      },
+      "mobile.chat.error.attachmentPreparationFailed": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "تعذر تجهيز المرفق. تحقّق منه وحاول مرة أخرى."
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prilog nije moguće pripremiti. Provjerite ga i pokušajte ponovo."
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Vedhæftningen kunne ikke klargøres. Kontrollér den og prøv igen."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Der Anhang konnte nicht vorbereitet werden. Prüfen Sie ihn und versuchen Sie es erneut."
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "The attachment could not be prepared. Check it and try again."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "No se pudo preparar el archivo adjunto. Revíselo e inténtelo de nuevo."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "La pièce jointe n’a pas pu être préparée. Vérifiez-la puis réessayez."
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Impossibile preparare l’allegato. Controllalo e riprova."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "添付ファイルを準備できませんでした。内容を確認して、もう一度お試しください。"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "មិនអាចរៀបចំឯកសារភ្ជាប់បានទេ។ ពិនិត្យវា ហើយព្យាយាមម្ដងទៀត។"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "첨부 파일을 준비할 수 없습니다. 확인한 후 다시 시도하세요."
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Vedlegget kunne ikke klargjøres. Kontroller det og prøv igjen."
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Nie udało się przygotować załącznika. Sprawdź go i spróbuj ponownie."
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Não foi possível preparar o anexo. Verifique-o e tente novamente."
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Не удалось подготовить вложение. Проверьте его и повторите попытку."
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ไม่สามารถเตรียมไฟล์แนบได้ โปรดตรวจสอบแล้วลองอีกครั้ง"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Ek dosya hazırlanamadı. Kontrol edip tekrar deneyin."
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Не вдалося підготувати вкладення. Перевірте його й повторіть спробу."
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "无法准备附件。请检查后重试。"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "無法準備附件。請檢查後再試。"
+            }
+          }
+        }
+      },
+      "socket.workspace.agentSubmit.agentBusy": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "الوكيل في دور نشط؛ ستنتظر الرسالة حتى يعود إلى المطالبة."
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Agent je u aktivnoj radnji; poruka čeka dok se ne vrati na upit."
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Agenten er aktiv; beskeden står i kø til prompten er ledig."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Der Agent ist aktiv; die Nachricht wartet bis zum Prompt."
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "The agent is in an active turn. The message is queued until it returns to its prompt."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "El agente está en un turno activo. El mensaje espera hasta que vuelva al prompt."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "L’agent est en cours d’exécution. Le message attend le retour au prompt."
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "L’agente è in un turno attivo. Il messaggio attende il prompt."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "エージェントは実行中です。プロンプトに戻るまでメッセージをキューに保持します。"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ភ្នាក់ងារកំពុងដំណើរការ។ សារនឹងរង់ចាំរហូតដល់វាត្រឡប់ទៅប្រអប់បញ្ចូល។"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "에이전트가 작업 중입니다. 프롬프트로 돌아올 때까지 메시지를 대기합니다."
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Agenten er i en aktiv tur. Meldingen står i kø til prompten er ledig."
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Agent jest w trakcie działania. Wiadomość czeka na powrót do promptu."
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "O agente está em um turno ativo. A mensagem aguardará o prompt."
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Агент выполняет активный ход. Сообщение будет ждать возврата к запросу."
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "เอเจนต์กำลังทำงานอยู่ ระบบจะจัดคิวข้อความจนกว่าจะกลับมาที่พรอมต์"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Aracı etkin bir turda. İleti isteme dönene kadar kuyruğa alınır."
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Агент виконує активний хід. Повідомлення чекатиме повернення до запиту."
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "代理正在执行任务。消息将排队，直到代理返回提示符。"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "代理正在執行工作。訊息會排隊直到代理返回提示。"
+            }
+          }
+        }
+      },
+      "socket.workspace.agentSubmit.agentNotFound": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "لم يتم العثور على طرفية وكيل قيد التشغيل في مساحة العمل هذه."
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "U ovom radnom prostoru nije pronađen pokrenuti agent terminal."
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Der blev ikke fundet en kørende agentterminal i dette workspace."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "In diesem Workspace wurde kein laufender Agent-Terminal gefunden."
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "No running agent terminal was found in that workspace."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "No se encontró un terminal de agente en ejecución en ese espacio."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Aucun terminal d’agent en cours d’exécution n’a été trouvé dans cet espace."
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Nessun terminale agente in esecuzione trovato in questo workspace."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "そのワークスペースに実行中のエージェントターミナルが見つかりません。"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "រកមិនឃើញស្ថានីយភ្នាក់ងារដែលកំពុងដំណើរការនៅក្នុង workspace នេះទេ។"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "이 워크스페이스에서 실행 중인 에이전트 터미널을 찾을 수 없습니다."
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Fant ingen kjørende agentterminal i dette workspace-et."
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Nie znaleziono uruchomionego terminala agenta w tym workspace."
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Nenhum terminal de agente em execução foi encontrado nesse workspace."
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "В этом рабочем пространстве не найден запущенный терминал агента."
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ไม่พบเทอร์มินัลเอเจนต์ที่กำลังทำงานในเวิร์กสเปซนี้"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Bu çalışma alanında çalışan bir aracı terminali bulunamadı."
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "У цьому робочому просторі не знайдено запущеного термінала агента."
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "在该工作区中未找到正在运行的代理终端。"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "在該工作區中找不到正在執行的代理終端。"
+            }
+          }
+        }
+      },
+      "socket.workspace.agentSubmit.ambiguousAgent": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "يتوفر أكثر من طرفية وكيل. حدّد surface_id."
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Dostupno je više agent terminala. Navedite surface_id."
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Der er flere agentterminaler. Angiv surface_id."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Mehrere Agent-Terminals sind verfügbar. Geben Sie surface_id an."
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "More than one agent terminal is available. Specify surface_id."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Hay más de un terminal de agente disponible. Especifique surface_id."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Plusieurs terminaux d’agent sont disponibles. Indiquez surface_id."
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Sono disponibili più terminali agente. Specifica surface_id."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "複数のエージェントターミナルがあります。surface_id を指定してください。"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "មានស្ថានីយភ្នាក់ងារច្រើន។ បញ្ជាក់ surface_id។"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "여러 에이전트 터미널을 사용할 수 있습니다. surface_id를 지정하세요."
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Flere agentterminaler er tilgjengelige. Oppgi surface_id."
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Dostępnych jest wiele terminali agentów. Podaj surface_id."
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Há mais de um terminal de agente disponível. Especifique surface_id."
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Доступно несколько терминалов агентов. Укажите surface_id."
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "มีเทอร์มินัลเอเจนต์มากกว่าหนึ่งรายการ โปรดระบุ surface_id"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Birden fazla aracı terminali var. surface_id belirtin."
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Доступно кілька терміналів агентів. Укажіть surface_id."
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "有多个代理终端可用。请指定 surface_id。"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "有多個代理終端可用。請指定 surface_id。"
+            }
+          }
+        }
+      },
+      "socket.workspace.agentSubmit.composerBusy": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "قد يحتوي محرر الوكيل على إدخال بشري. لم يتغير، وتم وضع الرسالة في قائمة الانتظار حتى إرسال الإدخال."
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Agentov sastavljač možda sadrži ljudski unos. Nije promijenjen; poruka je u redu čekanja."
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Agentens editor kan indeholde menneskelig tekst. Den er uændret, og beskeden står i kø."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Der Agent-Editor kann menschliche Eingaben enthalten. Er bleibt unverändert; die Nachricht wird eingereiht."
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "The agent composer may contain human input. It was left unchanged; the message is queued until that input is submitted."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "El compositor del agente puede contener texto humano. No se modificó; el mensaje quedó en cola."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Le composeur de l’agent peut contenir une saisie humaine. Il reste inchangé; le message est mis en file."
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Il compositore dell’agente può contenere input umano. È invariato; il messaggio è in coda."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "エージェントの入力欄に人間の入力が残っている可能性があります。内容は変更せず、入力が送信されるまでメッセージをキューに保持します。"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "កម្មវិធីសរសេររបស់ភ្នាក់ងារអាចមានការបញ្ចូលរបស់មនុស្ស។ វាមិនត្រូវបានផ្លាស់ប្តូរ ហើយសារត្រូវបានដាក់ជួរ។"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "에이전트 작성기에 사람의 입력이 있을 수 있습니다. 변경하지 않고 메시지를 대기열에 넣었습니다."
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Agentens skrivefelt kan inneholde menneskelig tekst. Det er uendret; meldingen er satt i kø."
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Kompozytor agenta może zawierać tekst użytkownika. Pozostawiono go bez zmian, a wiadomość dodano do kolejki."
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "O compositor do agente pode conter texto humano. Ele não foi alterado; a mensagem foi enfileirada."
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "В поле агента может быть ввод человека. Он не изменён; сообщение поставлено в очередь."
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ช่องเขียนของเอเจนต์อาจมีข้อความของผู้ใช้ ระบบไม่แก้ไขและจัดคิวข้อความไว้"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Aracı oluşturucuda insan girişi olabilir. Değiştirilmedi; ileti kuyruğa alındı."
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "У полі агента може бути введення людини. Його не змінено; повідомлення поставлено в чергу."
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "代理编辑器可能包含人工输入。未作修改；消息已排队等待提交。"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "代理編輯器可能包含人類輸入。未修改；訊息已排隊等待提交。"
+            }
+          }
+        }
+      },
+      "socket.workspace.agentSubmit.invalidSubmitKey": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "لا يمكن لطرفية الوكيل قبول هذه المطالبة. أعد تشغيل الوكيل وحاول مرة أخرى."
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Agent terminal ne može prihvatiti ovaj upit. Ponovo pokrenite agenta i pokušajte."
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Agentterminalen kan ikke acceptere denne prompt. Genstart agenten og prøv igen."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Das Agent-Terminal kann diesen Prompt nicht annehmen. Starten Sie den Agenten neu."
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "The agent terminal cannot accept this prompt. Restart the agent and retry."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "El terminal del agente no puede aceptar este prompt. Reinicie el agente y vuelva a intentarlo."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Le terminal de l’agent ne peut pas accepter ce prompt. Redémarrez l’agent puis réessayez."
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Il terminale agente non può accettare questo prompt. Riavvia l’agente e riprova."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "エージェントターミナルはこのプロンプトを受け付けられません。エージェントを再起動して、もう一度お試しください。"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ស្ថានីយភ្នាក់ងារមិនអាចទទួលប្រអប់បញ្ចូលនេះបានទេ។ ចាប់ផ្ដើមភ្នាក់ងារឡើងវិញ ហើយព្យាយាមម្ដងទៀត។"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "에이전트 터미널이 이 프롬프트를 받을 수 없습니다. 에이전트를 다시 시작한 후 재시도하세요."
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Agentterminalen kan ikke ta imot denne prompten. Start agenten på nytt og prøv igjen."
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Terminal agenta nie może przyjąć tego promptu. Uruchom agenta ponownie i spróbuj jeszcze raz."
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "O terminal do agente não pode aceitar este prompt. Reinicie o agente e tente novamente."
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Терминал агента не может принять этот запрос. Перезапустите агента и повторите."
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "เทอร์มินัลเอเจนต์ไม่สามารถรับพรอมต์นี้ได้ ให้เริ่มเอเจนต์ใหม่แล้วลองอีกครั้ง"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Aracı terminali bu istemi kabul edemiyor. Aracıyı yeniden başlatıp tekrar deneyin."
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Термінал агента не може прийняти цей запит. Перезапустіть агента й повторіть спробу."
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "代理终端无法接受此提示。请重启代理后重试。"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "代理終端無法接受此提示。請重新啟動代理後重試。"
+            }
+          }
+        }
+      },
+      "socket.workspace.agentSubmit.invalidSurface": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "يجب أن يكون surface_id معرّف UUID صالحًا."
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface_id mora biti važeći UUID površine."
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface_id skal være et gyldigt surface-UUID."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface_id muss eine gültige Surface-UUID sein."
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface_id must be a valid surface UUID."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface_id debe ser un UUID de superficie válido."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface_id doit être un UUID de surface valide."
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface_id deve essere un UUID di superficie valido."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface_id には有効なサーフェス UUID を指定してください。"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface_id ត្រូវតែជា UUID ស្ថានីយដែលត្រឹមត្រូវ។"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface_id는 유효한 surface UUID여야 합니다."
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface_id må være en gyldig surface-UUID."
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface_id musi być prawidłowym identyfikatorem UUID powierzchni."
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface_id deve ser um UUID de superfície válido."
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface_id должен быть корректным UUID поверхности."
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface_id ต้องเป็น UUID ของพื้นผิวที่ถูกต้อง"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface_id geçerli bir yüzey UUIDsi olmalıdır."
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface_id має бути дійсним UUID поверхні."
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface_id 必须是有效的表面 UUID。"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface_id 必須是有效的表面 UUID。"
+            }
+          }
+        }
+      },
+      "socket.workspace.agentSubmit.invalidWorkspace": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "معرّف workspace_id مفقود أو غير صالح."
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace_id nedostaje ili nije važeći."
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace_id mangler eller er ugyldigt."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace_id fehlt oder ist ungültig."
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Missing or invalid workspace_id."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Falta workspace_id o no es válido."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace_id est manquant ou invalide."
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace_id mancante o non valido."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace_id がないか、無効です。"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "បាត់ workspace_id ឬមិនត្រឹមត្រូវ។"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace_id가 없거나 유효하지 않습니다."
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace_id mangler eller er ugyldig."
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Brak workspace_id lub jest on nieprawidłowy."
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace_id ausente ou inválido."
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace_id отсутствует или недействителен."
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ไม่มี workspace_id หรือไม่ถูกต้อง"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace_id eksik veya geçersiz."
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace_id відсутній або недійсний."
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "缺少 workspace_id 或其无效。"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "缺少 workspace_id 或其無效。"
+            }
+          }
+        }
+      },
+      "socket.workspace.agentSubmit.missingText": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "لا يجوز أن يكون نص مطالبة الوكيل فارغًا."
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Tekst upita agenta ne smije biti prazan."
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Agentpromptens tekst må ikke være tom."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Der Agent-Prompt darf nicht leer sein."
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Agent prompt text must not be empty."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "El texto del prompt del agente no puede estar vacío."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Le texte du prompt de l’agent ne peut pas être vide."
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Il testo del prompt dell’agente non può essere vuoto."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "エージェントのプロンプトを空にすることはできません。"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "អត្ថបទប្រអប់បញ្ចូលភ្នាក់ងារមិនអាចទទេបានទេ។"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "에이전트 프롬프트 텍스트는 비워 둘 수 없습니다."
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Agentpromptteksten kan ikke være tom."
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Treść promptu agenta nie może być pusta."
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "O texto do prompt do agente não pode estar vazio."
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Текст запроса агента не может быть пустым."
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ข้อความพรอมต์ของเอเจนต์ต้องไม่ว่าง"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Aracı istem metni boş olamaz."
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Текст запиту агента не може бути порожнім."
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "代理提示文本不能为空。"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "代理提示文字不能為空。"
+            }
+          }
+        }
+      },
+      "socket.workspace.agentSubmit.queueFull": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "قائمة انتظار مطالبات الوكيل ممتلئة. أعد المحاولة بعد تسليم مطالبة سابقة."
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Red čekanja upita agenta je pun. Pokušajte nakon isporuke ranijeg upita."
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Agentpromptkøen er fuld. Prøv igen efter levering af en tidligere prompt."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Die Agent-Prompt-Warteschlange ist voll. Versuchen Sie es nach der Zustellung erneut."
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "The agent prompt queue is full. Retry after an earlier prompt is delivered."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "La cola de prompts del agente está llena. Reintente tras entregar otro prompt."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "La file des prompts de l’agent est pleine. Réessayez après une livraison."
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "La coda dei prompt dell’agente è piena. Riprova dopo una consegna."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "エージェントのプロンプトキューが満杯です。先のプロンプトが配信された後に再試行してください。"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ជួរប្រអប់បញ្ចូលភ្នាក់ងារពេញ។ ព្យាយាមម្ដងទៀតបន្ទាប់ពីសារមុនត្រូវបានបញ្ជូន។"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "에이전트 프롬프트 대기열이 가득 찼습니다. 이전 프롬프트가 전달된 후 다시 시도하세요."
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Køen for agentprompt er full. Prøv igjen etter at en tidligere prompt er levert."
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Kolejka promptów agenta jest pełna. Spróbuj ponownie po dostarczeniu wcześniejszego promptu."
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "A fila de prompts do agente está cheia. Tente novamente após uma entrega."
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Очередь запросов агента заполнена. Повторите после доставки предыдущего запроса."
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "คิวพรอมต์ของเอเจนต์เต็ม ให้ลองใหม่หลังจากส่งพรอมต์ก่อนหน้าแล้ว"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Aracı istem kuyruğu dolu. Önceki ileti teslim edildikten sonra tekrar deneyin."
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Черга запитів агента заповнена. Повторіть після доставки попереднього запиту."
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "代理提示队列已满。请在前一条提示送达后重试。"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "代理提示佇列已滿。請在前一則提示送達後重試。"
+            }
+          }
+        }
+      },
+      "socket.workspace.agentSubmit.scopeUnavailable": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "طرفية الوكيل غير جاهزة للأتمتة. وُضعت الرسالة في قائمة الانتظار حتى تصبح الهوية جاهزة."
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Agent terminal još nije spreman za automatizaciju. Poruka je u redu čekanja."
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Agentterminalen er endnu ikke klar til automatisering. Beskeden står i kø."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Das Agent-Terminal ist noch nicht für die Automatisierung bereit. Die Nachricht wird eingereiht."
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "The agent terminal is not ready for automation yet. The message is queued until its identity is ready."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "El terminal del agente aún no está listo para automatización. El mensaje quedó en cola."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Le terminal de l’agent n’est pas encore prêt pour l’automatisation. Le message est mis en file."
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Il terminale agente non è ancora pronto per l’automazione. Il messaggio è in coda."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "エージェントのターミナルはまだ自動操作の準備ができていません。準備が整うまでメッセージをキューに保持します。"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ស្ថានីយភ្នាក់ងារមិនទាន់រួចរាល់សម្រាប់ស្វ័យប្រវត្តិកម្មទេ។ សារត្រូវបានដាក់ជួរ។"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "에이전트 터미널이 아직 자동화할 준비가 되지 않았습니다. 메시지를 대기열에 넣었습니다."
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Agentterminalen er ikke klar for automatisering ennå. Meldingen er satt i kø."
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Terminal agenta nie jest jeszcze gotowy do automatyzacji. Wiadomość dodano do kolejki."
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "O terminal do agente ainda não está pronto para automação. A mensagem foi enfileirada."
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Терминал агента ещё не готов к автоматизации. Сообщение поставлено в очередь."
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "เทอร์มินัลเอเจนต์ยังไม่พร้อมสำหรับระบบอัตโนมัติ ระบบจัดคิวข้อความไว้แล้ว"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Aracı terminali henüz otomasyona hazır değil. İleti kuyruğa alındı."
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Термінал агента ще не готовий до автоматизації. Повідомлення поставлено в чергу."
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "代理终端尚未准备好自动化。消息已排队等待身份就绪。"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "代理終端尚未準備好自動化。訊息已排隊等待身分就緒。"
+            }
+          }
+        }
+      },
+      "socket.workspace.agentSubmit.surfaceNotFound": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "لم يتم العثور على طرفية في مساحة العمل هذه."
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Terminalna površina nije pronađena u tom radnom prostoru."
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Terminaloverfladen blev ikke fundet i dette workspace."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Im Workspace wurde keine Terminaloberfläche gefunden."
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Terminal surface not found in that workspace."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "No se encontró el terminal en ese espacio de trabajo."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Surface de terminal introuvable dans cet espace."
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Superficie terminale non trovata in questo workspace."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "そのワークスペースにターミナルサーフェスが見つかりません。"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "រកមិនឃើញស្ថានីយក្នុង workspace នោះទេ។"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "해당 워크스페이스에서 터미널 표면을 찾을 수 없습니다."
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Fant ikke terminaloverflaten i dette workspace-et."
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Nie znaleziono powierzchni terminala w tym workspace."
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "A superfície do terminal não foi encontrada nesse workspace."
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "В этом рабочем пространстве терминал не найден."
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ไม่พบพื้นผิวเทอร์มินัลในเวิร์กสเปซนั้น"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Bu çalışma alanında terminal yüzeyi bulunamadı."
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "У цьому робочому просторі термінал не знайдено."
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "在该工作区中未找到终端表面。"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "在該工作區中找不到終端表面。"
+            }
+          }
+        }
+      },
+      "socket.workspace.agentSubmit.workspaceNotFound": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "لم يتم العثور على مساحة العمل."
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Radni prostor nije pronađen."
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Workspace blev ikke fundet."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Workspace nicht gefunden."
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Workspace not found."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "No se encontró el espacio de trabajo."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Espace de travail introuvable."
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Workspace non trovato."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ワークスペースが見つかりません。"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "រកមិនឃើញ workspace ទេ។"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "워크스페이스를 찾을 수 없습니다."
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Fant ikke workspace-et."
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Nie znaleziono workspace."
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Workspace não encontrado."
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Рабочее пространство не найдено."
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ไม่พบเวิร์กสเปซ"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Çalışma alanı bulunamadı."
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Робочий простір не знайдено."
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "未找到工作区。"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "找不到工作區。"
+            }
+          }
+        }
+      },
     "caffeine.error.missingEnabled": {
       "extractionState": "manual",
       "localizations": {

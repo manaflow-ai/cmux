@@ -5634,21 +5634,108 @@ struct CMUXCLI {
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
             let (windowOpt, rem2) = parseOption(rem1, name: "--window")
+            let addressedAgentDelivery = hasFlag(rem2, name: "--agent")
+                || hasFlag(rem2, name: "--atomic")
+            let addressedArgs = rem2.filter { $0 != "--agent" && $0 != "--atomic" }
             let windowRaw = windowOpt ?? windowId
             let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
             let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-            let rawText = rem2.dropFirst(rem2.first == "--" ? 1 : 0).joined(separator: " ")
+            let rawText = addressedArgs.dropFirst(addressedArgs.first == "--" ? 1 : 0).joined(separator: " ")
             guard !rawText.isEmpty else { throw CLIError(message: "send requires text") }
-            let text = unescapeSendText(rawText)
+            let text = addressedAgentDelivery ? rawText : unescapeSendText(rawText)
             var params: [String: Any] = ["text": text]
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
+            if addressedAgentDelivery, wsId == nil {
+                throw CLIError(message: String(
+                    localized: "cli.agentSubmit.error.missingWorkspace",
+                    defaultValue: "send --agent requires a workspace target"
+                ))
+            }
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId)
             if let sfId { params["surface_id"] = sfId }
-            let payload = try client.sendV2(method: "surface.send_text", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
+            let payload = try client.sendV2(
+                method: addressedAgentDelivery ? "workspace.agent_submit" : "surface.send_text",
+                params: params
+            )
+            if addressedAgentDelivery {
+                let messageID = (payload["message_id"] as? String) ?? ""
+                let state = (payload["delivery_state"] as? String) ?? "submitted"
+                printV2Payload(
+                    payload,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat,
+                    fallbackText: String(
+                        localized: "cli.agentSubmit.success",
+                        defaultValue: "Prompt"
+                    ) + " \(state)" + (messageID.isEmpty ? "" : " message_id=\(messageID)")
+                )
+            } else {
+                printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
+            }
+
+        case "agent-submit":
+            let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
+            let (sfArg, rem1) = parseOption(rem0, name: "--surface")
+            let (windowOpt, rem2) = parseOption(rem1, name: "--window")
+            let windowRaw = windowOpt ?? windowId
+            let workspaceArg = wsArg
+                ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
+                ?? (windowRaw == nil
+                    ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+                    : nil)
+            let promptArgs = rem2.first == "--" ? Array(rem2.dropFirst()) : rem2
+            let text = promptArgs.joined(separator: " ")
+            guard !text.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ).isEmpty else {
+                throw CLIError(message: String(
+                    localized: "cli.agentSubmit.error.missingText",
+                    defaultValue: "agent-submit requires prompt text"
+                ))
+            }
+            let winID = try normalizeWindowHandle(windowRaw, client: client)
+            let workspaceID = try normalizeWorkspaceHandle(
+                workspaceArg,
+                client: client,
+                windowHandle: winID,
+                allowCurrent: workspaceArg == nil && winID != nil
+            )
+            guard let workspaceID else {
+                throw CLIError(message: String(
+                    localized: "cli.agentSubmit.error.missingWorkspace",
+                    defaultValue: "agent-submit requires --workspace outside a cmux workspace"
+                ))
+            }
+            var params: [String: Any] = [
+                "workspace_id": workspaceID,
+                "text": text,
+            ]
+            if let surfaceID = try normalizeSurfaceHandle(
+                sfArg,
+                client: client,
+                workspaceHandle: workspaceID,
+                windowHandle: winID
+            ) {
+                params["surface_id"] = surfaceID
+            }
+            let payload = try client.sendV2(
+                method: "workspace.agent_submit",
+                params: params
+            )
+            let messageID = (payload["message_id"] as? String) ?? ""
+            let deliveryState = (payload["delivery_state"] as? String) ?? "submitted"
+            printV2Payload(
+                payload,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                fallbackText: String(
+                    localized: "cli.agentSubmit.success",
+                    defaultValue: "Prompt submitted"
+                ) + (messageID.isEmpty ? "" : " message_id=\(messageID) state=\(deliveryState)")
+            )
 
         case "send-key":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
@@ -17679,11 +17766,26 @@ struct CMUXCLI {
               --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)
               --window <id|ref|index>      Window context for workspace/surface refs and indexes
+              \(String(localized: "cli.agentSubmit.agentFlag", defaultValue: "--agent, --atomic            Use addressed atomic agent delivery and return a message_id"))
 
             Example:
               cmux send "echo hello"
               cmux send --surface surface:2 "ls -la\\n"
             """
+        case "agent-submit":
+            return String(localized: "cli.help.agentSubmit", defaultValue: """
+            Usage: cmux agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--] <text>
+
+            Queue one complete prompt for an agent terminal. Calls are serialized per workspace and return a message_id; subscribe to cmux events to observe queued, accepted, confirmed, or failed delivery. A human terminal draft is left untouched and the prompt waits in the app queue.
+
+            Flags:
+              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref|index>     Agent surface when the workspace has more than one
+              --window <id|ref|index>      Window context for workspace/surface refs and indexes
+
+            Example:
+              cmux agent-submit --workspace workspace:2 "Run the focused tests"
+            """)
         case "send-key":
             return """
             Usage: cmux send-key [flags] [--] <key>
@@ -36988,6 +37090,7 @@ export default CMUXSessionRestore;
           current-workspace [--window <id|ref|index>]
           read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>]
           send [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>
+          \(String(localized: "cli.agentSubmit.usageLine", defaultValue: "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"))
           send-key [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <key>
           send-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <text>
           send-key-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <key>
