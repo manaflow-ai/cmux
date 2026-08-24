@@ -8,8 +8,10 @@ on:
     paths:
       - ghostty
       - scripts/download-prebuilt-ghosttykit.sh
+      - scripts/validate-xcframework-archive.py
       - scripts/ghosttykit-checksums.txt
       - tests/test_ci_ghosttykit_release_check.sh
+      - tests/test_ci_change_areas.py
       - .github/workflows/ci.yml
   workflow_dispatch:
 
@@ -80,7 +82,7 @@ jobs:
             has_ghosttykit_guard_file=false
             while IFS= read -r changed_file; do
               case "$changed_file" in
-                ghostty|scripts/download-prebuilt-ghosttykit.sh|scripts/ghosttykit-checksums.txt|tests/test_ci_ghosttykit_release_check.sh|tests/test_ci_change_areas.py)
+                ghostty|scripts/download-prebuilt-ghosttykit.sh|scripts/validate-xcframework-archive.py|scripts/ghosttykit-checksums.txt|tests/test_ci_ghosttykit_release_check.sh|tests/test_ci_change_areas.py)
                   has_ghosttykit_guard_file=true
                   ;;
                 .github/workflows/ci.yml)

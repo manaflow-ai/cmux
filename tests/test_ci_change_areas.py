@@ -493,6 +493,7 @@ def test_ghosttykit_guard_wiring_pr_stays_on_release_guard() -> None:
         [
             "ghostty",
             "scripts/download-prebuilt-ghosttykit.sh",
+            "scripts/validate-xcframework-archive.py",
             "scripts/ghosttykit-checksums.txt",
             "tests/test_ci_ghosttykit_release_check.sh",
             "tests/test_ci_change_areas.py",
@@ -506,6 +507,18 @@ def test_ghosttykit_guard_wiring_pr_stays_on_release_guard() -> None:
         "web=false",
         "go=false",
         "agent_session_web=false",
+    ]
+
+
+def test_workflow_only_pr_keeps_fail_open_routing() -> None:
+    result, outputs = run_detect_step_for_paths([".github/workflows/ci.yml"])
+
+    assert "CI router changed; running all CI areas." in result.stdout
+    assert outputs == [
+        "macos=true",
+        "web=true",
+        "go=true",
+        "agent_session_web=true",
     ]
 
 
