@@ -609,17 +609,13 @@ fn peer_slot(shared: &ProxyShared, role: PeerRole) -> &Mutex<Option<Peer>> {
 fn send_to_slot(shared: &ProxyShared, role: PeerRole, text: String) {
     if let Ok(mut slot) = peer_slot(shared, role).lock()
         && let Some(peer) = slot.as_ref()
+        && enqueue_message(&peer.tx, &peer.queued_bytes, tungstenite::Message::text(text)).is_err()
     {
-        if enqueue_message(&peer.tx, &peer.queued_bytes, tungstenite::Message::text(text)).is_err()
-        {
-            // A saturated peer is no longer coherent. Remove it instead of
-            // silently dropping a CDP frame, then let its writer terminate.
-            let _ = slot.take();
-            if role == PeerRole::Page {
-                if role == PeerRole::Page {
-                    shared.target_connected.store(false, Ordering::Relaxed);
-                }
-            }
+        // A saturated peer is no longer coherent. Remove it instead of
+        // silently dropping a CDP frame, then let its writer terminate.
+        let _ = slot.take();
+        if role == PeerRole::Page {
+            shared.target_connected.store(false, Ordering::Relaxed);
         }
     }
 }
@@ -736,10 +732,10 @@ async fn run_peer<S>(
                     PeerRole::Devtools => send_to_slot(&shared, PeerRole::Page, text),
                 }
             }
-            Message::Ping(payload) => {
-                if enqueue_message(&tx, &queued_bytes, Message::Pong(payload)).is_err() {
-                    break;
-                }
+            Message::Ping(payload)
+                if enqueue_message(&tx, &queued_bytes, Message::Pong(payload)).is_err() =>
+            {
+                break;
             }
             Message::Close(_) => break,
             _ => {}
@@ -866,8 +862,7 @@ async fn forward_plain(
             return text_response(
                 502,
                 &format!(
-                    "target HTML response exceeds the {} byte limit",
-                    PREVIEW_HTML_BODY_MAX_BYTES
+                    "target HTML response exceeds the {PREVIEW_HTML_BODY_MAX_BYTES} byte limit",
                 ),
             );
         }
