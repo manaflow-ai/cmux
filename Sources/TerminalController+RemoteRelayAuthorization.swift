@@ -40,6 +40,7 @@ extension TerminalController {
         "agent.resolve_delivery_target",
         "notification.create",
         "notification.create_for_target",
+        "notification.create_for_caller",
     ]
 
     private nonisolated static let remoteRelayWorkspaceRequiredMethods: Set<String> = [
@@ -62,6 +63,7 @@ extension TerminalController {
         "surface.ports_kick",
         "notification.create",
         "notification.create_for_target",
+        "notification.create_for_caller",
     ]
 
     private nonisolated static let remoteRelaySurfaceRequiredMethods: Set<String> = [

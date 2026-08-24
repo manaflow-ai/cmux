@@ -205,5 +205,5 @@ Workspace group relay behavior:
 Notification relay behavior:
 
 1. `cmux notify ...` inside an SSH session sends `notification.create_for_caller` through the relay so the local app can resolve the originating workspace, surface, and TTY.
-2. When the command runs inside tmux (`TMUX` or `TMUX_PANE` is present), caller TTY resolution wins over stale inherited surface IDs. This keeps notifications attached to the pane that emitted them when possible, while still falling back to `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID`.
+2. When the command runs inside tmux (`TMUX` or `TMUX_PANE` is present), shell integration removes surface-scoped variables. The relay therefore carries the synchronized `CMUX_WORKSPACE_ID` plus the caller TTY; caller TTY resolution wins over any stale inherited surface ID and keeps notifications attached to the emitting pane when possible.
 3. An explicit `--surface` or `--window` stays pinned through `notification.create`. Raw OSC notifications from inside tmux still require tmux passthrough (`set -g allow-passthrough on`); `cmux notify` is the robust relay path for hooks and scripts.

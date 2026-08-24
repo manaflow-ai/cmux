@@ -1365,7 +1365,7 @@
       "python": "Python",
       "nodejs": "Node.js",
       "tmuxPassthrough": "Passthrough de tmux",
-      "tmuxDesc": "Dentro de cmux ssh, prefiere cmux notify desde hooks y scripts; se retransmite a tu app local de cmux incluso desde paneles tmux. Para notificaciones OSC sin procesar dentro de tmux, habilita passthrough:",
+      "tmuxDesc": "En una sesión SSH de cmux, usa cmux notify desde hooks y scripts; la notificación se retransmite a tu aplicación local de cmux incluso cuando se ejecuta dentro de tmux. Para notificaciones OSC sin procesar dentro de tmux, habilita el passthrough:",
       "metaTitle": "Notificaciones",
       "hooksTitle": "Hooks de notificación",
       "hooksIntro": "<config>cmux.json</config> puede definir hooks de notificación que reciben cada política de notificación como JSON por stdin. Cada hook devuelve JSON por stdout. Los hooks están desactivados de forma predeterminada; cmux solo los ejecuta cuando <hooksMode>notifications.hooks</hooksMode> contiene al menos un hook habilitado. cmux aplica el texto y los efectos devueltos, para que los hooks puedan filtrar banners, conservar u omitir el historial de la barra lateral, reproducir sonidos o detener hooks posteriores.",

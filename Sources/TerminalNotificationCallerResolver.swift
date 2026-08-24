@@ -160,7 +160,8 @@ extension TerminalController {
                 $0,
                 tabManagers: managers,
                 preferredWorkspaceId: preferredWorkspaceId,
-                preferredSurfaceId: preferredSurfaceId
+                preferredSurfaceId: preferredSurfaceId,
+                searchAllWorkspaces: preferTTY
             )
         }
         if preferTTY, let ttyTarget { return ttyTarget }
@@ -247,8 +248,20 @@ extension TerminalController {
     private static func ttyCandidateWorkspaces(
         preferredWorkspaceId: UUID?,
         preferredSurfaceId: UUID?,
-        tabManagers: [TabManager]
+        tabManagers: [TabManager],
+        searchAllWorkspaces: Bool = false
     ) -> [Workspace] {
+        if searchAllWorkspaces {
+            var workspaces: [Workspace] = []
+            var seenWorkspaceIDs: Set<UUID> = []
+            for manager in tabManagers {
+                for workspace in manager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
+                    workspaces.append(workspace)
+                }
+            }
+            return workspaces
+        }
+
         var preferredWorkspace: Workspace?
         if let preferredWorkspaceId {
             for manager in tabManagers {
@@ -296,14 +309,16 @@ extension TerminalController {
         _ ttyName: String,
         tabManagers: [TabManager],
         preferredWorkspaceId: UUID? = nil,
-        preferredSurfaceId: UUID? = nil
+        preferredSurfaceId: UUID? = nil,
+        searchAllWorkspaces: Bool = false
     ) -> TerminalCallerTarget? {
         var candidates: [(binding: TerminalCallerTTYBinding, ttyName: String)] = []
         var targets: [TerminalCallerTTYBinding: TerminalCallerTarget] = [:]
         for workspace in ttyCandidateWorkspaces(
             preferredWorkspaceId: preferredWorkspaceId,
             preferredSurfaceId: preferredSurfaceId,
-            tabManagers: tabManagers
+            tabManagers: tabManagers,
+            searchAllWorkspaces: searchAllWorkspaces
         ) {
             for (surfaceId, candidateTTY) in workspace.surfaceTTYNames
                 where workspace.panels[surfaceId] != nil && normalizedTTYName(candidateTTY) == ttyName {

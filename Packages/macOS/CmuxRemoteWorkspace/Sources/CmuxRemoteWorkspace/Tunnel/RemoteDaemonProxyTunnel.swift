@@ -306,7 +306,8 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 workspaceKey: "preferred_workspace_id",
                 surfaceKey: "preferred_surface_id",
                 requireWorkspace: true,
-                requireSurface: true
+                requireSurface: false,
+                preserveCallerContext: true
             )
         case "notification.create_for_target":
             return validateCloudCLINotification(
@@ -344,7 +345,8 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         workspaceKey: String,
         surfaceKey: String,
         requireWorkspace: Bool,
-        requireSurface: Bool
+        requireSurface: Bool,
+        preserveCallerContext: Bool = false
     ) -> CloudCLIRequestValidation {
         let requestedWorkspaceID: UUID
         if let workspaceRaw = (params[workspaceKey] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -394,20 +396,34 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
             surfaceRaw = nil
         }
 
+        let workspaceParamKey = preserveCallerContext ? "preferred_workspace_id" : "workspace_id"
+        let surfaceParamKey = preserveCallerContext ? "preferred_surface_id" : "surface_id"
         var forwardedParams: [String: Any] = [
-            "workspace_id": requestedWorkspaceID.uuidString,
+            workspaceParamKey: requestedWorkspaceID.uuidString,
         ]
         if let surfaceRaw {
-            forwardedParams["surface_id"] = surfaceRaw
+            forwardedParams[surfaceParamKey] = surfaceRaw
         }
-        for key in ["title", "subtitle", "body"] {
+        for key in ["title", "subtitle", "body", "reply_shape"] {
             if let value = params[key] as? String {
                 forwardedParams[key] = value
             }
         }
+        if preserveCallerContext {
+            if let callerTTY = (params["caller_tty"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !callerTTY.isEmpty {
+                forwardedParams["caller_tty"] = callerTTY
+            }
+            if let preferTTY = params["prefer_tty"] as? Bool {
+                forwardedParams["prefer_tty"] = preferTTY
+            }
+        }
         let forwarded: [String: Any] = [
             "id": requestID ?? NSNull(),
-            "method": surfaceRaw == nil ? "notification.create" : "notification.create_for_target",
+            "method": preserveCallerContext
+                ? "notification.create_for_caller"
+                : (surfaceRaw == nil ? "notification.create" : "notification.create_for_target"),
             "params": forwardedParams,
         ]
         guard JSONSerialization.isValidJSONObject(forwarded),

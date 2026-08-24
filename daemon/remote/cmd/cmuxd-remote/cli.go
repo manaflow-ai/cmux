@@ -916,17 +916,21 @@ func applyNotifyCallerEnv(
 	surfaceID, _ := params["surface_id"].(string)
 	workspaceID = strings.TrimSpace(workspaceID)
 	surfaceID = strings.TrimSpace(surfaceID)
-	// The caller-target method requires both identities. Keep the original
-	// notification.create request intact when a relay has only a partial or
-	// missing caller context.
-	if workspaceID == "" || surfaceID == "" {
+	inTmux := runningInsideTmux()
+	// Outside tmux, retain the legacy workspace-scoped request when there is no
+	// surface identity. Inside tmux, surface-scoped variables are intentionally
+	// removed by shell integration, so the workspace plus caller TTY is the
+	// complete caller context.
+	if workspaceID == "" || (surfaceID == "" && !inTmux) {
 		return method
 	}
 	params["preferred_workspace_id"] = workspaceID
-	params["preferred_surface_id"] = surfaceID
+	if surfaceID != "" {
+		params["preferred_surface_id"] = surfaceID
+	}
 	delete(params, "workspace_id")
 	delete(params, "surface_id")
-	if runningInsideTmux() && !hasExplicitWorkspace {
+	if inTmux && !hasExplicitWorkspace {
 		params["prefer_tty"] = true
 	}
 	if ttyName := resolveCallerTTYName(); ttyName != "" {
