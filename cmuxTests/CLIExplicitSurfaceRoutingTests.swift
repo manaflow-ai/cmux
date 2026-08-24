@@ -50,7 +50,7 @@ struct CLIExplicitSurfaceRoutingTests {
         let state = ServerState()
         let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = Self.jsonObject(line),
-                  let id = payload["id"] as? String,
+                  let id = Self.requestID(from: payload),
                   let method = payload["method"] as? String else {
                 return Self.malformedRequestResponse(raw: line)
             }
@@ -94,6 +94,178 @@ struct CLIExplicitSurfaceRoutingTests {
         let readParams = try #require(requests.last?["params"] as? [String: Any])
         #expect(readParams["workspace_id"] as? String == Self.callerWorkspaceId)
         #expect(readParams["surface_id"] as? String == Self.numericSurfaceId)
+    }
+
+    @Test func agentSubmitUsesAtomicWorkspaceMethodAndPreservesPromptText() throws {
+        let socketPath = Self.makeSocketPath("agent-submit")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = Self.requestID(from: payload),
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            guard method == "workspace.agent_submit" else {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "submitted": true,
+                    "queued": false,
+                    "workspace_id": Self.targetWorkspaceId,
+                    "surface_id": Self.targetSurfaceId,
+                ]
+            )
+        }
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: [
+                "agent-submit",
+                "--workspace", Self.targetWorkspaceId,
+                "--surface", Self.targetSurfaceId,
+                "review", "the", "current", "diff",
+            ],
+            environment: cliEnvironment(socketPath: socketPath),
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty)
+        #expect(!result.timedOut)
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+
+        let requests = try state.requestObjects()
+        let request = try #require(requests.first)
+        #expect(request["method"] as? String == "workspace.agent_submit")
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.targetWorkspaceId)
+        #expect(params["surface_id"] as? String == Self.targetSurfaceId)
+        #expect(params["text"] as? String == "review the current diff")
+    }
+
+    @Test func agentSubmitWindowDoesNotInheritCallerWorkspace() throws {
+        let socketPath = Self.makeSocketPath("agent-window")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(
+            listenerFD: listenerFD,
+            state: state
+        ) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = Self.requestID(from: payload),
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "workspace.current":
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["workspace_id": Self.targetWorkspaceId]
+                )
+            case "workspace.agent_submit":
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "submitted": true,
+                        "queued": false,
+                        "workspace_id": Self.targetWorkspaceId,
+                        "surface_id": Self.targetSurfaceId,
+                    ]
+                )
+            default:
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+        }
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: [
+                "agent-submit",
+                "--window", Self.targetWindowId,
+                "review", "the", "other", "workspace",
+            ],
+            environment: cliEnvironment(socketPath: socketPath),
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty)
+        #expect(!result.timedOut)
+        #expect(
+            result.status == 0,
+            Comment(rawValue: result.stderr + result.stdout)
+        )
+
+        let requests = try state.requestObjects()
+        #expect(
+            requests.compactMap { $0["method"] as? String }
+                == ["workspace.current", "workspace.agent_submit"]
+        )
+        let currentParams = try #require(
+            requests.first?["params"] as? [String: Any]
+        )
+        #expect(
+            currentParams["window_id"] as? String == Self.targetWindowId
+        )
+        let submitParams = try #require(
+            requests.last?["params"] as? [String: Any]
+        )
+        #expect(
+            submitParams["workspace_id"] as? String
+                == Self.targetWorkspaceId
+        )
+        #expect(
+            submitParams["workspace_id"] as? String
+                != Self.callerWorkspaceId
+        )
+        #expect(
+            submitParams["text"] as? String
+                == "review the other workspace"
+        )
+    }
+
+    @Test func agentSubmitHelpIsRegisteredAsATopLevelCommand() throws {
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: ["agent-submit", "--help"],
+            environment: ProcessInfo.processInfo.environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(
+            result.status == 0,
+            Comment(rawValue: result.stderr + result.stdout)
+        )
+        #expect(
+            result.stdout.contains(
+                "Usage: cmux agent-submit [--workspace"
+            )
+        )
     }
 
     @Test func closeSurfaceRejectsMissingExplicitRefWithoutMutation() throws {
@@ -395,6 +567,9 @@ struct CLIExplicitSurfaceRoutingTests {
     private static let callerSurfaceId = "22222222-2222-2222-2222-222222222222"
     private static let targetSurfaceRef = "surface:11"
     private static let numericSurfaceId = "33333333-3333-3333-3333-333333333333"
+    private static let targetWindowId = "44444444-4444-4444-4444-444444444444"
+    private static let targetWorkspaceId = "55555555-5555-5555-5555-555555555555"
+    private static let targetSurfaceId = "66666666-6666-6666-6666-666666666666"
     private static let reproWindowId = "44444444-4444-4444-4444-444444443001"
     private static let reproWorkspaceId = "44444444-4444-4444-4444-444444443071"
     private static let reproWorkspaceRef = "workspace:71"
@@ -579,6 +754,17 @@ struct CLIExplicitSurfaceRoutingTests {
         if let error { payload["error"] = error }
         let data = try? JSONSerialization.data(withJSONObject: payload, options: [])
         return String(data: data ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
+    }
+
+    private static func requestID(from payload: [String: Any]) -> String? {
+        switch payload["id"] {
+        case let id as String:
+            id
+        case let id as NSNumber:
+            id.stringValue
+        default:
+            nil
+        }
     }
 
     private static func malformedRequestResponse(id: String? = nil, raw: String) -> String {

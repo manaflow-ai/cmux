@@ -127,6 +127,17 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "surface.send_key") == .socketWorker(mainThreadCallable: true))
     }
 
+    @Test func atomicAgentSubmitRunsOnWorkerWithACallableMainHop() {
+        // The worker owns the reply; the body performs one non-suspending
+        // v2MainSync hop that collapses inline for main-thread in-process
+        // callers, so this callable policy cannot deadlock.
+        #expect(
+            ControlCommandExecutionPolicy(
+                forMethod: "workspace.agent_submit"
+            ) == .socketWorker(mainThreadCallable: true)
+        )
+    }
+
     @Test func v1SendsRunOnTheWorkerAndAreMainThreadCallable() {
         // send_workspace MUST stay callable (TerminalAndGhosttyTests drives
         // it through handleSocketLine on the main actor); the rest share the
