@@ -972,7 +972,8 @@ enum FilePreviewTextSaver {
 }
 
 @MainActor
-final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
+final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPanel,
+    FileContentChangeObservingPanel {
     let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .filePreview

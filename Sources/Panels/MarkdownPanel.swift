@@ -13,7 +13,8 @@ enum MarkdownPanelDisplayMode: String, CaseIterable, Identifiable {
 /// A panel that renders a markdown file with live file-watching.
 /// When the file changes on disk, the content is automatically reloaded.
 @MainActor
-final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
+final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel,
+    FileContentChangeObservingPanel {
     let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .markdown
@@ -75,16 +76,16 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     // MARK: - File watching
 
-    private var fileContentChangeCoordinator: FileContentChangeCoordinator
-    private var fileContentObservationID: UUID?
-    private var lastObservedFileState: FilePreviewFileState?
+    var fileContentChangeCoordinator: FileContentChangeCoordinator
+    var fileContentObservationID: UUID?
+    var lastObservedFileState: FilePreviewFileState?
     private var originalTextContent: String = ""
     private var textEncoding: String.Encoding = .utf8
     private var saveGeneration: Int = 0
     private var activeSaveGeneration: Int?
     private var pendingSearchNeedle: String?
     private weak var textView: NSTextView?
-    private var isClosed: Bool = false
+    var isClosed: Bool = false
     // NotificationCenter token; removal is thread-safe so deinit can drop it.
     private nonisolated(unsafe) var typographyDefaultsObserver: NSObjectProtocol?
     // The typography default this viewer is currently tracking. While the panel
@@ -122,7 +123,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             fileContentChangeCoordinator ?? .shared
 
         loadFileContent()
-        startWatching()
+        startWatchingForFileChanges()
         observeTypographyDefaults()
     }
 
@@ -254,7 +255,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         rendererSession.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
-        stopWatching()
+        stopWatchingForFileChanges()
         if let typographyDefaultsObserver {
             NotificationCenter.default.removeObserver(typographyDefaultsObserver)
             self.typographyDefaultsObserver = nil
@@ -269,10 +270,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         guard self.fileContentChangeCoordinator !== fileContentChangeCoordinator else {
             return
         }
-        stopWatching()
+        let wasWatching = fileContentObservationID != nil
+        stopWatchingForFileChanges()
         self.fileContentChangeCoordinator = fileContentChangeCoordinator
-        if !isClosed {
-            startWatching()
+        if wasWatching, !isClosed {
+            startWatchingForFileChanges()
         }
     }
 
@@ -467,33 +469,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     // MARK: - File watcher
 
-    /// Subscribes through the workspace's shared file-content change service.
-    private func startWatching() {
-        stopWatching()
-        fileContentObservationID = fileContentChangeCoordinator.observe(
-            path: filePath
-        ) { [weak self] in
-            guard let self, !self.isClosed else { return }
-            self.handleObservedFileChange()
-        }
-    }
-
-    /// Reloads only when the on-disk fingerprint moved past the last load, so
-    /// the coordinator's registration-time reconciliation callback is free
-    /// (`loadFileContent` already ran) and unchanged-file retargets skip the
-    /// redundant read. A change observed mid-save is deferred to the save
-    /// task's trailing reconciliation load.
-    private func handleObservedFileChange() {
-        let state = FilePreviewFileState.capture(path: filePath)
-        guard state != lastObservedFileState else { return }
-        guard !isSaving else { return }
+    /// Reloads Markdown content after the shared coordinator confirms a change.
+    @discardableResult
+    func reloadFromObservedFileChange() -> Task<Void, Never>? {
         loadFileContent(replacingDirtyContent: false)
-    }
-
-    private func stopWatching() {
-        guard let fileContentObservationID else { return }
-        self.fileContentObservationID = nil
-        fileContentChangeCoordinator.removeObservation(fileContentObservationID)
+        return nil
     }
 
     deinit {
