@@ -9,6 +9,7 @@ from unittest.mock import patch
 from cmux.client_defaults import (
     _legacy_raw_socket_fallback_path,
     legacy_raw_socket_path,
+    validate_session_name,
 )
 from cmux.raw import (
     CmuxClient,
@@ -176,6 +177,31 @@ class GeneratedProtocolTests(unittest.TestCase):
             self.assertEqual(
                 default_socket_path(session),
                 f"/run/user/501/cmux-tui-hashed-{os.getuid()}/{digest}.sock",
+            )
+
+    def test_invalid_session_default_path_is_isolated_but_validation_is_strict(self) -> None:
+        session = "../other"
+        digest = "3f1d50ca1c828a718349a63c91f2b2792bfb62e1be836ec67f8b454b8501f2a7"
+        with patch.dict(os.environ, {"XDG_RUNTIME_DIR": "/r"}, clear=True):
+            self.assertEqual(
+                default_socket_path(session),
+                f"/r/cmux-tui-invalid-{os.getuid()}/{digest}.sock",
+            )
+
+        with self.assertRaises(ValueError):
+            validate_session_name(session)
+
+    def test_invalid_session_default_path_uses_short_tmp_fallback(self) -> None:
+        session = ""
+        digest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        with patch.dict(
+            os.environ,
+            {"XDG_RUNTIME_DIR": "/tmp/" + "x" * 200},
+            clear=True,
+        ):
+            self.assertEqual(
+                default_socket_path(session),
+                f"/tmp/cmux-tui-invalid-{os.getuid()}/{digest}.sock",
             )
 
     def test_overlong_legacy_path_is_not_configured_as_fallback(self) -> None:
