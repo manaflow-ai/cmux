@@ -463,7 +463,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
     }
 
     @MainActor
-    @Test("surface.create honors the TextBox focus preference")
+    @Test("surface.create honors the TextBox focus preference only when focused")
     func surfaceCreateHonorsTextBoxFocusPreference() throws {
         let defaults = UserDefaults.standard
         let showKey = TerminalTextBoxInputSettings.showOnNewTerminalsKey
@@ -508,6 +508,23 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         let createdPanel = try #require(workspace.terminalPanel(for: createdPanelId))
         #expect(createdPanel.isTextBoxActive)
         #expect(createdPanel.preferredFocusIntentForActivation() == .terminal(.textBoxInput))
+
+        let backgroundResponse = try v2SocketResponse(
+            method: "surface.create",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "type": "terminal",
+                "focus": false,
+            ]
+        )
+
+        #expect(backgroundResponse["ok"] as? Bool == true)
+        let backgroundResult = try #require(backgroundResponse["result"] as? [String: Any])
+        let backgroundSurfaceIdString = try #require(backgroundResult["surface_id"] as? String)
+        let backgroundPanelId = try #require(UUID(uuidString: backgroundSurfaceIdString))
+        let backgroundPanel = try #require(workspace.terminalPanel(for: backgroundPanelId))
+        #expect(backgroundPanel.isTextBoxActive)
+        #expect(backgroundPanel.preferredFocusIntentForActivation() != .terminal(.textBoxInput))
     }
 
     @MainActor

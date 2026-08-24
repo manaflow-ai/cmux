@@ -175,7 +175,7 @@ extension TerminalController {
                 initialDividerPosition: dividerPosition,
                 remotePTYSessionID: inputs.remotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: useLocalContext,
-                allowTextBoxFocusDefault: focus
+                allowTextBoxFocusDefault: false
             ) {
             case .created(let panel):
                 newId = panel.id
@@ -408,7 +408,7 @@ extension TerminalController {
                 remotePTYSessionID: inputs.remotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: useLocalContext,
                 inheritWorkingDirectoryFallback: true,
-                allowTextBoxFocusDefault: false
+                allowTextBoxFocusDefault: focus
             ) {
             case .created(let panel):
                 newPanelId = panel.id
