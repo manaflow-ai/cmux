@@ -389,6 +389,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A500MR01 /* BrowserMediaPlaybackReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500MR00 /* BrowserMediaPlaybackReport.swift */; };
 		A85970000000000000000001 /* BrowserNavigableURLPasteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85970000000000000000002 /* BrowserNavigableURLPasteTests.swift */; };
 		C67540080000000000000001 /* BrowserNavigationDebugURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540080000000000000002 /* BrowserNavigationDebugURL.swift */; };
+		BABA25000000000000000010 /* BrowserNavigationDecisionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA25000000000000000011 /* BrowserNavigationDecisionHandler.swift */; };
 		BABA25000000000000000009 /* BrowserNavigationDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA2500000000000000000A /* BrowserNavigationDelegate.swift */; };
 		B424PWNP000000000000PW01 /* BrowserNavigationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B424PWNP000000000000PW02 /* BrowserNavigationPolicy.swift */; };
 		C67540100000000000000001 /* BrowserNavigationPopupPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540100000000000000002 /* BrowserNavigationPopupPolicy.swift */; };
@@ -843,6 +844,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C5A1FED200000000000000E5 /* CmuxSidebarRemoteRender in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED200000000000000E6 /* CmuxSidebarRemoteRender */; };
 		C51A700000000000000000A3 /* CmuxSimulator in Frameworks */ = {isa = PBXBuildFile; productRef = C51A700000000000000000A2 /* CmuxSimulator */; };
 		C51A700000000000000000A5 /* CmuxSimulator in Frameworks */ = {isa = PBXBuildFile; productRef = C51A700000000000000000A2 /* CmuxSimulator */; };
+		799F1BEF876006EEB8CD5757 /* CmuxSimulatorStreamKit in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA57571 /* CmuxSimulatorStreamKit */; };
 		C51A700000000000000000B3 /* CmuxSimulatorUI in Frameworks */ = {isa = PBXBuildFile; productRef = C51A700000000000000000B2 /* CmuxSimulatorUI */; };
 		C51A700000000000000000C3 /* CmuxSimulatorWorker in Frameworks */ = {isa = PBXBuildFile; productRef = C51A700000000000000000C2 /* CmuxSimulatorWorker */; };
 		E7E000000000000000000009 /* CmuxSocketEventMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000A /* CmuxSocketEventMapper.swift */; };
@@ -1472,6 +1474,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F33200000000000000000002 /* MobileSimulatorReaderAttachmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33200000000000000000001 /* MobileSimulatorReaderAttachmentTests.swift */; };
 		F33000000000000000000011 /* MobileSimulatorStreamCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33000000000000000000001 /* MobileSimulatorStreamCoordinator.swift */; };
 		F33000000000000000000012 /* MobileSimulatorStreamSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33000000000000000000002 /* MobileSimulatorStreamSession.swift */; };
+		F35A000000000000000000B2 /* MobileSimulatorStreamV2Coordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F35A000000000000000000A2 /* MobileSimulatorStreamV2Coordinator.swift */; };
+		F35A000000000000000000B1 /* MobileSimulatorStreamV2Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = F35A000000000000000000A1 /* MobileSimulatorStreamV2Session.swift */; };
 		F33000000000000000000013 /* MobileSimulatorWireEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33000000000000000000003 /* MobileSimulatorWireEncoder.swift */; };
 		7BD32764E8A31FA15DCCF257 /* MobileStateSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2DBE587F52C8A3B2A2CFCB8 /* MobileStateSync.swift */; };
 		1055FA010000000000000001 /* MobileSurfaceKindMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1055FA010000000000000002 /* MobileSurfaceKindMappingTests.swift */; };
@@ -3279,6 +3283,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A500MR00 /* BrowserMediaPlaybackReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserMediaPlaybackReport.swift; sourceTree = "<group>"; };
 		A85970000000000000000002 /* BrowserNavigableURLPasteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserNavigableURLPasteTests.swift; sourceTree = "<group>"; };
 		C67540080000000000000002 /* BrowserNavigationDebugURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserNavigationDebugURL.swift; sourceTree = "<group>"; };
+		BABA25000000000000000011 /* BrowserNavigationDecisionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserNavigationDecisionHandler.swift; sourceTree = "<group>"; };
 		BABA2500000000000000000A /* BrowserNavigationDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserNavigationDelegate.swift; sourceTree = "<group>"; };
 		B424PWNP000000000000PW02 /* BrowserNavigationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserNavigationPolicy.swift; sourceTree = "<group>"; };
 		C67540100000000000000002 /* BrowserNavigationPopupPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserNavigationPopupPolicy.swift; sourceTree = "<group>"; };
@@ -4281,6 +4286,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F33200000000000000000001 /* MobileSimulatorReaderAttachmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSimulatorReaderAttachmentTests.swift; sourceTree = "<group>"; };
 		F33000000000000000000001 /* MobileSimulatorStreamCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSimulatorStreamCoordinator.swift; sourceTree = "<group>"; };
 		F33000000000000000000002 /* MobileSimulatorStreamSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSimulatorStreamSession.swift; sourceTree = "<group>"; };
+		F35A000000000000000000A2 /* MobileSimulatorStreamV2Coordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSimulatorStreamV2Coordinator.swift; sourceTree = "<group>"; };
+		F35A000000000000000000A1 /* MobileSimulatorStreamV2Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSimulatorStreamV2Session.swift; sourceTree = "<group>"; };
 		F33000000000000000000003 /* MobileSimulatorWireEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSimulatorWireEncoder.swift; sourceTree = "<group>"; };
 		A2DBE587F52C8A3B2A2CFCB8 /* MobileStateSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileStateSync.swift; sourceTree = "<group>"; };
 		1055FA010000000000000002 /* MobileSurfaceKindMappingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSurfaceKindMappingTests.swift; sourceTree = "<group>"; };
@@ -5663,6 +5670,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE4A000000000000000001 /* CmuxSidebarProviderKit in Frameworks */,
 				C5A1FED200000000000000E5 /* CmuxSidebarRemoteRender in Frameworks */,
 				C51A700000000000000000A3 /* CmuxSimulator in Frameworks */,
+				799F1BEF876006EEB8CD5757 /* CmuxSimulatorStreamKit in Frameworks */,
 				C51A700000000000000000B3 /* CmuxSimulatorUI in Frameworks */,
 				C51A700000000000000000C3 /* CmuxSimulatorWorker in Frameworks */,
 				C5A1FED000000000000000C1 /* CmuxSwiftRender in Frameworks */,
@@ -5913,6 +5921,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F33100000000000000000001 /* MobileSimulatorDiagnostics.swift */,
 				F33200000000000000000011 /* MobileSimulatorReaderAttachment.swift */,
 				F33000000000000000000001 /* MobileSimulatorStreamCoordinator.swift */,
+				F35A000000000000000000A1 /* MobileSimulatorStreamV2Session.swift */,
+				F35A000000000000000000A2 /* MobileSimulatorStreamV2Coordinator.swift */,
 				F33000000000000000000002 /* MobileSimulatorStreamSession.swift */,
 				F33000000000000000000003 /* MobileSimulatorWireEncoder.swift */,
 				A7C0F0030000000000000002 /* MobileAttachTarget.swift */,
@@ -7121,6 +7131,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				BABA2500000000000000000C /* BrowserHTTPBasicAuthProtectionSpaceKey.swift */,
 				BABA2500000000000000000E /* BrowserHTTPBasicAuthPromptRequest.swift */,
 				BABA2500000000000000000A /* BrowserNavigationDelegate.swift */,
+				BABA25000000000000000011 /* BrowserNavigationDecisionHandler.swift */,
 				C67540080000000000000002 /* BrowserNavigationDebugURL.swift */,
 				D93410010000000000000002 /* BrowserChromePopoverAppearance.swift */,
 				C67540110000000000000002 /* BrowserDownloadRecord.swift */,
@@ -8654,6 +8665,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CC0DE30000000000000000A2 /* CmuxRemoteSession */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
 				EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */,
+				EFB18E3B3099DFE2ECA57571 /* CmuxSimulatorStreamKit */,
 				1A0B0C0D0E0F101112132002 /* CmuxMobileTransport */,
 			);
 			productName = cmux;
@@ -8854,6 +8866,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CC0DE30000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteSession" */,
 				28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */,
 				0C69E6A5FA9B0513E68DF443 /* XCLocalSwiftPackageReference "CMUXMobileCore" */,
+				0C69E6A5FA9B0513E68D5757 /* XCLocalSwiftPackageReference "CmuxSimulatorStreamKit" */,
 				1A0B0C0D0E0F101112132011 /* XCLocalSwiftPackageReference "CmuxIrohTransport" */,
 				C1A072000000000000000001 /* XCLocalSwiftPackageReference "CmuxMobileRPC" */,
 				1A0B0C0D0E0F101112132001 /* XCLocalSwiftPackageReference "CmuxMobileTransport" */,
@@ -9324,6 +9337,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A500MH01 /* BrowserMediaPlaybackMessageHandler.swift in Sources */,
 				A500MR01 /* BrowserMediaPlaybackReport.swift in Sources */,
 				C67540080000000000000001 /* BrowserNavigationDebugURL.swift in Sources */,
+				BABA25000000000000000010 /* BrowserNavigationDecisionHandler.swift in Sources */,
 				BABA25000000000000000009 /* BrowserNavigationDelegate.swift in Sources */,
 				B424PWNP000000000000PW01 /* BrowserNavigationPolicy.swift in Sources */,
 				C67540100000000000000001 /* BrowserNavigationPopupPolicy.swift in Sources */,
@@ -9903,6 +9917,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F33200000000000000000012 /* MobileSimulatorReaderAttachment.swift in Sources */,
 				F33000000000000000000011 /* MobileSimulatorStreamCoordinator.swift in Sources */,
 				F33000000000000000000012 /* MobileSimulatorStreamSession.swift in Sources */,
+				F35A000000000000000000B2 /* MobileSimulatorStreamV2Coordinator.swift in Sources */,
+				F35A000000000000000000B1 /* MobileSimulatorStreamV2Session.swift in Sources */,
 				F33000000000000000000013 /* MobileSimulatorWireEncoder.swift in Sources */,
 				7BD32764E8A31FA15DCCF257 /* MobileStateSync.swift in Sources */,
 				D1B800000000000000000001 /* MobileTaskDirectoryListItem.swift in Sources */,
@@ -12202,6 +12218,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Shared/CMUXMobileCore;
 		};
+		0C69E6A5FA9B0513E68D5757 /* XCLocalSwiftPackageReference "CmuxSimulatorStreamKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/Shared/CmuxSimulatorStreamKit;
+		};
 		1A0B0C0D0E0F101112132011 /* XCLocalSwiftPackageReference "CmuxIrohTransport" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Shared/CmuxIrohTransport;
@@ -12740,6 +12760,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCSwiftPackageProductDependency;
 			package = 0C69E6A5FA9B0513E68DF443 /* XCLocalSwiftPackageReference "CMUXMobileCore" */;
 			productName = CMUXMobileCore;
+		};
+		EFB18E3B3099DFE2ECA57571 /* CmuxSimulatorStreamKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0C69E6A5FA9B0513E68D5757 /* XCLocalSwiftPackageReference "CmuxSimulatorStreamKit" */;
+			productName = CmuxSimulatorStreamKit;
 		};
 		1A0B0C0D0E0F101112132012 /* CmuxIrohTransport */ = {
 			isa = XCSwiftPackageProductDependency;

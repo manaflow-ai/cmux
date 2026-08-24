@@ -169,6 +169,10 @@ extension GhosttySurfaceView {
                         )
                         return
                     }
+                    // The replay rebuilt the row space and the row-only restore
+                    // zeroed Ghostty's fractional pixel offset; drop the stale
+                    // Swift-side remainder so the next pixel batch rebases.
+                    self.localPixelScrollState.withLock { $0.remainderPx = 0 }
                     if restored {
                         self.needsDraw = true
                         self.scheduleVisibleArtifactCountUpdate()

@@ -4141,8 +4141,26 @@
     "cli.agentHook.error.journalAppend": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "فشل إلحاق سجل خطاف الوكيل لـ %@ %@." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Dodavanje agentske kuke u dnevnik nije uspjelo za %@ %@." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Tilføjelse af agent-hook til journalen mislykkedes for %@ %@." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Das Anhängen des Agent-Hooks an das Journal ist für %@ %@ fehlgeschlagen." } },
         "en": { "stringUnit": { "state": "translated", "value": "Agent hook journal append failed for %@ %@." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ %@ のエージェントフックのジャーナル追記に失敗しました。" } }
+        "es": { "stringUnit": { "state": "translated", "value": "No se pudo añadir el hook del agente al diario para %@ %@." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Échec de l’ajout du hook d’agent au journal pour %@ %@." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Impossibile aggiungere l’hook dell’agente al diario per %@ %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ %@ のエージェントフックのジャーナル追記に失敗しました。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការបន្ថែម agent hook ទៅក្នុងកំណត់ហេតុបានបរាជ័យសម្រាប់ %@ %@។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%@ %@에 대한 에이전트 훅 저널 추가에 실패했습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Det oppstod en feil ved å legge agent-hooken til journalen for %@ %@." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie udało się dodać haka agenta do dziennika dla %@ %@." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Falha ao adicionar o hook do agente ao diário para %@ %@." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось добавить хук агента в журнал для %@ %@." } },
+        "th": { "stringUnit": { "state": "translated", "value": "เพิ่ม agent hook ลงในบันทึกประจำวันสำหรับ %@ %@ ไม่สำเร็จ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%@ %@ için aracı kancasını günlüğe ekleme başarısız oldu." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося додати хук агента до журналу для %@ %@." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法将 %@ %@ 的代理钩子追加到日志。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法將 %@ %@ 的代理程式掛鉤追加到日誌。" } }
       }
     },
     "cli.agentHook.error.targetResolution": {
@@ -51714,6 +51732,41 @@
         }
       }
     },
+    "cli.sessions.command": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "da": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "de": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
+        "es": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "it": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
+        "km": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "th": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } }
+      }
+    },
     "cli.sessions.error.agentRequiresValue": {
       "extractionState": "manual",
       "localizations": {
@@ -53930,6 +53983,23 @@
         }
       }
     },
+    "cli.ssh.autoReconnect.recovered": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH reconnected (attempt %s/%s)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH が再接続されました（試行 %s/%s）。"
+          }
+        }
+      }
+    },
     "cli.ssh.autoReconnect.stopHint": {
       "extractionState": "manual",
       "localizations": {
@@ -55352,6 +55422,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] リモート PTY ブリッジが閉じました。再接続しています（試行 %s/%s）。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.reconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote PTY reconnected (attempt %s/%s)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート PTY が再接続されました（試行 %s/%s）。"
           }
         }
       }
@@ -145490,6 +145577,125 @@
         }
       }
     },
+    "remoteDaemon.bootstrap.buildOutputEmpty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote daemon files are missing or empty"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンのファイルがないか空です"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.reconnectPaused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブートストラップを続行できないため自動再接続を一時停止しました。表示されたリモートの問題を修復して「再接続」を実行してください。"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not prepare the remote daemon"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンを準備できませんでした"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.helloFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not confirm that the remote daemon is ready"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンが準備完了したことを確認できませんでした"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.probeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not inspect the remote daemon installation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンのインストールを検査できませんでした"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.removeCorruptFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "failed to remove corrupt remote daemon install"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "破損したリモートデーモンのインストールを削除できませんでした"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.removeCorruptFailedWithDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "failed to remove corrupt remote daemon install: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "破損したリモートデーモンのインストールを削除できませんでした：%@"
+          }
+        }
+      }
+    },
     "remoteDaemon.upload.createDirectoryFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -145530,13 +145736,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "failed to install remote daemon binary"
+            "value": "failed to install remote daemon"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リモートデーモンのバイナリをインストールできませんでした"
+            "value": "リモートデーモンをインストールできませんでした"
           }
         }
       }
@@ -145558,19 +145764,53 @@
         }
       }
     },
+    "remoteDaemon.upload.verifyFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote daemon integrity verification failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンの整合性検証に失敗しました"
+          }
+        }
+      }
+    },
+    "remoteDaemon.upload.verifyFailedWithDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote daemon integrity verification failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンの整合性検証に失敗しました：%@"
+          }
+        }
+      }
+    },
     "remoteDaemon.upload.transferFailed": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "failed to upload cmuxd-remote"
+            "value": "failed to upload remote daemon"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxd-remote をアップロードできませんでした"
+            "value": "リモートデーモンをアップロードできませんでした"
           }
         }
       }
@@ -146243,6 +146483,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "別の cmux プロセスが SSH 接続を使用しています。"
+          }
+        }
+      }
+    },
+    "remoteSession.proxy.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote proxy unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートプロキシを利用できません"
           }
         }
       }
