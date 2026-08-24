@@ -57,6 +57,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///   - legacyTailscaleAuthorizationEvidence: Exact local capability retained
     ///     only for a pairing that predates Iroh. Mismatched evidence is ignored,
     ///     leaving the raw Tailscale route fail-closed.
+    ///   - irohDirectOnlyDialCandidates: The per-Computer Direct method's
+    ///     complete path allowlist for an Iroh route. Ignored for other route
+    ///     kinds; `nil` = the normal Iroh dial plan.
     ///   - transportConnectObserver: Optional synchronous sink for privacy-safe
     ///     transport dial lifecycle events. The observer must return immediately.
     public init(
@@ -66,6 +69,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         allowsStackAuthFallback: Bool = false,
         legacyTailscaleAuthorizationEvidence: CmxLegacyTailscaleAuthorizationEvidence? = nil,
         userTailscalePairingAuthorization: CmxUserTailscalePairingAuthorization? = nil,
+        irohDirectOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
         connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
         stackTokenGate: RPCStackTokenGate? = nil,
         stackTokenForceRefreshGate: RPCStackTokenGate? = nil,
@@ -109,7 +113,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             route: route,
             expectedPeerDeviceID: ticket.macDeviceID,
             authorizationMode: authorizationMode,
-            sessionPurpose: sessionPurpose
+            sessionPurpose: sessionPurpose,
+            irohDirectOnlyDialCandidates: route.kind == .iroh
+                ? irohDirectOnlyDialCandidates
+                : nil
         )
         self.transportRequest = transportRequest
         self.allowsStackAuthFallback = allowsStackAuthFallback

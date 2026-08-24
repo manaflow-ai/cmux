@@ -1615,6 +1615,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D1F0A003000000000000000F /* PhonePushSerialDeliveryQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A0030000000000000010 /* PhonePushSerialDeliveryQueue.swift */; };
 		D1F0A00400000000000000C1 /* PhonePushSerialDeliveryQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00400000000000000C2 /* PhonePushSerialDeliveryQueueTests.swift */; };
 		D1F0A0030000000000000011 /* PhonePushServerSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A0030000000000000012 /* PhonePushServerSummary.swift */; };
+		D1F0A0990000000000000001 /* PhoneReplyInboxClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A0990000000000000002 /* PhoneReplyInboxClient.swift */; };
+		D1F0A0990000000000000003 /* PhoneReplyInboxCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A0990000000000000004 /* PhoneReplyInboxCoordinator.swift */; };
 		C08672010000000000000007 /* PiCompactedFeedEventExpander.swift in Sources */ = {isa = PBXBuildFile; fileRef = C08672010000000000000008 /* PiCompactedFeedEventExpander.swift */; };
 		B79500210000000000000001 /* PIDPresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500210000000000000002 /* PIDPresence.swift */; };
 		8672F0038672F0038672F003 /* PiFeedDecodeErrorPrivacyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672F0048672F0048672F004 /* PiFeedDecodeErrorPrivacyTests.swift */; };
@@ -4433,6 +4435,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D1F0A0030000000000000010 /* PhonePushSerialDeliveryQueue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushSerialDeliveryQueue.swift; sourceTree = "<group>"; };
 		D1F0A00400000000000000C2 /* PhonePushSerialDeliveryQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhonePushSerialDeliveryQueueTests.swift; sourceTree = "<group>"; };
 		D1F0A0030000000000000012 /* PhonePushServerSummary.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushServerSummary.swift; sourceTree = "<group>"; };
+		D1F0A0990000000000000002 /* PhoneReplyInboxClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhoneReplyInboxClient.swift; sourceTree = "<group>"; };
+		D1F0A0990000000000000004 /* PhoneReplyInboxCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhoneReplyInboxCoordinator.swift; sourceTree = "<group>"; };
 		C08672010000000000000008 /* PiCompactedFeedEventExpander.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiCompactedFeedEventExpander.swift; sourceTree = "<group>"; };
 		B79500210000000000000002 /* PIDPresence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PIDPresence.swift; sourceTree = "<group>"; };
 		8672F0048672F0048672F004 /* PiFeedDecodeErrorPrivacyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiFeedDecodeErrorPrivacyTests.swift; sourceTree = "<group>"; };
@@ -6022,6 +6026,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				DE71CE000000000000000003 /* DeviceRegistryClient.swift */,
 				D1F0A00100000000000000B2 /* PresenceHeartbeatClient.swift */,
 				D1F0A01100000000000000B2 /* ConnectivityInvalidationSubscriberCoordinator.swift */,
+				D1F0A0990000000000000002 /* PhoneReplyInboxClient.swift */,
+				D1F0A0990000000000000004 /* PhoneReplyInboxCoordinator.swift */,
 				D1F0A00600000000000000C2 /* MacPairedMacBackupBody.swift */,
 				D1F0A00700000000000000C2 /* MacPairedMacBackupOpWire.swift */,
 				D1F0A00100000000000000C2 /* MacPairedMacBackupPublisher.swift */,
@@ -10044,6 +10050,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D1F0A003000000000000000D /* PhonePushRetryPolicy.swift in Sources */,
 				D1F0A003000000000000000F /* PhonePushSerialDeliveryQueue.swift in Sources */,
 				D1F0A0030000000000000011 /* PhonePushServerSummary.swift in Sources */,
+				D1F0A0990000000000000001 /* PhoneReplyInboxClient.swift in Sources */,
+				D1F0A0990000000000000003 /* PhoneReplyInboxCoordinator.swift in Sources */,
 				B79500210000000000000001 /* PIDPresence.swift in Sources */,
 				D0C658660000000000000004 /* PortalSplitDividerCacheInvalidator.swift in Sources */,
 				D0C658660000000000000002 /* PortalSplitDividerRegion.swift in Sources */,
