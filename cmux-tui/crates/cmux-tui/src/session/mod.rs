@@ -868,12 +868,9 @@ impl Session {
                         retry_after_ms: None,
                     };
                 };
-                let requested_surface_id = data
-                    .get("surface")
-                    .and_then(Value::as_u64)
-                    .map(|id| id as SurfaceId);
-                let mut error =
-                    data.get("error").and_then(Value::as_str).map(str::to_string);
+                let requested_surface_id =
+                    data.get("surface").and_then(Value::as_u64).map(|id| id as SurfaceId);
+                let mut error = data.get("error").and_then(Value::as_str).map(str::to_string);
                 let surface_id = match requested_surface_id {
                     Some(id) => {
                         match remote.try_ensure_surface_with_kind(id, SurfaceKind::Pty, Some(size))
@@ -1228,11 +1225,10 @@ impl Session {
     pub fn surface_cwd(&self, surface: SurfaceId) -> Option<String> {
         match self {
             Session::Local(mux) => mux.surface(surface).and_then(|surface| surface.local_cwd()),
-            Session::Remote(remote) => {
-                remote.request(json!({"cmd": "process-info", "surface": surface})).ok().and_then(
-                    |data| data.get("cwd").and_then(Value::as_str).map(str::to_owned),
-                )
-            }
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "process-info", "surface": surface}))
+                .ok()
+                .and_then(|data| data.get("cwd").and_then(Value::as_str).map(str::to_owned)),
         }
     }
 
@@ -2163,8 +2159,7 @@ impl SurfaceHandle {
                         anyhow::bail!("unknown resize outcome {other}");
                     }
                 }
-                let accepted =
-                    response.get("accepted").and_then(Value::as_bool).unwrap_or(true);
+                let accepted = response.get("accepted").and_then(Value::as_bool).unwrap_or(true);
                 surface.set_reported_size(desired);
                 if !accepted {
                     report(None);
