@@ -31,7 +31,13 @@ extension GhosttySurfaceView {
     /// restore stands down for user interaction, so without this a stationary
     /// finger would see the reset until the next real delta.
     func reassertLocalPixelScrollPositionAfterReplay() {
+        // Pixel scrolling exists only on the confirmed-primary screen. Alt
+        // screens replay constantly (every frame is verified), and a stale
+        // held anchor from earlier primary scrolling must never drive alt
+        // renders, so anything but an active primary-screen gesture clears
+        // the pixel state outright.
         guard scrollInteractionActive,
+              delegate?.ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(self) == true,
               localPixelScrollState.withLock({ $0.lastApplied }) != nil else {
             localPixelScrollState.withLock {
                 $0.remainderPx = 0

@@ -2217,6 +2217,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     interactionGeneration: generation
                 )
             } else {
+                // Routing to the line path (alt screen or legacy transport):
+                // drop any pixel-path residue so a primary->alt flip cannot
+                // carry a held anchor or re-assert into the TUI's screen.
+                pendingLocalScrollPixels = 0
+                pendingLocalPixelScrollReassert = false
+                localPixelScrollState.withLock {
+                    $0.remainderPx = 0
+                    $0.lastApplied = nil
+                }
                 applyLocalScrollbackScroll(
                     lines: lines,
                     col: cell.col,
