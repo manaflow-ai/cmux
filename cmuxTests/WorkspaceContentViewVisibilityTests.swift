@@ -1,5 +1,6 @@
 import Testing
 import AppKit
+import CmuxFoundation
 import CmuxNotifications
 import CmuxUpdater
 import CoreGraphics
@@ -744,7 +745,7 @@ final class WorkspaceContentViewVisibilityTests {
     // MARK: - Agent state pane border
 
     @Test
-    func agentPaneStateBorderPrefersNeedsInputOverRunning() {
+    func agentStatusResolvePrefersNeedsInputOverRunning() {
         // The Feed publishes `needsInput` under its own status key while the
         // agent's key still reads `running`. A pane blocked on a permission
         // prompt has to render as blocked, which is the opposite of the
@@ -754,15 +755,12 @@ final class WorkspaceContentViewVisibilityTests {
             "cmux.feed.attention:codex": .needsInput,
         ]
 
-        #expect(AgentPaneStateBorder.state(lifecycles: lifecycles) == .needsInput)
-        #expect(
-            AgentPaneStateBorder.colorHex(lifecycles: lifecycles)
-                == AgentPaneStateBorder.needsInputHex
-        )
+        #expect(AgentStatus.resolve(lifecycles: lifecycles) == .needsInput)
+        #expect(AgentStatus.resolve(lifecycles: lifecycles).tintHex == AgentStatus.needsInput.tintHex)
     }
 
     @Test
-    func agentPaneStateBorderPrefersErrorOverEverything() {
+    func agentStatusResolvePrefersErrorOverEverything() {
         // Error/quota is the loudest signal: it has to win even while a
         // sibling status key still reports the agent as blocked or working.
         let lifecycles: [String: AgentHibernationLifecycleState] = [
@@ -771,35 +769,29 @@ final class WorkspaceContentViewVisibilityTests {
             "claude_code": .running,
         ]
 
-        #expect(AgentPaneStateBorder.state(lifecycles: lifecycles) == .error)
-        #expect(
-            AgentPaneStateBorder.colorHex(lifecycles: lifecycles)
-                == AgentPaneStateBorder.errorHex
-        )
+        #expect(AgentStatus.resolve(lifecycles: lifecycles) == .error)
+        #expect(AgentStatus.resolve(lifecycles: lifecycles).tintHex == AgentStatus.error.tintHex)
     }
 
     @Test
-    func agentPaneStateBorderRanksRunningOverIdle() {
+    func agentStatusResolveRanksRunningOverIdle() {
         #expect(
-            AgentPaneStateBorder.state(lifecycles: ["codex": .idle, "claude_code": .running])
+            AgentStatus.resolve(lifecycles: ["codex": .idle, "claude_code": .running])
                 == .running
         )
-        #expect(
-            AgentPaneStateBorder.colorHex(lifecycles: ["claude_code": .idle])
-                == AgentPaneStateBorder.idleHex
-        )
+        #expect(AgentStatus.resolve(lifecycles: ["claude_code": .idle]) == .idle)
     }
 
     @Test
-    func agentPaneStateBorderIgnoresManualAndUnknownKeys() {
+    func agentStatusResolveTreatsManualUnknownAndEmptyAsNone() {
         // `manual` / `manual:<id>` drive the sidebar loading spinner, not an
         // agent, and `unknown` doubles as "no agent is running here".
-        #expect(AgentPaneStateBorder.state(lifecycles: ["manual": .running]) == nil)
-        #expect(AgentPaneStateBorder.state(lifecycles: ["manual:abc": .needsInput]) == nil)
-        #expect(AgentPaneStateBorder.state(lifecycles: ["codex": .unknown]) == nil)
-        #expect(AgentPaneStateBorder.state(lifecycles: [:]) == nil)
+        #expect(AgentStatus.resolve(lifecycles: ["manual": .running]) == .none)
+        #expect(AgentStatus.resolve(lifecycles: ["manual:abc": .needsInput]) == .none)
+        #expect(AgentStatus.resolve(lifecycles: ["codex": .unknown]) == .none)
+        #expect(AgentStatus.resolve(lifecycles: [:]) == .none)
         #expect(
-            AgentPaneStateBorder.state(lifecycles: ["manual": .needsInput, "codex": .idle])
+            AgentStatus.resolve(lifecycles: ["manual": .needsInput, "codex": .idle])
                 == .idle
         )
     }
@@ -820,7 +812,7 @@ final class WorkspaceContentViewVisibilityTests {
                 enabled: true,
                 revision: 0,
                 lifecycles: running
-            ) == WorkspaceAttentionColor(configuredHex: AgentPaneStateBorder.runningHex)
+            ) == WorkspaceAttentionColor(configuredHex: AgentStatus.running.tintHex)
         )
     }
 
@@ -828,7 +820,7 @@ final class WorkspaceContentViewVisibilityTests {
     func agentPaneStateColorBordersAgentlessPanesBlack() {
         // A pane with no agent reporting — or only unknown states — is a plain
         // terminal and takes the neutral black border rather than none.
-        let noAgent = WorkspaceAttentionColor(configuredHex: AgentPaneStateBorder.noAgentHex)
+        let noAgent = WorkspaceAttentionColor(configuredHex: PaneChromeSettings.noAgentPaneBorderHex)
         #expect(
             WorkspaceContentView.agentPaneStateColor(
                 enabled: true,
@@ -860,12 +852,12 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
-    func agentPaneStateBorderHexesAreStrictSixDigitHex() {
+    func agentPaneStateColorHexesAreStrictSixDigitHex() {
         // WorkspaceAttentionColor silently falls back to the notification ring
         // accent for anything that is not exactly `#RRGGBB`, so a typo in the
         // palette would render as the unread-ring color instead of failing.
-        for state in AgentPaneState.allCases {
-            let hex = AgentPaneStateBorder.colorHex(for: state)
+        for status in AgentStatus.allCases where status.tintHex != nil {
+            let hex = try! #require(status.tintHex)
             let isSixDigitHex = hex.count == 7
                 && hex.hasPrefix("#")
                 && !hex.dropFirst().contains(where: { !$0.isHexDigit })
