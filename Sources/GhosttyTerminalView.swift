@@ -11941,7 +11941,7 @@ final class GhosttySurfaceScrollView: NSView {
         let shouldShowScrollBar = shouldShowTerminalScrollBar()
         let didChange =
             scrollView.hasVerticalScroller != shouldShowScrollBar ||
-            scrollView.autohidesScrollers != false
+            scrollView.autohidesScrollers
         scrollView.hasVerticalScroller = shouldShowScrollBar
         // Keep the scroller visible whenever terminal scrollback exists. The
         // scroller style itself is intentionally left to AppKit, which follows
