@@ -4038,6 +4038,10 @@ class TabManager: ObservableObject {
         focusHistoryNavigation.focusHistoryMenuSnapshot(direction: direction, maxItemCount: maxItemCount)
     }
 
+    func recentlyFocusedFocusHistoryMenuItems(maxItemCount: Int) -> [FocusHistoryMenuItem] {
+        focusHistoryNavigation.recentlyFocusedFocusHistoryMenuItems(maxItemCount: maxItemCount)
+    }
+
     @discardableResult
     func navigateToFocusHistoryMenuItem(_ item: FocusHistoryMenuItem) -> Bool {
         focusHistoryNavigation.navigateToFocusHistoryMenuItem(item)

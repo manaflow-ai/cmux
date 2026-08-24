@@ -1,4 +1,5 @@
 import CmuxWorkspaces
+import Combine
 import Darwin
 import CmuxCore
 import XCTest
@@ -377,6 +378,35 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         _ = manager.addWorkspace(select: true)
 
         XCTAssertGreaterThan(notificationCount, 0)
+    }
+
+    func testFocusHistoryMenuInvalidatorSuppressesIdenticalProjection() {
+        let center = NotificationCenter()
+        let manager = TabManager()
+        let closedHistory = ClosedItemHistoryStore(
+            fileURL: nil,
+            loadPersisted: false
+        )
+        let invalidator = FocusHistoryMenuInvalidator(
+            center: center,
+            closedItemHistoryStore: closedHistory,
+            managerProvider: { manager }
+        )
+        var stateEmissionCount = 0
+        let cancellable = invalidator.$state.sink { _ in
+            stateEmissionCount += 1
+        }
+        defer { cancellable.cancel() }
+
+        invalidator.refreshIfNeeded()
+        let countAfterFirstRefresh = stateEmissionCount
+        invalidator.refreshIfNeeded()
+
+        XCTAssertEqual(stateEmissionCount, countAfterFirstRefresh)
+
+        _ = manager.addWorkspace(select: true)
+        center.post(name: .tabManagerFocusHistoryRevisionDidChange, object: manager)
+        XCTAssertGreaterThan(stateEmissionCount, countAfterFirstRefresh)
     }
 
     func testFocusHistoryNavigationNotificationSeesUpdatedDirectionState() throws {

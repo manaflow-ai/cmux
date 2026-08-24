@@ -91,7 +91,7 @@ struct ClosedItemHistoryRecord: Identifiable, Codable {
     }
 }
 
-struct ClosedItemHistoryMenuItem: Identifiable {
+struct ClosedItemHistoryMenuItem: Identifiable, Equatable {
     let id: UUID
     let title: String
     let detail: String
@@ -117,7 +117,7 @@ struct ClosedItemHistoryMenuItem: Identifiable {
     }
 }
 
-struct ClosedItemHistoryMenuSnapshot {
+struct ClosedItemHistoryMenuSnapshot: Equatable {
     let items: [ClosedItemHistoryMenuItem]
     let totalItemCount: Int
     let isLimited: Bool

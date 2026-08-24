@@ -6,44 +6,40 @@ extension cmuxApp {
     @CommandsBuilder
     var historyCommands: some Commands {
         CommandMenu(String(localized: "menu.history.title", defaultValue: "History")) {
-            let historyTabManager = activeTabManager
-            let recentlyFocusedSnapshot = recentlyFocusedMenuSnapshot(manager: historyTabManager)
-            let recentlyClosedSnapshot = recentlyClosedMenuSnapshot
+            let historyState = focusHistoryMenuInvalidator.state
 
             splitCommandButton(title: String(localized: "menu.history.focusBack", defaultValue: "Focus Back"), shortcut: menuShortcut(for: .focusHistoryBack)) {
-                historyTabManager.navigateBack()
+                activeTabManager.navigateBack()
             }
             .disabled(!canNavigateFocusHistoryBack)
 
             splitCommandButton(title: String(localized: "menu.history.focusForward", defaultValue: "Focus Forward"), shortcut: menuShortcut(for: .focusHistoryForward)) {
-                historyTabManager.navigateForward()
+                activeTabManager.navigateForward()
             }
             .disabled(!canNavigateFocusHistoryForward)
 
             Divider()
 
             recentlyFocusedMenuSection(
-                manager: historyTabManager,
-                snapshot: recentlyFocusedSnapshot
+                snapshot: historyState.recentlyFocused
             )
 
             Divider()
 
             splitCommandButton(title: String(localized: "menu.history.reopenClosedWorkspace", defaultValue: "Reopen Closed Workspace"), shortcut: menuShortcut(for: .reopenClosedWorkspace)) {
-                if AppDelegate.shared?.reopenMostRecentlyClosedWorkspace(preferredTabManager: historyTabManager) != true {
+                if AppDelegate.shared?.reopenMostRecentlyClosedWorkspace(preferredTabManager: activeTabManager) != true {
                     NSSound.beep()
                 }
             }
 
             splitCommandButton(title: String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed"), shortcut: menuShortcut(for: .reopenClosedBrowserPanel)) {
-                if AppDelegate.shared?.reopenMostRecentlyClosedItem(preferredTabManager: historyTabManager) != true {
+                if AppDelegate.shared?.reopenMostRecentlyClosedItem(preferredTabManager: activeTabManager) != true {
                     NSSound.beep()
                 }
             }
 
             recentlyClosedMenuSection(
-                manager: historyTabManager,
-                snapshot: recentlyClosedSnapshot
+                snapshot: historyState.recentlyClosed
             )
 
             Divider()
@@ -58,7 +54,6 @@ extension cmuxApp {
 
     @ViewBuilder
     private func recentlyFocusedMenuSection(
-        manager: TabManager,
         snapshot: FocusHistoryMenuSnapshot
     ) -> some View {
         Button(historyMenuSectionTitle(
@@ -73,7 +68,7 @@ extension cmuxApp {
         } else {
             ForEach(snapshot.items, id: \.historyIndex) { item in
                 Button(FocusHistoryMenuFormatter.menuTitle(for: item)) {
-                    if !manager.navigateToFocusHistoryMenuItem(item) {
+                    if !activeTabManager.navigateToFocusHistoryMenuItem(item) {
                         NSSound.beep()
                     }
                 }
@@ -84,7 +79,6 @@ extension cmuxApp {
 
     @ViewBuilder
     private func recentlyClosedMenuSection(
-        manager: TabManager,
         snapshot: ClosedItemHistoryMenuSnapshot
     ) -> some View {
         Button(historyMenuSectionTitle(
@@ -101,7 +95,7 @@ extension cmuxApp {
                 Button(item.menuTitle) {
                     if AppDelegate.shared?.reopenClosedHistoryItem(
                         id: item.id,
-                        preferredTabManager: manager
+                        preferredTabManager: activeTabManager
                     ) != true {
                         NSSound.beep()
                     }
@@ -111,35 +105,15 @@ extension cmuxApp {
     }
 
     private var canNavigateFocusHistoryBack: Bool {
-        let _ = focusHistoryMenuInvalidator.revision
-        let manager = activeTabManager
-        return manager.canNavigateBack
+        focusHistoryMenuInvalidator.state.canNavigateBack
     }
 
     private var canNavigateFocusHistoryForward: Bool {
-        let _ = focusHistoryMenuInvalidator.revision
-        let manager = activeTabManager
-        return manager.canNavigateForward
-    }
-
-    private var recentlyClosedMenuSnapshot: ClosedItemHistoryMenuSnapshot {
-        let _ = closedItemHistoryStore.revision
-        return closedItemHistoryStore.menuSnapshot(maxItemCount: 10)
+        focusHistoryMenuInvalidator.state.canNavigateForward
     }
 
     private func historyMenuSectionTitle(title: String, subtitle: String) -> String {
         HistoryMenuLineFormatter.titleWithSubtitle(title: title, subtitle: subtitle)
-    }
-
-    private func recentlyFocusedMenuSnapshot(manager: TabManager) -> FocusHistoryMenuSnapshot {
-        let _ = focusHistoryMenuInvalidator.revision
-        let back = manager.focusHistoryMenuSnapshot(direction: .back)
-        let forward = manager.focusHistoryMenuSnapshot(direction: .forward)
-        return FocusHistoryMenuSnapshot.recentlyFocused(
-            back: back,
-            forward: forward,
-            maxItemCount: 10
-        )
     }
 
 }

@@ -262,19 +262,28 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
         )
     }
 
-    private func focusHistoryEntryResolvesToCurrent(_ entry: FocusHistoryEntry, currentEntry: FocusHistoryEntry?) -> Bool {
-        guard let currentEntry,
-              let resolvedEntry = resolvedFocusHistoryEntry(for: entry) else { return false }
-        return resolvedEntry == currentEntry
+    private func focusHistoryEntryIsNavigable(_ entry: FocusHistoryEntry, currentEntry: FocusHistoryEntry?) -> Bool {
+        let scope = navigationScope()
+        guard let resolvedEntry = resolvedFocusHistoryEntry(for: entry) else { return false }
+        return focusHistoryEntryIsNavigable(
+            entry: entry,
+            resolvedEntry: resolvedEntry,
+            scope: scope,
+            currentEntry: currentEntry
+        )
     }
 
-    private func focusHistoryEntryIsNavigable(_ entry: FocusHistoryEntry, currentEntry: FocusHistoryEntry?) -> Bool {
-        guard resolvedFocusHistoryEntry(for: entry) != nil else { return false }
-        if navigationScope() == .workspacesOnly,
+    private func focusHistoryEntryIsNavigable(
+        entry: FocusHistoryEntry,
+        resolvedEntry: FocusHistoryEntry,
+        scope: FocusHistoryNavigationScope,
+        currentEntry: FocusHistoryEntry?
+    ) -> Bool {
+        if scope == .workspacesOnly,
            entry.workspaceId == currentEntry?.workspaceId {
             return false
         }
-        if focusHistoryEntryResolvesToCurrent(entry, currentEntry: currentEntry) { return false }
+        if let currentEntry, resolvedEntry == currentEntry { return false }
         return true
     }
 
@@ -311,7 +320,12 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
             let scopedEntry = navigationEntry(for: entry)
             guard let resolvedEntry = resolvedFocusHistoryEntry(for: scopedEntry),
                   let rawWorkspaceTitle = host?.workspaceTitle(resolvedEntry.workspaceId),
-                  focusHistoryEntryIsNavigable(scopedEntry, currentEntry: currentEntry) else {
+                  focusHistoryEntryIsNavigable(
+                      entry: scopedEntry,
+                      resolvedEntry: resolvedEntry,
+                      scope: scope,
+                      currentEntry: currentEntry
+                  ) else {
                 return nil
             }
             if scope == .workspacesOnly, previousWorkspaceId == entry.workspaceId {
@@ -350,6 +364,99 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
             totalItemCount: items.count,
             isLimited: false
         )
+    }
+
+    /// Builds the recency-ordered rows shared by the main History menu.
+    /// Raw records are sorted before resolving host state, which keeps the
+    /// lookup work bounded to the rendered limit without relying on index
+    /// order after an in-place timestamp rewrite.
+    public func recentlyFocusedFocusHistoryMenuItems(maxItemCount: Int) -> [FocusHistoryMenuItem] {
+        let limit = max(0, maxItemCount)
+        guard limit > 0 else { return [] }
+
+        let currentEntry = currentFocusHistoryEntry
+        let scope = navigationScope()
+
+        struct Candidate {
+            let index: Int
+            let record: FocusHistoryRecord
+            let direction: FocusHistoryMenuDirection
+        }
+
+        // Filter consecutive workspace duplicates in each direction before
+        // sorting. The final sort is by the stored timestamp rather than index:
+        // recordFocusInHistory can rewrite a mid-stack timestamp in place.
+        var candidates: [Candidate] = []
+        var previousBackWorkspaceId: UUID?
+        if historyIndex > 0 {
+            for index in stride(from: historyIndex - 1, through: 0, by: -1) {
+                let record = focusHistory[index]
+                if scope == .workspacesOnly,
+                   previousBackWorkspaceId == record.entry.workspaceId {
+                    continue
+                }
+                previousBackWorkspaceId = record.entry.workspaceId
+                candidates.append(Candidate(index: index, record: record, direction: .back))
+            }
+        }
+
+        var previousForwardWorkspaceId: UUID?
+        if historyIndex < focusHistory.count - 1 {
+            for index in (historyIndex + 1)..<focusHistory.count {
+                let record = focusHistory[index]
+                if scope == .workspacesOnly,
+                   previousForwardWorkspaceId == record.entry.workspaceId {
+                    continue
+                }
+                previousForwardWorkspaceId = record.entry.workspaceId
+                candidates.append(Candidate(index: index, record: record, direction: .forward))
+            }
+        }
+
+        candidates.sort { lhs, rhs in
+            if lhs.record.focusedAt == rhs.record.focusedAt {
+                return lhs.index > rhs.index
+            }
+            return lhs.record.focusedAt > rhs.record.focusedAt
+        }
+
+        var items: [FocusHistoryMenuItem] = []
+        items.reserveCapacity(limit)
+        for candidate in candidates {
+            let entry = candidate.record.entry
+            let scopedEntry = navigationEntry(for: entry)
+            guard let resolvedEntry = resolvedFocusHistoryEntry(for: scopedEntry),
+                  let rawWorkspaceTitle = host?.workspaceTitle(resolvedEntry.workspaceId),
+                  focusHistoryEntryIsNavigable(
+                      entry: scopedEntry,
+                      resolvedEntry: resolvedEntry,
+                      scope: scope,
+                      currentEntry: currentEntry
+                  ) else {
+                continue
+            }
+
+            let workspaceTitle = rawWorkspaceTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            let panelTitle = scope == .workspacesOnly
+                ? nil
+                : resolvedEntry.panelId
+                    .flatMap { host?.panelTitle(workspaceId: resolvedEntry.workspaceId, panelId: $0) }?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            let position: FocusHistoryMenuPosition = candidate.direction == .back ? .older : .newer
+            items.append(FocusHistoryMenuItem(
+                historyIndex: candidate.index,
+                entry: scopedEntry,
+                workspaceTitle: workspaceTitle,
+                panelTitle: panelTitle?.isEmpty == true ? nil : panelTitle,
+                position: position,
+                focusedAt: candidate.record.focusedAt,
+                isNavigable: true
+            ))
+            if items.count == limit {
+                break
+            }
+        }
+        return items
     }
 
     // MARK: - Navigation

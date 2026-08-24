@@ -125,7 +125,6 @@ struct cmuxApp: App {
         let notificationStore = TerminalNotificationStore.shared
         let closedItemHistoryStore = ClosedItemHistoryStore.shared
         let sidebarState = SidebarState()
-        let focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
         self.authComposition = authComposition
 
         // If invoked with CLI-style arguments (e.g. `cmux hooks setup`), exec the
@@ -199,6 +198,13 @@ struct cmuxApp: App {
             workspaceCustomizationStore: workspaceCustomizationStore,
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
         )
+        let focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator(
+            managerProvider: {
+                AppDelegate.shared?.activeTabManagerForCommands(
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                ) ?? tabManager
+            }
+        )
         _tabManager = StateObject(wrappedValue: tabManager)
         _notificationStore = StateObject(wrappedValue: notificationStore)
         _closedItemHistoryStore = StateObject(wrappedValue: closedItemHistoryStore)
@@ -239,6 +245,7 @@ struct cmuxApp: App {
             settingsRuntime: settingsRuntime,
             auth: authComposition
         )
+        focusHistoryMenuInvalidator.refreshIfNeeded()
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }
 
