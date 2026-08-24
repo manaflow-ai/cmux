@@ -654,6 +654,14 @@ struct SidebarWorkspaceTableTests {
         clipView.bounds = bounds
         clipView.postsBoundsChangedNotifications = postsBoundsChanges
 
+        let preFlushServedHeight = controller.tableView(container.tableView, heightOfRow: 0)
+        let preFlushTableHeight = container.tableView.rect(ofRow: 0).height
+            - container.tableView.intercellSpacing.height
+        #expect(
+            abs(preFlushServedHeight - preFlushTableHeight) < 0.5,
+            "A width change must keep the installed pump height until viewport remeasurement runs."
+        )
+
         workspace.setCustomTitle("pump after width change")
         controller.apply(
             rows: [row],

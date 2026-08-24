@@ -777,6 +777,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             return override
         }
         let columnWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : liveWidth
+        // Keep the height currently installed in AppKit until the staged
+        // viewport pass can replace it with a measurement at the new width.
+        // A pump callback may have painted a newer model at the settled width
+        // just before the clip bounds changed.
+        if columnWidth != liveWidth,
+           let override = pumpHeightOverride(for: configuration.id, columnWidth: columnWidth) {
+            return override
+        }
         return rowHeightCache.height(
             for: configuration,
             columnWidth: columnWidth
