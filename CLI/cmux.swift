@@ -31763,65 +31763,70 @@ export default CMUXSessionRestore;
                         surfaceId: surfaceId
                     )
                 }
-                switch latest.runtimeStatus {
-                case .running?:
-                    setAgentLifecycle(
-                        client: client,
-                        key: def.statusKey,
-                        lifecycle: .running,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId
-                    )
-                    let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
-                    _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                        client: client
-                    )
-                case .idle?:
-                    if !hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
+                // A stored `.error` lifecycle is more specific than raw process
+                // liveness: the agent errored, and merely being alive does not
+                // clear that. Only a new hook event may.
+                if latest.agentLifecycle != .error {
+                    switch latest.runtimeStatus {
+                    case .running?:
                         setAgentLifecycle(
                             client: client,
                             key: def.statusKey,
-                            lifecycle: .idle,
+                            lifecycle: .running,
                             workspaceId: workspaceId,
                             surfaceId: surfaceId
                         )
+                        let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
+                        _ = try? sendV1Command(
+                            "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                            client: client
+                        )
+                    case .idle?:
+                        if !hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
+                            setAgentLifecycle(
+                                client: client,
+                                key: def.statusKey,
+                                lifecycle: .idle,
+                                workspaceId: workspaceId,
+                                surfaceId: surfaceId
+                            )
+                        }
+                        setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
+                    case .needsInput?:
+                        setAgentLifecycle(
+                            client: client,
+                            key: def.statusKey,
+                            lifecycle: .needsInput,
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId
+                        )
+                        let statusValue = String.localizedStringWithFormat(
+                            String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
+                            def.displayName
+                        )
+                        _ = try? sendV1Command(
+                            "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                            client: client
+                        )
+                    case .error?:
+                        setAgentLifecycle(
+                            client: client,
+                            key: def.statusKey,
+                            lifecycle: .error,
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId
+                        )
+                        let statusValue = String.localizedStringWithFormat(
+                            String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
+                            def.displayName
+                        )
+                        _ = try? sendV1Command(
+                            "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                            client: client
+                        )
+                    case nil:
+                        break
                     }
-                    setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
-                case .needsInput?:
-                    setAgentLifecycle(
-                        client: client,
-                        key: def.statusKey,
-                        lifecycle: .needsInput,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId
-                    )
-                    let statusValue = String.localizedStringWithFormat(
-                        String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
-                        def.displayName
-                    )
-                    _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                        client: client
-                    )
-                case .error?:
-                    setAgentLifecycle(
-                        client: client,
-                        key: def.statusKey,
-                        lifecycle: .error,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId
-                    )
-                    let statusValue = String.localizedStringWithFormat(
-                        String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
-                        def.displayName
-                    )
-                    _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                        client: client
-                    )
-                case nil:
-                    break
                 }
             }
             func stopStaleCodexPromptSubmit(restoreVisibleState: Bool = false) {

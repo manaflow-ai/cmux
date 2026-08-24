@@ -351,6 +351,7 @@ extension DockSplitStore {
             detachedSurfaceTransfersByPanelId[panelId] = transfer
         }
         if updatesAgentAttention {
+            agentLifecycleRevision &+= 1
             syncAgentNeedsInputAttention(
                 panelId: panelId,
                 runtime: shouldKeep ? runtime : nil

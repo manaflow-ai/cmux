@@ -14,6 +14,9 @@ struct DockSplitContentView: View {
     let unreadPanelIDs: Set<UUID>
 
     var body: some View {
+        // Read the agent lifecycle revision so any Dock agent status change
+        // re-invokes the content builder below with fresh border colors.
+        let _ = store.agentLifecycleRevision
         BonsplitView(controller: store.bonsplitController) { tab, paneId in
             dockContent(tab: tab, paneId: paneId)
         } emptyPane: { paneId in

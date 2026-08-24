@@ -16,6 +16,7 @@ struct DockSplitPanelContentView: View, Equatable {
         let rightSidebarOwnsInputFocus: Bool
         let hasUnreadNotification: Bool
         let appearanceRevision: UInt
+        let agentLifecycleRevision: UInt64
     }
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
@@ -64,12 +65,22 @@ struct DockSplitPanelContentView: View, Equatable {
             paneID: paneID,
             rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus,
             hasUnreadNotification: hasUnreadNotification,
-            appearanceRevision: appearanceRevision
+            appearanceRevision: appearanceRevision,
+            agentLifecycleRevision: store.agentLifecycleRevision
         )
     }
 
+    @AppStorage(PaneChromeSettings.agentStateBorderKey)
+    private var agentStateBorderEnabled = PaneChromeSettings.defaultAgentStateBorderEnabled
+
     var body: some View {
+        let agentStateBorderColor = WorkspaceContentView.agentPaneStateColor(
+            enabled: agentStateBorderEnabled,
+            revision: renderSnapshot.agentLifecycleRevision,
+            lifecycles: store.agentRuntimeByPanelId[panel.id]?.agentLifecycleStates
+        )
         panelContentView()
+            .environment(\.agentPaneStateColor, agentStateBorderColor)
     }
 
     func panelContentView() -> PanelContentView {

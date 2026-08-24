@@ -84,6 +84,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// Live agent runtime owned by Dock panels. The matching transfer snapshot
     /// is kept in sync so the state survives Dock-to-workspace moves.
     @ObservationIgnored var agentRuntimeByPanelId: [UUID: Workspace.DetachedAgentRuntimeState] = [:]
+    /// Bumped on every agent lifecycle mutation so Dock panel views re-resolve
+    /// their agent-state border color. Read by `DockSplitPanelContentView` to
+    /// take a SwiftUI dependency on the `@ObservationIgnored` runtime map.
+    var agentLifecycleRevision: UInt64 = 0
     @ObservationIgnored var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
     @ObservationIgnored let terminalStartupRestoreCoordinator: TerminalStartupRestoreCoordinator
     var restoredAgentLifecycle: RestoredAgentLifecycleCoordinator {

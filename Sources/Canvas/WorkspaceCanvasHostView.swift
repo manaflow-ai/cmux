@@ -27,6 +27,11 @@ struct WorkspaceCanvasHostView: View {
     private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
     @AppStorage(SessionContentWidthSettings.alignmentKey)
     private var storedSessionContentAlignment = SessionContentAlignment.center.rawValue
+    @AppStorage(PaneChromeSettings.agentStateBorderKey)
+    private var agentStateBorderEnabled = PaneChromeSettings.defaultAgentStateBorderEnabled
+    /// Bumped by the agent-runtime observation below so `body` re-runs and
+    /// re-resolves every pane's agent-state border.
+    @State private var agentLifecycleRevision: UInt64 = 0
 
     var body: some View {
         CanvasRootRepresentable(
@@ -35,6 +40,12 @@ struct WorkspaceCanvasHostView: View {
             focusedPanelId: workspace.focusedPanelId,
             isWorkspaceVisible: isWorkspaceVisible
         )
+        .sidebarAgentRuntimeObservation(
+            id: workspace.id,
+            model: workspace.sidebarAgentRuntimeObservation
+        ) {
+            agentLifecycleRevision &+= 1
+        }
     }
 
     private var descriptors: [CanvasPaneDescriptor] {
@@ -48,6 +59,13 @@ struct WorkspaceCanvasHostView: View {
         return workspace.orderedPanelIds.compactMap { panelId in
             guard let panel = workspace.panels[panelId] else { return nil }
             let isFocused = isWorkspaceInputActive && focusedPanelId == panelId
+            // `agentLifecycleRevision` is read here purely to register the body's
+            // dependency on the agent-runtime observation counter.
+            let agentPaneStateColor = WorkspaceContentView.agentPaneStateColor(
+                enabled: agentStateBorderEnabled,
+                revision: agentLifecycleRevision,
+                lifecycles: workspace.agentLifecycleStatesByPanelId[panelId]
+            )
             return CanvasPaneDescriptor(
                 id: panelId,
                 tab: CanvasTabChrome(
@@ -76,6 +94,7 @@ struct WorkspaceCanvasHostView: View {
                         panelId: panelId,
                         container: container,
                         workspaceAttentionColor: workspaceAttentionColor,
+                        agentPaneStateColor: agentPaneStateColor,
                         onFocusPanel: { [weak workspace] panelId in
                             workspace?.focusPanel(panelId)
                         }
@@ -90,7 +109,8 @@ struct WorkspaceCanvasHostView: View {
                         inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
                         inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
                         sessionContentWidthPresentation: sessionContentWidthPresentation,
-                        workspaceAttentionColor: workspaceAttentionColor
+                        workspaceAttentionColor: workspaceAttentionColor,
+                        agentPaneStateColor: agentPaneStateColor
                     )
                 }
             )

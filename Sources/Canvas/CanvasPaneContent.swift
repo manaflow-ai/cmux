@@ -43,6 +43,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
         panelId: UUID,
         container: NSView,
         workspaceAttentionColor: WorkspaceAttentionColor,
+        agentPaneStateColor: WorkspaceAttentionColor? = nil,
         onFocusPanel: @escaping (UUID) -> Void,
         makeTerminalVisible: @MainActor (GhosttySurfaceScrollView) -> Void = { $0.setVisibleInUI(true) }
     ) {
@@ -62,6 +63,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             TerminalWindowPortalRegistry.detach(hostedView: hostedView)
             hostedView.setSessionContentWidthPresentation(sessionContentWidthPresentation)
             hostedView.setWorkspaceAttentionColor(workspaceAttentionColor)
+            hostedView.setNotificationRing(color: agentPaneStateColor?.nsColor)
             hostedView.setFocusHandler { [weak self] in
                 guard let self else { return }
                 self.onFocusPanel?(self.panelId)
@@ -129,13 +131,15 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
         inactiveOverlayColor: NSColor,
         inactiveOverlayOpacity: Double,
         sessionContentWidthPresentation: SessionContentWidthPresentation,
-        workspaceAttentionColor: WorkspaceAttentionColor
+        workspaceAttentionColor: WorkspaceAttentionColor,
+        agentPaneStateColor: WorkspaceAttentionColor? = nil
     ) {
         switch content {
         case .terminal(let panel, _):
             let hostedView = panel.hostedView
             hostedView.setSessionContentWidthPresentation(sessionContentWidthPresentation)
             hostedView.setWorkspaceAttentionColor(workspaceAttentionColor)
+            hostedView.setNotificationRing(color: agentPaneStateColor?.nsColor)
             hostedView.setActive(isFocused)
             hostedView.setInactiveOverlay(
                 color: inactiveOverlayColor,

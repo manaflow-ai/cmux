@@ -325,6 +325,7 @@ struct WorkspaceContentView: View {
                                 }
                         )
                     )
+                    .environment(\.agentPaneStateColor, agentStateBorderColor)
                     .onTapGesture {
                         workspace.focusRemoteTmuxContainerPaneIfNeeded(paneId)
                     }
