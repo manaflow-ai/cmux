@@ -175,6 +175,79 @@ struct ClaudeTaskSyncHookTests {
         #expect(persistedRecord["surfaceId"] as? String == surfaceId)
     }
 
+    @Test("A late task hook cannot resurrect a session consumed by SessionEnd")
+    func rejectsTaskSyncAfterSessionEnd() throws {
+        let context = try ClaudeHookLiveDeliveryHarness.makeContext(
+            name: "task-sync-after-session-end"
+        )
+        defer { context.cleanup() }
+        let workspaceId = "38383838-3838-3838-3838-383838383838"
+        let surfaceId = "39393939-3939-3939-3939-393939393939"
+        let sessionId = "ended-task-session"
+        let taskDirectory = context.root
+            .appendingPathComponent(".claude/tasks/\(sessionId)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: taskDirectory,
+            withIntermediateDirectories: true
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Should not resurrect","status":"pending"}"#,
+            named: "1.json",
+            in: taskDirectory
+        )
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+            context: context,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+        var environment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        let initialResult = runHook(
+            context: context,
+            environment: environment,
+            sessionId: sessionId,
+            toolName: "TaskCreate"
+        )
+        #expect(!initialResult.timedOut, Comment(rawValue: initialResult.stderr))
+        #expect(initialResult.status == 0, Comment(rawValue: initialResult.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        let reconciliationCountBeforeEnd = reconcileRequests(in: context).count
+
+        let endResult = ClaudeHookLiveDeliveryHarness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            environment: environment,
+            standardInput: #"{"session_id":"ended-task-session","hook_event_name":"SessionEnd","cwd":"/tmp"}"#
+        )
+        #expect(!endResult.timedOut, Comment(rawValue: endResult.stderr))
+        #expect(endResult.status == 0, Comment(rawValue: endResult.stderr))
+        #expect(
+            try ClaudeHookLiveDeliveryHarness.sessionRecord(
+                in: context.storeURL,
+                sessionId: sessionId
+            ) == nil
+        )
+
+        let lateResult = runHook(
+            context: context,
+            environment: environment,
+            sessionId: sessionId,
+            toolName: "TaskUpdate"
+        )
+        #expect(!lateResult.timedOut, Comment(rawValue: lateResult.stderr))
+        #expect(lateResult.status == 0, Comment(rawValue: lateResult.stderr))
+        #expect(reconcileRequests(in: context).count == reconciliationCountBeforeEnd)
+        #expect(
+            try ClaudeHookLiveDeliveryHarness.sessionRecord(
+                in: context.storeURL,
+                sessionId: sessionId
+            ) == nil
+        )
+    }
+
     @Test("A personal task list clears its prior workspace after session teardown and resume")
     func movesPersonalTaskOwnerAfterSessionTeardown() throws {
         let context = try ClaudeHookLiveDeliveryHarness.makeContext(
