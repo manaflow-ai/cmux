@@ -211,7 +211,7 @@ extension CMUXCLI {
     /// not consume them as presentation options or generic subcommand help.
     func managedProviderArgumentsPassThrough(command: String) -> Bool {
         switch command {
-        case "claude-teams", "codex-teams", "omo", "omx", "omc":
+        case "__herdr-compat", "claude-teams", "codex-teams", "omo", "omx", "omc":
             return true
         default:
             return false
