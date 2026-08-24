@@ -21,7 +21,10 @@ use serde_json::Value;
 use sha2::{Digest as _, Sha256};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use crate::actions::validate_request_path as validate_action_path;
+use crate::actions::{
+    RootLists, ensure_scoped_file_roots_available,
+    validate_request_path as validate_action_path,
+};
 use crate::preview_proxy::PreviewRegistry;
 use crate::relay_wire as wire;
 use crate::session::OutboundSink;
@@ -1068,6 +1071,20 @@ fn is_mutating(op: &wire::WorkspaceOp) -> bool {
     }
 }
 
+fn uses_scoped_file_paths(op: &wire::WorkspaceOp) -> bool {
+    match op {
+        wire::WorkspaceOp::FsTree(_)
+        | wire::WorkspaceOp::FsRead(_)
+        | wire::WorkspaceOp::FsWrite(_)
+        | wire::WorkspaceOp::FsRename(_)
+        | wire::WorkspaceOp::FsDelete(_)
+        | wire::WorkspaceOp::FsSearch(_)
+        | wire::WorkspaceOp::GitStatus(_)
+        | wire::WorkspaceOp::GitDiff(_) => true,
+        wire::WorkspaceOp::PreviewOpen(_) | wire::WorkspaceOp::PreviewConsoleTail(_) => false,
+    }
+}
+
 /// State that outlives one relay socket: the preview proxies (and their
 /// console ring) keep serving across reconnects because the tunnel keeps
 /// pointing at their ports.
@@ -1081,6 +1098,19 @@ impl SharedRuntime {
     pub fn new(local_roots: Option<Vec<String>>) -> SharedRuntime {
         SharedRuntime { preview: PreviewRegistry::new(), local_roots }
     }
+}
+
+fn ensure_workspace_platform_capabilities(
+    supports_descriptor_scoping: bool,
+    request: &wire::RelayWorkspaceRequest,
+    runtime: &SharedRuntime,
+) -> Result<(), Refusal> {
+    if !uses_scoped_file_paths(&request.op) {
+        return Ok(());
+    }
+    let roots: RootLists<'_> = [runtime.local_roots.as_deref(), request.allowed_roots.as_deref()];
+    ensure_scoped_file_roots_available(supports_descriptor_scoping, &roots)
+        .map_err(|message| Refusal::new(wire::WorkspaceErrorCode::UnsupportedVerb, message))
 }
 
 /// Per-socket workspace state: watches die with the connection (the Worker
@@ -1260,6 +1290,7 @@ async fn execute(
     request: wire::RelayWorkspaceRequest,
     permit: OwnedSemaphorePermit,
 ) -> Result<wire::WorkspaceResultBody, Refusal> {
+    ensure_workspace_platform_capabilities(cfg!(unix), &request, runtime)?;
     if is_mutating(&request.op)
         && (request.trust == wire::TrustLevel::Observe || local_observe.load(Ordering::Relaxed))
     {

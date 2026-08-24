@@ -261,6 +261,33 @@ fn save(config: &Config, config_path: &Path) {
     }
 }
 
+/// Non-Unix builds cannot allocate or attach a PTY. Keep the protocol v4
+/// surface usable by answering the required open/list requests explicitly;
+/// control frames remain idempotent and have no response in the wire contract.
+#[cfg(not(unix))]
+fn unsupported_platform_pty_reply(frame_type: &str, raw: &Value) -> Option<Value> {
+    match frame_type {
+        "pty_open" => raw.get("ptyId").and_then(Value::as_str).map(|pty_id| {
+            serde_json::json!({
+                "version": PTY_PROTOCOL_VERSION,
+                "type": "pty_error",
+                "ptyId": pty_id,
+                "code": "failed",
+                "message": "terminals are not available on this relay platform",
+            })
+        }),
+        "surface_list" => raw.get("requestId").and_then(Value::as_str).map(|request_id| {
+            serde_json::json!({
+                "version": PTY_PROTOCOL_VERSION,
+                "type": "surface_list_result",
+                "requestId": request_id,
+                "surfaces": [],
+            })
+        }),
+        _ => None,
+    }
+}
+
 /// Build a per-frame FrameContext reading the current reconciled auth.
 fn make_context(out: &OutboundSink, pending: &Arc<AtomicU64>, auth: &AuthSnapshot) -> FrameContext {
     let sender = out.clone();
@@ -757,28 +784,7 @@ async fn relay_session(
                         #[cfg(not(unix))]
                         {
                             // Non-Unix relays cannot allocate PTYs; answer typed.
-                            let reply = match frame_type.as_str() {
-                                "pty_open" => raw.get("ptyId").and_then(Value::as_str).map(|id| {
-                                    serde_json::json!({
-                                        "version": PTY_PROTOCOL_VERSION,
-                                        "type": "pty_error",
-                                        "ptyId": id,
-                                        "code": "failed",
-                                        "message": "terminals are not available on this relay platform",
-                                    })
-                                }),
-                                "surface_list" => {
-                                    raw.get("requestId").and_then(Value::as_str).map(|id| {
-                                        serde_json::json!({
-                                            "version": PTY_PROTOCOL_VERSION,
-                                            "type": "surface_list_result",
-                                            "requestId": id,
-                                            "surfaces": [],
-                                        })
-                                    })
-                                }
-                                _ => None,
-                            };
+                            let reply = unsupported_platform_pty_reply(&frame_type, &raw);
                             if let Some(reply) = reply {
                                 let _ = out_tx.critical_value(reply).await;
                             }
@@ -831,4 +837,31 @@ async fn relay_session(
     #[cfg(unix)]
     runtime.pty.detach_all();
     result
+}
+
+#[cfg(all(test, not(unix)))]
+mod tests {
+    use super::*;
+
+    #[cfg(not(unix))]
+    #[test]
+    fn unsupported_pty_requests_get_typed_replies() {
+        let open = unsupported_platform_pty_reply(
+            "pty_open",
+            &serde_json::json!({"ptyId": "pty_1"}),
+        )
+        .expect("pty open refusal");
+        assert_eq!(open["type"], "pty_error");
+        assert_eq!(open["ptyId"], "pty_1");
+        assert_eq!(open["code"], "failed");
+
+        let list = unsupported_platform_pty_reply(
+            "surface_list",
+            &serde_json::json!({"requestId": "list_1"}),
+        )
+        .expect("surface list response");
+        assert_eq!(list["type"], "surface_list_result");
+        assert_eq!(list["requestId"], "list_1");
+        assert_eq!(list["surfaces"], serde_json::json!([]));
+    }
 }

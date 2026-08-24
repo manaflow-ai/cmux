@@ -16,6 +16,7 @@ use tokio::sync::mpsc::{Receiver, Sender, channel};
 
 use crate::relay_wire as wire;
 use crate::session::OutboundSink;
+use crate::actions::{RootLists, ensure_scoped_file_roots_available};
 use crate::workspace::{Refusal, Scope, WORKSPACE_FRAME_VERSION, slash_path};
 
 /// Concurrent watch sessions per machine (WORKSPACE_WATCH_MAX_SESSIONS).
@@ -168,6 +169,17 @@ fn watch_root(
     frame: &wire::RelayFsWatchOpen,
     local_roots: Option<&[String]>,
 ) -> Result<PathBuf, Refusal> {
+    watch_root_with_capabilities(frame, local_roots, cfg!(unix))
+}
+
+fn watch_root_with_capabilities(
+    frame: &wire::RelayFsWatchOpen,
+    local_roots: Option<&[String]>,
+    supports_descriptor_scoping: bool,
+) -> Result<PathBuf, Refusal> {
+    let roots: RootLists<'_> = [local_roots, frame.allowed_roots.as_deref()];
+    ensure_scoped_file_roots_available(supports_descriptor_scoping, &roots)
+        .map_err(|message| Refusal::new(wire::WorkspaceErrorCode::UnsupportedVerb, message))?;
     let scope = Scope::build(frame.allowed_roots.as_deref(), local_roots)?;
     let root = match &frame.root {
         Some(raw) => scope.resolve(raw, false)?,
