@@ -1,7 +1,7 @@
 import Foundation
 
 /// Reads file-backed refs directly and delegates other storage backends to Git.
-struct SystemGitReferenceReader: GitReferenceReading {
+nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     private static let maximumSymbolicReferenceByteCount = 16 * 1_024
     private static let maximumObjectIDByteCount = 128
     /// Configs above this bound use Git plumbing instead of an unbounded scan.
@@ -30,6 +30,20 @@ struct SystemGitReferenceReader: GitReferenceReading {
             return plumbingSnapshot(repository: repository)
         }
         return fileSnapshot(repository: repository)
+    }
+
+    /// Reports whether this repository needs storage-independent Git plumbing.
+    func requiresGitPlumbing(repository: ResolvedGitRepository) -> Bool {
+        if referenceStorageName(repository: repository).map({ $0 != "files" }) == true {
+            return true
+        }
+        return [repository.gitDirectory, repository.commonDirectory].contains { directory in
+            var isDirectory: ObjCBool = false
+            let path = URL(fileURLWithPath: directory)
+                .appendingPathComponent("reftable", isDirectory: true).path
+            return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+                && isDirectory.boolValue
+        }
     }
 
     /// Builds a snapshot from loose/packed reference files.
@@ -162,20 +176,6 @@ struct SystemGitReferenceReader: GitReferenceReading {
             return nil
         }
         return GitMetadataService.normalizedBranchName(output)
-    }
-
-    /// Whether repository metadata declares or contains a non-files ref store.
-    private func requiresGitPlumbing(repository: ResolvedGitRepository) -> Bool {
-        if referenceStorageName(repository: repository).map({ $0 != "files" }) == true {
-            return true
-        }
-        return [repository.gitDirectory, repository.commonDirectory].contains { directory in
-            var isDirectory: ObjCBool = false
-            let path = URL(fileURLWithPath: directory)
-                .appendingPathComponent("reftable", isDirectory: true).path
-            return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
-                && isDirectory.boolValue
-        }
     }
 
     /// Reads the local extensions.refStorage value, if one is declared.

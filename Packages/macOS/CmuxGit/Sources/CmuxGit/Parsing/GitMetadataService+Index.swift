@@ -115,10 +115,31 @@ extension GitMetadataService {
             }
             let gitlinkMode: UInt32 = 0o160000
             if (entry.mode & 0o170000) == gitlinkMode {
-                guard let submoduleCommit = gitlinkWorktreeCommit(
-                    parentRepository: repository,
-                    gitlinkPath: entry.path
-                ) else {
+                let gitlinkPath = Self.joinedPath(
+                    root: repository.workTreeRoot,
+                    relativePath: entry.path
+                )
+                guard let submoduleRepository = Self.resolveGitRepository(containing: gitlinkPath),
+                      submoduleRepository.workTreeRoot == gitlinkPath else {
+                    return GitTrackedChangesResolution(
+                        snapshot: GitTrackedChangesSnapshot(
+                            isDirty: true,
+                            indexSignature: indexSnapshot.signature,
+                            indexContentSignature: indexSnapshot.contentSignature
+                        )
+                    )
+                }
+                if referenceReader.requiresGitPlumbing(repository: submoduleRepository) {
+                    return gitStatusFallbackSnapshot(
+                        repository: repository,
+                        indexSignature: nil,
+                        indexContentSignature: nil,
+                        reason: .submoduleReferenceBackend
+                    )
+                }
+                guard let submoduleCommit = referenceReader
+                    .snapshot(repository: submoduleRepository)
+                    .currentCommit else {
                     return GitTrackedChangesResolution(
                         snapshot: GitTrackedChangesSnapshot(
                             isDirty: true,
@@ -367,23 +388,6 @@ extension GitMetadataService {
             remaining >>= 4
         }
         return String(decoding: encoded, as: UTF8.self)
-    }
-
-    /// The submodule's currently checked-out commit for a parent gitlink entry,
-    /// or `nil` when the submodule cannot be resolved.
-    nonisolated func gitlinkWorktreeCommit(
-        parentRepository: ResolvedGitRepository,
-        gitlinkPath: String
-    ) -> String? {
-        let gitlinkPath = Self.joinedPath(
-            root: parentRepository.workTreeRoot,
-            relativePath: gitlinkPath
-        )
-        guard let submoduleRepository = Self.resolveGitRepository(containing: gitlinkPath),
-              submoduleRepository.workTreeRoot == gitlinkPath else {
-            return nil
-        }
-        return referenceReader.snapshot(repository: submoduleRepository).currentCommit
     }
 
     /// Maps a stat mode to the git index mode word for comparison

@@ -46,6 +46,7 @@ enum GitMetadataDegradationReason: Hashable, Sendable, CustomStringConvertible {
     case trackedEntryLimit(count: Int, limit: Int)
     case indexByteLimit(count: Int64, limit: Int)
     case directScanDuration(milliseconds: Int)
+    case submoduleReferenceBackend
 
     var description: String {
         switch self {
@@ -55,6 +56,8 @@ enum GitMetadataDegradationReason: Hashable, Sendable, CustomStringConvertible {
             return "index-byte-limit bytes=\(count) limit=\(limit)"
         case .directScanDuration(let milliseconds):
             return "direct-scan-duration limitMs=\(milliseconds)"
+        case .submoduleReferenceBackend:
+            return "submodule-reference-backend"
         }
     }
 }
