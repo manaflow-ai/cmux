@@ -120,7 +120,9 @@ On first launch, macOS may ask you to confirm opening an app from an identified 
 
 ### Shell completion
 
-Add the matching line to your shell startup file, then start a new shell:
+The Homebrew cask installs completions for zsh, bash, and fish. Start a new shell after installing. If they don't load, make sure Homebrew's completion directories are wired into your shell (see [Homebrew's shell completion docs](https://docs.brew.sh/Shell-Completion)).
+
+If you installed cmux another way, add the matching line to your shell startup file, then start a new shell:
 
 ```bash
 # zsh
