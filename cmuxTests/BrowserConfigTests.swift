@@ -5599,6 +5599,7 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         let callbackURL = try XCTUnwrap(
             URL(string: "\(AuthEnvironment.callbackScheme)://callback?code=1")
         )
+        defaults.set([".*"], forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
         XCTAssertFalse(
             BrowserLinkOpenSettings.shouldOpenExternally(
                 callbackURL,
