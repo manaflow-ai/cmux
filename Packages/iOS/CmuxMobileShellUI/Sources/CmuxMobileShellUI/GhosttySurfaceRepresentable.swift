@@ -433,10 +433,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         return
                     }
                     surfaceView.markViewportReportConfirmed(reportID: report.id)
+                    // Consume the generation entry for EVERY reply: a
+                    // confirmation without render metadata would otherwise
+                    // strand its entry until remount.
+                    let generation = self.viewportReportGenerationsByReportID
+                        .removeValue(forKey: report.id) ?? 0
                     if let renderEpoch = effectiveGrid.renderEpoch,
                        let renderRevisionFloor = effectiveGrid.renderRevisionFloor {
-                        let generation = self.viewportReportGenerationsByReportID
-                            .removeValue(forKey: report.id) ?? 0
                         self.verifiedReplayState.acknowledgeViewport(
                             renderEpoch: renderEpoch,
                             renderRevisionFloor: renderRevisionFloor,

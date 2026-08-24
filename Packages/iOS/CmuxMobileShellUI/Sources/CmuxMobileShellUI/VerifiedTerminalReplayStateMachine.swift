@@ -177,6 +177,12 @@ final class VerifiedTerminalReplayStateMachine {
         }
         guard renegotiationHeldFrames < Self.maxRenegotiationHeldFrames else { return nil }
         renegotiationHeldFrames += 1
+        // A held frame is direct evidence the daemon no longer renders the
+        // settled negotiation, so the settlement itself is no longer
+        // trustworthy: frames at the superseded grant must renegotiate too,
+        // not slide past this gate while the fresh acknowledgement (which
+        // alone may restore a settlement) is still in flight.
+        settledViewportGrant = nil
         phase = .recovering
         activeTransaction = nil
         return renegotiationHeldFrames == 1

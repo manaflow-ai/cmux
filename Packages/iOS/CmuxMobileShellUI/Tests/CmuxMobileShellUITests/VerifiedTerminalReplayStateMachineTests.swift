@@ -635,6 +635,46 @@ struct VerifiedTerminalReplayStateMachineTests {
         #expect(machine.visibleSnapshot?.columns == 41)
     }
 
+    @Test("a hold invalidates the settlement until the next acknowledgement")
+    func holdInvalidatesSettlement() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let lastGood = try frame(renderRevision: 1, stateSeq: 1, columns: 41, text: "constrained")
+        commit(lastGood, to: machine)
+        let generation = machine.updateExpectedViewportDimensions(
+            columns: 80,
+            rows: 3,
+            reportID: 1
+        )
+        machine.acknowledgeViewport(
+            renderEpoch: "epoch-default",
+            renderRevisionFloor: 1,
+            reportID: 1,
+            negotiationGeneration: generation,
+            reportedColumns: 80,
+            reportedRows: 3,
+            grantedColumns: 41,
+            grantedRows: 3
+        )
+
+        // A frame contradicting both the capacity and the settled grant
+        // holds — and by holding, invalidates the settlement: the daemon
+        // has proven it no longer renders the settled negotiation.
+        let rogue = try frame(renderRevision: 2, stateSeq: 2, columns: 45, text: "rogue grid")
+        guard case .renegotiateViewportAndKeepFrozen = machine.begin(frame: rogue) else {
+            Issue.record("a contradicting frame must hold and renegotiate")
+            return
+        }
+
+        // Frames at the SUPERSEDED grant no longer slide past the gate
+        // while the fresh acknowledgement is in flight.
+        let oldGrant = try frame(renderRevision: 3, stateSeq: 3, columns: 41, text: "old grant")
+        guard case .keepFrozenAndRequestReplay = machine.begin(frame: oldGrant) else {
+            Issue.record("the superseded grant must renegotiate after a hold")
+            return
+        }
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "constrained")
+    }
+
     @Test("a delayed acknowledgement from a previous session settles nothing")
     func preResetAcknowledgementCannotSettle() throws {
         let machine = VerifiedTerminalReplayStateMachine()
