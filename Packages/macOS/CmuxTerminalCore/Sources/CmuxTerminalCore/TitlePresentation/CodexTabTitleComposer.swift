@@ -61,7 +61,7 @@ public struct CodexTabTitleComposer: Sendable {
         lifecycle: CodexTabTitleLifecycle?,
         hasUserOwnedTitle: Bool
     ) -> CodexTabTitlePresentation {
-        let title = baseTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = baseTitle
         guard let lifecycle else {
             return CodexTabTitlePresentation(title: title, isAnimating: false)
         }

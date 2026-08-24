@@ -3,7 +3,7 @@ import CmuxTerminalCore
 
 extension Workspace {
     /// Builds the pure composer with the host-localized marker strings.
-    private func codexTabTitleComposer() -> CodexTabTitleComposer {
+    private nonisolated func codexTabTitleComposer() -> CodexTabTitleComposer {
         CodexTabTitleComposer(
             runningMarker: String(
                 localized: "tab.codex.runningMarker",

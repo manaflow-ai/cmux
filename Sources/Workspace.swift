@@ -4623,6 +4623,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 // auto write cannot replace a title the user re-confirmed.
                 if source == .user { panelCustomTitleSources[panelId] = .user }
                 applyFocusedPanelTitle(panelId: panelId)
+                _ = reconcileTabTitlePresentation(panelId: panelId)
                 return true
             }
             panelCustomTitles[panelId] = trimmed
