@@ -2,7 +2,7 @@
 
 Reads a directory's Git metadata and workspace changes. Sidebar metadata parses
 file-backed refs directly and uses bounded Git plumbing for other reference
-backends such as reftable. Mobile workspace changes use non-locking
+backends such as reftable. Workspace changes use non-locking
 `/usr/bin/git` commands so committed, staged, unstaged, untracked, rename, and
 binary semantics match Git itself.
 
