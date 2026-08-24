@@ -4,15 +4,12 @@ import AppKit
 import Carbon.HIToolbox
 import Combine
 import SwiftUI
-import CmuxSettings
 @testable import CmuxSettingsUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
-private typealias StoredShortcut = cmux_DEV.StoredShortcut
 #elseif canImport(cmux)
 @testable import cmux
-private typealias StoredShortcut = cmux.StoredShortcut
 #endif
 private let appDelegateLastSurfaceCloseShortcutDefaultsKey = "closeWorkspaceOnLastSurfaceShortcut"
 private final class FakeWKInspectorContainerView: NSView {}
@@ -12373,7 +12370,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         guard let harness = makeBrowserFocusModeHarness() else { return }
         defer { closeWindow(withId: harness.windowId) }
 
-        let settingKey = SettingCatalog().browser.captureKeyboardShortcuts.userDefaultsKey
+        let settingKey = KeyboardShortcutSettings.browserKeyboardShortcutCaptureSetting.userDefaultsKey
         let previousSetting = UserDefaults.standard.object(forKey: settingKey)
         defer {
             if let previousSetting {
