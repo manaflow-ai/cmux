@@ -65,10 +65,10 @@ import Testing
         #expect(policy.prefetchPaths(files: [], selectedIndex: 0, cachedPaths: []).isEmpty)
     }
 
-    @Test func defaultRadiusCoversTheMountWindow() {
-        // A page mounts when it comes within the mount window of the
-        // selection; prefetch must reach at least one page beyond it so a
-        // newly mounted page finds warm data.
-        #expect(DiffPagerPrefetchPolicy().radius > DiffPagerMountPolicy().adjacentPageCount)
+    @Test func defaultRadiusCoversTheNeighborPreloadWindow() {
+        // UIPageViewController preloads the immediate neighbor of the
+        // selected page; prefetch must reach at least one page beyond that
+        // window so a newly preloaded page finds warm data.
+        #expect(DiffPagerPrefetchPolicy().radius > 1)
     }
 }
