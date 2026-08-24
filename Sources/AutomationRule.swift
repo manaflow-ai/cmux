@@ -301,6 +301,10 @@ nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
     /// The schema spelling of the ordered action list.
     var `then`: [AutomationAction] { actions }
 
+    var usesWorkspaceTagPredicate: Bool {
+        predicates.keys.contains { $0 == "workspace.tag" || $0 == "workspace_tag" }
+    }
+
     init(
         id: String,
         when: AutomationWhen,
@@ -466,7 +470,7 @@ nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
             return expectedArray.contains { matchesValue(actual, expected: $0) }
         }
         if let operators = expected.objectValue, !operators.isEmpty,
-           operators.keys.contains(where: { ["equals", "contains", "prefix", "suffix", "matches", "in", "not"].contains($0) }) {
+           operators.keys.contains(where: { ["equals", "contains", "prefix", "suffix", "in", "not"].contains($0) }) {
             if let value = operators["equals"] { return matchesValue(actual, expected: value) }
             if let value = operators["contains"] {
                 if let actualString = actual.stringValue, let expectedString = value.stringValue {
@@ -481,14 +485,6 @@ nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
             }
             if let value = operators["suffix"], let actualString = actual.stringValue, let expectedString = value.stringValue {
                 return actualString.hasSuffix(expectedString)
-            }
-            if let value = operators["matches"],
-               let actualString = actual.stringValue,
-               let pattern = value.stringValue,
-               pattern.utf8.count <= 512,
-               let regex = try? NSRegularExpression(pattern: pattern) {
-                let range = NSRange(actualString.startIndex..<actualString.endIndex, in: actualString)
-                return regex.firstMatch(in: actualString, range: range) != nil
             }
             if let values = operators["in"]?.arrayValue {
                 return values.contains { matchesValue(actual, expected: $0) }

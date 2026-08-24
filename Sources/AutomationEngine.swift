@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// The bounded result returned by an automation process or webhook action.
@@ -46,6 +47,8 @@ final class AutomationEngine {
     private var subscription: CmuxEventSubscription?
     private var eventTask: Task<Void, Never>?
     private var firingTasks: [UUID: Task<Void, Never>] = [:]
+    private var shouldRun = false
+    private var workspaceTagsCache: [UUID: [String]] = [:]
 
     init(
         configStore: AutomationConfigStore = AutomationConfigStore(),
@@ -80,8 +83,13 @@ final class AutomationEngine {
 
     /// Starts the live subscription. Calling this more than once is harmless.
     func start() {
+        shouldRun = true
         guard eventTask == nil else { return }
         _ = reload()
+        installSubscription()
+    }
+
+    private func installSubscription() {
         let snapshot = eventBus.subscribe(afterSequence: nil, names: [], categories: [])
         subscription = snapshot.subscription
         let subscription = snapshot.subscription
@@ -97,14 +105,25 @@ final class AutomationEngine {
                 }
             }
             await MainActor.run { [weak self] in
-                guard let self, self.subscription === subscription else { return }
-                self.eventTask = nil
+                self?.subscriptionDidClose(subscription)
             }
         }
     }
 
+    private func subscriptionDidClose(_ closedSubscription: CmuxEventSubscription) {
+        guard subscription === closedSubscription else { return }
+        eventBus.unsubscribe(closedSubscription)
+        subscription = nil
+        eventTask = nil
+        guard shouldRun else { return }
+        // A slow consumer closes its bounded queue. Re-arm from the current
+        // tail rather than leaving automations disabled until the next launch.
+        installSubscription()
+    }
+
     /// Stops the live subscription and wakes a blocked event read.
     func stop() {
+        shouldRun = false
         subscription?.close()
         if let subscription {
             eventBus.unsubscribe(subscription)
@@ -114,6 +133,7 @@ final class AutomationEngine {
         eventTask = nil
         firingTasks.values.forEach { $0.cancel() }
         firingTasks.removeAll(keepingCapacity: true)
+        workspaceTagsCache.removeAll(keepingCapacity: true)
     }
 
     /// Reloads the file and returns a compact command response.
@@ -123,8 +143,12 @@ final class AutomationEngine {
             let configuration = try configStore.load()
             rules = configuration.rules
             fireDatesByRuleID.removeAll(keepingCapacity: true)
+            workspaceTagsCache.removeAll(keepingCapacity: true)
             return .success(rules.count)
         } catch {
+            rules.removeAll(keepingCapacity: true)
+            fireDatesByRuleID.removeAll(keepingCapacity: true)
+            workspaceTagsCache.removeAll(keepingCapacity: true)
             record(
                 ruleID: "",
                 eventName: "config.reload",
@@ -181,7 +205,7 @@ final class AutomationEngine {
     func testPayload(id: String, event: [String: Any]) -> [String: Any]? {
         guard let rule = rule(withID: id) else { return nil }
         let normalized = Self.normalizedEvent(event)
-        let tags = workspaceTags(for: normalized)
+        let tags = rule.usesWorkspaceTagPredicate ? workspaceTags(for: normalized) : []
         let matches = rule.matches(event: normalized, workspaceTags: tags)
         return [
             "id": rule.id,
@@ -207,9 +231,21 @@ final class AutomationEngine {
         if eventName == "config.reloaded" {
             _ = reload()
         }
+        let invalidatesWorkspaceTags =
+            event["category"] as? String == "sidebar"
+                || ["workspace.created", "workspace.closed", "workspace.renamed"].contains(eventName)
+        if invalidatesWorkspaceTags {
+            if let workspaceID = Self.uuid(event["workspace_id"] as? String) {
+                workspaceTagsCache.removeValue(forKey: workspaceID)
+            } else {
+                workspaceTagsCache.removeAll(keepingCapacity: true)
+            }
+        }
         let normalized = Self.normalizedEvent(event)
         let origin = Self.origin(from: normalized)
-        let tags = workspaceTags(for: normalized)
+        let tags = rules.contains(where: { $0.enabled && $0.usesWorkspaceTagPredicate })
+            ? workspaceTags(for: normalized)
+            : []
         for rule in rules where rule.enabled {
             guard rule.matches(event: normalized, workspaceTags: tags) else { continue }
             if let origin, origin.chain.contains(rule.id) {
@@ -417,7 +453,7 @@ final class AutomationEngine {
             "CMUX_AUTOMATION_EVENT_JSON": eventLine,
             "CMUX_EVENT_JSON": eventLine,
             "CMUX_AUTOMATION_RULE_ID": rule.id,
-            "CMUX_AUTOMATION_CHAIN": chain.joined(separator: ","),
+            "CMUX_AUTOMATION_CHAIN": Self.encodedChain(chain),
             "CMUX_AUTOMATION_EVENT_NAME": event["name"] as? String ?? "",
             "CMUX_AUTOMATION_EVENT_CATEGORY": event["category"] as? String ?? ""
         ]
@@ -507,13 +543,27 @@ final class AutomationEngine {
         request.httpBody = data
         request.timeoutInterval = 15
         for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
+        let session = URLSession(configuration: {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.timeoutIntervalForRequest = 15
+            configuration.timeoutIntervalForResource = 20
+            return configuration
+        }())
+        defer { session.invalidateAndCancel() }
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (bytes, response) = try await session.bytes(for: request)
             guard let response = response as? HTTPURLResponse else {
                 return .failure("webhook returned a non-HTTP response")
             }
             guard (200..<300).contains(response.statusCode) else {
                 return .failure("webhook returned HTTP \(response.statusCode)")
+            }
+            var responseBytes = 0
+            for try await _ in bytes {
+                responseBytes += 1
+                if responseBytes > 64 * 1_024 {
+                    return .failure("webhook response exceeded 64 KiB")
+                }
             }
             return .success("webhook delivered")
         } catch {
@@ -523,7 +573,12 @@ final class AutomationEngine {
 
     private func workspaceTags(for event: [String: Any]) -> [String] {
         guard let workspaceID = Self.uuid(event["workspace_id"] as? String) else { return [] }
-        return workspaceTagsResolver(workspaceID)
+        if let cached = workspaceTagsCache[workspaceID] {
+            return cached
+        }
+        let resolved = workspaceTagsResolver(workspaceID)
+        workspaceTagsCache[workspaceID] = resolved
+        return resolved
     }
 
     private func record(ruleID: String, eventName: String, status: String, detail: String, chain: [String]) {
@@ -582,6 +637,14 @@ final class AutomationEngine {
         return try? JSONSerialization.data(withJSONObject: sanitized, options: [.sortedKeys])
     }
 
+    private static func encodedChain(_ chain: [String]) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: chain, options: []),
+              let value = String(data: data, encoding: .utf8) else {
+            return chain.joined(separator: ",")
+        }
+        return value
+    }
+
     private static func uuid(_ raw: String?) -> UUID? {
         guard let raw else { return nil }
         return UUID(uuidString: raw.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -620,11 +683,13 @@ actor AutomationProcessSession {
     private let process: Process
     private let command: String
     private let environment: [String: String]
+    private var ownedProcessGroupID: pid_t?
 
     init(command: String, environment: [String: String]) {
         self.command = command
         self.environment = environment
         self.process = Process()
+        self.ownedProcessGroupID = nil
     }
 
     func run() async -> AutomationActionExecutionResult {
@@ -643,6 +708,13 @@ actor AutomationProcessSession {
         }
         do {
             try process.run()
+            let processID = process.processIdentifier
+            // Foundation has no pre-exec hook on macOS. Move the shell into a
+            // private process group immediately after launch and keep the
+            // single-PID fallback when the OS refuses setpgid.
+            if processID > 1, setpgid(processID, processID) == 0 {
+                ownedProcessGroupID = processID
+            }
         } catch {
             process.terminationHandler = nil
             continuation.finish()
@@ -659,6 +731,10 @@ actor AutomationProcessSession {
 
     func terminate() {
         guard process.isRunning else { return }
+        if let ownedProcessGroupID, ownedProcessGroupID > 1 {
+            _ = kill(-ownedProcessGroupID, SIGTERM)
+            _ = kill(-ownedProcessGroupID, SIGKILL)
+        }
         process.terminate()
     }
 }

@@ -92,6 +92,48 @@
         "ja": { "stringUnit": { "state": "translated", "value": "自動化ルールはありません" } }
       }
     },
+    "cli.automation.output.rule": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ [%@] when %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ [%@] 条件: %@" } }
+      }
+    },
+    "cli.automation.output.reloaded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reloaded %@ automation rule(s)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動化ルールを %@ 件再読み込みしました" } }
+      }
+    },
+    "cli.automation.output.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Enabled %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ を有効にしました" } }
+      }
+    },
+    "cli.automation.output.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Disabled %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ を無効にしました" } }
+      }
+    },
+    "cli.automation.state.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "enabled" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "有効" } }
+      }
+    },
+    "cli.automation.state.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "disabled" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無効" } }
+      }
+    },
     "debug.menu.notification.all": {
       "extractionState": "manual",
       "localizations": {

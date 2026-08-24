@@ -39,7 +39,7 @@ when.event and when.category accept exact names or a * prefix/suffix
 wildcard. where values are matched against the event payload; the common
 aliases are workspace.tag, workspace.title, title, agent, and
 surface.kind. Predicate objects support equals, contains, prefix,
-suffix, matches, in, and not. Rules are enabled by default; set "enabled": false
+suffix, in, and not. Rules are enabled by default; set "enabled": false
 to keep a rule in the file without firing it.
 
 Every rule has a rate limit. When rate_limit is omitted cmux uses one firing
@@ -59,7 +59,7 @@ per second. The engine also caps concurrent firings and keeps the most recent
   set timeout_seconds to a value up to 300). The serialized
   event is available as CMUX_AUTOMATION_EVENT and
   CMUX_AUTOMATION_EVENT_JSON; CMUX_AUTOMATION_RULE_ID and
-  CMUX_AUTOMATION_CHAIN identify the firing.
+  CMUX_AUTOMATION_CHAIN (a JSON string array) identify the firing.
 - webhook sends the event JSON as an HTTP POST to url. Optional string
   headers are added to the request.
 

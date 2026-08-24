@@ -145,17 +145,35 @@ extension CMUXCLI {
             }
             for rule in rules {
                 let id = rule["id"] as? String ?? "?"
-                let enabled = (rule["enabled"] as? Bool) == true ? "enabled" : "disabled"
+                let enabled = (rule["enabled"] as? Bool) == true
+                    ? String(localized: "cli.automation.state.enabled", defaultValue: "enabled")
+                    : String(localized: "cli.automation.state.disabled", defaultValue: "disabled")
                 let event = rule["event"] as? String ?? rule["category"] as? String ?? "*"
-                print("\(id) [\(enabled)] when \(event)")
+                let format = String(
+                    localized: "cli.automation.output.rule",
+                    defaultValue: "%@ [%@] when %@"
+                )
+                print(replacingFirstPlaceholder(
+                    replacingFirstPlaceholder(
+                        replacingFirstPlaceholder(format, with: id),
+                        with: enabled
+                    ),
+                    with: event
+                ))
             }
         case "reload":
             let count = response["rule_count"] as? Int ?? 0
-            print("Reloaded \(count) automation rule(s)")
+            let format = String(
+                localized: "cli.automation.output.reloaded",
+                defaultValue: "Reloaded %@ automation rule(s)"
+            )
+            print(replacingFirstPlaceholder(format, with: String(count)))
         case "enable", "disable":
             let id = response["id"] as? String ?? "?"
-            let state = (response["enabled"] as? Bool) == true ? "Enabled" : "Disabled"
-            print("\(state) \(id)")
+            let format = (response["enabled"] as? Bool) == true
+                ? String(localized: "cli.automation.output.enabled", defaultValue: "Enabled %@")
+                : String(localized: "cli.automation.output.disabled", defaultValue: "Disabled %@")
+            print(replacingFirstPlaceholder(format, with: id))
         default:
             print(jsonString(response))
         }
@@ -193,5 +211,10 @@ extension CMUXCLI {
         default:
             return defaultValue
         }
+    }
+
+    private func replacingFirstPlaceholder(_ value: String, with replacement: String) -> String {
+        guard let range = value.range(of: "%@") else { return value }
+        return value.replacingCharacters(in: range, with: replacement)
     }
 }
