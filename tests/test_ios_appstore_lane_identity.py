@@ -184,6 +184,25 @@ if command.startswith("Print "):
         print(value)
     raise SystemExit(0)
 
+if command.startswith("Set "):
+    # Match /usr/libexec/PlistBuddy: Set only updates an existing entry.
+    _, key_path, raw_value = (command.split(" ", 2) + [""])[:3]
+    keys = parts(key_path)
+    current = plist
+    try:
+        for key in keys[:-1]:
+            current = current[int(key)] if isinstance(current, list) else current[key]
+        if isinstance(current, list):
+            current[int(keys[-1])] = raw_value
+        elif keys[-1] in current:
+            current[keys[-1]] = raw_value
+        else:
+            raise KeyError(keys[-1])
+    except (KeyError, IndexError, ValueError):
+        raise SystemExit(1)
+    save(plist_path, plist)
+    raise SystemExit(0)
+
 if command.startswith("Add "):
     _, key_path, value_type, raw_value = (command.split(" ", 3) + [""])[:4]
     if value_type == "dict":
@@ -334,6 +353,11 @@ if "archive" in args:
             "CFBundleVersion": build_number,
             "CFBundleShortVersionString": marketing_version,
             "CMUXCrashReportingEnabled": crash_reporting_enabled,
+            # A manual archive builds with code signing disabled, so
+            # $(AppIdentifierPrefix) expands to "" and the group bakes as the
+            # bare bundle id, the exact mis-bake that made TestFlight builds
+            # keychain-dead. The lane must correct it before codesign.
+            "CMUXKeychainAccessGroup": bundle_id,
         }},
     )
     # upload-testflight.sh refuses archives without dSYM bundles.
@@ -659,6 +683,10 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
     _check(
         info.get("CFBundleIdentifier") == BETA_BUNDLE_ID,
         "final signed beta IPA Info.plist is dev.cmux.app.beta",
+    )
+    _check(
+        info.get("CMUXKeychainAccessGroup") == BETA_APP_ID,
+        "final signed beta IPA Info.plist carries the exact beta keychain group",
     )
     _check(
         info.get("CFBundleShortVersionString") == BETA_MARKETING_VERSION,
@@ -987,6 +1015,10 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     with zipfile.ZipFile(ipa_path) as zf:
         info = plistlib.loads(zf.read("Payload/cmux.app/Info.plist"))
     _check(info.get("CFBundleIdentifier") == APPSTORE_BUNDLE_ID, "final signed IPA Info.plist is com.cmux.app")
+    _check(
+        info.get("CMUXKeychainAccessGroup") == APPSTORE_APP_ID,
+        "final signed App Store IPA Info.plist carries the exact App Store keychain group",
+    )
     _check(
         info.get("CFBundleShortVersionString") == APPSTORE_MARKETING_VERSION,
         "final signed IPA keeps the App Store marketing version",

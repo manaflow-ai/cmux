@@ -25,6 +25,8 @@ Selection colors are resolved in this order: explicit cmux-tui config, Ghostty c
 | `theme.border_style` | `"single"`, `"rounded"`, `"thick"`, `"double"`, or `"none"` | `"single"` | Pane border glyph set; `"none"` leaves the border cells blank so panes separate by empty space |
 | `theme.status_bg` | color | chrome default | Status bar background |
 | `theme.status_fg` | color | chrome default | Status bar foreground |
+| `theme.sidebar_fg` | color | terminal default | Sidebar row foreground |
+| `theme.sidebar_selected_fg` | color | chrome default | Selected sidebar row foreground |
 | `theme.dim_inactive` | boolean | `false` | Renders unfocused terminal panes with the DIM attribute |
 
 ## Tabs
@@ -35,6 +37,10 @@ Selection colors are resolved in this order: explicit cmux-tui config, Ghostty c
 | `tabs.solid_background` | boolean | `true` | Renders tab chips with solid backgrounds |
 | `tabs.show_titles` | boolean | `false` | Shows full process titles after tab numbers |
 | `tabs.agents` | string array | `["claude","codex","opencode","pi"]` | Agent names surfaced in tab labels when `show_titles` is false |
+| `tabs.style` | `"block"`, `"pill"`, or `"slant"` | `"block"` | Cap glyphs around solid tab chips (Nerd Font powerline glyphs, catppuccin-tmux style) |
+| `tabs.plus.label` | string | `" + "` | Text of the tab bar's `+` button |
+| `tabs.plus.action` | action name or `command:<id>` | new tab | Left-click override for the `+` button |
+| `tabs.plus.menu` | action array | `[]` | Right-click menu on the `+` button; entries use the sidebar action grammar including labels and `command:<id>` |
 
 Tabs are numbered by default. A recognized agent program can appear after the number. A user-assigned tab name replaces the generated label.
 
@@ -46,7 +52,7 @@ The built-in sidebar defaults to the workspace list. Set `"sidebar": {"view": "f
 
 `sidebar.profiles` names multiple view lists, and `sidebar.profile` selects the startup layout. Right-click anywhere and open **Sidebar → Layouts** to switch profiles without reconnecting machines. The same menu can hide or restore an individual view for the current session. Runtime visibility changes are keyed by profile and view ID, so switching away and back restores that profile's session-local choices.
 
-Actions use the same stable IDs and execution path as keyboard commands, including `new-workspace`, `new-tab`, and `new-pane-smart`. A view rooted at `workspaces` inherits `new-workspace`, including provider-specific isolated and shared choices. Set `"actions": []` to hide every pinned action, or provide an ordered list to replace the preset. Machine creation and connection actions remain capability-driven by the selected provider.
+Actions use the same stable IDs and execution path as keyboard commands, including `new-workspace`, `new-tab`, and `new-pane-smart`. An entry may also be an object `{"action": "new-workspace", "label": "new"}` to rename its button, and `"command:<id>"` pins a user command from the top-level `commands` section as a button. `actions_position: "top"` mounts the buttons directly under the view header instead of the bottom edge. A view rooted at `workspaces` inherits `new-workspace`, including provider-specific isolated and shared choices. Set `"actions": []` to hide every pinned action, or provide an ordered list to replace the preset. Machine creation and connection actions remain capability-driven by the selected provider.
 
 Every view has an independent width and drag handle. Lower `collapse_priority` values hide first when the terminal must preserve 40 pane columns. A hidden view needs four additional columns before it returns, which prevents resize-boundary flicker. `sidebar.columns` remains a compatibility alias for one-level machine, workspace, and tab views; `sidebar.views` wins when both are present.
 
@@ -68,6 +74,11 @@ Every view has an independent width and drag handle. Lower `collapse_priority` v
 | `sidebar.views[].width` | integer | resource default | Initial width, clamped to 10 through 60 |
 | `sidebar.views[].max_width` | integer | `0` | Maximum live drag width; `0` means no configured maximum |
 | `sidebar.views[].collapse_priority` | integer | resource default | Lower priorities hide first on narrow terminals |
+| `sidebar.views[].actions_position` | `"top"` or `"bottom"` | `"bottom"` | Where the view's pinned action buttons render |
+| `sidebar.row_height` | `1` or `2` | `2` | Rows per rail entry; `1` drops the subtitle line |
+| `sidebar.row_gap` | integer | `1` | Blank rows between rail entries, `0` through `2` |
+| `sidebar.rail_glyph` | string | `"▎"` | Accent glyph on active rail rows; `"none"` removes it |
+| `sidebar.workspace_label` | string | `"{name}"` | Workspace row template with `{index}` and `{name}` |
 | `sidebar.columns` | array of column objects | unset | Compatibility form for one-level `machines`, `workspaces`, and `tabs` views |
 | `sidebar.plugin.command` | array of strings | unset | External sidebar plugin argv; when set, the sidebar hosts this program in a PTY instead of the built-in list |
 | `sidebar.plugin.cwd` | string | unset | Working directory for the sidebar plugin process |
@@ -177,6 +188,7 @@ Dynamic provider startup is disabled by default. Persistent configuration curren
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
+| `machine_provider.command` | array of strings or null | `null` | Argv of a provider process to spawn, like `--machine-provider-command program arg --` (no shell). Explicit CLI provider modes override it |
 | `machine_provider.cloud.enabled` | boolean | `false` | Starts the dynamic provider through SSH |
 | `machine_provider.cloud.host` | string | `"cmux.cloud"` | SSH host |
 | `machine_provider.cloud.user` | string or null | `null` | Optional SSH user |
@@ -232,6 +244,10 @@ Padding shrinks the PTY size accordingly and never pads a pane below one content
 | `status_bar.left[].run` | string array | one of text/run | Argv run on an interval; the last nonempty stdout line becomes the segment text, escape sequences stripped, capped at 200 characters |
 | `status_bar.left[].interval` | integer seconds | `5` | Refresh interval for `run` segments, clamped to 1 through 3600 |
 | `status_bar.left[].fg` / `bg` | color | bar colors | Segment colors |
+| `status_bar.left_separator` | string | unset | Powerline separator between left segments; its foreground takes the previous segment's background and its background the next one's (e.g. `"\ue0b0"`) |
+| `status_bar.right_separator` | string | unset | Mirrored separator drawn left of each right segment (e.g. `"\ue0b2"`) |
+| `status_bar.screens_style` | `"block"`, `"pill"`, or `"slant"` | `"block"` | Cap glyphs around the active screen chip |
+| `status_bar.screens_plus.label` / `.action` / `.menu` | as `tabs.plus` | `" + "` / new screen / `[]` | The screens strip's `+` button |
 
 Text segments interpolate `{session}`, `{workspace}`, `{screen}`, `{screens}`, `{title}`, and `{user}`; unknown braces stay literal. `run` segments are the tmux `#()` equivalent: each is executed on its own interval with a five-second runtime bound, so a battery, git, or clock widget is one script. At most 8 segments per side. Transient status messages keep priority over the session label.
 
@@ -464,3 +480,9 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
   }
 }
 ```
+
+## Client log
+
+The client appends every user-visible warning (bottom-bar status messages, provider notices, toasts) and its own stderr diagnostics to a rolling log so problems seen in the TUI can be diagnosed after the session. While the TUI owns the terminal, process stderr (including panics) is routed into the same file instead of corrupting the raw-mode screen, and is restored on exit. Each launch writes one startup line with the build commit so log stretches are attributable.
+
+The file lives at the cmux-tui state root: `~/Library/Application Support/cmux-tui/client.log` on macOS, `$XDG_STATE_HOME/cmux-tui/client.log` (or `~/.local/state/cmux-tui/client.log`) on Linux, `%LOCALAPPDATA%\cmux-tui\client.log` on Windows. `CMUX_TUI_LOG_FILE` overrides the path. The active file rolls to `client.log.1` at 2 MiB and one rollover is kept, so the log never grows past roughly 4 MiB. Several cmux-tui processes may share the file: writes and rotation take an exclusive advisory lock, rotation by one process is followed by the others, and the size cap counts every writer.

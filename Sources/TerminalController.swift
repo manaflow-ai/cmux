@@ -423,7 +423,8 @@ class TerminalController {
         self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
         self.mobileTaskModelDiscovery = mobileTaskModelDiscovery
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
-        self.panelArtifactAuthorizationStore = panelArtifactAuthorizationStore ?? PanelArtifactAuthorizationStore()
+        self.panelArtifactAuthorizationStore =
+            panelArtifactAuthorizationStore ?? PanelArtifactAuthorizationStore()
         self.transport = transport
         let socketMarkerFileManager = FileManager.default
         let socketMarkerBundleIdentifier = Bundle.main.bundleIdentifier
@@ -1503,6 +1504,8 @@ class TerminalController {
             return v2Result(id: request.id, v2SystemMemory(params: request.params))
         case "surface.read_text":
             return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
+        case "surface.ssh_session_attach.resolve":
+            return v2Result(id: request.id, v2SSHSessionAttachResolve(params: request.params))
         case "workspace.env":
             return v2Result(id: request.id, v2WorkspaceEnv(params: request.params))
         case "workspace.remote.pty_sessions":
@@ -2061,13 +2064,19 @@ class TerminalController {
             // connection thread for socket traffic). The parsed request is
             // handed to the worker lane or into the main hop; nothing
             // re-parses on the main thread.
-            let request: ControlRequest
+            let parsedRequest: ControlRequest
             switch Self.v2Parser.request(fromLine: trimmed) {
             case .failure(let parseError):
                 return Self.v2Encoder.response(for: parseError)
             case .success(let parsed):
-                request = parsed
+                parsedRequest = parsed
             }
+
+            let relayAuthorization = authorizeRemoteRelayRequest(parsedRequest)
+            if let errorResponse = relayAuthorization.errorResponse {
+                return errorResponse
+            }
+            let request = relayAuthorization.request
 
             let policy = Self.executionPolicy(forV2Method: request.method)
             if Thread.isMainThread, policy == .socketWorker(mainThreadCallable: false) {
@@ -4123,7 +4132,7 @@ class TerminalController {
         ])
     }
 
-    private nonisolated func v2RequestedRemotePTYWorkspaceID(params: [String: Any]) -> (
+    nonisolated func v2RequestedRemotePTYWorkspaceID(params: [String: Any]) -> (
         workspaceId: UUID?,
         error: V2CallResult?
     ) {
@@ -4403,7 +4412,7 @@ class TerminalController {
         }
     }
 
-    private nonisolated func v2WorkspaceRemotePTYSessions(params: [String: Any]) -> V2CallResult {
+    nonisolated func v2WorkspaceRemotePTYSessions(params: [String: Any]) -> V2CallResult {
         if v2HasNonNullParam(params, "all_workspaces"), v2Bool(params, "all_workspaces") == nil {
             return .err(code: "invalid_params", message: "Missing or invalid all_workspaces", data: nil)
         }
@@ -14508,6 +14517,18 @@ class TerminalController {
                 method: method,
                 params: request.params,
                 connectionID: executionContext?.connectionID
+            )
+        case let method where method.hasPrefix("mobile.todo."):
+            result = v2MobileTodoDispatch(method: method, params: request.params)
+        case "mobile.status.set", "mobile.status.cycle":
+            result = v2MobileTodoDispatch(method: request.method, params: request.params)
+        case "mobile.surface.focus":
+            result = v2MobileSurfaceFocus(params: request.params)
+        case let method where method.hasPrefix("mobile.panel.artifact."):
+            result = await v2MobilePanelArtifactDispatch(
+                method: method,
+                params: request.params,
+                executionContext: executionContext
             )
         case "workspace.close":
             result = v2MobileWorkspaceClose(params: request.params)

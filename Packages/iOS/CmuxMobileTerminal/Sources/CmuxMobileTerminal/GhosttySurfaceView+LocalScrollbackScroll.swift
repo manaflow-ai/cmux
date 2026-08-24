@@ -38,6 +38,14 @@ extension GhosttySurfaceView {
             $0.appliedInteractionGeneration >= generation
         }
         guard !applied else { return true }
+        // A detached or recovered surface cannot apply the batch. Do not park
+        // a continuation that has no producer left to resume it; replay
+        // callers use `false` to abandon the viewport restore and request a
+        // fresh authoritative frame.
+        guard surface != nil,
+              pendingLocalScrollLines != 0 || localScrollApplyInFlight else {
+            return false
+        }
         return await withCheckedContinuation { continuation in
             pendingLocalScrollDrains.append((
                 generation: generation,
@@ -61,10 +69,15 @@ extension GhosttySurfaceView {
         pendingLocalScrollInteractionGeneration = nil
         localScrollApplyInFlight = true
         localScrollApplyInFlightGeneration = interactionGeneration
+        let token = makeSurfaceOperationID()
+        localScrollApplyStartedAt = CACurrentMediaTime()
+        localScrollApplyToken = token
+        ensureSurfaceOperationDeadlinePump()
         let displayScale = window?.windowScene?.screen.scale ?? traitCollection.displayScale
         let operation = LocalScrollbackSurfaceOperation(
             surface: surface,
-            generation: surfaceGeneration
+            generation: surfaceGeneration,
+            token: token
         )
         let workQueue = outputQueue
         let gate = viewportRestoreGate
@@ -85,13 +98,26 @@ extension GhosttySurfaceView {
             }
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                guard self.localScrollApplyToken == operation.token else { return }
                 self.localScrollApplyInFlight = false
                 self.localScrollApplyInFlightGeneration = nil
+                self.localScrollApplyStartedAt = nil
+                self.localScrollApplyToken = nil
                 guard self.surface == operation.surface,
                       self.surfaceGeneration == operation.generation else {
                     self.completePendingLocalScrollDrains(returning: false)
                     return
                 }
+                self.enqueueRenderSubmission(
+                    GhosttySurfaceView.RenderSubmission(
+                        token: operation.token,
+                        generation: operation.generation,
+                        kind: .localScroll,
+                        surface: operation.surface,
+                        verifiedReplayRead: nil,
+                        presentationRetryCount: 0
+                    )
+                )
                 self.drawForWakeup()
                 self.scheduleVisibleArtifactCountUpdate()
                 self.completePendingLocalScrollDrains()
@@ -125,5 +151,6 @@ private nonisolated struct LocalScrollbackSurfaceOperation: @unchecked Sendable 
     // using this pointer is enqueued on that generation's serial output queue.
     let surface: ghostty_surface_t
     let generation: UInt64
+    let token: UInt64
 }
 #endif

@@ -351,7 +351,19 @@ extension MobileShellComposite {
 
     var foregroundWorkspaceChangesIDs: [String] {
         workspaces.compactMap { workspace in
-            guard workspace.macDeviceID == nil || workspace.macDeviceID == foregroundMacDeviceID else {
+            if let foregroundMacDeviceID {
+                if workspace.macDeviceID == nil && workspace.macInstanceTag == nil {
+                    return workspace.rpcWorkspaceID.rawValue
+                }
+                guard let workspaceMacDeviceID = workspace.macDeviceID,
+                      MacPairingKey(
+                          macDeviceID: workspaceMacDeviceID,
+                          instanceTag: workspace.macInstanceTag
+                      ) == MacPairingKey(
+                          macDeviceID: foregroundMacDeviceID,
+                          instanceTag: activeMacInstanceTag
+                      ) else { return nil }
+            } else if workspace.macDeviceID != nil || workspace.macInstanceTag != nil {
                 return nil
             }
             return workspace.rpcWorkspaceID.rawValue
