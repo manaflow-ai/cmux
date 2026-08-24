@@ -387,9 +387,7 @@ async fn relay_session(
         while let Some(joined) = connection_tasks.try_join_next() {
             if let Err(error) = joined {
                 task_failure = Some(if error.is_panic() {
-                    RelayError::transient(
-                        "relay request task panicked; reconnecting".to_owned(),
-                    )
+                    RelayError::transient("relay request task panicked; reconnecting".to_owned())
                 } else {
                     RelayError::transient(
                         "relay request task was cancelled unexpectedly; reconnecting".to_owned(),
