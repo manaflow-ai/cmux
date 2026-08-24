@@ -67,6 +67,7 @@ extension PortScanner {
         }
     }
 
+    /// Reconciles and queues the latest agent scan results for publication.
     func deliverAgentResults(
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
@@ -151,6 +152,7 @@ extension PortScanner {
         }
     }
 
+    /// Filters a scan by lifecycle revision and applies it to the stable agent snapshot.
     private func validatedAgentResults(
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],

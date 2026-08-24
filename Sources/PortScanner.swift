@@ -99,6 +99,7 @@ final class PortScanner: @unchecked Sendable {
         self.ttySessionIdentityProvider = ttySessionIdentityProvider
     }
 
+    /// Registers or replaces a panel's TTY lifecycle and clears its prior port ownership.
     @MainActor
     func registerTTY(workspaceId: UUID, panelId: UUID, ttyName: String) {
         let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
@@ -124,6 +125,7 @@ final class PortScanner: @unchecked Sendable {
         }
     }
 
+    /// Stops tracking a panel and removes its published ports and owner evidence.
     @MainActor
     func unregisterPanel(workspaceId: UUID, panelId: UUID) {
         let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
@@ -176,6 +178,7 @@ final class PortScanner: @unchecked Sendable {
         }
     }
 
+    /// Stops tracking an agent workspace and clears its published ports and owner evidence.
     @MainActor
     func unregisterAgentWorkspace(workspaceId: UUID) {
         _ = publicationState.invalidateAgentLifecycle(for: workspaceId)
@@ -286,6 +289,7 @@ final class PortScanner: @unchecked Sendable {
         }
     }
 
+    /// Completes one coalesced scan and assembles panel and agent ownership evidence.
     private func finishScan(
         panelSnapshot: [PanelKey: String],
         panelRevisions: [PanelKey: UInt64],
@@ -472,6 +476,7 @@ final class PortScanner: @unchecked Sendable {
         }
     }
 
+    /// Applies a completed panel scan on the scanner queue and starts any pending scan.
     private func completePanelScan(
         _ panelResults: [(PanelKey, [Int])],
         panelTTYs: [PanelKey: String],
@@ -510,6 +515,7 @@ final class PortScanner: @unchecked Sendable {
         }
     }
 
+    /// Updates agent tracking state while already confined to the scanner queue.
     private func refreshAgentPortsLocked(
         workspaceId: UUID,
         agentRoots: Set<AgentPortRootIdentity>,
@@ -612,6 +618,7 @@ final class PortScanner: @unchecked Sendable {
     private func startAgentScan(_ request: AgentPortScanRequest) {
         startAgentProcessScan(request)
     }
+    /// Scans an agent process tree, resolves listener owners, and queues its result.
     private func startAgentProcessScan(_ request: AgentPortScanRequest) {
         let agentRootsByWorkspace = request.rootInput.rootsByWorkspace
         Task { [weak self] in
@@ -703,6 +710,7 @@ final class PortScanner: @unchecked Sendable {
         }
     }
 
+    /// Applies an agent scan result and starts the next queued agent request if needed.
     private func completeAgentScan(
         _ request: AgentPortScanRequest,
         agentPortsByWorkspace: [UUID: Set<Int>],
@@ -727,6 +735,7 @@ final class PortScanner: @unchecked Sendable {
         }
     }
 
+    /// Reconciles panel and agent results through their shared publication paths.
     private func deliverResults(
         _ panelResults: [(PanelKey, [Int])],
         panelTTYs: [PanelKey: String],

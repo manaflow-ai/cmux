@@ -212,6 +212,7 @@ extension PortScanner {
         return (validRootsByWorkspace, completenessByWorkspace)
     }
 
+    /// Captures stable identities and workspace completeness for the agent process graph.
     func captureAgentPIDIdentities(
         ownershipByPID: [Int: Set<UUID>],
         workspaceIds: Set<UUID>
