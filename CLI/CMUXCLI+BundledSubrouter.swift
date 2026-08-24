@@ -14,6 +14,10 @@ extension CMUXCLI {
             .appendingPathComponent("cmux/bin", isDirectory: true)
     }
 
+    private static var bundledSubrouterManagedMarker: URL {
+        bundledSubrouterInstallDirectory.appendingPathComponent(".cmux-managed")
+    }
+
     /// The compressed binary inside the app bundle, located relative to the
     /// bundled CLI (`<app>/Contents/Resources/bin/cmux`), or `nil` when the
     /// CLI runs outside an app bundle that ships one.
@@ -122,6 +126,7 @@ extension CMUXCLI {
             .appendingPathComponent("bin", isDirectory: true)
         do {
             try fileManager.createDirectory(at: homeBin, withIntermediateDirectories: true)
+            var createdManagedLink = false
             for name in ["subrouter", "sr"] {
                 let link = homeBin.appendingPathComponent(name)
                 // attributesOfItem does not traverse symlinks: any existing
@@ -131,6 +136,14 @@ extension CMUXCLI {
                 try fileManager.createSymbolicLink(
                     atPath: link.path,
                     withDestinationPath: extracted
+                )
+                createdManagedLink = true
+            }
+            if createdManagedLink {
+                try "managed\n".write(
+                    to: Self.bundledSubrouterManagedMarker,
+                    atomically: true,
+                    encoding: .utf8
                 )
             }
         } catch {
@@ -151,6 +164,17 @@ extension CMUXCLI {
         let target = URL(fileURLWithPath: resolved).resolvingSymlinksInPath().path
         let managedDir = Self.bundledSubrouterInstallDirectory
             .resolvingSymlinksInPath().path
+        let homeBin = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("bin", isDirectory: true)
+            .resolvingSymlinksInPath().path
+        if FileManager.default.fileExists(atPath: Self.bundledSubrouterManagedMarker.path),
+           resolved.hasPrefix(homeBin + "/"),
+           let refreshed = Self.extractedSubrouterBinary(persona: "sr") {
+            // `sr install-daemon` may replace the managed `subrouter` link
+            // with a regular file while leaving the marker. Prefer the fresh
+            // app extraction for that known managed installation.
+            return refreshed
+        }
         if target == managedDir || target.hasPrefix(managedDir + "/") {
             // Best-effort: a failed refresh leaves the previous (still
             // executable) extraction in place.

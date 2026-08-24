@@ -194,6 +194,14 @@ import Testing
             SubrouterEndpoint(configurationString: "http://localhost:9999")?.baseURL.absoluteString
                 == "http://localhost:9999"
         )
+        #expect(
+            SubrouterEndpoint(configurationString: "https://remote.example/v1")?.baseURL.absoluteString
+                == "https://remote.example"
+        )
+        #expect(
+            SubrouterEndpoint(configurationString: "https://remote.example/backend-api")?.baseURL.absoluteString
+                == "https://remote.example"
+        )
         #expect(SubrouterEndpoint(configurationString: "ftp://bad") == nil)
         // Token-free contract: the endpoint string is echoed by status and
         // CLI JSON output, so embedded credentials are rejected outright.
@@ -241,6 +249,22 @@ import Testing
         """.utf8)
         let blankSelection = try #require(SubrouterServerSelection(serversJSON: blank))
         #expect(blankSelection.defaultServer?.endpoint.adminToken == nil)
+    }
+
+    @Test func preservesTenantScopeAndPrefixesControlURLs() throws {
+        let tenant = "srt_0123456789abcdef0123456789abcdef"
+        let json = Data("""
+        {"servers": [{"name": "team", "url": "https://subrouter-team:31415/v1",
+                      "tenantKey": "\(tenant)"}],
+         "default": "team"}
+        """.utf8)
+        let selection = try #require(SubrouterServerSelection(serversJSON: json))
+        let endpoint = try #require(selection.defaultServer?.endpoint)
+        #expect(endpoint.baseURL.absoluteString == "https://subrouter-team:31415")
+        #expect(
+            endpoint.url(forPath: "/_subrouter/health").absoluteString
+                == "https://subrouter-team:31415/t/\(tenant)/_subrouter/health"
+        )
     }
 
     @Test func rejectsAdminTokenOnPlaintextRemoteServer() {

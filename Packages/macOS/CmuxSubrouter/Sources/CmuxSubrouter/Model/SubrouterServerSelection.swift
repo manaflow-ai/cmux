@@ -47,6 +47,7 @@ public struct SubrouterServerSelection: Sendable, Equatable {
                 // `sr server add --admin-token`: required by non-loopback
                 // `/_subrouter/*` endpoints when the server configures one.
                 let adminToken: String?
+                let tenantKey: String?
             }
 
             let servers: [Entry]?
@@ -69,6 +70,11 @@ public struct SubrouterServerSelection: Sendable, Equatable {
             return nil
         }
         let token = entry.adminToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tenantKey = entry.tenantKey?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let tenantKey, !tenantKey.isEmpty,
+           !Self.isValidTenantKey(tenantKey) {
+            return nil
+        }
         if !(token?.isEmpty ?? true),
            !parsed.isLoopback,
            parsed.baseURL.scheme?.lowercased() != "https" {
@@ -78,8 +84,20 @@ public struct SubrouterServerSelection: Sendable, Equatable {
         }
         let endpoint = SubrouterEndpoint(
             baseURL: parsed.baseURL,
-            adminToken: (token?.isEmpty ?? true) ? nil : token
+            adminToken: (token?.isEmpty ?? true) ? nil : token,
+            tenantKey: (tenantKey?.isEmpty ?? true) ? nil : tenantKey
         )
         self.init(defaultServer: Server(name: defaultName, endpoint: endpoint))
+    }
+
+    private static func isValidTenantKey(_ value: String) -> Bool {
+        let scalars = Array(value.unicodeScalars)
+        guard scalars.count == 36, value.hasPrefix("srt_") else {
+            return false
+        }
+        return scalars.dropFirst(4).allSatisfy { scalar in
+            (scalar.value >= 48 && scalar.value <= 57)
+                || (scalar.value >= 97 && scalar.value <= 102)
+        }
     }
 }

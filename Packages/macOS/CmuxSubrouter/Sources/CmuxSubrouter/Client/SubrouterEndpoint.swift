@@ -22,6 +22,8 @@ public struct SubrouterEndpoint: Sendable, Hashable {
     /// `X-Subrouter-Admin-Token`, or `nil` when the daemon needs none.
     /// Never surfaced in snapshots, status payloads, or logs.
     public let adminToken: String?
+    /// Optional hosted tenant scope from an `sr` server registry entry.
+    private let tenantKey: String?
 
     /// Whether this endpoint targets a loopback interface.
     public var isLoopback: Bool {
@@ -34,8 +36,16 @@ public struct SubrouterEndpoint: Sendable, Hashable {
     ///   - baseURL: The daemon base URL (scheme + host + port).
     ///   - adminToken: The server's admin token, when it has one.
     public init(baseURL: URL, adminToken: String? = nil) {
-        self.baseURL = baseURL
+        self.baseURL = Self.normalizedBaseURL(baseURL)
         self.adminToken = adminToken
+        self.tenantKey = nil
+    }
+
+    /// Creates a registry-resolved endpoint with an optional tenant scope.
+    init(baseURL: URL, adminToken: String?, tenantKey: String?) {
+        self.baseURL = Self.normalizedBaseURL(baseURL)
+        self.adminToken = adminToken
+        self.tenantKey = tenantKey
     }
 
     /// Parses a user-configured endpoint string.
@@ -60,14 +70,32 @@ public struct SubrouterEndpoint: Sendable, Hashable {
               url.password() == nil else {
             return nil
         }
-        self.baseURL = url
-        self.adminToken = nil
+        self.init(baseURL: url, adminToken: nil)
     }
 
     /// Resolves a daemon path (e.g. `"/_subrouter/health"`) against the base.
     /// - Parameter path: The absolute path to resolve.
     /// - Returns: The full request URL.
     public func url(forPath path: String) -> URL {
-        baseURL.appending(path: path)
+        let scopedBase = if let tenantKey {
+            baseURL
+                .appendingPathComponent("t", isDirectory: true)
+                .appendingPathComponent(tenantKey, isDirectory: true)
+        } else {
+            baseURL
+        }
+        return scopedBase.appending(path: path)
+    }
+
+    private static func normalizedBaseURL(_ url: URL) -> URL {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url
+        }
+        let suffixes = ["/v1", "/backend-api"]
+        for suffix in suffixes where components.path.hasSuffix(suffix) {
+            components.path = String(components.path.dropLast(suffix.count))
+            break
+        }
+        return components.url ?? url
     }
 }

@@ -8,6 +8,8 @@ public enum SubrouterClientError: Error, Sendable, Equatable {
     case decoding(description: String)
     /// The requested operation is not supported by the selected daemon mode.
     case unsupported(description: String)
+    /// The daemon response exceeded cmux's bounded transport budget.
+    case responseTooLarge
 
     /// A short human-readable description safe to surface in UI and CLI
     /// output. Transport and decoding details are intentionally reduced to
@@ -32,6 +34,11 @@ public enum SubrouterClientError: Error, Sendable, Equatable {
             )
         case .unsupported(let description):
             return description
+        case .responseTooLarge:
+            return String(
+                localized: "subrouter.error.responseTooLarge",
+                defaultValue: "The subrouter daemon response was too large."
+            )
         }
     }
 }
