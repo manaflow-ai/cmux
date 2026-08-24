@@ -866,6 +866,23 @@ enum RunOutcome {
     Failed { message: String },
 }
 
+#[cfg(unix)]
+struct ProcessGroupGuard {
+    pid: Option<u32>,
+    armed: bool,
+}
+
+#[cfg(unix)]
+impl Drop for ProcessGroupGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            // Task cancellation drops Child without waiting. Kill the entire
+            // group so descendants cannot retain the inherited output pipes.
+            signal_process_tree(self.pid, true);
+        }
+    }
+}
+
 async fn run_spec(
     spec: RunSpec<'_>,
     cwd: &Path,
@@ -915,6 +932,8 @@ async fn run_spec(
         }
     };
     let pid = child.id();
+    #[cfg(unix)]
+    let mut process_group_guard = ProcessGroupGuard { pid, armed: true };
     // Collect a little past the char cap (bytes over-approximate chars).
     let byte_cap = (MAX_OUTPUT_CHARS + 10_000) * 4;
     let mut stdout = child.stdout.take();
@@ -1042,6 +1061,10 @@ async fn run_spec(
     }
     #[cfg(windows)]
     drop(job);
+    #[cfg(unix)]
+    {
+        process_group_guard.armed = false;
+    }
     if timed_out {
         return RunOutcome::TimedOut;
     }
