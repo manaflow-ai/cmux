@@ -1,6 +1,7 @@
 #if DEBUG
 import CmuxNextTransport
 import Foundation
+import IrohLib
 import Observation
 import OSLog
 
