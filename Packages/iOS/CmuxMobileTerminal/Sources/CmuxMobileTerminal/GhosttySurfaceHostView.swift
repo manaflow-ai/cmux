@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CmuxMobileDiagnostics
 import CmuxMobileSupport
 import CmuxMobileTerminalKit
 import QuartzCore
@@ -183,9 +184,11 @@ public final class GhosttySurfaceHostView: UIView {
         // Both constants retarget in ONE animated pass. When the slack equals
         // the whole intrusion (short content) they cancel exactly and the
         // wrapper frame does not change — the layout pass animates nothing.
+        let intrusion = keyboardIntrusion(forHeight: targetHeight)
+        let blank = surfaceView.hostedBlankBelowContent
         appliedAbsorptionSlack = TerminalLetterboxGeometry.keyboardAbsorptionSlack(
-            blankBelowContent: surfaceView.hostedBlankBelowContent,
-            intrusion: keyboardIntrusion(forHeight: targetHeight)
+            blankBelowContent: blank,
+            intrusion: intrusion
         )
         presentationBottomConstraint.constant =
             surfaceView.hostedBottomChromeReservation + appliedAbsorptionSlack
@@ -193,11 +196,21 @@ public final class GhosttySurfaceHostView: UIView {
             keyboardHeight: targetHeight,
             bottomSafeAreaInset: resolvedBottomSafeAreaInset
         )
+        MobileDebugLog.anchormux(
+            "kb.leg gen=\(generation) target=\(Int(targetHeight)) intrusion=\(Int(intrusion)) "
+            + "blank=\(blank.map { String(Int($0)) } ?? "nil") slack=\(Int(appliedAbsorptionSlack)) "
+            + "presC=\(Int(presentationBottomConstraint.constant)) dockC=\(Int(dockBottomConstraint.constant)) "
+            + "wrapY=\(Int(terminalPresentationView.frame.minY))"
+        )
         transition.animate { [weak self] in
             self?.layoutIfNeeded()
         } completion: { [weak self] _ in
             guard let self, self.keyboardTransitionGeneration == generation else { return }
             self.keyboardTransitionActive = false
+            MobileDebugLog.anchormux(
+                "kb.leg.done gen=\(generation) wrapY=\(Int(self.terminalPresentationView.frame.minY)) "
+                + "dockTop=\(Int(self.surfaceView.hostedBottomDockFrame.minY))"
+            )
             self.sampleTerminalDockPresentationGap()
         }
     }
@@ -211,6 +224,10 @@ public final class GhosttySurfaceHostView: UIView {
         appliedAbsorptionSlack = slack
         let constant = surfaceView.hostedBottomChromeReservation + slack
         guard abs(presentationBottomConstraint.constant - constant) > 0.25 else { return }
+        MobileDebugLog.anchormux(
+            "kb.reseat presC=\(Int(presentationBottomConstraint.constant))->\(Int(constant)) "
+            + "slack=\(Int(slack)) kb=\(Int(surfaceView.hostedKeyboardHeight))"
+        )
         presentationBottomConstraint.constant = constant
     }
 
@@ -246,6 +263,9 @@ public final class GhosttySurfaceHostView: UIView {
         guard abs(slack - appliedAbsorptionSlack) > 0.5 else { return }
         appliedAbsorptionSlack = slack
         let constant = surfaceView.hostedBottomChromeReservation + slack
+        MobileDebugLog.anchormux(
+            "kb.follow presC->\(Int(constant)) slack=\(Int(slack)) kb=\(Int(surfaceView.hostedKeyboardHeight))"
+        )
         UIView.animate(
             withDuration: 0.2,
             delay: 0,

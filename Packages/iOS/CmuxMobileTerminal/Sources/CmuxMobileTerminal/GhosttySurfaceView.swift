@@ -1109,6 +1109,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         let nextHeight = max(0, height)
         guard abs(nextHeight - keyboardHeight) > 0.25 else { return }
+        MobileDebugLog.anchormux(
+            "kb.model \(Int(keyboardHeight))->\(Int(nextHeight)) vis=\(isVisible.map { $0 ? "1" : "0" } ?? "-")"
+        )
         keyboardHeight = nextHeight
         layoutBottomDock(using: viewportSnapshot())
     }
@@ -1481,6 +1484,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard !lastRenderRect.isEmpty else { return }
         let renderRect = snapshot.renderRect(forRenderSize: lastRenderRect.size)
         guard renderRect != lastRenderRect else { return }
+        MobileDebugLog.anchormux(
+            "kb.renderRect \(Int(lastRenderRect.minY))->\(Int(renderRect.minY)) h=\(Int(renderRect.height))"
+        )
         lastRenderRect = renderRect
         syncRendererLayerFrame(scale: preferredScreenScale, renderRect: renderRect)
         updateLetterboxBorder(
@@ -2796,6 +2802,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 self.hasAppliedOutput = true
                 self.needsDraw = true
                 if let contentBottomRows {
+                    if contentBottomRows != self.hostedContentBottomRowCount {
+                        MobileDebugLog.anchormux(
+                            "kb.contentRows \(self.hostedContentBottomRowCount.map(String.init) ?? "nil")->\(contentBottomRows)"
+                        )
+                    }
                     self.hostedContentBottomRowCount = contentBottomRows
                 }
                 self.scheduleVisibleArtifactCountUpdate()
