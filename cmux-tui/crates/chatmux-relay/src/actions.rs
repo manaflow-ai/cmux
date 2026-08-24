@@ -155,8 +155,8 @@ pub type RootLists<'a> = [Option<&'a [String]>; 2];
 /// to enforce a scoped file root across a symlink or rename race. Keep the
 /// refusal typed at the action boundary instead of treating this as a path
 /// error or silently using an unsafe path walk.
-pub(crate) const SCOPED_FILE_ROOTS_UNSUPPORTED:
-    &str = "scoped filesystem operations are unavailable on this relay platform";
+pub(crate) const SCOPED_FILE_ROOTS_UNSUPPORTED: &str =
+    "scoped filesystem operations are unavailable on this relay platform";
 
 pub(crate) fn ensure_scoped_file_roots_available(
     supports_descriptor_scoping: bool,

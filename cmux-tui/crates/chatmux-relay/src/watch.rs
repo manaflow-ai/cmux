@@ -14,9 +14,9 @@ use std::time::Duration;
 use tokio::sync::Notify;
 use tokio::sync::mpsc::{Receiver, Sender, channel};
 
+use crate::actions::{RootLists, ensure_scoped_file_roots_available};
 use crate::relay_wire as wire;
 use crate::session::OutboundSink;
-use crate::actions::{RootLists, ensure_scoped_file_roots_available};
 use crate::workspace::{Refusal, Scope, WORKSPACE_FRAME_VERSION, slash_path};
 
 /// Concurrent watch sessions per machine (WORKSPACE_WATCH_MAX_SESSIONS).

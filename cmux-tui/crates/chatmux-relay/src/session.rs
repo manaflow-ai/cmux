@@ -846,11 +846,9 @@ mod tests {
     #[cfg(not(unix))]
     #[test]
     fn unsupported_pty_requests_get_typed_replies() {
-        let open = unsupported_platform_pty_reply(
-            "pty_open",
-            &serde_json::json!({"ptyId": "pty_1"}),
-        )
-        .expect("pty open refusal");
+        let open =
+            unsupported_platform_pty_reply("pty_open", &serde_json::json!({"ptyId": "pty_1"}))
+                .expect("pty open refusal");
         assert_eq!(open["type"], "pty_error");
         assert_eq!(open["ptyId"], "pty_1");
         assert_eq!(open["code"], "failed");
