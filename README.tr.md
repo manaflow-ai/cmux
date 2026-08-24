@@ -69,7 +69,7 @@ Kenar çubuğu git dalını, bağlantılı PR durumunu/numarasını, çalışma 
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> uzak bir makine için çalışma alanı oluşturur. Tarayıcı panelleri uzak ağ üzerinden yönlendirilir, böylece localhost sorunsuz çalışır. Uzak oturuma bir görsel sürükleyerek scp ile yükleyin.
+<code>cmux ssh user@remote</code> uzak bir makine için çalışma alanı oluşturur. İlk uzak terminalinde bir kez başlangıç komutu çalıştırmak için <code>--command 'omp "investigate auth"'</code> parametresini geçin. Tarayıcı panelleri uzak ağ üzerinden yönlendirilir, böylece localhost sorunsuz çalışır. Uzak oturuma bir görsel sürükleyerek scp ile yükleyin.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -119,6 +119,21 @@ brew upgrade --cask cmux
 ```
 
 İlk açılışta macOS, tanımlanmış bir geliştiriciden gelen bir uygulamayı açmayı onaylamanızı isteyebilir. Devam etmek için **Aç**'a tıklayın.
+
+### Kabuk tamamlama
+
+Homebrew cask'i zsh, bash ve fish için tamamlamayı kurar. Kurulumdan sonra yeni bir kabuk başlatın. Yüklenmezse, Homebrew'un tamamlama dizinlerinin kabuğunuza bağlı olduğundan emin olun ([Homebrew'un kabuk tamamlama belgelerine](https://docs.brew.sh/Shell-Completion) bakın).
+
+cmux'u başka bir yolla kurduysanız, ilgili satırı kabuğunuzun başlangıç dosyasına ekleyin ve yeni bir kabuk başlatın:
+
+```bash
+# zsh
+eval "$(cmux completion zsh)"
+# bash
+eval "$(cmux completion bash)"
+# fish
+cmux completion fish | source
+```
 
 ## Neden cmux?
 

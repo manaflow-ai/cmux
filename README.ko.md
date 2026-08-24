@@ -69,7 +69,7 @@
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code>로 원격 머신용 워크스페이스를 생성해요. 브라우저 패널은 원격 네트워크를 통해 라우팅되어 localhost가 그대로 작동해요. 원격 세션에 이미지를 드래그하면 scp로 업로드돼요.
+<code>cmux ssh user@remote</code>로 원격 머신용 워크스페이스를 생성해요. <code>--command 'omp "investigate auth"'</code>를 전달하면 첫 원격 터미널에서 초기 명령을 한 번 실행해요. 브라우저 패널은 원격 네트워크를 통해 라우팅되어 localhost가 그대로 작동해요. 원격 세션에 이미지를 드래그하면 scp로 업로드돼요.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -119,6 +119,21 @@ brew upgrade --cask cmux
 ```
 
 처음 실행할 때 macOS에서 개발자 확인 팝업이 뜰 수 있어요. **열기**를 클릭하면 돼요.
+
+### 셸 자동완성
+
+Homebrew cask가 zsh, bash, fish용 자동완성을 설치해요. 설치 후 새 셸을 열면 돼요. 로드되지 않으면 Homebrew의 자동완성 디렉터리가 셸에 연결되어 있는지 확인해 주세요([Homebrew의 셸 자동완성 문서](https://docs.brew.sh/Shell-Completion) 참고).
+
+다른 방법으로 cmux를 설치했다면, 해당하는 줄을 셸 시작 파일에 추가하고 새 셸을 열어 주세요:
+
+```bash
+# zsh
+eval "$(cmux completion zsh)"
+# bash
+eval "$(cmux completion bash)"
+# fish
+cmux completion fish | source
+```
 
 ## 왜 cmux를 만들었나요?
 

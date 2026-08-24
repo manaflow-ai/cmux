@@ -69,7 +69,7 @@
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> สร้างพื้นที่ทำงานสำหรับเครื่องระยะไกล แพเนลเบราว์เซอร์จะกำหนดเส้นทางผ่านเครือข่ายระยะไกล ดังนั้น localhost จึงใช้งานได้เลย ลากรูปภาพเข้าไปในเซสชันระยะไกลเพื่ออัปโหลดผ่าน scp
+<code>cmux ssh user@remote</code> สร้างพื้นที่ทำงานสำหรับเครื่องระยะไกล ส่ง <code>--command 'omp "investigate auth"'</code> เพื่อรันคำสั่งเริ่มต้นหนึ่งครั้งในเทอร์มินัลระยะไกลตัวแรก แพเนลเบราว์เซอร์จะกำหนดเส้นทางผ่านเครือข่ายระยะไกล ดังนั้น localhost จึงใช้งานได้เลย ลากรูปภาพเข้าไปในเซสชันระยะไกลเพื่ออัปโหลดผ่าน scp
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -119,6 +119,21 @@ brew upgrade --cask cmux
 ```
 
 เมื่อเปิดใช้งานครั้งแรก macOS อาจขอให้คุณยืนยันการเปิดแอปจากนักพัฒนาที่ระบุตัวตนได้ คลิก **Open** เพื่อดำเนินการต่อ
+
+### การเติมคำอัตโนมัติใน Shell
+
+cask ของ Homebrew จะติดตั้งการเติมคำอัตโนมัติสำหรับ zsh, bash และ fish เปิด shell ใหม่หลังติดตั้ง หากยังไม่ทำงาน ให้ตรวจสอบว่าไดเรกทอรีการเติมคำของ Homebrew ถูกเชื่อมเข้ากับ shell ของคุณแล้ว (ดู [เอกสารการเติมคำอัตโนมัติของ Homebrew](https://docs.brew.sh/Shell-Completion))
+
+ถ้าคุณติดตั้ง cmux ด้วยวิธีอื่น ให้เพิ่มบรรทัดที่ตรงกันลงในไฟล์เริ่มต้นของ shell แล้วเปิด shell ใหม่:
+
+```bash
+# zsh
+eval "$(cmux completion zsh)"
+# bash
+eval "$(cmux completion bash)"
+# fish
+cmux completion fish | source
+```
 
 ## ทำไมต้อง cmux?
 
