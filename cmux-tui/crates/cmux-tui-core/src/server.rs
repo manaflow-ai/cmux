@@ -5072,7 +5072,9 @@ fn handle_connection_with_permit(
     let mut drain_accepted = true;
     loop {
         let mut line = String::new();
-        let read = match reader.by_ref().take((MAX_JSON_LINE_BYTES + 1) as u64).read_line(&mut line)
+        // read_line includes the trailing LF. Read one byte beyond the largest
+        // valid payload plus its delimiter so an oversized payload is visible.
+        let read = match reader.by_ref().take((MAX_JSON_LINE_BYTES + 2) as u64).read_line(&mut line)
         {
             Ok(read) => read,
             Err(_) => {
@@ -5083,7 +5085,7 @@ fn handle_connection_with_permit(
         if read == 0 {
             break;
         }
-        if line.len() > MAX_JSON_LINE_BYTES {
+        if json_line_payload_len(&line) > MAX_JSON_LINE_BYTES {
             drain_accepted = false;
             break;
         }
@@ -5106,6 +5108,10 @@ fn handle_connection_with_permit(
     disconnect_client(&mux, client, false);
     let _ = writer_thread.join();
     drop(connection_permit);
+}
+
+fn json_line_payload_len(line: &str) -> usize {
+    line.strip_suffix('\n').map_or(line.len(), str::len)
 }
 
 #[cfg(test)]
@@ -13097,6 +13103,23 @@ mod tests {
     use std::time::Duration;
 
     static NEXT_TEST_SOCKET_DIR: AtomicU64 = AtomicU64::new(1);
+
+    #[test]
+    fn json_line_limit_excludes_the_newline_delimiter() {
+        let exact_payload = "x".repeat(MAX_JSON_LINE_BYTES);
+        assert_eq!(json_line_payload_len(&exact_payload), MAX_JSON_LINE_BYTES);
+
+        let mut exact_line = exact_payload;
+        exact_line.push('\n');
+        assert_eq!(json_line_payload_len(&exact_line), MAX_JSON_LINE_BYTES);
+
+        let oversized_payload = "x".repeat(MAX_JSON_LINE_BYTES + 1);
+        assert!(json_line_payload_len(&oversized_payload) > MAX_JSON_LINE_BYTES);
+
+        let mut oversized_line = oversized_payload;
+        oversized_line.push('\n');
+        assert!(json_line_payload_len(&oversized_line) > MAX_JSON_LINE_BYTES);
+    }
 
     struct TestSocketDir(PathBuf);
 
