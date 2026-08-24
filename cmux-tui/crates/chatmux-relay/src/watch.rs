@@ -671,8 +671,9 @@ mod tests {
     fn bounded_notify_queue_marks_overflow_without_losing_the_marker() {
         let (sender, mut receiver) = channel::<u8>(1);
         let overflowed = AtomicBool::new(false);
-        try_enqueue_notify_event(&sender, &overflowed, 1);
-        try_enqueue_notify_event(&sender, &overflowed, 2);
+        let notify = Notify::new();
+        try_enqueue_notify_event(&sender, &overflowed, &notify, 1);
+        try_enqueue_notify_event(&sender, &overflowed, &notify, 2);
         assert!(overflowed.load(Ordering::Acquire));
         assert_eq!(receiver.try_recv().expect("first event"), 1);
         assert!(receiver.try_recv().is_err());
