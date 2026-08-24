@@ -86,6 +86,18 @@ extension AppDelegate {
         panel.hardReload()
     }
 
+    /// Gives a focused browser's hard-refresh binding precedence over a legacy
+    /// application-scoped Rename Workspace binding that still uses ⌘⇧R.
+    @discardableResult
+    func handleBrowserHardReloadShortcut(_ event: NSEvent) -> Bool {
+        guard matchConfiguredShortcut(event: event, action: .browserHardReload),
+              let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
+            return false
+        }
+        hardReloadBrowserPanelForShortcut(focusedBrowserPanel)
+        return true
+    }
+
     func shortcutEventBrowserPanel(_ event: NSEvent) -> BrowserPanel? {
         shortcutEventFocusContext(event).browserPanel
     }

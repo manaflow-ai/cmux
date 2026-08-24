@@ -206,6 +206,20 @@ struct AppDelegateRenameShortcutContextTests {
 
             #expect(manager.focusedBrowserPanel != nil)
 
+            // Preserve the pre-fix binding as if an existing user had it saved.
+            let legacyRenameWorkspaceShortcut = StoredShortcut(
+                key: "r",
+                command: true,
+                shift: true,
+                option: false,
+                control: false
+            )
+            let legacyShortcutData = try JSONEncoder().encode(legacyRenameWorkspaceShortcut)
+            UserDefaults.standard.set(
+                legacyShortcutData,
+                forKey: KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey
+            )
+
             let renameWorkspacePosted = ShortcutNotificationFlag()
             let renameWorkspaceToken = NotificationCenter.default.addObserver(
                 forName: .commandPaletteRenameWorkspaceRequested,
