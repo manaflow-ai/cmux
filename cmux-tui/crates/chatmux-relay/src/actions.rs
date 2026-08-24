@@ -221,6 +221,11 @@ fn is_not_found(error: &std::io::Error) -> bool {
     error.kind() == std::io::ErrorKind::NotFound
 }
 
+#[cfg(unix)]
+fn is_already_exists(error: &std::io::Error) -> bool {
+    error.raw_os_error() == Some(libc::EEXIST)
+}
+
 fn is_eloop(error: &std::io::Error) -> bool {
     #[cfg(unix)]
     {
@@ -353,7 +358,7 @@ fn open_dir_no_symlinks(path: &Path, create_missing: bool) -> Result<std::fs::Fi
             let made = unsafe {
                 libc::mkdirat(std::os::fd::AsRawFd::as_raw_fd(&current), name.as_ptr(), 0o777)
             };
-            if made < 0 {
+            if made < 0 && !is_already_exists(&std::io::Error::last_os_error()) {
                 return Err(HostError::Io(std::io::Error::last_os_error()));
             }
             fd = unsafe {
@@ -420,7 +425,7 @@ fn open_beneath(
         };
         if fd < 0 && create_parents && is_not_found(&std::io::Error::last_os_error()) {
             let made = unsafe { libc::mkdirat(current.as_raw_fd(), name.as_ptr(), 0o777) };
-            if made < 0 {
+            if made < 0 && !is_already_exists(&std::io::Error::last_os_error()) {
                 return Err(HostError::Io(std::io::Error::last_os_error()));
             }
             fd = unsafe {
