@@ -369,6 +369,7 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         let command = "TMUX= CMUX_LOCAL_TMUX=1 exec '/usr/local/bin/tmux' -S '/tmp/.cmux/local-tmux/server.sock' attach-session -t 'work'"
 
         #expect(service.restorableTmuxStartCommand(command) == command)
+        #expect(service.localTmuxStartCommand(command) == command)
         #expect(service.restorableTmuxStartCommand("CMUX_LOCAL_TMUX=1 exec tmux attach -t work") == nil)
     }
 }

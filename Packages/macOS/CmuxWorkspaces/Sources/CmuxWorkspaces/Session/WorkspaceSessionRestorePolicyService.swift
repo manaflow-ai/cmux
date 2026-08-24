@@ -173,6 +173,15 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
         ).restorableTmuxStartCommand(rawCommand)
     }
 
+    /// Returns a cmux-generated local-tmux attach command, if present.
+    ///
+    /// Local tmux ownership takes precedence over agent resume metadata: the
+    /// agent process is already alive inside the durable tmux server and must
+    /// not be started a second time during GUI restore.
+    public func localTmuxStartCommand(_ rawCommand: String?) -> String? {
+        LocalTmuxRestoreCommandPolicy().restorableCommand(rawCommand)
+    }
+
     /// Returns whether terminal scrollback should be persisted when closing/restoring.
     public func shouldPersistSessionScrollback(closeConfirmationRequired: Bool) -> Bool {
         !closeConfirmationRequired

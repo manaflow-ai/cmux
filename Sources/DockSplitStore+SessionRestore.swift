@@ -180,34 +180,43 @@ extension DockSplitStore {
         )
         guard let terminalSnapshot = snapshot.terminal else { return nil }
         let policy = Workspace.makeSessionRestorePolicyService()
-        let restorableAgent = Workspace.restorableAgentForSessionRestore(
-            terminalSnapshot.agent,
-            resumeBinding: terminalSnapshot.resumeBinding
-        )
+        let localTmuxStartCommand = policy.localTmuxStartCommand(terminalSnapshot.tmuxStartCommand)
+        let restorableAgent = localTmuxStartCommand == nil
+            ? Workspace.restorableAgentForSessionRestore(
+                terminalSnapshot.agent,
+                resumeBinding: terminalSnapshot.resumeBinding
+            )
+            : nil
         let hibernation = restorableAgent != nil ? terminalSnapshot.hibernation : nil
-        let resumeBinding = Workspace.resumeBindingForSessionRestore(
-            terminalSnapshot.resumeBinding,
-            restorableAgent: restorableAgent
-        )
-        let managedResumeBinding = (
-            terminalSnapshot.managedAgentResumeBinding.flatMap {
-                $0.hasCompleteManagedSessionIdentity ? $0 : nil
-            }
-                ?? terminalSnapshot.resumeBinding.flatMap {
-                    $0.hasCompleteManagedSessionIdentity ? $0 : nil
-                }
-        ).flatMap { candidate -> SurfaceResumeBindingSnapshot? in
-            if restorableAgent != nil,
-               Workspace.restorableAgentForSessionRestore(
-                   restorableAgent,
-                   resumeBinding: candidate
-               ) == nil {
-                return nil
-            }
-            return Workspace.resumeBindingForSessionRestore(
-                candidate,
+        let resumeBinding = localTmuxStartCommand == nil
+            ? Workspace.resumeBindingForSessionRestore(
+                terminalSnapshot.resumeBinding,
                 restorableAgent: restorableAgent
             )
+            : nil
+        let managedResumeBinding: SurfaceResumeBindingSnapshot? = if localTmuxStartCommand == nil {
+            (
+                terminalSnapshot.managedAgentResumeBinding.flatMap {
+                    $0.hasCompleteManagedSessionIdentity ? $0 : nil
+                }
+                    ?? terminalSnapshot.resumeBinding.flatMap {
+                        $0.hasCompleteManagedSessionIdentity ? $0 : nil
+                    }
+            ).flatMap { candidate -> SurfaceResumeBindingSnapshot? in
+                if restorableAgent != nil,
+                   Workspace.restorableAgentForSessionRestore(
+                       restorableAgent,
+                       resumeBinding: candidate
+                   ) == nil {
+                    return nil
+                }
+                return Workspace.resumeBindingForSessionRestore(
+                    candidate,
+                    restorableAgent: restorableAgent
+                )
+            }
+        } else {
+            nil
         }
         let agentWasRunning = terminalSnapshot.wasAgentRunning ?? true
         let shouldAutoResumeAgent = AgentSessionAutoResumeSettings.isEnabled(
@@ -246,9 +255,10 @@ extension DockSplitStore {
                 ?? workingDirectory
         }()
         let bindingLaunch = unresolvedBindingLaunch
-        let tmuxStartCommand = restorableAgent == nil && bindingLaunch == nil
-            ? policy.restorableTmuxStartCommand(terminalSnapshot.tmuxStartCommand)
-            : nil
+        let tmuxStartCommand = localTmuxStartCommand
+            ?? (restorableAgent == nil && bindingLaunch == nil
+                ? policy.restorableTmuxStartCommand(terminalSnapshot.tmuxStartCommand)
+                : nil)
         let tmuxLauncher = tmuxStartCommand.flatMap {
             OneShotTerminalLauncherStore().writeStartupCommand(
                 command: $0,
