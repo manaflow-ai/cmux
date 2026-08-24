@@ -519,6 +519,15 @@ struct WorkspaceShellView: View {
                 dismiss: { showsWhatsNewSheet = false }
             )
             .presentationDetents([.large])
+            // Acknowledge on the sheet's ACTUAL appearance, not at gate time:
+            // a competing presentation (e.g. a state-restored Settings sheet)
+            // can swallow this presentation entirely, and gate-time
+            // acknowledgement would burn the marker for pages nobody saw.
+            // First appearance still acknowledges everything shown, so a kill
+            // mid-presentation cannot re-show the sheet forever.
+            .onAppear {
+                whatsNewCenter?.acknowledge(whatsNewSheetPages)
+            }
         }
         #endif
         .accessibilityIdentifier("MobileWorkspaceShell")
@@ -526,16 +535,18 @@ struct WorkspaceShellView: View {
 
     #if os(iOS)
     /// Presents the one-time What's New sheet when there are unseen pages
-    /// and the device already has Computers. Pages are acknowledged the
-    /// moment the sheet first shows (not on dismiss) so a kill
-    /// mid-presentation cannot re-show it forever.
+    /// and the device already has Computers. Acknowledgement happens in the
+    /// sheet content's `onAppear` (first actual presentation, not on
+    /// dismiss): early enough that a kill mid-presentation cannot re-show
+    /// the sheet forever, late enough that a swallowed presentation (a
+    /// state-restored sheet already occupying the presenter) never marks
+    /// pages as seen.
     private func presentWhatsNewIfNeeded() {
         guard let whatsNewCenter,
               !store.pairedMacs.isEmpty,
               !showsWhatsNewSheet else { return }
         let pages = whatsNewCenter.unseenPages
         guard !pages.isEmpty else { return }
-        whatsNewCenter.acknowledge(pages)
         whatsNewSheetPages = pages
         showsWhatsNewSheet = true
     }
