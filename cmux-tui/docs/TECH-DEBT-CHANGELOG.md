@@ -219,3 +219,18 @@ not affect cmux-tui protocol, SDK, relay, or preview ownership in this wave.
 The exact documentation tip is `df419568b0490c794ec1230244936f70bf2e118f`.
 The branch is 556 commits ahead of `origin/main`. The substantive-turn lower
 bound is at least 205.
+# Post-correction exact tail
+
+Current aggregate tip is `b0d35b3396a217d468275e50c91e79e4e65cba0c`, 569 commits
+ahead of `origin/main`.
+
+| Commit | Change | Exact revert |
+| --- | --- | --- |
+| `4c74c0f22d0931d8f51029f5b12c3a2008324b03` | Bound Go SDK close cleanup by context. | `git revert 4c74c0f22d0931d8f51029f5b12c3a2008324b03` |
+| `462a66fbf3b8b64e2bf3bf078bcbd68b1261428a` | Reject directory paths as C++ hashed sockets. | `git revert 462a66fbf3b8b64e2bf3bf078bcbd68b1261428a` |
+| `af758848e0c7d120ef54b955553f35c5d9391416` | Pin BSD Unix socket capacities in Go tests. | `git revert af758848e0c7d120ef54b955553f35c5d9391416` |
+| `f8220a4ba73012654e311fb217952c0c495421eb` | Use BSD Unix socket path limits in Go. | `git revert f8220a4ba73012654e311fb217952c0c495421eb` |
+| `d50300c260851c9dd5e5ead975c74504914cc501` | Gate relay platform-specific imports. | `git revert d50300c260851c9dd5e5ead975c74504914cc501` |
+| `79e46a998b8c9456293356274d13b84d763ab3b5` | Bound relay output drain after forced timeout. | `git revert 79e46a998b8c9456293356274d13b84d763ab3b5` |
+| `0e1ab67f1abe66bbdd04dbf21bdef80bcd34ba37` | Collapse the Rust legacy socket fallback condition. | `git revert 0e1ab67f1abe66bbdd04dbf21bdef80bcd34ba37` |
+| `b0d35b3396a217d468275e50c91e79e4e65cba0c` | Merge the latest relay tech-debt history. | `git revert -m 1 b0d35b3396a217d468275e50c91e79e4e65cba0c` |

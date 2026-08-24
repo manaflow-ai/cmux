@@ -4,6 +4,9 @@ Last updated: 2026-08-23.
 Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
 Integration branch: `aggregate-final`.
 Current integration code tip before this documentation commit: `f7471b21e6a4a0e5cac745e78202d4470b87abb5` (`Merge remote-tracking branch 'origin/codex/chatmux-relay-techdebt' into aggregate-final`).
+
+Current exact aggregate tip is `b0d35b3396a217d468275e50c91e79e4e65cba0c`,
+569 commits ahead of `origin/main`.
 Exact worktree HEAD: run `git rev-parse HEAD` (documentation commits change this value).
 The aggregate branch is `aggregate-final`; the review branch is
 `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
