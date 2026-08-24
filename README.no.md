@@ -69,7 +69,7 @@ Sidefeltet viser git-gren, tilknyttet PR-status/nummer, arbeidsmappe, lyttende p
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> oppretter et arbeidsområde for en ekstern maskin. Nettleserpaneler rutes gjennom det eksterne nettverket, så localhost bare fungerer. Dra et bilde inn i en ekstern sesjon for å laste opp via scp.
+<code>cmux ssh user@remote</code> oppretter et arbeidsområde for en ekstern maskin. Angi <code>--command 'omp "investigate auth"'</code> for å kjøre en innledende kommando én gang i den første eksterne terminalen. Nettleserpaneler rutes gjennom det eksterne nettverket, så localhost bare fungerer. Dra et bilde inn i en ekstern sesjon for å laste opp via scp.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -119,6 +119,21 @@ brew upgrade --cask cmux
 ```
 
 Ved første oppstart kan macOS be deg bekrefte åpning av en app fra en identifisert utvikler. Klikk **Åpne** for å fortsette.
+
+### Shell-fullføring
+
+Homebrew-casken installerer fullføring for zsh, bash og fish. Start et nytt shell etter installasjonen. Hvis den ikke lastes, sjekk at Homebrews fullføringskataloger er koblet til shellet ditt (se [Homebrews dokumentasjon om shell-fullføring](https://docs.brew.sh/Shell-Completion)).
+
+Hvis du installerte cmux på en annen måte, legg den aktuelle linjen til i oppstartsfilen til shellet ditt, og start et nytt shell:
+
+```bash
+# zsh
+eval "$(cmux completion zsh)"
+# bash
+eval "$(cmux completion bash)"
+# fish
+cmux completion fish | source
+```
 
 ## Hvorfor cmux?
 
