@@ -62,6 +62,11 @@ on:
         required: false
         default: ""
         type: string
+      attest_packages:
+        description: "Attest native npm package binaries after package verification"
+        required: false
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -831,3 +836,85 @@ jobs:
           python3 cmux-tui/dist/scripts/test_linux_packages.py \
             --architecture "${{ matrix.architecture }}" \
             "${args[@]}"
+
+  attest-npm-packages:
+    name: attest native npm package binaries
+    needs:
+      - package
+      - verify-linux-packages
+    if: >-
+      ${{
+        inputs.attest_packages &&
+        inputs.package_npm &&
+        needs.package.result == 'success' &&
+        needs.verify-linux-packages.result == 'success'
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout caller ref
+        if: inputs.checkout_ref == ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Checkout requested ref
+        if: inputs.checkout_ref != ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Download npm package archive
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: npm-packages
+          path: dist
+
+      - name: Restore npm package executable modes
+        run: |
+          python3 cmux-tui/dist/scripts/package_npm_artifact.py extract \
+            --archive dist/npm-packages.tar.gz \
+            --out dist
+
+      - name: Attest native npm package binaries
+        id: attest-native-npm-packages
+        continue-on-error: true
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: |
+            dist/npm-packages/cmux-tui-*/bin/cmux-tui*
+            dist/npm-packages/cmux-relay-*/bin/cmux-relay*
+
+      - name: Retry native npm package binary attestation
+        if: steps.attest-native-npm-packages.outcome == 'failure'
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: |
+            dist/npm-packages/cmux-tui-*/bin/cmux-tui*
+            dist/npm-packages/cmux-relay-*/bin/cmux-relay*
+
+      - name: Verify native npm package attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -d '' binaries < <(
+            find dist/npm-packages -type f \
+              \( -path '*/cmux-tui-*/bin/cmux-tui*' -o \
+                 -path '*/cmux-relay-*/bin/cmux-relay*' \) \
+              -print0 | sort -z
+          )
+          ((${#binaries[@]} > 0))
+          for binary in "${binaries[@]}"; do
+            gh attestation verify "$binary" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-build-package.yml" \
+              --deny-self-hosted-runners \
+              --source-digest "$GITHUB_SHA" \
+              --source-ref "$GITHUB_REF"
+          done

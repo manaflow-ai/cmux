@@ -142,6 +142,7 @@ jobs:
       actions: read
       contents: read
       id-token: write
+      attestations: read
     environment:
       name: npm-tui
       url: https://www.npmjs.com/package/cmux
@@ -187,6 +188,29 @@ jobs:
             --version "${{ inputs.version }}" \
             --include-windows \
             --install-npm-package cmux-tui-linux-x64
+
+      - name: Verify native npm package attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.validate-version.outputs.release_sha }}
+          RELEASE_TAG: ${{ needs.validate-version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mapfile -d '' binaries < <(
+            find dist/npm-packages -type f \
+              \( -path '*/cmux-tui-*/bin/cmux-tui*' -o \
+                 -path '*/cmux-relay-*/bin/cmux-relay*' \) \
+              -print0 | sort -z
+          )
+          ((${#binaries[@]} > 0))
+          for binary in "${binaries[@]}"; do
+            gh attestation verify "$binary" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-build-package.yml" \
+              --deny-self-hosted-runners \
+              --source-digest "$RELEASE_SHA" \
+              --source-ref "refs/tags/$RELEASE_TAG"
+          done
 
       - name: Publish platform packages
         run: |
