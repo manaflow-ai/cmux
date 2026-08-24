@@ -132,7 +132,7 @@ extension TerminalController {
                 surfaceID: target.surfaceID,
                 panel: target.panel,
                 workspace: workspace
-            ) != nil else {
+            )?.agentInputScope != nil else {
                 return nil
             }
             return target.panel

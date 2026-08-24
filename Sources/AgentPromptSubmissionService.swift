@@ -1,3 +1,4 @@
+import CryptoKit
 import CmuxTerminalCore
 import Foundation
 
@@ -31,15 +32,23 @@ final class AgentPromptSubmissionService {
     private struct AcceptedMessage {
         let messageID: UUID
         let workspaceID: UUID
-        let text: String
+        let signature: Data
+        let byteCount: Int
+        let surfaceID: UUID
     }
 
     private let maximumPendingRequests: Int
+    private let maximumPendingBytes = 8 * 1_048_576
     private let maximumAcceptedMessagesPerSurface = 64
     private let maximumTrackedSurfaces = 256
+    private let maximumAcceptedBytes = 8 * 1_048_576
     private var pendingByWorkspace: [UUID: [PendingRequest]] = [:]
+    private var pendingBytes = 0
     private var acceptedBySurface: [UUID: [AcceptedMessage]] = [:]
     private var acceptedSurfaceOrder: [UUID] = []
+    private var acceptedBytes = 0
+    /// One accepted prompt at a time is the per-workspace FIFO barrier.
+    private var inFlightByWorkspace: [UUID: AcceptedMessage] = [:]
 
     init(maximumPendingRequests: Int = 256) {
         self.maximumPendingRequests = max(1, maximumPendingRequests)
@@ -87,7 +96,15 @@ final class AgentPromptSubmissionService {
         }
 
         if pendingByWorkspace[workspaceID]?.isEmpty == false {
-            enqueue(request)
+            guard enqueue(request) else {
+                return Receipt(
+                    messageID: messageID,
+                    result: .submissionQueueFull(
+                        workspaceID: workspaceID,
+                        surfaceID: requestedSurfaceID
+                    )
+                )
+            }
             return Receipt(
                 messageID: messageID,
                 result: .queued(
@@ -98,10 +115,38 @@ final class AgentPromptSubmissionService {
             )
         }
 
+        if let inFlight = inFlightByWorkspace[workspaceID] {
+            guard enqueue(request, surfaceID: inFlight.surfaceID) else {
+                return Receipt(
+                    messageID: messageID,
+                    result: .submissionQueueFull(
+                        workspaceID: workspaceID,
+                        surfaceID: inFlight.surfaceID
+                    )
+                )
+            }
+            return Receipt(
+                messageID: messageID,
+                result: .queued(
+                    workspaceID: workspaceID,
+                    surfaceID: inFlight.surfaceID,
+                    reason: "prior_prompt_in_flight"
+                )
+            )
+        }
+
         let result = delivery()
         switch result {
         case .rejectedComposerBusy(let resolvedWorkspaceID, let surfaceID):
-            enqueue(request, surfaceID: surfaceID)
+            guard enqueue(request, surfaceID: surfaceID) else {
+                return Receipt(
+                    messageID: messageID,
+                    result: .submissionQueueFull(
+                        workspaceID: workspaceID,
+                        surfaceID: surfaceID
+                    )
+                )
+            }
             return Receipt(
                 messageID: messageID,
                 result: .queued(
@@ -111,7 +156,15 @@ final class AgentPromptSubmissionService {
                 )
             )
         case .agentBusy(let resolvedWorkspaceID, let surfaceID):
-            enqueue(request, surfaceID: surfaceID)
+            guard enqueue(request, surfaceID: surfaceID) else {
+                return Receipt(
+                    messageID: messageID,
+                    result: .submissionQueueFull(
+                        workspaceID: workspaceID,
+                        surfaceID: surfaceID
+                    )
+                )
+            }
             return Receipt(
                 messageID: messageID,
                 result: .queued(
@@ -123,7 +176,15 @@ final class AgentPromptSubmissionService {
         case .agentScopeUnavailable(let resolvedWorkspaceID, let surfaceID):
             // A scope gap is common while an agent is waking or rebinding. Keep
             // the request durable; the retry re-resolves the process identity.
-            enqueue(request, surfaceID: surfaceID)
+            guard enqueue(request, surfaceID: surfaceID) else {
+                return Receipt(
+                    messageID: messageID,
+                    result: .submissionQueueFull(
+                        workspaceID: workspaceID,
+                        surfaceID: surfaceID
+                    )
+                )
+            }
             return Receipt(
                 messageID: messageID,
                 result: .queued(
@@ -134,7 +195,15 @@ final class AgentPromptSubmissionService {
             )
         case .submitted(let resolvedWorkspaceID, let surfaceID, let queued):
             if queued {
-                enqueue(request, surfaceID: surfaceID)
+                guard enqueue(request, surfaceID: surfaceID) else {
+                    return Receipt(
+                        messageID: messageID,
+                        result: .submissionQueueFull(
+                            workspaceID: workspaceID,
+                            surfaceID: surfaceID
+                        )
+                    )
+                }
                 return Receipt(
                     messageID: messageID,
                     result: .queued(
@@ -149,6 +218,13 @@ final class AgentPromptSubmissionService {
                 workspaceID: workspaceID,
                 surfaceID: surfaceID,
                 text: text
+            )
+            inFlightByWorkspace[workspaceID] = AcceptedMessage(
+                messageID: messageID,
+                workspaceID: workspaceID,
+                signature: Self.messageSignature(text),
+                byteCount: text.utf8.count,
+                surfaceID: surfaceID
             )
             return Receipt(
                 messageID: messageID,
@@ -168,6 +244,7 @@ final class AgentPromptSubmissionService {
     /// a second global observer or notification dependency.
     @discardableResult
     func drain(workspaceID: UUID) -> [Receipt] {
+        guard inFlightByWorkspace[workspaceID] == nil else { return [] }
         guard var pending = pendingByWorkspace[workspaceID], !pending.isEmpty else {
             pendingByWorkspace.removeValue(forKey: workspaceID)
             return []
@@ -186,11 +263,19 @@ final class AgentPromptSubmissionService {
                     return completed
                 }
                 pending.removeFirst()
+                pendingBytes = max(0, pendingBytes - first.text.utf8.count)
                 recordAccepted(
                     messageID: first.messageID,
                     workspaceID: resolvedWorkspaceID,
                     surfaceID: surfaceID,
                     text: first.text
+                )
+                inFlightByWorkspace[workspaceID] = AcceptedMessage(
+                    messageID: first.messageID,
+                    workspaceID: resolvedWorkspaceID,
+                    signature: Self.messageSignature(first.text),
+                    byteCount: first.text.utf8.count,
+                    surfaceID: surfaceID
                 )
                 completed.append(
                     Receipt(
@@ -206,6 +291,7 @@ final class AgentPromptSubmissionService {
                 // A vanished workspace/surface or a dead process is terminal
                 // for this queued message. Do not silently retry forever.
                 pending.removeFirst()
+                pendingBytes = max(0, pendingBytes - first.text.utf8.count)
                 completed.append(
                     Receipt(messageID: first.messageID, result: result)
                 )
@@ -227,23 +313,28 @@ final class AgentPromptSubmissionService {
         guard var accepted = acceptedBySurface[surfaceID], !accepted.isEmpty else {
             return nil
         }
-        let normalizedMessage = Self.normalized(message)
+        let messageSignature = message.map(Self.messageSignature)
         let index: Int?
-        if let normalizedMessage {
+        if let messageSignature {
             index = accepted.firstIndex {
                 $0.workspaceID == workspaceID
-                    && Self.normalized($0.text) == normalizedMessage
+                    && $0.signature == messageSignature
             }
         } else {
             index = accepted.firstIndex { $0.workspaceID == workspaceID }
         }
         guard let index else { return nil }
         let matched = accepted.remove(at: index)
+        if inFlightByWorkspace[workspaceID]?.messageID == matched.messageID {
+            inFlightByWorkspace.removeValue(forKey: workspaceID)
+        }
         if accepted.isEmpty {
             acceptedBySurface.removeValue(forKey: surfaceID)
+            acceptedSurfaceOrder.removeAll { $0 == surfaceID }
         } else {
             acceptedBySurface[surfaceID] = accepted
         }
+        acceptedBytes = max(0, acceptedBytes - matched.byteCount)
         return matched.messageID
     }
 
@@ -253,16 +344,26 @@ final class AgentPromptSubmissionService {
     @discardableResult
     func remove(workspaceID: UUID) -> [Receipt] {
         let pending = pendingByWorkspace.removeValue(forKey: workspaceID) ?? []
+        pendingBytes = max(0, pendingBytes - pending.reduce(0) { $0 + $1.text.utf8.count })
         var receipts = pending.map { request in
             Receipt(
                 messageID: request.messageID,
                 result: .workspaceNotFound(workspaceID: workspaceID)
             )
         }
+        if let inFlight = inFlightByWorkspace.removeValue(forKey: workspaceID) {
+            receipts.append(
+                Receipt(
+                    messageID: inFlight.messageID,
+                    result: .workspaceNotFound(workspaceID: workspaceID)
+                )
+            )
+        }
         for (surfaceID, messages) in Array(acceptedBySurface) {
             let removed = messages.filter { $0.workspaceID == workspaceID }
             guard !removed.isEmpty else { continue }
             let remaining = messages.filter { $0.workspaceID != workspaceID }
+            acceptedBytes = max(0, acceptedBytes - removed.reduce(0) { $0 + $1.byteCount })
             if remaining.isEmpty {
                 acceptedBySurface.removeValue(forKey: surfaceID)
                 acceptedSurfaceOrder.removeAll { $0 == surfaceID }
@@ -287,6 +388,7 @@ final class AgentPromptSubmissionService {
             let removed = pending.filter { $0.surfaceID == surfaceID }
             guard !removed.isEmpty else { continue }
             let remaining = pending.filter { $0.surfaceID != surfaceID }
+            pendingBytes = max(0, pendingBytes - removed.reduce(0) { $0 + $1.text.utf8.count })
             if remaining.isEmpty {
                 pendingByWorkspace.removeValue(forKey: workspaceID)
             } else {
@@ -302,8 +404,23 @@ final class AgentPromptSubmissionService {
                 )
             })
         }
-        acceptedBySurface.removeValue(forKey: surfaceID)
+        if let removed = acceptedBySurface.removeValue(forKey: surfaceID) {
+                acceptedBytes = max(0, acceptedBytes - removed.reduce(0) { $0 + $1.byteCount })
+        }
         acceptedSurfaceOrder.removeAll { $0 == surfaceID }
+        for (workspaceID, inFlight) in Array(inFlightByWorkspace)
+            where inFlight.surfaceID == surfaceID {
+            inFlightByWorkspace.removeValue(forKey: workspaceID)
+            receipts.append(
+                Receipt(
+                    messageID: inFlight.messageID,
+                    result: .surfaceNotFound(
+                        workspaceID: workspaceID,
+                        surfaceID: surfaceID
+                    )
+                )
+            )
+        }
         return receipts
     }
 
@@ -311,8 +428,12 @@ final class AgentPromptSubmissionService {
         pendingByWorkspace.values.reduce(0) { $0 + $1.count }
     }
 
-    private func enqueue(_ request: PendingRequest, surfaceID: UUID? = nil) {
-        guard pendingCount < maximumPendingRequests else { return }
+    private func enqueue(_ request: PendingRequest, surfaceID: UUID? = nil) -> Bool {
+        let requestBytes = request.text.utf8.count
+        guard pendingCount < maximumPendingRequests,
+              pendingBytes + requestBytes <= maximumPendingBytes else {
+            return false
+        }
         let normalized = PendingRequest(
             messageID: request.messageID,
             workspaceID: request.workspaceID,
@@ -321,6 +442,8 @@ final class AgentPromptSubmissionService {
             delivery: request.delivery
         )
         pendingByWorkspace[request.workspaceID, default: []].append(normalized)
+        pendingBytes += requestBytes
+        return true
     }
 
     private func recordAccepted(
@@ -329,23 +452,48 @@ final class AgentPromptSubmissionService {
         surfaceID: UUID,
         text: String
     ) {
+        let textBytes = text.utf8.count
+        let signature = Self.messageSignature(text)
+        while acceptedBytes + textBytes > maximumAcceptedBytes,
+              let oldestIndex = acceptedSurfaceOrder.firstIndex(where: { surfaceID in
+                  !inFlightByWorkspace.values.contains { $0.surfaceID == surfaceID }
+              }) {
+            let oldestSurfaceID = acceptedSurfaceOrder.remove(at: oldestIndex)
+            if let evicted = acceptedBySurface.removeValue(forKey: oldestSurfaceID) {
+                acceptedBytes = max(0, acceptedBytes - evicted.reduce(0) { $0 + $1.byteCount })
+            }
+        }
         var messages = acceptedBySurface[surfaceID, default: []]
         messages.append(
             AcceptedMessage(
                 messageID: messageID,
                 workspaceID: workspaceID,
-                text: text
+                signature: signature,
+                byteCount: textBytes,
+                surfaceID: surfaceID
             )
         )
         if messages.count > maximumAcceptedMessagesPerSurface {
-            messages.removeFirst(messages.count - maximumAcceptedMessagesPerSurface)
+            let removeCount = messages.count - maximumAcceptedMessagesPerSurface
+            let removedBytes = messages.prefix(removeCount).reduce(0) { $0 + $1.byteCount }
+            messages.removeFirst(removeCount)
+            acceptedBytes = max(0, acceptedBytes - removedBytes)
         }
+        acceptedBytes += textBytes
         acceptedBySurface[surfaceID] = messages
         acceptedSurfaceOrder.removeAll { $0 == surfaceID }
         acceptedSurfaceOrder.append(surfaceID)
         while acceptedSurfaceOrder.count > maximumTrackedSurfaces {
-            let evictedSurfaceID = acceptedSurfaceOrder.removeFirst()
-            acceptedBySurface.removeValue(forKey: evictedSurfaceID)
+            guard let evictIndex = acceptedSurfaceOrder.firstIndex(where: { candidate in
+                !inFlightByWorkspace.values.contains { $0.surfaceID == candidate }
+            }) else { break }
+            let evictedSurfaceID = acceptedSurfaceOrder.remove(at: evictIndex)
+            if let evicted = acceptedBySurface.removeValue(forKey: evictedSurfaceID) {
+                acceptedBytes = max(
+                    0,
+                    acceptedBytes - evicted.reduce(0) { $0 + $1.byteCount }
+                )
+            }
         }
     }
 
@@ -353,5 +501,10 @@ final class AgentPromptSubmissionService {
         guard let text else { return nil }
         let value = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         return value.isEmpty ? nil : value
+    }
+
+    private static func messageSignature(_ text: String) -> Data {
+        let normalized = Self.normalized(text) ?? ""
+        return Data(SHA256.hash(data: Data(normalized.utf8)))
     }
 }

@@ -65,7 +65,15 @@ struct AgentPromptSubmissionTests {
         ))
 
         gate.isReady = true
-        let drained = service.drain(workspaceID: workspaceID)
+        let firstDrain = service.drain(workspaceID: workspaceID)
+        #expect(firstDrain.map(\.messageID) == [first.messageID])
+        #expect(service.confirm(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            message: "first"
+        ) == first.messageID)
+        let secondDrain = service.drain(workspaceID: workspaceID)
+        let drained = firstDrain + secondDrain
         #expect(drained.map(\.messageID) == [first.messageID, second.messageID])
         #expect(drained.allSatisfy {
             if case .submitted = $0.result { return true }
