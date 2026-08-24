@@ -37265,9 +37265,8 @@ mod tests {
     #[test]
     fn scoped_frame_cursor_reset_preserves_host_cursor_without_inner_authorship() {
         let surface_id = 7;
-        let (session, surface) = crate::session::test_remote_session_with_unleased_view_surface(
-            surface_id,
-        );
+        let (session, surface) =
+            crate::session::test_remote_session_with_unleased_view_surface(surface_id);
         let mut app = test_app(session);
         app.surface_only = Some(surface_id);
         app.desired_outer_cursor = OuterCursorSpec::Terminal {
