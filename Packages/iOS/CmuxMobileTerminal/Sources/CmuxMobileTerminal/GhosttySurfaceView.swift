@@ -1333,6 +1333,31 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return max(0, lastRenderRect.height - contentBottom)
     }
 
+    /// Schedules an immediate off-main content-bottom measurement, bypassing
+    /// the output-driven throttle, so a keyboard raise never computes its
+    /// blank-space absorption from a stale row count (content written or
+    /// cleared just before the raise, with no output since).
+    func refreshHostedContentBottomNow() {
+        guard let surface, !isDismantled else { return }
+        let workQueue = outputQueue
+        let generation = surfaceGeneration
+        workQueue.queue.async { [weak self] in
+            workQueue.lastContentBottomTime = CACurrentMediaTime()
+            guard let viewportText = Self.surfaceText(surface, pointTag: GHOSTTY_POINT_VIEWPORT),
+                  viewportText.utf8.count <= 131_072 else { return }
+            let rows = Self.contentRowCount(inViewportText: viewportText)
+            DispatchQueue.main.async {
+                guard let self, self.surfaceGeneration == generation else { return }
+                if rows != self.hostedContentBottomRowCount {
+                    MobileDebugLog.anchormux(
+                        "kb.contentRows \(self.hostedContentBottomRowCount.map(String.init) ?? "nil")->\(rows) at-raise"
+                    )
+                }
+                self.hostedContentBottomRowCount = rows
+            }
+        }
+    }
+
     /// The number of viewport rows up to and including the last row with any
     /// non-whitespace content. Pure text scan, safe off the main actor.
     nonisolated static func contentRowCount(inViewportText text: String) -> Int {

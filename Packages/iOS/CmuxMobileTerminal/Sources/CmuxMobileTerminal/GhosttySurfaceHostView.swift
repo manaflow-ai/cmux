@@ -215,6 +215,14 @@ public final class GhosttySurfaceHostView: UIView {
               let transition = MobileKeyboardTransition(notification: notification) else { return }
         pendingAttachSensorHeal = false
         let targetHeight = max(0, transition.overlap(in: self))
+        if targetHeight > 0 {
+            // Refresh the blank-band measurement immediately: content written
+            // or cleared just before this raise (with no output since) must
+            // not steer the absorption with a stale row count. The result
+            // lands mid-leg and the display-link follow applies any
+            // correction right at settle.
+            surfaceView.refreshHostedContentBottomNow()
+        }
         surfaceView.setHostedKeyboardState(
             height: targetHeight,
             isVisible: transition.isVisible(in: self)
