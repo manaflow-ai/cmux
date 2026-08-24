@@ -1287,6 +1287,14 @@ class TerminalController {
             // wait must never block the main thread.
             case "iroh_diag":
                 return (true, irohDiagText())
+            // Graduation P4 dev verbs: the parallel next-transport host's
+            // dial ticket and per-device grant mint (dev signer), for handing
+            // an iOS dev build everything it needs to dial. Same semaphore
+            // pattern as iroh_diag; DEBUG-only surface.
+            case "next_transport_ticket":
+                return (true, nextTransportTicketText())
+            case "next_transport_grant":
+                return (true, nextTransportGrantText(args))
             // The v1 resolution reads (tranche D): one v2MainSync snapshot
             // hop each, reply lines formatted here on this worker thread.
             // All mainThreadCallable (the hop collapses inline); the bodies
@@ -11652,6 +11660,47 @@ class TerminalController {
         }
         semaphore.wait()
         return export
+    }
+
+    /// Serves `next_transport_ticket`: the parallel host's dial ticket
+    /// (key + addrs + relay), or a named reason it is unavailable.
+    private nonisolated func nextTransportTicketText() -> String {
+        #if DEBUG
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var reply = ""
+        Task { @MainActor in
+            let runtime = MobileHostNextTransportRuntime.shared
+            reply = runtime.ticketJSON
+                ?? "next-transport host not running (state: \(runtime.state)); enable it in Debug > Next Transport"
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return reply
+        #else
+        return "next-transport is a DEBUG-only surface"
+        #endif
+    }
+
+    /// Serves `next_transport_grant <deviceId> <devicePublicKeyB64> <appIdentity>`.
+    private nonisolated func nextTransportGrantText(_ args: String) -> String {
+        #if DEBUG
+        let parts = args.split(separator: " ").map(String.init)
+        guard parts.count == 3, let key = Data(base64Encoded: parts[1]) else {
+            return "usage: next_transport_grant <deviceId> <devicePublicKeyB64> <appIdentity>"
+        }
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var reply = ""
+        Task { @MainActor in
+            reply = MobileHostNextTransportRuntime.shared.mintGrant(
+                deviceID: parts[0], devicePublicKey: key, appIdentity: parts[2])
+                ?? "next-transport host not running; enable it in Debug > Next Transport"
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return reply
+        #else
+        return "next-transport is a DEBUG-only surface"
+        #endif
     }
 
     private nonisolated func readScreenText(_ args: String) -> String {

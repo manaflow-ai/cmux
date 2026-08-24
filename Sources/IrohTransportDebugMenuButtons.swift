@@ -9,6 +9,7 @@ struct IrohAndAgentSessionDebugMenuButtons: View {
 
     var body: some View {
         IrohTransportDebugMenuButtons()
+        NextTransportDebugMenuButtons()
         AgentSessionDebugMenuButtons(
             openReact: openReact,
             openSolid: openSolid
@@ -75,3 +76,43 @@ struct IrohTransportDebugMenuButtons: View {
     }
 }
 #endif
+
+
+/// Graduation P4 (manaflow-ai/cmux#10629): dev toggle for the parallel
+/// next-transport host. Off by default; state is visible inline.
+struct NextTransportDebugMenuButtons: View {
+    @AppStorage(MobileHostNextTransportRuntime.debugDefaultsKey)
+    private var enabled = false
+
+    var body: some View {
+        Menu(
+            String(
+                localized: "debug.menu.nextTransport",
+                defaultValue: "Next Transport (dev)"
+            )
+        ) {
+            Button {
+                enabled.toggle()
+                MobileHostNextTransportRuntime.shared.setEnabled(enabled)
+            } label: {
+                if enabled {
+                    Label(
+                        String(
+                            localized: "debug.menu.nextTransport.enabled",
+                            defaultValue: "Parallel Host Enabled"
+                        ),
+                        systemImage: "checkmark"
+                    )
+                } else {
+                    Text(
+                        String(
+                            localized: "debug.menu.nextTransport.enable",
+                            defaultValue: "Enable Parallel Host"
+                        )
+                    )
+                }
+            }
+            Text(MobileHostNextTransportRuntime.shared.state)
+        }
+    }
+}

@@ -21,6 +21,23 @@ public struct BrokerCredentialClient: Sendable {
         public var appInstanceId: String
         public var tag: String
         public var platform: String
+
+        public init(
+            baseUrl: String, stackBase: String, stackProjectId: String,
+            stackPck: String, email: String, password: String,
+            deviceId: String, appInstanceId: String, tag: String, platform: String
+        ) {
+            self.baseUrl = baseUrl
+            self.stackBase = stackBase
+            self.stackProjectId = stackProjectId
+            self.stackPck = stackPck
+            self.email = email
+            self.password = password
+            self.deviceId = deviceId
+            self.appInstanceId = appInstanceId
+            self.tag = tag
+            self.platform = platform
+        }
     }
 
     public struct Credential: Sendable {
