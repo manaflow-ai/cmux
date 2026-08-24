@@ -266,6 +266,38 @@ final class cmuxUITests: XCTestCase {
 
         primaryButton.tap()
 
+        // The push page shows the inline-reply preview and pairs Enable with
+        // Not Now; the footer legitimately grows for the second button, so the
+        // chrome reference frames are re-recorded on this page.
+        let pushScene = element("MobileOnboardingPushScene")
+        assertPageVisible(pushScene)
+        let pushTitle = app.staticTexts["Know the moment an agent needs you"]
+        XCTAssertTrue(pushTitle.exists)
+        let pushBody = app.staticTexts.matching(NSPredicate(
+            format: "label == %@",
+            "Get a push when an agent is waiting, and reply right from the Lock Screen."
+        )).firstMatch
+        XCTAssertTrue(pushBody.exists)
+        let pushPreview = element("MobileOnboardingPushPreview")
+        XCTAssertTrue(pushPreview.waitForExistence(timeout: 4))
+        XCTAssertTrue(primaryButton.label.contains("Enable Notifications"))
+        let notNowButton = app.buttons["MobileOnboardingSecondaryButton"]
+        XCTAssertTrue(notNowButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(notNowButton.label.contains("Not Now"))
+        XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
+        XCTAssertTrue(app.buttons["MobileOnboardingSkipButton"].exists)
+        recordChromeReferenceFrames()
+        assertPageContentFitsWithoutScrolling(
+            title: pushTitle,
+            visual: pushPreview,
+            additionalContent: [pushBody]
+        )
+        capture("onboarding-02c-push")
+
+        // Declining must not present the OS permission alert and advances the
+        // tour to the connection page.
+        notNowButton.tap()
+
         let connectScene = element("MobileOnboardingConnectScene")
         assertPageVisible(connectScene)
         XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].exists)
@@ -394,6 +426,17 @@ final class cmuxUITests: XCTestCase {
         capture("onboarding-08-notifications-compact-height")
 
         primaryButton.tap()
+        assertPageVisible(pushScene)
+        XCTAssertTrue(notNowButton.waitForExistence(timeout: 4))
+        recordChromeReferenceFrames()
+        assertPageContentFitsWithoutScrolling(
+            title: pushTitle,
+            visual: pushPreview,
+            additionalContent: [pushBody]
+        )
+        capture("onboarding-08a-push-compact-height")
+
+        notNowButton.tap()
         assertPageVisible(connectScene)
         XCTAssertFalse(app.buttons["MobileOnboardingSecondaryButton"].exists)
         let compactRetryButton = app.buttons["MobileOnboardingPrimaryButton"]
@@ -556,6 +599,12 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(element("MobileOnboardingNotificationsScene").waitForExistence(timeout: 4))
         XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
         primaryButton.tap()
+
+        // Decline the push opt-in; the tour continues without any OS alert.
+        XCTAssertTrue(element("MobileOnboardingPushScene").waitForExistence(timeout: 4))
+        let notNowButton = app.buttons["MobileOnboardingSecondaryButton"]
+        XCTAssertTrue(notNowButton.waitForExistence(timeout: 4))
+        notNowButton.tap()
 
         XCTAssertTrue(element("MobileOnboardingConnectScene").waitForExistence(timeout: 4))
         XCTAssertFalse(element("MobileOnboardingSignInBridge").exists)

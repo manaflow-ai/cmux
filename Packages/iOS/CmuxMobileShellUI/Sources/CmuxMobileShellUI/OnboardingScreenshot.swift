@@ -198,7 +198,9 @@ struct OnboardingScreenshot: View {
     }
 }
 
-private struct OnboardingIPhoneScreenshotFrame<Screen: View>: View {
+/// Shared by ``OnboardingScreenshot`` and ``OnboardingPushPreview`` so every
+/// onboarding visual sits in the same iPhone product frame.
+struct OnboardingIPhoneScreenshotFrame<Screen: View>: View {
     let preferredHeight: CGFloat
     let deviceFrame: UIImage?
     let screenMask: UIImage?
