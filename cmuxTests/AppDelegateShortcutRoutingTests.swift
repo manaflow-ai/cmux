@@ -12370,7 +12370,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         guard let harness = makeBrowserFocusModeHarness() else { return }
         defer { closeWindow(withId: harness.windowId) }
 
-        let settingKey = "browserCaptureKeyboardShortcuts"
+        let settingKey = SettingCatalog().browser.captureKeyboardShortcuts.userDefaultsKey
         let previousSetting = UserDefaults.standard.object(forKey: settingKey)
         defer {
             if let previousSetting {
