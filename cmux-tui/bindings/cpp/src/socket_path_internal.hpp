@@ -11,6 +11,11 @@ namespace cmux::detail {
     unsigned long uid) {
     const auto parent_component =
         std::filesystem::path(socket_path).parent_path().filename();
+    // A trailing separator denotes the hashed directory itself, not a socket
+    // path. Reject it before comparing the parent component.
+    if (socket_path.empty() || socket_path.back() == '/') {
+        return false;
+    }
     return parent_component ==
         std::filesystem::path("cmux-tui-hashed-" + std::to_string(uid));
 }
