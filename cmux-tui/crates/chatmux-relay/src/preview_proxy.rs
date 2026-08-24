@@ -417,6 +417,10 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRu
     let task = tokio::spawn(async move {
         let mut connections = tokio::task::JoinSet::new();
         loop {
+            // Reap every connection that finished since the previous
+            // accept. `try_join_next` is non-blocking, so a busy listener
+            // cannot accumulate completed JoinSet entries indefinitely.
+            while connections.try_join_next().is_some() {}
             tokio::select! {
                 _ = stopped.changed() => break,
                 accepted = listener.accept() => {
