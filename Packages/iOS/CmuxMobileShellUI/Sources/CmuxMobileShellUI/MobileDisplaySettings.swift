@@ -128,17 +128,18 @@ public final class MobileDisplaySettings {
         }
     }
 
-    /// DEBUG-only override forcing the legacy (iOS 27) keyboard dock path on
-    /// this device, exposed in Settings > Developer for keyboard-pinning A/B
-    /// dogfood. Terminal hosts snapshot the flag when they mount, so a change
-    /// applies after the workspace is reopened. Writes through to the shared
-    /// `UserDefaults.cmuxForceLegacyKeyboardDockKey` that
+    /// DEBUG-only override forcing the rebuilt keyboard dock path on this
+    /// device (iOS ≤26; legacy is the shipping default), exposed in
+    /// Settings > Developer for keyboard-pinning A/B dogfood. Terminal hosts
+    /// snapshot the flag when they mount, so a change applies after the
+    /// workspace is reopened. Writes through to the shared
+    /// `UserDefaults.cmuxForceRebuildKeyboardDockKey` that
     /// `GhosttySurfaceHostView` reads.
-    public var forceLegacyKeyboardDock: Bool {
+    public var forceRebuildKeyboardDock: Bool {
         didSet {
             defaults.set(
-                forceLegacyKeyboardDock,
-                forKey: UserDefaults.cmuxForceLegacyKeyboardDockKey
+                forceRebuildKeyboardDock,
+                forKey: UserDefaults.cmuxForceRebuildKeyboardDockKey
             )
         }
     }
@@ -176,7 +177,7 @@ public final class MobileDisplaySettings {
         self.taskComposerShellIconVariant = defaults.string(
             forKey: Self.taskComposerShellIconVariantKey
         ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
-        self.forceLegacyKeyboardDock = defaults.cmuxForceLegacyKeyboardDock
+        self.forceRebuildKeyboardDock = defaults.cmuxForceRebuildKeyboardDock
         #endif
     }
 

@@ -33,21 +33,14 @@ import UIKit
 public final class GhosttySurfaceHostView: UIView {
     public let surfaceView: GhosttySurfaceView
     private let keyboardFrameTracker: MobileKeyboardFrameTracker
-    /// iOS 27's keyboard APIs misreport frames (its layout guide can seat at
-    /// the screen bottom while the keyboard is visible, and dogfood observed
-    /// the keyboard toggle doing nothing under the rebuilt path). The
-    /// single-constraint rebuild is verified on iOS 26, so iOS 27 and newer —
-    /// until verified there — keep the pre-rebuild transform path that shipped
-    /// before this change and behaved correctly on 27.
-    private let usesLegacyKeyboardDockPath: Bool = {
-        #if DEBUG
-        if UITestConfig.forceLegacyKeyboardDock { return true }
-        // Settings > Developer dogfood override (per-host snapshot: applies to
-        // terminals hosted after the toggle changes).
-        if UserDefaults.standard.cmuxForceLegacyKeyboardDock { return true }
-        #endif
-        return ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
-    }()
+    /// The legacy notification+transform path is the shipping default on
+    /// every OS (dogfood rated it above the rebuild, and iOS 27's keyboard
+    /// APIs misreport frames under the rebuilt path). The rebuilt
+    /// single-constraint path stays reachable on iOS ≤26 only, through the
+    /// remote `ios-keyboard-dock-rebuild-revert` kill switch or the
+    /// DEBUG-only local overrides; ``TerminalKeyboardDockPathSelection``
+    /// owns that precedence.
+    private let usesLegacyKeyboardDockPath: Bool
     private let terminalClipView = UIView()
     private let terminalPresentationView = UIView()
     private var dockBottomConstraint: NSLayoutConstraint!
@@ -64,10 +57,26 @@ public final class GhosttySurfaceHostView: UIView {
 
     public init(
         surfaceView: GhosttySurfaceView,
-        keyboardFrameTracker: MobileKeyboardFrameTracker
+        keyboardFrameTracker: MobileKeyboardFrameTracker,
+        keyboardDockRebuildRevertEnabled: Bool = false
     ) {
         self.surfaceView = surfaceView
         self.keyboardFrameTracker = keyboardFrameTracker
+        var debugForceLegacy = false
+        var debugForceRebuild = false
+        #if DEBUG
+        debugForceLegacy = UITestConfig.forceLegacyKeyboardDock
+        // UI-test env force, or the Settings > Developer dogfood override
+        // (per-host snapshot: applies to terminals hosted after it changes).
+        debugForceRebuild = UITestConfig.forceRebuildKeyboardDock
+            || UserDefaults.standard.cmuxForceRebuildKeyboardDock
+        #endif
+        self.usesLegacyKeyboardDockPath = TerminalKeyboardDockPathSelection(
+            osMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
+            remoteRebuildRevert: keyboardDockRebuildRevertEnabled,
+            debugForceLegacy: debugForceLegacy,
+            debugForceRebuild: debugForceRebuild
+        ).usesLegacyPath
         super.init(frame: surfaceView.frame)
 
         backgroundColor = surfaceView.backgroundColor

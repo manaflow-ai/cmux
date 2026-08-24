@@ -10873,7 +10873,11 @@ final class cmuxUITests: XCTestCase {
         let port = try await server.start()
         defer { server.stop() }
 
-        let app = try launchConnectedApp(port: port)
+        // Legacy ships as the default; this suite regression-tests the rebuilt
+        // path that stays reachable behind the rebuild-revert kill switch.
+        let app = try launchConnectedApp(port: port, environment: [
+            "CMUX_UITEST_FORCE_REBUILD_KEYBOARD_DOCK": "1",
+        ])
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 8))
 
@@ -10989,7 +10993,11 @@ final class cmuxUITests: XCTestCase {
         let port = try await server.start()
         defer { server.stop() }
 
-        let app = try launchConnectedApp(port: port)
+        // Legacy ships as the default; this suite regression-tests the rebuilt
+        // path that stays reachable behind the rebuild-revert kill switch.
+        let app = try launchConnectedApp(port: port, environment: [
+            "CMUX_UITEST_FORCE_REBUILD_KEYBOARD_DOCK": "1",
+        ])
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 8))
 
@@ -11038,17 +11046,19 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
-    /// Keyboard notifications are the only dock geometry authority on every OS
-    /// version (`UIKeyboardLayoutGuide` misses detached transitions and can seat
-    /// at the screen bottom on iOS 27). Prove the visible dock follows the real
-    /// software-keyboard edge through the production composer path.
+    /// The rebuilt notification-driven dock stays reachable on iOS ≤26 behind
+    /// the rebuild-revert kill switch. Force it and prove the visible dock
+    /// follows the real software-keyboard edge through the production
+    /// composer path.
     @MainActor
     func testNotificationKeyboardDockPinsComposerToKeyboard() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
         defer { server.stop() }
 
-        let app = try launchConnectedApp(port: port)
+        let app = try launchConnectedApp(port: port, environment: [
+            "CMUX_UITEST_FORCE_REBUILD_KEYBOARD_DOCK": "1",
+        ])
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 8))
 
@@ -11109,20 +11119,17 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
-    /// iOS 27 keeps the pre-rebuild keyboard dock path (transform leg,
-    /// will-frame only) because its keyboard APIs misreport frames under the
-    /// rebuilt path. Force that runtime policy on the CI simulator and prove
-    /// the visible dock still follows the real software-keyboard edge through
-    /// the production composer path.
+    /// The legacy (notification+transform) keyboard dock path is the shipping
+    /// default on every OS. Launch with no overrides and prove the default
+    /// path selects legacy and the visible dock follows the real
+    /// software-keyboard edge through the production composer path.
     @MainActor
     func testLegacyKeyboardDockPinsComposerToKeyboard() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
         defer { server.stop() }
 
-        let app = try launchConnectedApp(port: port, environment: [
-            "CMUX_UITEST_FORCE_LEGACY_KEYBOARD_DOCK": "1",
-        ])
+        let app = try launchConnectedApp(port: port)
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 8))
 
@@ -11151,20 +11158,20 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
-    /// The Settings > Developer "Legacy Keyboard Pinning" toggle persists
-    /// `cmux.mobile.debug.forceLegacyKeyboardDock.v1` and the terminal host
+    /// The Settings > Developer "Rebuilt Keyboard Pinning" toggle persists
+    /// `cmux.mobile.debug.forceRebuildKeyboardDock.v1` and the terminal host
     /// snapshots it at mount. Drive the same defaults key through the launch
-    /// argument domain and prove it selects the legacy dock path end to end,
+    /// argument domain and prove it selects the rebuilt dock path end to end,
     /// with the dock still pinned to the real software-keyboard edge.
     @MainActor
-    func testLegacyKeyboardDockDebugSettingSelectsLegacyPath() async throws {
+    func testRebuildKeyboardDockDebugSettingSelectsRebuildPath() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
         defer { server.stop() }
 
         let app = try launchConnectedApp(
             port: port,
-            launchArguments: ["-cmux.mobile.debug.forceLegacyKeyboardDock.v1", "1"]
+            launchArguments: ["-cmux.mobile.debug.forceRebuildKeyboardDock.v1", "1"]
         )
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 8))
@@ -11179,18 +11186,18 @@ final class cmuxUITests: XCTestCase {
             timeout: 4
         ) else { return }
         let dock = waitForDock(in: app, describe: "debug-setting dock tracks keyboard") {
-            $0["keyboardDockSource"] == "legacyNotification"
+            $0["keyboardDockSource"] == "notification"
                 && ($0["keyboardHeight"].flatMap(Double.init) ?? 0) > 120
         }
         assertTerminalDockPinnedToSoftwareKeyboard(
             dock,
             surface: surface,
             keyboard: keyboard,
-            context: "debug-setting legacy keyboard dock"
+            context: "debug-setting rebuilt keyboard dock"
         )
         assertTerminalPresentationPinnedToDock(
             dock,
-            context: "debug-setting legacy keyboard dock"
+            context: "debug-setting rebuilt keyboard dock"
         )
     }
 

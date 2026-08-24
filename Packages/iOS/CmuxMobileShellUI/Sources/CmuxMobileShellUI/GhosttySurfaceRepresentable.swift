@@ -120,7 +120,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         return GhosttySurfaceHostView(
             surfaceView: view,
             keyboardFrameTracker: context.environment.mobileKeyboardFrameTracker
-                ?? context.coordinator.fallbackKeyboardFrameTracker
+                ?? context.coordinator.fallbackKeyboardFrameTracker,
+            keyboardDockRebuildRevertEnabled: context.environment.keyboardDockRebuildRevertEnabled
         )
     }
 

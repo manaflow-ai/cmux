@@ -454,9 +454,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             ?? (keyboardPresentationTransitionActive ? 1 : -1)
         let keyboardTransitionTarget = pointValue(host?.debugKeyboardTargetHeight ?? keyboardHeight)
         let keyboardDockTargetTop = pointValue(host?.debugKeyboardTargetTop ?? bottomDockContainer.frame.maxY)
-        // Keyboard notifications drive the dock on every OS version; iOS 27
-        // additionally keeps the pre-rebuild transform leg (its keyboard APIs
-        // misreport frames under the rebuilt path).
+        // The legacy notification+transform path is the shipping default;
+        // "notification" reports the rebuilt single-constraint path that the
+        // rebuild-revert kill switch or the Developer override selects on
+        // iOS ≤26.
         let keyboardDockSource = host?.debugUsesLegacyKeyboardDock == true
             ? "legacyNotification"
             : "notification"
