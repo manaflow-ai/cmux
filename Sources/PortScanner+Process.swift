@@ -30,24 +30,37 @@ extension PortScanner {
         inspectedPIDs: Set<Int>
     ) -> [Key: [Int: PortScanCompleteness]] {
         var result: [Key: [Int: PortScanCompleteness]] = [:]
+        var ownerEvidenceByIdentity: [AgentPIDProcessIdentity: PortScanCompleteness] = [:]
         for key in scannedKeys {
             guard let previousOwners = previousOwnersByKey[key] else { continue }
             let observedOwners = observedOwnersByKey[key] ?? [:]
             for (port, owners) in previousOwners where observedOwners[port] == nil {
                 guard !owners.isEmpty else { continue }
                 let isAuthoritative = owners.allSatisfy { owner in
+                    if let cached = ownerEvidenceByIdentity[owner] {
+                        return cached == .complete
+                    }
                     let pid = Int(owner.pid)
-                    guard let currentIdentity = processIdentityProvider(pid_t(pid)) else {
-                        return processPresenceProvider(pid_t(pid)) == .absent
+                    let evidence: PortScanCompleteness
+                    if let currentIdentity = processIdentityProvider(pid_t(pid)) {
+                        if currentIdentity != owner {
+                            // A PID that now represents another process no
+                            // longer owns this port, even if that replacement
+                            // is not part of this scan's ownership graph.
+                            evidence = .complete
+                        } else if inspectedPIDs.contains(pid),
+                                  lsofScan.completeness(for: [pid]) == .complete {
+                            evidence = .complete
+                        } else {
+                            evidence = .incomplete
+                        }
+                    } else {
+                        evidence = processPresenceProvider(pid_t(pid)) == .absent
+                            ? .complete
+                            : .incomplete
                     }
-                    guard currentIdentity == owner else {
-                        // A PID that now represents another process no longer
-                        // owns this port, even if that replacement is not part
-                        // of this scan's ownership graph.
-                        return true
-                    }
-                    guard inspectedPIDs.contains(pid) else { return false }
-                    return lsofScan.completeness(for: [pid]) == .complete
+                    ownerEvidenceByIdentity[owner] = evidence
+                    return evidence == .complete
                 }
                 result[key, default: [:]][port] = isAuthoritative
                     ? .complete
