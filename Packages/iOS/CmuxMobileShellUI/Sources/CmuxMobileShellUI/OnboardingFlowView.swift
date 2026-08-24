@@ -231,10 +231,13 @@ struct OnboardingFlowView: View {
     }
 
     /// Push's secondary action declines the opt-in without touching the OS.
-    /// On Connect, Tailscale's secondary action retries discovery; Auto-Connect
-    /// has no secondary manual-pairing action.
+    /// Once Enable is in flight the pending system alert owns the decision, so
+    /// a racing Not Now tap is ignored rather than recorded as a contradictory
+    /// intent. On Connect, Tailscale's secondary action retries discovery;
+    /// Auto-Connect has no secondary manual-pairing action.
     private func handleSecondary() {
         if stage == .push {
+            guard !isPushEnableInFlight else { return }
             declinePush()
             return
         }
