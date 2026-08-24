@@ -13,7 +13,10 @@
 //!   and/or the machine row echoed by the server) every file path and exec
 //!   cwd must resolve inside them — enforced against BOTH lists, first
 //!   lexically and then against the canonical (realpath) host view;
-//! - final read/write opens use O_NOFOLLOW where the host supports it;
+//! - scoped Unix file operations resolve every component relative to pinned
+//!   directory descriptors, with O_NOFOLLOW on each lookup;
+//! - Windows refuses scoped file operations until equivalent handle-relative
+//!   traversal is available;
 //! - exec spawns with a scrubbed environment (no inherited API keys) and a
 //!   hard timeout (whole process group: SIGTERM, then SIGKILL after grace);
 //! - all output is truncated to bounded sizes before it goes on the wire.
@@ -317,6 +320,146 @@ fn enforce_canonical_roots(path: &Path, root_lists: &[Vec<PathBuf>]) -> Result<(
 pub struct HostScopedPath {
     pub path: PathBuf,
     roots: Vec<Vec<PathBuf>>,
+    #[cfg(unix)]
+    anchor: std::fs::File,
+    #[cfg(unix)]
+    relative: PathBuf,
+}
+
+#[cfg(unix)]
+fn open_dir_no_symlinks(path: &Path, create_missing: bool) -> Result<std::fs::File, HostError> {
+    use std::os::fd::FromRawFd as _;
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let root = std::ffi::CString::new("/").expect("root has no NUL");
+    let root_fd =
+        unsafe { libc::open(root.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC) };
+    if root_fd < 0 {
+        return Err(HostError::Io(std::io::Error::last_os_error()));
+    }
+    let mut current = unsafe { std::fs::File::from_raw_fd(root_fd) };
+    for component in path.components() {
+        let Component::Normal(name) = component else { continue };
+        let name = std::ffi::CString::new(name.as_bytes())
+            .map_err(|_| HostError::Refusal("path contains an embedded NUL byte".to_owned()))?;
+        let mut fd = unsafe {
+            libc::openat(
+                std::os::fd::AsRawFd::as_raw_fd(&current),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if fd < 0 && create_missing && is_not_found(&std::io::Error::last_os_error()) {
+            let made = unsafe {
+                libc::mkdirat(std::os::fd::AsRawFd::as_raw_fd(&current), name.as_ptr(), 0o777)
+            };
+            if made < 0 {
+                return Err(HostError::Io(std::io::Error::last_os_error()));
+            }
+            fd = unsafe {
+                libc::openat(
+                    std::os::fd::AsRawFd::as_raw_fd(&current),
+                    name.as_ptr(),
+                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                )
+            };
+        }
+        if fd < 0 {
+            let error = std::io::Error::last_os_error();
+            return Err(if is_eloop(&error) {
+                HostError::Refusal("refusing a path whose ancestor changed to a symlink".to_owned())
+            } else {
+                HostError::Io(error)
+            });
+        }
+        current = unsafe { std::fs::File::from_raw_fd(fd) };
+    }
+    Ok(current)
+}
+
+#[cfg(unix)]
+fn deepest_containing_root(path: &Path, roots: &[Vec<PathBuf>]) -> Option<PathBuf> {
+    roots
+        .iter()
+        .flatten()
+        .filter(|root| path.starts_with(root))
+        .max_by_key(|root| root.components().count())
+        .cloned()
+}
+
+#[cfg(unix)]
+fn open_beneath(
+    anchor: &std::fs::File,
+    relative: &Path,
+    final_flags: libc::c_int,
+    create_parents: bool,
+) -> Result<std::fs::File, HostError> {
+    use std::os::fd::{AsRawFd as _, FromRawFd as _};
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let parts = relative
+        .components()
+        .map(|component| match component {
+            Component::Normal(name) => Ok(name),
+            _ => Err(HostError::Refusal("invalid descriptor-relative path".to_owned())),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if parts.is_empty() {
+        return anchor.try_clone().map_err(HostError::Io);
+    }
+    let mut current = anchor.try_clone()?;
+    for name in &parts[..parts.len() - 1] {
+        let name = std::ffi::CString::new(name.as_bytes())
+            .map_err(|_| HostError::Refusal("path contains an embedded NUL byte".to_owned()))?;
+        let mut fd = unsafe {
+            libc::openat(
+                current.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if fd < 0 && create_parents && is_not_found(&std::io::Error::last_os_error()) {
+            let made = unsafe { libc::mkdirat(current.as_raw_fd(), name.as_ptr(), 0o777) };
+            if made < 0 {
+                return Err(HostError::Io(std::io::Error::last_os_error()));
+            }
+            fd = unsafe {
+                libc::openat(
+                    current.as_raw_fd(),
+                    name.as_ptr(),
+                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                )
+            };
+        }
+        if fd < 0 {
+            let error = std::io::Error::last_os_error();
+            return Err(if is_eloop(&error) {
+                HostError::Refusal("refusing a path whose ancestor changed to a symlink".to_owned())
+            } else {
+                HostError::Io(error)
+            });
+        }
+        current = unsafe { std::fs::File::from_raw_fd(fd) };
+    }
+    let name = std::ffi::CString::new(parts.last().expect("nonempty").as_bytes())
+        .map_err(|_| HostError::Refusal("path contains an embedded NUL byte".to_owned()))?;
+    let fd = unsafe {
+        libc::openat(
+            current.as_raw_fd(),
+            name.as_ptr(),
+            final_flags | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            0o666,
+        )
+    };
+    if fd < 0 {
+        let error = std::io::Error::last_os_error();
+        return Err(if is_eloop(&error) {
+            HostError::Refusal("refusing a path that changed to a symlink".to_owned())
+        } else {
+            HostError::Io(error)
+        });
+    }
+    Ok(unsafe { std::fs::File::from_raw_fd(fd) })
 }
 
 /// Host-aware second pass. Existing paths are realpathed and operations use
@@ -346,7 +489,28 @@ pub fn resolve_scoped_host_path(
             std::fs::canonicalize(&lexical.path)?
         };
         enforce_canonical_roots(&path, &roots).map_err(HostError::Refusal)?;
-        Ok(HostScopedPath { path, roots })
+        #[cfg(unix)]
+        {
+            let anchor_path =
+                deepest_containing_root(&path, &roots).unwrap_or_else(|| PathBuf::from("/"));
+            let relative = path
+                .strip_prefix(&anchor_path)
+                .map_err(|_| {
+                    HostError::Refusal("path is outside its descriptor anchor".to_owned())
+                })?
+                .to_path_buf();
+            let anchor = open_dir_no_symlinks(&anchor_path, allow_missing)?;
+            Ok(HostScopedPath { path, roots, anchor, relative })
+        }
+        #[cfg(not(unix))]
+        {
+            if !roots.is_empty() {
+                return Err(HostError::Refusal(
+                    "scoped filesystem actions are unavailable on this platform".to_owned(),
+                ));
+            }
+            Ok(HostScopedPath { path, roots })
+        }
     };
     match run() {
         Ok(scoped) => Ok(Ok(scoped)),
@@ -374,9 +538,12 @@ fn open_options_no_follow(read: bool) -> std::fs::OpenOptions {
     options
 }
 
-fn read_utf8_no_follow(path: &Path) -> Result<String, HostError> {
+fn read_utf8_no_follow(path: &HostScopedPath) -> Result<String, HostError> {
     use std::io::Read as _;
-    let mut file = open_options_no_follow(true).open(path).map_err(|error| {
+    #[cfg(unix)]
+    let mut file = open_beneath(&path.anchor, &path.relative, libc::O_RDONLY, false)?;
+    #[cfg(not(unix))]
+    let mut file = open_options_no_follow(true).open(&path.path).map_err(|error| {
         if is_eloop(&error) {
             HostError::Refusal("refusing a symlink that changed during read".to_owned())
         } else {
@@ -395,30 +562,37 @@ fn read_utf8_no_follow(path: &Path) -> Result<String, HostError> {
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-fn write_utf8_no_follow(
-    path: &Path,
-    content: &str,
-    roots: &[Vec<PathBuf>],
-) -> Result<(), HostError> {
+fn write_utf8_no_follow(path: &HostScopedPath, content: &str) -> Result<(), HostError> {
     use std::io::Write as _;
-    let parent = path.parent().unwrap_or(Path::new("."));
+    let parent = path.path.parent().unwrap_or(Path::new("."));
     // Check the requested parent before creating anything. Creating an
     // untrusted directory tree first can mutate paths outside the allowed
     // roots, even when the final file check rejects the write.
-    enforce_canonical_roots(parent, roots).map_err(HostError::Refusal)?;
-    create_parent_dirs_no_symlink(parent)?;
-    let canonical_parent = std::fs::canonicalize(parent)?;
-    let file_name = path.file_name().map(std::ffi::OsStr::to_os_string).unwrap_or_default();
-    let canonical = canonical_parent.join(file_name);
-    assert_not_dangling_link(&canonical)?;
-    enforce_canonical_roots(&canonical, roots).map_err(HostError::Refusal)?;
-    let mut file = open_options_no_follow(false).open(&canonical).map_err(|error| {
-        if is_eloop(&error) {
-            HostError::Refusal("refusing a symlink that changed during write".to_owned())
-        } else {
-            HostError::Io(error)
-        }
-    })?;
+    enforce_canonical_roots(parent, &path.roots).map_err(HostError::Refusal)?;
+    #[cfg(unix)]
+    let mut file = open_beneath(
+        &path.anchor,
+        &path.relative,
+        libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC,
+        true,
+    )?;
+    #[cfg(not(unix))]
+    let mut file = {
+        create_parent_dirs_no_symlink(parent)?;
+        let canonical_parent = std::fs::canonicalize(parent)?;
+        let file_name =
+            path.path.file_name().map(std::ffi::OsStr::to_os_string).unwrap_or_default();
+        let canonical = canonical_parent.join(file_name);
+        assert_not_dangling_link(&canonical)?;
+        enforce_canonical_roots(&canonical, &path.roots).map_err(HostError::Refusal)?;
+        open_options_no_follow(false).open(&canonical).map_err(|error| {
+            if is_eloop(&error) {
+                HostError::Refusal("refusing a symlink that changed during write".to_owned())
+            } else {
+                HostError::Io(error)
+            }
+        })?
+    };
     file.write_all(content.as_bytes())?;
     Ok(())
 }
@@ -459,6 +633,36 @@ fn create_parent_dirs_no_symlink(path: &Path) -> Result<(), HostError> {
         }
     }
     Ok(())
+}
+
+fn read_dir_scoped(path: &HostScopedPath) -> Result<std::fs::ReadDir, HostError> {
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd as _;
+        let directory =
+            open_beneath(&path.anchor, &path.relative, libc::O_RDONLY | libc::O_DIRECTORY, false)?;
+        let fd_path = PathBuf::from(format!("/dev/fd/{}", directory.as_raw_fd()));
+        let entries = std::fs::read_dir(fd_path)?;
+        // ReadDir owns its own descriptor after opening /dev/fd/N.
+        Ok(entries)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::read_dir(&path.path).map_err(HostError::Io)
+    }
+}
+
+#[cfg(unix)]
+fn inherited_directory_path(path: &HostScopedPath) -> Result<(std::fs::File, String), HostError> {
+    use std::os::fd::AsRawFd as _;
+    let target = open_beneath(&path.anchor, &path.relative, libc::O_RDONLY, false)?;
+    let is_directory = target.metadata()?.is_dir();
+    let fd = target.as_raw_fd();
+    if unsafe { libc::fcntl(fd, libc::F_SETFD, 0) } < 0 {
+        return Err(HostError::Io(std::io::Error::last_os_error()));
+    }
+    let suffix = if is_directory { "/." } else { "" };
+    Ok((target, format!("/dev/fd/{fd}{suffix}")))
 }
 
 // ---------------------------------------------------------------------------
@@ -1080,7 +1284,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 Ok(Err(message)) => return fail("path_forbidden", &message),
                 Err(error) => return io_fail(error),
             };
-            match read_utf8_no_follow(&path.path) {
+            match read_utf8_no_follow(&path) {
                 Ok(content) => ok_result(version, &action_id, json!({ "content": content })),
                 Err(HostError::Refusal(message)) => fail("path_forbidden", &message),
                 Err(HostError::Io(error)) if is_eloop(&error) => {
@@ -1100,7 +1304,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 Err(error) => return io_fail(error),
             };
             let content = args.get("content").and_then(Value::as_str).unwrap_or_default();
-            match write_utf8_no_follow(&path.path, content, &path.roots) {
+            match write_utf8_no_follow(&path, content) {
                 Ok(()) => ok_result(version, &action_id, json!({})),
                 Err(HostError::Refusal(message)) => fail("path_forbidden", &message),
                 Err(HostError::Io(error)) if is_eloop(&error) => {
@@ -1117,9 +1321,10 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 Ok(Err(message)) => return fail("path_forbidden", &message),
                 Err(error) => return io_fail(error),
             };
-            let entries = match std::fs::read_dir(&path.path) {
+            let entries = match read_dir_scoped(&path) {
                 Ok(entries) => entries,
-                Err(error) => return io_fail(error),
+                Err(HostError::Refusal(message)) => return fail("path_forbidden", &message),
+                Err(HostError::Io(error)) => return io_fail(error),
             };
             let mut names: Vec<String> = Vec::new();
             let mut total = 0_usize;
@@ -1159,6 +1364,14 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
             if cfg!(windows) {
                 return fail("unsupported_verb", "grep is not available on Windows relays yet");
             }
+            #[cfg(unix)]
+            let (_path_guard, process_path) = match inherited_directory_path(&path) {
+                Ok(value) => value,
+                Err(HostError::Refusal(message)) => return fail("path_forbidden", &message),
+                Err(HostError::Io(error)) => return io_fail(error),
+            };
+            #[cfg(not(unix))]
+            let process_path = path.path.display().to_string();
             let command_cwd = match scoped(".", false) {
                 Ok(Ok(path)) => path,
                 Ok(Err(message)) => return fail("path_forbidden", &message),
@@ -1174,7 +1387,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                         "-e".to_owned(),
                         pattern.to_owned(),
                         "--".to_owned(),
-                        path.path.display().to_string(),
+                        process_path,
                     ],
                 },
                 &command_cwd.path,
@@ -1195,12 +1408,20 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
             if cfg!(windows) {
                 return fail("unsupported_verb", "find is not available on Windows relays yet");
             }
+            #[cfg(unix)]
+            let (_path_guard, process_path) = match inherited_directory_path(&path) {
+                Ok(value) => value,
+                Err(HostError::Refusal(message)) => return fail("path_forbidden", &message),
+                Err(HostError::Io(error)) => return io_fail(error),
+            };
+            #[cfg(not(unix))]
+            let process_path = path.path.display().to_string();
             let command_cwd = match scoped(".", false) {
                 Ok(Ok(path)) => path,
                 Ok(Err(message)) => return fail("path_forbidden", &message),
                 Err(error) => return io_fail(error),
             };
-            let mut find_args = vec![path.path.display().to_string()];
+            let mut find_args = vec![process_path];
             if let Some(pattern) =
                 args.get("pattern").and_then(Value::as_str).filter(|p| !p.is_empty())
             {
@@ -1409,6 +1630,62 @@ mod tests {
         .await;
         assert_eq!(read["ok"], false);
         assert_eq!(read["code"], "path_forbidden");
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&outside).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ancestor_replacement_cannot_redirect_a_scoped_read() {
+        let root = scratch("read-race");
+        let outside = scratch("read-race-outside");
+        std::fs::create_dir(root.join("ancestor")).unwrap();
+        std::fs::write(root.join("ancestor/secret.txt"), "inside").unwrap();
+        std::fs::write(outside.join("secret.txt"), "outside").unwrap();
+        let roots = vec![root.display().to_string()];
+        let lists: RootLists = [Some(roots.as_slice()), None];
+        let scoped = resolve_scoped_host_path(
+            "ancestor/secret.txt",
+            &lists,
+            &root,
+            root.to_str().unwrap(),
+            false,
+        )
+        .unwrap()
+        .unwrap();
+
+        std::fs::rename(root.join("ancestor"), root.join("original")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("ancestor")).unwrap();
+
+        let result = read_utf8_no_follow(&scoped);
+        assert!(matches!(result, Err(HostError::Refusal(_)) | Err(HostError::Io(_))));
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&outside).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ancestor_replacement_cannot_redirect_a_scoped_write() {
+        let root = scratch("write-race");
+        let outside = scratch("write-race-outside");
+        std::fs::create_dir(root.join("ancestor")).unwrap();
+        let roots = vec![root.display().to_string()];
+        let lists: RootLists = [Some(roots.as_slice()), None];
+        let scoped = resolve_scoped_host_path(
+            "ancestor/new.txt",
+            &lists,
+            &root,
+            root.to_str().unwrap(),
+            true,
+        )
+        .unwrap()
+        .unwrap();
+
+        std::fs::rename(root.join("ancestor"), root.join("original")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("ancestor")).unwrap();
+
+        assert!(write_utf8_no_follow(&scoped, "unsafe").is_err());
+        assert!(!outside.join("new.txt").exists());
         std::fs::remove_dir_all(&root).ok();
         std::fs::remove_dir_all(&outside).ok();
     }
