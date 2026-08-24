@@ -107,7 +107,10 @@ case "$first_line" in
     echo "fatal error: synthetic malformed Mach-O" >&2
     exit 1
     ;;
-  FAKE-MACHO:*) printf '%s\n' "${first_line#FAKE-MACHO:}" ;;
+  FAKE-MACHO:*)
+    echo "warning: synthetic non-fatal lipo diagnostic" >&2
+    printf '%s\n' "${first_line#FAKE-MACHO:}"
+    ;;
   *)
     echo "fatal error: not a synthetic Mach-O" >&2
     exit 1

@@ -104,8 +104,9 @@ has_architecture() {
 }
 
 INVENTORY_PATH="$(mktemp "${TMPDIR:-/tmp}/cmux-macho-inventory.XXXXXX")"
+LIPO_DIAGNOSTICS_PATH="$(mktemp "${TMPDIR:-/tmp}/cmux-macho-lipo-stderr.XXXXXX")"
 cleanup() {
-  rm -f "$INVENTORY_PATH"
+  rm -f "$INVENTORY_PATH" "$LIPO_DIAGNOSTICS_PATH"
 }
 trap cleanup EXIT
 
@@ -137,11 +138,30 @@ while IFS= read -r -d '' path; do
   esac
 
   macho_files=$((macho_files + 1))
-  if ! archs="$("$LIPO_TOOL" -archs "$path" 2>&1)"; then
-    echo "ERROR: lipo -archs failed for $relative_path: $archs" >&2
+  : > "$LIPO_DIAGNOSTICS_PATH"
+  if archs="$("$LIPO_TOOL" -archs "$path" 2>"$LIPO_DIAGNOSTICS_PATH")"; then
+    if [[ -s "$LIPO_DIAGNOSTICS_PATH" ]]; then
+      echo "WARNING: lipo -archs diagnostics for $relative_path:" >&2
+      cat "$LIPO_DIAGNOSTICS_PATH" >&2
+    fi
+  else
+    lipo_diagnostics="$(cat "$LIPO_DIAGNOSTICS_PATH")"
+    if [[ -n "$archs" && -n "$lipo_diagnostics" ]]; then
+      lipo_diagnostics="$archs
+$lipo_diagnostics"
+    elif [[ -n "$archs" ]]; then
+      lipo_diagnostics="$archs"
+    elif [[ -z "$lipo_diagnostics" ]]; then
+      lipo_diagnostics="no diagnostics"
+    fi
+    echo "ERROR: lipo -archs failed for $relative_path: $lipo_diagnostics" >&2
     lipo_failures=$((lipo_failures + 1))
     continue
   fi
+
+  # lipo normally emits one line; normalize a successful multi-line response
+  # so diagnostics cannot accidentally become architecture tokens.
+  archs="$(printf '%s' "$archs" | tr '\n' ' ')"
 
   if has_architecture "$archs" arm64 && has_architecture "$archs" x86_64; then
     continue
