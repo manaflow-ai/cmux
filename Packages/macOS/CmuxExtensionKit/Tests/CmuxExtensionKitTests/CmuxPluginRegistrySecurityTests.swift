@@ -192,4 +192,94 @@ struct CmuxPluginRegistrySecurityTests {
         await snapshotter.remove(snapshot)
         #expect(!FileManager.default.fileExists(atPath: snapshot.directoryURL.path))
     }
+
+    @Test
+    func executionSnapshotPinsEntrypointAgainstSnapshotPathReplacement() async throws {
+        let root = try CmuxPluginSystemTests.makeTemporaryDirectory()
+        let snapshotRoot = try CmuxPluginSystemTests.makeTemporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: snapshotRoot)
+        }
+
+        let manifest = CmuxExtensionManifest.plugin(
+            id: "dev.example.pinned-launch",
+            displayName: "Pinned Launch",
+            entrypoint: "bin/plugin"
+        )
+        try CmuxPluginSystemTests.writePlugin(
+            manifest,
+            to: root,
+            executableContents: "#!/bin/sh\nprintf original > \"$CMUX_TEST_MARKER\"\n"
+        )
+        let loader = CmuxPluginDirectoryLoader(directoryURL: root)
+        let plugin = try #require((await loader.load()).plugins.first)
+        let snapshotter = CmuxPluginExecutionSnapshotter(rootDirectoryURL: snapshotRoot)
+        let snapshot = try await snapshotter.makeSnapshot(for: plugin)
+        #expect(snapshot.entrypointExecution == .interpreter(["/bin/sh"]))
+
+        let markerURL = root.appendingPathComponent("launch-marker", isDirectory: false)
+        try Data("#!/bin/sh\nprintf replacement > \"$CMUX_TEST_MARKER\"\n".utf8)
+            .write(to: snapshot.entrypointURL, options: .atomic)
+
+        let process = Process()
+        let gate = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh", isDirectory: false)
+        process.arguments = [
+            "-c",
+            "read -r cmuxLaunchGate || true; [ \"$cmuxLaunchGate\" = cmux-ready ] || exit 126; exec 3>&1; exec 1>/dev/null 2>/dev/null; exec \"$@\" /dev/fd/3",
+            "cmux-plugin-launch-gate",
+            "/bin/sh",
+        ]
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_TEST_MARKER"] = markerURL.path
+        process.environment = environment
+        process.standardInput = gate
+        process.standardOutput = FileHandle(
+            fileDescriptor: snapshot.entrypointFileDescriptor,
+            closeOnDealloc: false
+        )
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        try gate.fileHandleForReading.close()
+        try gate.fileHandleForWriting.write(contentsOf: Data("cmux-ready\n".utf8))
+        try gate.fileHandleForWriting.close()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+        #expect(try String(contentsOf: markerURL, encoding: .utf8) == "original\n")
+        await snapshotter.remove(snapshot)
+    }
+
+    @Test
+    func executionSnapshotRejectsUnavailableShebangInterpreter() async throws {
+        let root = try CmuxPluginSystemTests.makeTemporaryDirectory()
+        let snapshotRoot = try CmuxPluginSystemTests.makeTemporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: snapshotRoot)
+        }
+
+        let manifest = CmuxExtensionManifest.plugin(
+            id: "dev.example.invalid-interpreter",
+            displayName: "Invalid Interpreter",
+            entrypoint: "bin/plugin"
+        )
+        try CmuxPluginSystemTests.writePlugin(
+            manifest,
+            to: root,
+            executableContents: "#!/private/cmux/no-such-interpreter\nexit 0\n"
+        )
+        let plugin = try #require(
+            (await CmuxPluginDirectoryLoader(directoryURL: root).load()).plugins.first
+        )
+        let snapshotter = CmuxPluginExecutionSnapshotter(rootDirectoryURL: snapshotRoot)
+
+        do {
+            _ = try await snapshotter.makeSnapshot(for: plugin)
+            Issue.record("A snapshot must fail closed when its shebang interpreter is unavailable")
+        } catch let error as CmuxPluginExecutionSnapshotError {
+            #expect(error == .invalidInterpreter)
+        }
+    }
 }

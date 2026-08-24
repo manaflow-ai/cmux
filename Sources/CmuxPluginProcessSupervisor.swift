@@ -159,18 +159,18 @@ final class CmuxPluginProcessSupervisor {
 
         let process = Process()
         let launchGate = Pipe()
+        let pinnedEntrypoint = FileHandle(
+            fileDescriptor: executionSnapshot.entrypointFileDescriptor,
+            closeOnDealloc: false
+        )
         process.executableURL = URL(fileURLWithPath: "/bin/sh", isDirectory: false)
         process.currentDirectoryURL = executionSnapshot.directoryURL
         // The shell blocks on stdin until the parent has registered its PID.
-        // `exec "$@"` then replaces the shell with the validated entrypoint,
-        // preserving that PID and making an unauthenticated launch window
-        // impossible by construction.
-        process.arguments = [
-            "-c",
-            "IFS= read -r _ || exit 126; exec \"$@\" </dev/null",
-            "cmux-plugin-launch-gate",
-            executionSnapshot.entrypointURL.path,
-        ]
+        // It then duplicates the already-open entrypoint descriptor to fd 3
+        // and execs that descriptor. This preserves the PID gate while making
+        // pathname replacement after validation unable to change the bytes
+        // that receive the plugin token.
+        process.arguments = Self.launchArguments(for: executionSnapshot.entrypointExecution)
         var environment = Self.inheritedPluginEnvironment(
             from: ProcessInfo.processInfo.environment
         )
@@ -185,7 +185,7 @@ final class CmuxPluginProcessSupervisor {
         environment[environmentKeys.socketPathKey] = socketPath
         process.environment = environment
         process.standardInput = launchGate
-        process.standardOutput = FileHandle.nullDevice
+        process.standardOutput = pinnedEntrypoint
         process.standardError = FileHandle.nullDevice
 
         // Install the callback before `run()`: a short-lived plugin can exit
@@ -236,7 +236,7 @@ final class CmuxPluginProcessSupervisor {
         runtime.registerProcess(processID, for: pluginID)
         try? launchGate.fileHandleForReading.close()
         do {
-            try launchGate.fileHandleForWriting.write(contentsOf: Data([0x0A]))
+            try launchGate.fileHandleForWriting.write(contentsOf: Data("cmux-ready\n".utf8))
             try launchGate.fileHandleForWriting.close()
         } catch {
             try? launchGate.fileHandleForWriting.close()
@@ -342,5 +342,25 @@ final class CmuxPluginProcessSupervisor {
             environment["PATH"] = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
         }
         return environment
+    }
+
+    private static func launchArguments(
+        for execution: CmuxPluginEntrypointExecution
+    ) -> [String] {
+        let gate = "read -r cmuxLaunchGate || true; [ \"$cmuxLaunchGate\" = cmux-ready ] || exit 126; exec 3>&1; exec 1>/dev/null 2>/dev/null;"
+        switch execution {
+        case .executable:
+            return [
+                "-c",
+                "\(gate) exec /dev/fd/3",
+                "cmux-plugin-launch-gate",
+            ]
+        case .interpreter(let interpreterArguments):
+            return [
+                "-c",
+                "\(gate) exec \"$@\" /dev/fd/3",
+                "cmux-plugin-launch-gate",
+            ] + interpreterArguments
+        }
     }
 }
