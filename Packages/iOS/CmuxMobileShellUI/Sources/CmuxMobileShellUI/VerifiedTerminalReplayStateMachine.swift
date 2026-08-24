@@ -300,6 +300,12 @@ final class VerifiedTerminalReplayStateMachine {
         activeRenderEpoch = nil
         retiredRenderEpochs.removeAll()
         viewportRenderRevisionFloors.removeAll()
+        // Drop the whole negotiation, not just its counters: report IDs
+        // restart at zero, so a delayed acknowledgement from the previous
+        // session would otherwise compare as "newest" against retained
+        // expected dimensions and settle the fresh mount with a stale grant.
+        // The new mount learns its capacity from its own first report.
+        expectedViewportDimensions = nil
         settledViewportGrant = nil
         renegotiationHeldFrames = 0
         newestViewportReportID = 0
