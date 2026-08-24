@@ -99,10 +99,18 @@ public protocol AccountFlow: AnyObject {
     /// writer changed the persisted value outside the switch transaction.
     var pendingBackendEnvironment: AccountBackendEnvironment { get }
 
-    /// Whether this build's backend is pinned by explicit launch-environment
-    /// variables (tagged dev builds bake `CMUX_*` origins via LSEnvironment),
-    /// in which case the picker is inert and the card shows a pinned note.
-    var backendEnvironmentPinnedByLaunchEnvironment: Bool { get }
+    /// The active SELECTION: `.buildLane` when no explicit choice is
+    /// persisted, otherwise the explicit environment. Distinct from
+    /// ``activeBackendEnvironment`` (the resolved environment) because a
+    /// staging-lane build resolves staging without an explicit choice —
+    /// the picker's selected option, the recovery card's switch-back
+    /// affordance, and the lane confirm copy all key on this.
+    var activeBackendEnvironmentSelection: AccountBackendEnvironmentSelection { get }
+
+    /// The build's own lane. Drives the picker's option set (two positions
+    /// on the production lane, three with "Build lane (…)" otherwise) and
+    /// the lane footers explaining the bake.
+    var backendEnvironmentBuildLane: AccountBackendEnvironmentBuildLane { get }
 
     /// Where the host's live backend-environment switch currently is. The
     /// card replaces the picker with a progress row while this is a
@@ -113,11 +121,13 @@ public protocol AccountFlow: AnyObject {
     /// Runs the host's live backend-environment switch to `value`: the
     /// current environment's session is PARKED on this device (kept for the
     /// return switch), the auth stack retargets, and the target's parked
-    /// session restores — with an inline sign-in for a gated target, which
-    /// reverts to the previous environment on cancel / failure / an
-    /// ineligible account. No relaunch. A no-op on pinned builds and when
-    /// `value` is already active. Returns when the switch has finished.
-    func applyBackendEnvironment(_ value: AccountBackendEnvironment) async
+    /// session restores — with an inline sign-in for a gated target
+    /// (explicit staging only), which reverts to the previous selection on
+    /// cancel / failure / an ineligible account. No relaunch. A no-op when
+    /// `value` is already the active selection (on a production-lane build
+    /// the host maps `.production` to the lane, keeping the two-position
+    /// picker's semantics). Returns when the switch has finished.
+    func applyBackendEnvironment(_ value: AccountBackendEnvironmentSelection) async
 
     /// Returns ``backendEnvironmentSwitchPhase`` to
     /// ``AccountBackendEnvironmentSwitchPhase/idle`` after the UI has shown

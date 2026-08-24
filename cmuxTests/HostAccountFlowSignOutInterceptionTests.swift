@@ -10,6 +10,16 @@ import Testing
 @testable import cmux
 #endif
 
+extension CMUXBackendEnvironmentSelection {
+    /// Compact event label: `lane(production)`, `explicit(staging)`, …
+    fileprivate var eventLabel: String {
+        switch self {
+        case .lane(let resolves): "lane(\(resolves.rawValue))"
+        case .explicit(let choice): "explicit(\(choice.rawValue))"
+        }
+    }
+}
+
 /// Minimal scriptable ``AuthClient`` for the interception tests: records the
 /// calls that distinguish a REAL sign-out (local clear + revocation attempt)
 /// from a park (neither).
@@ -67,8 +77,8 @@ private struct InterceptionNoopSessionFactory: HostBrowserAuthSessionFactory {
 /// One fully wired ``HostAccountFlow`` over fakes, with an event log shared
 /// by the sign-out chain (`beginSignOut`), the staging confirmation, and the
 /// attached switch controller's steps, so the tests can assert the
-/// interception ORDER (confirm → real sign-out → switch back), not just that
-/// each piece ran.
+/// interception ORDER (confirm → real sign-out → switch back to the lane),
+/// not just that each piece ran.
 @MainActor
 private final class InterceptionHarness {
     private(set) var events: [String] = []
@@ -78,10 +88,16 @@ private final class InterceptionHarness {
     var confirmAnswer = true
     private(set) var flow: HostAccountFlow!
 
-    init(activeEnvironment: CMUXBackendEnvironmentOverride) {
+    init(
+        activeSelection: CMUXBackendEnvironmentSelection,
+        buildLane: CMUXBackendEnvironmentBuildLane = .production
+    ) {
         suiteName = "test.cmux.hostAccountFlowInterception.\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
+        if case .explicit(let choice) = activeSelection {
+            choice.storeChoice(in: defaults)
+        }
 
         let config = AuthConfig(
             stack: CMUXAuthConfig(projectId: "test", publishableClientKey: "test"),
@@ -122,8 +138,8 @@ private final class InterceptionHarness {
         let flow = HostAccountFlow(
             coordinator: coordinator,
             browserSignIn: browserSignIn,
-            activeBackendEnvironmentOverride: activeEnvironment,
-            backendEnvironmentPinnedByLaunchEnvironment: false,
+            activeBackendEnvironmentSelection: activeSelection,
+            backendEnvironmentBuildLane: buildLane,
             backendEnvironmentDefaults: defaults,
             confirmStagingSignOut: { [weak self] in
                 self?.events.append("confirm")
@@ -134,16 +150,22 @@ private final class InterceptionHarness {
         flow.attachBackendEnvironmentSwitchController(
             MacBackendEnvironmentSwitchController(
                 steps: BackendEnvironmentSwitchTransaction.Steps(
-                    isPinnedByBuild: { false },
-                    activeEnvironment: { activeEnvironment },
+                    activeSelection: { activeSelection },
                     parkSession: { [weak self] in self?.events.append("switch.park") },
                     quiesce: { [weak self] in self?.events.append("switch.quiesce") },
-                    storeOverride: { [weak self] override in
-                        override.store(in: self?.defaults ?? .standard)
-                        self?.events.append("switch.store(\(override.rawValue))")
+                    storeSelection: { [weak self] selection in
+                        switch selection {
+                        case .explicit(let choice):
+                            choice.storeChoice(in: self?.defaults ?? .standard)
+                        case .lane:
+                            CMUXBackendEnvironmentOverride.clearChoice(
+                                in: self?.defaults ?? .standard
+                            )
+                        }
+                        self?.events.append("switch.store(\(selection.eventLabel))")
                     },
-                    rebuild: { [weak self] override in
-                        self?.events.append("switch.rebuild(\(override.rawValue))")
+                    rebuild: { [weak self] selection in
+                        self?.events.append("switch.rebuild(\(selection.eventLabel))")
                     },
                     awaitRestoredUser: { nil },
                     promptSignIn: { [weak self] in
@@ -163,31 +185,61 @@ private final class InterceptionHarness {
         defaults.removePersistentDomain(forName: suiteName)
     }
 
-    var switchedBackToProduction: Bool {
-        events.contains("switch.store(production)")
+    var switchedBackToLane: Bool {
+        events.contains { $0.hasPrefix("switch.store(lane") }
     }
 }
 
 @MainActor
 @Suite("HostAccountFlow sign-out interception")
 struct HostAccountFlowSignOutInterceptionTests {
-    @Test("Production sign-out is direct: no confirmation, no switch")
-    func productionSignOutIsDirect() async {
-        let harness = InterceptionHarness(activeEnvironment: .production)
+    @Test("Production-lane sign-out is direct: no confirmation, no switch")
+    func productionLaneSignOutIsDirect() async {
+        let harness = InterceptionHarness(activeSelection: .lane(resolves: .production))
         defer { harness.cleanUp() }
 
         await harness.flow.signOut()
 
         #expect(!harness.events.contains("confirm"))
         #expect(harness.events.contains("realSignOut"))
-        #expect(!harness.switchedBackToProduction)
+        #expect(!harness.switchedBackToLane)
         let revokes = await harness.client.revokeCount
         #expect(revokes == 1)
     }
 
+    @Test("MATRIX: a staging LANE never intercepts — plain sign-out, no chain")
+    func stagingLaneNeverIntercepts() async {
+        // Dev rigs baked to staging keep today's plain sign-out: no
+        // confirmation modal, no return-to-lane chain (the lane IS home).
+        let harness = InterceptionHarness(
+            activeSelection: .lane(resolves: .staging),
+            buildLane: .staging
+        )
+        defer { harness.cleanUp() }
+
+        await harness.flow.signOut()
+
+        #expect(!harness.events.contains("confirm"))
+        #expect(harness.events.contains("realSignOut"))
+        #expect(!harness.switchedBackToLane)
+        #expect(!harness.events.contains("switch.park"))
+    }
+
+    @Test("MATRIX: explicit production never intercepts")
+    func explicitProductionNeverIntercepts() async {
+        let harness = InterceptionHarness(activeSelection: .explicit(.production))
+        defer { harness.cleanUp() }
+
+        await harness.flow.signOut()
+
+        #expect(!harness.events.contains("confirm"))
+        #expect(harness.events.contains("realSignOut"))
+        #expect(!harness.switchedBackToLane)
+    }
+
     @Test("Declined staging confirmation signs nothing out and switches nothing")
     func declinedStagingConfirmationDoesNothing() async {
-        let harness = InterceptionHarness(activeEnvironment: .staging)
+        let harness = InterceptionHarness(activeSelection: .explicit(.staging))
         defer { harness.cleanUp() }
         harness.confirmAnswer = false
 
@@ -200,9 +252,9 @@ struct HostAccountFlowSignOutInterceptionTests {
         #expect(revokes == 0)
     }
 
-    @Test("Confirmed staging sign-out runs confirm → real sign-out → switch to production")
+    @Test("Confirmed explicit-staging sign-out runs confirm → real sign-out → switch to the lane")
     func confirmedStagingSignOutChainsInOrder() async {
-        let harness = InterceptionHarness(activeEnvironment: .staging)
+        let harness = InterceptionHarness(activeSelection: .explicit(.staging))
         defer { harness.cleanUp() }
         harness.confirmAnswer = true
 
@@ -217,41 +269,56 @@ struct HostAccountFlowSignOutInterceptionTests {
             #expect(signOutIndex < switchIndex)
         }
         // The REAL sign-out ran (local clear + revocation attempt), and the
-        // chain committed production (which removes the override key).
+        // chain committed the LANE, whose store step clears the tri-state
+        // choice key.
         let clears = await harness.client.clearLocalSessionCount
         let revokes = await harness.client.revokeCount
         #expect(clears >= 1)
         #expect(revokes == 1)
-        #expect(harness.switchedBackToProduction)
+        #expect(harness.switchedBackToLane)
         #expect(harness.defaults.string(
             forKey: CMUXBackendEnvironmentOverride.defaultsKey
         ) == nil)
-        // Production restore never prompts.
+        // A lane restore never prompts.
         #expect(!harness.events.contains("switch.promptSignIn"))
     }
 
     @Test("The socket sign-out skips the confirmation but chains and reports the switch")
     func socketSignOutSkipsConfirmationButChains() async {
-        let harness = InterceptionHarness(activeEnvironment: .staging)
+        let harness = InterceptionHarness(activeSelection: .explicit(.staging))
         defer { harness.cleanUp() }
 
-        let returnedToProduction = await harness.flow.signOut(timeout: 5)
+        let returnedToLane = await harness.flow.signOut(timeout: 5)
 
-        #expect(returnedToProduction)
+        #expect(returnedToLane)
         #expect(!harness.events.contains("confirm"))
         #expect(harness.events.contains("realSignOut"))
-        #expect(harness.switchedBackToProduction)
+        #expect(harness.switchedBackToLane)
     }
 
-    @Test("The socket sign-out on production reports no environment change")
-    func socketSignOutOnProductionReportsNoSwitch() async {
-        let harness = InterceptionHarness(activeEnvironment: .production)
+    @Test("The socket sign-out on the production lane reports no environment change")
+    func socketSignOutOnProductionLaneReportsNoSwitch() async {
+        let harness = InterceptionHarness(activeSelection: .lane(resolves: .production))
         defer { harness.cleanUp() }
 
-        let returnedToProduction = await harness.flow.signOut(timeout: 5)
+        let returnedToLane = await harness.flow.signOut(timeout: 5)
 
-        #expect(!returnedToProduction)
+        #expect(!returnedToLane)
         #expect(!harness.events.contains("confirm"))
-        #expect(!harness.switchedBackToProduction)
+        #expect(!harness.switchedBackToLane)
+    }
+
+    @Test("The socket sign-out on a staging LANE reports no environment change")
+    func socketSignOutOnStagingLaneReportsNoSwitch() async {
+        let harness = InterceptionHarness(
+            activeSelection: .lane(resolves: .staging),
+            buildLane: .staging
+        )
+        defer { harness.cleanUp() }
+
+        let returnedToLane = await harness.flow.signOut(timeout: 5)
+
+        #expect(!returnedToLane)
+        #expect(!harness.switchedBackToLane)
     }
 }

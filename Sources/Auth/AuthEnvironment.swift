@@ -7,17 +7,117 @@ enum AuthEnvironment {
     private static let productionStackProjectID = "9790718f-14cd-4f7e-824d-eaf527a82b82"
     private static let productionStackPublishableClientKey = "pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr"
 
-    /// The persisted runtime backend selection (Settings > Account > Backend
-    /// Environment). Replaces only the BUILD DEFAULT layer of every resolution
-    /// below: explicit `CMUX_*` environment variables (including the
-    /// LSEnvironment values tagged dev builds bake in via `scripts/reload.sh`)
-    /// keep winning, since they are the dev-lane isolation mechanism.
+    /// The persisted EXPLICIT backend environment choice (Settings > Account
+    /// > Backend Environment), or nil when no choice is persisted and the
+    /// build runs its own lane. An explicit choice is a WHOLESALE override:
+    /// every backend `resolved*` function below consults it as its FIRST
+    /// tier — ABOVE explicit `CMUX_*` environment variables (including the
+    /// LSEnvironment values tagged dev builds bake in via
+    /// `scripts/reload.sh`), the DEBUG-only `~/.cmux-dev.env` file, and
+    /// `#if DEBUG` compile defaults — replacing the entire backend key set
+    /// atomically, so a switched build can never run half on one environment
+    /// and half on another. With NO choice (absent key) every resolution is
+    /// byte-identical to the pre-choice behavior, keeping the bake as the
+    /// dev-lane isolation mechanism. `callbackScheme` deliberately stays
+    /// outside the wholesale set: tagged deep-link routing must survive a
+    /// switch.
     ///
     /// Loaded fresh at each ProcessInfo-reading resolution site. The
-    /// composition root still resolves once at startup, so a newly stored
-    /// value takes effect at the next launch.
-    static var backendEnvironmentOverride: CMUXBackendEnvironmentOverride {
-        CMUXBackendEnvironmentOverride.load(from: .standard)
+    /// composition root still resolves once at startup; the live switch
+    /// transaction rebuilds that frozen graph when the choice changes.
+    static var backendEnvironmentExplicitChoice: CMUXBackendEnvironmentOverride? {
+        CMUXBackendEnvironmentOverride.explicitChoice(from: .standard)
+    }
+
+    /// The full fixed backend value set an explicit environment choice
+    /// selects, wholesale. One helper so a choice can never mix tiers:
+    /// either every value below comes from this table, or none does.
+    private struct ExplicitBackendValues {
+        let webOrigin: String
+        /// Explicit production uses api.cmux.sh for Release-lane parity
+        /// (the unpinned Release default); staging's Next.js app serves the
+        /// same `/api/*` routes itself.
+        let apiBaseURL: String
+        let vmAPIOrigin: String
+        /// The push relay follows the VM-API origin under a choice.
+        let pushAPIOrigin: String
+        let irohBrokerOrigin: String
+        let stackAuthEnvironment: CMUXAuthEnvironment
+        let stackProjectID: String
+        let stackPublishableClientKey: String
+        /// Credential-bearing handoffs stay pinned to the two compiled-in
+        /// origins; an explicit choice picks one, never a computed value.
+        let sessionHandoffOrigin: String
+
+        static func values(
+            for choice: CMUXBackendEnvironmentOverride
+        ) -> ExplicitBackendValues {
+            switch choice {
+            case .production:
+                ExplicitBackendValues(
+                    webOrigin: "https://cmux.com",
+                    apiBaseURL: "https://api.cmux.sh",
+                    vmAPIOrigin: "https://cmux.com",
+                    pushAPIOrigin: "https://cmux.com",
+                    irohBrokerOrigin: "https://cmux.com",
+                    stackAuthEnvironment: .production,
+                    stackProjectID: productionStackProjectID,
+                    stackPublishableClientKey: productionStackPublishableClientKey,
+                    sessionHandoffOrigin: "https://cmux.com"
+                )
+            case .staging:
+                ExplicitBackendValues(
+                    webOrigin: CMUXBackendEnvironmentOverride.stagingWebOrigin,
+                    apiBaseURL: CMUXBackendEnvironmentOverride.stagingWebOrigin,
+                    vmAPIOrigin: CMUXBackendEnvironmentOverride.stagingWebOrigin,
+                    pushAPIOrigin: CMUXBackendEnvironmentOverride.stagingWebOrigin,
+                    irohBrokerOrigin: CMUXBackendEnvironmentOverride.stagingWebOrigin,
+                    stackAuthEnvironment: .development,
+                    stackProjectID: developmentStackProjectID,
+                    stackPublishableClientKey: developmentStackPublishableClientKey,
+                    sessionHandoffOrigin: CMUXBackendEnvironmentOverride.stagingWebOrigin
+                )
+            }
+        }
+    }
+
+    /// Classify this build's LANE: the backend the process resolves with NO
+    /// explicit choice, from the launch environment and build flags alone.
+    /// Powers the Settings picker's "Build lane (…)" option and the
+    /// return-to-lane sign-out chain; an unpinned Release build is the
+    /// production lane, a staging-baked build the staging lane, and every
+    /// other bake (tagged dev builds on a localhost origin, untagged Debug
+    /// builds on the development Stack channel) a custom lane labeled with
+    /// its lane web origin.
+    static func resolvedBackendEnvironmentBuildLane(
+        environment: [String: String],
+        isDebugBuild: Bool
+    ) -> CMUXBackendEnvironmentBuildLane {
+        let laneWebOrigin = resolvedWebsiteOrigin(
+            environment: environment,
+            isDebugBuild: isDebugBuild,
+            explicitChoice: nil
+        )
+        let laneStackEnvironment = resolvedStackAuthEnvironment(
+            environment: environment,
+            isDebugBuild: isDebugBuild,
+            explicitChoice: nil
+        )
+        if laneWebOrigin.absoluteString == CMUXBackendEnvironmentOverride.stagingWebOrigin {
+            return .staging
+        }
+        if laneStackEnvironment == .production,
+           laneWebOrigin.absoluteString == "https://cmux.com" {
+            return .production
+        }
+        return .custom(label: buildLaneLabel(for: laneWebOrigin))
+    }
+
+    /// Human label for a custom lane: host, or host:port.
+    private static func buildLaneLabel(for origin: URL) -> String {
+        guard let host = origin.host else { return origin.absoluteString }
+        guard let port = origin.port else { return host }
+        return "\(host):\(port)"
     }
 
     /// Whether this binary was compiled as a Debug build. The pure
@@ -111,29 +211,24 @@ enum AuthEnvironment {
         resolvedWebsiteOrigin(
             environment: ProcessInfo.processInfo.environment,
             isDebugBuild: isDebugBuild,
-            override: backendEnvironmentOverride
+            explicitChoice: backendEnvironmentExplicitChoice
         )
     }
 
     static func resolvedWebsiteOrigin(
         environment: [String: String],
         isDebugBuild: Bool,
-        override: CMUXBackendEnvironmentOverride = .production
+        explicitChoice: CMUXBackendEnvironmentOverride? = nil
     ) -> URL {
-        // With the production override this keeps today's fixed cmux.com
-        // fallback (Debug included). Under the staging override the fallback
-        // follows the resolved default web origin, so a Release build lands
-        // on the staging deployment while explicit env still wins.
-        let fallback = override == .staging
-            ? resolvedDefaultWebOrigin(
-                environment: environment,
-                isDebugBuild: isDebugBuild,
-                override: override
-            )
-            : "https://cmux.com"
+        // Wholesale head: an explicit choice's fixed web origin beats env
+        // (baked LSEnvironment included). No choice keeps the fixed cmux.com
+        // fallback below env, byte-identical to the pre-choice behavior.
+        if let explicitChoice {
+            return URL(string: ExplicitBackendValues.values(for: explicitChoice).webOrigin)!
+        }
         return resolvedURL(
             environmentKey: "CMUX_WWW_ORIGIN",
-            fallback: fallback,
+            fallback: "https://cmux.com",
             environment: environment
         )
     }
@@ -146,35 +241,42 @@ enum AuthEnvironment {
     static var pricingURL: URL {
         resolvedPricingURL(
             environment: ProcessInfo.processInfo.environment,
-            override: backendEnvironmentOverride
+            explicitChoice: backendEnvironmentExplicitChoice
         )
     }
 
+    /// Delegators like this one carry no head of their own: the wholesale
+    /// head lives in ``appWebOrigin(environment:isDebugBuild:explicitChoice:)``,
+    /// which every pricing/billing URL below derives from.
     static func resolvedPricingURL(
         environment: [String: String],
-        override: CMUXBackendEnvironmentOverride = .production
+        explicitChoice: CMUXBackendEnvironmentOverride? = nil
     ) -> URL {
-        appWebOrigin(environment: environment, isDebugBuild: isDebugBuild, override: override)
-            .appendingPathComponent("pricing")
+        appWebOrigin(
+            environment: environment,
+            isDebugBuild: isDebugBuild,
+            explicitChoice: explicitChoice
+        )
+        .appendingPathComponent("pricing")
     }
 
     static var appPricingURL: URL {
         resolvedAppPricingURL(
             environment: ProcessInfo.processInfo.environment,
-            override: backendEnvironmentOverride
+            explicitChoice: backendEnvironmentExplicitChoice
         )
     }
 
     static var appWebOrigin: URL {
         resolvedAppWebOrigin(
             environment: ProcessInfo.processInfo.environment,
-            override: backendEnvironmentOverride
+            explicitChoice: backendEnvironmentExplicitChoice
         )
     }
 
     /// Credential-bearing native-to-web handoffs are pinned to cmux.com in
-    /// release builds. Under the persisted staging override, exactly the
-    /// fixed staging origin is additionally allowed (URL equality with
+    /// release builds. An explicit backend choice hands off to exactly its
+    /// fixed compiled-in origin (cmux.com, or
     /// ``CMUXBackendEnvironmentOverride/stagingWebOrigin``); the destination
     /// set never widens beyond those two fixed origins. Debug builds may
     /// additionally use an exact loopback origin so tagged local web servers
@@ -184,25 +286,32 @@ enum AuthEnvironment {
         resolvedAppSessionHandoffOrigin(
             environment: ProcessInfo.processInfo.environment,
             isDebugBuild: isDebugBuild,
-            override: backendEnvironmentOverride
+            explicitChoice: backendEnvironmentExplicitChoice
         )
     }
 
     static func resolvedAppSessionHandoffOrigin(
         environment: [String: String],
         isDebugBuild: Bool,
-        override: CMUXBackendEnvironmentOverride = .production
+        explicitChoice: CMUXBackendEnvironmentOverride? = nil
     ) -> URL {
+        // Wholesale head: an explicit choice hands off to exactly its fixed
+        // compiled-in origin — never a computed or env-derived value, so an
+        // env-injected lookalike can never become a token destination.
+        if let explicitChoice {
+            return URL(
+                string: ExplicitBackendValues.values(for: explicitChoice).sessionHandoffOrigin
+            )!
+        }
         let productionOrigin = URL(string: "https://cmux.com")!
-        let stagingOrigin = URL(string: CMUXBackendEnvironmentOverride.stagingWebOrigin)!
         let candidate = canonicalizedLoopbackURL(
-            appWebOrigin(environment: environment, isDebugBuild: isDebugBuild, override: override)
+            appWebOrigin(
+                environment: environment,
+                isDebugBuild: isDebugBuild,
+                explicitChoice: nil
+            )
         )
         if candidate == productionOrigin { return productionOrigin }
-        // Only the fixed staging origin, and only when the user opted into
-        // staging: an env-injected lookalike can never become a token
-        // destination because equality is against the compiled-in constant.
-        if override == .staging, candidate == stagingOrigin { return stagingOrigin }
         guard isDebugBuild else { return productionOrigin }
         guard let components = URLComponents(
             url: candidate,
@@ -222,32 +331,44 @@ enum AuthEnvironment {
 
     static func resolvedAppWebOrigin(
         environment: [String: String],
-        override: CMUXBackendEnvironmentOverride = .production
+        explicitChoice: CMUXBackendEnvironmentOverride? = nil
     ) -> URL {
-        appWebOrigin(environment: environment, isDebugBuild: isDebugBuild, override: override)
+        appWebOrigin(
+            environment: environment,
+            isDebugBuild: isDebugBuild,
+            explicitChoice: explicitChoice
+        )
     }
 
     static func resolvedAppPricingURL(
         environment: [String: String],
-        override: CMUXBackendEnvironmentOverride = .production
+        explicitChoice: CMUXBackendEnvironmentOverride? = nil
     ) -> URL {
-        appWebOrigin(environment: environment, isDebugBuild: isDebugBuild, override: override)
-            .appendingPathComponent("app-pricing")
+        appWebOrigin(
+            environment: environment,
+            isDebugBuild: isDebugBuild,
+            explicitChoice: explicitChoice
+        )
+        .appendingPathComponent("app-pricing")
     }
 
     static var appProWelcomeURL: URL {
         resolvedAppProWelcomeURL(
             environment: ProcessInfo.processInfo.environment,
-            override: backendEnvironmentOverride
+            explicitChoice: backendEnvironmentExplicitChoice
         )
     }
 
     static func resolvedAppProWelcomeURL(
         environment: [String: String],
-        override: CMUXBackendEnvironmentOverride = .production
+        explicitChoice: CMUXBackendEnvironmentOverride? = nil
     ) -> URL {
-        appWebOrigin(environment: environment, isDebugBuild: isDebugBuild, override: override)
-            .appendingPathComponent("app-pro-welcome")
+        appWebOrigin(
+            environment: environment,
+            isDebugBuild: isDebugBuild,
+            explicitChoice: explicitChoice
+        )
+        .appendingPathComponent("app-pro-welcome")
     }
 
     /// Payment entrypoint used by native app UI. `CMUX_BILLING_WWW_ORIGIN`
@@ -259,16 +380,19 @@ enum AuthEnvironment {
     static var billingCheckoutURL: URL {
         resolvedBillingCheckoutURL(
             environment: ProcessInfo.processInfo.environment,
-            override: backendEnvironmentOverride
+            explicitChoice: backendEnvironmentExplicitChoice
         )
     }
 
     static func resolvedBillingCheckoutURL(
         environment: [String: String],
-        override: CMUXBackendEnvironmentOverride = .production
+        explicitChoice: CMUXBackendEnvironmentOverride? = nil
     ) -> URL {
         billingCheckoutURL(
-            origin: billingWebsiteOrigin(environment: environment, override: override),
+            origin: billingWebsiteOrigin(
+                environment: environment,
+                explicitChoice: explicitChoice
+            ),
             callbackScheme: callbackScheme(environment: environment, bundleIdentifier: nil)
         )
     }
@@ -276,29 +400,27 @@ enum AuthEnvironment {
     static var billingPortalURL: URL {
         resolvedBillingPortalURL(
             environment: ProcessInfo.processInfo.environment,
-            override: backendEnvironmentOverride
+            explicitChoice: backendEnvironmentExplicitChoice
         )
     }
 
     static func resolvedBillingPortalURL(
         environment: [String: String],
-        override: CMUXBackendEnvironmentOverride = .production
+        explicitChoice: CMUXBackendEnvironmentOverride? = nil
     ) -> URL {
-        billingWebsiteOrigin(environment: environment, override: override)
+        billingWebsiteOrigin(environment: environment, explicitChoice: explicitChoice)
             .appendingPathComponent("api/billing/portal")
     }
 
-    static var signInWebsiteOrigin: URL {
-        canonicalizedLoopbackURL(
-            resolvedURL(
-                environmentKey: "CMUX_AUTH_WWW_ORIGIN",
-                fallback: defaultWebOrigin
-            )
-        )
-    }
-
     static var apiBaseURL: URL {
-        canonicalizedLoopbackURL(
+        // Wholesale head: an explicit choice's fixed API base beats
+        // `CMUX_API_BASE_URL` (baked LSEnvironment included).
+        if let choice = backendEnvironmentExplicitChoice {
+            return canonicalizedLoopbackURL(
+                URL(string: ExplicitBackendValues.values(for: choice).apiBaseURL)!
+            )
+        }
+        return canonicalizedLoopbackURL(
             resolvedURL(
                 environmentKey: "CMUX_API_BASE_URL",
                 fallback: defaultAPIBaseURL
@@ -306,17 +428,20 @@ enum AuthEnvironment {
         )
     }
 
-    /// Build-default API base. Release production is api.cmux.sh; under the
-    /// staging override it becomes the staging web origin, whose Next.js app
-    /// serves the same `/api/*` routes (api.cmux.sh only fronts calls like
-    /// `/api/billing/plan` that the staging deployment also serves). Debug
-    /// keeps the tag-local dev port. An explicit `CMUX_API_BASE_URL` always
-    /// wins.
+    /// API base resolution. An explicit choice is a wholesale head: explicit
+    /// production is api.cmux.sh (Release-lane parity; it only fronts calls
+    /// like `/api/billing/plan`), explicit staging is the staging web
+    /// origin, whose Next.js app serves the same `/api/*` routes itself.
+    /// With no choice, `CMUX_API_BASE_URL` wins, Debug keeps the tag-local
+    /// dev port, and Release stays on api.cmux.sh.
     static func resolvedDefaultAPIBaseURL(
         environment: [String: String],
         isDebugBuild: Bool,
-        override: CMUXBackendEnvironmentOverride = .production
+        explicitChoice: CMUXBackendEnvironmentOverride? = nil
     ) -> String {
+        if let explicitChoice {
+            return ExplicitBackendValues.values(for: explicitChoice).apiBaseURL
+        }
         if let url = environment["CMUX_API_BASE_URL"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !url.isEmpty {
@@ -325,19 +450,24 @@ enum AuthEnvironment {
         if isDebugBuild {
             return "http://localhost:\(resolvedCmuxPort(environment: environment))"
         }
-        return override == .staging
-            ? CMUXBackendEnvironmentOverride.stagingWebOrigin
-            : "https://api.cmux.sh"
+        return "https://api.cmux.sh"
     }
 
     /// Base URL for the cmux-owned cloud VM backend (`/api/vm`).
     ///
     /// Resolution order (first hit wins):
+    ///   0. the persisted explicit backend choice — a wholesale override
+    ///      beating every tier below.
     ///   1. process env `CMUX_VM_API_BASE_URL` — works when the app is launched from a shell.
     ///   2. `~/.cmux-dev.env` file `CMUX_VM_API_BASE_URL=...` line — works regardless of how
     ///      the app was launched (click-through, Dock, `open`, etc.). Only honored in DEBUG.
     ///   3. VM backend dev origin (`http://localhost:$CMUX_PORT` in Debug, cmux.com in Release).
     static var vmAPIBaseURL: URL {
+        if let choice = backendEnvironmentExplicitChoice {
+            return canonicalizedLoopbackURL(
+                URL(string: ExplicitBackendValues.values(for: choice).vmAPIOrigin)!
+            )
+        }
         if let overridden = ProcessInfo.processInfo.environment["CMUX_VM_API_BASE_URL"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !overridden.isEmpty,
@@ -359,10 +489,16 @@ enum AuthEnvironment {
     /// every forward would die queued. The tag rig BAKES a localhost
     /// `CMUX_VM_API_BASE_URL` into every Debug bundle, so that knob must not
     /// steer the push lane; a deliberately local push rig sets
-    /// `CMUX_PUSH_API_BASE_URL` (env or `~/.cmux-dev.env`) instead. Debug
-    /// defaults to shared staging (mirroring `irohBrokerBaseURL`); Release
-    /// keeps the production VM-API origin.
+    /// `CMUX_PUSH_API_BASE_URL` (env or `~/.cmux-dev.env`) instead. An
+    /// explicit backend choice is a wholesale head following its VM-API
+    /// origin; with no choice, Debug defaults to shared staging (mirroring
+    /// `irohBrokerBaseURL`) and Release keeps the production VM-API origin.
     static var pushAPIBaseURL: URL {
+        if let choice = backendEnvironmentExplicitChoice {
+            return canonicalizedLoopbackURL(
+                URL(string: ExplicitBackendValues.values(for: choice).pushAPIOrigin)!
+            )
+        }
         let environment = ProcessInfo.processInfo.environment
         if let overridden = environment["CMUX_PUSH_API_BASE_URL"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -381,12 +517,56 @@ enum AuthEnvironment {
         #endif
     }
 
+    /// Pure mirror of ``pushAPIBaseURL`` for tests (the computed var adds
+    /// only the DEBUG-only `~/.cmux-dev.env` tier, which reads a file and so
+    /// stays out of the pure resolution).
+    static func resolvedPushAPIBaseURL(
+        environment: [String: String],
+        isDebugBuild: Bool,
+        explicitChoice: CMUXBackendEnvironmentOverride? = nil
+    ) -> URL {
+        if let explicitChoice {
+            return canonicalizedLoopbackURL(
+                URL(string: ExplicitBackendValues.values(for: explicitChoice).pushAPIOrigin)!
+            )
+        }
+        if let overridden = environment["CMUX_PUSH_API_BASE_URL"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !overridden.isEmpty,
+           let url = URL(string: overridden) {
+            return canonicalizedLoopbackURL(url)
+        }
+        if isDebugBuild {
+            return URL(string: CMUXBackendEnvironmentOverride.stagingWebOrigin)!
+        }
+        // The Release lane follows the VM-API origin: explicit env first,
+        // then the build default.
+        if let overridden = environment["CMUX_VM_API_BASE_URL"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !overridden.isEmpty,
+           let url = URL(string: overridden) {
+            return canonicalizedLoopbackURL(url)
+        }
+        return canonicalizedLoopbackURL(
+            URL(string: resolvedDefaultVMAPIOrigin(
+                environment: environment,
+                isDebugBuild: isDebugBuild
+            ))!
+        )
+    }
+
     /// Authenticated route broker shared by matching tagged Mac and iOS builds.
     ///
     /// General tagged APIs remain on their isolated localhost origin. Iroh uses
     /// shared staging in Debug so separately launched processes publish into one
-    /// account-scoped registry. Release keeps the production cmux origin.
+    /// account-scoped registry. Release keeps the production cmux origin. An
+    /// explicit backend choice is a wholesale head over all of it.
     static var irohBrokerBaseURL: URL? {
+        if let choice = backendEnvironmentExplicitChoice {
+            return validatedIrohBrokerURL(
+                ExplicitBackendValues.values(for: choice).irohBrokerOrigin
+            )
+        }
         let environment = ProcessInfo.processInfo.environment
         if let overridden = environment["CMUX_IROH_BROKER_BASE_URL"]?
            .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -399,14 +579,12 @@ enum AuthEnvironment {
         }
         return resolvedIrohBrokerBaseURL(
             environment: environment,
-            isDebugBuild: true,
-            override: backendEnvironmentOverride
+            isDebugBuild: true
         )
         #else
         return resolvedIrohBrokerBaseURL(
             environment: environment,
-            isDebugBuild: false,
-            override: backendEnvironmentOverride
+            isDebugBuild: false
         )
         #endif
     }
@@ -414,17 +592,23 @@ enum AuthEnvironment {
     static func resolvedIrohBrokerBaseURL(
         environment: [String: String],
         isDebugBuild: Bool,
-        override: CMUXBackendEnvironmentOverride = .production
+        explicitChoice: CMUXBackendEnvironmentOverride? = nil
     ) -> URL? {
+        // Wholesale head: an explicit choice brokers through its own fixed
+        // origin — a staging Mac and phone publish into one account-scoped
+        // registry, an explicit-production pick leaves the shared Debug
+        // staging registry.
+        if let explicitChoice {
+            return validatedIrohBrokerURL(
+                ExplicitBackendValues.values(for: explicitChoice).irohBrokerOrigin
+            )
+        }
         if let explicit = environment["CMUX_IROH_BROKER_BASE_URL"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !explicit.isEmpty {
             return validatedIrohBrokerURL(explicit)
         }
-        // Debug already brokers through shared staging; the staging override
-        // sends Release there too, so a staging Mac and phone publish into
-        // the same account-scoped registry.
-        let fallback = isDebugBuild || override == .staging
+        let fallback = isDebugBuild
             ? CMUXBackendEnvironmentOverride.stagingWebOrigin
             : "https://cmux.com"
         return validatedIrohBrokerURL(fallback)
@@ -475,19 +659,33 @@ enum AuthEnvironment {
 
     private static func billingWebsiteOrigin(
         environment: [String: String],
-        override: CMUXBackendEnvironmentOverride
+        explicitChoice: CMUXBackendEnvironmentOverride?
     ) -> URL {
+        // Wholesale head: an explicit choice pins checkout to its fixed web
+        // origin, above even the dedicated CMUX_BILLING_WWW_ORIGIN knob —
+        // billing must never cross environments.
+        if let explicitChoice {
+            return URL(string: ExplicitBackendValues.values(for: explicitChoice).webOrigin)!
+        }
         if let overridden = environmentURL("CMUX_BILLING_WWW_ORIGIN", environment: environment) {
             return overridden
         }
-        return appWebOrigin(environment: environment, isDebugBuild: isDebugBuild, override: override)
+        return appWebOrigin(
+            environment: environment,
+            isDebugBuild: isDebugBuild,
+            explicitChoice: nil
+        )
     }
 
     private static func appWebOrigin(
         environment: [String: String],
         isDebugBuild: Bool,
-        override: CMUXBackendEnvironmentOverride
+        explicitChoice: CMUXBackendEnvironmentOverride?
     ) -> URL {
+        // Wholesale head over both origin env vars and the Debug port bake.
+        if let explicitChoice {
+            return URL(string: ExplicitBackendValues.values(for: explicitChoice).webOrigin)!
+        }
         if let explicitWebsite = environmentURL("CMUX_WWW_ORIGIN", environment: environment) {
             return canonicalizedLoopbackURL(explicitWebsite)
         }
@@ -499,8 +697,7 @@ enum AuthEnvironment {
                 environmentPort("PORT", environment: environment) != nil {
                 return URL(string: resolvedDefaultWebOrigin(
                     environment: environment,
-                    isDebugBuild: isDebugBuild,
-                    override: override
+                    isDebugBuild: isDebugBuild
                 ))!
             }
             // `devOverride` is itself compiled out of Release builds, so this
@@ -515,8 +712,7 @@ enum AuthEnvironment {
             environmentKey: "CMUX_WWW_ORIGIN",
             fallback: resolvedDefaultWebOrigin(
                 environment: environment,
-                isDebugBuild: isDebugBuild,
-                override: override
+                isDebugBuild: isDebugBuild
             ),
             environment: environment
         )
@@ -557,69 +753,65 @@ enum AuthEnvironment {
         resolvedDefaultWebOrigin(
             environment: ProcessInfo.processInfo.environment,
             isDebugBuild: isDebugBuild,
-            override: backendEnvironmentOverride
+            explicitChoice: backendEnvironmentExplicitChoice
         )
     }
 
-    /// Build-default web origin. Release production is cmux.com; under the
-    /// staging override it becomes the staging web origin. Debug defaults to
-    /// the tag-local dev port; an untagged Debug build (no `CMUX_PORT`/`PORT`
-    /// baked into its launch environment) with the staging override also
-    /// prefers the staging origin, while any explicit origin or port env
-    /// keeps winning as today.
+    /// Build-default web origin. An explicit choice is a wholesale head
+    /// (fixed cmux.com or staging origin, above even `CMUX_WWW_ORIGIN`).
+    /// With no choice: env wins, Debug defaults to the tag-local dev port,
+    /// Release to cmux.com.
     static func resolvedDefaultWebOrigin(
         environment: [String: String],
         isDebugBuild: Bool,
-        override: CMUXBackendEnvironmentOverride = .production
+        explicitChoice: CMUXBackendEnvironmentOverride? = nil
     ) -> String {
+        if let explicitChoice {
+            return ExplicitBackendValues.values(for: explicitChoice).webOrigin
+        }
         if let origin = environment["CMUX_WWW_ORIGIN"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !origin.isEmpty {
             return origin
         }
         if isDebugBuild {
-            if override == .staging,
-               environmentPort("CMUX_PORT", environment: environment) == nil,
-               environmentPort("PORT", environment: environment) == nil {
-                return CMUXBackendEnvironmentOverride.stagingWebOrigin
-            }
             return "http://localhost:\(resolvedCmuxPort(environment: environment))"
         }
-        return override == .staging
-            ? CMUXBackendEnvironmentOverride.stagingWebOrigin
-            : "https://cmux.com"
+        return "https://cmux.com"
     }
 
     private static var defaultVMAPIOrigin: String {
         resolvedDefaultVMAPIOrigin(
             environment: ProcessInfo.processInfo.environment,
             isDebugBuild: isDebugBuild,
-            override: backendEnvironmentOverride
+            explicitChoice: backendEnvironmentExplicitChoice
         )
     }
 
-    /// Build-default VM API origin. Release production is cmux.com; under
-    /// the staging override it becomes the staging web origin. Debug keeps
-    /// the tag-local dev port. Explicit `CMUX_VM_API_BASE_URL` layers are
-    /// checked by ``vmAPIBaseURL`` before this default is consulted.
+    /// Build-default VM API origin. An explicit choice is a wholesale head;
+    /// with no choice, Debug keeps the tag-local dev port and Release is
+    /// cmux.com. Explicit `CMUX_VM_API_BASE_URL` layers are checked by
+    /// ``vmAPIBaseURL`` before this default is consulted (and after its
+    /// choice head).
     static func resolvedDefaultVMAPIOrigin(
         environment: [String: String],
         isDebugBuild: Bool,
-        override: CMUXBackendEnvironmentOverride = .production
+        explicitChoice: CMUXBackendEnvironmentOverride? = nil
     ) -> String {
+        if let explicitChoice {
+            return ExplicitBackendValues.values(for: explicitChoice).vmAPIOrigin
+        }
         if isDebugBuild {
             return "http://localhost:\(resolvedCmuxPort(environment: environment))"
         }
-        return override == .staging
-            ? CMUXBackendEnvironmentOverride.stagingWebOrigin
-            : "https://cmux.com"
+        return "https://cmux.com"
     }
 
     private static var defaultAPIBaseURL: String {
         resolvedDefaultAPIBaseURL(
             environment: ProcessInfo.processInfo.environment,
             isDebugBuild: isDebugBuild,
-            override: backendEnvironmentOverride
+            explicitChoice: backendEnvironmentExplicitChoice
         )
     }
 
@@ -634,22 +826,27 @@ enum AuthEnvironment {
         resolvedStackProjectID(
             environment: ProcessInfo.processInfo.environment,
             isDebugBuild: isDebugBuild,
-            override: backendEnvironmentOverride
+            explicitChoice: backendEnvironmentExplicitChoice
         )
     }
 
-    /// Resolve the Stack channel for a macOS build. Debug defaults to the
-    /// development project, while `scripts/reload.sh --prod-auth` bakes an
-    /// explicit production override into the tagged app's launch environment.
-    /// Invalid values fail toward the build's normal channel: Debug stays on
-    /// development regardless of the persisted override; Release follows the
-    /// override (staging selects the development Stack project, which is
-    /// what the staging web deployment authenticates against).
+    /// Resolve the Stack channel for a macOS build. An explicit backend
+    /// choice is a wholesale head — even the DEBUG development default
+    /// yields to it, so an explicit production pick on a Debug build talks
+    /// to the production Stack project (and dev auto-login, which keys on
+    /// the resolved channel, disables itself for free). With no choice,
+    /// `CMUX_AUTH_ENVIRONMENT` wins (`scripts/reload.sh --prod-auth` bakes
+    /// it into the tagged app's launch environment), invalid values fail
+    /// toward the build's normal channel, Debug defaults to development,
+    /// and Release to production.
     static func resolvedStackAuthEnvironment(
         environment: [String: String],
         isDebugBuild: Bool,
-        override: CMUXBackendEnvironmentOverride = .production
+        explicitChoice: CMUXBackendEnvironmentOverride? = nil
     ) -> CMUXAuthEnvironment {
+        if let explicitChoice {
+            return ExplicitBackendValues.values(for: explicitChoice).stackAuthEnvironment
+        }
         switch environment["CMUX_AUTH_ENVIRONMENT"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() {
@@ -658,15 +855,20 @@ enum AuthEnvironment {
         case "development":
             return .development
         default:
-            return isDebugBuild ? .development : override.authEnvironment
+            return isDebugBuild ? .development : .production
         }
     }
 
     static func resolvedStackProjectID(
         environment: [String: String],
         isDebugBuild: Bool,
-        override: CMUXBackendEnvironmentOverride = .production
+        explicitChoice: CMUXBackendEnvironmentOverride? = nil
     ) -> String {
+        // Wholesale head: above CMUX_STACK_PROJECT_ID too, so a choice can
+        // never pair one project's id with another environment's key.
+        if let explicitChoice {
+            return ExplicitBackendValues.values(for: explicitChoice).stackProjectID
+        }
         if let projectID = environment["CMUX_STACK_PROJECT_ID"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !projectID.isEmpty {
@@ -674,8 +876,7 @@ enum AuthEnvironment {
         }
         switch resolvedStackAuthEnvironment(
             environment: environment,
-            isDebugBuild: isDebugBuild,
-            override: override
+            isDebugBuild: isDebugBuild
         ) {
         case .development:
             return developmentStackProjectID
@@ -688,15 +889,18 @@ enum AuthEnvironment {
         resolvedStackPublishableClientKey(
             environment: ProcessInfo.processInfo.environment,
             isDebugBuild: isDebugBuild,
-            override: backendEnvironmentOverride
+            explicitChoice: backendEnvironmentExplicitChoice
         )
     }
 
     static func resolvedStackPublishableClientKey(
         environment: [String: String],
         isDebugBuild: Bool,
-        override: CMUXBackendEnvironmentOverride = .production
+        explicitChoice: CMUXBackendEnvironmentOverride? = nil
     ) -> String {
+        if let explicitChoice {
+            return ExplicitBackendValues.values(for: explicitChoice).stackPublishableClientKey
+        }
         if let clientKey = environment["CMUX_STACK_PUBLISHABLE_CLIENT_KEY"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !clientKey.isEmpty {
@@ -704,8 +908,7 @@ enum AuthEnvironment {
         }
         switch resolvedStackAuthEnvironment(
             environment: environment,
-            isDebugBuild: isDebugBuild,
-            override: override
+            isDebugBuild: isDebugBuild
         ) {
         case .development:
             return developmentStackPublishableClientKey
@@ -719,21 +922,25 @@ enum AuthEnvironment {
         resolvedAfterSignInOrigin(
             environment: ProcessInfo.processInfo.environment,
             isDebugBuild: isDebugBuild,
-            override: backendEnvironmentOverride
+            explicitChoice: backendEnvironmentExplicitChoice
         )
     }
 
     static func resolvedAfterSignInOrigin(
         environment: [String: String],
         isDebugBuild: Bool = AuthEnvironment.isDebugBuild,
-        override: CMUXBackendEnvironmentOverride = .production
+        explicitChoice: CMUXBackendEnvironmentOverride? = nil
     ) -> URL {
-        resolvedURL(
+        // Wholesale head: sign-in must enter the chosen environment's own
+        // handler pages, above the CMUX_AUTH_WWW_ORIGIN bake.
+        if let explicitChoice {
+            return URL(string: ExplicitBackendValues.values(for: explicitChoice).webOrigin)!
+        }
+        return resolvedURL(
             environmentKey: "CMUX_AUTH_WWW_ORIGIN",
             fallback: resolvedDefaultWebOrigin(
                 environment: environment,
-                isDebugBuild: isDebugBuild,
-                override: override
+                isDebugBuild: isDebugBuild
             ),
             environment: environment
         )

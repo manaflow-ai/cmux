@@ -2,8 +2,9 @@ import Testing
 @testable import CmuxSettingsUI
 
 /// The three-tier backend-environment card visibility: full picker for
-/// gate-allowed/DEBUG, recovery for everyone else off production (or with a
-/// switch in flight), hidden otherwise.
+/// gate-allowed/DEBUG, recovery for everyone else resolving off production
+/// (explicit staging AND a staging lane, or with a switch in flight), hidden
+/// otherwise.
 @Suite("BackendEnvironmentCardVisibility")
 struct BackendEnvironmentCardVisibilityTests {
     private static let allPhases: [AccountBackendEnvironmentSwitchPhase] = [
@@ -14,35 +15,80 @@ struct BackendEnvironmentCardVisibilityTests {
         .finished(.reverted(.notEligible)),
     ]
 
-    @Test func pickerAllowedIsAlwaysFullPickerAcrossEnvironmentsAndPhases() {
-        for environment in AccountBackendEnvironment.allCases {
-            for phase in Self.allPhases {
-                #expect(
-                    BackendEnvironmentCardVisibility(
-                        pickerAllowed: true,
-                        activeEnvironment: environment,
-                        switchPhase: phase
-                    ) == .fullPicker
-                )
+    private static let allSelections: [AccountBackendEnvironmentSelection] = [
+        .buildLane, .production, .staging,
+    ]
+
+    private static let allLanes: [AccountBackendEnvironmentBuildLane] = [
+        .production, .staging, .custom(label: "localhost:4123"),
+    ]
+
+    @Test func pickerAllowedIsAlwaysFullPickerAcrossSelectionsLanesAndPhases() {
+        for selection in Self.allSelections {
+            for lane in Self.allLanes {
+                for phase in Self.allPhases {
+                    #expect(
+                        BackendEnvironmentCardVisibility(
+                            pickerAllowed: true,
+                            selection: selection,
+                            buildLane: lane,
+                            switchPhase: phase
+                        ) == .fullPicker
+                    )
+                }
             }
         }
     }
 
-    @Test func nonGateUserOnStagingGetsRecovery() {
+    @Test func nonGateUserOnExplicitStagingGetsRecovery() {
         #expect(
             BackendEnvironmentCardVisibility(
                 pickerAllowed: false,
-                activeEnvironment: .staging,
+                selection: .staging,
+                buildLane: .production,
                 switchPhase: .idle
             ) == .recovery
         )
     }
 
-    @Test func nonGateUserOnProductionIdleIsHidden() {
+    @Test func nonGateUserOnAStagingLaneGetsRecovery() {
+        // The lane resolves staging even with no explicit choice: the card
+        // must render (its copy explains the bake; the switch-back button is
+        // reserved for explicit staging inside the card itself).
         #expect(
             BackendEnvironmentCardVisibility(
                 pickerAllowed: false,
-                activeEnvironment: .production,
+                selection: .buildLane,
+                buildLane: .staging,
+                switchPhase: .idle
+            ) == .recovery
+        )
+    }
+
+    @Test func nonGateUserOnProductionResolvingSelectionsIsHidden() {
+        // Lane on a production or custom lane, and explicit production, all
+        // resolve production: nothing to recover from.
+        #expect(
+            BackendEnvironmentCardVisibility(
+                pickerAllowed: false,
+                selection: .buildLane,
+                buildLane: .production,
+                switchPhase: .idle
+            ) == .hidden
+        )
+        #expect(
+            BackendEnvironmentCardVisibility(
+                pickerAllowed: false,
+                selection: .buildLane,
+                buildLane: .custom(label: "localhost:4123"),
+                switchPhase: .idle
+            ) == .hidden
+        )
+        #expect(
+            BackendEnvironmentCardVisibility(
+                pickerAllowed: false,
+                selection: .production,
+                buildLane: .staging,
                 switchPhase: .idle
             ) == .hidden
         )
@@ -57,7 +103,8 @@ struct BackendEnvironmentCardVisibilityTests {
             #expect(
                 BackendEnvironmentCardVisibility(
                     pickerAllowed: false,
-                    activeEnvironment: .production,
+                    selection: .buildLane,
+                    buildLane: .production,
                     switchPhase: phase
                 ) == .recovery,
                 "phase \(phase) should keep the recovery card visible"

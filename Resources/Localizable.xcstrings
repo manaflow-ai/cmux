@@ -150058,6 +150058,23 @@
         }
       }
     },
+    "settings.account.backendEnvironment.buildLaneOption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Build lane (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビルドレーン（%@）"
+          }
+        }
+      }
+    },
     "settings.account.backendEnvironment.confirmAction": {
       "extractionState": "manual",
       "localizations": {
@@ -150092,6 +150109,23 @@
         }
       }
     },
+    "settings.account.backendEnvironment.confirmMessageLane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your %1$@ session is kept on this Mac, and cmux returns to what this build is baked to (%2$@). Each environment has separate accounts and data."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@のセッションはこのMacに保持され、cmuxはこのビルドに組み込まれた環境（%2$@）に戻ります。環境ごとにアカウントとデータは別々です。"
+          }
+        }
+      }
+    },
     "settings.account.backendEnvironment.confirmTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -150105,6 +150139,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@に切り替えますか？"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.confirmTitleLane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch back to the build lane (%@)?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビルドレーン（%@）に戻しますか？"
           }
         }
       }
@@ -150126,19 +150177,19 @@
         }
       }
     },
-    "settings.account.backendEnvironment.pinnedNote": {
+    "settings.account.backendEnvironment.laneFooter": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This build's backend is pinned by its launch environment; the picker takes effect only in unpinned builds."
+            "value": "This build's own lane is %@, baked in at build time. The build lane option returns to it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このビルドのバックエンドは起動環境で固定されています。この選択は固定されていないビルドでのみ有効になります。"
+            "value": "このビルド自体のレーンは%@で、ビルド時に組み込まれています。ビルドレーンの選択肢でそこに戻ります。"
           }
         }
       }
@@ -150343,6 +150394,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "現在%@を使用しています。"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.switchedLane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Now on the build lane (%@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在ビルドレーン（%@）を使用しています。"
           }
         }
       }

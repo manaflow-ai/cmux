@@ -17,7 +17,12 @@ public enum BackendEnvironmentCardVisibility: Equatable, Sendable {
     /// No card.
     case hidden
 
-    /// Derive the tier.
+    /// Derive the tier from the SELECTION and the build lane (not just the
+    /// resolved environment): a non-gate user off production gets the
+    /// recovery card whether that comes from an explicit staging choice
+    /// (switch-back offered) or a staging LANE (the card explains the bake
+    /// instead — see `BackendEnvironmentCard`, which keys the button on the
+    /// selection).
     ///
     /// The recovery clause deliberately also fires while a switch is in any
     /// non-idle phase: (a) a release-build gate user's card would otherwise
@@ -29,12 +34,14 @@ public enum BackendEnvironmentCardVisibility: Equatable, Sendable {
     /// through the whole run.
     public init(
         pickerAllowed: Bool,
-        activeEnvironment: AccountBackendEnvironment,
+        selection: AccountBackendEnvironmentSelection,
+        buildLane: AccountBackendEnvironmentBuildLane,
         switchPhase: AccountBackendEnvironmentSwitchPhase
     ) {
         if pickerAllowed {
             self = .fullPicker
-        } else if activeEnvironment != .production || switchPhase != .idle {
+        } else if selection.resolvedEnvironment(lane: buildLane) != .production
+            || switchPhase != .idle {
             self = .recovery
         } else {
             self = .hidden
@@ -47,7 +54,8 @@ extension AccountFlow {
     public var backendEnvironmentCardVisibility: BackendEnvironmentCardVisibility {
         BackendEnvironmentCardVisibility(
             pickerAllowed: backendEnvironmentPickerAllowed,
-            activeEnvironment: activeBackendEnvironment,
+            selection: activeBackendEnvironmentSelection,
+            buildLane: backendEnvironmentBuildLane,
             switchPhase: backendEnvironmentSwitchPhase
         )
     }

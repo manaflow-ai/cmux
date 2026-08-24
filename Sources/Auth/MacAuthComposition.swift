@@ -41,8 +41,12 @@ struct MacAuthComposition {
         let tokenStore: any StackAuthTokenStoreProtocol
         let browserSignIn: HostBrowserSignInFlow
         let browserAppSession: BrowserAppSessionController
-        /// The persisted backend override this pass resolved against.
-        let backendEnvironmentOverride: CMUXBackendEnvironmentOverride
+        /// The backend selection this pass resolved against: `.explicit`
+        /// when the wholesale choice key is persisted, `.lane` otherwise.
+        let backendEnvironmentSelection: CMUXBackendEnvironmentSelection
+        /// The build's own lane, classified from the launch environment with
+        /// the explicit choice ignored (a per-process constant).
+        let backendEnvironmentBuildLane: CMUXBackendEnvironmentBuildLane
     }
 
     /// Build the auth graph at app startup.
@@ -63,9 +67,8 @@ struct MacAuthComposition {
         let accountFlow = HostAccountFlow(
             coordinator: graph.coordinator,
             browserSignIn: graph.browserSignIn,
-            activeBackendEnvironmentOverride: graph.backendEnvironmentOverride,
-            backendEnvironmentPinnedByLaunchEnvironment:
-                HostAccountFlow.launchEnvironmentPinsBackendEnvironment(environment),
+            activeBackendEnvironmentSelection: graph.backendEnvironmentSelection,
+            backendEnvironmentBuildLane: graph.backendEnvironmentBuildLane,
             backendEnvironmentDefaults: defaults,
             confirmStagingSignOut: {
                 StagingSignOutConfirmationPresenter().confirmStagingSignOut()
@@ -105,7 +108,8 @@ struct MacAuthComposition {
         accountFlow.rebind(
             coordinator: graph.coordinator,
             browserSignIn: graph.browserSignIn,
-            activeBackendEnvironmentOverride: graph.backendEnvironmentOverride
+            activeBackendEnvironmentSelection: graph.backendEnvironmentSelection,
+            backendEnvironmentBuildLane: graph.backendEnvironmentBuildLane
         )
     }
 
@@ -120,11 +124,9 @@ struct MacAuthComposition {
     ) -> MacBackendEnvironmentSwitchController {
         MacBackendEnvironmentSwitchController(
             steps: BackendEnvironmentSwitchTransaction.Steps(
-                isPinnedByBuild: { [weak accountFlow] in
-                    accountFlow?.backendEnvironmentPinnedByLaunchEnvironment ?? true
-                },
-                activeEnvironment: { [weak accountFlow] in
-                    accountFlow?.activeBackendEnvironmentOverride ?? .production
+                activeSelection: { [weak accountFlow] in
+                    accountFlow?.activeBackendEnvironmentHostSelection
+                        ?? .lane(resolves: .production)
                 },
                 parkSession: { [weak accountFlow] in
                     // Park under the OLD defaults: HostBrowserSignInFlow
@@ -142,12 +144,22 @@ struct MacAuthComposition {
                     // AppDelegate.adoptRebuiltAuth(_:) after the rebuild.
                     MobileHostService.shared.stop()
                 },
-                storeOverride: { override in
-                    override.store(in: defaults)
-                    // EVERY committed override (including a revert's) arms the
-                    // one-shot suppression so the immediate rebuild — or the
-                    // next launch after a crash — restores the target's PARKED
-                    // slot instead of running the organic project-flip clear.
+                storeSelection: { selection in
+                    // The commit point: an explicit choice persists its raw
+                    // value (production included — tri-state), a lane target
+                    // clears the key so the build's own bake resolves again.
+                    switch selection {
+                    case .explicit(let choice):
+                        choice.storeChoice(in: defaults)
+                    case .lane:
+                        CMUXBackendEnvironmentOverride.clearChoice(in: defaults)
+                    }
+                    // EVERY committed selection (including a revert's, and
+                    // lane clears — a lane↔explicit flip can change the Stack
+                    // project too) arms the one-shot suppression so the
+                    // immediate rebuild — or the next launch after a crash —
+                    // restores the target's PARKED slot instead of running
+                    // the organic project-flip clear.
                     CMUXBackendEnvironmentSwitchRebuildMarker.arm(in: defaults)
                 },
                 rebuild: { [weak accountFlow] _ in
@@ -187,32 +199,43 @@ struct MacAuthComposition {
         )
     }
 
-    /// One environment-frozen build pass over the persisted override.
+    /// One environment-frozen build pass over the persisted selection.
     private static func buildGraph(
         environment: [String: String],
         defaults: UserDefaults
     ) -> Graph {
         let bundleIdentifier = Bundle.main.bundleIdentifier
-        // The persisted backend override resolves ONCE per build pass (at
-        // startup, and again when the live switch rebuilds the graph), and
-        // replaces only the build-default layer: explicit env (including the
-        // LSEnvironment values tagged dev builds bake in) still wins inside
-        // every resolved* function.
-        let backendEnvironmentOverride = CMUXBackendEnvironmentOverride.load(from: defaults)
+        // The persisted explicit choice resolves ONCE per build pass (at
+        // startup, and again when the live switch rebuilds the graph). A
+        // choice is a WHOLESALE override — it beats explicit env, including
+        // the LSEnvironment values tagged dev builds bake in — while an
+        // absent key keeps the build's own lane byte-identical to the
+        // pre-choice behavior.
+        let explicitChoice = CMUXBackendEnvironmentOverride.explicitChoice(from: defaults)
+        // The lane classifies with the choice IGNORED: it is the stable
+        // "what this build is baked to" descriptor powering the picker's
+        // "Build lane (…)" option and the return-to-lane sign-out chain.
+        let backendEnvironmentBuildLane = AuthEnvironment.resolvedBackendEnvironmentBuildLane(
+            environment: environment,
+            isDebugBuild: Self.isDebugBuild
+        )
+        let backendEnvironmentSelection: CMUXBackendEnvironmentSelection =
+            explicitChoice.map { .explicit($0) }
+                ?? .lane(resolves: backendEnvironmentBuildLane.resolvedEnvironment)
         let resolvedAuthEnvironment = AuthEnvironment.resolvedStackAuthEnvironment(
             environment: environment,
             isDebugBuild: Self.isDebugBuild,
-            override: backendEnvironmentOverride
+            explicitChoice: explicitChoice
         )
         let stackProjectID = AuthEnvironment.resolvedStackProjectID(
             environment: environment,
             isDebugBuild: Self.isDebugBuild,
-            override: backendEnvironmentOverride
+            explicitChoice: explicitChoice
         )
         let stackPublishableClientKey = AuthEnvironment.resolvedStackPublishableClientKey(
             environment: environment,
             isDebugBuild: Self.isDebugBuild,
-            override: backendEnvironmentOverride
+            explicitChoice: explicitChoice
         )
         // Per-project token slots: keying the stores by the resolved Stack
         // project lets a live backend-environment switch PARK the old
@@ -380,7 +403,8 @@ struct MacAuthComposition {
             tokenStore: tokenStore,
             browserSignIn: browserSignIn,
             browserAppSession: browserAppSession,
-            backendEnvironmentOverride: backendEnvironmentOverride
+            backendEnvironmentSelection: backendEnvironmentSelection,
+            backendEnvironmentBuildLane: backendEnvironmentBuildLane
         )
     }
 
@@ -420,7 +444,7 @@ struct MacAuthComposition {
 
     /// Keep cached identities and Stack tokens from crossing projects when one
     /// tagged Debug bundle is rebuilt with `--prod-auth`, or switched back.
-    /// The persisted backend environment override flows through the same
+    /// The persisted explicit backend environment choice flows through the same
     /// check: flipping production<->staging flips the resolved Stack project
     /// id, so the next launch wipes the stale session automatically.
     nonisolated static func detectAuthProjectSwitch(

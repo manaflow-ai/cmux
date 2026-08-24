@@ -9,11 +9,23 @@ import Testing
 @testable import cmux
 #endif
 
+extension CMUXBackendEnvironmentSelection {
+    /// Compact event label: `lane(production)`, `explicit(staging)`, …
+    fileprivate var eventLabel: String {
+        switch self {
+        case .lane(let resolves): "lane(\(resolves.rawValue))"
+        case .explicit(let choice): "explicit(\(choice.rawValue))"
+        }
+    }
+}
+
 /// Fake step wiring for ``MacBackendEnvironmentSwitchController``: records
 /// the step order, stands in for `MobileHostService.stop()`/`start()` around
-/// the quiesce window, persists the override into a scratch defaults suite,
-/// and can park the park/prompt steps on continuations so a test can observe
-/// the world mid-switch.
+/// the quiesce window, persists the selection into a scratch defaults suite
+/// exactly as the production wiring does (explicit → storeChoice, lane →
+/// clearChoice, both arming the rebuild marker), and can park the
+/// park/prompt steps on continuations so a test can observe the world
+/// mid-switch.
 @MainActor
 private final class SwitchStepsRecorder {
     private(set) var events: [String] = []
@@ -67,11 +79,11 @@ private final class SwitchStepsRecorder {
         defaults.bool(forKey: CMUXBackendEnvironmentSwitchRebuildMarker.defaultsKey)
     }
 
-    func steps(active: CMUXBackendEnvironmentOverride = .production)
-        -> BackendEnvironmentSwitchTransaction.Steps {
+    func steps(
+        active: CMUXBackendEnvironmentSelection = .lane(resolves: .production)
+    ) -> BackendEnvironmentSwitchTransaction.Steps {
         BackendEnvironmentSwitchTransaction.Steps(
-            isPinnedByBuild: { false },
-            activeEnvironment: { active },
+            activeSelection: { active },
             parkSession: {
                 self.events.append("park")
                 if self.parkThePark {
@@ -83,16 +95,23 @@ private final class SwitchStepsRecorder {
                 // Production wiring: MobileHostService.shared.stop().
                 self.events.append("mobileHost.stop")
             },
-            storeOverride: { override in
-                // Production wiring also arms the one-shot rebuild marker.
-                override.store(in: self.defaults)
+            storeSelection: { selection in
+                // Production wiring: explicit choices write the tri-state
+                // key, lane targets clear it, and BOTH arm the one-shot
+                // rebuild marker.
+                switch selection {
+                case .explicit(let choice):
+                    choice.storeChoice(in: self.defaults)
+                case .lane:
+                    CMUXBackendEnvironmentOverride.clearChoice(in: self.defaults)
+                }
                 CMUXBackendEnvironmentSwitchRebuildMarker.arm(in: self.defaults)
-                self.events.append("store(\(override.rawValue))")
+                self.events.append("store(\(selection.eventLabel))")
             },
-            rebuild: { override in
+            rebuild: { selection in
                 // Production wiring: AppDelegate.adoptRebuiltAuth(_:), which
                 // ends with MobileHostService.shared.start().
-                self.events.append("rebuild(\(override.rawValue))")
+                self.events.append("rebuild(\(selection.eventLabel))")
                 self.events.append("mobileHost.start")
             },
             awaitRestoredUser: {
@@ -138,10 +157,10 @@ struct MacBackendEnvironmentSwitchControllerTests {
         recorder.eligibleUserIDs = [Self.teamUser.id]
         let controller = MacBackendEnvironmentSwitchController(steps: recorder.steps())
 
-        let run = Task { await controller.switchEnvironment(to: .staging) }
+        let run = Task { await controller.switchEnvironment(to: .explicit(.staging)) }
         while !recorder.parkParked { await Task.yield() }
 
-        // Mid-park: still the old environment on disk, phase visible.
+        // Mid-park: still the old selection on disk, phase visible.
         #expect(recorder.storedOverrideRawValue == nil)
         #expect(!recorder.rebuildMarkerArmed)
         #expect(controller.phase == .parking)
@@ -162,13 +181,13 @@ struct MacBackendEnvironmentSwitchControllerTests {
         recorder.eligibleUserIDs = [Self.teamUser.id]
         let controller = MacBackendEnvironmentSwitchController(steps: recorder.steps())
 
-        await controller.switchEnvironment(to: .staging)
+        await controller.switchEnvironment(to: .explicit(.staging))
 
         #expect(recorder.events == [
             "park",
             "mobileHost.stop",
-            "store(staging)",
-            "rebuild(staging)",
+            "store(explicit(staging))",
+            "rebuild(explicit(staging))",
             "mobileHost.start",
             "awaitRestoredUser",
         ])
@@ -184,7 +203,7 @@ struct MacBackendEnvironmentSwitchControllerTests {
         let controller = MacBackendEnvironmentSwitchController(steps: recorder.steps())
         #expect(!controller.isSwitching)
 
-        let run = Task { await controller.switchEnvironment(to: .staging) }
+        let run = Task { await controller.switchEnvironment(to: .explicit(.staging)) }
         while !recorder.parkParked { await Task.yield() }
 
         // HostAccountFlow ORs this into isWorkingOnAuth, disabling the
@@ -200,14 +219,14 @@ struct MacBackendEnvironmentSwitchControllerTests {
         #expect(controller.phase == .idle)
     }
 
-    @Test("requestRevert during the sign-in wait cancels the prompt and reverts")
-    func requestRevertCancelsThePromptAndReverts() async {
+    @Test("requestRevert during the sign-in wait cancels the prompt and reverts to the LANE")
+    func requestRevertCancelsThePromptAndRevertsToTheLane() async {
         let recorder = SwitchStepsRecorder()
         defer { recorder.cleanUp() }
         recorder.parkThePrompt = true
         let controller = MacBackendEnvironmentSwitchController(steps: recorder.steps())
 
-        let run = Task { await controller.switchEnvironment(to: .staging) }
+        let run = Task { await controller.switchEnvironment(to: .explicit(.staging)) }
         while !recorder.promptParked { await Task.yield() }
         #expect(controller.phase == .establishing)
 
@@ -216,26 +235,98 @@ struct MacBackendEnvironmentSwitchControllerTests {
 
         #expect(recorder.events.contains("cancelSignInPrompt"))
         #expect(controller.phase == .finished(.reverted(.signInCancelled)))
-        // The revert re-committed the previous environment (production
-        // removes the key) and re-armed the rebuild marker.
+        // The revert re-committed the ORIGINAL selection — the lane, whose
+        // store step CLEARS the tri-state key — and re-armed the rebuild
+        // marker.
+        #expect(recorder.events.contains("store(lane(production))"))
         #expect(recorder.storedOverrideRawValue == nil)
         #expect(recorder.rebuildMarkerArmed)
     }
 
-    @Test("Switching back to production never consults the gate or the prompt")
-    func switchBackToProductionNeverPrompts() async {
+    @Test("Switching back to the lane never consults the gate or the prompt")
+    func switchBackToTheLaneNeverPrompts() async {
         let recorder = SwitchStepsRecorder()
         defer { recorder.cleanUp() }
         recorder.restoredUsers = [nil]
+        CMUXBackendEnvironmentOverride.staging.storeChoice(in: recorder.defaults)
         let controller = MacBackendEnvironmentSwitchController(
-            steps: recorder.steps(active: .staging)
+            steps: recorder.steps(active: .explicit(.staging))
         )
 
-        await controller.switchEnvironment(to: .production)
+        await controller.switchEnvironment(to: .lane(resolves: .production))
 
         #expect(controller.phase == .finished(.switched))
         #expect(!recorder.events.contains("promptSignIn"))
         #expect(!recorder.events.contains("signOutEstablished"))
+        // The lane target cleared the tri-state key.
         #expect(recorder.storedOverrideRawValue == nil)
+        #expect(recorder.rebuildMarkerArmed)
+    }
+
+    @Test("An explicit production pick WRITES the key (tri-state, not removal)")
+    func explicitProductionWritesTheKey() async {
+        // On a non-production lane the picker's "Production" is an explicit
+        // wholesale choice; the controller must persist it, not clear it.
+        let recorder = SwitchStepsRecorder()
+        defer { recorder.cleanUp() }
+        recorder.restoredUsers = [nil]
+        let controller = MacBackendEnvironmentSwitchController(
+            steps: recorder.steps(active: .lane(resolves: .staging))
+        )
+
+        await controller.switchEnvironment(to: .explicit(.production))
+
+        #expect(controller.phase == .finished(.switched))
+        #expect(recorder.storedOverrideRawValue == "production")
+        #expect(!recorder.events.contains("promptSignIn"))
+    }
+
+    // MARK: - Selection-identity guard matrix
+
+    @Test("GUARD: lane(staging) → explicit(staging) RUNS")
+    func laneStagingToExplicitStagingRuns() async {
+        // The Part F unblock: a staging-baked build explicitly picking
+        // Staging is a real switch even though the resolved environment
+        // does not change (the choice key gets written, gating attaches).
+        let recorder = SwitchStepsRecorder()
+        defer { recorder.cleanUp() }
+        recorder.restoredUsers = [Self.teamUser]
+        recorder.eligibleUserIDs = [Self.teamUser.id]
+        let controller = MacBackendEnvironmentSwitchController(
+            steps: recorder.steps(active: .lane(resolves: .staging))
+        )
+
+        await controller.switchEnvironment(to: .explicit(.staging))
+
+        #expect(controller.phase == .finished(.switched))
+        #expect(recorder.storedOverrideRawValue == "staging")
+    }
+
+    @Test("GUARD: explicit(staging) → explicit(staging) refuses")
+    func explicitStagingToSameRefuses() async {
+        let recorder = SwitchStepsRecorder()
+        defer { recorder.cleanUp() }
+        let controller = MacBackendEnvironmentSwitchController(
+            steps: recorder.steps(active: .explicit(.staging))
+        )
+
+        await controller.switchEnvironment(to: .explicit(.staging))
+
+        #expect(recorder.events.isEmpty)
+        #expect(controller.phase == .idle)
+    }
+
+    @Test("GUARD: lane → lane refuses")
+    func laneToLaneRefuses() async {
+        let recorder = SwitchStepsRecorder()
+        defer { recorder.cleanUp() }
+        let controller = MacBackendEnvironmentSwitchController(
+            steps: recorder.steps(active: .lane(resolves: .production))
+        )
+
+        await controller.switchEnvironment(to: .lane(resolves: .production))
+
+        #expect(recorder.events.isEmpty)
+        #expect(controller.phase == .idle)
     }
 }

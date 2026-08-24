@@ -18,7 +18,8 @@ import Observation
 @Observable
 final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// The live auth graph pieces. `var` because a live backend-environment
-    /// switch replaces them via ``rebind(coordinator:browserSignIn:activeBackendEnvironmentOverride:)``
+    /// switch replaces them via
+    /// ``rebind(coordinator:browserSignIn:activeBackendEnvironmentSelection:backendEnvironmentBuildLane:)``
     /// while this flow object (and the Settings UI observing it) survives.
     private var coordinator: AuthCoordinator
     private var browserSignIn: HostBrowserSignInFlow
@@ -27,16 +28,21 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     private(set) var isProUpgradeAvailable: Bool
     private(set) var isProActive = false
     private(set) var canManageBilling = false
-    /// The backend environment the composition root actually resolved
+    /// The backend selection the composition root actually resolved
     /// (threaded in rather than re-read from defaults, so the value always
     /// describes the running graph). Updated by ``rebind`` after a live
-    /// switch.
-    private(set) var activeBackendEnvironmentOverride: CMUXBackendEnvironmentOverride
+    /// switch. Named to avoid colliding with the `AccountFlow` protocol's
+    /// package-mirror ``activeBackendEnvironmentSelection``.
+    private(set) var activeBackendEnvironmentHostSelection: CMUXBackendEnvironmentSelection
+    /// The build's own lane, classified once per process from the launch
+    /// environment (the explicit choice is ignored for classification).
+    /// Threaded through ``rebind`` for consistency even though a live
+    /// process's lane never changes.
+    private(set) var hostBackendEnvironmentBuildLane: CMUXBackendEnvironmentBuildLane
     /// The persisted selection. With the live switch this only diverges from
     /// the active value if another writer changed the defaults key outside
     /// the transaction; ``rebind`` re-reads it so the UI converges.
-    private var pendingBackendEnvironmentOverride: CMUXBackendEnvironmentOverride
-    let backendEnvironmentPinnedByLaunchEnvironment: Bool
+    private var pendingBackendEnvironmentSelection: CMUXBackendEnvironmentSelection
     @ObservationIgnored private let backendEnvironmentDefaults: UserDefaults
     /// The live-switch engine. Attached once by `MacAuthComposition`'s
     /// startup initializer and kept stable across switches.
@@ -44,25 +50,28 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// Presents the "signing out on staging returns you to Production"
     /// confirmation. Injected (production: an NSAlert presenter; tests: a
     /// fake) so the interception at the ``signOut()`` choke point is
-    /// testable without AppKit. Only consulted while the active environment
-    /// is non-production; the socket variant ``signOut(timeout:)`` skips it.
+    /// testable without AppKit. Only consulted while the active selection is
+    /// EXPLICIT staging (a staging-lane rig keeps plain sign-outs); the
+    /// socket variant ``signOut(timeout:)`` skips it.
     @ObservationIgnored private let confirmStagingSignOut: @MainActor () async -> Bool
 
     init(
         coordinator: AuthCoordinator,
         browserSignIn: HostBrowserSignInFlow,
-        activeBackendEnvironmentOverride: CMUXBackendEnvironmentOverride = .production,
-        backendEnvironmentPinnedByLaunchEnvironment: Bool = false,
+        activeBackendEnvironmentSelection: CMUXBackendEnvironmentSelection =
+            .lane(resolves: .production),
+        backendEnvironmentBuildLane: CMUXBackendEnvironmentBuildLane = .production,
         backendEnvironmentDefaults: UserDefaults = .standard,
         confirmStagingSignOut: @escaping @MainActor () async -> Bool = { true }
     ) {
         self.coordinator = coordinator
         self.browserSignIn = browserSignIn
-        self.activeBackendEnvironmentOverride = activeBackendEnvironmentOverride
-        self.pendingBackendEnvironmentOverride = CMUXBackendEnvironmentOverride.load(
-            from: backendEnvironmentDefaults
+        self.activeBackendEnvironmentHostSelection = activeBackendEnvironmentSelection
+        self.hostBackendEnvironmentBuildLane = backendEnvironmentBuildLane
+        self.pendingBackendEnvironmentSelection = Self.persistedSelection(
+            in: backendEnvironmentDefaults,
+            lane: backendEnvironmentBuildLane
         )
-        self.backendEnvironmentPinnedByLaunchEnvironment = backendEnvironmentPinnedByLaunchEnvironment
         self.backendEnvironmentDefaults = backendEnvironmentDefaults
         self.confirmStagingSignOut = confirmStagingSignOut
         isProUpgradeAvailable = featureFlags.isProUpgradeUIEnabled
@@ -189,39 +198,41 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
     /// The ONE interactive sign-out choke point (Settings card, sidebar
     /// popover, command palette all land here). Sign-out is
-    /// per-environment: on production it is the plain chain; on a
-    /// non-production environment it first asks the injected confirmation
-    /// ("this returns you to Production"), then runs the REAL sign-out under
-    /// the current (staging) defaults — so the revocation hits staging — and
-    /// chains a switch back to production, which restores the parked
-    /// production session (production never gates, so the chain can't
-    /// prompt).
+    /// per-environment, keyed on the SELECTION: only EXPLICIT staging
+    /// intercepts (a staging-LANE rig keeps today's plain sign-out, as does
+    /// explicit production). The intercepted path first asks the injected
+    /// confirmation ("this returns you to Production"), then runs the REAL
+    /// sign-out under the current (staging) defaults — so the revocation
+    /// hits staging — and chains a switch back to the build's LANE, which
+    /// restores its parked session (a lane target never gates, so the chain
+    /// can't prompt).
     func signOut() async {
-        guard activeBackendEnvironmentOverride != .production else {
+        guard activeBackendEnvironmentHostSelection == .explicit(.staging) else {
             await signOutDirect()
             return
         }
         guard await confirmStagingSignOut() else { return }
         await signOutDirect()
-        await returnToProductionAfterSignOut()
+        await returnToLaneAfterSignOut()
     }
 
     /// Socket variant of sign-out (`auth.sign_out`). Stays non-interactive:
     /// it SKIPS the staging confirmation (a modal or a refusal would break
-    /// automation and strand staging) but chains the same
-    /// return-to-production switch, reported to the caller through the
-    /// returned flag. The underlying sign-out continues if the caller's
-    /// deadline expires, matching the browser flow contract.
-    /// - Returns: Whether the sign-out chained a switch back to production
-    ///   (the socket payload's `returned_to_production`).
+    /// automation and strand staging) but chains the same return-to-lane
+    /// switch, reported to the caller through the returned flag. The
+    /// underlying sign-out continues if the caller's deadline expires,
+    /// matching the browser flow contract.
+    /// - Returns: Whether the sign-out chained a switch back to the build's
+    ///   lane (the socket payload's `returned_to_lane`, and — kept for
+    ///   automation compatibility — `returned_to_production`).
     @discardableResult
     func signOut(timeout: TimeInterval) async -> Bool {
-        let chainsBackToProduction = activeBackendEnvironmentOverride != .production
+        let chainsBackToLane = activeBackendEnvironmentHostSelection == .explicit(.staging)
         await browserSignIn.signOut(timeout: timeout)
         isProActive = false
         canManageBilling = false
-        guard chainsBackToProduction else { return false }
-        return await returnToProductionAfterSignOut()
+        guard chainsBackToLane else { return false }
+        return await returnToLaneAfterSignOut()
     }
 
     /// The plain sign-out chain with no environment interception: the
@@ -235,16 +246,18 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         canManageBilling = false
     }
 
-    /// Chain the per-environment sign-out back to production through the
-    /// SAME switch transaction as the picker. Parking the just-signed-out
-    /// coordinator is a safe no-op, and the production restore never gates
-    /// or prompts.
+    /// Chain the per-environment sign-out back to the build's LANE through
+    /// the SAME switch transaction as the picker. Parking the just-signed-out
+    /// coordinator is a safe no-op, and a lane restore never gates or
+    /// prompts. On an unpinned Release build the lane is production, so this
+    /// is the identical key-removal behavior the chain always had.
     /// - Returns: Whether the switch chain actually ran.
     @discardableResult
-    private func returnToProductionAfterSignOut() async -> Bool {
-        guard !backendEnvironmentPinnedByLaunchEnvironment,
-              let backendEnvironmentSwitchController else { return false }
-        await backendEnvironmentSwitchController.switchEnvironment(to: .production)
+    private func returnToLaneAfterSignOut() async -> Bool {
+        guard let backendEnvironmentSwitchController else { return false }
+        await backendEnvironmentSwitchController.switchEnvironment(
+            to: .lane(resolves: hostBackendEnvironmentBuildLane.resolvedEnvironment)
+        )
         return true
     }
 
@@ -311,11 +324,30 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     var activeBackendEnvironment: AccountBackendEnvironment {
-        Self.accountBackendEnvironment(from: activeBackendEnvironmentOverride)
+        Self.accountBackendEnvironment(
+            from: activeBackendEnvironmentHostSelection.resolvedEnvironment
+        )
     }
 
     var pendingBackendEnvironment: AccountBackendEnvironment {
-        Self.accountBackendEnvironment(from: pendingBackendEnvironmentOverride)
+        Self.accountBackendEnvironment(
+            from: pendingBackendEnvironmentSelection.resolvedEnvironment
+        )
+    }
+
+    /// The package mirror of the active selection (`.buildLane` for the
+    /// lane, `.production`/`.staging` for an explicit choice). Drives the
+    /// picker's selected option, the interception-aware recovery routing,
+    /// and the lane-target confirm copy.
+    var activeBackendEnvironmentSelection: AccountBackendEnvironmentSelection {
+        Self.accountSelection(from: activeBackendEnvironmentHostSelection)
+    }
+
+    /// The package mirror of the build lane, powering the option-set rule
+    /// (two positions on a production lane, three otherwise) and the
+    /// "Build lane (…)" labels.
+    var backendEnvironmentBuildLane: AccountBackendEnvironmentBuildLane {
+        Self.accountBuildLane(from: hostBackendEnvironmentBuildLane)
     }
 
     var backendEnvironmentSwitchPhase: AccountBackendEnvironmentSwitchPhase {
@@ -329,17 +361,38 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         }
     }
 
-    /// Runs the live transactional switch (sign-out under the old defaults,
-    /// quiesce, store, rebuild) through the attached
-    /// ``MacBackendEnvironmentSwitchController``. Pinned builds never start
-    /// it (the transaction guards again, but the flow refuses first so the
-    /// UI contract is enforceable without a controller).
-    func applyBackendEnvironment(_ value: AccountBackendEnvironment) async {
-        guard !backendEnvironmentPinnedByLaunchEnvironment else { return }
+    /// Runs the live transactional switch (park under the old defaults,
+    /// quiesce, store, rebuild, establish) through the attached
+    /// ``MacBackendEnvironmentSwitchController``. The package's selection
+    /// mirror maps host-side: `.buildLane` is the lane; on a PRODUCTION lane
+    /// the picker's "Production" option also maps to the lane (clearChoice —
+    /// the key stays absent, preserving the pre-tri-state semantics of the
+    /// two-position picker), while on any other lane "Production" is the
+    /// explicit wholesale choice.
+    func applyBackendEnvironment(_ value: AccountBackendEnvironmentSelection) async {
         guard let backendEnvironmentSwitchController else { return }
         await backendEnvironmentSwitchController.switchEnvironment(
-            to: Self.backendEnvironmentOverride(from: value)
+            to: hostSelection(from: value)
         )
+    }
+
+    /// Map the package's picker option to the host selection the transaction
+    /// runs on. See ``applyBackendEnvironment(_:)`` for the production-lane
+    /// "Production"→lane rule.
+    private func hostSelection(
+        from value: AccountBackendEnvironmentSelection
+    ) -> CMUXBackendEnvironmentSelection {
+        let lane = CMUXBackendEnvironmentSelection.lane(
+            resolves: hostBackendEnvironmentBuildLane.resolvedEnvironment
+        )
+        switch value {
+        case .buildLane:
+            return lane
+        case .production:
+            return hostBackendEnvironmentBuildLane == .production ? lane : .explicit(.production)
+        case .staging:
+            return .explicit(.staging)
+        }
     }
 
     func resetBackendEnvironmentSwitchPhase() {
@@ -415,39 +468,32 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// Adopt the freshly built auth graph after a live backend-environment
     /// switch, keeping this flow object (and everything observing it) alive.
     /// Re-reads the persisted selection so active and pending converge on
-    /// the committed override.
+    /// the committed choice.
     func rebind(
         coordinator: AuthCoordinator,
         browserSignIn: HostBrowserSignInFlow,
-        activeBackendEnvironmentOverride: CMUXBackendEnvironmentOverride
+        activeBackendEnvironmentSelection: CMUXBackendEnvironmentSelection,
+        backendEnvironmentBuildLane: CMUXBackendEnvironmentBuildLane
     ) {
         self.coordinator = coordinator
         self.browserSignIn = browserSignIn
-        self.activeBackendEnvironmentOverride = activeBackendEnvironmentOverride
-        pendingBackendEnvironmentOverride = CMUXBackendEnvironmentOverride.load(
-            from: backendEnvironmentDefaults
+        self.activeBackendEnvironmentHostSelection = activeBackendEnvironmentSelection
+        self.hostBackendEnvironmentBuildLane = backendEnvironmentBuildLane
+        pendingBackendEnvironmentSelection = Self.persistedSelection(
+            in: backendEnvironmentDefaults,
+            lane: backendEnvironmentBuildLane
         )
     }
 
-    /// Tagged dev builds bake `CMUX_*` origins into their LSEnvironment via
-    /// `scripts/reload.sh`; those explicit env layers outrank the persisted
-    /// override everywhere in `AuthEnvironment`, so the Settings card shows
-    /// a "pinned" note instead of pretending the picker applies. Computed in
-    /// the host because the package deliberately never reads ProcessInfo.
-    nonisolated static func launchEnvironmentPinsBackendEnvironment(
-        _ environment: [String: String]
-    ) -> Bool {
-        let pinningKeys = [
-            "CMUX_WWW_ORIGIN",
-            "CMUX_API_BASE_URL",
-            "CMUX_AUTH_ENVIRONMENT",
-            "CMUX_VM_API_BASE_URL",
-        ]
-        return pinningKeys.contains { key in
-            guard let value = environment[key]?
-                .trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
-            return !value.isEmpty
-        }
+    /// The selection the defaults currently persist: an explicit choice when
+    /// the tri-state key holds a recognized value, otherwise the lane.
+    private nonisolated static func persistedSelection(
+        in defaults: UserDefaults,
+        lane: CMUXBackendEnvironmentBuildLane
+    ) -> CMUXBackendEnvironmentSelection {
+        CMUXBackendEnvironmentOverride.explicitChoice(from: defaults)
+            .map { .explicit($0) }
+            ?? .lane(resolves: lane.resolvedEnvironment)
     }
 
     private static var isDebugBuild: Bool {
@@ -467,12 +513,23 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         }
     }
 
-    private static func backendEnvironmentOverride(
-        from value: AccountBackendEnvironment
-    ) -> CMUXBackendEnvironmentOverride {
-        switch value {
+    private static func accountSelection(
+        from selection: CMUXBackendEnvironmentSelection
+    ) -> AccountBackendEnvironmentSelection {
+        switch selection {
+        case .lane: .buildLane
+        case .explicit(.production): .production
+        case .explicit(.staging): .staging
+        }
+    }
+
+    private static func accountBuildLane(
+        from lane: CMUXBackendEnvironmentBuildLane
+    ) -> AccountBackendEnvironmentBuildLane {
+        switch lane {
         case .production: .production
         case .staging: .staging
+        case .custom(let label): .custom(label: label)
         }
     }
 

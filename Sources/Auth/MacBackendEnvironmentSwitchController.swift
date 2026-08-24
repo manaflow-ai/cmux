@@ -24,10 +24,12 @@ import Observation
 ///   still lives. Other per-use `AuthEnvironment` readers (`VMClient`,
 ///   `RemotesClient`, billing fetches, …) are token-less after the park
 ///   step and fail closed, so they need no quiesce of their own.
-/// - `storeOverride` persists the override (the commit point; per-use
+/// - `storeSelection` persists the selection (the commit point; per-use
 ///   resolvers and `PresenceHeartbeatClient`, which self-restarts on
-///   `UserDefaults.didChangeNotification`, flip here) and arms the one-shot
-///   rebuild marker so the rebuild restores the target's parked slot.
+///   `UserDefaults.didChangeNotification`, flip here): an explicit choice
+///   writes the tri-state key, a lane target clears it, and both arm the
+///   one-shot rebuild marker so the rebuild restores the target's parked
+///   slot.
 /// - `rebuild` constructs the fresh auth graph for the new environment and
 ///   hands it to `AppDelegate.adoptRebuiltAuth(_:)`, which restarts
 ///   `MobileHostService` and ends the quiesce window.
@@ -58,9 +60,9 @@ final class MacBackendEnvironmentSwitchController {
     }
 
     /// Run one live switch to `target`. Joins an already-active transaction
-    /// run; refuses pinned builds and no-op targets (the transaction owns
-    /// those guards).
-    func switchEnvironment(to target: CMUXBackendEnvironmentOverride) async {
+    /// run; refuses same-selection no-ops (the transaction owns that guard —
+    /// selection identity, so lane(staging) → explicit(staging) still runs).
+    func switchEnvironment(to target: CMUXBackendEnvironmentSelection) async {
         isSwitching = true
         defer { isSwitching = false }
         await transaction.run(to: target, steps: steps)

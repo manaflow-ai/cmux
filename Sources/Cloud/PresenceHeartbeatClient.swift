@@ -105,15 +105,27 @@ final class PresenceHeartbeatClient {
         PresenceSettings.isEnabled()
     }
 
-    /// Resolved service base URL: env override first (dev/tagged builds), then
-    /// the defaults key, then the build default (dev worker for Debug builds
-    /// and for Release builds running under the persisted staging backend
-    /// override, production worker otherwise). Nil disables the client
+    /// Resolved service base URL: the persisted EXPLICIT backend choice
+    /// first (a wholesale head above the env override and the defaults-key
+    /// tuning knob, so a leftover per-build presence pin cannot outlive an
+    /// environment switch — the worker must be the one that verifies the
+    /// chosen Stack project's tokens), then env (dev/tagged builds), then
+    /// the defaults key, then the build default (dev worker for Debug
+    /// builds, production worker for Release). Nil disables the client
     /// entirely.
     static func resolvedServiceURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard
     ) -> URL? {
+        if let choice = CMUXBackendEnvironmentOverride.explicitChoice(from: defaults) {
+            // Explicit staging signs into the dev Stack project, which only
+            // the dev/staging worker verifies; explicit production is the
+            // production worker.
+            let raw = choice == .staging
+                ? PresenceSettings.debugDefaultServiceURL
+                : PresenceSettings.productionServiceURL
+            return URL(string: raw)
+        }
         var raw = environment[PresenceSettings.serviceURLEnvKey]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             ?? defaults.string(forKey: PresenceSettings.serviceURLKey)?
@@ -124,12 +136,7 @@ final class PresenceHeartbeatClient {
             // what the dev/staging worker verifies — see PresenceSettings.
             raw = PresenceSettings.debugDefaultServiceURL
             #else
-            // A Release build switched to the staging backend signs into the
-            // dev Stack project, so only the dev/staging worker can verify its
-            // tokens; production Release builds keep the production worker.
-            raw = CMUXBackendEnvironmentOverride.load(from: defaults) == .staging
-                ? PresenceSettings.debugDefaultServiceURL
-                : PresenceSettings.productionServiceURL
+            raw = PresenceSettings.productionServiceURL
             #endif
         }
         guard let raw, !raw.isEmpty else { return nil }

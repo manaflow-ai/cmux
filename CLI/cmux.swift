@@ -4229,14 +4229,18 @@ struct CMUXCLI {
                 }
                 // auth.sign_out awaits the token clear before replying.
                 let result = try client.sendV2(method: "auth.sign_out")
-                let returnedToProduction = (result["returned_to_production"] as? Bool) == true
-                if (result["signed_in"] as? Bool) == true && !returnedToProduction {
+                // `returned_to_lane` is the accurate flag; older apps only
+                // send the historical `returned_to_production`.
+                let returnedToLane = (result["returned_to_lane"] as? Bool) == true
+                    || (result["returned_to_production"] as? Bool) == true
+                if (result["signed_in"] as? Bool) == true && !returnedToLane {
                     print("Sign-out requested but state hasn't cleared yet. Run `cmux auth status` to confirm.")
-                } else if returnedToProduction {
-                    // Signing out on a non-production environment chains a
-                    // switch back to Production, which restores the saved
-                    // Production session (so signed_in may be true again).
-                    print("Signed out. Returned to the Production environment.")
+                } else if returnedToLane {
+                    // Signing out on an explicitly chosen staging environment
+                    // chains a switch back to the build's own default
+                    // environment (Production on release builds), restoring
+                    // its saved session (so signed_in may be true again).
+                    print("Signed out. Returned to this build's default environment.")
                 } else {
                     print("Signed out.")
                 }
@@ -16099,10 +16103,11 @@ struct CMUXCLI {
 
             status   Print whether the user is signed in (add `cmux --json` for JSON).
             login    Open the sign-in popup on the cmux web app and wait for it to finish.
-            logout   Clear the current session. On a non-production backend
-                     environment this also returns the app to Production and
-                     restores its saved Production session (reported as
-                     `returned_to_production` in the JSON result).
+            logout   Clear the current session. On an explicitly chosen staging
+                     backend this also returns the app to its build's default
+                     environment and restores that saved session (reported as
+                     `returned_to_lane`, plus the historical
+                     `returned_to_production`, in the JSON result).
             """
         case "login":
             return """

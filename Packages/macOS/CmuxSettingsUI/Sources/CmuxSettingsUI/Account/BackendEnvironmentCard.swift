@@ -3,27 +3,33 @@ import SwiftUI
 
 /// Backend environment card rendered below the identity card in the Account
 /// section, in the tier chosen by ``AccountFlow/backendEnvironmentCardVisibility``:
-/// the full Production/Staging picker for gate-allowed users and DEBUG
-/// builds, or a recovery-only "Switch Back to Production" card for everyone
-/// else stranded off production.
+/// the full environment picker for gate-allowed users and DEBUG builds, or a
+/// recovery-only card for everyone else stranded off production.
 ///
-/// Neither variant writes through on selection: a choice stages through
+/// The picker's option set follows the build lane
+/// (``AccountBackendEnvironmentSelection/pickerOptions(for:)``): a
+/// production-lane build keeps the two-position Production/Staging picker,
+/// any other lane adds a "Build lane (…)" position that returns the build to
+/// its own bake, with a footer explaining that bake. Neither variant writes
+/// through on selection: a choice stages through
 /// ``BackendEnvironmentSwitchConfirmation`` and presents a confirmation
 /// dialog whose action runs the host's live switch
 /// (``AccountFlow/applyBackendEnvironment(_:)``); cancel reverts. While the
 /// switch runs the trailing control is replaced by a per-phase progress row
 /// driven by ``AccountFlow/backendEnvironmentSwitchPhase``, and when it
 /// finishes the card shows the outcome (switched, or reverted with the
-/// reason) until the flow's phase is reset. Pinned builds (tagged dev builds
-/// with baked `CMUX_*` launch environment) show a pinned note, keep the
-/// controls disabled, and never present the dialog.
+/// reason) until the flow's phase is reset. The recovery variant offers the
+/// switch-back button only for an EXPLICIT staging selection; a staging-LANE
+/// build shows the lane explanation instead (its home is the bake, and
+/// sign-out there stays plain).
 @MainActor
 struct BackendEnvironmentCard: View {
     /// Which tier of the card renders.
     enum Variant {
-        /// The full Production/Staging picker.
+        /// The full environment picker.
         case fullPicker
-        /// Recovery-only: explanation + a single switch-back button.
+        /// Recovery-only: explanation + (for explicit staging) a single
+        /// switch-back button.
         case recovery
     }
 
@@ -58,14 +64,11 @@ struct BackendEnvironmentCard: View {
                 Spacer(minLength: 12)
                 trailingControl
             }
-            if flow.backendEnvironmentPinnedByLaunchEnvironment {
-                Text(String(
-                    localized: "settings.account.backendEnvironment.pinnedNote",
-                    defaultValue: "This build's backend is pinned by its launch environment; the picker takes effect only in unpinned builds."
-                ))
-                .cmuxFont(size: 11)
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            if variant == .fullPicker, flow.backendEnvironmentBuildLane != .production {
+                Text(laneFooterText)
+                    .cmuxFont(size: 11)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if case let .finished(outcome) = flow.backendEnvironmentSwitchPhase {
                 Text(outcomeText(outcome))
@@ -111,6 +114,19 @@ struct BackendEnvironmentCard: View {
         }
     }
 
+    /// The picker option representing the ACTIVE selection. On a
+    /// production-lane build the lane has no option of its own (the
+    /// option-set rule keeps the two-position picker), so `.buildLane`
+    /// normalizes to `.production` — the same option the host maps back to
+    /// the lane on apply, making re-picking it a no-op.
+    private var activeOption: AccountBackendEnvironmentSelection {
+        let active = flow.activeBackendEnvironmentSelection
+        if flow.backendEnvironmentBuildLane == .production, active == .buildLane {
+            return .production
+        }
+        return active
+    }
+
     // MARK: - Trailing control
 
     @ViewBuilder
@@ -141,7 +157,10 @@ struct BackendEnvironmentCard: View {
             case .fullPicker:
                 picker
             case .recovery:
-                if flow.activeBackendEnvironment != .production {
+                // Only an EXPLICIT staging selection offers the switch-back
+                // route; a staging-lane build's card is explanatory (the
+                // lane is that build's home).
+                if flow.activeBackendEnvironmentSelection == .staging {
                     switchBackButton
                 }
             }
@@ -156,37 +175,35 @@ struct BackendEnvironmentCard: View {
             ),
             selection: Binding(
                 get: {
-                    confirmation.displayedSelection(active: flow.activeBackendEnvironment)
+                    confirmation.displayedSelection(active: activeOption)
                 },
                 set: { newValue in
                     // A new selection settles the previous round's outcome
                     // note before staging the next confirmation.
                     flow.resetBackendEnvironmentSwitchPhase()
-                    confirmation.select(
-                        newValue,
-                        active: flow.activeBackendEnvironment,
-                        pinned: flow.backendEnvironmentPinnedByLaunchEnvironment
-                    )
+                    confirmation.select(newValue, active: activeOption)
                 }
             )
         ) {
-            ForEach(AccountBackendEnvironment.allCases, id: \.self) { environment in
-                Text(environment.displayName).tag(environment)
+            ForEach(
+                AccountBackendEnvironmentSelection.pickerOptions(
+                    for: flow.backendEnvironmentBuildLane
+                ),
+                id: \.self
+            ) { option in
+                Text(option.displayName(lane: flow.backendEnvironmentBuildLane)).tag(option)
             }
         }
         .labelsHidden()
         .controlSize(.small)
         .fixedSize()
-        .disabled(flow.backendEnvironmentPinnedByLaunchEnvironment || flow.isWorkingOnAuth)
+        .disabled(flow.isWorkingOnAuth)
     }
 
     private var switchBackButton: some View {
         Button {
             flow.resetBackendEnvironmentSwitchPhase()
-            confirmation.requestSwitchBackToProduction(
-                active: flow.activeBackendEnvironment,
-                pinned: flow.backendEnvironmentPinnedByLaunchEnvironment
-            )
+            confirmation.requestSwitchBackToProduction(active: activeOption)
         } label: {
             Text(String(
                 localized: "settings.account.backendEnvironment.recovery.switchBack",
@@ -195,7 +212,7 @@ struct BackendEnvironmentCard: View {
         }
         .controlSize(.small)
         .fixedSize()
-        .disabled(flow.backendEnvironmentPinnedByLaunchEnvironment || flow.isWorkingOnAuth)
+        .disabled(flow.isWorkingOnAuth)
     }
 
     private func progressRow(label: String) -> some View {
@@ -218,6 +235,11 @@ struct BackendEnvironmentCard: View {
                 defaultValue: "Staging is a separate environment with separate accounts and data. Each environment keeps its own session on this Mac, and your Mac and iPhone must be on the same environment to pair."
             )
         case .recovery:
+            // A staging-lane build (no explicit choice) explains the bake;
+            // the switch-back copy is reserved for explicit staging.
+            if flow.activeBackendEnvironmentSelection == .buildLane {
+                return laneFooterText
+            }
             return String(
                 localized: "settings.account.backendEnvironment.recovery.explanation",
                 defaultValue: "This cmux is using the Staging environment, a separate deployment with separate accounts and data. Switch back to Production to use your normal account."
@@ -225,7 +247,29 @@ struct BackendEnvironmentCard: View {
         }
     }
 
+    private var laneFooterText: String {
+        String(
+            format: String(
+                localized: "settings.account.backendEnvironment.laneFooter",
+                defaultValue: "This build's own lane is %@, baked in at build time. The build lane option returns to it."
+            ),
+            flow.backendEnvironmentBuildLane.label
+        )
+    }
+
     private func outcomeText(_ outcome: AccountBackendEnvironmentSwitchOutcome) -> String {
+        // After a finished run the flow has rebound, so the ACTIVE selection
+        // names where the device ended up (target on switched, previous on
+        // reverted).
+        if case .switched = outcome, flow.activeBackendEnvironmentSelection == .buildLane {
+            return String(
+                format: String(
+                    localized: "settings.account.backendEnvironment.switchedLane",
+                    defaultValue: "Now on the build lane (%@)."
+                ),
+                flow.backendEnvironmentBuildLane.label
+            )
+        }
         let environmentName = flow.activeBackendEnvironment.displayName
         switch outcome {
         case .switched:
@@ -263,24 +307,51 @@ struct BackendEnvironmentCard: View {
         }
     }
 
+    private var displayedTarget: AccountBackendEnvironmentSelection {
+        confirmation.displayedSelection(active: activeOption)
+    }
+
     private var confirmationTitle: String {
-        String(
+        if displayedTarget == .buildLane {
+            return String(
+                format: String(
+                    localized: "settings.account.backendEnvironment.confirmTitleLane",
+                    defaultValue: "Switch back to the build lane (%@)?"
+                ),
+                flow.backendEnvironmentBuildLane.label
+            )
+        }
+        return String(
             format: String(
                 localized: "settings.account.backendEnvironment.confirmTitle",
                 defaultValue: "Switch to %@?"
             ),
-            confirmation.displayedSelection(active: flow.activeBackendEnvironment).displayName
+            displayedTarget
+                .resolvedEnvironment(lane: flow.backendEnvironmentBuildLane)
+                .displayName
         )
     }
 
     private var confirmationMessage: String {
-        String(
+        if displayedTarget == .buildLane {
+            return String(
+                format: String(
+                    localized: "settings.account.backendEnvironment.confirmMessageLane",
+                    defaultValue: "Your %1$@ session is kept on this Mac, and cmux returns to what this build is baked to (%2$@). Each environment has separate accounts and data."
+                ),
+                flow.activeBackendEnvironment.displayName,
+                flow.backendEnvironmentBuildLane.label
+            )
+        }
+        return String(
             format: String(
                 localized: "settings.account.backendEnvironment.confirmMessage",
                 defaultValue: "Your %1$@ session is kept on this Mac, and you'll be asked to sign in to %2$@. Each environment has separate accounts and data, and your Mac and iPhone must be on the same environment to pair."
             ),
             flow.activeBackendEnvironment.displayName,
-            confirmation.displayedSelection(active: flow.activeBackendEnvironment).displayName
+            displayedTarget
+                .resolvedEnvironment(lane: flow.backendEnvironmentBuildLane)
+                .displayName
         )
     }
 }
