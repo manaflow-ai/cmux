@@ -17226,6 +17226,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               browserPanelOwning(webView) != nil,
               let window = webView.window,
               !isCommandPaletteEffectivelyVisible(for: window),
+              NSApp.modalWindow == nil,
+              window.attachedSheet == nil,
               let responder = window.firstResponder else {
             return false
         }
@@ -17252,7 +17254,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard let webView = shortcutEventBrowserWebView(event),
               let window = webView.window,
-              !isCommandPaletteEffectivelyVisible(for: window) else {
+              !isCommandPaletteEffectivelyVisible(for: window),
+              NSApp.modalWindow == nil,
+              window.attachedSheet == nil else {
             return false
         }
         return true
