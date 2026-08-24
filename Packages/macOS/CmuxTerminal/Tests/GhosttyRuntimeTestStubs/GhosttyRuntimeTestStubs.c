@@ -43,6 +43,13 @@ static bool cmux_test_surface_free_should_block = false;
 static bool cmux_test_surface_free_started = false;
 static bool cmux_test_surface_free_released = false;
 static void* cmux_test_surface_free_target = NULL;
+static pthread_mutex_t cmux_test_process_output_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t cmux_test_process_output_condition = PTHREAD_COND_INITIALIZER;
+static bool cmux_test_process_output_should_block = false;
+static bool cmux_test_process_output_started = false;
+static bool cmux_test_process_output_released = false;
+static bool cmux_test_process_output_called_on_main = false;
+static void* cmux_test_process_output_target = NULL;
 
 static struct timespec cmux_test_surface_free_timeout(void) {
     return (struct timespec) {
@@ -116,6 +123,57 @@ void cmux_test_ghostty_surface_free_blocking_reset(void) {
     cmux_test_surface_free_target = NULL;
     pthread_cond_broadcast(&cmux_test_surface_free_condition);
     pthread_mutex_unlock(&cmux_test_surface_free_mutex);
+}
+
+void cmux_test_ghostty_process_output_blocking_begin(void *surface) {
+    pthread_mutex_lock(&cmux_test_process_output_mutex);
+    cmux_test_process_output_should_block = true;
+    cmux_test_process_output_started = false;
+    cmux_test_process_output_released = false;
+    cmux_test_process_output_called_on_main = false;
+    cmux_test_process_output_target = surface;
+    pthread_mutex_unlock(&cmux_test_process_output_mutex);
+}
+
+bool cmux_test_ghostty_process_output_wait_until_started(void) {
+    const struct timespec timeout = cmux_test_surface_free_timeout();
+    pthread_mutex_lock(&cmux_test_process_output_mutex);
+    while (!cmux_test_process_output_started) {
+        const int result = pthread_cond_timedwait_relative_np(
+            &cmux_test_process_output_condition,
+            &cmux_test_process_output_mutex,
+            &timeout
+        );
+        if (result != 0) break;
+    }
+    const bool started = cmux_test_process_output_started;
+    pthread_mutex_unlock(&cmux_test_process_output_mutex);
+    return started;
+}
+
+bool cmux_test_ghostty_process_output_called_on_main_thread(void) {
+    pthread_mutex_lock(&cmux_test_process_output_mutex);
+    const bool called_on_main = cmux_test_process_output_called_on_main;
+    pthread_mutex_unlock(&cmux_test_process_output_mutex);
+    return called_on_main;
+}
+
+void cmux_test_ghostty_process_output_release(void) {
+    pthread_mutex_lock(&cmux_test_process_output_mutex);
+    cmux_test_process_output_released = true;
+    pthread_cond_broadcast(&cmux_test_process_output_condition);
+    pthread_mutex_unlock(&cmux_test_process_output_mutex);
+}
+
+void cmux_test_ghostty_process_output_blocking_reset(void) {
+    pthread_mutex_lock(&cmux_test_process_output_mutex);
+    cmux_test_process_output_should_block = false;
+    cmux_test_process_output_started = false;
+    cmux_test_process_output_released = true;
+    cmux_test_process_output_called_on_main = false;
+    cmux_test_process_output_target = NULL;
+    pthread_cond_broadcast(&cmux_test_process_output_condition);
+    pthread_mutex_unlock(&cmux_test_process_output_mutex);
 }
 
 void cmux_test_ghostty_renderer_realized_begin(void* surface) {
@@ -359,7 +417,29 @@ bool ghostty_surface_process_exited(void *surface) {
     (void)surface;
     return false;
 }
-void ghostty_surface_process_output(void) {}
+void ghostty_surface_process_output(void *surface, const char *data, uintptr_t len) {
+    (void)data;
+    (void)len;
+    pthread_mutex_lock(&cmux_test_process_output_mutex);
+    if (cmux_test_process_output_should_block
+        && surface == cmux_test_process_output_target) {
+        cmux_test_process_output_started = true;
+        cmux_test_process_output_called_on_main = pthread_main_np() != 0;
+        pthread_cond_broadcast(&cmux_test_process_output_condition);
+        while (!cmux_test_process_output_released) {
+            const struct timespec timeout = cmux_test_surface_free_timeout();
+            const int result = pthread_cond_timedwait_relative_np(
+                &cmux_test_process_output_condition,
+                &cmux_test_process_output_mutex,
+                &timeout
+            );
+            if (result != 0) break;
+        }
+        cmux_test_process_output_should_block = false;
+        cmux_test_process_output_target = NULL;
+    }
+    pthread_mutex_unlock(&cmux_test_process_output_mutex);
+}
 void ghostty_surface_quicklook_font(void) {}
 void ghostty_surface_read_screen_tail_vt(void) {}
 void ghostty_surface_read_text(void) {}

@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 
 // MARK: - Mobile attach-ticket creation
@@ -11,6 +12,25 @@ extension TerminalController {
         let routeKind = v2OptionalTrimmedRawString(params, "route_kind")
             ?? v2OptionalTrimmedRawString(params, "routeKind")
         let scope = v2OptionalTrimmedRawString(params, "scope")
+        let rawIOSBundleIdentifier =
+            v2OptionalTrimmedRawString(params, "ios_bundle_identifier")
+            ?? v2OptionalTrimmedRawString(params, "iosBundleIdentifier")
+        let pairingURLScheme: CmxPairingURLScheme?
+        if let rawIOSBundleIdentifier {
+            guard let parsed = CmxPairingURLScheme(
+                iOSBundleIdentifier: rawIOSBundleIdentifier
+            ) else {
+                return .err(
+                    code: "invalid_request",
+                    message: "ios_bundle_identifier must be an exact valid iOS bundle identifier",
+                    data: ["ios_bundle_identifier": rawIOSBundleIdentifier]
+                )
+            }
+            pairingURLScheme = parsed
+        } else {
+            pairingURLScheme =
+                MobileIOSPairingTargetStore().selectedPairingURLScheme
+        }
         let rawTarget = v2OptionalTrimmedRawString(params, "target")
         let target: MobileAttachTarget?
         if let rawTarget {
@@ -74,7 +94,8 @@ extension TerminalController {
                 ttl: ttl,
                 routeID: routeID,
                 routeKind: routeKind,
-                target: target
+                target: target,
+                pairingURLScheme: pairingURLScheme
             )
             return .ok(payload)
         } catch MobileAttachTicketStoreError.noRoutes {

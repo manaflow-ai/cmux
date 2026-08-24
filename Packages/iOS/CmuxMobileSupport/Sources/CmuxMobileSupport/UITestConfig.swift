@@ -214,6 +214,29 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the UI-test harness should auto-open the first workspace.
+    ///
+    /// When `CMUX_UITEST_AUTO_OPEN_FIRST_WORKSPACE=1`, the root view pushes the
+    /// first loaded workspace once after sign-in, so headless harnesses (for
+    /// example the scripted scroll verification) reach a terminal without GUI
+    /// taps. DEBUG-only.
+    public static var autoOpenFirstWorkspaceEnabled: Bool {
+        autoOpenFirstWorkspaceEnabled(from: ProcessInfo.processInfo.environment)
+    }
+
+    /// Returns whether an explicit environment enables the auto-open-first-
+    /// workspace hook.
+    ///
+    /// - Parameter env: The environment dictionary to inspect.
+    /// - Returns: `true` only for a DEBUG build whose value is `"1"`.
+    public static func autoOpenFirstWorkspaceEnabled(from env: [String: String]) -> Bool {
+        #if DEBUG
+        return env["CMUX_UITEST_AUTO_OPEN_FIRST_WORKSPACE"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the workspace detail delayed-terminal lifecycle preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL=1`, the root view renders
@@ -257,40 +280,6 @@ public struct UITestConfig {
         #else
         return nil
         #endif
-    }
-
-    /// Whether the standalone streaming-chat preview is enabled.
-    ///
-    /// When `CMUX_UITEST_STREAMING_CHAT_PREVIEW=1`, the root view renders a
-    /// self-playing agent chat that drives the real conversation store with live
-    /// `streamingProse` events, so the incremental streaming preview can be
-    /// recorded on the simulator without sign-in or Mac pairing. DEBUG-only.
-    public static var streamingChatPreviewEnabled: Bool {
-        #if DEBUG
-        return ProcessInfo.processInfo.environment["CMUX_UITEST_STREAMING_CHAT_PREVIEW"] == "1"
-        #else
-        return false
-        #endif
-    }
-
-    /// Whether the standalone agent-chat preview is enabled.
-    ///
-    /// When `CMUX_UITEST_AGENT_CHAT_PREVIEW=1`, the root view renders the
-    /// debug chat fixture directly so XCUITest can exercise chat layout without
-    /// sign-in, pairing, or workspace-shell timing. DEBUG-only.
-    public static var agentChatPreviewEnabled: Bool {
-        UITestEnvironmentConfig(environment: ProcessInfo.processInfo.environment)
-            .agentChatPreviewEnabled
-    }
-
-    /// Whether the inline workspace-shaped agent-chat preview is enabled.
-    ///
-    /// When `CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW=1`, the root view renders the
-    /// debug chat fixture with the same outer navigation/padding shape as the
-    /// in-place workspace chat pane, without sign-in or Mac pairing. DEBUG-only.
-    public static var agentChatInlinePreviewEnabled: Bool {
-        UITestEnvironmentConfig(environment: ProcessInfo.processInfo.environment)
-            .agentChatInlinePreviewEnabled
     }
 
     /// Whether mock data is enabled for an explicit environment.
