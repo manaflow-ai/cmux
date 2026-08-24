@@ -16,9 +16,13 @@ The submodule pinned by this branch is `f76c132e5`, the fork-main merge of
 https://github.com/manaflow-ai/ghostty/pull/191. Its `533c27ae1` fix preserves
 saved cursors while formatter replay restores the active cursor after margins,
 origin mode, and tabstop state. The pin includes the prior fork changes below,
-including VT stream-boundary visibility at `9513174f2`, the hard-newline link
-boundary fix at `589856524`, and Hangul canonical font resolution at
-`3fbdd078d`.
+including VT stream-boundary visibility at `9513174f2` and Hangul canonical
+font resolution at `3fbdd078d`.
+
+The pinned lineage also contains the hard-newline URL boundary fix from
+Ghostty PR #183. Its regression test and width-filled-row guard keep a short
+slash-terminated URL from absorbing unrelated output on the next hard newline,
+while preserving indented continuations and terminal soft wraps.
 
 ### VT formatter cursor restoration after margins
 
@@ -854,15 +858,10 @@ declared architecture, and `_ghostty_surface_rebuild_renderer` plus
 
 ### Unindented hard-newline link continuations
 
-- Pull requests:
-  - https://github.com/manaflow-ai/ghostty/pull/134
-  - https://github.com/manaflow-ai/ghostty/pull/183
+- Pull request: https://github.com/manaflow-ai/ghostty/pull/134
 - Commits:
   - `823641e234c3c6bf4bc5badb72261d8a6fc37232` (fix: join unindented wrapped links)
   - `f6b47c8371991a4555f907737e808f161c368661` (merge the link continuation fix)
-  - `28baa8649` (test: reject a short slash-terminated URL joining the next row)
-  - `589856524` (fix: require a width-filled row for an unindented continuation)
-  - `1f78a79aa` (merge the trailing-slash URL fix)
 - Files:
   - `src/Surface.zig`
   - `src/link.zig`
@@ -872,21 +871,22 @@ declared architecture, and `_ghostty_surface_rebuild_renderer` plus
     expansion and newline normalization, so hover, copy, preview, and open all
     resolve the same complete link.
   - Recognizes unindented hard-newline continuations after link punctuation
-    only when the upper physical row is width-filled. Indented continuations
-    and terminal soft wraps keep their existing behavior.
-  - Prevents a short complete URL or path ending in break punctuation from
-    absorbing unrelated output on the next row. Terminal soft wraps remain
-    authoritative through `Row.wrap`; that path owns wide-character spacer
-    heads before the hard-newline width check runs.
+    while preserving the existing indented continuation behavior.
   - Keeps conservative boundaries for explicit schemes and roots, semantic
     prompt transitions, unrelated indentation, and trailing sentence
     punctuation.
   - Conflict note: link-grid expansion and newline normalization must continue
-    to share the punctuation classifier, while grid expansion alone preserves
-    the width-filled invariant because normalization has no terminal-column
-    context. Do not apply that width check to indented continuations or terminal
-    soft wraps; duplicating the remaining continuation decision can make hover
-    and activation disagree.
+    to share the classifier; duplicating the continuation decision can make
+    hover and activation disagree.
+
+- Follow-up regression coverage:
+  - Pull request: https://github.com/manaflow-ai/ghostty/pull/183
+  - Test commit: `28baa8649` rejects a short `https://google.com/` row from
+    joining the unrelated `foobar` row.
+  - Fix commit: `589856524` requires the upper physical row to be width-filled
+    (including a wide-glyph spacer head) before an unindented continuation joins.
+  - Merge commit: `1f78a79aa` carries the fix on fork `main`; the shared
+    classifier keeps hover, copy, preview, and activation consistent.
 
 ### Bounded Kitty graphics state
 
