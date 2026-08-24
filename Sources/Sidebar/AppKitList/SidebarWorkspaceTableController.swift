@@ -38,12 +38,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var workspaceIds: [UUID] = []
     private var selectedScrollTargetWorkspaceId: UUID?
     private var isPresentationActive = true
+    private var isApplyingTableGeometryUpdate = false
+    private var deferredPumpHeightRowIds: Set<SidebarWorkspaceRenderItemID> = []
     private var appKitDropIndicator: SidebarDropIndicator?
     private var appKitDropIndicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
     private var appKitDropIndicatorIncludesRowTargets = false
     private weak var unreadSource: SidebarUnreadModel?
     private var unreadSnapshot = SidebarUnreadSnapshot()
     var chromePalette = ChromePaletteRuntimeResolver(runtime: nil).resolve()
+    private var appliedUnreadSnapshot = SidebarUnreadSnapshot()
+    private var hasPendingContentRefresh = false
     private var unreadObservation: SidebarUnreadObservation?
     private var clipBoundsObserver: NSObjectProtocol?
     private var resizeDidEndObserver: NSObjectProtocol?
@@ -53,7 +57,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private lazy var mutationScheduler = SidebarWorkspaceTableMutationScheduler(
         applyFlush: { [weak self] in self?.flushApply($0) },
         viewportChangeFlush: { [weak self] in self?.flushViewportChange() },
-        reloadFlush: { [weak self] in self?.containerView?.tableView.reloadData() }
+        reloadFlush: { [weak self] in self?.containerView?.tableView.reloadData() },
+        contentRefreshFlush: { [weak self] in self?.flushContentRefresh() }
     )
     private let rowHeightCache = SidebarWorkspaceTableRowHeightCache()
     private let dropTargetGeometry = SidebarWorkspaceTableDropTargetGeometryGate()
@@ -164,6 +169,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         guard containerView === container else { return }
         mutationScheduler.cancelPendingApplyAndViewport()
         deferredInteractiveResizeApply = nil
+        deferredPumpHeightRowIds.removeAll(keepingCapacity: false)
         previewBailoutTask?.cancel()
         previewBailoutTask = nil
         widthRemeasureTask?.cancel()
@@ -175,6 +181,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         unreadObservation = nil
         unreadSource = nil
         unreadSnapshot = SidebarUnreadSnapshot()
+        appliedUnreadSnapshot = SidebarUnreadSnapshot()
+        hasPendingContentRefresh = false
+        pumpHeightOverrides.removeAll(keepingCapacity: false)
         rows.removeAll(keepingCapacity: false)
         workspaceIds.removeAll(keepingCapacity: false)
         selectedScrollTargetWorkspaceId = nil
@@ -205,9 +214,34 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     private func applyUnreadSnapshot(_ nextSnapshot: SidebarUnreadSnapshot) {
-        let previousSnapshot = unreadSnapshot
         unreadSnapshot = nextSnapshot
-        guard isPresentationActive, let table = containerView?.tableView else { return }
+        guard isPresentationActive else { return }
+        hasPendingContentRefresh = true
+        mutationScheduler.stageContentRefresh()
+    }
+
+    /// Applies unread content only after any staged table snapshot has committed.
+    private func flushContentRefresh() {
+        guard hasPendingContentRefresh,
+              isPresentationActive,
+              let containerView,
+              !TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: containerView.window)
+        else { return }
+
+        let width = currentColumnWidth()
+        guard width > 0 else {
+            mutationScheduler.stageViewportChange()
+            return
+        }
+        if lastMeasuredWidth > 0, width != lastMeasuredWidth {
+            mutationScheduler.stageViewportChange()
+            return
+        }
+
+        hasPendingContentRefresh = false
+        let previousSnapshot = appliedUnreadSnapshot
+        let nextSnapshot = unreadSnapshot
+        appliedUnreadSnapshot = nextSnapshot
 
         let candidateIds = Set(previousSnapshot.summaryByWorkspaceId.keys)
             .union(nextSnapshot.summaryByWorkspaceId.keys)
@@ -232,15 +266,29 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         guard !changedRows.isEmpty else { return }
 
+        // A pump can have installed a height override for the old model. It
+        // must not win over the fresh cache entry while this content change is
+        // committed.
+        for index in changedRows where rows.indices.contains(index) {
+            pumpHeightOverrides.removeValue(forKey: rows[index].id)
+        }
         let heightChanges = rowHeightCache.prepareRows(
             at: changedRows,
             in: rows,
-            columnWidth: currentColumnWidth()
+            columnWidth: width
         )
-        reconfigureVisibleRows(changedRows)
-        if !heightChanges.isEmpty {
-            noteHeightOfRowsWithoutAnimation(table, heightChanges)
+        if lastMeasuredWidth == 0 {
+            lastMeasuredWidth = width
         }
+        // Re-note every changed row, not only rows whose cache height differs:
+        // AppKit may have queried the old delegate answer before this pass.
+        var rowsToNote = changedRows
+        rowsToNote.formUnion(heightChanges)
+        reconfigureAndNoteRowsWithoutAnimation(
+            changedRows,
+            rowsToNote,
+            in: containerView.tableView
+        )
     }
 
     func setPresentationActive(_ isActive: Bool, workspaceIds liveWorkspaceIds: [UUID]) {
@@ -252,11 +300,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         isPresentationActive = isActive
         if isActive {
+            if unreadSnapshot != appliedUnreadSnapshot {
+                hasPendingContentRefresh = true
+                mutationScheduler.stageContentRefresh()
+            }
             mutationScheduler.stageViewportChange()
             return
         }
         mutationScheduler.cancelPendingApplyAndViewport()
         deferredInteractiveResizeApply = nil
+        deferredPumpHeightRowIds.removeAll(keepingCapacity: true)
         previewBailoutTask?.cancel()
         previewBailoutTask = nil
         widthRemeasureTask?.cancel()
@@ -367,6 +420,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         deferredInteractiveResizeApply = nil
         let nextRows = input.rows.map { $0.applyingUnreadSnapshot(unreadSnapshot) }
+        appliedUnreadSnapshot = unreadSnapshot
         let actions = input.actions
         let nextWorkspaceIds = input.workspaceIds
         let selectedWorkspaceId = input.selectedWorkspaceId
@@ -477,22 +531,24 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 // before the separate height notification takes effect,
                 // clipping checklist or notification content.
                 let table = containerView.tableView
-                table.beginUpdates()
-                var current = previousIds
-                for targetIndex in nextIds.indices where current[targetIndex] != nextIds[targetIndex] {
-                    guard let fromIndex = current.firstIndex(of: nextIds[targetIndex]) else { continue }
-                    table.moveRow(at: fromIndex, to: targetIndex)
-                    current.remove(at: fromIndex)
-                    current.insert(nextIds[targetIndex], at: targetIndex)
-                }
-                table.endUpdates()
-                // Per-index state (first-row flag, drop-indicator geometry)
-                // shifts with the order even when per-id content didn't.
-                let visible = table.rows(in: table.visibleRect)
-                if visible.length > 0 {
-                    reconfigureVisibleRows(
-                        IndexSet(integersIn: visible.lowerBound..<(visible.lowerBound + visible.length))
-                    )
+                performTableGeometryUpdateWithoutAnimation(in: table) {
+                    table.beginUpdates()
+                    var current = previousIds
+                    for targetIndex in nextIds.indices where current[targetIndex] != nextIds[targetIndex] {
+                        guard let fromIndex = current.firstIndex(of: nextIds[targetIndex]) else { continue }
+                        table.moveRow(at: fromIndex, to: targetIndex)
+                        current.remove(at: fromIndex)
+                        current.insert(nextIds[targetIndex], at: targetIndex)
+                    }
+                    table.endUpdates()
+                    // Per-index state (first-row flag, drop-indicator geometry)
+                    // shifts with the order even when per-id content didn't.
+                    let visible = table.rows(in: table.visibleRect)
+                    if visible.length > 0 {
+                        reconfigureVisibleRows(
+                            IndexSet(integersIn: visible.lowerBound..<(visible.lowerBound + visible.length))
+                        )
+                    }
                 }
             } else {
                 let table = containerView.tableView
@@ -503,17 +559,24 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 let postUpdateActions = requiresAtomicReorderReload
                     ? detachLoadedCells()
                     : []
-                table.reloadData()
-                // A height-changing reorder needs the atomic reload above to
-                // avoid stale moved-row frames. Preserve a stable visible row's
-                // pixel offset so that correctness does not jump the viewport.
-                viewportAnchor?.restore(table: table, rows: nextRows)
+                performTableGeometryUpdateWithoutAnimation(heightChanges, in: table) {
+                    table.reloadData()
+                    // A height-changing reorder needs the atomic reload above to
+                    // avoid stale moved-row frames. Preserve a stable visible
+                    // row's pixel offset so that correctness does not jump the viewport.
+                    viewportAnchor?.restore(table: table, rows: nextRows)
+                }
                 mutationScheduler.stagePostUpdateActions(postUpdateActions)
             }
         } else {
-            reconfigureVisibleRows(contentChanges)
-            if !heightChanges.isEmpty {
-                noteHeightOfRowsWithoutAnimation(containerView.tableView, heightChanges)
+            if !contentChanges.isEmpty || !heightChanges.isEmpty {
+                var rowsToNote = heightChanges
+                rowsToNote.formUnion(contentChanges)
+                reconfigureAndNoteRowsWithoutAnimation(
+                    contentChanges,
+                    rowsToNote,
+                    in: containerView.tableView
+                )
             }
         }
 
@@ -566,6 +629,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         enforceHoverOnVisibleCells()
         updateDropTargets()
         replanReorderDragIfActive()
+        if hasPendingContentRefresh, width > 0, width == lastMeasuredWidth {
+            mutationScheduler.stageContentRefresh()
+        }
         replayDeferredRowClickIfPossible()
     }
 
@@ -1356,6 +1422,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if !changed.isEmpty {
             if let table = containerView?.tableView { noteHeightOfRowsWithoutAnimation(table, changed) }
         }
+        if hasPendingContentRefresh {
+            mutationScheduler.stageContentRefresh()
+        }
     }
 
     private func currentColumnWidth() -> CGFloat {
@@ -1390,6 +1459,52 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         NSAnimationContext.current.allowsImplicitAnimation = false
         table.noteHeightOfRows(withIndexesChanged: indexes)
         NSAnimationContext.endGrouping()
+    }
+
+    /// Reconfigures content and commits its row heights in one AppKit
+    /// transaction. The table's delegate sees the freshly prepared cache while
+    /// the cell's layout is invalidated, so no intermediate frame can paint.
+    private func reconfigureAndNoteRowsWithoutAnimation(
+        _ contentRows: IndexSet,
+        _ heightRows: IndexSet,
+        in table: NSTableView
+    ) {
+        performTableGeometryUpdateWithoutAnimation(heightRows, in: table) {
+            reconfigureVisibleRows(contentRows)
+        }
+    }
+
+    /// Serializes any table geometry mutation with pump-driven height updates.
+    private func performTableGeometryUpdateWithoutAnimation(
+        _ heightRows: IndexSet = [],
+        in table: NSTableView,
+        update: () -> Void
+    ) {
+        isApplyingTableGeometryUpdate = true
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        NSAnimationContext.current.allowsImplicitAnimation = false
+        update()
+        var rowsToNote = heightRows
+        for rowId in deferredPumpHeightRowIds {
+            if let index = rows.firstIndex(where: { $0.id == rowId }) {
+                rowsToNote.insert(index)
+            }
+        }
+        if !rowsToNote.isEmpty {
+            table.noteHeightOfRows(withIndexesChanged: rowsToNote)
+        }
+        NSAnimationContext.endGrouping()
+        isApplyingTableGeometryUpdate = false
+        let latePumpRows = deferredPumpHeightRowIds
+        deferredPumpHeightRowIds.removeAll(keepingCapacity: true)
+        guard !latePumpRows.isEmpty else { return }
+        let lateIndexes = IndexSet(rows.indices.compactMap { index in
+            latePumpRows.contains(rows[index].id) ? index : nil
+        })
+        if !lateIndexes.isEmpty {
+            noteHeightOfRowsWithoutAnimation(table, lateIndexes)
+        }
     }
 
     private func reconfigureRows(withIds ids: [SidebarWorkspaceRenderItemID]) {
@@ -1462,9 +1577,17 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
            let rebuild = configuration.appKitWorkspaceRowRebuild {
             cell.installPump(workspace: workspace) { [weak self, weak cell] in
                 guard let self, let cell else { return }
-                let fresh = rebuild()
+                guard let rowIndex = self.rows.firstIndex(where: { $0.id == rowId }) else { return }
+                var fresh = rebuild()
+                // The workspace pump owns metadata/branch/PR churn, while the
+                // unread snapshot owns these two fields. A replaying pump must
+                // not put an older unread preview back over a committed row.
+                if let currentModel = self.rows[rowIndex].appKitWorkspaceRowModel {
+                    fresh.unreadCount = currentModel.unreadCount
+                    fresh.latestNotificationText = currentModel.latestNotificationText
+                }
                 cell.applyRebuiltModel(fresh)
-                self.noteRowHeightOverride(rowId: rowId, cell: cell, model: fresh)
+                self.noteRowHeightOverride(rowId: rowId, index: rowIndex, cell: cell, model: fresh)
             }
         }
         // configure() resets the drop lines from the model (always false
@@ -1483,16 +1606,26 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private func noteRowHeightOverride(
         rowId: SidebarWorkspaceRenderItemID,
+        index: Int,
         cell: SidebarWorkspaceRowTableCellView,
         model: SidebarWorkspaceRowModel
     ) {
         guard let table = containerView?.tableView,
-              let index = rows.firstIndex(where: { $0.id == rowId }) else { return }
-        let height = ceil(cell.layoutContent(model: model, width: currentColumnWidth(), apply: false))
-        let current = table.rect(ofRow: index).height
+              rows.indices.contains(index), rows[index].id == rowId else { return }
+        let row = rows[index]
+        let width = currentColumnWidth()
+        guard width > 0 else { return }
+        let height = ceil(cell.layoutContent(model: model, width: width, apply: false))
+        let current = pumpHeightOverrides[rowId]
+            ?? rowHeightCache.height(for: row, columnWidth: width)
+            ?? row.estimatedHeight
         guard abs(height - current) >= 0.5 else { return }
         pumpHeightOverrides[rowId] = height
-        noteHeightOfRowsWithoutAnimation(table, IndexSet(integer: index))
+        if isApplyingTableGeometryUpdate {
+            deferredPumpHeightRowIds.insert(rowId)
+        } else {
+            noteHeightOfRowsWithoutAnimation(table, IndexSet(integer: index))
+        }
     }
 
     private func configure(headerCell cell: SidebarGroupHeaderTableCellView, at row: Int) {

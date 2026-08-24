@@ -389,8 +389,25 @@ actor RoutingHostRouter {
                 for waiter in reachedWaiters { waiter.resume() }
                 await withCheckedContinuation { taskModelListContinuation = $0 }
             }
-            let models = taskModelsByProvider[provider, default: []].map { model in
-                ["id": model.id, "display_name": model.displayName]
+            let models: [[String: Any]] = taskModelsByProvider[provider, default: []].map { model in
+                var object: [String: Any] = [
+                    "id": model.id,
+                    "display_name": model.displayName,
+                    "efforts": model.efforts.map { effort in
+                        var effortObject: [String: Any] = [
+                            "id": effort.id,
+                            "display_name": effort.displayName,
+                        ]
+                        if let description = effort.description {
+                            effortObject["description"] = description
+                        }
+                        return effortObject
+                    },
+                ]
+                if let defaultEffortID = model.defaultEffortID {
+                    object["default_effort_id"] = defaultEffortID
+                }
+                return object
             }
             return try? Self.resultFrame(id: id, result: [
                 "source": "discovered",

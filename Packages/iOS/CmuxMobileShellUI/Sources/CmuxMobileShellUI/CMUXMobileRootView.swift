@@ -42,6 +42,10 @@ struct CMUXMobileRootView: View {
     @State private var onboardingMacDiscoveryKeepAlive = OnboardingMacDiscoveryKeepAlive()
     /// The shared iOS modal slot for root sheets and shell-owned child sheets.
     @State private var rootPresentation: MobileRootPresentationState
+    #if DEBUG
+    /// One-shot latch for the UI-test auto-open-first-workspace hook.
+    @State private var didAutoOpenFirstWorkspaceForUITest = false
+    #endif
     #endif
     @State private var pendingAttachURL: String?
     @State private var didAuthenticateWithAttachTicket = false
@@ -51,14 +55,13 @@ struct CMUXMobileRootView: View {
     /// scope, so connection startup belongs after this barrier.
     @State private var didFinishAuthBootstrap = false
     @State private var didExceedStartupRestoringGate = false
-    /// One owner for the setup reminder's loading, required, and dismissed
-    /// presentation phases. Durable readiness remains in the shell store.
+    /// One owner for the setup requirement's loading and required phases.
+    /// Durable readiness remains in the shell store.
     @State private var tailscaleSetupPrompt = MobileTailscaleSetupPromptState()
     #if os(macOS)
     @State private var isShowingAddDeviceSheet = false
     @State private var pairingPresentation: PairingPresentation = .manual
     #endif
-    @State private var authRevalidationTask: Task<Void, Never>?
     @State private var openURLTask: Task<Void, Never>?
     @State private var openURLTaskToken: UUID?
     #if os(iOS)
@@ -139,9 +142,9 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
-    private var shouldShowStreamingChatPreview: Bool {
+    private var shouldShowMacSurfaceGalleryPreview: Bool {
         #if os(iOS) && DEBUG
-        return UITestConfig.streamingChatPreviewEnabled
+        return UITestConfig.macSurfaceGalleryPreviewPage != nil
         #else
         return false
         #endif
@@ -183,14 +186,6 @@ struct CMUXMobileRootView: View {
     }
     #endif
 
-    @ViewBuilder private var streamingChatPreview: some View {
-        #if os(iOS) && DEBUG
-        StreamingChatPreviewView()
-        #else
-        EmptyView()
-        #endif
-    }
-
     @ViewBuilder private var terminalLayoutPreview: some View {
         #if os(iOS) && DEBUG
         TerminalLayoutPreviewView()
@@ -202,6 +197,14 @@ struct CMUXMobileRootView: View {
     @ViewBuilder private var workspaceListLayoutPreview: some View {
         #if os(iOS) && DEBUG
         WorkspaceListLayoutPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
+    @ViewBuilder private var macSurfaceGalleryPreview: some View {
+        #if os(iOS) && DEBUG
+        MacSurfaceGalleryPreviewView()
         #else
         EmptyView()
         #endif
@@ -294,8 +297,6 @@ struct CMUXMobileRootView: View {
             tailscaleSetupPrompt.apply(.shellStatusChanged(status))
         }
         .onDisappear {
-            authRevalidationTask?.cancel()
-            authRevalidationTask = nil
             cancelOpenURLTask(failure: .cancelled)
             clearAttachTicketAuthenticationIfNeeded()
         }
@@ -308,6 +309,13 @@ struct CMUXMobileRootView: View {
         .onChange(of: store.workspaceTopologyVersion) { _, _ in
             pushCoordinator.workspacesDidChange()
         }
+        #if DEBUG
+        // The UI-test auto-open hook observes the same workspace-arrival
+        // signal; `initial: true` covers a list already loaded at mount.
+        .onChange(of: store.workspaceTopologyVersion, initial: true) { _, _ in
+            autoOpenFirstWorkspaceForUITestIfNeeded()
+        }
+        #endif
         #endif
         .onChange(of: authManager.resolvedTeamID) { _, _ in
             diagnosticLog?.recordAppEvent(.authTeamChanged)
@@ -327,32 +335,8 @@ struct CMUXMobileRootView: View {
                 store.resumeForegroundRefresh()
                 // The user may have toggled Tailscale while we were backgrounded.
                 tailscaleStatusMonitor?.refresh()
-                // Re-check the Stack session on resume so one that died while
-                // backgrounded routes to the sign-in page instead of waiting for a
-                // failed connect to surface a confusing host-side message.
-                if (authManager.isAuthenticated || authManager.isRestoringSession),
-                   authRevalidationTask == nil {
-                    diagnosticLog?.recordAppEvent(.authRevalidationStarted)
-                    authRevalidationTask = Task { @MainActor in
-                        await authManager.revalidateSession()
-                        if Task.isCancelled {
-                            diagnosticLog?.recordAppEvent(
-                                .authRevalidationFailed,
-                                failure: .cancelled
-                            )
-                        } else {
-                            diagnosticLog?.recordAppEvent(
-                                authManager.isAuthenticated
-                                    ? .authRevalidationSucceeded
-                                    : .authRevalidationFailed,
-                                failure: authManager.isAuthenticated
-                                    ? nil
-                                    : .authorizationFailed
-                            )
-                        }
-                        authRevalidationTask = nil
-                    }
-                }
+                // Auth resume belongs to the process-owned Iroh composition,
+                // which distinguishes real background returns from system UI.
             case .background:
                 store.suspendForegroundRefresh()
             case .inactive:
@@ -408,6 +392,11 @@ struct CMUXMobileRootView: View {
             )
             updateOnboardingMacDiscoveryKeepAlive()
             presentAutoConnectMigrationIfEligible()
+            #if DEBUG
+            // Auth can resolve after the workspace list is already loaded, so
+            // the topology-version hook alone would miss the arm-late case.
+            autoOpenFirstWorkspaceForUITestIfNeeded()
+            #endif
             #endif
         }
         .onChange(of: authManager.isRestoringSession) { _, isRestoringSession in
@@ -470,16 +459,14 @@ struct CMUXMobileRootView: View {
             changesPreview
         } else if shouldShowHideComputersVerifier {
             hideComputersVerifier
-        } else if shouldShowAgentChatDemoPreview {
-            agentChatDemoPreview
         } else if shouldShowTerminalLayoutPreview {
             terminalLayoutPreview
         } else if shouldShowWorkspaceListLayoutPreview {
             workspaceListLayoutPreview
+        } else if shouldShowMacSurfaceGalleryPreview {
+            macSurfaceGalleryPreview
         } else if shouldShowHiddenComputersPreview {
             hiddenComputersPreview
-        } else if shouldShowStreamingChatPreview {
-            streamingChatPreview
         } else if shouldShowOnboardingPreview {
             onboardingPreview
         } else if shouldShowOnboarding {
@@ -506,8 +493,7 @@ struct CMUXMobileRootView: View {
                     signOut: signOut,
                     setupHelpHighlight: disconnectedSetupHelpHighlight,
                     store: store,
-                    showsTailscalePairingBanner: tailscaleSetupPrompt.showsBanner,
-                    dismissTailscalePairingBanner: dismissTailscalePairingBanner,
+                    tailscalePairingRequired: tailscaleSetupPrompt.requiresPairing,
                     showSettings: showSettings,
                     setupHelpPresentation: childSheetPresentation(
                         for: .disconnectedSetupHelp
@@ -528,8 +514,7 @@ struct CMUXMobileRootView: View {
                     signOut: signOut,
                     showAddDevice: addComputerAction,
                     showPairingScanner: pairingScannerAction,
-                    showsTailscalePairingBanner: tailscaleSetupPrompt.showsBanner,
-                    dismissTailscalePairingBanner: dismissTailscalePairingBanner,
+                    tailscalePairingRequired: tailscaleSetupPrompt.requiresPairing,
                     showSettings: showSettings,
                     showComputers: showComputers,
                     taskComposerPresentation: childSheetPresentation(
@@ -542,10 +527,6 @@ struct CMUXMobileRootView: View {
                 )
             }
         }
-    }
-
-    private func dismissTailscalePairingBanner() {
-        tailscaleSetupPrompt.apply(.dismiss)
     }
 
     #if os(macOS)
@@ -939,6 +920,21 @@ struct CMUXMobileRootView: View {
     private func completeOnboarding() {
         onboardingStore.markComplete()
     }
+
+    #if DEBUG
+    /// Auto-opens the first loaded workspace once for the headless UI-test
+    /// harness (`CMUX_UITEST_AUTO_OPEN_FIRST_WORKSPACE=1`), so scripted
+    /// terminal verification (e.g. the scroll script) reaches a workspace
+    /// detail without GUI taps. Called only from onChange handlers. DEBUG-only.
+    private func autoOpenFirstWorkspaceForUITestIfNeeded() {
+        guard UITestConfig.autoOpenFirstWorkspaceEnabled,
+              !didAutoOpenFirstWorkspaceForUITest,
+              isAuthenticated,
+              let firstWorkspaceID = store.workspaces.first?.id else { return }
+        didAutoOpenFirstWorkspaceForUITest = true
+        store.navigateToWorkspaceForDeeplink(firstWorkspaceID)
+    }
+    #endif
     #endif
 
     private var isAuthenticated: Bool {

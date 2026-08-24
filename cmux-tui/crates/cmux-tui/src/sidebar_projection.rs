@@ -338,6 +338,7 @@ mod tests {
             id: "test".into(),
             levels,
             actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 22,
             max_width: 0,
             collapse_priority: 20,

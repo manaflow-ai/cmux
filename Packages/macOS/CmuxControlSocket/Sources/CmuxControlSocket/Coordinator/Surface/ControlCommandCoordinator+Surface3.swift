@@ -84,7 +84,8 @@ extension ControlCommandCoordinator {
             permissionMode: optionalTrimmedRawString(params, "permission_mode"),
             autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false,
             remoteWorkspaceID: remoteWorkspaceID,
-            remoteRelayParameters: remoteWorkspaceID == nil ? nil : params
+            remoteRelayParameters: remoteWorkspaceID == nil ? nil : params,
+            resumeEvidenceProvenance: optionalTrimmedRawString(params, "resume_evidence_provenance")
         )
         return surfaceResumeResult(
             context?.controlSurfaceResumeSet(
@@ -218,6 +219,7 @@ extension ControlCommandCoordinator {
             "launch_command": controlAgentLaunchCommandPayload(binding.launchCommand),
             "permission_mode": orNull(binding.permissionMode),
             "auto_resume": .bool(binding.autoResume),
+            "resume_evidence_provenance": orNull(binding.resumeEvidenceProvenance),
             "approval_policy": orNull(binding.approvalPolicyRawValue),
             "approval_record_id": orNull(binding.approvalRecordID),
             "execution_location": .string(binding.executionLocationRawValue),
@@ -233,7 +235,7 @@ extension ControlCommandCoordinator {
               case .array(let rawArguments)? = object["arguments"] else {
             return nil
         }
-        for key in ["launcher", "executable_path", "working_directory", "source"] {
+        for key in ["launcher", "executable_path", "working_directory", "verification_home", "source"] {
             switch object[key] {
             case nil, .null, .string:
                 break
@@ -271,6 +273,7 @@ extension ControlCommandCoordinator {
             arguments: arguments,
             workingDirectory: rawString(object, "working_directory"),
             environment: stringMap(object, "environment"),
+            verificationHome: rawString(object, "verification_home"),
             capturedAt: doubleValue(object["captured_at"]),
             source: rawString(object, "source")
         )
@@ -289,6 +292,7 @@ extension ControlCommandCoordinator {
             "arguments": .array(command.arguments.map(JSONValue.string)),
             "working_directory": orNull(command.workingDirectory),
             "environment": environment,
+            "verification_home": orNull(command.verificationHome),
             "captured_at": command.capturedAt.map(JSONValue.double) ?? .null,
             "source": orNull(command.source),
         ])
@@ -321,6 +325,7 @@ extension ControlCommandCoordinator {
         switch value {
         case .double(let value): value
         case .int(let value): Double(value)
+        case .decimal(let value): NSDecimalNumber(string: value).doubleValue
         default: nil
         }
     }

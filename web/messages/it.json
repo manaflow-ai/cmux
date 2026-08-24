@@ -806,6 +806,22 @@
     "remoteTmux": {
       "moshContrast": "Per passare da una rete all’altra usa cmux mosh-tmux. Apre un terminale Mosh pienamente integrato collegato a una sessione tmux denominata; non sostituisce il mirror nativo di workspace, schede e suddivisioni offerto dalla modalità di controllo tmux via SSH."
     },
+    "claudeCodeTeams": {
+      "shimStep1": "Crea uno shim tmux nella directory temporanea degli shim della superficie corrente. Il percorso include l’UUID della superficie e cambia per ogni pannello e a ogni avvio, quindi non è possibile indicare un percorso fisso",
+      "shimStep2": "Imposta TMUX e TMUX_PANE per simulare tmux nella sessione di avvio di Claude Teams",
+      "shimDiagnostic": "Lo shim instrada verso cmux solo quando <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> è impostato; altrimenti passa in modo trasparente al successivo eseguibile tmux reale. Di conseguenza, <which>which tmux</which> non indica se l’intercettazione di Claude Teams è attiva.",
+      "envTmux": "Percorso sintetico del socket tmux per la sessione che ha eseguito cmux claude-teams",
+      "envTmuxPane": "Identificatore sintetico del pannello tmux per la sessione che ha eseguito cmux claude-teams; vuoto nei pannelli agente generati",
+      "envSurface": "L’UUID della superficie corrente; usalo come identificatore della superficie all’interno di un pannello agente creato",
+      "envScope": "I valori sintetici <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> e i valori correlati di compatibilità tmux descrivono la sessione che ha eseguito <command>cmux claude-teams</command>, non i pannelli creati. Da un pannello agente, usa <surface>CMUX_SURFACE_ID</surface> ed esegui <tree>cmux tree --json</tree>; l’oggetto <caller>caller</caller> nell’output identifica il pannello chiamante.",
+      "dirShimPath": "Directory per superficie nella directory temporanea di sistema (nessun percorso fisso)",
+      "dirShim": "Contiene lo shim tmux attivo e viene anteposto a PATH per quella superficie",
+      "dirStore": "Archiviazione persistente per buffer e hook di tmux-compat e per lo stato di posizionamento/layout delle suddivisioni",
+      "storeDetails": "Le chiavi di instradamento delle suddivisioni sono:",
+      "storeLastSplitSurface": "Mappa ogni UUID del workspace all’UUID della superficie creata dall’ultima suddivisione. Fornisce il valore iniziale all’ancora della colonna degli agenti, che decide dove atterra la prossima suddivisione main-vertical.",
+      "storeMainVerticalLayouts": "Mappa ogni UUID del workspace a <mainSurfaceId>mainSurfaceId</mainSurfaceId> (la superficie principale o leader) e <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (la superficie più in basso nella colonna degli agenti). Le successive suddivisioni dei membri del team puntano a quella colonna e si impilano verso il basso.",
+      "storeTroubleshooting": "Controlla queste chiavi di instradamento quando il pannello di un membro del team appare come una scheda dietro una superficie esistente invece che come una suddivisione accanto ad essa."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Per iniziare",
@@ -1026,7 +1042,8 @@
         "browser": {
           "defaultSearchEngine": "Motore di ricerca predefinito per le query nella barra degli indirizzi del browser che non sono URL. Usa custom con customSearchEngineURLTemplate per altri provider.",
           "customSearchEngineName": "Nome visualizzato quando defaultSearchEngine è custom.",
-          "customSearchEngineURLTemplate": "URL di ricerca usato quando defaultSearchEngine è custom. Includi il segnaposto della query o %s per la query codificata. Senza segnaposto, cmux aggiunge q= all’URL."
+          "customSearchEngineURLTemplate": "URL di ricerca usato quando defaultSearchEngine è custom. Includi il segnaposto della query o %s per la query codificata. Senza segnaposto, cmux aggiunge q= all’URL.",
+          "urlAllowlist": "Pattern di host o URL che limitano la navigazione nel browser incorporato. Le impostazioni suggeriscono le origini di sviluppo locale; salvare un elenco attiva la limitazione opzionale. Rimuovi le voci per bloccarle oppure lascia vuoto il valore utente, quando non esiste una policy gestita, per disattivare la limitazione."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Valore predefinito globale per dove Cmd-N dentro un gruppo, il pulsante + nell’intestazione del gruppo e le azioni di gruppo configurate inseriscono il nuovo workspace: `afterCurrent` (dopo il workspace attivo nel gruppo, con fallback a top), `top` (seconda posizione, subito dopo l’ancora) o `end` (dopo l’ultimo membro).",

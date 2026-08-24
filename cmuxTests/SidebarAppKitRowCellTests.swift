@@ -135,7 +135,6 @@ struct SidebarAppKitRowCellTests {
             isBeingDragged: false,
             topDropIndicatorVisible: false,
             bottomDropIndicatorVisible: false,
-            isBonsplitWorkspaceDropActive: false,
             settings: settings,
             isChecklistExpanded: false,
             checklistAddFieldActivationToken: 0,
@@ -183,6 +182,7 @@ struct SidebarAppKitRowCellTests {
             allRemoteContextMenuTargetsDisconnected: false,
             contextMenuPinState: nil,
             workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot(items: []),
+            colorScheme: model.colorSchemeIsDark ? .dark : .light,
             refreshSnapshot: {},
             readSelectedTabIds: { [] },
             writeSelectedTabIds: { _ in },
@@ -2112,7 +2112,8 @@ struct SidebarPinnedIndicatorColorTests {
             isFirstRow: true,
             isBeingDragged: false,
             topDropIndicatorVisible: false,
-            bottomDropIndicatorVisible: false
+            bottomDropIndicatorVisible: false,
+            colorSchemeIsDark: false
         ))
 
         let workspacePin = try #require(

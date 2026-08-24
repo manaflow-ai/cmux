@@ -33,8 +33,15 @@ public protocol CmxIrohSettingsControlling: AnyObject {
     /// Persists one device-local custom private-path configuration.
     func upsertIrohCustomPrivatePath(_ path: CmxIrohCustomPrivatePathDraft) async throws
 
-    /// Removes this device's custom private paths for one Mac.
-    func removeIrohCustomPrivatePath(macDeviceID: String) async throws
+    /// Removes this device's custom private paths for one Mac app instance.
+    func removeIrohCustomPrivatePath(
+        macDeviceID: String,
+        instanceTag: String?
+    ) async throws
+
+    /// Restores the active networking choices to their safe defaults without
+    /// deleting saved relay definitions or private addresses.
+    func resetIrohSettingsToDefaults() async throws
 
     /// Fetches the latest signed fleet and account preference.
     func refreshIrohSettings() async
@@ -72,8 +79,40 @@ public extension CmxIrohSettingsControlling {
         throw CmxIrohSettingsControlError.unsupported
     }
 
-    func removeIrohCustomPrivatePath(macDeviceID: String) async throws {
+    func removeIrohCustomPrivatePath(
+        macDeviceID: String,
+        instanceTag: String?
+    ) async throws {
         throw CmxIrohSettingsControlError.unsupported
+    }
+
+    func resetIrohSettingsToDefaults() async throws {
+        let snapshot = await irohSettingsSnapshot()
+        var firstError: (any Error)?
+
+        do {
+            try await setIrohRelayPreference(.automatic)
+        } catch {
+            firstError = error
+        }
+        do {
+            try await setIrohPathPreference(.automatic)
+        } catch {
+            firstError = firstError ?? error
+        }
+        for privateNetwork in snapshot.customPrivateNetworks where privateNetwork.isEnabled {
+            do {
+                try await upsertIrohCustomPrivatePath(.init(
+                    macDeviceID: privateNetwork.macDeviceID,
+                    macDisplayName: privateNetwork.macDisplayName,
+                    addresses: privateNetwork.addresses,
+                    isEnabled: false
+                ))
+            } catch {
+                firstError = firstError ?? error
+            }
+        }
+        if let firstError { throw firstError }
     }
 
     func irohDiagnosticReport() async -> DiagnosticReport {

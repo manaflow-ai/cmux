@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: ios/scripts/reload.sh --tag <tag> [--compatible-mac-tags <tag,...>] [--simulator <name>] [--simulator-id <id>] [--no-launch]
+Usage: ios/scripts/reload.sh --tag <tag> [--simulator <name>] [--simulator-id <id>] [--no-launch]
        ios/scripts/reload.sh --tag <tag> --device [--device-id <id>] [--device-name <name>] [--team <team-id>] [--no-launch]
        ios/scripts/reload.sh --tag <tag> --device-only [--device-id <id>] [--device-name <name>] [--team <team-id>] [--no-launch]
        ios/scripts/reload.sh --tag <tag> --simulator-only
@@ -29,16 +29,9 @@ the tagged Mac app. Opt out granularly:
   --no-attach    sign in, but do not auto-pair to the Mac
   --no-setup     plain install + launch (today's behavior)
 
-  --compatible-mac-tags <tag,...>
-                 intentionally admits additional Mac DEV tags while keeping this
-                 iOS bundle and its saved data under --tag. At most five total
-                 tags, including --tag, may be admitted.
-
   --prod-auth    sign this DEV build in against PRODUCTION auth (bakes
                  CMUXAuthEnvironment=production into Info.plist; the presence
-                 worker and API base follow the channel in-app). This does not
-                 change build compatibility unless --compatible-mac-tags is
-                 also supplied. Implies
+                 worker and API base follow the channel in-app). Implies
                  --no-sign-in (dogfood auto-login creds are dev-channel);
                  sign in in-app with your real account and use the IN-APP
                  scanner.
@@ -67,7 +60,6 @@ require_option_value() {
 }
 
 TAG=""
-COMPATIBLE_MAC_TAGS="${CMUX_IOS_COMPATIBLE_MAC_TAGS:-}"
 SIMULATOR_NAME="${IOS_SIMULATOR_NAME:-iPhone 17}"
 SIMULATOR_ID="${IOS_SIMULATOR_ID:-}"
 # Track whether the caller picked a simulator explicitly (flag or env); when
@@ -94,8 +86,7 @@ NO_SETUP=0
 # Also honored via CMUX_SWIFT_FRONTEND_WORKAROUND=1.
 SWIFT_FRONTEND_WORKAROUND="${CMUX_SWIFT_FRONTEND_WORKAROUND:-0}"
 # --prod-auth: bake CMUXAuthEnvironment=production so the dev build signs in
-# against the production Stack project. Build compatibility remains exact-tag
-# unless the caller explicitly supplies sibling Mac tags.
+# against the production Stack project.
 PROD_AUTH=0
 
 while [[ $# -gt 0 ]]; do
@@ -103,11 +94,6 @@ while [[ $# -gt 0 ]]; do
     --tag)
       require_option_value "$1" "${2:-}"
       TAG="${2:-}"
-      shift 2
-      ;;
-    --compatible-mac-tags)
-      require_option_value "$1" "${2:-}"
-      COMPATIBLE_MAC_TAGS="${2:-}"
       shift 2
       ;;
     --simulator)
@@ -328,44 +314,6 @@ source "$IOS_DIR/../scripts/lib/mobile-attach.sh"
 if ! cmux_attach_validate_dev_tag "$TAG"; then
   exit 1
 fi
-compatible_tag_count=1
-if [[ -n "$COMPATIBLE_MAC_TAGS" ]]; then
-  case "$COMPATIBLE_MAC_TAGS" in
-    ,*|*,|*,,*)
-      echo "error: --compatible-mac-tags contains an empty tag" >&2
-      exit 1
-      ;;
-  esac
-  previous_ifs="$IFS"
-  normalized_primary_tag="$(printf '%s' "$TAG" | tr '[:upper:]' '[:lower:]')"
-  seen_compatible_tags=",$normalized_primary_tag,"
-  IFS=','
-  for compatible_tag in $COMPATIBLE_MAC_TAGS; do
-    IFS="$previous_ifs"
-    compatible_tag="$(printf '%s' "$compatible_tag" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
-    if [[ -z "$compatible_tag" ]]; then
-      echo "error: --compatible-mac-tags contains an empty tag" >&2
-      exit 1
-    fi
-    if ! cmux_attach_validate_dev_tag "$compatible_tag"; then
-      exit 1
-    fi
-    normalized_compatible_tag="$(printf '%s' "$compatible_tag" | tr '[:upper:]' '[:lower:]')"
-    case "$seen_compatible_tags" in
-      *",$normalized_compatible_tag,"*) ;;
-      *)
-        compatible_tag_count=$((compatible_tag_count + 1))
-        seen_compatible_tags="${seen_compatible_tags}${normalized_compatible_tag},"
-        ;;
-    esac
-    IFS=','
-  done
-  IFS="$previous_ifs"
-fi
-if (( compatible_tag_count > 5 )); then
-  echo "error: --compatible-mac-tags may admit at most five total tags including --tag" >&2
-  exit 1
-fi
 WORKSPACE="$IOS_DIR/cmux.xcworkspace"
 SCHEME="cmux-ios"
 TAG_SLUG="$(sanitize_tag "$TAG")"
@@ -390,16 +338,18 @@ if [[ "$RELOAD_DEVICE" -eq 1 && -z "$DEVICE_ID" && -z "$DEVICE_NAME" && -n "$DEF
   DEVICE_ID="$DEFAULT_DEVICE_ID"
 fi
 
-# iPhone auth gate: installed-but-signed-out is a failed install, so the device
-# leg refuses every path that skips sign-in/pairing verification (--no-sign-in,
-# --no-setup, --no-attach, --no-launch) unless a HUMAN set
-# CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1 (agents never set it; same convention as
-# CMUX_ALLOW_LOCAL_XCODEBUILD). --prod-auth is exempt: its sign-in is
-# inherently manual and announced above.
+# iPhone auth gate: installed-but-signed-out is a failed install. Build-only
+# staging (--no-launch) still runs the personal auth-contract preflight because
+# mobile-dev-launch performs the signed launch immediately afterward, or the
+# offline queue performs it when the phone reconnects. Only flags that actually
+# skip that launcher (--no-sign-in, --no-setup, --no-attach) require a HUMAN
+# setting CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1 (agents never set it; same
+# convention as CMUX_ALLOW_LOCAL_XCODEBUILD). --prod-auth is exempt: its
+# sign-in is inherently manual and announced above.
 if [[ "$RELOAD_DEVICE" -eq 1 && "$PROD_AUTH" -eq 0 ]] \
-    && [[ "$NO_SIGN_IN" -eq 1 || "$NO_SETUP" -eq 1 || "$NO_ATTACH" -eq 1 || "$LAUNCH" -eq 0 ]] \
+    && [[ "$NO_SIGN_IN" -eq 1 || "$NO_SETUP" -eq 1 || "$NO_ATTACH" -eq 1 ]] \
     && [[ "${CMUX_ALLOW_UNAUTHENTICATED_INSTALL:-0}" != "1" ]]; then
-  echo "error: refusing an unauthenticated iPhone install: --no-sign-in/--no-setup/--no-attach/--no-launch skip the signed-in+paired auth gate" >&2
+  echo "error: refusing an unauthenticated iPhone install: --no-sign-in/--no-setup/--no-attach skip the signed-in+paired auth gate" >&2
   echo "error: retry without the opt-out flag(s): ios/scripts/reload.sh --tag $TAG --device${DEVICE_ID:+ --device-id $DEVICE_ID}  (humans only: CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1 to skip)" >&2
   exit 2
 fi
@@ -422,6 +372,27 @@ fi
 MOBILE_DEV_LAUNCH="$IOS_DIR/../scripts/mobile-dev-launch.sh"
 DEVICE_PROCESS_HELPER="$IOS_DIR/../scripts/ios-device-process.sh"
 GHOSTTYKIT_ENSURE="$IOS_DIR/../scripts/ensure-ghosttykit.sh"
+DEVICE_AUTH_PROFILE="personal"
+DEVICE_AUTH_CREDENTIALS_FILE="${CMUX_IOS_DOGFOOD_CREDENTIALS_FILE:-$HOME/.secrets/cmuxterm-dev.env}"
+DEVICE_AUTH_ACCOUNT=""
+DEVICE_AUTH_REQUIRED=0
+if [[ "$RELOAD_DEVICE" -eq 1 && "$PROD_AUTH" -eq 0 \
+    && "$NO_SETUP" -eq 0 && "$NO_SIGN_IN" -eq 0 && "$NO_ATTACH" -eq 0 ]]; then
+  DEVICE_AUTH_REQUIRED=1
+  [[ -x "$MOBILE_DEV_LAUNCH" ]] \
+    || { echo "error: $MOBILE_DEV_LAUNCH is required for authenticated iPhone setup" >&2; exit 1; }
+  auth_contract_output="$(
+    "$MOBILE_DEV_LAUNCH" \
+      --check-auth-contract \
+      --auth-profile "$DEVICE_AUTH_PROFILE" \
+      --credentials-file "$DEVICE_AUTH_CREDENTIALS_FILE"
+  )" || exit $?
+  DEVICE_AUTH_ACCOUNT="$(printf '%s\n' "$auth_contract_output" \
+    | awk -F= '$1 == "CMUX_DEV_AUTH_ACCOUNT" { print substr($0, index($0, "=") + 1); exit }')"
+  [[ -n "$DEVICE_AUTH_ACCOUNT" ]] \
+    || { echo "error: iPhone auth preflight returned no selected account" >&2; exit 2; }
+  echo "==> iPhone auth contract: $DEVICE_AUTH_PROFILE ($DEVICE_AUTH_ACCOUNT)"
+fi
 
 # Keep the linked xcframework synchronized with the checked-out Ghostty
 # submodule before Xcode builds either target. Without this, a local cloud
@@ -454,12 +425,20 @@ auto_setup_launch() {
   if [[ "$kind" == "device" ]]; then
     args+=(--device)
     [[ -n "$id" ]] && args+=(--device-id "$id")
+    if [[ "$DEVICE_AUTH_REQUIRED" -eq 1 ]]; then
+      args+=(
+        --auth-profile "$DEVICE_AUTH_PROFILE"
+        --expected-account "$DEVICE_AUTH_ACCOUNT"
+        --credentials-file "$DEVICE_AUTH_CREDENTIALS_FILE"
+      )
+    fi
   else
     # --detach: do not attach the simulator console (would block this script).
     # Pass the exact resolved UDID so the launch targets the sim we installed
     # onto, not just the first booted sim sharing the name.
     args+=(--simulator "$SIMULATOR_NAME" --detach)
     [[ -n "$id" ]] && args+=(--simulator-id "$id")
+    args+=(--auth-profile agent)
   fi
   # Auto-pair by default (--ensure-mac enables the pairing host + launches the
   # tagged Mac app if down, then mints a ticket). --no-attach must be forwarded
@@ -747,7 +726,6 @@ reload_simulator() {
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME" \
     CMUX_GIT_SHA="$GIT_SHA" \
     CMUX_DEV_TAG="$TAG" \
-    CMUX_COMPATIBLE_MAC_TAGS="$COMPATIBLE_MAC_TAGS" \
     CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}" \
     CMUX_IOS_AUTH_ENV="$CMUX_IOS_AUTH_ENV_VALUE" \
     CMUX_API_BASE_URL="$CMUX_IOS_SIMULATOR_API_BASE_URL_VALUE" \
@@ -956,7 +934,6 @@ reload_device() {
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME"
     CMUX_GIT_SHA="$GIT_SHA"
     CMUX_DEV_TAG="$TAG"
-    CMUX_COMPATIBLE_MAC_TAGS="$COMPATIBLE_MAC_TAGS"
     CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}"
     CMUX_IOS_AUTH_ENV="$CMUX_IOS_AUTH_ENV_VALUE"
     CMUX_API_BASE_URL="$CMUX_IOS_DEVICE_API_BASE_URL_VALUE"
@@ -995,6 +972,22 @@ reload_device() {
     local enqueue_args
     enqueue_args=(enqueue --tag "$TAG" --app "$device_app_path" \
       --device-id "$queued_device_id" --checkout "$(cd "$IOS_DIR/.." && pwd)")
+    if [[ "$DEVICE_AUTH_REQUIRED" -eq 1 ]]; then
+      enqueue_args+=(
+        --auth-profile "$DEVICE_AUTH_PROFILE"
+        --expected-account "$DEVICE_AUTH_ACCOUNT"
+        --credentials-file "$DEVICE_AUTH_CREDENTIALS_FILE"
+      )
+    elif [[ "$NO_ATTACH" -eq 1 || "$NO_SIGN_IN" -eq 1 || "$NO_SETUP" -eq 1 ]]; then
+      # The preflight above permits this branch only after a human explicitly
+      # opted out of the iPhone auth gate. Keep that intent visible in the
+      # persistent queue entry instead of relying only on the opt-out flags.
+      enqueue_args+=(--allow-unauthenticated)
+    else
+      echo "error: cannot queue a physical iPhone build without its personal auth contract" >&2
+      echo "error: provide the personal profile, or use --prod-auth for a manual in-app sign-in after the phone reconnects" >&2
+      return 1
+    fi
     [[ "$NO_ATTACH" -eq 1 ]] && enqueue_args+=(--no-attach)
     [[ "$NO_SIGN_IN" -eq 1 ]] && enqueue_args+=(--no-sign-in)
     [[ "$NO_SETUP" -eq 1 ]] && enqueue_args+=(--no-setup)
@@ -1024,7 +1017,12 @@ reload_device() {
   CMUX_SANCTIONED_IPHONE_INSTALL=1 \
     xcrun devicectl device install app --device "$selected_device_install_id" "$device_app_path"
 
-  local device_auth_status="not launched (--no-launch; auth gate skipped by explicit opt-out)"
+  local device_auth_status
+  if [[ "$DEVICE_AUTH_REQUIRED" -eq 1 ]]; then
+    device_auth_status="staged (--no-launch; authenticated mobile-dev-launch runs separately or on queue reconnect)"
+  else
+    device_auth_status="not launched (--no-launch; auth gate skipped by explicit opt-out)"
+  fi
   if [[ "$LAUNCH" -eq 1 ]]; then
     if [[ "$NO_SETUP" -eq 1 || "$NO_SIGN_IN" -eq 1 ]]; then
       # Plain launch (no sign-in / no pair); reachable only via --prod-auth or
@@ -1052,6 +1050,17 @@ reload_device() {
         local deferred_enqueue_args
         deferred_enqueue_args=(enqueue --tag "$TAG" --app "$device_app_path" \
           --device-id "$selected_device_install_id" --checkout "$(cd "$IOS_DIR/.." && pwd)")
+        if [[ "$DEVICE_AUTH_REQUIRED" -eq 1 ]]; then
+          deferred_enqueue_args+=(
+            --auth-profile "$DEVICE_AUTH_PROFILE"
+            --expected-account "$DEVICE_AUTH_ACCOUNT"
+            --credentials-file "$DEVICE_AUTH_CREDENTIALS_FILE"
+          )
+        else
+          # This can only be reached for a human-authorized opt-out, as
+          # reload's iPhone auth preflight rejects every other no-auth path.
+          deferred_enqueue_args+=(--allow-unauthenticated)
+        fi
         [[ "$NO_ATTACH" -eq 1 ]] && deferred_enqueue_args+=(--no-attach)
         if ! "$QUEUE_SCRIPT" "${deferred_enqueue_args[@]}"; then
           echo "error: iPhone is locked/offline AND the build could NOT be queued; nothing will auto-install" >&2

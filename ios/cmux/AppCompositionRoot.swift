@@ -340,8 +340,12 @@ final class AppCompositionRoot {
         switch phase {
         case .active:
             diagnosticLog.recordAppEvent(.appForegrounded)
-            iroh.didBecomeActive()
+            connectionMethodStore.recordConfiguredMethodDiagnostic()
+            let isFullForegroundReturn = iroh.didBecomeActive()
+            // A notification-permission prompt is itself a transient inactive
+            // edge, so readiness still observes every active transition.
             Task { await pushCoordinator.refreshReadiness() }
+            guard isFullForegroundReturn else { return }
             featureFlags.refreshOnForeground()
             let now = Date()
             let decision = analytics.sessionizer.resolveForeground(

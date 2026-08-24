@@ -2,6 +2,7 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileRPC
+import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import Foundation
@@ -14,6 +15,42 @@ private let mobilePushLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
     category: "push"
 )
+
+private actor MobilePushSingleFlight<Value: Sendable> {
+    private var result: Value?
+    private var waiters: [UUID: CheckedContinuation<Value?, Never>] = [:]
+
+    func finish(_ value: Value) {
+        guard result == nil else { return }
+        result = value
+        let pending = Array(waiters.values)
+        waiters.removeAll()
+        for waiter in pending {
+            waiter.resume(returning: value)
+        }
+    }
+
+    func wait() async -> Value? {
+        if let result { return result }
+        if Task.isCancelled { return nil }
+        let id = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if let result {
+                    continuation.resume(returning: result)
+                } else {
+                    waiters[id] = continuation
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id: id) }
+        }
+    }
+
+    private func cancelWaiter(id: UUID) {
+        waiters.removeValue(forKey: id)?.resume(returning: nil)
+    }
+}
 
 /// Bridges APNs push between the app-target `AppDelegate` and the mobile shell
 /// store: drives opt-in registration, hands device tokens to the injected
@@ -45,6 +82,8 @@ public final class MobilePushCoordinator {
     private nonisolated(unsafe) let defaults: UserDefaults
     private static let enabledKey = "cmux.notifications.pushEnabled"
     private var enabledMirror: Bool
+    @ObservationIgnored private var settingsIntentGeneration: UInt64 = 0
+    @ObservationIgnored private var settingsIntentTask: Task<Bool, Never>?
 
     /// Base APNs `aps.category` the web sets on non-replyable cmux terminal
     /// pushes (see `CMUX_APNS_CATEGORY` in `web/services/apns/payload.ts`). The
@@ -70,6 +109,7 @@ public final class MobilePushCoordinator {
         let workspaceId: String?
         let surfaceId: String?
         let macDeviceId: String?
+        let macInstanceTag: String?
         let retargetsToLiveSurfaceOwner: Bool
         let createdAt: Date
         let lastNavigatedWorkspaceId: MobileWorkspacePreview.ID?
@@ -104,8 +144,21 @@ public final class MobilePushCoordinator {
     public private(set) var registrationSnapshot: PushRegistrationSnapshot = .disabled
     @ObservationIgnored private let notificationSettings:
         @MainActor () async -> MobilePushSystemSettings
+    @ObservationIgnored private let notificationSettingsClock:
+        any Clock<Duration>
+    @ObservationIgnored private let notificationSettingsTimeout: Duration
+    @ObservationIgnored private var notificationSettingsReadTask:
+        Task<Void, Never>?
+    @ObservationIgnored private var notificationSettingsOperation:
+        MobilePushSingleFlight<MobilePushSystemSettings>?
+    @ObservationIgnored private var notificationSettingsReadID: UUID?
     @ObservationIgnored private let requestAuthorization:
         @MainActor () async -> Bool
+    @ObservationIgnored private let authorizationRequestTimeout: Duration
+    @ObservationIgnored private var authorizationRequestTask: Task<Void, Never>?
+    @ObservationIgnored private var authorizationRequestOperation:
+        MobilePushSingleFlight<Bool>?
+    @ObservationIgnored private var authorizationRequestID: UUID?
     @ObservationIgnored private let registerForRemoteNotifications:
         @MainActor () -> Void
     @ObservationIgnored private let unregisterForRemoteNotifications:
@@ -155,10 +208,16 @@ public final class MobilePushCoordinator {
         },
         replyRetrySleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await ContinuousClock().sleep(for: $0)
-        }
+        },
+        notificationSettingsClock: any Clock<Duration> = ContinuousClock(),
+        notificationSettingsTimeout: Duration = .seconds(5),
+        authorizationRequestTimeout: Duration = .seconds(120)
     ) {
         self.registration = registration
         self.replyRetrySleep = replyRetrySleep
+        self.notificationSettingsClock = notificationSettingsClock
+        self.notificationSettingsTimeout = notificationSettingsTimeout
+        self.authorizationRequestTimeout = authorizationRequestTimeout
         self.analytics = analytics
         self.diagnosticLog = diagnosticLog
         self.phoneAPIOrigin = phoneAPIOrigin
@@ -190,6 +249,54 @@ public final class MobilePushCoordinator {
 
     /// Whether the user has opted into phone notifications (synchronous mirror).
     public var isEnabled: Bool { enabledMirror }
+
+    /// Commits a Settings toggle choice synchronously, then reconciles OS and
+    /// backend state for that generation. A later choice invalidates every
+    /// continuation of the older operation, so Settings never waits behind a
+    /// stalled permission or registration call.
+    @discardableResult
+    public func setEnabledIntent(_ enabled: Bool) -> Task<Bool, Never> {
+        settingsIntentTask?.cancel()
+        let generation = beginSettingsIntent(enabled)
+        let registration = registration
+        let task = Task { @MainActor [weak self, registration] in
+            await registration.applyEnabledIntent(
+                enabled,
+                generation: generation
+            )
+            guard let self else { return false }
+            guard !Task.isCancelled,
+                  self.isCurrentSettingsIntent(
+                      generation,
+                      enabled: enabled
+                  ) else { return false }
+            let result: Bool
+            if enabled {
+                result = await self.reconcileEnable(
+                    trigger: "settings_toggle",
+                    generation: generation,
+                    registrationIntentOwnedByService: true
+                )
+                if result,
+                   self.isCurrentSettingsIntent(
+                       generation,
+                       enabled: true
+                   ) {
+                    await self.registration.reconcileEnabledIntent(
+                        generation: generation
+                    )
+                }
+            } else {
+                result = true
+            }
+            if self.settingsIntentGeneration == generation {
+                self.settingsIntentTask = nil
+            }
+            return result
+        }
+        settingsIntentTask = task
+        return task
+    }
 
     /// Point routing at the active store (called by the root view on appear).
     public func bind(store: CMUXMobileShellStore) {
@@ -254,16 +361,22 @@ public final class MobilePushCoordinator {
     /// and persist the flag. Returns whether authorization was granted.
     @discardableResult
     public func enable() async -> Bool {
-        await enable(trigger: "settings_toggle")
+        await setEnabledIntent(true).value
     }
 
     /// Requests or recovers push only after the authenticated workspace shell
     /// is mounted. An explicit app opt-out remains authoritative.
     public func workspaceListDidBecomeVisible() async {
+        let initialSettingsGeneration = settingsIntentGeneration
         if defaults.object(forKey: Self.enabledKey) as? Bool == false {
             return
         }
-        let settings = await notificationSettings()
+        guard let settings = await readNotificationSettingsBounded() else {
+            return
+        }
+        guard settingsIntentGeneration == initialSettingsGeneration,
+              defaults.object(forKey: Self.enabledKey) as? Bool != false
+        else { return }
         apply(settings: settings)
         switch settings.authorization {
         case .authorized, .provisional, .ephemeral:
@@ -278,17 +391,33 @@ public final class MobilePushCoordinator {
             guard !workspaceAuthorizationRequestInFlight else { return }
             workspaceAuthorizationRequestInFlight = true
             defer { workspaceAuthorizationRequestInFlight = false }
-            _ = await enable(trigger: "workspace_list")
+            let generation = beginSettingsIntent(true)
+            _ = await reconcileEnable(
+                trigger: "workspace_list",
+                generation: generation
+            )
         case .unsupported:
             break
         }
     }
 
-    private func enable(trigger: String) async -> Bool {
-        let priorSettings = await notificationSettings()
+    private func reconcileEnable(
+        trigger: String,
+        generation: UInt64,
+        registrationIntentOwnedByService: Bool = false
+    ) async -> Bool {
+        // Read the OS state immediately before reconciling. The cached value
+        // can be stale when the user changes notification permission in iOS
+        // Settings while the app is suspended or a readiness refresh is still
+        // in flight.
+        guard let priorSettings = await readNotificationSettingsBounded() else {
+            return false
+        }
+        guard isCurrentSettingsIntent(generation, enabled: true) else {
+            return false
+        }
         apply(settings: priorSettings)
         let priorStatus = priorSettings.authorization
-        persistEnabledIntent()
         // Only an undetermined status produces a real OS prompt; gate the
         // "shown" event on it so a re-toggle of an already-decided status does
         // not log a phantom prompt.
@@ -304,12 +433,18 @@ public final class MobilePushCoordinator {
         case .authorized, .provisional, .ephemeral:
             granted = true
         case .notDetermined:
-            granted = await requestAuthorization()
+            granted = await requestAuthorizationBounded() ?? false
         case .denied, .unsupported:
             granted = false
         }
+        guard isCurrentSettingsIntent(generation, enabled: true) else {
+            return false
+        }
         guard granted else {
             await refreshReadiness()
+            guard isCurrentSettingsIntent(generation, enabled: true) else {
+                return false
+            }
             diagnosticLog?.recordAppEvent(.pushAuthorizationDenied)
             analytics.capture("ios_push_optin_declined", [
                 "trigger": .string(trigger),
@@ -318,29 +453,35 @@ public final class MobilePushCoordinator {
             return false
         }
         if priorStatus == .notDetermined {
-            apply(settings: await notificationSettings())
+            guard let currentSettings = await readNotificationSettingsBounded()
+            else { return false }
+            guard isCurrentSettingsIntent(generation, enabled: true) else {
+                return false
+            }
+            apply(settings: currentSettings)
         }
         diagnosticLog?.recordAppEvent(.pushAuthorizationGranted)
         analytics.capture("ios_push_optin_granted", ["trigger": .string(trigger)])
-        await activateRegistrationIfNeeded()
-        await recoverRegistrationIfNeeded()
+        await activateRegistrationIfNeeded(
+            settingsGeneration: generation,
+            reconcilePreference: !registrationIntentOwnedByService
+        )
+        guard isCurrentSettingsIntent(generation, enabled: true) else {
+            return false
+        }
+        if registrationIntentOwnedByService {
+            return true
+        }
+        await recoverRegistrationIfNeeded(settingsGeneration: generation)
+        guard isCurrentSettingsIntent(generation, enabled: true) else {
+            return false
+        }
         return true
     }
 
     /// Opt out: stop receiving pushes and remove the token server-side.
     public func disable() async {
-        diagnosticLog?.recordAppEvent(.pushDisabled)
-        enabledMirror = false
-        registrationSnapshot = .disabled
-        hasRequestedRemoteRegistration = false
-        unregisterForRemoteNotifications()
-        // The production registration service owns this same persisted key
-        // and checks its previous value to decide whether server cleanup is
-        // required. Let it observe the prior `true` before mirroring the final
-        // preference here; writing `false` first would skip token removal.
-        await registration.setEnabled(false)
-        defaults.set(false, forKey: Self.enabledKey)
-        registrationSnapshot = await registration.snapshot
+        _ = await setEnabledIntent(false).value
     }
 
     /// Hand a freshly-registered APNs token to the network layer.
@@ -348,8 +489,10 @@ public final class MobilePushCoordinator {
         diagnosticLog?.recordAppEvent(.pushDeviceTokenReceived, count: token.count)
         diagnosticLog?.recordAppEvent(.pushBackendSyncStarted)
         await registration.register(deviceToken: token)
-        registrationSnapshot = await registration.snapshot
-        recordRegistrationOutcome(registrationSnapshot)
+        let snapshot = await registration.snapshot
+        guard snapshot.isEnabled == enabledMirror else { return }
+        registrationSnapshot = snapshot
+        recordRegistrationOutcome(snapshot)
     }
 
     /// Make the APNs callback failure visible without retaining Apple's
@@ -360,7 +503,9 @@ public final class MobilePushCoordinator {
             failure: error.map(DiagnosticFailureKind.classify) ?? .unknown
         )
         await registration.deviceTokenRegistrationFailed()
-        registrationSnapshot = await registration.snapshot
+        let snapshot = await registration.snapshot
+        guard snapshot.isEnabled == enabledMirror else { return }
+        registrationSnapshot = snapshot
     }
 
     /// User-triggered repair for a failed APNs token callback.
@@ -374,8 +519,10 @@ public final class MobilePushCoordinator {
     public func syncTokenIfPossible() async {
         diagnosticLog?.recordAppEvent(.pushBackendSyncStarted)
         await registration.syncTokenIfPossible()
-        registrationSnapshot = await registration.snapshot
-        recordRegistrationOutcome(registrationSnapshot)
+        let snapshot = await registration.snapshot
+        guard snapshot.isEnabled == enabledMirror else { return }
+        registrationSnapshot = snapshot
+        recordRegistrationOutcome(snapshot)
     }
 
     /// Refreshes live OS authorization and the current registration stage.
@@ -383,7 +530,9 @@ public final class MobilePushCoordinator {
     /// Call on every foreground transition because users can revoke permission
     /// in iOS Settings while cmux is suspended.
     public func refreshReadiness() async {
-        let settings = await notificationSettings()
+        guard let settings = await readNotificationSettingsBounded() else {
+            return
+        }
         apply(settings: settings)
         if enabledMirror, Self.permitsDelivery(settings.authorization) {
             await activateRegistrationIfNeeded()
@@ -396,26 +545,183 @@ public final class MobilePushCoordinator {
         defaults.set(true, forKey: Self.enabledKey)
     }
 
+    private func beginSettingsIntent(_ enabled: Bool) -> UInt64 {
+        settingsIntentGeneration &+= 1
+        // Commit the synchronous source of truth before any actor hop. The
+        // Settings binding reads this value again in the same render pass.
+        enabledMirror = enabled
+        defaults.set(enabled, forKey: Self.enabledKey)
+        if !enabled {
+            diagnosticLog?.recordAppEvent(.pushDisabled)
+            registrationSnapshot = .disabled
+            hasRequestedRemoteRegistration = false
+            unregisterForRemoteNotifications()
+        }
+        return settingsIntentGeneration
+    }
+
+    private func isCurrentSettingsIntent(
+        _ generation: UInt64,
+        enabled: Bool
+    ) -> Bool {
+        settingsIntentGeneration == generation && enabledMirror == enabled
+    }
+
     private func apply(settings: MobilePushSystemSettings) {
         systemSettings = settings
         authorization = settings.authorization
     }
 
-    private func activateRegistrationIfNeeded() async {
+    private func readNotificationSettingsBounded() async
+        -> MobilePushSystemSettings? {
+        // One shared read prevents repeated toggles or foreground callbacks
+        // from accumulating cancellation-ignoring UserNotifications tasks.
+        if let notificationSettingsOperation {
+            return await waitForOperationValue(
+                notificationSettingsOperation,
+                timeout: notificationSettingsTimeout,
+                operationName: "notification settings"
+            )
+        }
+        let id = UUID()
+        let reader = notificationSettings
+        let operation = MobilePushSingleFlight<MobilePushSystemSettings>()
+        let task = Task { @MainActor [weak self, reader, operation] in
+            let settings = await reader()
+            await operation.finish(settings)
+            if let self, self.notificationSettingsReadID == id {
+                self.notificationSettingsReadTask = nil
+                self.notificationSettingsReadID = nil
+                self.notificationSettingsOperation = nil
+            }
+        }
+        notificationSettingsReadID = id
+        notificationSettingsReadTask = task
+        notificationSettingsOperation = operation
+        return await waitForOperationValue(
+            operation,
+            timeout: notificationSettingsTimeout,
+            operationName: "notification settings"
+        )
+    }
+
+    private func requestAuthorizationBounded() async -> Bool? {
+        if let authorizationRequestOperation {
+            return await waitForOperationValue(
+                authorizationRequestOperation,
+                timeout: authorizationRequestTimeout,
+                operationName: "notification authorization"
+            )
+        }
+        let id = UUID()
+        let requester = requestAuthorization
+        let operation = MobilePushSingleFlight<Bool>()
+        let task = Task { @MainActor [weak self, requester, operation] in
+            let granted = await requester()
+            await operation.finish(granted)
+            if let self, self.authorizationRequestID == id {
+                self.authorizationRequestTask = nil
+                self.authorizationRequestID = nil
+                self.authorizationRequestOperation = nil
+            }
+        }
+        authorizationRequestID = id
+        authorizationRequestTask = task
+        authorizationRequestOperation = operation
+        return await waitForOperationValue(
+            operation,
+            timeout: authorizationRequestTimeout,
+            operationName: "notification authorization"
+        )
+    }
+
+    private func waitForOperationValue<Value: Sendable>(
+        _ operation: MobilePushSingleFlight<Value>,
+        timeout: Duration,
+        operationName: String
+    ) async -> Value? {
+        let clock = notificationSettingsClock
+        let result = await withTaskGroup(
+            of: Value?.self,
+            returning: Value?.self
+        ) { group in
+            group.addTask {
+                await operation.wait()
+            }
+            group.addTask {
+                do {
+                    try await clock.sleep(for: timeout)
+                } catch {
+                    return nil
+                }
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+        if result == nil, !Task.isCancelled {
+            mobilePushLog.error("Timed out reading \(operationName, privacy: .public)")
+        }
+        return result
+    }
+
+    private func activateRegistrationIfNeeded(
+        settingsGeneration: UInt64? = nil,
+        reconcilePreference: Bool = true
+    ) async {
         guard enabledMirror, Self.permitsDelivery(authorization) else { return }
         let current = await registration.snapshot
+        guard enabledMirror,
+              settingsGeneration.map({
+                  isCurrentSettingsIntent($0, enabled: true)
+              }) ?? true
+        else { return }
+
+        let backendState: PushRegistrationBackendState
+        if !current.hasDeviceToken {
+            backendState = .awaitingDeviceToken
+        } else if case .awaitingDeviceToken = current.backendState {
+            // A token without an acknowledgement is the only inconsistent
+            // snapshot that needs promotion on activation. Preserve every
+            // terminal or in-flight state, especially `.registered`, so a
+            // warm foreground does not manufacture another POST.
+            backendState = .registrationRequired
+        } else {
+             backendState = current.backendState
+         }
         registrationSnapshot = PushRegistrationSnapshot(
             isEnabled: true,
             hasDeviceToken: current.hasDeviceToken,
-            backendState: current.hasDeviceToken
-                ? .registrationRequired
-                : .awaitingDeviceToken
+            backendState: backendState
         )
         requestRemoteRegistrationIfNeeded()
-        if !current.isEnabled {
-            await registration.setEnabled(true)
+        if reconcilePreference {
+            if current.isEnabled {
+                // A prior enable can remain intentionally unreconciled while
+                // iOS permission is denied. Foregrounding after permission is
+                // granted must release that exact coordinator generation.
+                await registration.reconcileEnabledIntent(
+                    generation: settingsIntentGeneration
+                )
+            } else {
+                await registration.setEnabled(true)
+            }
         }
-        registrationSnapshot = await registration.snapshot
+        guard enabledMirror,
+              settingsGeneration.map({
+                  isCurrentSettingsIntent($0, enabled: true)
+              }) ?? true
+        else { return }
+        let snapshot = await registration.snapshot
+        guard enabledMirror,
+              settingsGeneration.map({
+                  isCurrentSettingsIntent($0, enabled: true)
+              }) ?? true
+        else { return }
+        if snapshot.isEnabled == enabledMirror {
+            registrationSnapshot = snapshot
+        }
     }
 
     private func requestRemoteRegistrationIfNeeded() {
@@ -442,8 +748,14 @@ public final class MobilePushCoordinator {
         await recoverRegistrationIfNeeded()
     }
 
-    private func recoverRegistrationIfNeeded() async {
+    private func recoverRegistrationIfNeeded(
+        settingsGeneration: UInt64? = nil
+    ) async {
         let current = await registration.snapshot
+        guard settingsGeneration.map({
+            isCurrentSettingsIntent($0, enabled: true)
+        }) ?? true else { return }
+        guard current.isEnabled == enabledMirror else { return }
         registrationSnapshot = current
         guard current.isEnabled, current.hasDeviceToken,
               current.backendState == .registrationRequired
@@ -468,6 +780,10 @@ public final class MobilePushCoordinator {
         if ownsRecovery {
             registrationRecoveryTask = nil
         }
+        guard settingsGeneration.map({
+            isCurrentSettingsIntent($0, enabled: true)
+        }) ?? true else { return }
+        guard recovered.isEnabled == enabledMirror else { return }
         registrationSnapshot = recovered
         recordRegistrationOutcome(recovered)
     }
@@ -542,6 +858,7 @@ public final class MobilePushCoordinator {
             let snapshots = await registration.snapshots()
             for await snapshot in snapshots {
                 guard !Task.isCancelled, let self else { return }
+                guard snapshot.isEnabled == self.enabledMirror else { continue }
                 self.registrationSnapshot = snapshot
             }
         }
@@ -606,16 +923,30 @@ public final class MobilePushCoordinator {
     /// Whether to show a banner while the app is foreground. Suppressed when the
     /// user is already viewing the terminal the notification is about.
     public func shouldPresentInForeground(workspaceId: String?, surfaceId: String?) -> Bool {
-        shouldPresentInForeground(workspaceId: workspaceId, surfaceId: surfaceId, macDeviceId: nil)
+        shouldPresentInForeground(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            macDeviceId: nil,
+            macInstanceTag: nil
+        )
     }
 
     /// Whether to show a banner while the app is foreground, scoped to the Mac
     /// that sent the notification when the payload includes it.
-    public func shouldPresentInForeground(workspaceId: String?, surfaceId: String?, macDeviceId: String?) -> Bool {
+    public func shouldPresentInForeground(
+        workspaceId: String?,
+        surfaceId: String?,
+        macDeviceId: String?,
+        macInstanceTag: String? = nil
+    ) -> Bool {
         diagnosticLog?.recordAppEvent(.pushReceivedInForeground)
         let shouldPresent: Bool
         if let store, let workspaceId,
-           store.selectedWorkspaceMatches(remoteWorkspaceID: workspaceId, macDeviceID: macDeviceId) {
+           store.selectedWorkspaceMatches(
+               remoteWorkspaceID: workspaceId,
+               macDeviceID: macDeviceId,
+               instanceTag: macInstanceTag
+           ) {
             if let surfaceId {
                 shouldPresent = store.selectedTerminalID?.rawValue != surfaceId
             } else {
@@ -642,6 +973,7 @@ public final class MobilePushCoordinator {
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             macDeviceId: nil,
+            macInstanceTag: nil,
             retargetsToLiveSurfaceOwner: true
         )
     }
@@ -659,6 +991,7 @@ public final class MobilePushCoordinator {
         workspaceId: String?,
         surfaceId: String?,
         macDeviceId: String?,
+        macInstanceTag: String? = nil,
         retargetsToLiveSurfaceOwner: Bool = true
     ) {
         diagnosticLog?.recordAppEvent(.pushTapped)
@@ -666,6 +999,7 @@ public final class MobilePushCoordinator {
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             macDeviceId: macDeviceId,
+            macInstanceTag: macInstanceTag,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             createdAt: now(),
             lastNavigatedWorkspaceId: nil
@@ -689,6 +1023,7 @@ public final class MobilePushCoordinator {
         workspaceId: String?,
         surfaceId: String?,
         macDeviceId: String?,
+        macInstanceTag: String? = nil,
         retargetsToLiveSurfaceOwner: Bool
     ) async {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -698,6 +1033,7 @@ public final class MobilePushCoordinator {
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             macDeviceId: macDeviceId,
+            macInstanceTag: macInstanceTag,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             createdAt: now()
         ))
@@ -736,13 +1072,15 @@ public final class MobilePushCoordinator {
         if let workspaceId = pending.workspaceId {
             guard let resolved = store.workspaceID(
                 matchingRemoteWorkspaceID: workspaceId,
-                macDeviceID: pending.macDeviceId
+                macDeviceID: pending.macDeviceId,
+                instanceTag: pending.macInstanceTag
             ) else { return }
             workspaceTarget = resolved
         } else if let surfaceId = pending.surfaceId {
             guard let owner = store.workspaceID(
                 containingSurfaceID: surfaceId,
-                macDeviceID: pending.macDeviceId
+                macDeviceID: pending.macDeviceId,
+                instanceTag: pending.macInstanceTag
             ) else { return }
             workspaceTarget = owner
         } else {
@@ -757,7 +1095,8 @@ public final class MobilePushCoordinator {
            let surfaceId = pending.surfaceId,
            let liveOwner = store.workspaceID(
                containingSurfaceID: surfaceId,
-               macDeviceID: pending.macDeviceId
+               macDeviceID: pending.macDeviceId,
+               instanceTag: pending.macInstanceTag
            ) {
             workspaceTarget = liveOwner
         }
@@ -772,7 +1111,8 @@ public final class MobilePushCoordinator {
             if !pending.retargetsToLiveSurfaceOwner,
                let liveOwner = store.workspaceID(
                    containingSurfaceID: surfaceId,
-                   macDeviceID: pending.macDeviceId
+                   macDeviceID: pending.macDeviceId,
+                   instanceTag: pending.macInstanceTag
                ),
                liveOwner != workspaceTarget {
                 // The loaded topology proves the terminal moved elsewhere. A
@@ -793,6 +1133,7 @@ public final class MobilePushCoordinator {
                 workspaceId: pending.retargetsToLiveSurfaceOwner ? nil : pending.workspaceId,
                 surfaceId: surfaceId,
                 macDeviceId: pending.macDeviceId,
+                macInstanceTag: pending.macInstanceTag,
                 retargetsToLiveSurfaceOwner: pending.retargetsToLiveSurfaceOwner,
                 createdAt: pending.createdAt,
                 lastNavigatedWorkspaceId: workspaceTarget
@@ -854,13 +1195,15 @@ public final class MobilePushCoordinator {
         if let workspaceId = pending.workspaceId {
             guard let resolved = store.workspaceID(
                 matchingRemoteWorkspaceID: workspaceId,
-                macDeviceID: pending.macDeviceId
+                macDeviceID: pending.macDeviceId,
+                instanceTag: pending.macInstanceTag
             ) else { return }
             workspaceTarget = resolved
         } else if pending.retargetsToLiveSurfaceOwner {
             guard let owner = store.workspaceID(
                 containingSurfaceID: surfaceId,
-                macDeviceID: pending.macDeviceId
+                macDeviceID: pending.macDeviceId,
+                instanceTag: pending.macInstanceTag
             ) else { return }
             workspaceTarget = owner
         } else {
@@ -877,7 +1220,8 @@ public final class MobilePushCoordinator {
             guard pending.retargetsToLiveSurfaceOwner,
                   let liveOwner = store.workspaceID(
                       containingSurfaceID: surfaceId,
-                      macDeviceID: pending.macDeviceId
+                      macDeviceID: pending.macDeviceId,
+                      instanceTag: pending.macInstanceTag
               ) else {
                 pendingReplyState.discard()
                 diagnosticLog?.recordAppEvent(
@@ -966,7 +1310,11 @@ public final class MobilePushCoordinator {
     ///     with `cmux.notificationId` as a fallback.
     ///   - macDeviceId: The Mac that owns the notification, from the `cmux`
     ///     payload. Missing older payloads route through the foreground Mac.
-    public func handleDismiss(notificationId: String?, macDeviceId: String?) async {
+    public func handleDismiss(
+        notificationId: String?,
+        macDeviceId: String?,
+        macInstanceTag: String? = nil
+    ) async {
         guard let notificationId else {
             diagnosticLog?.recordAppEvent(.pushDismissFailed, failure: .protocolViolation)
             return
@@ -978,12 +1326,21 @@ public final class MobilePushCoordinator {
         }
         diagnosticLog?.recordAppEvent(.pushDismissStarted)
         let mac = macDeviceId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tag = macInstanceTag?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let store else {
-            pendingDismissQueue.enqueue([trimmed], macDeviceID: mac?.isEmpty == false ? mac : nil)
+            pendingDismissQueue.enqueue(
+                [trimmed],
+                macDeviceID: mac?.isEmpty == false ? mac : nil,
+                instanceTag: tag?.isEmpty == false ? tag : nil
+            )
             diagnosticLog?.recordAppEvent(.pushDismissSucceeded)
             return
         }
-        await store.dismissNotification(ids: [trimmed], macDeviceID: mac?.isEmpty == false ? mac : nil)
+        await store.dismissNotification(
+            ids: [trimmed],
+            macDeviceID: mac?.isEmpty == false ? mac : nil,
+            instanceTag: tag?.isEmpty == false ? tag : nil
+        )
         diagnosticLog?.recordAppEvent(.pushDismissSucceeded)
     }
 
@@ -992,9 +1349,15 @@ public final class MobilePushCoordinator {
     /// delivered banners directly through the system-notification seam — the
     /// store may not exist yet on a background wake — while the badge was
     /// already applied by the system from the push's `aps.badge`.
-    /// - Parameter ids: The dismissed stable notification ids from
-    ///   `cmux.dismissedIds`.
-    public func handleRemoteDismiss(ids: [String]) async {
+    /// - Parameters:
+    ///   - ids: The dismissed stable notification ids from `cmux.dismissedIds`.
+    ///   - macDeviceId: The physical Mac that emitted the dismissal.
+    ///   - macInstanceTag: The exact app instance that emitted the dismissal.
+    public func handleRemoteDismiss(
+        ids: [String],
+        macDeviceId: String?,
+        macInstanceTag: String?
+    ) async {
         let trimmed = ids
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -1003,7 +1366,11 @@ public final class MobilePushCoordinator {
             .pushRemoteDismissReceived,
             count: trimmed.count
         )
-        await deliveredNotificationClearer.removeDelivered(ids: trimmed)
+        await deliveredNotificationClearer.removeDelivered(
+            ids: trimmed,
+            macDeviceID: macDeviceId,
+            instanceTag: macInstanceTag
+        )
         diagnosticLog?.recordAppEvent(.pushRemoteDismissApplied, count: trimmed.count)
     }
 
@@ -1045,6 +1412,9 @@ public final class MobilePushCoordinator {
         ]
         if let macDeviceId = workspace.macDeviceID, !macDeviceId.isEmpty {
             cmux["macDeviceId"] = macDeviceId
+        }
+        if let macInstanceTag = workspace.macInstanceTag, !macInstanceTag.isEmpty {
+            cmux["macInstanceTag"] = macInstanceTag
         }
         content.userInfo = ["cmux": cmux]
         let request = UNNotificationRequest(

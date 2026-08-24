@@ -145,6 +145,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             allRemoteContextMenuTargetsDisconnected: false,
             contextMenuPinState: nil,
             workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot(items: []),
+            colorScheme: model.colorSchemeIsDark ? .dark : .light,
             refreshSnapshot: {},
             readSelectedTabIds: { [] },
             writeSelectedTabIds: { _ in },

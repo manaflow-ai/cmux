@@ -75,25 +75,6 @@ extension RestorableAgentSessionIndex {
         ) {
             return wrapperFallback
         }
-        if processLooksLikeClaude(
-            processName: processName,
-            processPath: processPath,
-            arguments: arguments,
-            environment: environment
-        ),
-           let parentSessionId = arguments.claudeForkFallbackParentSessionId,
-           let launchCommand = claudeTeamsPersistentForkLaunchCommand(
-                liveArguments: arguments,
-                environment: environment
-           ) ?? claudeForkFallbackLaunchCommand(
-                processName: processName,
-                processPath: processPath,
-                arguments: arguments,
-                environment: environment
-           ) {
-            let launcher = environmentLaunchKind(environment) == "claudeteams" ? "claudeTeams" : "claude"
-            return (.claude, parentSessionId, launcher, launchCommand)
-        }
         if processLooksLikeCodex(
             processName: processName,
             processPath: processPath,
@@ -110,142 +91,6 @@ extension RestorableAgentSessionIndex {
             return (.codex, parentSessionId, "codex", launchCommand)
         }
         return nil
-    }
-
-    private static func processLooksLikeClaude(
-        processName: String,
-        processPath: String?,
-        arguments: [String],
-        environment: [String: String]
-    ) -> Bool {
-        let executableCandidates = [
-            arguments.first,
-            processPath,
-            processName,
-        ].compactMap(normalized)
-        if executableCandidates.contains(where: { executableBasename($0).compare(
-            "claude",
-            options: [.caseInsensitive, .literal]
-        ) == .orderedSame }) {
-            return true
-        }
-
-        if executableCandidates.contains(where: { executable in
-            CachedAgentProcessIdentityValidator.liveClaudeProcessExecutableMatches(
-                kind: .claude,
-                liveExecutable: executableBasename(executable),
-                arguments: arguments
-            )
-        }) {
-            return true
-        }
-
-        let launchCandidates = executableCandidates + [arguments.dropFirst().first].compactMap(normalized)
-        return CachedAgentProcessIdentityValidator.liveProcessMatchesLaunchExecutableEnvironment(
-            kind: .claude,
-            executableCandidates: launchCandidates,
-            environment: environment
-        )
-    }
-
-    private static func claudeForkFallbackLaunchCommand(
-        processName: String,
-        processPath: String?,
-        arguments: [String],
-        environment: [String: String]
-    ) -> (executablePath: String, arguments: [String])? {
-        let executablePath = claudeExecutablePath(
-            processName: processName,
-            processPath: processPath,
-            arguments: arguments,
-            environment: environment
-        )
-        let launchTail = claudeLaunchTail(
-            processName: processName,
-            processPath: processPath,
-            arguments: arguments,
-            environment: environment
-        )
-        guard let sanitized = AgentLaunchSanitizer.sanitizedLaunchArguments(
-            [executablePath] + launchTail,
-            launcher: "claude",
-            fallbackKind: "claude"
-        ) else {
-            return nil
-        }
-        return (executablePath: executablePath, arguments: sanitized)
-    }
-
-    private static func claudeExecutablePath(
-        processName: String,
-        processPath: String?,
-        arguments: [String],
-        environment: [String: String]
-    ) -> String {
-        if let argumentExecutable = normalized(arguments.first),
-           executableBasename(argumentExecutable).compare("claude", options: [.caseInsensitive, .literal]) == .orderedSame {
-            return argumentExecutable
-        }
-        if let processPath = normalized(processPath),
-           executableBasename(processPath).compare("claude", options: [.caseInsensitive, .literal]) == .orderedSame {
-            return processPath
-        }
-        if let launchExecutable = normalized(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]),
-           executableBasename(launchExecutable).compare("claude", options: [.caseInsensitive, .literal]) == .orderedSame {
-            return launchExecutable
-        }
-        if executableBasename(processName).compare("claude", options: [.caseInsensitive, .literal]) == .orderedSame {
-            return normalized(arguments.first) ?? processName
-        }
-        if let nestedClaude = arguments.dropFirst().first(where: argumentLooksLikeNestedClaudeEntrypoint) {
-            return executableBasename(nestedClaude).compare("claude", options: [.caseInsensitive, .literal]) == .orderedSame
-                ? nestedClaude
-                : "claude"
-        }
-        return "claude"
-    }
-
-    private static func claudeLaunchTail(
-        processName: String,
-        processPath: String?,
-        arguments: [String],
-        environment: [String: String]
-    ) -> [String] {
-        guard !arguments.isEmpty else { return [] }
-        if executableBasename(arguments[0]).compare("claude", options: [.caseInsensitive, .literal]) == .orderedSame {
-            return Array(arguments.dropFirst())
-        }
-        if let processPath = normalized(processPath),
-           executableBasename(processPath).compare("claude", options: [.caseInsensitive, .literal]) == .orderedSame {
-            return arguments[0].hasPrefix("-") ? arguments : Array(arguments.dropFirst())
-        }
-        if executableBasename(processName).compare("claude", options: [.caseInsensitive, .literal]) == .orderedSame {
-            return arguments[0].hasPrefix("-") ? arguments : Array(arguments.dropFirst())
-        }
-        // Custom claude binaries (accepted via the launch-executable identity check in
-        // processLooksLikeClaude) are an executable boundary too; without this their
-        // sanitizer-preserved flags (e.g. --model) would be dropped from the snapshot.
-        if let launchExecutable = normalized(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]) {
-            let launchBasename = executableBasename(launchExecutable)
-            if executableBasename(arguments[0]).compare(launchBasename, options: [.caseInsensitive, .literal]) == .orderedSame {
-                return Array(arguments.dropFirst())
-            }
-            if let processPath = normalized(processPath),
-               executableBasename(processPath).compare(launchBasename, options: [.caseInsensitive, .literal]) == .orderedSame {
-                return arguments[0].hasPrefix("-") ? arguments : Array(arguments.dropFirst())
-            }
-        }
-        guard let entrypointIndex = arguments.dropFirst().firstIndex(where: argumentLooksLikeNestedClaudeEntrypoint) else {
-            return []
-        }
-        return Array(arguments.dropFirst(entrypointIndex + 1))
-    }
-
-    private static func argumentLooksLikeNestedClaudeEntrypoint(_ argument: String) -> Bool {
-        let lowered = argument.lowercased()
-        return executableBasename(argument).compare("claude", options: [.caseInsensitive, .literal]) == .orderedSame
-            || lowered.contains("/.claude/")
-            || lowered.contains("/claude/versions/")
     }
 
     private static func processLooksLikeCodex(
@@ -410,70 +255,12 @@ extension RestorableAgentSessionIndex {
     }
 
     /// A `.forkParentFallback` detection is agent-kind identity inferred from a live
-    /// process, so it may fill an empty pane or refine a claude pane, but it must never
+    /// process, so it may fill an empty pane or refine a same-kind pane, but it must never
     /// displace a hook-backed entry of another agent kind (a nested
     /// child process inside another agent pane inherits that pane's cmux scope).
     static func forkParentFallbackMustYield(kind: RestorableAgentKind, toExisting existing: Entry?) -> Bool {
         guard let existing else { return false }
         return existing.snapshot.kind != kind
-    }
-}
-
-private extension Array where Element == String {
-    var claudeForkFallbackParentSessionId: String? {
-        guard hasClaudeForkSessionFlag,
-              !hasClaudeSessionIDOption else {
-            return nil
-        }
-        return nonOptionValue(afterOption: "--resume") ?? nonOptionValue(afterOption: "-r")
-    }
-
-    private var hasClaudeForkSessionFlag: Bool {
-        // Mirrors `claudeLaunchArgumentsContainForkSession` in CLI/cmux.swift so the
-        // scanner and the hook CLI agree on which launches count as forks.
-        contains { argument in
-            if argument == "--fork-session" {
-                return true
-            }
-            let prefix = "--fork-session="
-            guard argument.hasPrefix(prefix) else { return false }
-            let value = String(argument.dropFirst(prefix.count))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-            return !["false", "0", "no", "off"].contains(value)
-        }
-    }
-
-    private var hasClaudeSessionIDOption: Bool {
-        contains { argument in
-            argument == "--session-id" || argument.hasPrefix("--session-id=")
-        }
-    }
-
-    private func nonOptionValue(afterOption option: String) -> String? {
-        for index in indices {
-            let argument = self[index]
-            if argument == option {
-                let nextIndex = self.index(after: index)
-                guard nextIndex < endIndex else { return nil }
-                return normalizedNonOptionValue(self[nextIndex])
-            }
-            let prefix = option + "="
-            if argument.hasPrefix(prefix) {
-                return normalizedNonOptionValue(String(argument.dropFirst(prefix.count)))
-            }
-        }
-        return nil
-    }
-
-    private func normalizedNonOptionValue(_ value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty,
-              !trimmed.hasPrefix("-"),
-              UUID(uuidString: trimmed) != nil else {
-            return nil
-        }
-        return trimmed
     }
 }
 

@@ -806,6 +806,22 @@
     "remoteTmux": {
       "moshContrast": "Za roaming između mreža koristite cmux mosh-tmux. Otvara punopravni Mosh terminal spojen na imenovanu tmux sesiju; ne zamjenjuje izvorno preslikavanje radnih prostora, kartica i podjela koje pruža SSH tmux kontrolni režim."
     },
+    "claudeCodeTeams": {
+      "shimStep1": "Kreira tmux shim u privremenom shim direktoriju trenutne površine. Putanja sadrži UUID površine i mijenja se za svaki panel i pri svakom pokretanju sistema, pa se ne može navesti fiksna putanja",
+      "shimStep2": "Postavlja TMUX i TMUX_PANE radi simuliranja tmuxa za sesiju pokretanja Claude Teams",
+      "shimDiagnostic": "Shim usmjerava na cmux samo kada je postavljen <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker>; u suprotnom transparentno prosljeđuje poziv sljedećoj stvarnoj tmux izvršnoj datoteci. Zato <which>which tmux</which> ne pokazuje da li je Claude Teams presretanje aktivno.",
+      "envTmux": "Sintetička putanja tmux socketa za sesiju koja je pokrenula cmux claude-teams",
+      "envTmuxPane": "Sintetički identifikator tmux panela za sesiju koja je pokrenula cmux claude-teams; prazan je u novostvorenim agentskim panelima",
+      "envSurface": "UUID trenutne površine; koristite ga kao identifikator površine unutar kreiranog agentskog panela",
+      "envScope": "Sintetičke vrijednosti <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> i povezane tmux-kompatibilne vrijednosti opisuju sesiju u kojoj je pokrenut <command>cmux claude-teams</command>, a ne kreirane panele. Iz agentskog panela koristite <surface>CMUX_SURFACE_ID</surface> i pokrenite <tree>cmux tree --json</tree>; objekt <caller>caller</caller> u izlazu identificira panel koji je pozvao komandu.",
+      "dirShimPath": "Direktorij za svaku površinu unutar sistemskog privremenog direktorija (nema fiksne putanje)",
+      "dirShim": "Sadrži aktivni tmux shim i dodaje se na početak PATH-a za tu površinu",
+      "dirStore": "Trajna pohrana za tmux-compat buffere, hookove i stanje položaja/rasporeda podjela",
+      "storeDetails": "Ključevi za rutiranje podjela su:",
+      "storeLastSplitSurface": "Mapira UUID svakog radnog prostora na UUID površine kreirane posljednjom podjelom. Postavlja početno sidro kolone agenata koje određuje gdje će završiti sljedeća main-vertical podjela.",
+      "storeMainVerticalLayouts": "Mapira UUID svakog radnog prostora na <mainSurfaceId>mainSurfaceId</mainSurfaceId> (glavnu ili vodeću površinu) i <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (najnižu površinu u koloni agenata). Naredne teammate podjele ciljaju tu kolonu i slažu se prema dolje.",
+      "storeTroubleshooting": "Provjerite ove ključeve rutiranja kada se teammate panel pojavi kao kartica iza postojeće površine umjesto kao podjela pored nje."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Početak rada",
@@ -1026,7 +1042,8 @@
         "browser": {
           "defaultSearchEngine": "Zadani pretraživač za upite u adresnoj traci preglednika koji nisu URL-ovi. Koristite custom uz customSearchEngineURLTemplate za druge pružatelje.",
           "customSearchEngineName": "Prikazani naziv koji se koristi kada je defaultSearchEngine custom.",
-          "customSearchEngineURLTemplate": "URL pretrage koji se koristi kada je defaultSearchEngine custom. Uključite rezervirano mjesto za upit ili %s za kodirani upit. Ako nema rezerviranog mjesta, cmux dodaje q= u URL."
+          "customSearchEngineURLTemplate": "URL pretrage koji se koristi kada je defaultSearchEngine custom. Uključite rezervirano mjesto za upit ili %s za kodirani upit. Ako nema rezerviranog mjesta, cmux dodaje q= u URL.",
+          "urlAllowlist": "Obrasci hostova ili URL-ova koji ograničavaju navigaciju u ugrađenom pregledniku. Postavke predlažu lokalne razvojne izvore; spremanje liste uključuje opcionalno ograničenje. Uklonite stavke da ih blokirate ili ostavite korisničku vrijednost praznom bez upravljane politike da isključite ograničenje."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Globalna zadana vrijednost za mjesto gdje Cmd-N unutar grupe, + dugme u zaglavlju grupe i podešene grupne akcije stavljaju novi workspace: `afterCurrent` (poslije aktivnog workspacea u grupi, uz povratak na top), `top` (druga pozicija, odmah poslije sidra) ili `end` (poslije zadnjeg člana).",

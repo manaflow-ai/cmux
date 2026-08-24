@@ -2,6 +2,8 @@ import CMUXMobileCore
 import CmuxMobileBrowser
 import CmuxMobileBrowserStream
 import CmuxMobileShell
+import CmuxMobileShellModel
+import CmuxMobileSupport
 import CmuxMobileTerminal
 import SwiftUI
 
@@ -25,18 +27,68 @@ extension WorkspaceDetailView {
                 .opacity(surface == .terminal ? 1 : 0)
                 .allowsHitTesting(surface == .terminal)
                 .accessibilityHidden(surface != .terminal)
-            if surface == .chat, let session = chosenChatSession {
-                chatContent(session)
-                    .background(store.activeTerminalTheme.terminalBackgroundColor)
-            } else if surface == .browser, let browser = activeBrowser {
+            if surface == .browser, let browser = activeBrowser {
                 browserContent(browser)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
+            } else if surface == .browser {
+                waitingSurfacePlaceholder(
+                    title: L10n.string("mobile.browser.waiting", defaultValue: "Waiting for Browser"),
+                    detail: L10n.string(
+                        "mobile.browser.waitingDetail",
+                        defaultValue: "The browser will appear when the Mac is ready."
+                    ),
+                    symbol: "globe",
+                    accessibilityIdentifier: "MobileBrowserPlaceholder"
+                )
             } else if surface == .browserStream, let browser = activeBrowserStream {
                 browserStreamContent(browser)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
+            } else if surface == .browserStream {
+                waitingSurfacePlaceholder(
+                    title: L10n.string("mobile.browserStream.waiting", defaultValue: "Waiting for Browser"),
+                    detail: L10n.string(
+                        "mobile.browserStream.waitingDetail",
+                        defaultValue: "The first frame will appear when the Mac is ready."
+                    ),
+                    symbol: "globe",
+                    accessibilityIdentifier: "BrowserStreamPlaceholder"
+                )
             } else if surface == .simulatorStream, let simulator = activeSimulatorStream {
                 simulatorStreamContent(simulator)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
+            } else if surface == .simulatorStream {
+                waitingSurfacePlaceholder(
+                    title: L10n.string("mobile.simulatorStream.waiting", defaultValue: "Waiting for Simulator"),
+                    detail: L10n.string(
+                        "mobile.simulatorStream.waitingDetail",
+                        defaultValue: "The first frame will appear when the Mac is ready."
+                    ),
+                    symbol: "iphone",
+                    accessibilityIdentifier: "SimulatorStreamPlaceholder"
+                )
+            } else if case let .macSurface(macSurface) = surface {
+                macSurfaceContent(macSurface)
+                    .background(store.activeTerminalTheme.terminalBackgroundColor)
+                    // System colors, materials, and list backgrounds must
+                    // resolve against the terminal theme the surface sits on,
+                    // not the device appearance, or rows flash white over a
+                    // dark theme (and vice versa).
+                    .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
+                    // Same recovery chrome as the terminal: the last synced
+                    // surface stays visible underneath while the pill shows
+                    // reconnect progress (it renders nothing when connected).
+                    .overlay(alignment: .topLeading) {
+                        MobileMacConnectionStatusPill(
+                            host: host,
+                            status: effectiveConnectionStatus,
+                            reconnect: Self.reconnectAction(
+                                connectionRequiresReauth: store.connectionRequiresReauth,
+                                reconnect: { reconnectToWorkspaceMac() }
+                            )
+                        )
+                        .padding(.top, 10)
+                        .padding(.leading, 10)
+                    }
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -67,6 +119,66 @@ extension WorkspaceDetailView {
     }
 
     #if os(iOS)
+    /// Kind → renderer dispatch for the selected non-terminal Mac surface.
+    ///
+    /// `MacSurfaceRenderer.resolve` owns the gating policy (capability +
+    /// payload presence); unhandled kinds stay on the fallback card.
+    @ViewBuilder
+    func macSurfaceContent(_ macSurface: MobileSurfacePreview) -> some View {
+        let renderer = MacSurfaceRenderer.resolve(
+            surface: macSurface,
+            supportsTodo: store.supportsTodo(in: workspace.id),
+            supportsPanelArtifacts: store.supportsPanelArtifacts(in: workspace.id)
+        )
+        let openOnMac: () async -> Bool = { [store, workspaceID = workspace.id, surfaceID = macSurface.id] in
+            await store.focusSurfaceOnMac(workspaceID: workspaceID, surfaceID: surfaceID)
+        }
+        let canOpenOnMac = store.supportsSurfaceFocus(in: workspace.id)
+        switch renderer {
+        case .todo(let todo):
+            // The capability set empties while the connection recovers, so it
+            // doubles as the "Mac can take mutations right now" signal; the
+            // snapshot itself stays rendered either way.
+            TodoSurfaceView(
+                surface: macSurface,
+                todo: todo,
+                allowsMutations: store.supportsTodo(in: workspace.id)
+            ) { mutation in
+                try await store.performTodoMutation(mutation, workspaceID: workspace.id)
+            }
+            .id(macSurface.id.rawValue)
+        case .filePreview(let path):
+            PanelFileSurfaceView(
+                surface: macSurface,
+                path: path,
+                loader: panelArtifactLoader(
+                    workspaceID: workspace.rpcWorkspaceID.rawValue,
+                    surfaceID: macSurface.id.rawValue
+                ),
+                connectionStatus: effectiveConnectionStatus
+            )
+            .id(macSurface.id.rawValue)
+        case .markdown(let path):
+            MarkdownSurfaceView(
+                surface: macSurface,
+                path: path,
+                loader: panelArtifactLoader(
+                    workspaceID: workspace.rpcWorkspaceID.rawValue,
+                    surfaceID: macSurface.id.rawValue
+                ),
+                connectionStatus: effectiveConnectionStatus
+            )
+            .id(macSurface.id.rawValue)
+        case .fallbackCard:
+            SurfaceFallbackCardView(
+                surface: macSurface,
+                workspaceName: workspace.name,
+                canOpenOnMac: canOpenOnMac,
+                openOnMac: openOnMac
+            )
+        }
+    }
+
     @ViewBuilder
     func browserContent(_ browser: BrowserSurfaceState) -> some View {
         MobileBrowserPane(
@@ -140,7 +252,43 @@ extension WorkspaceDetailView {
         }
     }
 
+    @ViewBuilder
     func simulatorStreamContent(_ simulator: MobileSimulatorStreamSurfaceState) -> some View {
+        if store.supportsSimulatorStreamV2,
+            let access = store.simulatorStreamV2Access(panelID: simulator.id)
+        {
+            let workspaceID = workspace.rpcWorkspaceID.rawValue
+            SimulatorStreamV2Pane(
+                panelID: simulator.id,
+                workspaceID: workspaceID,
+                access: access,
+                isTransportReady: store.connectionState == .connected,
+                supportsDeviceSwitching: store.supportsSimulatorDeviceSwitching,
+                listDevices: { [weak store] in
+                    await store?.listSimulatorDevices(
+                        panelID: simulator.id, workspaceID: workspaceID) ?? []
+                },
+                selectDevice: { [weak store] udid in
+                    await store?.selectSimulatorDevice(
+                        panelID: simulator.id, workspaceID: workspaceID, udid: udid) ?? false
+                }
+            )
+            .task {
+                await store.stopLegacySimulatorStream(
+                    panelID: simulator.id,
+                    workspaceID: workspace.rpcWorkspaceID.rawValue
+                )
+            }
+            .id(simulator.id)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            legacySimulatorStreamContent(simulator)
+        }
+    }
+
+    private func legacySimulatorStreamContent(
+        _ simulator: MobileSimulatorStreamSurfaceState
+    ) -> some View {
         SimulatorStreamPane(
             state: simulator,
             workspaceID: workspace.rpcWorkspaceID.rawValue,
@@ -164,6 +312,12 @@ extension WorkspaceDetailView {
                         payloadBytes: payloadBytes
                     )
                 },
+                presentationStalled: { panelID in
+                    await store.handleStaleMobileSimulatorStream(panelID: panelID)
+                },
+                presentationSucceeded: { panelID in
+                    await store.mobileSimulatorFrameDidPresent(panelID: panelID)
+                },
                 inputDiagnostic: { panelID, state, kind, detail in
                     await store.recordMobileSimulatorInputDiagnostic(
                         panelID: panelID,
@@ -177,23 +331,6 @@ extension WorkspaceDetailView {
         )
         .id(simulator.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onDisappear {
-            // Panel-scoped: when switching simulator A -> B, A's onDisappear
-            // fires AFTER B was activated, so the unconditional deactivate
-            // would clear B's fresh selection. The stop targets only this
-            // pane's panel and is a no-op on the Mac if it was already
-            // stopped by the selection switch.
-            simulatorStreamStore.deactivate(
-                panelID: simulator.id,
-                in: workspace.rpcWorkspaceID.rawValue
-            )
-            Task {
-                await store.stopMobileSimulatorStream(
-                    panelID: simulator.id,
-                    workspaceID: workspace.rpcWorkspaceID.rawValue
-                )
-            }
-        }
     }
     #endif
 }

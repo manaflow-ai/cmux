@@ -442,7 +442,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     status: taskStatus,
                     hasOverride: true,
                     usesMonochrome: model.isActive,
-                    fontScale: model.fontScale
+                    fontScale: model.fontScale,
+                    colorScheme: palette.colorScheme
                 ),
                 monochromeColor: palette.secondary(0.8),
                 neutralColor: palette.secondary(0.8),
@@ -651,6 +652,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             existing: leadingSpinner,
             visible: leadingSpinnerVisible,
             color: spinnerColor,
+            colorScheme: palette.colorScheme,
             presentationActive: isPresentationActive,
             in: contentContainer
         )
@@ -658,6 +660,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             existing: trailingSpinner,
             visible: trailingSpinnerVisible && !showsCloseNow,
             color: spinnerColor,
+            colorScheme: palette.colorScheme,
             presentationActive: isPresentationActive,
             in: contentContainer
         )
@@ -676,6 +679,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         existing: GPUSpinnerNSView?,
         visible: Bool,
         color: NSColor,
+        colorScheme: ColorScheme,
         presentationActive: Bool,
         in parent: NSView
     ) -> GPUSpinnerNSView? {
@@ -683,6 +687,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             let spinner = existing ?? GPUSpinnerNSView()
             spinner.style = .macOSSpokes
             spinner.color = color
+            spinner.colorScheme = colorScheme
             spinner.isPresentationActive = presentationActive
             if spinner.superview == nil {
                 parent.addSubview(spinner)

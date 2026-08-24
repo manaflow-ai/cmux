@@ -806,6 +806,22 @@
     "remoteTmux": {
       "moshContrast": "Verwende cmux mosh-tmux für Roaming zwischen Netzwerken. Es öffnet ein vollständig integriertes Mosh-Terminal, das an eine benannte tmux-Sitzung angehängt ist; die native Spiegelung von Workspaces, Tabs und Teilungen durch den SSH-tmux-Steuermodus wird dadurch nicht ersetzt."
     },
+    "claudeCodeTeams": {
+      "shimStep1": "Erstellt einen tmux-Shim im temporären Shim-Verzeichnis der aktuellen Oberfläche. Der Pfad enthält die Oberflächen-UUID und ändert sich pro Panel und bei jedem Systemstart, sodass kein fester Pfad angegeben werden kann",
+      "shimStep2": "Setzt TMUX und TMUX_PANE, um tmux für die Claude-Teams-Startsitzung zu simulieren",
+      "shimDiagnostic": "Der Shim leitet nur dann an cmux weiter, wenn <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> gesetzt ist; andernfalls fällt er transparent auf die nächste echte tmux-Datei zurück. Deshalb zeigt <which>which tmux</which> nicht, ob die Claude-Teams-Übernahme aktiv ist.",
+      "envTmux": "Synthetischer tmux-Socket-Pfad für die Sitzung, in der cmux claude-teams ausgeführt wurde",
+      "envTmuxPane": "Synthetische tmux-Panelkennung für die Sitzung, in der cmux claude-teams ausgeführt wurde; in erzeugten Agent-Panels leer",
+      "envSurface": "Die UUID der aktuellen Oberfläche; verwenden Sie sie in einem erzeugten Agent-Panel als Oberflächenkennung",
+      "envScope": "Die synthetischen Werte <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> und die zugehörigen tmux-Kompatibilitätswerte beschreiben die Sitzung, in der <command>cmux claude-teams</command> ausgeführt wurde, nicht die erzeugten Panels. Verwenden Sie in einem Agent-Panel <surface>CMUX_SURFACE_ID</surface> und führen Sie <tree>cmux tree --json</tree> aus; das <caller>caller</caller>-Objekt in der Ausgabe identifiziert das aufrufende Panel.",
+      "dirShimPath": "Verzeichnis pro Oberfläche im temporären Systemverzeichnis (kein fester Pfad)",
+      "dirShim": "Enthält den aktiven tmux-Shim und wird für diese Oberfläche dem PATH vorangestellt",
+      "dirStore": "Dauerhafter Speicher für tmux-compat-Puffer, Hooks sowie den Zustand der Split-Platzierung und des Layouts",
+      "storeDetails": "Die Schlüssel für das Split-Routing sind:",
+      "storeLastSplitSurface": "Ordnet jede Workspace-UUID der Surface-UUID zu, die durch den letzten Split erstellt wurde. Sie liefert den Startwert für den Agenten-Spaltenanker, der bestimmt, wo der nächste main-vertical-Split landet.",
+      "storeMainVerticalLayouts": "Ordnet jede Workspace-UUID <mainSurfaceId>mainSurfaceId</mainSurfaceId> (der Haupt- oder Leader-Oberfläche) und <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (der untersten Oberfläche in der Agentenspalte) zu. Nachfolgende Teammate-Splits zielen auf diese Spalte und werden nach unten gestapelt.",
+      "storeTroubleshooting": "Prüfen Sie diese Routing-Schlüssel, wenn ein Teammate-Panel als Tab hinter einer vorhandenen Oberfläche statt als Split daneben erscheint."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Erste Schritte",
@@ -1026,7 +1042,8 @@
         "browser": {
           "defaultSearchEngine": "Standardsuchmaschine für Nicht-URL-Eingaben in der Browser-Adressleiste. Verwenden Sie custom mit customSearchEngineURLTemplate für beliebige Anbieter.",
           "customSearchEngineName": "Anzeigename, der verwendet wird, wenn defaultSearchEngine custom ist.",
-          "customSearchEngineURLTemplate": "Such-URL, die verwendet wird, wenn defaultSearchEngine custom ist. Verwenden Sie den Abfrageplatzhalter oder %s für den kodierten Suchbegriff. Ohne Platzhalter fügt cmux q= zur URL hinzu."
+          "customSearchEngineURLTemplate": "Such-URL, die verwendet wird, wenn defaultSearchEngine custom ist. Verwenden Sie den Abfrageplatzhalter oder %s für den kodierten Suchbegriff. Ohne Platzhalter fügt cmux q= zur URL hinzu.",
+          "urlAllowlist": "Host- oder URL-Muster, die die Navigation im eingebetteten Browser einschränken. Die Einstellungen schlagen lokale Entwicklungsursprünge vor; durch Speichern einer Liste wird die optionale Einschränkung aktiviert. Entfernen Sie Einträge, um sie zu blockieren, oder lassen Sie den Benutzerwert ohne verwaltete Richtlinie leer, um die Einschränkung zu deaktivieren."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Globaler Standard dafür, wo Cmd-N innerhalb einer Gruppe, die + Schaltfläche im Gruppenkopf und konfigurierte Gruppenaktionen den neuen Workspace platzieren: `afterCurrent` (nach dem aktiven Workspace in der Gruppe, mit Rückfall auf top), `top` (zweite Position direkt nach dem Anker) oder `end` (nach dem letzten Mitglied).",

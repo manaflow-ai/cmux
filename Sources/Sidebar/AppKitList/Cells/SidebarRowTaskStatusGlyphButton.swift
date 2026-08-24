@@ -17,6 +17,7 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
         let hasOverride: Bool
         let usesMonochrome: Bool
         let fontScale: CGFloat
+        let colorScheme: ColorScheme
     }
 
     private static let baseSize: CGFloat = 9

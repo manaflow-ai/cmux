@@ -10,6 +10,7 @@ extension TaskComposerSheet {
             selectedTemplateID = template.id
             selectedModelID = validatedModelID
             explicitlySelectedModel = nil
+            selectedEffortID = nil
             if template.isPlainShell {
                 removeStagedAttachmentFiles()
                 attachments.removeAll()
@@ -34,8 +35,17 @@ extension TaskComposerSheet {
             )
         }
         explicitlySelectedModel = nil
+        let effortModel = selectedModel ?? modelAvailability.defaultModel
+        selectedEffortID = effortModel.flatMap { model in
+            model.efforts.contains { $0.id == snapshot.effortID }
+                ? snapshot.effortID
+                : model.defaultEffortID
+        }
         selectedMacDeviceID = snapshot.macDeviceID
         selectedMacInstanceTag = snapshot.macInstanceTag
+        selectedWorkspaceGroupID = snapshot.workspaceGroupID
+        pendingRestoredWorkspaceGroupID = snapshot.workspaceGroupID
+        workspaceGroupSelectionRequiresResolution = false
         directory = snapshot.directory
         didEditDirectory = snapshot.didEditDirectory
         submissionIdentity.adoptResolvedRequest(snapshot)
@@ -47,12 +57,15 @@ extension TaskComposerSheet {
         directory = Self.suggestedDirectory(
             template: selectedTemplate,
             macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag,
             templateStore: store.taskTemplateStore,
             openDirectory: Self.preferredOpenDirectory(
                 workspaces: store.workspaces,
                 selectedWorkspaceID: store.selectedWorkspaceID,
                 macDeviceID: selectedMacDeviceID,
-                connectedMacDeviceID: store.connectedMacDeviceID
+                connectedMacDeviceID: store.connectedMacDeviceID,
+                instanceTag: selectedMacInstanceTag,
+                connectedMacInstanceTag: store.connectedMacInstanceTag
             )
         )
     }
@@ -99,6 +112,8 @@ extension TaskComposerSheet {
     }
 
     func resolveCompletedOperationRecoveryAfterEditing() {
+        guard !workspaceGroupSelectionNeedsInventory,
+              !workspaceGroupSelectionRequiresResolution else { return }
         guard let operationID = completedOperationRecovery?.submittedSnapshot.operationID else { return }
         reconcileCompletedOperationRecovery(
             with: makeSubmissionSnapshot(operationID: operationID)
@@ -133,16 +148,29 @@ extension TaskComposerSheet {
 
     func draftSnapshot() -> MobileTaskComposerDraft {
         let resolved = submissionSnapshot()
-        let completedOperationID = reconcileCompletedOperationRecovery(with: resolved)
+        let completedOperationID: UUID?
+        if workspaceGroupSelectionNeedsInventory || workspaceGroupSelectionRequiresResolution {
+            // Keep a completed-operation anchor intact while the route is
+            // reconnecting; comparing it to a deliberately withheld snapshot
+            // would make a retry look like a new ungrouped request.
+            completedOperationID = completedOperationRecovery?.submittedSnapshot.operationID
+        } else {
+            completedOperationID = reconcileCompletedOperationRecovery(with: resolved)
+        }
+        let persistedWorkspaceGroupID = resolved?.workspaceGroupID
+            ?? pendingRestoredWorkspaceGroupID
+            ?? selectedWorkspaceGroupID
         return MobileTaskComposerDraft(
             prompt: prompt,
             modelID: selectedModel?.id,
+            effortID: selectedEffort?.id,
             templateID: selectedTemplateID,
             macDeviceID: selectedMacDeviceID.isEmpty ? nil : selectedMacDeviceID,
             macInstanceTag: selectedMacDeviceID.isEmpty ? nil : selectedMacInstanceTag,
             directory: directory,
             didEditDirectory: didEditDirectory,
             workspaceName: workspaceName,
+            workspaceGroupID: persistedWorkspaceGroupID,
             operationID: resolved?.operationID ?? submissionIdentity.id,
             completedOperationID: completedOperationID
         )
@@ -150,14 +178,21 @@ extension TaskComposerSheet {
 
     private func makeSubmissionSnapshot(operationID: UUID) -> MobileTaskSubmissionSnapshot? {
         guard let selectedTemplate else { return nil }
+        guard selectedWorkspaceGroupID == nil || resolvedWorkspaceGroupID != nil else {
+            // Never construct an outbound snapshot that silently drops a
+            // selected group while its exact Mac inventory is unavailable.
+            return nil
+        }
         return MobileTaskSubmissionSnapshot(
             template: selectedTemplate,
             prompt: prompt,
             modelID: selectedModel?.id,
+            effortID: selectedEffort?.id,
             macDeviceID: selectedMacDeviceID,
             macInstanceTag: selectedMacInstanceTag,
             directory: directory,
             workspaceName: workspaceName,
+            workspaceGroupID: resolvedWorkspaceGroupID,
             didEditDirectory: didEditDirectory,
             attachments: attachments.map(\.submissionAttachment),
             operationID: operationID

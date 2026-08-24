@@ -100,7 +100,8 @@ extension VerticalTabsSidebar {
             isFirstRow: renderContext.sidebarReorderIds.first == group.anchorWorkspaceId,
             isBeingDragged: dragState.draggedTabId == group.anchorWorkspaceId,
             topDropIndicatorVisible: topDropIndicatorVisible,
-            bottomDropIndicatorVisible: bottomDropIndicatorVisible
+            bottomDropIndicatorVisible: bottomDropIndicatorVisible,
+            colorSchemeIsDark: renderContext.environment.colorScheme == .dark
         )
         let actions = SidebarGroupHeaderRowActions(
             onToggleCollapsed: { [weak tabManager, groupId = group.id] in

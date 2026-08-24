@@ -77,6 +77,7 @@ struct MarkdownPanelView: View {
                 markdown: panel.content,
                 theme: MarkdownWebTheme.resolve(backgroundColor: themeBackgroundColor),
                 backgroundColor: appearance.contentBackgroundColor,
+                isVisibleInUI: isVisibleInUI && panel.displayMode == .preview,
                 panelId: panel.id,
                 workspaceId: panel.workspaceId,
                 filePath: panel.filePath,

@@ -806,6 +806,22 @@
     "remoteTmux": {
       "moshContrast": "如需在網路之間漫遊，請使用 cmux mosh-tmux。它會開啟一個連接到具名 tmux 工作階段的完整 Mosh 終端；不會取代 SSH tmux 控制模式提供的原生工作區、分頁與分割鏡像。"
     },
+    "claudeCodeTeams": {
+      "shimStep1": "在目前 surface 的暫存 shim 目錄中建立 tmux shim。路徑包含 surface UUID，且會隨面板及每次啟動而變更，因此無法提供固定路徑",
+      "shimStep2": "設定 TMUX 和 TMUX_PANE，以便在 Claude Teams 啟動工作階段中模擬 tmux",
+      "shimDiagnostic": "shim 只有在設定了 <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> 時才會將請求路由至 cmux；未設定時會透明地落到下一個真正的 tmux 可執行檔。因此，<which>which tmux</which> 無法告訴你 Claude Teams 的攔截是否正在作用。",
+      "envTmux": "執行 cmux claude-teams 的工作階段所使用的合成 tmux socket 路徑",
+      "envTmuxPane": "執行 cmux claude-teams 的工作階段所使用的合成 tmux pane 識別碼；在產生的 agent 面板中為空",
+      "envSurface": "目前 surface 的 UUID；在產生的 agent 面板內將它用作 surface 識別碼",
+      "envScope": "合成的 <tmux>TMUX</tmux>、<tmuxPane>TMUX_PANE</tmuxPane> 及相關 tmux 相容值描述的是執行 <command>cmux claude-teams</command> 的工作階段，而不是產生的面板。從 agent 面板內使用 <surface>CMUX_SURFACE_ID</surface> 並執行 <tree>cmux tree --json</tree>；輸出的 <caller>caller</caller> 物件會識別呼叫面板。",
+      "dirShimPath": "系統暫存目錄下每個 surface 各自的目錄（沒有固定路徑）",
+      "dirShim": "包含目前有效的 tmux shim，並針對該 surface 加到 PATH 最前面",
+      "dirStore": "用於持久儲存 tmux-compat 緩衝區、hook，以及分割位置/版面配置狀態",
+      "storeDetails": "分割路由鍵包括：",
+      "storeLastSplitSurface": "將每個工作區 UUID 對應到最近一次分割所建立的 surface UUID。它會初始化 agent 欄錨點，用來決定下一個 main-vertical 分割的落點。",
+      "storeMainVerticalLayouts": "將每個工作區 UUID 對應到 <mainSurfaceId>mainSurfaceId</mainSurfaceId>（主要或 leader surface）和 <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId>（agent 欄最底部的 surface）。後續隊友分割會以該欄為目標並向下堆疊。",
+      "storeTroubleshooting": "如果隊友面板出現在現有 surface 後方的分頁中，而不是旁邊的分割中，請檢查這些路由鍵。"
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "入門指南",
@@ -1026,7 +1042,8 @@
         "browser": {
           "defaultSearchEngine": "瀏覽器位址列輸入不是 URL 時使用的預設搜尋引擎。任意提供者請使用 custom 與 customSearchEngineURLTemplate。",
           "customSearchEngineName": "defaultSearchEngine 為 custom 時使用的顯示名稱。",
-          "customSearchEngineURLTemplate": "defaultSearchEngine 為 custom 時使用的搜尋 URL。使用查詢佔位符或 %s 表示已編碼的查詢。若沒有佔位符，cmux 會將 q= 加到 URL。"
+          "customSearchEngineURLTemplate": "defaultSearchEngine 為 custom 時使用的搜尋 URL。使用查詢佔位符或 %s 表示已編碼的查詢。若沒有佔位符，cmux 會將 q= 加到 URL。",
+          "urlAllowlist": "限制內建瀏覽器導覽的主機或 URL 模式。設定介面會建議本機開發來源；儲存清單後會啟用選用限制。刪除項目即可封鎖這些來源；沒有受管理政策時，將使用者值留白可停用限制。"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "群組內 Cmd-N、群組標題中的 + 按鈕，以及已設定的群組動作放置新 workspace 的全域預設位置：`afterCurrent`（在目前作用中的群組內 workspace 之後，沒有時回退到 top）、`top`（第二個位置，緊接錨點之後）或 `end`（最後一個成員之後）。",

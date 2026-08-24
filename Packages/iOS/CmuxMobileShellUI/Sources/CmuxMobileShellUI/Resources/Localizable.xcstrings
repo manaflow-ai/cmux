@@ -1,6 +1,74 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "mobile.terminal.outputRecovery.dismiss" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dismiss"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "閉じる"
+          }
+        }
+      }
+    },
+    "mobile.terminal.outputRecovery.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal output stopped unexpectedly. Retry to reconnect this terminal."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ターミナル出力が予期せず停止しました。再試行してこのターミナルに再接続してください。"
+          }
+        }
+      }
+    },
+    "mobile.terminal.outputRecovery.retry" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retry"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "再試行"
+          }
+        }
+      }
+    },
+    "mobile.terminal.outputRecovery.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal paused"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ターミナルを一時停止しました"
+          }
+        }
+      }
+    },
     "mobile.workspaces.statusLine.notConnected" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1055,6 +1123,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "プライベートアドレスを使用する前に、このMacのcmuxを更新してください。" } }
       }
     },
+    "mobile.iroh.private.custom.macUpdateRequiredFormat" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@ (Update cmux)" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@ (cmux を更新)" } }
+      }
+    },
     "mobile.iroh.private.lan" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1074,6 +1149,69 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "When Tailscale Is Active" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "Tailscaleが有効な場合" } }
+      }
+    },
+    "mobile.iroh.neverUseRelays" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Never Use Relays" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "リレーを使用しない" } }
+      }
+    },
+    "mobile.iroh.pathPreference.footer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "When enabled, cmux requires a reachable direct, local-network, or private-network path and will not fall back to a relay. Applies on the next reconnect." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "有効にすると、cmuxは到達可能な直接経路、ローカルネットワーク経路、またはプライベートネットワーク経路を必要とし、リレーにはフォールバックしません。次回の再接続時に適用されます。" } }
+      }
+    },
+    "mobile.iroh.reset" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reset to Defaults" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "デフォルトに戻す" } }
+      }
+    },
+    "mobile.iroh.reset.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reset Networking Settings?" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ネットワーク設定をデフォルトに戻しますか？" } }
+      }
+    },
+    "mobile.iroh.reset.confirm" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reset" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "リセット" } }
+      }
+    },
+    "mobile.iroh.reset.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Relay and path preferences will return to Automatic. Saved custom relays and private addresses will remain, but private addresses will be disabled." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "リレーと経路の設定は「自動」に戻ります。保存済みのカスタムリレーとプライベートアドレスは残りますが、プライベートアドレスは無効になります。" } }
+      }
+    },
+    "mobile.iroh.relays" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Relays" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "リレー" } }
+      }
+    },
+    "mobile.iroh.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Networking" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ネットワーク" } }
+      }
+    },
+    "mobile.settings.iroh" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Networking" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ネットワーク" } }
       }
     },
     "mobile.iroh.saveFailed" : {

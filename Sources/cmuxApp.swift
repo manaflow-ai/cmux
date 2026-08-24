@@ -429,6 +429,14 @@ struct cmuxApp: App {
                 Button(String(localized: "menu.app.makeDefaultTerminal", defaultValue: "Make cmux the Default Terminal")) {
                     DefaultTerminalUserAction.setAsDefault(debugSource: "menu.makeDefaultTerminal")
                 }
+                Divider()
+                Toggle(
+                    String(localized: "menu.app.keepMacAwake", defaultValue: "Keep Mac Awake"),
+                    isOn: Binding(
+                        get: { appDelegate.caffeineController.isEnabled },
+                        set: { appDelegate.caffeineController.setEnabled($0) }
+                    )
+                )
             }
 
             CommandGroup(replacing: .appInfo) {

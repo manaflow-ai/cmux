@@ -533,7 +533,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             teamID: teamID,
             now: now,
             restoredCustomizations: nil,
-            onlyIfOlder: false
+            onlyIfOlder: false,
+            revokeMigrationTailscaleGrants: true
         )
     }
 
@@ -562,7 +563,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             teamID: teamID,
             now: now,
             restoredCustomizations: (customName, customColor, customIcon),
-            onlyIfOlder: true
+            onlyIfOlder: true,
+            revokeMigrationTailscaleGrants: true
         )
     }
 
@@ -590,7 +592,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             now: now,
             restoredCustomizations: nil,
             onlyIfOlder: false,
-            routeWriteCondition: condition
+            routeWriteCondition: condition,
+            revokeMigrationTailscaleGrants: false
         )
     }
 
@@ -656,20 +659,28 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         now: Date,
         restoredCustomizations: (String?, String?, String?)?,
         onlyIfOlder: Bool,
-        routeWriteCondition: MobilePairedMacRouteWriteCondition? = nil
+        routeWriteCondition: MobilePairedMacRouteWriteCondition? = nil,
+        revokeMigrationTailscaleGrants: Bool
     ) throws -> Bool {
         try ensureReady()
         let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let normalizedInputTag = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).instanceTag
         var didWrite = false
         try transaction {
             let recordInstanceTag: String?
             switch routeWriteCondition {
             case .matchingInstanceTag(let expectedInstanceTag):
-                recordInstanceTag = expectedInstanceTag
+                recordInstanceTag = CmxMacAppInstanceIdentity(
+                    macDeviceID: macDeviceID,
+                    instanceTag: expectedInstanceTag
+                ).instanceTag
             case .unclaimed:
                 recordInstanceTag = nil
             case nil:
-                recordInstanceTag = instanceTag
+                recordInstanceTag = normalizedInputTag
             }
             let ownerKey = Self.ownerKey(
                 stackUserID: stackUserID,
@@ -707,24 +718,20 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 : nil
             let current = existing ?? claimable
             if routeWriteCondition == .unclaimed {
-                let hasClaimedSibling = try fetchAllMacs(
+                guard !(try hasClaimedSibling(
+                    macDeviceID: macDeviceID,
                     stackUserID: stackUserID,
                     teamID: teamID
-                ).contains {
-                    $0.macDeviceID == macDeviceID && $0.instanceTag != nil
-                }
-                guard !hasClaimedSibling else { return }
+                )) else { return }
             }
-            if onlyIfOlder, instanceTag == nil {
-                let hasClaimedSibling = try fetchAllMacs(
+            if onlyIfOlder, recordInstanceTag == nil {
+                guard !(try hasClaimedSibling(
+                    macDeviceID: macDeviceID,
                     stackUserID: stackUserID,
                     teamID: teamID
-                ).contains {
-                    $0.macDeviceID == macDeviceID && $0.instanceTag != nil
-                }
-                guard !hasClaimedSibling else { return }
+                )) else { return }
             }
-            if onlyIfOlder, instanceTag == nil, current?.instanceTag != nil {
+            if onlyIfOlder, recordInstanceTag == nil, current?.instanceTag != nil {
                 // An authority-less backup cannot identify the process that
                 // supplied its host tuple. Reject the whole tuple instead of
                 // combining its routes or freshness with retained authority.
@@ -733,7 +740,14 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             if let routeWriteCondition {
                 switch routeWriteCondition {
                 case .matchingInstanceTag(let expectedInstanceTag):
-                    guard let current, current.instanceTag == expectedInstanceTag else { return }
+                    guard let current,
+                          CmxMacAppInstanceIdentity(
+                              macDeviceID: current.macDeviceID,
+                              instanceTag: current.instanceTag
+                          ).id == CmxMacAppInstanceIdentity(
+                              macDeviceID: macDeviceID,
+                              instanceTag: expectedInstanceTag
+                          ).id else { return }
                 case .unclaimed:
                     guard current?.instanceTag == nil else { return }
                 }
@@ -806,7 +820,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 lastSeenAt: now,
                 isActive: shouldMarkActive
             )
-            if routesToPersist.contains(where: { $0.kind == .iroh }) {
+            if revokeMigrationTailscaleGrants,
+               routesToPersist.contains(where: { $0.kind == .iroh }) {
                 // Only the staggered-update migration capability dies on Iroh
                 // arrival. A user-entered pairing-code grant is a deliberate
                 // Tailscale choice and remains available for preference-ordered
@@ -888,13 +903,14 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     ) throws {
         try ensureReady()
         let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        let instanceTag = try fetchAllMacs(
+        let matches = try fetchAllMacs(
             stackUserID: stackUserID,
             teamID: teamID
-        ).first { $0.macDeviceID == macDeviceID }?.instanceTag
+        ).filter { $0.macDeviceID == macDeviceID }
+        guard matches.count == 1, let target = matches.first else { return }
         try setActive(
             macDeviceID: macDeviceID,
-            instanceTag: instanceTag,
+            instanceTag: target.instanceTag,
             stackUserID: stackUserID,
             teamID: teamID
         )
@@ -939,13 +955,14 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     ) throws {
         try ensureReady()
         let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        let instanceTag = try fetchAllMacs(
+        let matches = try fetchAllMacs(
             stackUserID: stackUserID,
             teamID: teamID
-        ).first { $0.macDeviceID == macDeviceID }?.instanceTag
+        ).filter { $0.macDeviceID == macDeviceID }
+        guard matches.count == 1, let target = matches.first else { return }
         try setCustomization(
             macDeviceID: macDeviceID,
-            instanceTag: instanceTag,
+            instanceTag: target.instanceTag,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,
@@ -989,27 +1006,22 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         ])
     }
 
-    /// Remove one paired Mac in a specific owner scope, or all matching legacy rows when unscoped.
+    /// Remove a paired Mac only when the device-only compatibility lookup is unambiguous.
     public func remove(
         macDeviceID: String,
         stackUserID: String? = nil,
         teamID: String? = nil
     ) throws {
-        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        if stackUserID == nil && teamID == nil {
-            try ensureReady()
-            try exec("DELETE FROM paired_macs WHERE mac_device_id = ?;",
-                     binding: [.text(macDeviceID)])
-            return
-        }
         try ensureReady()
-        let instanceTag = try fetchAllMacs(
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let matches = try fetchAllMacs(
             stackUserID: stackUserID,
             teamID: teamID
-        ).first { $0.macDeviceID == macDeviceID }?.instanceTag
+        ).filter { $0.macDeviceID == macDeviceID }
+        guard matches.count == 1, let target = matches.first else { return }
         try remove(
             macDeviceID: macDeviceID,
-            instanceTag: instanceTag,
+            instanceTag: target.instanceTag,
             stackUserID: stackUserID,
             teamID: teamID
         )
@@ -1065,7 +1077,11 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         instanceTag: String?
     ) -> String {
-        "\(stackUserID ?? "")\u{1F}\(teamID ?? "")\u{1F}\(instanceTag ?? "")"
+        let normalizedTag = CmxMacAppInstanceIdentity(
+            macDeviceID: "",
+            instanceTag: instanceTag
+        ).instanceTag
+        return "\(stackUserID ?? "")\u{1F}\(teamID ?? "")\u{1F}\(normalizedTag ?? "")"
     }
 
 }

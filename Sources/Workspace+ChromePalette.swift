@@ -80,12 +80,17 @@ extension Workspace {
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
         )
+        let chromeBackgroundColor = Self.resolvedTerminalChromeBackgroundColor(
+            backgroundColor: config.backgroundColor,
+            backgroundOpacity: config.backgroundOpacity
+        )
         let baseChromeColors = Self.bonsplitChromeColors(
             backgroundColor: config.backgroundColor,
             backgroundOpacity: config.backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop,
             renderingMode: renderingMode,
-            paneBorderColorHex: PaneChromeSettings.paneBorderColorHex()
+            paneBorderColorHex: PaneChromeSettings.paneBorderColorHex(),
+            chromeBackgroundColor: chromeBackgroundColor
         )
         chromeBaseColors = baseChromeColors
         chromeBaseUsesSharedBackdrop = sharesWindowBackdrop
@@ -148,12 +153,17 @@ extension Workspace {
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
         )
+        let chromeBackgroundColor = Self.resolvedTerminalChromeBackgroundColor(
+            backgroundColor: backgroundColor,
+            backgroundOpacity: backgroundOpacity
+        )
         let baseChromeColors = Self.bonsplitChromeColors(
             backgroundColor: backgroundColor,
             backgroundOpacity: backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop,
             renderingMode: renderingMode,
-            paneBorderColorHex: PaneChromeSettings.paneBorderColorHex()
+            paneBorderColorHex: PaneChromeSettings.paneBorderColorHex(),
+            chromeBackgroundColor: chromeBackgroundColor
         )
         chromeBaseColors = baseChromeColors
         chromeBaseUsesSharedBackdrop = sharesWindowBackdrop
