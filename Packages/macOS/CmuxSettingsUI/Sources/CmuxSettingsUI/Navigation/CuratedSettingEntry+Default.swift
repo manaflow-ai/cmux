@@ -47,9 +47,33 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "preferred-editor", title: "Open Files With", synonyms: "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
             .init(section: .app, id: "supported-file-previews", title: "Open Supported Files in cmux", synonyms: "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),
             .init(section: .app, id: "markdown-viewer", title: "Open Markdown in cmux Viewer", synonyms: "app.openMarkdownInCmuxViewer md markdown mdx viewer preview readme"),
-            .init(section: .app, id: "file-editor-font-size", title: String(localized: "settings.app.fileEditorFontSize", defaultValue: "File Editor Font Size"), synonyms: "fileEditor.fontSize file editor font size points zoom scale text bigger smaller larger default"),
-            .init(section: .app, id: "file-editor-font-family", title: String(localized: "settings.app.fileEditorFontFamily", defaultValue: "File Editor Font"), synonyms: "fileEditor.fontFamily file editor font family typeface system mono custom"),
-            .init(section: .app, id: "file-editor-line-height", title: String(localized: "settings.app.fileEditorLineHeight", defaultValue: "File Editor Line Height"), synonyms: "fileEditor.lineHeight file editor line height leading spacing paragraph line multiplier"),
+            .init(
+                section: .app,
+                id: "file-editor-font-size",
+                title: String(localized: "settings.app.fileEditorFontSize", defaultValue: "File Editor Font Size"),
+                synonyms: String(
+                    localized: "settings.search.alias.setting.app.file-editor-font-size",
+                    defaultValue: "fileEditor.fontSize file editor font size points zoom scale text bigger smaller larger default"
+                )
+            ),
+            .init(
+                section: .app,
+                id: "file-editor-font-family",
+                title: String(localized: "settings.app.fileEditorFontFamily", defaultValue: "File Editor Font"),
+                synonyms: String(
+                    localized: "settings.search.alias.setting.app.file-editor-font-family",
+                    defaultValue: "fileEditor.fontFamily file editor font family typeface system mono custom"
+                )
+            ),
+            .init(
+                section: .app,
+                id: "file-editor-line-height",
+                title: String(localized: "settings.app.fileEditorLineHeight", defaultValue: "File Editor Line Height"),
+                synonyms: String(
+                    localized: "settings.search.alias.setting.app.file-editor-line-height",
+                    defaultValue: "fileEditor.lineHeight file editor line height leading spacing paragraph line multiplier"
+                )
+            ),
             .init(section: .app, id: "file-editor-word-wrap", title: "File Editor Word Wrap", synonyms: "fileEditor.wordWrap file editor word wrap soft wrap reflow lines text horizontal scroll preview"),
             .init(section: .app, id: "terminal-config", title: "Terminal Config", synonyms: "ghostty config merged generated preview terminal configuration window open config macos-option-as-alt option as alt left option right option alt key meta"),
             .init(section: .app, id: "global-font-magnification", title: String(localized: "settings.app.globalFontMagnification", defaultValue: "Global Font Magnification"), synonyms: "app.globalFontMagnification global font magnification scale text zoom terminals tabs chrome bigger smaller accessibility"),

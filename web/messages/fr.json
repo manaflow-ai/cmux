@@ -1151,7 +1151,7 @@
           "fontSize": "Taille de police par défaut, en points, pour les éditeurs de texte brut nouvellement ouverts. Cmd-+ / Cmd-- / Cmd-0 zooment l’éditeur actuel.",
           "fontFamily": "Famille de polices par défaut pour les éditeurs de texte brut nouvellement ouverts. Laissez vide pour utiliser la police monospace du système.",
           "lineHeight": "Multiplicateur de hauteur de ligne pour les éditeurs de texte brut. 1.0 conserve l’espacement naturel de la police.",
-          "wordWrap": "Renvoyer les longues lignes au bord droit de l’éditeur plutôt que de faire défiler horizontalement."
+          "wordWrap": "Effectue un retour à la ligne des longues lignes au bord droit de l’éditeur au lieu de les faire défiler horizontalement."
         },
         "sidebar": {
           "notificationMessageLineLimit": "Nombre maximal de lignes affichées pour la notification la plus récente sous le titre de chaque espace de travail.",

@@ -1148,7 +1148,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "fileEditor": {
-          "fontSize": "Tamaño de fuente predeterminado, en puntos, para editores de texto plano recién abiertos. Cmd-+ / Cmd-- / Cmd-0 amplían el editor actual.",
+          "fontSize": "Tamaño de fuente predeterminado, en puntos, para editores de texto plano recién abiertos. Cmd-+ / Cmd-- amplían o reducen el editor actual y Cmd-0 restablece su tamaño.",
           "fontFamily": "Familia de fuente predeterminada para editores de texto plano recién abiertos. Déjalo vacío para usar la fuente monoespaciada del sistema.",
           "lineHeight": "Multiplicador de altura de línea para editores de texto plano. 1.0 conserva el espaciado natural de la fuente.",
           "wordWrap": "Ajusta las líneas largas en el borde derecho del editor en lugar de desplazarte horizontalmente."

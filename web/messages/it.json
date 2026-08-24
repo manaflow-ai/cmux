@@ -1149,7 +1149,7 @@
         },
         "fileEditor": {
           "fontSize": "Dimensione del carattere predefinita, in punti, per gli editor di testo semplice appena aperti. Cmd-+ / Cmd-- / Cmd-0 ingrandiscono l’editor corrente.",
-          "fontFamily": "Famiglia di caratteri predefinita per gli editor di testo semplice appena aperti. Lascia vuoto per usare il carattere monospaziato di sistema.",
+          "fontFamily": "Famiglia di caratteri predefinita per gli editor di testo semplice appena aperti. Lascia vuoto questo valore per usare il carattere monospaziato di sistema.",
           "lineHeight": "Moltiplicatore dell’altezza della riga per gli editor di testo semplice. 1.0 conserva la spaziatura naturale del carattere.",
           "wordWrap": "Manda a capo le righe lunghe sul bordo destro dell’editor invece di scorrere orizzontalmente."
         },
