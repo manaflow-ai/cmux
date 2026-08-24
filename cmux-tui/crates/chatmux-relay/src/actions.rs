@@ -655,14 +655,13 @@ fn read_dir_scoped(path: &HostScopedPath) -> Result<std::fs::ReadDir, HostError>
 #[cfg(unix)]
 fn inherited_directory_path(path: &HostScopedPath) -> Result<(std::fs::File, String), HostError> {
     use std::os::fd::AsRawFd as _;
-    let target = open_beneath(&path.anchor, &path.relative, libc::O_RDONLY, false)?;
-    let is_directory = target.metadata()?.is_dir();
+    let target =
+        open_beneath(&path.anchor, &path.relative, libc::O_RDONLY | libc::O_DIRECTORY, false)?;
     let fd = target.as_raw_fd();
     if unsafe { libc::fcntl(fd, libc::F_SETFD, 0) } < 0 {
         return Err(HostError::Io(std::io::Error::last_os_error()));
     }
-    let suffix = if is_directory { "/." } else { "" };
-    Ok((target, format!("/dev/fd/{fd}{suffix}")))
+    Ok((target, format!("/dev/fd/{fd}/.")))
 }
 
 // ---------------------------------------------------------------------------
@@ -1377,6 +1376,14 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 Ok(Err(message)) => return fail("path_forbidden", &message),
                 Err(error) => return io_fail(error),
             };
+            #[cfg(unix)]
+            let (_cwd_guard, command_cwd_path) = match inherited_directory_path(&command_cwd) {
+                Ok(value) => value,
+                Err(HostError::Refusal(message)) => return fail("path_forbidden", &message),
+                Err(HostError::Io(error)) => return io_fail(error),
+            };
+            #[cfg(not(unix))]
+            let command_cwd_path = command_cwd.path.display().to_string();
             let outcome = run_spec(
                 RunSpec::Argv {
                     file: "grep",
@@ -1390,7 +1397,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                         process_path,
                     ],
                 },
-                &command_cwd.path,
+                Path::new(&command_cwd_path),
                 timeout_ms,
                 &env,
             )
@@ -1421,6 +1428,14 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 Ok(Err(message)) => return fail("path_forbidden", &message),
                 Err(error) => return io_fail(error),
             };
+            #[cfg(unix)]
+            let (_cwd_guard, command_cwd_path) = match inherited_directory_path(&command_cwd) {
+                Ok(value) => value,
+                Err(HostError::Refusal(message)) => return fail("path_forbidden", &message),
+                Err(HostError::Io(error)) => return io_fail(error),
+            };
+            #[cfg(not(unix))]
+            let command_cwd_path = command_cwd.path.display().to_string();
             let mut find_args = vec![process_path];
             if let Some(pattern) =
                 args.get("pattern").and_then(Value::as_str).filter(|p| !p.is_empty())
@@ -1430,7 +1445,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
             }
             let outcome = run_spec(
                 RunSpec::Argv { file: "find", args: find_args },
-                &command_cwd.path,
+                Path::new(&command_cwd_path),
                 timeout_ms,
                 &env,
             )
@@ -1452,10 +1467,22 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 Ok(Err(message)) => return fail("path_forbidden", &message),
                 Err(error) => return io_fail(error),
             };
+            #[cfg(unix)]
+            let (_cwd_guard, scoped_cwd_path) = match inherited_directory_path(&scoped_cwd) {
+                Ok(value) => value,
+                Err(HostError::Refusal(message)) => return fail("path_forbidden", &message),
+                Err(HostError::Io(error)) => return io_fail(error),
+            };
+            #[cfg(not(unix))]
+            let scoped_cwd_path = scoped_cwd.path.display().to_string();
             let prepared = command_with_process_files(command, &runtime.files);
-            let outcome =
-                run_spec(RunSpec::Shell { command: &prepared }, &scoped_cwd.path, timeout_ms, &env)
-                    .await;
+            let outcome = run_spec(
+                RunSpec::Shell { command: &prepared },
+                Path::new(&scoped_cwd_path),
+                timeout_ms,
+                &env,
+            )
+            .await;
             run_reply(version, &action_id, outcome, None, None, timeout_ms)
         }
         _ => fail("unsupported_verb", &format!("verb \"{verb}\" fell through")),
