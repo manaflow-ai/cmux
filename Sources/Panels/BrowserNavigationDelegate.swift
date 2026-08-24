@@ -10,6 +10,7 @@ import WebKit
     private let externalNavigationPolicy = BrowserExternalNavigationPolicy(
         trustedOrigin: AuthEnvironment.appWebOrigin
     )
+    private let externalNavigationHandler: BrowserExternalNavigationHandler
     private var shouldPrintAfterCurrentNavigationFinishes = false
     var didStartProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
     var didCommit: ((WKWebView, WKNavigation?) -> Void)?
@@ -56,6 +57,13 @@ import WebKit
     private var trustedInternalNavigationURL: URL?
     // WKNavigation is WebKit's only public identity linking a load to its lifecycle callbacks.
     private var activeMainFrameNavigation: WKNavigation?
+
+    init(
+        externalNavigationHandler: BrowserExternalNavigationHandler = BrowserExternalNavigationHandler()
+    ) {
+        self.externalNavigationHandler = externalNavigationHandler
+        super.init()
+    }
 
     func cancelPendingAuthenticationPrompts(allowFuturePrompts: Bool = false) {
         basicAuthPromptCoordinator.cancelAll(allowFuturePrompts: allowFuturePrompts)
@@ -297,7 +305,7 @@ import WebKit
         }
 
         if let url = navigationAction.request.url,
-           BrowserLinkOpenSettings.openConfiguredExternallyIfNeeded(
+           externalNavigationHandler.openConfiguredExternallyIfNeeded(
                url,
                navigationType: navigationAction.navigationType,
                targetFrameIsMain: navigationAction.targetFrame?.isMainFrame,

@@ -131,6 +131,7 @@ class TerminalController {
     /// Actor-isolated ten-minute cache for mobile task model discovery.
     nonisolated let mobileTaskModelDiscovery: MobileTaskModelDiscovery
     var tabManager: TabManager?
+    private let externalNavigationHandler = BrowserExternalNavigationHandler()
     let workspaceCreateIdempotencyCache = WorkspaceCreateIdempotencyCache(capacity: 256)
     /// The shared auth coordinator + account flow, injected once via
     /// `attachAuth` at app startup (AppDelegate `configure`) before the socket
@@ -7175,7 +7176,7 @@ class TerminalController {
             if let url,
                respectExternalOpenRules,
                preferredProfileID == nil,
-               BrowserLinkOpenSettings.shouldOpenExternally(url) {
+               externalNavigationHandler.shouldOpenExternally(url) {
                 guard NSWorkspace.shared.open(url) else {
                     result = .err(
                         code: "external_open_failed",

@@ -5415,6 +5415,7 @@ final class BrowserHistoryStoreTests: XCTestCase {
     }
 }
 
+@MainActor
 final class BrowserLinkOpenSettingsTests: XCTestCase {
     private var suiteName: String!
     private var defaults: UserDefaults!
@@ -5488,15 +5489,14 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
     }
 
     func testExternalOpenPatternsDefaultToEmpty() {
-        XCTAssertTrue(BrowserLinkOpenSettings.externalOpenPatterns(defaults: defaults).isEmpty)
+        XCTAssertTrue(BrowserExternalURLPolicy(defaults: defaults).patterns.isEmpty)
     }
 
     func testExternalOpenLiteralPatternMatchesCaseInsensitively() {
         defaults.set("openai.com/account/usage", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
         XCTAssertTrue(
-            BrowserLinkOpenSettings.shouldOpenExternally(
-                "https://platform.OPENAI.com/account/usage",
-                defaults: defaults
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                "https://platform.OPENAI.com/account/usage"
             )
         )
     }
@@ -5507,9 +5507,8 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
             forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
         )
         XCTAssertTrue(
-            BrowserLinkOpenSettings.shouldOpenExternally(
-                "https://FOO.example.com/BILLING",
-                defaults: defaults
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                "https://FOO.example.com/BILLING"
             )
         )
     }
@@ -5520,9 +5519,8 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
             forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
         )
         XCTAssertTrue(
-            BrowserLinkOpenSettings.shouldOpenExternally(
-                "https://example.com/usage/42",
-                defaults: defaults
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                "https://example.com/usage/42"
             )
         )
     }
@@ -5530,9 +5528,8 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
     func testExternalOpenPatternsIgnoreInvalidRegexEntries() {
         defaults.set("re:(\nexample.com", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
         XCTAssertTrue(
-            BrowserLinkOpenSettings.shouldOpenExternally(
-                "https://example.com/path",
-                defaults: defaults
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                "https://example.com/path"
             )
         )
     }
@@ -5544,9 +5541,8 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            BrowserLinkOpenSettings.shouldOpenExternally(
-                "https://example.com/",
-                defaults: defaults
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                "https://example.com/"
             )
         )
     }
@@ -5558,9 +5554,8 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            BrowserLinkOpenSettings.shouldOpenExternally(
-                "https://example.com/",
-                defaults: defaults
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                "https://example.com/"
             )
         )
     }
@@ -5573,27 +5568,24 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         let url = try XCTUnwrap(URL(string: "https://example.com/"))
 
         XCTAssertTrue(
-            BrowserLinkOpenSettings.shouldOpenExternally(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
                 url,
                 navigationType: .linkActivated,
-                targetFrameIsMain: true,
-                defaults: defaults
+                targetFrameIsMain: true
             )
         )
         XCTAssertFalse(
-            BrowserLinkOpenSettings.shouldOpenExternally(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
                 url,
                 navigationType: .other,
-                targetFrameIsMain: true,
-                defaults: defaults
+                targetFrameIsMain: true
             )
         )
         XCTAssertFalse(
-            BrowserLinkOpenSettings.shouldOpenExternally(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
                 url,
                 navigationType: .linkActivated,
-                targetFrameIsMain: false,
-                defaults: defaults
+                targetFrameIsMain: false
             )
         )
         let callbackURL = try XCTUnwrap(
@@ -5601,11 +5593,10 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         )
         defaults.set([".*"], forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
         XCTAssertFalse(
-            BrowserLinkOpenSettings.shouldOpenExternally(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
                 callbackURL,
                 navigationType: .linkActivated,
-                targetFrameIsMain: true,
-                defaults: defaults
+                targetFrameIsMain: true
             )
         )
     }
@@ -5619,15 +5610,16 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         var openedURL: URL?
         var didRunAfterOpen = false
 
-        let opened = BrowserLinkOpenSettings.openConfiguredExternallyIfNeeded(
-            url,
-            navigationType: .linkActivated,
-            targetFrameIsMain: true,
+        let opened = BrowserExternalNavigationHandler(
             defaults: defaults,
             openURL: {
                 openedURL = $0
                 return true
-            },
+            }
+        ).openConfiguredExternallyIfNeeded(
+            url,
+            navigationType: .linkActivated,
+            targetFrameIsMain: true,
             onOpened: {
                 didRunAfterOpen = true
             }

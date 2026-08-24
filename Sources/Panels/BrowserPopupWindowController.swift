@@ -123,8 +123,9 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         self.urlLabelHeightConstraint = urlLabel.heightAnchor.constraint(equalToConstant: 16)
 
         // Build delegate objects before super.init so they can be assigned
-        let uiDel = PopupUIDelegate()
-        let navDel = PopupNavigationDelegate()
+        let externalNavigationHandler = BrowserExternalNavigationHandler()
+        let uiDel = PopupUIDelegate(externalNavigationHandler: externalNavigationHandler)
+        let navDel = PopupNavigationDelegate(externalNavigationHandler: externalNavigationHandler)
         let dlDel = BrowserDownloadDelegate()
         self.popupUIDelegate = uiDel
         self.popupNavigationDelegate = navDel
@@ -435,8 +436,15 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
 // MARK: - PopupUIDelegate
 
-private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
+@MainActor
+private final class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
+    private let externalNavigationHandler: BrowserExternalNavigationHandler
     weak var controller: BrowserPopupWindowController?
+
+    init(externalNavigationHandler: BrowserExternalNavigationHandler) {
+        self.externalNavigationHandler = externalNavigationHandler
+        super.init()
+    }
 
     func webViewDidClose(_ webView: WKWebView) {
         #if DEBUG
@@ -452,7 +460,7 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         if let url = navigationAction.request.url,
-           BrowserLinkOpenSettings.openConfiguredExternallyIfNeeded(
+           externalNavigationHandler.openConfiguredExternallyIfNeeded(
                url,
                navigationType: navigationAction.navigationType,
                targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
@@ -623,6 +631,7 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
 
 @MainActor private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
     weak var controller: BrowserPopupWindowController?
+    private let externalNavigationHandler: BrowserExternalNavigationHandler
     var downloadDelegate: WKDownloadDelegate?
     private let authCallbackNavigationPolicy = BrowserAuthCallbackNavigationPolicy(
         trustedSourcePageOrigin: AuthEnvironment.appSessionHandoffOrigin,
@@ -641,6 +650,13 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
     private(set) var activeErrorPageDisplayURL: URL?
     private var activeSSLTrustBypassErrorPageRetryRequest: URLRequest?
     private(set) var activePolicyBlockedURL: URL?
+
+    init(
+        externalNavigationHandler: BrowserExternalNavigationHandler
+    ) {
+        self.externalNavigationHandler = externalNavigationHandler
+        super.init()
+    }
 
     func cancelPendingAuthenticationPrompts() {
         basicAuthPromptCoordinator.cancelAll()
@@ -718,7 +734,7 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
             return
         }
 
-        if BrowserLinkOpenSettings.openConfiguredExternallyIfNeeded(
+        if externalNavigationHandler.openConfiguredExternallyIfNeeded(
             url,
             navigationType: navigationAction.navigationType,
             targetFrameIsMain: navigationAction.targetFrame?.isMainFrame,

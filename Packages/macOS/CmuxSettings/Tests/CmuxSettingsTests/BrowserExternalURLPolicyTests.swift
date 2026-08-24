@@ -13,6 +13,8 @@ struct BrowserExternalURLPolicyTests {
         ("http*://example.com/*", "http://example.com/path", true),
         ("https://example.com/?ath", "https://example.com/path", true),
         ("foo?bar", "https://example.com/fooxbar", true),
+        ("https://example.com/foo?bar+baz", "https://example.com/fooXbar+baz", true),
+        ("https://example\\.com/foo?bar+baz", "https://example.com/fooXbar+baz", true),
         ("foo+bar", "https://example.com/foo+bar", true),
         ("path(test)", "https://example.com/path(test)", true),
         ("example.com/(foo|bar)", "https://example.com/foo", true),

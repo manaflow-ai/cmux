@@ -14,6 +14,7 @@ import Foundation
 @MainActor
 struct TerminalLinkOpenCoordinator {
     private let defaults: UserDefaults
+    private let externalNavigationHandler: BrowserExternalNavigationHandler
     private let containerResolver: @MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)?
     private let externalOpen: @MainActor @Sendable (URL) -> Bool
     private let fileOpen: any FileOpening
@@ -29,6 +30,10 @@ struct TerminalLinkOpenCoordinator {
         }
     ) {
         self.defaults = defaults
+        self.externalNavigationHandler = BrowserExternalNavigationHandler(
+            defaults: defaults,
+            openURL: externalOpen
+        )
         self.containerResolver = containerResolver ?? Self.resolveContainer
         self.externalOpen = externalOpen
         self.fileOpen = fileOpen ?? PreferredEditorService(defaults: defaults)
@@ -205,8 +210,9 @@ struct TerminalLinkOpenCoordinator {
         request: TerminalLinkOpenRequest,
         container: (any TerminalLinkOpenContainer)?
     ) -> Bool {
-        if BrowserLinkOpenSettings.shouldOpenExternally(url, defaults: defaults) {
-            return openExternally(url, reason: "external pattern")
+        if externalNavigationHandler.openConfiguredExternallyIfNeeded(url) {
+            log("link.openURL opening externally reason=external pattern url=\(url)")
+            return true
         }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
             return openExternally(url, reason: "invalid host")

@@ -170188,115 +170188,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ينطبق على نقرات الروابط في صفحات المتصفح والطرفية واستدعاءات `open https://...` المعترضة. قاعدة واحدة لكل سطر. النص العادي يطابق أي جزء من URL؛ تدعم القواعد ذات النمط regex والبدلات * و ? (مثال: example.com، *example.com*، .*example\\\\.com.*)."
+            "value": "ينطبق على نقرات الروابط في صفحات المتصفح والطرفية واستدعاءات `open https://...` المعترضة. قاعدة واحدة لكل سطر. النص العادي يطابق أي جزء من URL؛ تدعم القواعد ذات النمط regex والبدلات * و ? (مثال: example.com، *example.com*، .*example\\.com.*)."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Primjenjuje se na klikove linkova na web-stranicama i u terminalu te presretnute `open https://...` pozive. Jedno pravilo po redu. Običan tekst odgovara bilo kojem dijelu URL-a; podržana su regex-pravila i zamjenski znakovi * i ? (na primjer: example.com, *example.com*, .*example\\\\.com.*)."
+            "value": "Primjenjuje se na klikove linkova na web-stranicama i u terminalu te presretnute `open https://...` pozive. Jedno pravilo po redu. Običan tekst odgovara bilo kojem dijelu URL-a; podržana su regex-pravila i zamjenski znakovi * i ? (na primjer: example.com, *example.com*, .*example\\.com.*)."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gælder for linkklik på browsersider og i terminalen samt opfangede `open https://...`-kald. Én regel pr. linje. Almindelig tekst matcher enhver URL-delstreng; regex-lignende regler og jokertegnene * og ? understøttes (f.eks.: example.com, *example.com*, .*example\\\\.com.*)."
+            "value": "Gælder for linkklik på browsersider og i terminalen samt opfangede `open https://...`-kald. Én regel pr. linje. Almindelig tekst matcher enhver URL-delstreng; regex-lignende regler og jokertegnene * og ? understøttes (f.eks.: example.com, *example.com*, .*example\\.com.*)."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gilt für Klicks auf Links in Browserseiten und im Terminal sowie abgefangene `open https://...`-Aufrufe. Eine Regel pro Zeile. Klartext stimmt mit jedem URL-Teilstring überein; regexartige Regeln und die Platzhalter * und ? werden unterstützt (zum Beispiel: example.com, *example.com*, .*example\\\\.com.*)."
+            "value": "Gilt für Klicks auf Links in Browserseiten und im Terminal sowie abgefangene `open https://...`-Aufrufe. Eine Regel pro Zeile. Klartext stimmt mit jedem URL-Teilstring überein; regexartige Regeln und die Platzhalter * und ? werden unterstützt (zum Beispiel: example.com, *example.com*, .*example\\.com.*)."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Applies to browser-page link clicks, terminal link clicks, and intercepted `open https://...` calls. One rule per line. Plain text matches any URL substring; regex-shaped rules and `*`/`?` wildcards are supported (for example: example.com, *example.com*, .*example\\\\.com.*)."
+            "value": "Applies to browser-page link clicks, terminal link clicks, and intercepted `open https://...` calls. One rule per line. Plain text matches any URL substring; regex-shaped rules and `*`/`?` wildcards are supported (for example: example.com, *example.com*, .*example\\.com.*)."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se aplica a clics en enlaces de páginas del navegador y del terminal, y a llamadas interceptadas de `open https://...`. Una regla por línea. El texto plano coincide con cualquier subcadena de URL; se admiten reglas con forma de regex y comodines * y ? (por ejemplo: example.com, *example.com*, .*example\\\\.com.*)."
+            "value": "Se aplica a clics en enlaces de páginas del navegador y del terminal, y a llamadas interceptadas de `open https://...`. Una regla por línea. El texto plano coincide con cualquier subcadena de URL; se admiten reglas con forma de regex y comodines * y ? (por ejemplo: example.com, *example.com*, .*example\\.com.*)."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "S’applique aux clics sur les liens des pages du navigateur et du terminal, ainsi qu’aux appels `open https://...` interceptés. Une règle par ligne. Le texte brut correspond à toute sous-chaîne d’URL ; les règles de type regex et les jokers * et ? sont pris en charge (par exemple : example.com, *example.com*, .*example\\\\.com.*)."
+            "value": "S’applique aux clics sur les liens des pages du navigateur et du terminal, ainsi qu’aux appels `open https://...` interceptés. Une règle par ligne. Le texte brut correspond à toute sous-chaîne d’URL ; les règles de type regex et les jokers * et ? sont pris en charge (par exemple : example.com, *example.com*, .*example\\.com.*)."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Si applica ai clic sui link nelle pagine del browser e nel terminale, e alle chiamate intercettate `open https://...`. Una regola per riga. Il testo semplice corrisponde a qualsiasi sottostringa dell’URL; sono supportate le regole simili a regex e i caratteri jolly * e ? (ad esempio: example.com, *example.com*, .*example\\\\.com.*)."
+            "value": "Si applica ai clic sui link nelle pagine del browser e nel terminale, e alle chiamate intercettate `open https://...`. Una regola per riga. Il testo semplice corrisponde a qualsiasi sottostringa dell’URL; sono supportate le regole simili a regex e i caratteri jolly * e ? (ad esempio: example.com, *example.com*, .*example\\.com.*)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ブラウザページのリンククリック、ターミナルのリンククリック、およびインターセプトされた`open https://...`呼び出しに適用されます。1行に1ルール。プレーンテキストはURL部分文字列に一致し、正規表現形式のルールと`*`/`?`ワイルドカードも使用できます（例: example.com、*example.com*、.*example\\\\.com.*）。"
+            "value": "ブラウザページのリンククリック、ターミナルのリンククリック、およびインターセプトされた`open https://...`呼び出しに適用されます。1行に1ルール。プレーンテキストはURL部分文字列に一致し、正規表現形式のルールと`*`/`?`ワイルドカードも使用できます（例: example.com、*example.com*、.*example\\.com.*）。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុវត្តចំពោះការចុចតំណនៅលើទំព័រកម្មវិធីរុករក ការចុចតំណក្នុងស្ថានីយ និងការហៅ `open https://...` ដែលបានស្ទាក់។ ច្បាប់មួយក្នុងមួយបន្ទាត់។ អត្ថបទធម្មតាត្រូវនឹងខ្សែអក្សររងណាមួយនៃ URL; គាំទ្រច្បាប់ទម្រង់ regex និង wildcard `*`/`?` (ឧទាហរណ៍៖ example.com, *example.com*, .*example\\.com.*)។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "브라우저 페이지와 터미널의 링크 클릭 및 인터셉트된 `open https://...` 호출에 적용됩니다. 한 줄에 하나의 규칙. 일반 텍스트는 URL의 하위 문자열과 일치하며, 정규식 형태의 규칙과 * 및 ? 와일드카드를 지원합니다 (예: example.com, *example.com*, .*example\\\\.com.*)."
+            "value": "브라우저 페이지와 터미널의 링크 클릭 및 인터셉트된 `open https://...` 호출에 적용됩니다. 한 줄에 하나의 규칙. 일반 텍스트는 URL의 하위 문자열과 일치하며, 정규식 형태의 규칙과 * 및 ? 와일드카드를 지원합니다 (예: example.com, *example.com*, .*example\\.com.*)."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gjelder for lenkeklikk på nettlesersider og i terminalen samt avlyttede `open https://...`-kall. Én regel per linje. Ren tekst matcher enhver del av URL-en; regex-lignende regler og jokertegnene * og ? støttes (for eksempel: example.com, *example.com*, .*example\\\\.com.*)."
+            "value": "Gjelder for lenkeklikk på nettlesersider og i terminalen samt avlyttede `open https://...`-kall. Én regel per linje. Ren tekst matcher enhver del av URL-en; regex-lignende regler og jokertegnene * og ? støttes (for eksempel: example.com, *example.com*, .*example\\.com.*)."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dotyczy kliknięć linków na stronach przeglądarki i w terminalu oraz przechwyconych wywołań `open https://...`. Jedna reguła na wiersz. Zwykły tekst dopasowuje dowolny fragment URL; obsługiwane są reguły w stylu regex oraz symbole wieloznaczne * i ? (na przykład: example.com, *example.com*, .*example\\\\.com.*)."
+            "value": "Dotyczy kliknięć linków na stronach przeglądarki i w terminalu oraz przechwyconych wywołań `open https://...`. Jedna reguła na wiersz. Zwykły tekst dopasowuje dowolny fragment URL; obsługiwane są reguły w stylu regex oraz symbole wieloznaczne * i ? (na przykład: example.com, *example.com*, .*example\\.com.*)."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aplica-se a cliques em links de páginas do navegador e do terminal e a chamadas interceptadas de `open https://...`. Uma regra por linha. Texto simples corresponde a qualquer substring de URL; regras no formato regex e curingas * e ? são aceitos (por exemplo: example.com, *example.com*, .*example\\\\.com.*)."
+            "value": "Aplica-se a cliques em links de páginas do navegador e do terminal e a chamadas interceptadas de `open https://...`. Uma regra por linha. Texto simples corresponde a qualquer substring de URL; regras no formato regex e curingas * e ? são aceitos (por exemplo: example.com, *example.com*, .*example\\.com.*)."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Применяется к нажатиям на ссылки на страницах браузера и в терминале, а также к перехваченным вызовам `open https://...`. Одно правило на строку. Обычный текст совпадает с любой подстрокой URL; поддерживаются правила в стиле regex и подстановочные символы * и ? (например: example.com, *example.com*, .*example\\\\.com.*)."
+            "value": "Применяется к нажатиям на ссылки на страницах браузера и в терминале, а также к перехваченным вызовам `open https://...`. Одно правило на строку. Обычный текст совпадает с любой подстрокой URL; поддерживаются правила в стиле regex и подстановочные символы * и ? (например: example.com, *example.com*, .*example\\.com.*)."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ใช้กับการคลิกลิงก์ในหน้าเบราว์เซอร์และเทอร์มินัล รวมถึงการดักจับคำสั่ง `open https://...` กฎหนึ่งข้อต่อบรรทัด ข้อความธรรมดาจะจับคู่กับส่วนใดก็ได้ของ URL และรองรับกฎรูปแบบ regex รวมถึงไวลด์การ์ด * และ ? (ตัวอย่าง: example.com, *example.com*, .*example\\\\.com.*)"
+            "value": "ใช้กับการคลิกลิงก์ในหน้าเบราว์เซอร์และเทอร์มินัล รวมถึงการดักจับคำสั่ง `open https://...` กฎหนึ่งข้อต่อบรรทัด ข้อความธรรมดาจะจับคู่กับส่วนใดก็ได้ของ URL และรองรับกฎรูปแบบ regex รวมถึงไวลด์การ์ด * และ ? (ตัวอย่าง: example.com, *example.com*, .*example\\.com.*)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tarayıcı sayfalarındaki ve terminaldeki bağlantı tıklamalarına ve yakalanan `open https://...` çağrılarına uygulanır. Satır başına bir kural. Düz metin herhangi bir URL alt dizesiyle eşleşir; regex biçimli kurallar ile * ve ? joker karakterleri desteklenir (örneğin: example.com, *example.com*, .*example\\\\.com.*)."
+            "value": "Tarayıcı sayfalarındaki ve terminaldeki bağlantı tıklamalarına ve yakalanan `open https://...` çağrılarına uygulanır. Satır başına bir kural. Düz metin herhangi bir URL alt dizesiyle eşleşir; regex biçimli kurallar ile * ve ? joker karakterleri desteklenir (örneğin: example.com, *example.com*, .*example\\.com.*)."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Застосовується до кліків на посилання на сторінках браузера й у терміналі, а також до перехоплених викликів `open https://...`. Одне правило на рядок. Звичайний текст збігається з будь-якою частиною URL; підтримуються правила у стилі regex і символи підстановки * та ? (наприклад: example.com, *example.com*, .*example\\\\.com.*)."
+            "value": "Застосовується до кліків на посилання на сторінках браузера й у терміналі, а також до перехоплених викликів `open https://...`. Одне правило на рядок. Звичайний текст збігається з будь-якою частиною URL; підтримуються правила у стилі regex і символи підстановки * та ? (наприклад: example.com, *example.com*, .*example\\.com.*)."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "适用于浏览器页面和终端中的链接点击，以及拦截的 `open https://...` 调用。每行一条规则。纯文本匹配任意 URL 子串；支持正则表达式形式的规则以及 * 和 ? 通配符（例如：example.com、*example.com*、.*example\\\\.com.*）。"
+            "value": "适用于浏览器页面和终端中的链接点击，以及拦截的 `open https://...` 调用。每行一条规则。纯文本匹配任意 URL 子串；支持正则表达式形式的规则以及 * 和 ? 通配符（例如：example.com、*example.com*、.*example\\.com.*）。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "套用於瀏覽器頁面和終端機的連結點擊，以及攔截的 `open https://...` 呼叫。每行一條規則。純文字會比對 URL 的任何子字串；支援正規表示式形式的規則以及 * 和 ? 萬用字元（例如：example.com、*example.com*、.*example\\\\.com.*）。"
+            "value": "套用於瀏覽器頁面和終端機的連結點擊，以及攔截的 `open https://...` 呼叫。每行一條規則。純文字會比對 URL 的任何子字串；支援正規表示式形式的規則以及 * 和 ? 萬用字元（例如：example.com、*example.com*、.*example\\.com.*）。"
           }
         }
       }

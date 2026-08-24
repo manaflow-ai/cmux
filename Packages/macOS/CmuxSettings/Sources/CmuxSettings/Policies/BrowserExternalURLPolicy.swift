@@ -55,12 +55,14 @@ public struct BrowserExternalURLPolicy: Equatable, Sendable {
 
         // Keep the documented plain-text substring behavior, while accepting
         // the regex-shaped rules users historically supplied to this setting.
-        // A plain star/question rule is a glob unless it contains regex
-        // syntax. Regex-shaped rules first get a literal chance so legacy
-        // URLs containing metacharacters remain usable as exact substrings.
-        if pattern.contains("*") || pattern.contains("?"),
-           !isRegexShaped(pattern) {
-            return regexMatches(wildcardRegex(for: pattern), target: target)
+        // A rule containing star/question wildcards is a glob by default, even
+        // when it also contains regex metacharacters. The common unprefixed
+        // `.*`/`.+` forms remain regexes for compatibility; use `re:` for any
+        // other regex that also needs wildcard characters.
+        if pattern.contains("*") || pattern.contains("?") {
+            guard isLegacyRegexWildcardPattern(pattern) else {
+                return regexMatches(wildcardRegex(for: pattern), target: target)
+            }
         }
 
         if isRegexShaped(pattern) {
@@ -86,18 +88,29 @@ public struct BrowserExternalURLPolicy: Equatable, Sendable {
     }
 
     private static func isRegexShaped(_ pattern: String) -> Bool {
-        if pattern.contains(".*") || pattern.contains(".+") {
-            return true
-        }
-        return pattern.contains(where: { character in
+        pattern.contains(where: { character in
             "\\^$+()[]{}|".contains(character)
-        })
+        }) || pattern.contains(".*") || pattern.contains(".+")
+    }
+
+    private static func isLegacyRegexWildcardPattern(_ pattern: String) -> Bool {
+        pattern.contains(".*") || pattern.contains(".+")
     }
 
     private static func wildcardRegex(for pattern: String) -> String {
         var expression = ""
         expression.reserveCapacity(pattern.count * 2)
+        var isEscaping = false
         for character in pattern {
+            if isEscaping {
+                expression += NSRegularExpression.escapedPattern(for: String(character))
+                isEscaping = false
+                continue
+            }
+            if character == "\\" {
+                isEscaping = true
+                continue
+            }
             switch character {
             case "*":
                 expression += ".*"
@@ -106,6 +119,9 @@ public struct BrowserExternalURLPolicy: Equatable, Sendable {
             default:
                 expression += NSRegularExpression.escapedPattern(for: String(character))
             }
+        }
+        if isEscaping {
+            expression += NSRegularExpression.escapedPattern(for: "\\")
         }
         return expression
     }

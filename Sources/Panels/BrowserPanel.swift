@@ -481,7 +481,6 @@ enum BrowserLinkOpenSettings {
     static let browserHostWhitelistKey = "browserHostWhitelist"
     static let defaultBrowserHostWhitelist: String = ""
     static let browserExternalOpenPatternsKey = BrowserExternalURLPolicy.userDefaultsKey
-    static let defaultBrowserExternalOpenPatterns: String = ""
 
     static func openTerminalLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
         guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
@@ -531,62 +530,6 @@ enum BrowserLinkOpenSettings {
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-    }
-
-    static func externalOpenPatterns(defaults: UserDefaults = .standard) -> [String] {
-        BrowserExternalURLPolicy(defaults: defaults).patterns
-    }
-
-    static func shouldOpenExternally(_ url: URL, defaults: UserDefaults = .standard) -> Bool {
-        shouldOpenExternally(url.absoluteString, defaults: defaults)
-    }
-
-    static func shouldOpenExternally(_ rawURL: String, defaults: UserDefaults = .standard) -> Bool {
-        let target = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !target.isEmpty else { return false }
-        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return true }
-        return BrowserExternalURLPolicy(defaults: defaults).matches(target)
-    }
-
-    static func shouldOpenExternally(
-        _ url: URL,
-        navigationType: WKNavigationType,
-        targetFrameIsMain: Bool?,
-        defaults: UserDefaults = .standard
-    ) -> Bool {
-        guard navigationType == .linkActivated,
-              targetFrameIsMain != false,
-              url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased() else {
-            return false
-        }
-        return shouldOpenExternally(url, defaults: defaults)
-    }
-
-    /// Opens a matching user-activated navigation through the system opener.
-    ///
-    /// All WebKit delegates use this synchronous action so matching and
-    /// opener-failure behavior cannot drift between main-frame and popup
-    /// navigation. onOpened lets a delegate clear its own pending navigation
-    /// state after the system accepted the URL.
-    @discardableResult
-    static func openConfiguredExternallyIfNeeded(
-        _ url: URL,
-        navigationType: WKNavigationType,
-        targetFrameIsMain: Bool?,
-        defaults: UserDefaults = .standard,
-        openURL: (URL) -> Bool = { NSWorkspace.shared.open($0) },
-        onOpened: () -> Void = {}
-    ) -> Bool {
-        guard shouldOpenExternally(
-            url,
-            navigationType: navigationType,
-            targetFrameIsMain: targetFrameIsMain,
-            defaults: defaults
-        ), openURL(url) else {
-            return false
-        }
-        onOpened()
-        return true
     }
 
     /// Check whether a hostname matches the configured whitelist.
@@ -3695,7 +3638,9 @@ final class BrowserPanel: Panel, ObservableObject {
         self.navigationDelegate = navDelegate
 
         // Set up UI delegate (handles cmd+click, target=_blank, and context menu)
-        let browserUIDelegate = BrowserUIDelegate()
+        let browserUIDelegate = BrowserUIDelegate(
+            externalNavigationHandler: BrowserExternalNavigationHandler()
+        )
         browserUIDelegate.owner = self
         browserUIDelegate.openInNewTab = { [weak self] url in
             guard let self else { return }
@@ -8268,13 +8213,22 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
 
 // MARK: - UI Delegate
 
-private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
+@MainActor
+private final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
+    private let externalNavigationHandler: BrowserExternalNavigationHandler
     weak var owner: BrowserPanel?
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?; var recordPDFPrintIntent: ((URLRequest, WKFrameInfo?) -> Void)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
     var openPopup: ((WKWebViewConfiguration, WKWindowFeatures) -> WKWebView?)?
     var closeRequested: ((WKWebView) -> Void)?
+
+    init(
+        externalNavigationHandler: BrowserExternalNavigationHandler
+    ) {
+        self.externalNavigationHandler = externalNavigationHandler
+        super.init()
+    }
 
     func webViewDidClose(_ webView: WKWebView) {
         closeRequested?(webView)
@@ -8333,7 +8287,7 @@ private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         )
 #endif
         if let url = navigationAction.request.url,
-           BrowserLinkOpenSettings.openConfiguredExternallyIfNeeded(
+           externalNavigationHandler.openConfiguredExternallyIfNeeded(
                url,
                navigationType: navigationAction.navigationType,
                targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
