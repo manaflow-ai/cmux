@@ -2223,6 +2223,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // transports keep the row-quantized line path.
             if pixels != 0,
                delegate?.ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(self) == true {
+                // Entering the pixel path: drop any line-path residue so a
+                // sub-line fraction from an earlier alt gesture cannot leak
+                // into a later line-path dispatch.
+                linePathFractionCarry = 0
+                linePathDecelerationStartedAt = nil
                 applyLocalPixelScroll(
                     pixels: pixels,
                     interactionGeneration: generation
