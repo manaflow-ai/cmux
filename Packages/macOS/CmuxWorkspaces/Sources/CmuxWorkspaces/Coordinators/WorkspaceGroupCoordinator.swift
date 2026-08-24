@@ -344,7 +344,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     /// Collapses every expanded group in one coordinated sidebar mutation.
     ///
     /// Focus moves to the selected child's group anchor when needed, and
-    /// sidebar multi-selection is reconciled once for all newly hidden rows.
+    /// sidebar multi-selection is reconciled once for all hidden rows.
     public func collapseAllWorkspaceGroups() {
         applyWorkspaceGroupDisclosure(
             groupIds: Set(model.workspaceGroups.map(\.id)),
@@ -377,20 +377,19 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         isCollapsed: Bool
     ) {
         guard let host else { return }
-        let changingGroups = model.workspaceGroups.filter {
-            groupIds.contains($0.id) && $0.isCollapsed != isCollapsed
-        }
-        guard !changingGroups.isEmpty else { return }
-
-        let changingGroupsById = Dictionary(
-            uniqueKeysWithValues: changingGroups.map { ($0.id, $0) }
+        let targetGroups = model.workspaceGroups.filter { groupIds.contains($0.id) }
+        guard !targetGroups.isEmpty else { return }
+        let targetGroupsById = Dictionary(
+            uniqueKeysWithValues: targetGroups.map { ($0.id, $0) }
         )
-        let changingGroupIds = Set(changingGroupsById.keys)
+        let changingGroupIds = Set(
+            targetGroups.filter { $0.isCollapsed != isCollapsed }.map(\.id)
+        )
 
         if isCollapsed {
             let hiddenMemberIds = Set(model.tabs.compactMap { tab -> UUID? in
                 guard let groupId = tab.groupId,
-                      let group = changingGroupsById[groupId],
+                      let group = targetGroupsById[groupId],
                       group.anchorWorkspaceId != tab.id else {
                     return nil
                 }
@@ -400,7 +399,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             var focusedWorkspaceId: UUID?
             if let selectedTabId = model.selectedTabId,
                let selectedGroupId = model.tabs.first(where: { $0.id == selectedTabId })?.groupId,
-               let selectedGroup = changingGroupsById[selectedGroupId],
+               let selectedGroup = targetGroupsById[selectedGroupId],
                selectedGroup.anchorWorkspaceId != selectedTabId,
                let anchor = model.tabs.first(where: { $0.id == selectedGroup.anchorWorkspaceId }) {
                 host.selectWorkspace(anchor)
@@ -408,7 +407,8 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             }
 
             if !hiddenMemberIds.isEmpty,
-               !host.sidebarSelectedWorkspaceIds.isDisjoint(with: hiddenMemberIds) {
+               (!host.sidebarSelectedWorkspaceIds.isDisjoint(with: hiddenMemberIds)
+                || focusedWorkspaceId != nil) {
                 host.subtractSidebarSelection(
                     hiddenWorkspaceIds: hiddenMemberIds,
                     focusedWorkspaceId: focusedWorkspaceId
@@ -416,6 +416,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             }
         }
 
+        guard !changingGroupIds.isEmpty else { return }
         var groups = model.workspaceGroups
         for index in groups.indices where changingGroupIds.contains(groups[index].id) {
             groups[index].isCollapsed = isCollapsed
