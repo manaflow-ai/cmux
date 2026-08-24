@@ -826,6 +826,9 @@ async fn run_spec(
                 let _ = child.start_kill();
                 final_wait_deadline = None;
                 exited = Some(1);
+                drain_deadline = Some(Box::pin(tokio::time::sleep(
+                    std::time::Duration::from_millis(250),
+                )));
             }
         }
     }
