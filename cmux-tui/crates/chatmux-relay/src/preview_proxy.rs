@@ -385,6 +385,7 @@ struct ProxyShared {
     target_connected: AtomicBool,
     next_peer_id: AtomicU64,
     next_cdp_id: AtomicI64,
+    shutdown: tokio::sync::watch::Receiver<bool>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -429,6 +430,7 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRu
             )
         })?
         .port();
+    let (shutdown, mut stopped) = tokio::sync::watch::channel(false);
     let shared = Arc::new(ProxyShared {
         target_port,
         ring,
@@ -437,8 +439,8 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRu
         target_connected: AtomicBool::new(false),
         next_peer_id: AtomicU64::new(1),
         next_cdp_id: AtomicI64::new(PROXY_CDP_ID_BASE),
+        shutdown: stopped.clone(),
     });
-    let (shutdown, mut stopped) = tokio::sync::watch::channel(false);
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let task = tokio::spawn(async move {
         let mut connections = tokio::task::JoinSet::new();
@@ -581,6 +583,7 @@ fn accept_websocket(
         return text_response(400, "missing sec-websocket-key");
     };
     let accept = tungstenite::handshake::derive_accept_key(key.as_bytes());
+    let mut shutdown = shared.shutdown.clone();
     tokio::spawn(async move {
         if let Ok(upgraded) = hyper::upgrade::on(request).await {
             let io = hyper_util::rt::TokioIo::new(upgraded);
@@ -595,7 +598,10 @@ fn accept_websocket(
                 ),
             )
             .await;
-            run_peer(shared, socket, role).await;
+            tokio::select! {
+                _ = shutdown.changed() => {}
+                _ = run_peer(shared, socket, role, shutdown) => {}
+            }
         }
     });
     let mut response = hyper::Response::new(full_body(Vec::new()));
@@ -664,6 +670,7 @@ async fn run_peer<S>(
     shared: Arc<ProxyShared>,
     socket: tokio_tungstenite::WebSocketStream<S>,
     role: PeerRole,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
@@ -723,12 +730,12 @@ async fn run_peer<S>(
     });
     let mut replaced = false;
     loop {
-        let Some(Ok(message)) = (tokio::select! {
+        let message = tokio::select! {
+            _ = shutdown.changed() => break,
             _ = cancelled.changed() => { replaced = true; break },
             message = stream.next() => message,
-        }) else {
-            break;
         };
+        let Some(Ok(message)) = message else { break };
         match message {
             Message::Text(text) => {
                 let text = text.as_str().to_owned();
