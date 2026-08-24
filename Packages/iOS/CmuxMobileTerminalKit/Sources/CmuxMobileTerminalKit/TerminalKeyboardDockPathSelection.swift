@@ -17,6 +17,14 @@ public struct TerminalKeyboardDockPathSelection: Sendable, Equatable {
     /// DEBUG-only force pinning the rebuilt path on iOS ≤26.
     public let debugForceRebuild: Bool
 
+    /// Creates a selection from the runtime inputs a host snapshots at mount.
+    ///
+    /// - Parameters:
+    ///   - osMajorVersion: The runtime OS major version.
+    ///   - remoteRebuildRevert: The remote kill switch value.
+    ///   - debugForceLegacy: DEBUG-only legacy pin (UI-test env force).
+    ///   - debugForceRebuild: DEBUG-only rebuild pin (UI-test env force or
+    ///     the Settings > Developer override).
     public init(
         osMajorVersion: Int,
         remoteRebuildRevert: Bool,

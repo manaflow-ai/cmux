@@ -55,10 +55,24 @@ public final class GhosttySurfaceHostView: UIView {
     private var maximumRendererDockPresentationGap: CGFloat = 0
     #endif
 
+    /// Creates the host that owns terminal clipping, dock placement, and
+    /// keyboard motion for one mounted surface.
+    ///
+    /// - Parameters:
+    ///   - surfaceView: The terminal surface this host clips and docks.
+    ///   - keyboardFrameTracker: The app-lifetime screen-space keyboard
+    ///     record used to recover transitions this host missed while detached.
+    ///   - keyboardDockRebuildRevertEnabled: The remote
+    ///     `ios-keyboard-dock-rebuild-revert` kill switch value, snapshotted
+    ///     at mount; `true` routes iOS ≤26 to the rebuilt dock path.
+    ///   - defaults: The store consulted for the DEBUG-only Developer
+    ///     override; production callers use `.standard`, tests inject a
+    ///     scoped suite.
     public init(
         surfaceView: GhosttySurfaceView,
         keyboardFrameTracker: MobileKeyboardFrameTracker,
-        keyboardDockRebuildRevertEnabled: Bool = false
+        keyboardDockRebuildRevertEnabled: Bool = false,
+        defaults: UserDefaults = .standard
     ) {
         self.surfaceView = surfaceView
         self.keyboardFrameTracker = keyboardFrameTracker
@@ -69,7 +83,7 @@ public final class GhosttySurfaceHostView: UIView {
         // UI-test env force, or the Settings > Developer dogfood override
         // (per-host snapshot: applies to terminals hosted after it changes).
         debugForceRebuild = UITestConfig.forceRebuildKeyboardDock
-            || UserDefaults.standard.cmuxForceRebuildKeyboardDock
+            || defaults.cmuxForceRebuildKeyboardDock
         #endif
         self.usesLegacyKeyboardDockPath = TerminalKeyboardDockPathSelection(
             osMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
@@ -154,10 +168,10 @@ public final class GhosttySurfaceHostView: UIView {
         // Recover any keyboard transition that happened while detached: the
         // tracker records keyboard frames process-wide, so a workspace switch
         // that detached this host mid-transition cannot wedge the dock at its
-        // stale pre-detach seat. The legacy path keeps the pre-rebuild
-        // behavior of settling at the last notification-derived height.
-        if !usesLegacyKeyboardDockPath,
-           let overlap = keyboardFrameTracker.currentOverlap(in: self) {
+        // stale pre-detach seat. Both paths recover — keyboard notifications
+        // are ignored while detached, so the last notification-derived height
+        // is exactly the value that goes stale.
+        if let overlap = keyboardFrameTracker.currentOverlap(in: self) {
             keyboardTargetHeight = max(0, overlap)
         }
         settleDockWithoutKeyboardAnimation()
@@ -310,12 +324,14 @@ public final class GhosttySurfaceHostView: UIView {
             bottomSafeAreaInset: resolvedBottomSafeAreaInset
         )
         dockBottomConstraint.constant = -reservation
-        if !usesLegacyKeyboardDockPath {
-            surfaceView.settleHostedKeyboard(
-                height: keyboardTargetHeight,
-                isVisible: keyboardFrameTracker.currentVisibility(in: self)
-            )
-        }
+        // Settled-state sync is path-independent: it folds the surface's
+        // keyboard height/visibility to the recovered values and clears any
+        // transition flag a detach interrupted, so a workspace switch cannot
+        // strand the renderer mid-transition on either path.
+        surfaceView.settleHostedKeyboard(
+            height: keyboardTargetHeight,
+            isVisible: keyboardFrameTracker.currentVisibility(in: self)
+        )
         UIView.performWithoutAnimation {
             layoutIfNeeded()
         }
