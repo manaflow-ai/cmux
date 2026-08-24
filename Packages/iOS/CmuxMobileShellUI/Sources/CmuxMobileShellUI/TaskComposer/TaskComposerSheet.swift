@@ -422,10 +422,13 @@ struct TaskComposerSheet: View {
                 modelRefreshTask?.cancel()
                 modelRefreshOperationID = nil
                 attachmentStagingTask?.cancel()
-                removeStagedAttachmentFiles()
+                // Persist before deleting the staged files: preserving an
+                // attachment copies from its staged URL, so the reverse order
+                // silently drops attachments from the saved draft.
                 if shouldPersistDraftOnDisappear {
                     persistDraft()
                 }
+                removeStagedAttachmentFiles()
             }
             .onAppear {
                 store.recordAppEvent(
@@ -999,10 +1002,11 @@ struct TaskComposerSheet: View {
     }
 
     /// Saves the current content under this session's identity, then hands
-    /// the presenter another draft to rebuild the composer from.
+    /// the presenter another draft to rebuild the composer from. A failed
+    /// save keeps the session in place instead of silently discarding it.
     private func resumeDraft(_ id: UUID) {
         guard let onSwitchDraft else { return }
-        persistDraft()
+        guard persistDraftContent(base: draftSnapshot()) else { return }
         // The replaced view's onDisappear must not persist again: state
         // storage is already torn down by the identity switch, so that late
         // persist reads initial values and its empty snapshot would delete
@@ -1012,9 +1016,10 @@ struct TaskComposerSheet: View {
     }
 
     /// Saves the current content as its own draft and starts a fresh one.
+    /// A failed save keeps the session in place instead of discarding it.
     private func startNewDraft() {
         guard let onSwitchDraft else { return }
-        persistDraft()
+        guard persistDraftContent(base: draftSnapshot()) else { return }
         // See resumeDraft: block the torn-down view's late empty persist.
         shouldPersistDraftOnDisappear = false
         onSwitchDraft(.new)

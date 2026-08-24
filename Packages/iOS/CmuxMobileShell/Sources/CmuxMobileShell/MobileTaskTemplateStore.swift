@@ -191,9 +191,20 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
 
     /// Inserts or replaces one draft by id at the front of the collection,
     /// dropping the oldest entries (and their attachment files) beyond the
-    /// bounded storage limit.
+    /// bounded storage limit. Files owned by attachments the replacement no
+    /// longer references are deleted so removed attachments leave no bytes.
     public func saveComposerDraft(_ draft: MobileTaskComposerSavedDraft) {
         var drafts = composerDrafts()
+        if let previous = drafts.first(where: { $0.id == draft.id }) {
+            let keptPaths = Set(draft.content.attachments.map(\.relativePath))
+            for dropped in previous.content.attachments
+            where !keptPaths.contains(dropped.relativePath) {
+                guard let url = composerAttachmentFileURL(
+                    relativePath: dropped.relativePath
+                ) else { continue }
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
         drafts.removeAll { $0.id == draft.id }
         drafts.insert(draft, at: 0)
         if drafts.count > Self.composerDraftLimit {

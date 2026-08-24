@@ -785,6 +785,50 @@ import CmuxMobileShellModel
         try? FileManager.default.removeItem(at: root)
     }
 
+    @Test func resavingADraftWithoutAnAttachmentDeletesItsPreservedFile() throws {
+        let root = Self.attachmentsRoot()
+        let store = UserDefaultsMobileTaskTemplateStore(
+            defaults: Self.defaults(),
+            attachmentFilesRootDirectory: root
+        )
+        let source = FileManager.default.temporaryDirectory
+            .appendingPathComponent("draft-attachment-source-\(UUID().uuidString).txt")
+        try Data("removable".utf8).write(to: source)
+        defer { try? FileManager.default.removeItem(at: source) }
+        let draftID = UUID()
+        let relativePath = try store.persistComposerAttachmentFile(
+            draftID: draftID,
+            attachmentID: UUID(),
+            preferredExtension: "txt",
+            from: source
+        )
+        var content = Self.draftContent(prompt: "With attachment")
+        content.attachments = [MobileTaskComposerDraftAttachment(
+            id: UUID(),
+            kind: "file",
+            displayName: "notes.txt",
+            relativePath: relativePath,
+            byteCount: 9
+        )]
+        store.saveComposerDraft(MobileTaskComposerSavedDraft(
+            id: draftID,
+            updatedAt: Date(),
+            content: content
+        ))
+        #expect(store.composerAttachmentFileURL(relativePath: relativePath) != nil)
+
+        content.attachments = []
+        store.saveComposerDraft(MobileTaskComposerSavedDraft(
+            id: draftID,
+            updatedAt: Date(),
+            content: content
+        ))
+
+        #expect(store.composerAttachmentFileURL(relativePath: relativePath) == nil)
+        #expect(store.composerDrafts().count == 1)
+        try? FileManager.default.removeItem(at: root)
+    }
+
     @Test func clearAllUserDataRemovesPreservedAttachmentFiles() throws {
         let root = Self.attachmentsRoot()
         let defaults = Self.defaults()
