@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { maxActiveVmsForPlan } from "../services/vms/entitlements";
+import {
+  defaultMemoryMbForPlan,
+  maxActiveVmsForPlan,
+  maxMemoryMbForPlan,
+} from "../services/vms/entitlements";
 import { vmActiveLimitExceededResponse } from "../services/vms/routeHelpers";
 
 async function body(response: Response): Promise<Record<string, unknown>> {
@@ -17,6 +21,27 @@ describe("free plan VM allowance", () => {
 
   test("the free allowance stays env-overridable", () => {
     expect(maxActiveVmsForPlan("free", { CMUX_VM_FREE_MAX_ACTIVE_VMS: "7" })).toBe(7);
+  });
+});
+
+describe("Cloud VM memory allowance", () => {
+  test("free defaults to 4 GB and caps at 4 GB", () => {
+    expect(defaultMemoryMbForPlan("free", {})).toBe(4096);
+    expect(maxMemoryMbForPlan("free", {})).toBe(4096);
+  });
+
+  test("paid plans default to 8 GB and cap at 32 GB", () => {
+    expect(defaultMemoryMbForPlan("pro", {})).toBe(8192);
+    expect(maxMemoryMbForPlan("pro", {})).toBe(32768);
+  });
+
+  test("memory defaults and caps are independently env-overridable", () => {
+    const env = {
+      CMUX_VM_PLAN_PRO_DEFAULT_MEMORY_MB: "16384",
+      CMUX_VM_PLAN_PRO_MAX_MEMORY_MB: "24576",
+    };
+    expect(defaultMemoryMbForPlan("pro", env)).toBe(16384);
+    expect(maxMemoryMbForPlan("pro", env)).toBe(24576);
   });
 });
 

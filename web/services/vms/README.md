@@ -72,8 +72,9 @@ Default image policy:
   `FREESTYLE_SANDBOX_SNAPSHOT`.
 - Local development uses the manifest entry marked `defaultForLocalDev` when the provider env var
   is unset.
-- The current intended default provider is Freestyle when `CMUX_VM_DEFAULT_PROVIDER=freestyle`; keep
-  E2B enabled as rollback.
+- The current intended default provider is Blaxel. Set `CMUX_VM_DEFAULT_PROVIDER=blaxel` (the local
+  loader supplies this when unset); Freestyle, E2B, and Daytona remain explicit rollback/provider
+  overrides rather than silent fallbacks.
 - Baked agent tools are installed at image-build time. They are not auto-updated on VM startup, so
   startup latency stays bounded and the active image manifest remains the source of truth.
 - To update tool versions, rebuild the provider images and record the new template/snapshot IDs in
@@ -198,7 +199,7 @@ Set these Vercel environment variables per production/staging environment:
 - `E2B_CMUXD_WS_TEMPLATE`, E2B template alias/name for WebSocket PTY sandboxes.
 - `FREESTYLE_SANDBOX_SNAPSHOT`, Freestyle snapshot id.
 - `DAYTONA_SANDBOX_SNAPSHOT`, Daytona snapshot name for WebSocket PTY sandboxes.
-- `CMUX_VM_DEFAULT_PROVIDER`, `freestyle`, `e2b`, or `daytona`.
+- `CMUX_VM_DEFAULT_PROVIDER`, `blaxel`, `freestyle`, `e2b`, or `daytona` (defaults to `blaxel`).
 - `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID`, optional Stack Auth team item used as the free-plan create-credit bucket. Leave unset to skip free-plan create-credit accounting; set to `none`, `disabled`, `off`, or `false` to explicitly opt out.
 - `CMUX_VM_PLAN_FREE_CREATE_CREDIT_COST`, optional free-plan per-create cost. Defaults to `1`.
 - `CMUX_VM_PLAN_FREE_INITIAL_CREATE_CREDITS`, optional first-use seed for the free-plan Stack Auth create-credit item. Defaults to `20`.
@@ -319,7 +320,11 @@ Blaxel needs no baked image: the driver bootstraps the stock `blaxel/base-image:
 
 E2B and Daytona interactive paths require a cmuxd WebSocket PTY image. The backend writes only a hash of attach tokens to Postgres; raw tokens are returned once to the Mac client. Daytona attach dials the sandbox preview URL for port 7777 with the `x-daytona-preview-token` header; preview tokens reset on sandbox restart, so the backend mints a fresh preview link per attach. cmux does not use Daytona's SSH gateway.
 
-Operational note: Freestyle is the intended default when `CMUX_VM_DEFAULT_PROVIDER=freestyle`. Before rollout or rollback, verify the deployed `CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_FREESTYLE_ENABLED`, and `FREESTYLE_SANDBOX_SNAPSHOT` env values with `bun run cloud-vm:env:audit -- <target> --strict`, then confirm WebSocket PTY, reusable daemon RPC lease, and browser proxy health with `bun run cloud-vm:stress -- <target> --provider default`. Keep E2B enabled as the rollback provider.
+Operational note: Blaxel is the intended default. Before rollout or rollback, verify the deployed
+`CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_BLAXEL_ENABLED`, `BL_API_KEY`, and `BL_WORKSPACE` env values
+with `bun run cloud-vm:env:audit -- <target> --strict`, then confirm WebSocket PTY, reusable
+daemon RPC lease, and browser proxy health with `bun run cloud-vm:stress -- <target> --provider default`.
+Keep Freestyle/E2B enabled only when deliberately selecting them as rollback providers.
 
 ## Usage, limits, and pricing
 

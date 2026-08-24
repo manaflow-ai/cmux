@@ -549,9 +549,10 @@ private struct MachineRow: View, Equatable {
                 }
             }
             Spacer(minLength: 8)
-            if isHovered {
-                // Hover verbs: the screen (desktop machines only) and delete. The shell is
-                // the row itself — double-click, or Open Shell in the menu.
+            // Hover verbs: the screen (desktop machines only) and delete. The shell is
+            // the row itself — double-click, or Open Shell in the menu. The buttons are
+            // always laid out and only fade in, so hovering never reflows the row.
+            HStack(spacing: 2) {
                 if machine.isDesktop {
                     MachinesChromeIconButton(
                         symbolName: "display",
@@ -569,6 +570,9 @@ private struct MachineRow: View, Equatable {
                     actions.confirmDelete(machine.id)
                 }
             }
+            .opacity(isHovered ? 1 : 0)
+            .allowsHitTesting(isHovered)
+            .accessibilityHidden(!isHovered)
         }
         .padding(.leading, 12)
         .padding(.trailing, 10)

@@ -35,8 +35,9 @@ extension TerminalController {
             }
             let persistentHome = Self.socketWorkerBool(params["persistent_home"]) ?? false
             let perMachineHome = Self.socketWorkerBool(params["per_machine_home"]) ?? false
+            let memoryMb = Self.socketWorkerInt(params["memory_mb"])
             return v2VmCall(id: id) {
-                let vm = try await VMClient.shared.create(image: image, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, idempotencyKey: idempotencyKey)
+                let vm = try await VMClient.shared.create(image: image, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, idempotencyKey: idempotencyKey)
                 return Self.socketWorkerVMSummaryPayload(vm)
             }
         case "vm.base_open":

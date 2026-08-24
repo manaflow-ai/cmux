@@ -3178,6 +3178,22 @@ struct CMUXCLI {
     private static let persistentCloudVMWorkspaceName = "sshd"
     /// Blaxel image that boots an xfce desktop with a noVNC web front end.
     private static let cloudVMDesktopImage = "blaxel/xfce-vnc:latest"
+    /// Shell-only image for `vm new --base`; the backend default is the desktop image.
+    private static let cloudVMBaseImage = "blaxel/base-image:latest"
+    /// `--size` spellings → memory in MB. vCPUs scale with memory on Blaxel.
+    private static let cloudVMSizeAliases: [String: Int] = [
+        "2g": 2048, "2gb": 2048, "small": 2048,
+        "4g": 4096, "4gb": 4096, "medium": 4096,
+        "8g": 8192, "8gb": 8192, "large": 8192,
+        "16g": 16384, "16gb": 16384, "xl": 16384,
+        "32g": 32768, "32gb": 32768, "xxl": 32768,
+    ]
+    static func parseCloudVMSize(_ raw: String) -> Int? {
+        let key = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let mb = cloudVMSizeAliases[key] { return mb }
+        if let mb = Int(key), mb >= 512 { return mb }
+        return nil
+    }
     private static let cloudVMDesktopPort = 6901
     private static func cloudVMImageHasDesktop(_ image: String) -> Bool {
         image.contains("xfce-vnc")
@@ -3411,7 +3427,7 @@ struct CMUXCLI {
         try? saveVMCreateIdempotencyStore(store, to: url)
     }
 
-    private static func usesPersistentDefaultFreestyleCloud(image: String?, providerOption: String?) -> Bool {
+    private static func usesPersistentDefaultCloud(image: String?, providerOption: String?) -> Bool {
         let normalizedImage = image?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalizedImage?.isEmpty != false else { return false }
         let normalizedProvider = providerOption?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4523,10 +4539,25 @@ struct CMUXCLI {
                 // --desktop stays accepted for scripts written against the old default.
                 let base = hasFlag(rem2, name: "--base") || hasFlag(rem2, name: "--no-desktop")
                 let desktop = !base
-                let remaining = rem2.filter { !["--detach", "-d", "--desktop", "--base", "--no-desktop"].contains($0) }
+                let (sizeOpt, rem3) = parseOption(rem2, name: "--size")
+                let memoryMb: Int?
+                if let sizeOpt {
+                    guard let parsed = Self.parseCloudVMSize(sizeOpt) else {
+                        throw CLIError(message: """
+                            vm new: unknown size '\(sizeOpt)'.
+
+                            Sizes: 2g, 4g, 8g, 16g, 32g (or memory in MB).
+                            Plans cap the largest size; `cmux vm ls` shows your plan.
+                            """)
+                    }
+                    memoryMb = parsed
+                } else {
+                    memoryMb = nil
+                }
+                let remaining = rem3.filter { !["--detach", "-d", "--desktop", "--base", "--no-desktop"].contains($0) }
                 // The desktop image gives the machine a screen; the attach flow streams it
                 // into a browser split beside the shell. --base keeps the backend default image.
-                let imageOpt = imageOptRaw ?? (desktop ? Self.cloudVMDesktopImage : nil)
+                let imageOpt = imageOptRaw ?? (desktop ? Self.cloudVMDesktopImage : Self.cloudVMBaseImage)
                 if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
                     throw CLIError(message: """
                         vm new: unknown flag '\(unknown)'.
@@ -4536,6 +4567,7 @@ struct CMUXCLI {
                           --provider <provider>
                           --workspace <workspace-id>
                           --base            shell-only machine (no desktop)
+                          --size <2g|4g|8g|16g|32g>
                           --detach, -d
 
                         Try:
@@ -4560,16 +4592,26 @@ struct CMUXCLI {
                 }
                 let normalizedProvider = try Self.normalizedVMProvider(providerOpt)
                 var params: [String: Any] = [:]
-                if let imageOpt { params["image"] = imageOpt }
+                // `imageOpt` is always set now: the CLI resolves a default image
+                // (desktop, or base for `--base`) so a bare `vm new` boots a screen.
+                params["image"] = imageOpt
                 if let normalizedProvider { params["provider"] = normalizedProvider }
-                let usesPersistentDefaultCloud = Self.usesPersistentDefaultFreestyleCloud(
-                    image: imageOpt,
+                // Size is independent of the image/provider override. Providers that do
+                // not expose sizing ignore this optional field; Blaxel uses it for runtime
+                // memory and the backend applies the plan ceiling.
+                if let memoryMb { params["memory_mb"] = memoryMb }
+                // The persistent per-machine home is keyed off whether the *person*
+                // overrode the image/provider (`imageOptRaw`), not the CLI-injected
+                // default. Otherwise the desktop default would look like a custom
+                // image and silently drop `persistent_home`, making every new machine
+                // ephemeral. A bare `vm new` — desktop or `--base` — stays persistent.
+                let usesPersistentDefaultCloud = Self.usesPersistentDefaultCloud(
+                    image: imageOptRaw,
                     providerOption: providerOpt
                 )
                 // The persistent-default create sends no provider override: the backend's
-                // CMUX_VM_DEFAULT_PROVIDER decides, so prod keeps Freestyle while a dev stack
-                // exporting CMUX_VM_DEFAULT_PROVIDER=blaxel gets Blaxel from a bare
-                // `cmux vm new` instead of a hardcoded Freestyle create that ignores it.
+                // CMUX_VM_DEFAULT_PROVIDER decides, with Blaxel as the default. An explicit
+                // provider remains available for deliberate rollback/provider experiments.
                 if usesPersistentDefaultCloud {
                     // Every new machine is its own persistent computer: the backend mounts a
                     // volume derived from the machine's generated name, so `vm new` mints a
@@ -11499,7 +11541,7 @@ struct CMUXCLI {
         logVMTiming(
             "base.open",
             vmID: (response["id"] as? String) ?? "?",
-            provider: (response["provider"] as? String) ?? "freestyle",
+            provider: (response["provider"] as? String) ?? "blaxel",
             startedAt: vmCreateStartedAt
         )
 
@@ -11509,7 +11551,7 @@ struct CMUXCLI {
         }
 
         let id = (response["id"] as? String) ?? "?"
-        let provider = (response["provider"] as? String) ?? "freestyle"
+        let provider = (response["provider"] as? String) ?? "blaxel"
         let image = (response["image"] as? String) ?? "?"
         let base = response["base"] as? [String: Any]
         let generation = (base?["generation"] as? Int) ?? (base?["generation"] as? NSNumber)?.intValue
@@ -11586,7 +11628,7 @@ struct CMUXCLI {
         logVMTiming(
             "base.reset",
             vmID: (response["id"] as? String) ?? "?",
-            provider: (response["provider"] as? String) ?? "freestyle",
+            provider: (response["provider"] as? String) ?? "blaxel",
             startedAt: vmCreateStartedAt
         )
 
@@ -11596,7 +11638,7 @@ struct CMUXCLI {
         }
 
         let id = (response["id"] as? String) ?? "?"
-        let provider = (response["provider"] as? String) ?? "freestyle"
+        let provider = (response["provider"] as? String) ?? "blaxel"
         let image = (response["image"] as? String) ?? "?"
         let base = response["base"] as? [String: Any]
         let generation = (base?["generation"] as? Int) ?? (base?["generation"] as? NSNumber)?.intValue
@@ -16570,7 +16612,7 @@ struct CMUXCLI {
                                         Create a new Base generation. The previous
                                         VM is retained so accidental resets are
                                         recoverable.
-              new [--image <template>] [--provider <provider>] [--base] [--window <id|ref|index>] [--detach|-d]
+              new [--image <template>] [--provider <provider>] [--base] [--size <2g|4g|8g|16g|32g>] [--window <id|ref|index>] [--detach|-d]
                                         Create a new VM. By default, with no image or
                                         provider override, this is kept compatible with
                                         Base. Pass --image or --provider to create a

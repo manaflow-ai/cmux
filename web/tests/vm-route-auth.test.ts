@@ -27,6 +27,10 @@ const VM_ENV_KEYS = [
   "CMUX_VM_FREE_MAX_ACTIVE_VMS",
   "CMUX_VM_PAID_MAX_ACTIVE_VMS",
   "CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS",
+  "CMUX_VM_FREE_MAX_MEMORY_MB",
+  "CMUX_VM_PAID_MAX_MEMORY_MB",
+  "CMUX_VM_PLAN_PRO_MAX_MEMORY_MB",
+  "CMUX_VM_PLAN_PRO_DEFAULT_MEMORY_MB",
   "CMUX_VM_REQUIRE_PRO",
   "VERCEL",
   "VERCEL_ENV",
@@ -351,6 +355,7 @@ describe("VM REST auth", () => {
       image: "snapshot-test",
       imageVersion: null,
       idempotencyKey: "idem-1",
+      memoryMb: 8192,
     }));
     expect(listTeams).not.toHaveBeenCalled();
     expect(runVmWorkflow).toHaveBeenCalled();
@@ -381,6 +386,65 @@ describe("VM REST auth", () => {
       billingPlanId: "pro",
       maxActiveVms: 25,
     }));
+  });
+
+  test("passes an explicit memory size through the create workflow", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-memory",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 16384 }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 16384 }));
+  });
+
+  test("rejects a memory size above the plan ceiling before the workflow", async () => {
+    getUser.mockResolvedValue(freePlanStackUser());
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 8192 }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_memory_exceeds_plan",
+      details: { requestedMemoryMb: 8192, maxMemoryMb: 4096, planId: "free" },
+    });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("rejects malformed memory sizes before billing or provider work", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: "8g" }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const payload = await response.json();
+    expect(payload).toMatchObject({ error: "vm_invalid_request", details: { field: "memoryMb" } });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
   test("blocks a free plan from provisioning when CMUX_VM_REQUIRE_PRO is enforced", async () => {

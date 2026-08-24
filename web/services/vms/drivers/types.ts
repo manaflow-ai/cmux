@@ -39,6 +39,11 @@ export type CreateOptions = {
    * resurrect a dead sandbox around the same home. Providers without volume support ignore it.
    */
   homeVolume?: string;
+  /**
+   * Machine size as memory in MB (vCPUs scale with memory on providers that size
+   * this way). Providers without sizing ignore it.
+   */
+  memoryMb?: number;
 };
 
 export type SSHEndpoint = {

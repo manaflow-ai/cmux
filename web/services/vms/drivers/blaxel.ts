@@ -128,7 +128,14 @@ type BlaxelProcess = {
   logs?: string;
 };
 
-type BlaxelPreview = { spec?: { url?: string; public?: boolean } };
+type BlaxelPreview = {
+  spec?: {
+    url?: string;
+    public?: boolean;
+    prefixUrl?: string;
+    customDomain?: string;
+  };
+};
 
 // The preview URL is the only ingress to cmuxd, and it must stay token-gated: a preview that
 // is (or has been flipped) public would expose the daemon's WebSocket endpoints to anyone
@@ -267,7 +274,7 @@ export class BlaxelProvider implements VMProvider {
       { "cmux.vm.provider": "blaxel", "cmux.vm.operation": "create", "cmux.vm.image": image },
       async (span) => {
         try {
-          const memoryMb = positiveIntEnv("CMUX_VM_BLAXEL_MEMORY_MB", DEFAULT_MEMORY_MB);
+          const memoryMb = resolveMemoryMb(options.memoryMb);
           // A `{machine}` token in homeVolume is resolved against the generated
           // machine name, giving every fresh machine its own durable home. The
           // resolved name (never the template) is what lands in providerMetadata,
@@ -319,8 +326,8 @@ export class BlaxelProvider implements VMProvider {
             image,
             createdAt: Date.now(),
             providerMetadata: homeVolume
-              ? { sandboxUrl, previewUrl, homeVolume, image }
-              : { sandboxUrl, previewUrl },
+              ? { sandboxUrl, previewUrl, homeVolume, image, memoryMb }
+              : { sandboxUrl, previewUrl, image, memoryMb },
           };
         } catch (err) {
           throw err instanceof ProviderError ? err : new ProviderError("blaxel", `create(${image}) failed`, err);
@@ -621,7 +628,9 @@ export class BlaxelProvider implements VMProvider {
     const image = typeof metadata.image === "string" ? metadata.image : null;
     if (!homeVolume || !image) return null;
     await this.ensureHomeVolume(homeVolume);
-    const memoryMb = positiveIntEnv("CMUX_VM_BLAXEL_MEMORY_MB", DEFAULT_MEMORY_MB);
+    const memoryMb = resolveMemoryMb(
+      typeof metadata.memoryMb === "number" ? metadata.memoryMb : undefined,
+    );
     const created = await blaxelFetch<BlaxelSandbox>("POST", `${CONTROL_PLANE_BASE}/sandboxes`, {
       metadata: { name: vmId },
       spec: {
@@ -746,10 +755,30 @@ export class BlaxelProvider implements VMProvider {
     const base = `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}/previews`;
     const readExisting = () =>
       blaxelFetch<BlaxelPreview>("GET", `${base}/${previewName}`).catch(() => null);
+    const prefixUrl = brandedPreviewPrefix(vmId, previewName, port);
+    const customDomain = prefixUrl ? await verifiedCustomDomain() : null;
     const existing = await readExisting();
     const existingUrl = usablePrivatePreviewUrl(existing);
-    if (existingUrl) return existingUrl;
-    if (existing?.spec?.url) {
+    if (existingUrl) {
+      const existingCustomDomain = existing?.spec?.customDomain?.trim().toLowerCase();
+      const existingHost = (() => {
+        try {
+          return new URL(existingUrl).hostname.toLowerCase();
+        } catch {
+          return "";
+        }
+      })();
+      const alreadyOnCustomDomain =
+        !!customDomain &&
+        (existingCustomDomain === customDomain.toLowerCase() ||
+          existingHost.endsWith(`.${customDomain.toLowerCase()}`));
+      if (!customDomain || alreadyOnCustomDomain) return existingUrl;
+      // The custom domain became verified after this preview was created. Rotate only the
+      // ingress record (never the sandbox or its files) so existing machines converge to
+      // the cmux-owned hostname on their next attach/open-port request.
+      await blaxelFetch("DELETE", `${base}/${previewName}`).catch(() => undefined);
+    }
+    if (existing?.spec?.url && !existingUrl) {
       // The preview exists but is public; drop it and recreate private below.
       await blaxelFetch("DELETE", `${base}/${previewName}`);
     }
@@ -758,8 +787,6 @@ export class BlaxelProvider implements VMProvider {
     // port preview noble-wren-3000-cmux.preview.bl.run — the machine's name is its address. A
     // rejected prefix (collision, length, validation) falls back to the opaque hash URL rather
     // than failing the attach.
-    const prefixUrl = brandedPreviewPrefix(vmId, previewName, port);
-    const customDomain = prefixUrl ? await verifiedCustomDomain() : null;
     const brandedSpecs: Array<{ label: string; spec: Record<string, unknown> }> = [];
     if (prefixUrl && customDomain) {
       // Blaxel's API takes the bare verified domain in customDomain and composes the
@@ -1006,6 +1033,26 @@ export function friendlyVmName(withSuffix = false): string {
   const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
   const suffix = Array.from(randomBytes(4), (byte) => alphabet[byte % alphabet.length]).join("");
   return `${base}-${suffix}`;
+}
+
+export function resolveBlaxelMemoryMb(
+  requested: number | undefined,
+  envValues: Record<string, string | undefined> = process.env,
+): number {
+  if (requested !== undefined) {
+    if (!Number.isSafeInteger(requested) || requested <= 0) {
+      throw new ProviderError("blaxel", "memoryMb must be a positive integer");
+    }
+    return requested;
+  }
+  const raw = envValues.CMUX_VM_BLAXEL_MEMORY_MB?.trim();
+  if (!raw) return DEFAULT_MEMORY_MB;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MEMORY_MB;
+}
+
+function resolveMemoryMb(requested: number | undefined): number {
+  return resolveBlaxelMemoryMb(requested);
 }
 
 function positiveIntEnv(name: string, fallback: number): number {

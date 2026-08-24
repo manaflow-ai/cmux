@@ -20,8 +20,10 @@ import {
   isVmLimitExceededError,
 } from "../../../services/vms/errors";
 import {
+  defaultMemoryMbForPlan,
   isVmBillingTeamResolutionError,
   isVmProGateBlocked,
+  maxMemoryMbForPlan,
   resolveVmEntitlements,
 } from "../../../services/vms/entitlements";
 import {
@@ -215,6 +217,18 @@ export async function POST(request: Request): Promise<Response> {
             details: { field: "perMachineHome" },
           });
         }
+        if (
+          candidate.memoryMb !== undefined &&
+          (!Number.isSafeInteger(candidate.memoryMb) || (candidate.memoryMb as number) < 512)
+        ) {
+          return vmErrorResponse({
+            error: "vm_invalid_request",
+            status: 400,
+            message: "`memoryMb` must be an integer of at least 512 when provided.",
+            action: "Omit `memoryMb` for the plan default, or send a larger integer memory size in MB.",
+            details: { field: "memoryMb", minimumMemoryMb: 512 },
+          });
+        }
         if (typeof bodyBillingTeamId === "string" && bodyBillingTeamId.trim().length === 0) {
           return invalidTeamIdResponse();
         }
@@ -332,6 +346,25 @@ export async function POST(request: Request): Promise<Response> {
           return vmRequiresProResponse();
         }
 
+        const maxMemoryMb = maxMemoryMbForPlan(entitlements.planId, process.env);
+        const memoryMb =
+          candidate.memoryMb === undefined
+            ? defaultMemoryMbForPlan(entitlements.planId, process.env)
+            : candidate.memoryMb as number;
+        if (memoryMb > maxMemoryMb) {
+          return vmErrorResponse({
+            error: "vm_memory_exceeds_plan",
+            status: 400,
+            message: "The requested Cloud VM size exceeds this plan's memory limit.",
+            action: `Choose a size at or below ${maxMemoryMb} MB, or upgrade the plan before retrying.`,
+            details: { requestedMemoryMb: memoryMb, maxMemoryMb, planId: entitlements.planId },
+          });
+        }
+        setSpanAttributes(span, {
+          "cmux.vm.memory_mb": memoryMb,
+          "cmux.vm.max_memory_mb": maxMemoryMb,
+        });
+
         let created;
         try {
           created = await runVmWorkflow(createVm({
@@ -347,6 +380,7 @@ export async function POST(request: Request): Promise<Response> {
             bakedFreestyleSignedAdmin: imageUsesBakedFreestyleSignedAdmin(provider, image),
             persistentHome: candidate.persistentHome === true,
             perMachineHome: candidate.perMachineHome === true,
+            memoryMb,
             timing,
           }));
         } catch (err) {

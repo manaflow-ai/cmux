@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   BlaxelProvider,
   parseMachineStats,
+  resolveBlaxelMemoryMb,
   resolveDaemonSource,
   usablePrivatePreviewUrl,
   verifyDaemonDigest,
@@ -55,9 +56,20 @@ describe("BlaxelProvider registry wiring", () => {
     }
   });
 
+  test("Blaxel is the default when no provider override is configured", () => {
+    const previous = process.env.CMUX_VM_DEFAULT_PROVIDER;
+    delete process.env.CMUX_VM_DEFAULT_PROVIDER;
+    try {
+      expect(defaultProviderId()).toBe("blaxel");
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_VM_DEFAULT_PROVIDER;
+      else process.env.CMUX_VM_DEFAULT_PROVIDER = previous;
+    }
+  });
+
   test("manifest resolves a local-dev default image", () => {
     const selection = resolveVmImage("blaxel", undefined, {});
-    expect(selection.image).toBe("blaxel/base-image:latest");
+    expect(selection.image).toBe("blaxel/xfce-vnc:latest");
     expect(selection.manifestEntry?.provider).toBe("blaxel");
   });
 });
@@ -139,6 +151,13 @@ describe("BlaxelProvider configuration errors", () => {
   test("create requires a resolved image", async () => {
     const provider = new BlaxelProvider();
     await expect(provider.create({ image: "  " })).rejects.toThrow("create requires a resolved image");
+  });
+
+  test("uses the request memory and preserves the env fallback", () => {
+    expect(resolveBlaxelMemoryMb(8192, { CMUX_VM_BLAXEL_MEMORY_MB: "4096" })).toBe(8192);
+    expect(resolveBlaxelMemoryMb(undefined, { CMUX_VM_BLAXEL_MEMORY_MB: "16384" })).toBe(16384);
+    expect(resolveBlaxelMemoryMb(undefined, {})).toBe(4096);
+    expect(() => resolveBlaxelMemoryMb(0, {})).toThrow("memoryMb must be a positive integer");
   });
 });
 
@@ -326,6 +345,46 @@ describe("BlaxelProvider preview branding under races", () => {
       expect(b.url).toBe(a.url);
       const creates = fetchMock.calls.filter((c) => c.method === "POST" && c.url.endsWith("/previews"));
       expect(creates).toHaveLength(1);
+    } finally {
+      fetchMock.restore();
+      restoreEnv();
+    }
+  });
+
+  test("rotates an old private bl.run preview after the custom domain is verified", async () => {
+    withEnv();
+    const old = {
+      spec: {
+        url: "https://noble-wren-3000-cmux.preview.bl.run",
+        public: false,
+        prefixUrl: "noble-wren-3000",
+      },
+    };
+    const replacement = {
+      spec: {
+        url: "https://noble-wren-3000.vm.cmux.sh",
+        public: false,
+        prefixUrl: "noble-wren-3000",
+        customDomain: "vm.cmux.sh",
+      },
+    };
+    const fetchMock = installFetch(({ method, url, body }) => {
+      if (url.endsWith("/customdomains/vm.cmux.sh")) return { status: 200, body: { spec: { status: "verified" } } };
+      if (url.endsWith("/sandboxes/noble-wren")) return { status: 200, body: { status: "DEPLOYED", metadata: { name: "noble-wren" } } };
+      if (method === "GET" && url.endsWith("/previews/port-3000")) return { status: 200, body: old };
+      if (method === "DELETE" && url.endsWith("/previews/port-3000")) return { status: 200, body: old };
+      if (method === "POST" && url.endsWith("/previews")) return { status: 200, body: replacement };
+      if (method === "POST" && url.endsWith("/tokens")) return { status: 200, body: { spec: { token: "preview-token" } } };
+      throw new Error(`unexpected ${method} ${url} ${JSON.stringify(body)}`);
+    });
+    try {
+      const opened = await new BlaxelProvider().openPort("noble-wren", 3000);
+      expect(opened.url).toBe("https://noble-wren-3000.vm.cmux.sh");
+      expect(fetchMock.calls.filter((call) => call.method === "DELETE")).toHaveLength(1);
+      const create = fetchMock.calls.find((call) => call.method === "POST" && call.url.endsWith("/previews"));
+      expect(create?.body).toMatchObject({
+        spec: { prefixUrl: "noble-wren-3000", customDomain: "vm.cmux.sh", public: false },
+      });
     } finally {
       fetchMock.restore();
       restoreEnv();

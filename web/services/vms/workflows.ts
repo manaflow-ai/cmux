@@ -245,6 +245,8 @@ export function createVm(input: {
    * machines (up to the plan limit) each keep their own durable home.
    */
   readonly perMachineHome?: boolean;
+  /** Runtime memory requested by the caller, in MB. Providers may ignore it. */
+  readonly memoryMb?: number;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -287,6 +289,7 @@ export function createVm(input: {
           : input.persistentHome
             ? homeVolumeNameForUser(input.userId)
             : undefined,
+        memoryMb: input.memoryMb,
       }),
     ).pipe(
       Effect.tapError((err) =>

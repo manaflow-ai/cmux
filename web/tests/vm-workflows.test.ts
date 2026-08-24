@@ -1632,6 +1632,7 @@ describe("VM Effect workflows", () => {
       imageVersion: "test-version",
     });
     let providerCreateCalls = 0;
+    let providerMemoryMb: number | undefined;
     let usageEventAttempts = 0;
     const repo: VmRepositoryShape = {
       listUserVms: () => Effect.succeed([]),
@@ -1669,9 +1670,10 @@ describe("VM Effect workflows", () => {
       },
     };
     const provider: VmProviderGatewayShape = {
-      create: () =>
+      create: (_provider, options) =>
         Effect.sync(() => {
           providerCreateCalls += 1;
+          providerMemoryMb = options.memoryMb;
           return {
             provider: "freestyle" as const,
             providerVmId: "provider-vm-usage-events",
@@ -1702,12 +1704,14 @@ describe("VM Effect workflows", () => {
         provider: "freestyle",
         image: "snapshot-test",
         imageVersion: "test-version",
+        memoryMb: 3072,
         idempotencyKey: "usage-events",
       }).pipe(Effect.provide(layer)),
     );
 
     expect(created.providerVmId).toBe("provider-vm-usage-events");
     expect(providerCreateCalls).toBe(1);
+    expect(providerMemoryMb).toBe(3072);
     expect(usageEventAttempts).toBe(2);
   });
 

@@ -454,12 +454,13 @@ actor VMClient {
         return VMListPage(vms: vms, limits: limits)
     }
 
-    func create(image: String? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, idempotencyKey: String) async throws -> VMSummary {
+    func create(image: String? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, idempotencyKey: String) async throws -> VMSummary {
         var body: [String: Any] = [:]
         if let image { body["image"] = image }
         if let provider { body["provider"] = provider }
         if persistentHome { body["persistentHome"] = true }
         if perMachineHome { body["perMachineHome"] = true }
+        if let memoryMb { body["memoryMb"] = memoryMb }
         // The CLI owns key stability across command retries. VMClient only forwards the
         // key so the backend can short-circuit duplicate paid provider creates.
         let headers = ["Idempotency-Key": idempotencyKey]
