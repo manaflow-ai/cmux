@@ -37,6 +37,14 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         }
         global.session = Some(session);
     }
+    if let Some(session) = global.session.as_deref()
+        && !valid_session_name(session)
+    {
+        return usage_error(
+            crate::localization::catalog().machine_agent.invalid_session,
+            global.output,
+        );
+    }
     let expected_session = global.session.clone();
     let socket = super::wire::resolve_socket(&global);
     let socket_output = socket.to_string_lossy().into_owned();
@@ -255,6 +263,12 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     }
 }
 
+fn valid_session_name(session: &str) -> bool {
+    !session.is_empty()
+        && session.len() <= 64
+        && session.chars().all(|character| !character.is_control() && !character.is_whitespace())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ExchangeError {
     Transport,
@@ -406,6 +420,20 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
+
+    #[test]
+    fn rejects_invalid_session_names_before_socket_resolution() {
+        assert!(!valid_session_name(""));
+        assert!(!valid_session_name("bad name"));
+        assert!(!valid_session_name("bad\nname"));
+        assert!(!valid_session_name(&"x".repeat(65)));
+    }
+
+    #[test]
+    fn accepts_session_names_for_explicit_and_default_socket_routes() {
+        assert!(valid_session_name("main"));
+        assert!(valid_session_name("agent-1"));
+    }
 
     struct UnreadableStream;
 
