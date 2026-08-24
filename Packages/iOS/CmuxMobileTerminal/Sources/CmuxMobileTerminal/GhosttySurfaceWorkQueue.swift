@@ -9,6 +9,8 @@ final class GhosttySurfaceWorkQueue: @unchecked Sendable {
     var lastAccessibilityTextTime: CFTimeInterval = 0
     /// Accessed only from ``queue``; rate-limits slow-output perf log lines.
     var lastOutputPerfLogTime: CFTimeInterval = 0
+    /// Accessed only from ``queue``; rate-limits slow-render perf log lines.
+    var lastRenderPerfLogTime: CFTimeInterval = 0
     #endif
     /// Accessed only from ``queue``: throttles the viewport content-bottom
     /// measurement for the keyboard blank-space absorption.

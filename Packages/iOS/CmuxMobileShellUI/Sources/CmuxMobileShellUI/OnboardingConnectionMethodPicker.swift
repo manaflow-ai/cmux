@@ -17,7 +17,7 @@ struct OnboardingConnectionMethodPicker: View {
                 .automatic,
                 title: L10n.string(
                     "mobile.onboarding.connect.method.automatic",
-                    defaultValue: "Auto-Connect"
+                    defaultValue: "Iroh"
                 ),
                 subtitle: L10n.string(
                     "mobile.onboarding.connect.method.automaticDetail",

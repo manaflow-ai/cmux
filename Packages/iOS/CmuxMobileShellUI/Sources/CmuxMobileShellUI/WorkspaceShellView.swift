@@ -25,7 +25,7 @@ private struct WorkspaceRootToolbarRenderContext: Equatable {
     var statusLine: WorkspaceConnectionStatusLine?
 
     static let fallback = WorkspaceRootToolbarRenderContext(
-        title: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer"),
+        title: L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Computer"),
         visibleSelection: .all,
         machines: []
     )
@@ -75,7 +75,6 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
     let machines: [WorkspaceFilterMachine]
     let showAddDevice: (() -> Void)?
     var statusLine: WorkspaceConnectionStatusLine?
-    var reconnect: (() -> Void)?
 
     var body: some ToolbarContent {
         ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
@@ -98,8 +97,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                 ),
                 actions: WorkspaceMacTitlePickerActions(
                     select: select,
-                    addDevice: showAddDevice,
-                    reconnect: reconnect
+                    addDevice: showAddDevice
                 )
             )
             .equatable()
@@ -108,7 +106,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
             Button(action: openDevices) {
                 Image(systemName: "desktopcomputer")
             }
-            .accessibilityLabel(L10n.string("mobile.computers.title", defaultValue: "Computers"))
+            .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))
             .accessibilityIdentifier("MobileWorkspaceDevicesButton")
         }
     }
@@ -122,7 +120,6 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
     let pendingSelection: WorkspaceMacSelection?
     let select: (WorkspaceMacSelection) -> Void
     let showAddDevice: (() -> Void)?
-    var reconnect: (() -> Void)?
 
     var body: some ToolbarContent {
         WorkspaceRootToolbarContent(
@@ -134,8 +131,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
             select: select,
             machines: renderContext.machines,
             showAddDevice: showAddDevice,
-            statusLine: renderContext.statusLine,
-            reconnect: reconnect
+            statusLine: renderContext.statusLine
         )
     }
 }
@@ -480,9 +476,11 @@ struct WorkspaceShellView: View {
         .taskComposerPresentation(
             isPresented: taskComposerPresentation.isPresented,
             onDismiss: taskComposerPresentation.didDismiss
-        ) {
+        ) { launch, switchDraft in
             TaskComposerSheet(
                 store: store,
+                launchIntent: launch.intent,
+                onSwitchDraft: switchDraft,
                 submitTaskComposer: submitTaskComposerFromShell
             )
         }
@@ -717,8 +715,7 @@ struct WorkspaceShellView: View {
             openDevices: showComputers,
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
-            showAddDevice: showAddDevice,
-            reconnect: tailscalePairingRequired ? showPairingScanner : reconnectClosure
+            showAddDevice: showAddDevice
         )
     }
 
@@ -735,7 +732,8 @@ struct WorkspaceShellView: View {
             connectionStatus: listConnectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
-            initialConnectionTimedOut: initialConnectionTimedOut
+            initialConnectionTimedOut: initialConnectionTimedOut,
+            hasLiveTransportPath: store.workspaceListHasLiveTransportPath
         ).statusLine
     }
 
@@ -785,7 +783,7 @@ struct WorkspaceShellView: View {
             macPickerMachineIDs: scope.machineIDs,
             namesByID: names,
             buildLabelsByID: buildLabelsByID,
-            fallbackName: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
+            fallbackName: L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Computer")
         )
         return WorkspaceShellRenderPresentation(
             selectionScope: scope,
@@ -809,11 +807,11 @@ struct WorkspaceShellView: View {
         let title: String
         switch visibleSelection {
         case .all, .automatic:
-            title = L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers")
+            title = L10n.string("mobile.workspaces.macPicker.allConnections", defaultValue: "All Computers")
         case .machine(let id):
             title = machineSnapshots.macPickerTitle(
                 for: id,
-                fallback: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
+                fallback: L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Computer")
             )
         }
         return WorkspaceRootToolbarRenderContext(
