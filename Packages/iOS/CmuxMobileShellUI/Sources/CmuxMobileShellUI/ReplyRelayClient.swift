@@ -6,11 +6,17 @@ public struct RelayedReply: Equatable, Sendable {
     /// Stable idempotency key: the retry ladder re-sends the same id, so the
     /// server can never park one reply twice.
     public let replyId: String
+    /// The Mac claimed by the originating push; the inbox routes by it.
     public let macDeviceId: String
+    /// The workspace claim from the push, if it carried one; the Mac
+    /// re-resolves the live owner either way.
     public let workspaceId: String?
+    /// The exact terminal claim from the push.
     public let surfaceId: String
+    /// The user's reply text, without the submit return.
     public let text: String
 
+    /// Creates a relayed reply from the parked reply's claims.
     public init(
         replyId: String,
         macDeviceId: String,

@@ -33,24 +33,25 @@ private final class ReplyRuntimeFake: BackgroundReplyRuntimeAsserting {
 
 private final class ReplyNoticeFake: ReplyFailureNoticing, @unchecked Sendable {
     private let lock = NSLock()
-    private var storedScheduled: [(delay: TimeInterval, text: String)] = []
+    private var storedScheduled: [(delay: TimeInterval, replyId: String)] = []
     private var storedDeliveredNow: [String] = []
-    private var storedCancelCount = 0
+    private var storedCancelled: [String] = []
 
-    var scheduled: [(delay: TimeInterval, text: String)] { lock.withLock { storedScheduled } }
+    var scheduled: [(delay: TimeInterval, replyId: String)] { lock.withLock { storedScheduled } }
     var deliveredNow: [String] { lock.withLock { storedDeliveredNow } }
-    var cancelCount: Int { lock.withLock { storedCancelCount } }
+    var cancelled: [String] { lock.withLock { storedCancelled } }
+    var cancelCount: Int { lock.withLock { storedCancelled.count } }
 
-    func schedule(after delay: TimeInterval, replyText: String) async {
-        lock.withLock { storedScheduled.append((delay: delay, text: replyText)) }
+    func schedule(after delay: TimeInterval, replyId: String) async {
+        lock.withLock { storedScheduled.append((delay: delay, replyId: replyId)) }
     }
 
-    func deliverNow(replyText: String) async {
-        lock.withLock { storedDeliveredNow.append(replyText) }
+    func deliverNow(replyId: String) async {
+        lock.withLock { storedDeliveredNow.append(replyId) }
     }
 
-    func cancel() async {
-        lock.withLock { storedCancelCount += 1 }
+    func cancel(replyId: String) async {
+        lock.withLock { storedCancelled.append(replyId) }
     }
 }
 
@@ -156,7 +157,7 @@ private func makeReplyLaneCoordinator(
     #expect(runtime.beginCount == 1)
     #expect(runtime.endCount == 0)
     #expect(notifier.scheduled.count == 1)
-    #expect(notifier.scheduled.first?.text == "looks good, merge it")
+    #expect(notifier.scheduled.first.map { !$0.replyId.isEmpty } == true)
     // Past the reply lifetime, with slack for an in-flight final send.
     #expect((notifier.scheduled.first?.delay ?? 0) > 120)
     #expect(notifier.cancelCount == 0)
@@ -209,10 +210,13 @@ private func makeReplyLaneCoordinator(
         retargetsToLiveSurfaceOwner: true
     )
 
-    // One assertion spans both replies; the newer reply replaces the notice.
+    // One assertion spans both replies. Each reply schedules its own notice,
+    // and parking the second cancels exactly the first's — generation-safe.
     #expect(runtime.beginCount == 1)
     #expect(runtime.endCount == 0)
-    #expect(notifier.scheduled.map(\.text) == ["first", "second"])
+    #expect(notifier.scheduled.count == 2)
+    #expect(notifier.scheduled[0].replyId != notifier.scheduled[1].replyId)
+    #expect(notifier.cancelled == [notifier.scheduled[0].replyId])
 }
 
 @MainActor

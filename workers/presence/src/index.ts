@@ -61,6 +61,13 @@ function unauthorized(): Response {
   return json({ error: "unauthorized" }, 401);
 }
 
+/** The account-scoped connectivity DO: one instance per Stack user, owning the
+ * account's live subscriber sockets AND its phone reply inbox, so a nudge and
+ * the sockets it targets can never disagree about which object owns them. */
+function connectivityStub(env: Env, userId: string): DurableObjectStub<TeamPresence> {
+  return env.TEAM_PRESENCE.get(env.TEAM_PRESENCE.idFromName(`connectivity:user:${userId}`));
+}
+
 async function resolveTeamOr403(
   request: Request,
   env: Env,
@@ -97,9 +104,7 @@ export default {
       const headers = new Headers(request.headers);
       headers.set("x-connectivity-account-id", user.id);
       headers.set("x-presence-expires-at", String(Math.floor(expiresAt)));
-      const stub = env.TEAM_PRESENCE.get(
-        env.TEAM_PRESENCE.idFromName(`connectivity:user:${user.id}`),
-      );
+      const stub = connectivityStub(env, user.id);
       return stub.fetch(new Request(request.url, { method: "GET", headers }));
     }
 
@@ -115,9 +120,7 @@ export default {
       if (!body.ok) return json({ error: "invalid_request" }, body.status);
       const parsed = parseConnectivityInvalidation(body.value);
       if (!parsed.ok) return json({ error: parsed.error }, 400);
-      const stub = env.TEAM_PRESENCE.get(
-        env.TEAM_PRESENCE.idFromName(`connectivity:user:${user.id}`),
-      );
+      const stub = connectivityStub(env, user.id);
       return json(await stub.invalidateConnectivity(
         user.id,
         parsed.invalidation.revision,
@@ -132,9 +135,7 @@ export default {
     if (url.pathname === "/v1/replies") {
       const user = await verifyRequest(request, env);
       if (!user) return unauthorized();
-      const stub = env.TEAM_PRESENCE.get(
-        env.TEAM_PRESENCE.idFromName(`connectivity:user:${user.id}`),
-      );
+      const stub = connectivityStub(env, user.id);
       if (request.method === "POST") {
         const body = await readBoundedJson(request, MAX_PHONE_REPLY_BODY_BYTES);
         if (!body.ok) return json({ error: "invalid_request" }, body.status);
@@ -162,9 +163,7 @@ export default {
       if (!body.ok) return json({ error: "invalid_request" }, body.status);
       const parsed = parsePhoneReplyAck(body.value);
       if (!parsed.ok) return json({ error: parsed.error }, 400);
-      const stub = env.TEAM_PRESENCE.get(
-        env.TEAM_PRESENCE.idFromName(`connectivity:user:${user.id}`),
-      );
+      const stub = connectivityStub(env, user.id);
       return json(await stub.ackPhoneReplies(parsed.replyIds));
     }
 

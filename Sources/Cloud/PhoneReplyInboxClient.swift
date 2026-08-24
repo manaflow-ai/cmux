@@ -58,7 +58,7 @@ final class PhoneReplyInboxClient {
                   (200...299).contains(http.statusCode) else { return nil }
             return try JSONDecoder().decode(FetchEnvelope.self, from: data).replies
         } catch {
-            phoneReplyLog.error("reply fetch failed: \(String(describing: error), privacy: .public)")
+            phoneReplyLog.error("reply fetch failed: \(String(describing: error), privacy: .private)")
             return nil
         }
     }
@@ -83,7 +83,7 @@ final class PhoneReplyInboxClient {
                   (200...299).contains(http.statusCode) else { return false }
             return true
         } catch {
-            phoneReplyLog.error("reply ack failed: \(String(describing: error), privacy: .public)")
+            phoneReplyLog.error("reply ack failed: \(String(describing: error), privacy: .private)")
             return false
         }
     }

@@ -1049,8 +1049,10 @@ public final class MobilePushCoordinator {
     ) async {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         diagnosticLog?.recordAppEvent(.pushReplyStarted)
+        let supersededReplyId = pendingReplyState.pending?.replyId
+        let replyId = UUID().uuidString
         pendingReplyState.park(PendingReply(
-            replyId: UUID().uuidString,
+            replyId: replyId,
             text: text,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
@@ -1062,12 +1064,17 @@ public final class MobilePushCoordinator {
         // A lock-screen reply wakes the app in the BACKGROUND: hold runtime so
         // the relay POST + retry ladder outlive the notification delegate, and
         // pre-schedule the failure notice so even a process kill cannot turn a
-        // lost reply into silence. Both resolve when the reply does.
+        // lost reply into silence. Both resolve when the reply does. Notices
+        // are keyed per reply id, so a superseded reply's notice is cancelled
+        // here and an older reply resolving can never void a newer notice.
         beginReplyBackgroundAssertionIfNeeded()
         await replyFailureNotifier.schedule(
             after: PendingReplyState.lifetime + Self.replyFailureNoticeSlack,
-            replyText: text
+            replyId: replyId
         )
+        if let supersededReplyId {
+            await replyFailureNotifier.cancel(replyId: supersededReplyId)
+        }
         await applyPendingReplyIfReady()
     }
 
@@ -1229,7 +1236,7 @@ public final class MobilePushCoordinator {
                 failure: .protocolViolation
             )
             mobilePushLog.info("dropping inline reply without a surface id")
-            await replyFailureNotifier.deliverNow(replyText: pending.text)
+            await replyFailureNotifier.deliverNow(replyId: pending.replyId)
             return
         }
 
@@ -1272,7 +1279,7 @@ public final class MobilePushCoordinator {
                 failure: .protocolViolation
             )
             mobilePushLog.info("dropping confined inline reply without a workspace id")
-            await replyFailureNotifier.deliverNow(replyText: pending.text)
+            await replyFailureNotifier.deliverNow(replyId: pending.replyId)
             return
         }
 
@@ -1334,10 +1341,9 @@ public final class MobilePushCoordinator {
         replyRetryTask?.cancel()
         replyRetryTask = nil
         diagnosticLog?.recordAppEvent(.pushReplySucceeded)
-        // Guarded so a newer reply parked mid-send keeps its own notice.
-        if pendingReplyState.pending == nil {
-            await replyFailureNotifier.cancel()
-        }
+        // Per-reply notices: cancelling this reply's notice can never void a
+        // newer reply's.
+        await replyFailureNotifier.cancel(replyId: ready.replyId)
         await applyPendingReplyIfReady()
     }
 
@@ -1381,10 +1387,9 @@ public final class MobilePushCoordinator {
         replyRetryTask = nil
         diagnosticLog?.recordAppEvent(.pushReplySucceeded)
         mobilePushLog.info("inline reply parked in the server relay inbox")
-        // Guarded so a newer reply parked mid-POST keeps its own notice.
-        if pendingReplyState.pending == nil {
-            await replyFailureNotifier.cancel()
-        }
+        // Per-reply notices: cancelling this reply's notice can never void a
+        // newer reply's.
+        await replyFailureNotifier.cancel(replyId: pending.replyId)
         await applyPendingReplyIfReady()
     }
 

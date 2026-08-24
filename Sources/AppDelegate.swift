@@ -2355,9 +2355,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             case .ok:
                 return .delivered
             case .err(let code, _, _):
-                // Transient capacity states resolve on their own; everything
-                // else means the claimed target can never accept this reply.
-                return code == "input_queue_full" || code == "surface_unavailable"
+                // `not_found` is transient here, not proof the target is gone:
+                // the sweep can run while session restore is still loading the
+                // claimed workspace. Retrying is bounded by the reply's
+                // server-side TTL, so a truly-deleted surface ages out instead
+                // of silently discarding the user's reply on first sight.
+                return code == "input_queue_full"
+                    || code == "surface_unavailable"
+                    || code == "not_found"
                     ? .retryable
                     : .permanentlyUndeliverable
             }

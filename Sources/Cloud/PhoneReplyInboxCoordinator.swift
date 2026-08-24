@@ -40,11 +40,25 @@ final class PhoneReplyInboxCoordinator {
     private var sweepTask: Task<Void, Never>?
     private var sweepQueuedWhileRunning = false
     private var seenReplyIds: PhoneReplySeenSet
+    /// Injected so tests drive the debounce and retry delays deterministically
+    /// (house rule: no bare Task.sleep in runtime code). Cancellation of the
+    /// owning task propagates through the injected sleeper's own throw.
+    private let sleep: @Sendable (Duration) async throws -> Void
     /// Coalesce bursts (nudge frame + reconcile + activation) into one fetch.
     private let debounce: Duration = .milliseconds(500)
+    /// Poll cadence while a fetched reply is transiently undeliverable
+    /// (session restore in flight, input queue full); bounded by the reply's
+    /// server-side TTL.
+    private let retryDelay: Duration = .seconds(3)
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        defaults: UserDefaults = .standard,
+        sleep: @escaping @Sendable (Duration) async throws -> Void = {
+            try await ContinuousClock().sleep(for: $0)
+        }
+    ) {
         seenReplyIds = PhoneReplySeenSet(defaults: defaults)
+        self.sleep = sleep
     }
 
     func configure(client: PhoneReplyInboxClient) {
@@ -76,7 +90,7 @@ final class PhoneReplyInboxCoordinator {
                     self.sweepSoon(reason: "queued-during-sweep")
                 }
             }
-            guard (try? await Task.sleep(for: self.debounce)) != nil else { return }
+            guard (try? await self.sleep(self.debounce)) != nil else { return }
             await self.sweepOnce()
         }
     }
@@ -145,7 +159,7 @@ final class PhoneReplyInboxCoordinator {
             // input queue full) produces no further nudge; poll until the
             // target recovers or the entries age out server-side (15 min TTL
             // bounds this loop).
-            try? await Task.sleep(for: .seconds(3))
+            guard (try? await sleep(retryDelay)) != nil else { return }
             sweepSoon(reason: "retryable-replies")
         }
     }
