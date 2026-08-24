@@ -85,11 +85,14 @@ struct NextTransportDebugMenuButtons: View {
     private var enabled = false
 
     var body: some View {
+        // State rides the submenu title: a plain Text row inside a Menu
+        // renders dimmed (non-interactive), which buried the one line that
+        // matters. The state string is a dev diagnostic, not product copy.
         Menu(
             String(
                 localized: "debug.menu.nextTransport",
                 defaultValue: "Next Transport (dev)"
-            )
+            ) + nextTransportStateSuffix
         ) {
             Button {
                 enabled.toggle()
@@ -112,7 +115,11 @@ struct NextTransportDebugMenuButtons: View {
                     )
                 }
             }
-            Text(MobileHostNextTransportRuntime.shared.state)
         }
+    }
+
+    private var nextTransportStateSuffix: String {
+        let state = MobileHostNextTransportRuntime.shared.state
+        return state == "off" ? "" : " — \(state)"
     }
 }
