@@ -1,3 +1,4 @@
+public import CmuxFoundation
 public import Foundation
 
 /// One surface (terminal/browser/etc. tab) projected for the custom-sidebar
@@ -28,8 +29,11 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
     public let gitIsDirty: Bool
     /// The surface's listening ports, or empty when none (`tabs[i].ports`).
     public let listeningPorts: [Int]
+    /// The resolved agent status for this surface's panel (`tabs[i].agentStatus`),
+    /// from the shared `AgentStatus` presentation model. `.none` when no agent reports.
+    public let agentStatus: AgentStatus
 
-    /// Creates a surface snapshot from already-resolved leaf values.
+    /// Creates a surface snapshot from already-resolved values.
     public init(
         panelId: UUID,
         title: String,
@@ -39,7 +43,8 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
         directory: String?,
         gitBranch: String?,
         gitIsDirty: Bool,
-        listeningPorts: [Int]
+        listeningPorts: [Int],
+        agentStatus: AgentStatus = .none
     ) {
         self.panelId = panelId
         self.title = title
@@ -50,5 +55,6 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
         self.gitBranch = gitBranch
         self.gitIsDirty = gitIsDirty
         self.listeningPorts = listeningPorts
+        self.agentStatus = agentStatus
     }
 }

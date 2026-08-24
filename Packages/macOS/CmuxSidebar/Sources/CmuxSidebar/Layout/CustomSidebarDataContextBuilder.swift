@@ -135,7 +135,11 @@ public struct CustomSidebarDataContextBuilder {
             "focused": .bool(surface.isFocused),
             "selected": .bool(surface.isSelected),
             "pinned": .bool(surface.isPinned),
+            "agentStatus": .string(surface.agentStatus.rawValue),
         ]
+        if let tint = surface.agentStatus.tintHex {
+            surfaceFields["agentTint"] = .string(tint)
+        }
         if let directory = surface.directory, !directory.isEmpty {
             surfaceFields["directory"] = .string(directory)
         }

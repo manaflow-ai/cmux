@@ -1,7 +1,7 @@
+import CmuxFoundation
 import CmuxSwiftRender
 import Foundation
 import Testing
-
 @testable import CmuxSidebar
 
 @Suite("CustomSidebarDataContextBuilder")
@@ -369,5 +369,39 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(bare.member("directory") == nil)
         #expect(bare.member("branch") == nil)
         #expect(bare.member("ports") == nil)
+    }
+
+    @Test("Agent status and tint project from the shared AgentStatus model")
+    func agentStatusFields() {
+        let builder = CustomSidebarDataContextBuilder()
+
+        func surface(_ status: AgentStatus) -> CustomSidebarSurfaceSnapshot {
+            CustomSidebarSurfaceSnapshot(
+                panelId: UUID(),
+                title: "term",
+                isFocused: false,
+                isPinned: false,
+                directory: nil,
+                gitBranch: nil,
+                gitIsDirty: false,
+                listeningPorts: [],
+                agentStatus: status
+            )
+        }
+
+        // Status is always present (switch-friendly "none" default).
+        #expect(builder.surfaceValue(surface(.none)).member("agentStatus") == .string("none"))
+        #expect(builder.surfaceValue(surface(.running)).member("agentStatus") == .string("running"))
+        #expect(builder.surfaceValue(surface(.idle)).member("agentStatus") == .string("idle"))
+        #expect(builder.surfaceValue(surface(.needsInput)).member("agentStatus") == .string("needsInput"))
+        #expect(builder.surfaceValue(surface(.error)).member("agentStatus") == .string("error"))
+
+        // Tint matches the shared palette exactly and is omitted for `.none`
+        // (renderers pick their own no-agent neutral).
+        #expect(builder.surfaceValue(surface(.error)).member("agentTint") == .string("#FF453A"))
+        #expect(builder.surfaceValue(surface(.needsInput)).member("agentTint") == .string("#FF9F0A"))
+        #expect(builder.surfaceValue(surface(.running)).member("agentTint") == .string("#0A84FF"))
+        #expect(builder.surfaceValue(surface(.idle)).member("agentTint") == .string("#30D158"))
+        #expect(builder.surfaceValue(surface(.none)).member("agentTint") == nil)
     }
 }

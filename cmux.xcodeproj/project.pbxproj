@@ -2703,6 +2703,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		E60812C95246E275F29D3C1B /* WorkspaceCreationWorkingDirectorySpawnPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D3084DF49224DFF2DF4C376 /* WorkspaceCreationWorkingDirectorySpawnPolicyTests.swift */; };
 		901000010000000000000001 /* WorkspaceCustomLayoutOrderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 901000010000000000000002 /* WorkspaceCustomLayoutOrderTests.swift */; };
 		281F3AEA52379AF45C5C1189 /* WorkspaceCustomSidebarPullRequestContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE74DFAC5946F9C2EEDBE577 /* WorkspaceCustomSidebarPullRequestContextTests.swift */; };
+		D36A00110000000000000001 /* WorkspaceCustomSidebarAgentStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00110000000000000002 /* WorkspaceCustomSidebarAgentStatusTests.swift */; };
 		E6FA9084A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6FA9085A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift */; };
 		9504D5F00000000000000001 /* WorkspaceDragSplitFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9504D5F00000000000000002 /* WorkspaceDragSplitFocusTests.swift */; };
 		72DB1838A0F1B710BFB45DC1 /* WorkspaceEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B561A95C6DC21BA9C4B2BCDD /* WorkspaceEnvironmentTests.swift */; };
@@ -5491,6 +5492,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		9D3084DF49224DFF2DF4C376 /* WorkspaceCreationWorkingDirectorySpawnPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCreationWorkingDirectorySpawnPolicyTests.swift; sourceTree = "<group>"; };
 		901000010000000000000002 /* WorkspaceCustomLayoutOrderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCustomLayoutOrderTests.swift; sourceTree = "<group>"; };
 		CE74DFAC5946F9C2EEDBE577 /* WorkspaceCustomSidebarPullRequestContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCustomSidebarPullRequestContextTests.swift; sourceTree = "<group>"; };
+		D36A00110000000000000002 /* WorkspaceCustomSidebarAgentStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCustomSidebarAgentStatusTests.swift; sourceTree = "<group>"; };
 		E6FA9085A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDescriptionUITests.swift; sourceTree = "<group>"; };
 		9504D5F00000000000000002 /* WorkspaceDragSplitFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDragSplitFocusTests.swift; sourceTree = "<group>"; };
 		B561A95C6DC21BA9C4B2BCDD /* WorkspaceEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceEnvironmentTests.swift; sourceTree = "<group>"; };
@@ -8119,6 +8121,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F0ACC0DE0000000000000006 /* WorkspaceForkConversationContextMenuTests.swift */,
 				71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */,
 				CE74DFAC5946F9C2EEDBE577 /* WorkspaceCustomSidebarPullRequestContextTests.swift */,
+				D36A00110000000000000002 /* WorkspaceCustomSidebarAgentStatusTests.swift */,
 				901000010000000000000002 /* WorkspaceCustomLayoutOrderTests.swift */,
 				C0DE71450000000000000002 /* WorkspaceCreateWorkingDirectoryTests.swift */,
 				C0DE71450000000000000004 /* InMemoryWorkspaceCreateIdempotencyStore.swift */,
@@ -11723,6 +11726,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E60812C95246E275F29D3C1B /* WorkspaceCreationWorkingDirectorySpawnPolicyTests.swift in Sources */,
 				901000010000000000000001 /* WorkspaceCustomLayoutOrderTests.swift in Sources */,
 				281F3AEA52379AF45C5C1189 /* WorkspaceCustomSidebarPullRequestContextTests.swift in Sources */,
+				D36A00110000000000000001 /* WorkspaceCustomSidebarAgentStatusTests.swift in Sources */,
 				9504D5F00000000000000001 /* WorkspaceDragSplitFocusTests.swift in Sources */,
 				72DB1838A0F1B710BFB45DC1 /* WorkspaceEnvironmentTests.swift in Sources */,
 				F0ACC0DE0000000000000005 /* WorkspaceForkConversationContextMenuTests.swift in Sources */,

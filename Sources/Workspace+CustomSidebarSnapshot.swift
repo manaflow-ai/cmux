@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxFoundation
 import CmuxSidebar
 import Foundation
 
@@ -72,7 +73,10 @@ extension Workspace {
                             directory: reportedPanelDirectory(panelId: panelId),
                             gitBranch: git?.branch,
                             gitIsDirty: git?.isDirty ?? false,
-                            listeningPorts: surfaceListeningPorts[panelId] ?? []
+                            listeningPorts: surfaceListeningPorts[panelId] ?? [],
+                            agentStatus: AgentStatus.resolve(
+                                lifecycles: agentLifecycleStatesByPanelId[panelId] ?? [:]
+                            )
                         )
                     }
             return CustomSidebarWorkspaceSnapshot.Pane(
