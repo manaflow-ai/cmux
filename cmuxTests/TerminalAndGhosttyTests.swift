@@ -4905,6 +4905,11 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         // Start from the overlay style so the test is independent of the
         // machine running it. The legacy transition below models the system
         // preference changing to "Always".
+        XCTAssertEqual(
+            scrollView.scrollerStyle,
+            NSScroller.preferredScrollerStyle,
+            "The terminal scroll view should start with AppKit's preferred system style"
+        )
         scrollView.scrollerStyle = .overlay
         scrollView.layoutSubtreeIfNeeded()
         hostedView.reconcileGeometryNow()

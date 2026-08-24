@@ -11973,12 +11973,12 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func synchronizeTerminalGeometryAfterScrollerStyleChange() {
         scrollView.layoutSubtreeIfNeeded()
-        let targetSize = scrollView.bounds.size
+        let targetSize = scrollView.contentView.bounds.size
         let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
         _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
         let targetDocumentFrame = CGRect(
             origin: documentView.frame.origin,
-            size: CGSize(width: scrollView.bounds.width, height: documentView.frame.height)
+            size: CGSize(width: scrollView.contentView.bounds.width, height: documentView.frame.height)
         )
         _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
         synchronizeSurfaceView()
