@@ -2,6 +2,34 @@ import Foundation
 import CmuxControlSocket
 
 extension TerminalController {
+    private nonisolated static let automationCommandEnvelopePrefix = "__cmux_automation_origin "
+
+    nonisolated static func automationCommandEnvelope(
+        from command: String
+    ) -> (command: String, origin: CmuxAutomationEventOrigin)? {
+        guard command.hasPrefix(automationCommandEnvelopePrefix) else { return nil }
+        let remainder = command.dropFirst(automationCommandEnvelopePrefix.count)
+        let parts = remainder.split(separator: " ", maxSplits: 1).map(String.init)
+        guard parts.count == 2,
+              let data = Data(base64Encoded: parts[0]),
+              let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let ruleID = raw["rule_id"] as? String,
+              !ruleID.isEmpty else {
+            return nil
+        }
+        let chain = (raw["chain"] as? [String] ?? [ruleID])
+            .filter { !$0.isEmpty }
+            .prefix(16)
+            .map { String($0.prefix(256)) }
+        return (
+            command: parts[1],
+            origin: CmuxAutomationEventOrigin(
+                ruleID: ruleID,
+                chain: chain.isEmpty ? [ruleID] : chain
+            )
+        )
+    }
+
     nonisolated static func automationOrigin(from command: String) -> CmuxAutomationEventOrigin? {
         guard command.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{"),
               let data = command.data(using: .utf8),
@@ -176,7 +204,13 @@ extension TerminalController {
         }
         return await CmuxAutomationInvocationContext.$focusAllowed.withValue(allowFocus) {
             await CmuxAutomationInvocationContext.$eventOrigin.withValue(origin) {
-                await processCommandUsingSocketExecutionPolicyAsync(line) ?? ""
+                let response = await processCommandUsingSocketExecutionPolicyAsync(line) ?? ""
+                // Normal socket clients pass through this mapper after the
+                // dispatcher returns. Automation RPCs are in-process, so call
+                // the same shared path here while the origin task-local is
+                // still active.
+                publishSocketEvents(command: line, response: response)
+                return response
             }
         }
     }

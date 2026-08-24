@@ -349,6 +349,10 @@ final class AutomationEngine {
               let eventName = event["name"] as? String else {
             return
         }
+        let normalized = Self.normalizedEvent(event)
+        if let sequence = CmuxEventBus.int64(normalized["seq"]) {
+            lastSequence = max(lastSequence ?? sequence, sequence)
+        }
         if eventName == "config.reloaded" {
             _ = reload()
         }
@@ -362,18 +366,13 @@ final class AutomationEngine {
                 workspaceTagsCache.removeAll(keepingCapacity: true)
             }
         }
-        let normalized = Self.normalizedEvent(event)
         let origin = Self.origin(from: normalized)
-        if let sequence = CmuxEventBus.int64(normalized["seq"]) {
-            lastSequence = max(lastSequence ?? sequence, sequence)
-        }
         let candidateRules = candidateRules(
             eventName: eventName,
             category: normalized["category"] as? String
         )
-        let resolvesTagsFromOwner = invalidatesWorkspaceTags
         let tags = candidateRules.contains(where: { $0.enabled && $0.usesWorkspaceTagPredicate })
-            ? workspaceTags(for: normalized, allowOwnerResolution: resolvesTagsFromOwner)
+            ? workspaceTags(for: normalized, allowOwnerResolution: true)
             : []
         for rule in candidateRules where rule.enabled {
             guard rule.matches(event: normalized, workspaceTags: tags) else { continue }

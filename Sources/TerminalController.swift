@@ -1776,7 +1776,7 @@ class TerminalController {
                 _ = await writer.writeAll(Data((Self.socketClientAccessDeniedResponse + "\n").utf8))
                 return
             }
-            guard let trimmed = authorizedSocketCommand(
+            guard let authorizedCommand = authorizedSocketCommand(
                 receivedCommand,
                 peerProcessID: pid,
                 peerHasSameUID: peerHasSameUID
@@ -1789,6 +1789,10 @@ class TerminalController {
                 )
                 return
             }
+            let commandEnvelope = Self.automationCommandEnvelope(from: authorizedCommand)
+            let trimmed = (commandEnvelope?.command ?? authorizedCommand)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let commandOrigin = commandEnvelope?.origin
             lineReader.clearLimits()
             if holdsPreauthorizationSlot {
                 holdsPreauthorizationSlot = false
@@ -1816,15 +1820,22 @@ class TerminalController {
                 return
             }
 
-            let result = await processSocketLineAsync(
-                trimmed,
-                passwordAuthorization: passwordAuthorization,
-                rateLimiter: rateLimiter
-            )
+            let result = await CmuxAutomationInvocationContext.$eventOrigin.withValue(commandOrigin) {
+                await processSocketLineAsync(
+                    trimmed,
+                    passwordAuthorization: passwordAuthorization,
+                    rateLimiter: rateLimiter
+                )
+            }
             passwordAuthorization = result.passwordAuthorization
             if let response = result.response {
                 guard await writer.writeAll(Data((response + "\n").utf8)) else { return }
-                publishSocketEvents(command: trimmed, response: response)
+                CmuxAutomationInvocationContext.$eventOrigin.withValue(
+                    Self.automationOrigin(from: trimmed)
+                        ?? commandOrigin
+                ) {
+                    publishSocketEvents(command: trimmed, response: response)
+                }
             }
         }
         if !socketServer.isConnectionAuthorizationCurrent(authorizationGeneration) {
