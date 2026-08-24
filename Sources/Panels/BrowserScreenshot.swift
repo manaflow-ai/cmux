@@ -372,6 +372,7 @@ extension CmuxWebView {
                 return false
             }
             BrowserScreenshotFlash.show(over: self)
+            onScreenshotCopied?()
             return true
         } catch {
             #if DEBUG
@@ -421,6 +422,7 @@ extension CmuxWebView {
                         return
                     }
                     BrowserScreenshotFlash.show(over: self)
+                    onScreenshotCopied?()
                 } catch {
                     #if DEBUG
                     cmuxDebugLog("browser.screenshot.section.failed error=\(error.localizedDescription)")

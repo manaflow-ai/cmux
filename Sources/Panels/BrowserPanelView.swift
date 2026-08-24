@@ -651,9 +651,7 @@ struct BrowserPanelView: View {
             defer {
                 screenshotPageCaptureInProgress = false
             }
-            let didCopy = await panel.captureScreenshotPageToClipboard()
-            guard didCopy else { return }
-            showScreenshotPageCopiedIndicator()
+            _ = await panel.captureScreenshotPageToClipboard()
         }
     }
 
@@ -1093,6 +1091,9 @@ struct BrowserPanelView: View {
         }
         .onChange(of: panel.focusFlashToken) { _, _ in
             triggerFocusFlashAnimation()
+        }
+        .onChange(of: panel.screenshotCopiedToken) { _, _ in
+            showScreenshotPageCopiedIndicator()
         }
         .onChange(of: panel.currentURL) { _, _ in
             handleCurrentURLChange()
@@ -1554,16 +1555,11 @@ struct BrowserPanelView: View {
     }
 
     private var browserVerticalMoreIcon: some View {
-        // Menu labels flatten SwiftUI transforms on macOS, so draw the
-        // vertical affordance directly instead of rotating a horizontal glyph.
-        let dotDiameter = max(3, devToolsButtonIconSize * 0.34)
-        let dotSpacing = max(1.5, devToolsButtonIconSize * 0.18)
-        return VStack(spacing: dotSpacing) {
-            Circle().fill(devToolsColorOption.color)
-            Circle().fill(devToolsColorOption.color)
-            Circle().fill(devToolsColorOption.color)
-        }
-            .frame(width: dotDiameter, height: dotDiameter * 3 + dotSpacing * 2)
+        // Menu labels preserve text glyphs (but flatten view transforms), so
+        // use the native vertical-ellipsis character for a stable label.
+        Text(verbatim: "⋮")
+            .font(.system(size: devToolsButtonIconSize + 4, weight: .medium))
+            .foregroundStyle(devToolsColorOption.color)
             .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
             .accessibilityHidden(true)
     }

@@ -386,6 +386,63 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
             app.menuItems.matching(identifier: "BrowserToggleDevToolsButton").firstMatch.exists,
             "Developer Tools should remain directly available in the browser toolbar"
         )
+
+        // Menu activation must use the same path as the former inline button:
+        // closing the menu should promote Focus Mode into the active inline chip.
+        let focusMenuItem = app.menuItems.matching(identifier: "BrowserOverflowFocusModeButton").firstMatch
+        focusMenuItem.click()
+        let activeFocusButton = toolbarElement(app, identifier: "BrowserFocusModeButton")
+        XCTAssertTrue(
+            waitForCondition(timeout: 5.0) { activeFocusButton.exists },
+            "Clicking Focus Mode in More should activate the inline focus chip"
+        )
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 5.0) { data in
+                data["browserFocusModeActive"] == "true"
+            },
+            "Clicking Focus Mode in More should update the browser focus state. data=\(loadGotoSplit() ?? [:])"
+        )
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(
+            waitForCondition(timeout: 5.0) { !activeFocusButton.exists },
+            "Double Escape should leave the focus mode entered from More"
+        )
+    }
+
+    func testScreenshotSectionShowsTheCopiedFeedbackChip() {
+        let app = launchWithBrowserSetup(browserURL: makeBrowserFocusModePageURL())
+
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 10.0) { data in
+                data["browserPageTitle"] == "focus-ready"
+            },
+            "Expected the browser fixture to finish loading before screenshot selection. data=\(loadGotoSplit() ?? [:])"
+        )
+        guard let browserPanelId = loadGotoSplit()?[
+            "browserPanelId"
+        ], !browserPanelId.isEmpty else {
+            XCTFail("Missing browserPanelId in goto_split setup data")
+            return
+        }
+
+        let browserPane = app.otherElements["BrowserPanelContent.\(browserPanelId)"].firstMatch
+        XCTAssertTrue(browserPane.waitForExistence(timeout: 6.0), "Expected browser pane content for screenshot selection")
+        toolbarElement(app, identifier: "BrowserOverflowMenu").click()
+        let sectionItem = app.menuItems.matching(identifier: "BrowserScreenshotSectionButton").firstMatch
+        XCTAssertTrue(sectionItem.waitForExistence(timeout: 5.0), "Expected Screenshot Section in More")
+        sectionItem.click()
+
+        let start = browserPane.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.30))
+        let end = browserPane.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.70))
+        start.press(forDuration: 0.2, thenDragTo: end)
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 10.0) {
+                toolbarElement(app, identifier: "BrowserScreenshotPageCopied").exists
+            },
+            "Screenshot Section should surface the same Copied feedback chip as Screenshot Page"
+        )
     }
 
     func testBrowserDesignModeUsesTheSharedActiveModeChip() {
