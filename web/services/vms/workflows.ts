@@ -132,14 +132,16 @@ export function getVm(input: {
           : Effect.fail(err),
       ),
     );
-    if (providerStatus !== "creating" && providerStatus !== vm.status) {
-      const dbStatus = dbStatusFromProviderStatus(providerStatus);
-      const didUpdate = yield* repo.markProviderObservedStatus({
-        id: vm.id,
-        providerVmId,
-        status: dbStatus,
-      });
-      if (didUpdate) return vmEntryFromRow({ ...vm, status: dbStatus, updatedAt: new Date() });
+    if (providerStatus !== "creating") {
+      const dbStatus = observedDbStatus(vm, providerStatus);
+      if (dbStatus !== vm.status) {
+        const didUpdate = yield* repo.markProviderObservedStatus({
+          id: vm.id,
+          providerVmId,
+          status: dbStatus,
+        });
+        if (didUpdate) return vmEntryFromRow({ ...vm, status: dbStatus, updatedAt: new Date() });
+      }
     }
     return vmEntryFromRow(vm);
   });
@@ -930,6 +932,20 @@ function dbStatusFromProviderStatus(status: "running" | "paused" | "destroyed"):
   return status;
 }
 
+// A provider 404 on a machine with a persistent home volume means the compute is gone but
+// the machine is still resurrectable on the next attach — it is asleep, not destroyed.
+// Only machines without a durable home actually die with their sandbox.
+function observedDbStatus(
+  vm: Pick<CloudVmRow, "providerMetadata">,
+  providerStatus: "running" | "paused" | "destroyed",
+): CloudVmStatus {
+  if (providerStatus === "destroyed") {
+    const homeVolume = vm.providerMetadata?.["homeVolume"];
+    if (typeof homeVolume === "string" && homeVolume.length > 0) return "paused";
+  }
+  return dbStatusFromProviderStatus(providerStatus);
+}
+
 type ProviderStatusReconcileOutcome = "updated" | "destroyed" | "unchanged" | "skipped";
 
 function reconcileObservedProviderStatus(
@@ -949,7 +965,7 @@ function reconcileObservedProviderStatus(
       ),
     );
     if (!providerStatus || providerStatus === "creating") return "skipped" as const;
-    const dbStatus = dbStatusFromProviderStatus(providerStatus);
+    const dbStatus = observedDbStatus(vm, providerStatus);
     if (dbStatus === vm.status) return "unchanged" as const;
     const didUpdate = yield* repo.markProviderObservedStatus({
       id: vm.id,

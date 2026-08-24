@@ -517,7 +517,7 @@ export class BlaxelProvider implements VMProvider {
           if (!sandboxUrl) {
             throw new Error("sandbox is missing metadata.url");
           }
-          await this.ensureDaemonRunning(sandboxUrl);
+          await this.ensureDaemonRunning(vmId, sandboxUrl);
 
           const pty = makeWebSocketLease("blaxel", "pty", true, CMUXD_WS_PTY_LEASE_TTL_SECONDS, options?.sessionId);
           const attachmentId = options?.attachmentId?.trim() || makeWebSocketAttachmentId("blaxel");
@@ -676,12 +676,21 @@ export class BlaxelProvider implements VMProvider {
     };
   }
 
-  private async ensureDaemonRunning(sandboxUrl: string): Promise<void> {
+  private async ensureDaemonRunning(vmId: string, sandboxUrl: string): Promise<void> {
     const proc = await blaxelFetch<BlaxelProcess>(
       "GET",
       `${sandboxUrl}/process/${CMUXD_PROCESS_NAME}`,
     ).catch(() => null);
     if (proc?.status !== "running") {
+      // A sandbox can exist without the daemon binary (a create/resurrect that died between
+      // the sandbox POST and the install, or an image rollout that wiped /usr/local/bin).
+      // Starting the process would just crash-loop with exit 127, so re-run the full
+      // bootstrap — install is idempotent and bootstrap also starts daemon and watcher.
+      const installed = await this.sandboxExec(sandboxUrl, `test -x ${CMUXD_BINARY_PATH}`).catch(() => null);
+      if (installed?.exitCode !== 0) {
+        await this.bootstrapDaemon(vmId, sandboxUrl);
+        return;
+      }
       await this.startDaemonProcess(sandboxUrl);
     }
     // Attach = user activity: re-arm the smart-sleep watcher so the sandbox stays awake while
