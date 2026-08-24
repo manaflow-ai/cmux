@@ -1357,17 +1357,28 @@ struct BrowserPanelView: View {
 
     private var browserActiveModeButton: some View {
         Button(action: handleActiveToolbarModeButtonAction) {
-            Text(activeToolbarModeTitle)
-                .cmuxFont(size: 11, weight: .semibold)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .foregroundStyle(activeToolbarModeColor)
-                .padding(.horizontal, 8)
-                .frame(minHeight: addressBarButtonSize, alignment: .center)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(activeToolbarModeColor.opacity(0.12))
-                )
+            HStack(spacing: 5) {
+                if let activeToolbarModeIconName {
+                    CmuxSystemSymbolImage(
+                        systemName: activeToolbarModeIconName,
+                        pointSize: devToolsButtonIconSize,
+                        weight: .medium
+                    )
+                    .foregroundStyle(activeToolbarModeColor)
+                    .accessibilityHidden(true)
+                }
+                Text(activeToolbarModeTitle)
+                    .cmuxFont(size: 11, weight: .semibold)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .foregroundStyle(activeToolbarModeColor)
+            .padding(.horizontal, 8)
+            .frame(minHeight: addressBarButtonSize, alignment: .center)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(activeToolbarModeColor.opacity(0.12))
+            )
         }
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(minHeight: addressBarButtonSize, alignment: .center)
@@ -1388,6 +1399,17 @@ struct BrowserPanelView: View {
             return String(localized: "browser.designMode.title", defaultValue: "Design Mode")
         case nil:
             return ""
+        }
+    }
+
+    private var activeToolbarModeIconName: String? {
+        switch activeToolbarMode {
+        case .focus:
+            return "keyboard"
+        case .design:
+            return "paintbrush.pointed.fill"
+        case nil:
+            return nil
         }
     }
 
