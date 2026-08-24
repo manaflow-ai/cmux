@@ -502,10 +502,16 @@ struct WorkspaceShellView: View {
         }
         // `.task` (not an unstructured Task in onAppear) so the refresh and
         // paired-Mac load are owned by the view: cancelled on disappear and
-        // never running concurrently across repeated shell appearances.
+        // never running concurrently across repeated shell appearances. The
+        // explicit cancellation checks matter because `refresh()` absorbs a
+        // cancelled load into its cache-wins error handling instead of
+        // rethrowing, which would otherwise let this task keep working for a
+        // view that is already gone.
         .task {
             await whatsNewCenter?.refresh()
+            guard !Task.isCancelled else { return }
             await store.loadPairedMacs()
+            guard !Task.isCancelled else { return }
             presentWhatsNewIfNeeded()
         }
         .onChange(of: store.pairedMacs.isEmpty) { _, _ in
