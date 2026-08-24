@@ -140,9 +140,7 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
 
             availableSections.insert(section.key)
             let sectionKey = section.key
-            let isSearchResultsSection = sectionKey == SessionIndexView.searchResultsSectionKey
-            let isCollapsed = !isSearchResultsSection
-                && collapsedSectionKeys.contains(sectionKey)
+            let isCollapsed = collapsedSectionKeys.contains(sectionKey)
             // A stale parent snapshot can still carry the popover identity
             // for the click that just collapsed this section. Clear it in the
             // same canonical projection so the table never paints a hidden
@@ -166,7 +164,6 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
             )
         }
         collapsedSectionKeys.formIntersection(availableSections)
-        collapsedSectionKeys.remove(SessionIndexView.searchResultsSectionKey)
         return projected
     }
 

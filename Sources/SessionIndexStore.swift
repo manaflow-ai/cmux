@@ -141,7 +141,9 @@ struct IndexSection: Identifiable, Equatable {
     let icon: SectionIcon
     let entries: [SessionEntry]
     /// Extra per-row display facts (live status, folder/branch detail) keyed
-    /// by `SessionEntry.id`. Populated only for recency/search sections.
+    /// by `SessionEntry.id`. Populated for Recent projections, including
+    /// Recent search results; Agent and Folder sections keep their compact row
+    /// treatment.
     let accessories: [String: VaultSessionRowAccessory]
 
     init(
@@ -318,12 +320,26 @@ final class SessionIndexStore: ObservableObject {
             return cachedSections
         }
 
-        let visible = filteredEntriesForCurrentScope()
+        let sections = sectionsForEntries(filteredEntriesForCurrentScope())
+
+        cachedSections = sections
+        cachedSectionsRevision = sectionsCacheRevision
+        return sections
+    }
+
+    /// Projects an arbitrary entry snapshot through the active Vault grouping.
+    ///
+    /// Search results are intentionally projected here instead of being put in
+    /// a synthetic flat section. That keeps the section identity, ordering,
+    /// disclosure state, and row treatment identical to the unfiltered view.
+    /// This helper is pure with respect to the store's presentation state: it
+    /// never backfills or persists an order while SwiftUI is rendering.
+    func sectionsForEntries(_ entries: [SessionEntry]) -> [IndexSection] {
         let sections: [IndexSection]
         switch grouping {
         case .recency:
             sections = VaultRecencySections.build(
-                entries: visible,
+                entries: entries,
                 filter: recencyFilter,
                 sort: recencySort,
                 liveKeys: liveSessionKeys,
@@ -331,8 +347,24 @@ final class SessionIndexStore: ObservableObject {
                 calendar: .current
             )
         case .agent:
-            let buckets = Dictionary(grouping: visible, by: { $0.agent.rawValue })
-            sections = agentOrder.compactMap { agent in
+            let buckets = Dictionary(grouping: entries, by: { $0.agent.rawValue })
+            let knownAgentIDs = Set(agentOrder.map(\.rawValue))
+            let unknownAgents = buckets.compactMap { rawValue, entries -> SessionAgent? in
+                guard !knownAgentIDs.contains(rawValue),
+                      let agent = entries.first?.agent else {
+                    return nil
+                }
+                return agent
+            }
+            .sorted { lhs, rhs in
+                let lhsLatest = buckets[lhs.rawValue]?.map(\.modified).max() ?? .distantPast
+                let rhsLatest = buckets[rhs.rawValue]?.map(\.modified).max() ?? .distantPast
+                return lhsLatest == rhsLatest
+                    ? lhs.rawValue < rhs.rawValue
+                    : lhsLatest > rhsLatest
+            }
+            let orderedAgents = agentOrder + unknownAgents
+            sections = orderedAgents.compactMap { agent in
                 guard let entries = buckets[agent.rawValue], !entries.isEmpty else { return nil }
                 return IndexSection(
                     key: .agent(agent),
@@ -342,7 +374,7 @@ final class SessionIndexStore: ObservableObject {
                 )
             }
         case .directory:
-            let buckets = Dictionary(grouping: visible) { $0.cwd ?? "" }
+            let buckets = Dictionary(grouping: entries) { $0.cwd ?? "" }
             // Any cwds that aren't yet in the saved order still need to show
             // up. They get appended by most-recent activity, purely locally,
             // without mutating `directoryOrder` from inside this view-body
@@ -356,7 +388,7 @@ final class SessionIndexStore: ObservableObject {
                 .sorted { lhs, rhs in
                     let lMax = buckets[lhs]?.map(\.modified).max() ?? .distantPast
                     let rMax = buckets[rhs]?.map(\.modified).max() ?? .distantPast
-                    return lMax > rMax
+                    return lMax == rMax ? lhs < rhs : lMax > rMax
                 }
             sections = (directoryOrder + unknownSorted)
                 .filter { buckets[$0] != nil }
@@ -366,12 +398,9 @@ final class SessionIndexStore: ObservableObject {
                         title: directoryDisplayName(path),
                         icon: .folder,
                         entries: buckets[path] ?? []
-                    )
-                }
+                )
+            }
         }
-
-        cachedSections = sections
-        cachedSectionsRevision = sectionsCacheRevision
         return sections
     }
 

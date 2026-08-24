@@ -14,15 +14,12 @@ final class SessionIndexTableRowHeightCalculator {
         case .gap:
             return 4
         case .section(let section, let rowLimit, _, _, let isCollapsed, _, _, _):
-            let isSearchResultsSection = section.key == SessionIndexView.searchResultsSectionKey
-            let headerHeight: CGFloat = isSearchResultsSection
-                ? 0
-                : lineHeight(
-                    baseFontSize: 13,
-                    minimumContentHeight: 14,
-                    verticalPadding: 6,
-                    environment: environment
-                )
+            let headerHeight = lineHeight(
+                baseFontSize: 13,
+                minimumContentHeight: 14,
+                verticalPadding: 6,
+                environment: environment
+            )
             guard !isCollapsed else { return headerHeight }
 
             let entryHeight = lineHeight(
@@ -34,8 +31,8 @@ final class SessionIndexTableRowHeightCalculator {
                 verticalPadding: 8,
                 environment: environment
             )
-            // Recency/search rows can carry a second subtitle line (folder ·
-            // branch, message count); agree with SessionRow's layout.
+            // Recent rows can carry a second subtitle line (folder · branch,
+            // message count); agree with SessionRow's layout.
             let subtitleHeight = lineHeight(
                 baseFontSize: 11,
                 minimumContentHeight: 0,

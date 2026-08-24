@@ -110,7 +110,8 @@ struct SessionIndexView: View {
     @State private var dragCoordinator = SessionDragCoordinator()
     /// Single source of truth for both Vault popover variants.
     @State private var popoverIdentity: SessionIndexTablePopoverIdentity?
-    /// Recency ("All") grouping: global session search input + results.
+    /// Vault-wide search input and the matching entries projected through the
+    /// active grouping (Recent, Agent, or Folder).
     @State private var searchText: String = ""
     @State private var searchResults: [SessionEntry] = []
     @State private var searchErrors: [String] = []
@@ -124,9 +125,6 @@ struct SessionIndexView: View {
     let onOpen: ((SessionEntry) -> Void)?
     /// Rows shown per section before "Show more" is tapped.
     private static let collapsedRowLimit = 5
-    /// Synthetic section hosting global search results in the recency view.
-    static let searchResultsSectionKey = SectionKey(raw: "search:results")
-
     static let relativeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .abbreviated
@@ -148,11 +146,23 @@ struct SessionIndexView: View {
         !trimmedSearchText.isEmpty
     }
 
+    /// Search results use the same section builder as the unfiltered list.
+    /// Keeping this projection in the parent view means table rows continue
+    /// to receive immutable snapshots and the AppKit controller can preserve
+    /// disclosure state by the normal section key.
+    private var projectedSearchSections: [IndexSection] {
+        guard isShowingSearchResults else { return [] }
+        return store.sectionsForEntries(searchResults)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             controlBar
             VaultAllSessionsBar(
                 store: store,
+                // Search stays intentionally quiet: the category buttons and
+                // search field remain, while secondary sort/filter chrome is
+                // hidden until the query is cleared.
                 showsSortAndFilter: store.grouping == .recency && !isShowingSearchResults,
                 searchText: $searchText,
                 onPeekTopResult: { peekTopSearchResult() },
@@ -167,7 +177,7 @@ struct SessionIndexView: View {
                 emptyView
             } else if isShowingSearchResults && isSearchInFlight {
                 searchStatusView
-            } else if isShowingSearchResults && searchResults.isEmpty {
+            } else if isShowingSearchResults && projectedSearchSections.isEmpty {
                 searchEmptyView
             } else {
                 sessionsList
@@ -269,7 +279,7 @@ struct SessionIndexView: View {
 
     private var sessionsList: some View {
         let sections = isShowingSearchResults
-            ? [searchResultsSection]
+            ? projectedSearchSections
             : store.sectionsForCurrentGrouping()
         // Read draggedKey once per body eval so every child gets a snapshot
         // of the same value. Children are Equatable value views, so a
@@ -325,10 +335,9 @@ struct SessionIndexView: View {
                 search: searchFn,
                 loadSnapshot: loadSnapshotFn
             )
-            // Day buckets and the search-results section are computed, not
-            // user-orderable: their gaps reject drops. Day buckets can still
-            // expand inline; search results are already rendered to the full
-            // bounded response cap.
+            // Day buckets are computed, not user-orderable: their gaps reject
+            // drops. Search projections retain the active category's normal
+            // section behavior and row limits.
             let isComputedSection = Self.isComputedSectionKey(section.key)
             let sectionRow = SessionIndexTableRow.section(
                 section: section,
@@ -364,7 +373,6 @@ struct SessionIndexView: View {
                     }
                 }
             )
-            guard !isShowingSearchResults else { return [sectionRow] }
             return [
                 SessionIndexTableRow.gap(
                     beforeKey: section.key,
@@ -374,13 +382,13 @@ struct SessionIndexView: View {
                 ),
                 sectionRow,
             ]
-        } + (isShowingSearchResults ? [] : [
+        } + [
             SessionIndexTableRow.gap(
                 beforeKey: nil,
                 isValidDrop: true,
                 actions: gapActions
             ),
-        ])
+        ]
 
         return SessionIndexTableView(rows: rows)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -389,40 +397,19 @@ struct SessionIndexView: View {
             )
     }
 
-    // MARK: Recency view + global search helpers
+    // MARK: Grouping + global search helpers
 
     static func isComputedSectionKey(_ key: SectionKey) -> Bool {
-        key.isDayBucket || key == searchResultsSectionKey
+        key.isDayBucket
     }
 
     private func rowLimit(for section: IndexSection) -> Int {
-        if section.key == Self.searchResultsSectionKey {
-            // Search is a flat result list, not a collapsible day bucket;
-            // render the complete bounded search response in one pass.
-            return SessionIndexStore.globalSearchResultCap
-        }
         guard Self.isComputedSectionKey(section.key) else {
             return Self.collapsedRowLimit
         }
         return expandedDaySections.contains(section.key)
             ? VaultRecencySections.expandedRowLimit
             : VaultRecencySections.collapsedRowLimit
-    }
-
-    private var searchResultsSection: IndexSection {
-        IndexSection(
-            key: Self.searchResultsSectionKey,
-            title: isSearchInFlight
-                ? String(localized: "sessionIndex.search.searching", defaultValue: "Searching…")
-                : String(localized: "sessionIndex.search.results", defaultValue: "Results"),
-            icon: .search,
-            entries: searchResults,
-            accessories: VaultRecencySections.accessories(
-                for: searchResults,
-                liveKeys: store.liveSessionKeys,
-                now: Date()
-            )
-        )
     }
 
     private var searchStatusView: some View {
@@ -443,11 +430,12 @@ struct SessionIndexView: View {
             .padding(.vertical, 8)
     }
 
-    /// `.task(id:)` key: re-runs the search when the query changes, when the
-    /// user enters/leaves the recency grouping, and after a reload finishes
-    /// (fresh entries can change the metadata phase).
+    /// `.task(id:)` key: re-runs the search when the query or folder scope
+    /// changes, and after a reload finishes (fresh entries can change the
+    /// metadata phase). Grouping and Recent filters only re-project the
+    /// already-fetched matches, so they stay synchronous and stable.
     private var searchTaskKey: String {
-        "\(store.isLoading)|\(trimmedSearchText)"
+        "\(store.isLoading)|\(store.scopeToCurrentDirectory)|\(store.currentDirectory ?? "")|\(trimmedSearchText)"
     }
 
     @MainActor
@@ -493,13 +481,27 @@ struct SessionIndexView: View {
         .background(Color.orange.opacity(0.10))
     }
 
+    /// Keep keyboard submission's result choice aligned with the search
+    /// ranking, while still returning the active grouping section needed by
+    /// the transcript popover anchor.
+    private func topProjectedSearchResult() -> (section: IndexSection, entry: SessionEntry)? {
+        for entry in searchResults {
+            if let section = projectedSearchSections.first(where: { section in
+                section.entries.contains { $0.id == entry.id }
+            }) {
+                return (section, entry)
+            }
+        }
+        return nil
+    }
+
     private func peekTopSearchResult() {
-        guard isShowingSearchResults, let top = searchResults.first else { return }
-        popoverIdentity = .transcript(section: Self.searchResultsSectionKey, entry: top.id)
+        guard let (section, top) = topProjectedSearchResult() else { return }
+        popoverIdentity = .transcript(section: section.key, entry: top.id)
     }
 
     private func resumeTopSearchResult() {
-        guard isShowingSearchResults, let top = searchResults.first else { return }
+        guard let top = topProjectedSearchResult()?.entry else { return }
         onResume?(top)
     }
 }
@@ -706,10 +708,6 @@ struct IndexSectionView: View, Equatable {
     /// observe the store.
     let actions: IndexSectionActions
 
-    private var isSearchResultsSection: Bool {
-        section.key == SessionIndexView.searchResultsSectionKey
-    }
-
     /// Skip body re-eval when this view's inputs are unchanged. `actions` is
     /// not comparable (closures) but is expected to be stable (closures
     /// capture stable object references above the table boundary). Excluding
@@ -728,9 +726,7 @@ struct IndexSectionView: View, Equatable {
             for: section.entries.prefix(rowLimit)
         )
         VStack(alignment: .leading, spacing: 0) {
-            if !isSearchResultsSection {
-                sectionHeader
-            }
+            sectionHeader
             if !isCollapsed {
                 ForEach(rows) { row in
                     SessionRow(
@@ -741,7 +737,7 @@ struct IndexSectionView: View, Equatable {
                         onPreview: { actions.onPreviewEntry(row.entry) },
                         onResume: actions.onResume,
                         onOpen: actions.onOpen,
-                        leadingPadding: isSearchResultsSection ? 12 : 32
+                        leadingPadding: 32
                     )
                         .equatable()
                         .id(row.id)
@@ -760,7 +756,7 @@ struct IndexSectionView: View, Equatable {
                             )
                         }
                 }
-                if !isSearchResultsSection && section.shouldOfferShowMore(rowLimit: rowLimit) {
+                if section.shouldOfferShowMore(rowLimit: rowLimit) {
                     showMoreButton
                 }
                 Spacer(minLength: 2)
@@ -783,7 +779,7 @@ struct IndexSectionView: View, Equatable {
             Text(String(localized: "sessionIndex.section.showMore", defaultValue: "Show more"))
                 .cmuxFont(size: 12, weight: .medium)
                 .foregroundColor(.secondary.opacity(0.7))
-                .padding(.leading, isSearchResultsSection ? 12 : 32)
+                .padding(.leading, 32)
                 .padding(.trailing, 12)
                 .padding(.vertical, 4)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -802,8 +798,9 @@ struct IndexSectionView: View, Equatable {
 
     @ViewBuilder
     private var sectionHeader: some View {
-        // Computed sections (day buckets, search results) are not reorderable
-        // and must not start a section drag.
+        // Computed day sections are not reorderable and must not start a
+        // section drag. Agent and folder projections retain their normal
+        // reorder behavior while searching.
         if SessionIndexView.isComputedSectionKey(section.key) {
             sectionHeaderButton
         } else {
