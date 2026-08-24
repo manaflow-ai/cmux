@@ -24,6 +24,18 @@ def _hashed_session_socket_path(session: str, base: str) -> str:
     return os.path.join(base, f"cmux-tui-hashed-{os.getuid()}", f"{digest}.sock")
 
 
+def _invalid_session_socket_path(session: str) -> str:
+    """Return a deterministic compatibility path outside the session root."""
+    digest = hashlib.sha256(
+        session.encode("utf-8"), usedforsecurity=False
+    ).hexdigest()
+    directory = f"cmux-tui-invalid-{os.getuid()}"
+    preferred = os.path.join(_runtime_base(), directory, f"{digest}.sock")
+    if _unix_socket_path_fits(preferred):
+        return preferred
+    return os.path.join("/tmp", directory, f"{digest}.sock")
+
+
 def validate_session_name(session: str) -> None:
     """Reject session text that cannot be one safe socket path component."""
     invalid = (
@@ -46,8 +58,11 @@ def validate_session_name(session: str) -> None:
 
 
 def default_socket_path(session: str = "main") -> str:
-    """Return the default socket path after validating the session name."""
-    validate_session_name(session)
+    """Return a non-fallible compatibility path for a session name."""
+    try:
+        validate_session_name(session)
+    except ValueError:
+        return _invalid_session_socket_path(session)
     runtime = _runtime_base()
     file_name = f"{session}.sock"
     preferred = os.path.join(runtime, f"cmux-tui-{os.getuid()}", file_name)
