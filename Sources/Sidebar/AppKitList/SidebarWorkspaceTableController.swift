@@ -481,14 +481,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // Clearing silently left the table on the override height while the
         // cache served the measured one — the row clipping/overlap reports
         // (probe: served=48 actual=50 on every streaming row).
-        if !pumpHeightOverrides.isEmpty {
-            let effectiveWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : width
-            for (index, row) in nextRows.enumerated()
-            where pumpHeightOverride(for: row.id, columnWidth: effectiveWidth) != nil {
-                heightChanges.insert(index)
-            }
-        }
-        pumpHeightOverrides.removeAll(keepingCapacity: true)
+        releasePumpHeightOverrides(for: nextRows, addingTo: &heightChanges)
 
         var previousIds: [SidebarWorkspaceRenderItemID] = []
         var nextIds: [SidebarWorkspaceRenderItemID] = []
@@ -1416,17 +1409,21 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let end = min(rows.count, visibleRange.location + visibleRange.length + 2)
         guard start < end else { return }
         lastLiveMeasuredWidth = width
+        let measuredRows = IndexSet(integersIn: start..<end)
         let changed = rowHeightCache.prepareRows(
-            at: IndexSet(integersIn: start..<end),
+            at: measuredRows,
             in: rows,
             columnWidth: width
         )
         hasLiveMeasuredRows = true
-        for index in changed where rows.indices.contains(index) {
-            pumpHeightOverrides.removeValue(forKey: rows[index].id)
+        var rowsToNote = changed
+        for index in measuredRows where rows.indices.contains(index) {
+            if pumpHeightOverrides.removeValue(forKey: rows[index].id) != nil {
+                rowsToNote.insert(index)
+            }
         }
-        if !changed.isEmpty {
-            noteHeightOfRowsWithoutAnimation(table, changed)
+        if !rowsToNote.isEmpty {
+            noteHeightOfRowsWithoutAnimation(table, rowsToNote)
         }
 #if DEBUG
         cmuxDebugLog(
@@ -1471,13 +1468,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // Same rule as apply(): released pump overrides change what
         // heightOfRow answers, so those rows re-note even when the cache
         // entry itself didn't move.
-        if !pumpHeightOverrides.isEmpty {
-            for (index, row) in rows.enumerated()
-            where pumpHeightOverride(for: row.id, columnWidth: width) != nil {
-                changed.insert(index)
-            }
-        }
-        pumpHeightOverrides.removeAll(keepingCapacity: true)
+        releasePumpHeightOverrides(for: rows, addingTo: &changed)
         if !changed.isEmpty {
             if let table = containerView?.tableView { noteHeightOfRowsWithoutAnimation(table, changed) }
         }
@@ -1690,6 +1681,21 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             return nil
         }
         return override.height
+    }
+
+    /// Drops pump heights that have been superseded by a cache pass and
+    /// re-notes every affected row, including overrides measured at a width
+    /// different from the settled lookup width.
+    private func releasePumpHeightOverrides(
+        for rows: [SidebarWorkspaceTableRowConfiguration],
+        addingTo heightRows: inout IndexSet
+    ) {
+        guard !pumpHeightOverrides.isEmpty else { return }
+        let releasedIds = Set(pumpHeightOverrides.keys)
+        for (index, row) in rows.enumerated() where releasedIds.contains(row.id) {
+            heightRows.insert(index)
+        }
+        pumpHeightOverrides.removeAll(keepingCapacity: true)
     }
 
     private func noteRowHeightOverride(
