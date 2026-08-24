@@ -5,11 +5,6 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-/// One folder level on the picker's navigation stack.
-struct TaskComposerDirectoryBrowseDestination: Hashable {
-    let path: String
-}
-
 /// The task composer's folder picker: a navigation stack whose root lists
 /// suggested folders and browse locations, with one pushed screen per folder
 /// level. It opens pre-navigated to the selected folder so the back button
@@ -53,8 +48,7 @@ struct TaskComposerDirectoryPickerView: View {
         self.searchMac = searchMac
         self.listMac = listMac
         _path = State(
-            initialValue: TaskComposerDirectoryAncestry.chain(for: selectedPath)
-                .map(TaskComposerDirectoryBrowseDestination.init)
+            initialValue: TaskComposerDirectoryBrowseDestination.ancestry(for: selectedPath)
         )
     }
 
@@ -238,7 +232,7 @@ private struct TaskComposerDirectorySuggestedButton: View {
         } label: {
             TaskComposerDirectorySuggestionRow(
                 displayPath: TaskComposerDirectoryDisplayPath(path: candidate.path),
-                sourceLabel: TaskComposerDirectoryFailureText.sourceLabel(for: candidate.bestSource),
+                sourceLabel: candidate.bestSource.pickerLabel,
                 isSelected: isSelected
             )
         }

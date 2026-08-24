@@ -169,7 +169,7 @@ struct TaskComposerDirectorySearchResultsSections: View {
                             .accessibilityIdentifier("MobileTaskDirectorySearchStatus")
                     }
                     if let failure {
-                        Text(TaskComposerDirectoryFailureText.searchFailureMessage(failure))
+                        Text(failure.pickerMessage)
                     }
                 }
             }
@@ -188,7 +188,7 @@ private struct TaskComposerDirectorySearchResultButton: View {
         } label: {
             TaskComposerDirectorySuggestionRow(
                 displayPath: TaskComposerDirectoryDisplayPath(path: suggestion.path),
-                sourceLabel: TaskComposerDirectoryFailureText.sourceLabel(for: suggestion.bestSource),
+                sourceLabel: suggestion.bestSource.pickerLabel,
                 isSelected: isSelected
             )
         }
@@ -205,7 +205,7 @@ private struct TaskComposerDirectorySearchResultButton: View {
 
     private var accessibilityValue: String {
         let detail = [
-            TaskComposerDirectoryFailureText.sourceLabel(for: suggestion.bestSource),
+            suggestion.bestSource.pickerLabel,
             suggestion.context,
         ]
         .compactMap { $0 }
@@ -240,7 +240,7 @@ struct TaskComposerDirectorySearchStatusOverlay: View {
                         systemImage: "exclamationmark.magnifyingglass"
                     )
                 } description: {
-                    Text(TaskComposerDirectoryFailureText.searchFailureMessage(failure))
+                    Text(failure.pickerMessage)
                 } actions: {
                     Button(L10n.string("mobile.common.retry", defaultValue: "Retry"), action: retry)
                         .accessibilityIdentifier("TaskComposerDirectorySearchRetry")

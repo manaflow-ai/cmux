@@ -119,7 +119,7 @@ struct TaskComposerDirectoryBrowseScreen: View {
                                 "mobile.taskComposer.directoryPicker.browse.open.hint",
                                 defaultValue: "Shows the folders inside this folder."
                             )
-                            : TaskComposerDirectoryFailureText.browseFailureMessage(.unreadable)
+                            : MobileTaskDirectoryListFailure.unreadable.pickerMessage
                     )
                 }
                 if browse.snapshot?.nextOffset != nil {
@@ -151,11 +151,11 @@ struct TaskComposerDirectoryBrowseScreen: View {
         } else if let failure = replaceFailure {
             ContentUnavailableView {
                 Label(
-                    TaskComposerDirectoryFailureText.browseFailureTitle(failure),
+                    failure.pickerTitle,
                     systemImage: "exclamationmark.triangle"
                 )
             } description: {
-                Text(TaskComposerDirectoryFailureText.browseFailureMessage(failure))
+                Text(failure.pickerMessage)
             } actions: {
                 Button(L10n.string("mobile.common.retry", defaultValue: "Retry")) {
                     browse.retryFailedRequest()

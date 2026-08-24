@@ -3,11 +3,10 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 
-/// User-facing copy for directory search and browse failures, shared by every
-/// screen of the directory picker.
-enum TaskComposerDirectoryFailureText {
-    static func searchFailureMessage(_ failure: MobileTaskDirectorySearchFailure) -> String {
-        switch failure {
+/// User-facing copy the directory picker shows for search failures.
+extension MobileTaskDirectorySearchFailure {
+    var pickerMessage: String {
+        switch self {
         case .unsupported:
             L10n.string(
                 "mobile.taskComposer.directoryPicker.failure.unsupported",
@@ -35,9 +34,12 @@ enum TaskComposerDirectoryFailureText {
             )
         }
     }
+}
 
-    static func browseFailureTitle(_ failure: MobileTaskDirectoryListFailure) -> String {
-        switch failure {
+/// User-facing copy the directory picker shows for folder-listing failures.
+extension MobileTaskDirectoryListFailure {
+    var pickerTitle: String {
+        switch self {
         case .permissionDenied, .unreadable:
             L10n.string(
                 "mobile.taskComposer.directoryPicker.browse.failure.access.title",
@@ -56,8 +58,8 @@ enum TaskComposerDirectoryFailureText {
         }
     }
 
-    static func browseFailureMessage(_ failure: MobileTaskDirectoryListFailure) -> String {
-        switch failure {
+    var pickerMessage: String {
+        switch self {
         case .invalidPath:
             L10n.string(
                 "mobile.taskComposer.directoryPicker.browse.failure.invalid",
@@ -105,9 +107,12 @@ enum TaskComposerDirectoryFailureText {
             )
         }
     }
+}
 
-    static func sourceLabel(for source: MobileTaskDirectorySource) -> String {
-        switch source {
+/// The short provenance label the directory picker shows on a suggested folder.
+extension MobileTaskDirectorySource {
+    var pickerLabel: String {
+        switch self {
         case .filesystemSearch:
             L10n.string("mobile.taskComposer.directoryPicker.source.filesystem", defaultValue: "On this Mac")
         case .activeTerminal:

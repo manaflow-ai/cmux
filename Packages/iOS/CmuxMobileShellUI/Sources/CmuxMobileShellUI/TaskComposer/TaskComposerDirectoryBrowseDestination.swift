@@ -1,16 +1,20 @@
+#if os(iOS)
 import Foundation
 
-/// Builds the navigation-stack seed for the directory picker: every ancestor
-/// of the selected folder, ordered root-first, so the standard back button
-/// walks up the folder hierarchy one level at a time.
-enum TaskComposerDirectoryAncestry {
+/// One folder level on the directory picker's navigation stack.
+struct TaskComposerDirectoryBrowseDestination: Hashable {
+    let path: String
+
     /// The back stack can show at most this many seeded levels; deeper paths
     /// keep their deepest folders because those are the ones a user browses.
     static let maxSeededDepth = 12
 
-    static func chain(for path: String) -> [String] {
+    /// The navigation-stack seed for a selected folder: every ancestor of
+    /// `path`, ordered root-first, so the standard back button walks up the
+    /// folder hierarchy one level at a time.
+    static func ancestry(for path: String) -> [TaskComposerDirectoryBrowseDestination] {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return ["~"] }
+        guard !trimmed.isEmpty else { return [Self(path: "~")] }
 
         let root: String
         let remainder: Substring
@@ -23,7 +27,7 @@ enum TaskComposerDirectoryAncestry {
         } else {
             // A relative or otherwise opaque path cannot be decomposed on the
             // phone; browse it as a single screen and let the Mac resolve it.
-            return [trimmed]
+            return [Self(path: trimmed)]
         }
 
         var chain = [root]
@@ -35,6 +39,7 @@ enum TaskComposerDirectoryAncestry {
         if chain.count > maxSeededDepth {
             chain = Array(chain.suffix(maxSeededDepth))
         }
-        return chain
+        return chain.map(Self.init)
     }
 }
+#endif
