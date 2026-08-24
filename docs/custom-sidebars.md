@@ -150,8 +150,12 @@ with:
   Pane `tabs` stay in tab-strip order.
 - `tabs` (flat per-workspace compatibility array and nested per-pane array) —
   surfaces with `id`, `title`, `focused` (keyboard-focused surface), `selected`
-  (currently visible tab in its pane), and `pinned`. When available:
-  `directory`, `branch` + `dirty`, `ports` (array of Int).
+  (currently visible tab in its pane), `pinned`, and `agentStatus` (the shared
+  agent status: `none|running|idle|needsInput|error`). When available:
+  `directory`, `branch` + `dirty`, `ports` (array of Int), and `agentTint`
+  (the status's canonical hex; omitted for `none` so you can supply your own
+  neutral). `agentStatus`/`agentTint` come from the same `AgentStatus` model
+  that colors the pane borders, so a sidebar row and its pane always agree.
 - `workspaceCount` — Int. `selectedTitle` — active workspace's title.
   `selectedId` — its id. `unreadTotal` — total unread notifications.
 - `clock` — `{ time ("HH:mm:ss"), hour, minute, second, weekday, epoch }`. The

@@ -63,7 +63,7 @@ cmux sidebar validate mine && cmux sidebar select mine
 
 - `workspaces`: `id`, `title`, `selected`, `pinned`, `index`, `directory`, `ports` + `portCount`, `unread`, flat `tabs` + `tabCount`, spatially ordered `panes` + `paneCount`; when present also `description`, `color`, `branch` + `dirty`, `pr` / `prs` (`{number, label, url, status, stale, branch}`), `progress` (`{value, label}`), `latestMessage`, `latestPrompt`, `latestAt`, `remote` (`{target, state, connected}`).
 - `workspaces[i].panes`: `id`, `index`, `focused`, nested `tabs` + `tabCount`; tabs stay in tab-strip order.
-- Surface values in flat or nested `tabs`: `id`, `title`, `focused`, `selected` (visible in its pane), `pinned`; plus `directory`, `branch` + `dirty`, `ports` when available.
+- Surface values in flat or nested `tabs`: `id`, `title`, `focused`, `selected` (visible in its pane), `pinned`, `agentStatus` (`none|running|idle|needsInput|error`, from the same shared model that colors the pane borders); plus `agentTint` (the status hex; omitted for `none`), `directory`, `branch` + `dirty`, `ports` when available.
 - `clock`: `{time, hour, minute, second, weekday, epoch}`.
 - Scalars: `workspaceCount`, `selectedTitle`, `selectedId`, `unreadTotal`.
 
