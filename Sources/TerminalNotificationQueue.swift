@@ -13,6 +13,7 @@ fileprivate struct QueuedTerminalNotification: Sendable {
     let subtitle: String
     let body: String
     let replyShape: TerminalNotificationReplyShape
+    let agent: TerminalNotificationPolicyAgentContext?
 }
 
 fileprivate enum TerminalSocketMutation {
@@ -33,16 +34,20 @@ fileprivate struct TerminalSocketMutationEntry {
 
 /// Identity for last-write-wins `.perform` mutations: a fresh enqueue removes
 /// the pending same-key entry, bounding `pending` at one entry per key even
-/// while the main actor is blocked and cannot drain.
-struct TerminalMutationReplaceKey: Hashable, Sendable {
-    enum Kind: Hashable, Sendable {
-        case shellActivity, gitBranch, directory
+/// while the main actor is blocked and cannot drain. Shell activity is keyed
+/// by logical surface; caller-supplied process generations are admission data,
+/// never an extra queue dimension.
+enum TerminalMutationReplaceKey: Hashable, Sendable {
+    enum ScopedKind: Hashable, Sendable {
+        case gitBranch, directory
         case portsKick(PortScanKickReason)
     }
 
-    let tabId: UUID
-    let surfaceId: UUID
-    let kind: Kind
+    /// Shell reports follow a live surface across workspace and Dock moves, so
+    /// their queue identity is the globally stable surface id alone.
+    case shellActivity(surfaceId: UUID)
+    /// Metadata whose mutation closure still resolves the claimed workspace.
+    case scoped(tabId: UUID, surfaceId: UUID, kind: ScopedKind)
 }
 
 fileprivate struct TerminalNotificationCoalescingKey: Hashable {
@@ -70,6 +75,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         subtitle: String,
         body: String,
         replyShape: TerminalNotificationReplyShape = .none,
+        agent: TerminalNotificationPolicyAgentContext? = nil,
         coalesces: Bool = true
     ) {
         enqueueNotification(QueuedTerminalNotification(
@@ -77,7 +83,8 @@ final class TerminalMutationBus: @unchecked Sendable {
             title: title,
             subtitle: subtitle,
             body: body,
-            replyShape: replyShape
+            replyShape: replyShape,
+            agent: agent
         ), coalesces: coalesces)
     }
 
@@ -293,12 +300,21 @@ final class TerminalMutationBus: @unchecked Sendable {
     /// mutation with the same `replaceKey` before appending, so the survivor
     /// applies at its new enqueue position (the notification coalescing
     /// semantics above, for `.perform` mutations).
+    ///
+    /// `shouldEnqueue` executes synchronously while the bus ordering lock is
+    /// held. It must remain bounded and must not call back into this bus.
+    @discardableResult
     nonisolated func enqueueReplacingMainActorMutation(
         replaceKey: TerminalMutationReplaceKey,
+        admitting shouldEnqueue: () -> Bool = { true },
         _ mutation: @escaping @MainActor () -> Void
-    ) {
+    ) -> Bool {
         let shouldScheduleDrain: Bool
         lock.lock()
+        guard shouldEnqueue() else {
+            lock.unlock()
+            return false
+        }
         pending.removeAll { $0.performReplaceKey == replaceKey }
         nextSequence &+= 1
         pending.append(TerminalSocketMutationEntry(
@@ -314,8 +330,10 @@ final class TerminalMutationBus: @unchecked Sendable {
         }
         lock.unlock()
 
-        guard shouldScheduleDrain else { return }
-        scheduleDrain()
+        if shouldScheduleDrain {
+            scheduleDrain()
+        }
+        return true
     }
 
     private func discardPendingNotifications(
@@ -444,6 +462,7 @@ final class TerminalMutationBus: @unchecked Sendable {
                     subtitle: notification.subtitle,
                     body: notification.body,
                     replyShape: notification.replyShape,
+                    agent: notification.agent,
                     notificationGeneration: entry.notificationGeneration ?? 0
                 )
             case .clearAllNotifications(let boundary):

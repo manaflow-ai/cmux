@@ -2,6 +2,7 @@ import {
   authenticateRouteToken,
   markAccountCooldown,
   selectAccountForRequest,
+  selectAccountForSession,
 } from "./repository";
 import { freshCredential } from "./refresh";
 import { fetchProviderRead } from "./providerFetch";
@@ -24,11 +25,88 @@ const ALLOWED_REQUEST_HEADERS = [
   "user-agent",
 ] as const;
 
-export async function proxyCodexRequest(request: Request): Promise<Response> {
+type CodexResponsesDependencies = {
+  readonly authenticate: typeof authenticateRouteToken;
+  readonly select: typeof selectAccountForSession;
+  readonly credential: typeof freshCredential;
+  readonly cooldown: typeof markAccountCooldown;
+};
+
+/**
+ * The Codex CLI sends a stable `session_id` header for every request of one
+ * agent session. That key pins the session to one account so the provider's
+ * prompt cache stays warm across turns.
+ */
+function sessionKeyFromRequest(request: Request): string | null {
+  const raw = request.headers.get("session_id")?.trim();
+  if (!raw || raw.length > 512) return null;
+  return raw;
+}
+
+const STICKY_REFRESH_RETRIES = 4;
+const STICKY_REFRESH_RETRY_DELAY_MS = 500;
+
+/**
+ * A sticky session that hits a refresh already in flight should wait for the
+ * winner's fresh credential rather than move to another account: a move
+ * discards the session's prompt cache and re-bills its whole prefix, while
+ * the in-flight refresh completes within seconds. Non-sticky requests keep
+ * the fail-fast behavior.
+ */
+async function credentialWithStickyPatience(
+  dependencies: Pick<CodexResponsesDependencies, "credential">,
+  input: { teamId: string; accountId: string; expectedRevision: number },
+  sticky: boolean,
+): Promise<Awaited<ReturnType<CodexResponsesDependencies["credential"]>>> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await dependencies.credential(input);
+    } catch (error) {
+      const busy = error && typeof error === "object" && "_tag" in error &&
+        (error as { _tag: string })._tag === "CodeRouterRefreshBusy";
+      if (!busy || !sticky || attempt >= STICKY_REFRESH_RETRIES) throw error;
+      await new Promise((resolve) =>
+        setTimeout(resolve, STICKY_REFRESH_RETRY_DELAY_MS)
+      );
+    }
+  }
+}
+
+export function createCodexResponsesProxy(
+  dependencies: CodexResponsesDependencies,
+): (request: Request) => Promise<Response> {
+  return async (request) => proxyCodexRequestWith(dependencies, request);
+}
+
+export const proxyCodexRequest = createCodexResponsesProxy({
+  authenticate: authenticateRouteToken,
+  select: selectAccountForSession,
+  credential: freshCredential,
+  cooldown: markAccountCooldown,
+});
+
+async function proxyCodexRequestWith(
+  dependencies: CodexResponsesDependencies,
+  request: Request,
+): Promise<Response> {
   const startedAt = performance.now();
   const token = bearerToken(request);
   if (!token) {
     addCoderouterBreadcrumb("auth", "Route token missing", {}, "warning");
+    captureCoderouterEvent({
+      event: "coderouter_auth_rejected",
+      properties: { surface: "responses", reason: "missing_route_token" },
+    });
+    captureRouteHealth({
+      request,
+      startedAt,
+      status: 401,
+      attempted: 0,
+      refreshRetries: 0,
+      outcome: "unauthorized",
+      failureStage: "auth",
+      responseStreamed: false,
+    });
     return jsonError(
       "unauthorized",
       401,
@@ -37,13 +115,22 @@ export async function proxyCodexRequest(request: Request): Promise<Response> {
       false,
     );
   }
-  const identity = await authenticateRouteToken(token);
+  const identity = await dependencies.authenticate(token);
   if (!identity) {
     addCoderouterBreadcrumb("auth", "Route token rejected", {}, "warning");
     captureCoderouterEvent({
       event: "coderouter_auth_rejected",
-      userId: "coderouter:anonymous",
-      properties: { path: "responses", reason: "invalid_route_token" },
+      properties: { surface: "responses", reason: "invalid_route_token" },
+    });
+    captureRouteHealth({
+      request,
+      startedAt,
+      status: 401,
+      attempted: 0,
+      refreshRetries: 0,
+      outcome: "unauthorized",
+      failureStage: "auth",
+      responseStreamed: false,
     });
     return jsonError(
       "unauthorized",
@@ -62,29 +149,39 @@ export async function proxyCodexRequest(request: Request): Promise<Response> {
     const value = request.headers.get(name);
     if (value) forwardedHeaders.set(name, value);
   }
+  const sessionKey = sessionKeyFromRequest(request);
   const attempted: string[] = [];
   let refreshRetries = 0;
+  let failureStage: "account_selection" | "credential_refresh" | "upstream_transport" =
+    "account_selection";
   let upstream: Response | null = null;
   for (let attempt = 0; attempt < 8; attempt++) {
-    const account = await selectAccountForRequest(
-      identity.teamId,
-      "codex",
-      attempted,
-    );
+    const account = await dependencies.select({
+      teamId: identity.teamId,
+      provider: "codex",
+      sessionKey,
+      excludedAccountIds: attempted,
+    });
     if (!account) break;
     attempted.push(account.id);
     addCoderouterBreadcrumb("routing", "Selected provider account", {
       provider: "codex",
       attempt: attempt + 1,
+      sticky: account.sticky,
     });
     let credential;
     try {
-      credential = await freshCredential({
-        teamId: identity.teamId,
-        accountId: account.id,
-        expectedRevision: account.vaultRevision,
-      });
+      credential = await credentialWithStickyPatience(
+        dependencies,
+        {
+          teamId: identity.teamId,
+          accountId: account.id,
+          expectedRevision: account.vaultRevision,
+        },
+        account.sticky,
+      );
     } catch (error) {
+      failureStage = "credential_refresh";
       if (error && typeof error === "object" && "_tag" in error) {
         const tag = (error as { _tag: string })._tag;
         if (tag === "CodeRouterRefreshBusy") continue;
@@ -96,6 +193,7 @@ export async function proxyCodexRequest(request: Request): Promise<Response> {
     try {
       upstream = await sendCodex(request.clone(), forwardedHeaders, credential);
     } catch (error) {
+      failureStage = "upstream_transport";
       reportCoderouterFailure("upstream_transport", error, {
         provider: "codex",
         attempt: attempt + 1,
@@ -114,7 +212,7 @@ export async function proxyCodexRequest(request: Request): Promise<Response> {
         "warning",
       );
       try {
-        const refreshed = await freshCredential({
+        const refreshed = await dependencies.credential({
           teamId: identity.teamId,
           accountId: account.id,
           expectedRevision: account.vaultRevision,
@@ -128,6 +226,7 @@ export async function proxyCodexRequest(request: Request): Promise<Response> {
           );
         }
       } catch (error) {
+        failureStage = "credential_refresh";
         reportCoderouterFailure("provider_refresh", error, {
           provider: "codex",
           forced: true,
@@ -144,13 +243,13 @@ export async function proxyCodexRequest(request: Request): Promise<Response> {
           status: 429,
         },
       );
-      await markAccountCooldown(account.id, rateLimitDelay(upstream.headers));
+      await dependencies.cooldown(account.id, rateLimitDelay(upstream.headers));
       continue;
     }
     break;
   }
   if (!upstream) {
-    captureModelRequest({
+    captureRouteHealth({
       identity,
       request,
       startedAt,
@@ -158,7 +257,8 @@ export async function proxyCodexRequest(request: Request): Promise<Response> {
       attempted: attempted.length,
       refreshRetries,
       outcome: "no_usable_account",
-      usage: null,
+      failureStage,
+      responseStreamed: false,
     });
     return jsonError(
       "no_usable_account",
@@ -185,17 +285,18 @@ export async function proxyCodexRequest(request: Request): Promise<Response> {
   }
   responseHeaders.set("cache-control", "no-store");
   const status = upstream.status;
+  captureRouteHealth({
+    identity,
+    request,
+    startedAt,
+    status,
+    attempted: attempted.length,
+    refreshRetries,
+    outcome: status >= 200 && status < 300 ? "success" : "upstream_error",
+    responseStreamed: upstream.body !== null,
+  });
   const observedBody = observeModelUsage(upstream.body, (usage) => {
-    captureModelRequest({
-      identity,
-      request,
-      startedAt,
-      status,
-      attempted: attempted.length,
-      refreshRetries,
-      outcome: status >= 200 && status < 300 ? "success" : "upstream_error",
-      usage,
-    });
+    captureModelUsage(identity.teamId, usage);
   });
   return new Response(observedBody, {
     status: upstream.status,
@@ -215,6 +316,10 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
   return async (request: Request): Promise<Response> => {
     const token = bearerToken(request);
     if (!token) {
+      captureCoderouterEvent({
+        event: "coderouter_auth_rejected",
+        properties: { surface: "models", reason: "missing_route_token" },
+      });
       return jsonError(
         "unauthorized",
         401,
@@ -225,6 +330,10 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
     }
     const identity = await dependencies.authenticate(token);
     if (!identity) {
+      captureCoderouterEvent({
+        event: "coderouter_auth_rejected",
+        properties: { surface: "models", reason: "invalid_route_token" },
+      });
       return jsonError(
         "unauthorized",
         401,
@@ -386,16 +495,29 @@ function jsonError(
   );
 }
 
-function captureModelRequest(input: {
-  readonly identity: { readonly teamId: string; readonly stackUserId: string };
+function captureRouteHealth(input: {
+  readonly identity?: { readonly teamId: string; readonly stackUserId: string };
   readonly request: Request;
   readonly startedAt: number;
   readonly status: number;
   readonly attempted: number;
   readonly refreshRetries: number;
-  readonly outcome: string;
-  readonly usage: ModelUsage | null;
+  readonly outcome:
+    | "success"
+    | "upstream_error"
+    | "no_usable_account"
+    | "unauthorized";
+  readonly failureStage?:
+    | "none"
+    | "auth"
+    | "account_selection"
+    | "credential_refresh"
+    | "upstream_transport"
+    | "upstream_response";
+  readonly responseStreamed: boolean;
 }): void {
+  const durationMs = Math.round(performance.now() - input.startedAt);
+  const agent = agentFromUserAgent(input.request.headers.get("user-agent"));
   addCoderouterBreadcrumb(
     "request",
     "Model request completed",
@@ -404,29 +526,47 @@ function captureModelRequest(input: {
       status: input.status,
       outcome: input.outcome,
       attempts: input.attempted,
-      duration_ms: Math.round(performance.now() - input.startedAt),
+      duration_ms: durationMs,
     },
     input.status >= 500 ? "error" : input.status >= 400 ? "warning" : "info",
   );
+  // Capture as soon as the terminal route result is known. This is deliberately
+  // independent of response consumption and token parsing.
   captureCoderouterEvent({
-    event: "coderouter_model_request_completed",
-    userId: input.identity.stackUserId,
-    teamId: input.identity.teamId,
+    event: "coderouter_route_health",
+    teamId: input.identity?.teamId,
     properties: {
       provider: "codex",
-      agent: agentFromUserAgent(input.request.headers.get("user-agent")),
+      agent,
       outcome: input.outcome,
+      failure_stage: input.outcome === "success"
+        ? "none"
+        : input.outcome === "unauthorized"
+        ? "auth"
+        : input.outcome === "no_usable_account"
+        ? input.failureStage ?? "account_selection"
+        : "upstream_response",
       status: input.status,
       attempt_count: input.attempted,
       refresh_retry_count: input.refreshRetries,
-      duration_ms: Math.round(performance.now() - input.startedAt),
-      model: input.usage?.model ?? "unknown",
-      input_tokens: input.usage?.inputTokens ?? 0,
-      cached_input_tokens: input.usage?.cachedInputTokens ?? 0,
-      output_tokens: input.usage?.outputTokens ?? 0,
-      total_tokens: input.usage?.totalTokens ?? 0,
-      actual_cost_usd: 0,
-      cost_basis: "subscription_included",
+      duration_ms: durationMs,
+      response_streamed: input.responseStreamed,
+    },
+  });
+}
+
+function captureModelUsage(teamId: string, usage: ModelUsage | null): void {
+  if (!usage || usage.totalTokens === 0) return;
+  captureCoderouterEvent({
+    event: "coderouter_model_request_completed",
+    teamId,
+    properties: {
+      provider: "codex",
+      model: usage.model ?? "unknown",
+      input_tokens: usage.inputTokens,
+      cached_input_tokens: usage.cachedInputTokens,
+      output_tokens: usage.outputTokens,
+      total_tokens: usage.totalTokens,
     },
   });
 }

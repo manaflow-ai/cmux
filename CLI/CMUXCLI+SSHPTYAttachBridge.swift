@@ -9,6 +9,19 @@ extension CLIError {
 }
 
 extension CMUXCLI {
+    /// Persistent attach launchers own the retry UX.  A retryable bridge
+    /// establishment error is expected while the management supervisor is
+    /// bringing the daemon/proxy back; printing it before the bounded retry
+    /// notice makes a healthy recovery look like a fatal SSH failure.
+    func shouldSuppressSSHPTYAttachRetryError(_ error: Error) -> Bool {
+        guard sshPTYAttachWrapperRetryPending(),
+              let cliError = error as? CLIError,
+              let exitCode = SSHPTYAttachExitCode(rawValue: cliError.exitCode) else {
+            return false
+        }
+        return sshPTYAttachWrapperWillRetry(exitCode)
+    }
+
     /// True when a persistent attach wrapper has another general retry available.
     /// Persistent wrappers export `CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=1`;
     /// direct invocations leave it unset, so failures there always clean up.
@@ -130,72 +143,70 @@ extension CMUXCLI {
         surfaceID: String?,
         sessionID: String,
         lifecycleID: String,
+        reconciliationConfirmedSessionEnded: inout Bool,
         intentionalOnly: Bool,
-        sessionRunningExitCode: SSHPTYAttachExitCode = .bridgeClosedSessionRunning
+        sessionRunningExitCode: SSHPTYAttachExitCode = .bridgeClosedSessionRunning,
+        reconciliationUnavailableExitCode: SSHPTYAttachExitCode = .retryableTransient
     ) throws -> Bool {
-        let reconciliationFailure = "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed"
-        let response: [String: Any]
-        do {
-            var params: [String: Any] = [
-                "workspace_id": workspaceId,
-                "session_id": sessionID,
-                "lifecycle_id": lifecycleID,
-                "acknowledge_lifecycle_if_session_absent": !intentionalOnly,
-            ]
-            if let surfaceID {
-                params["surface_id"] = surfaceID
-                params["allow_moved_surface"] = true
-            }
-            response = try client.sendV2(method: "workspace.remote.pty_sessions", params: params)
-        } catch {
-            throw CLIError(
-                message: "\(reconciliationFailure): \(userFacingRemotePTYErrorMessage(error))",
-                exitCode: SSHPTYAttachExitCode.retryableTransient
-            )
+        var params: [String: Any] = [
+            "workspace_id": workspaceId,
+            "session_id": sessionID,
+            "lifecycle_id": lifecycleID,
+            "acknowledge_lifecycle_if_session_absent": false,
+        ]
+        if let surfaceID {
+            params["surface_id"] = surfaceID
+            params["allow_moved_surface"] = true
         }
 
-        let requestedLifecycle = (response["requested_session_lifecycle"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let intentionalCleanup = requestedLifecycle == "intentional_cleanup_requested" ||
-            requestedLifecycle == "intentionally_closed"
-        guard let sessions = response["sessions"] as? [[String: Any]] else {
-            throw CLIError(message: reconciliationFailure, exitCode: SSHPTYAttachExitCode.retryableTransient)
-        }
-        let errors: [[String: Any]]
-        if let rawErrors = response["errors"] {
-            guard let parsedErrors = rawErrors as? [[String: Any]] else {
-                throw CLIError(message: reconciliationFailure, exitCode: SSHPTYAttachExitCode.retryableTransient)
-            }
-            errors = parsedErrors
-        } else {
-            errors = []
-        }
-        if !intentionalCleanup, !errors.isEmpty {
-            throw CLIError(
-                message: "\(reconciliationFailure)\n\(sshSessionListFailureMessage(errors))",
-                exitCode: SSHPTYAttachExitCode.retryableTransient
+        var reconciliation = try requestValidatedSSHPTYReconciliation(
+            client: client,
+            params: params,
+            unavailableExitCode: reconciliationUnavailableExitCode
+        )
+        if !intentionalOnly,
+           !reconciliation.intentionalCleanup,
+           !reconciliation.sessionIDs.contains(sessionID) {
+            // Keep the first liveness read side-effect free. Only after its
+            // response is validated may the server atomically recheck absence
+            // and acknowledge this exact lifecycle generation.
+            params["acknowledge_lifecycle_if_session_absent"] = true
+            reconciliation = try requestValidatedSSHPTYReconciliation(
+                client: client,
+                params: params,
+                unavailableExitCode: reconciliationUnavailableExitCode
             )
         }
-        if intentionalOnly, !intentionalCleanup { return false }
+        if intentionalOnly, !reconciliation.intentionalCleanup { return false }
 
-        let sessionStillRunning = sessions.contains {
-            (($0["session_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") == sessionID
-        }
-        if !intentionalCleanup, sessionStillRunning {
+        if !reconciliation.intentionalCleanup,
+           reconciliation.sessionIDs.contains(sessionID) {
             let message: String
             if sessionRunningExitCode == .bridgeClosedWithoutProgress {
                 message = String(
                     localized: "cli.sshPtyAttach.bridgeClosedWithoutProgress",
-                    defaultValue: "ssh-pty-attach: bridge closed without receiving new output while the remote PTY session is still running"
+                    defaultValue: "ssh-pty-attach: bridge closed without receiving new output while the remote PTY session is still running",
+                    bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+                )
+            } else if sshPTYAttachWrapperWillRetry(sessionRunningExitCode) {
+                message = String(
+                    localized: "cli.sshPtyAttach.bridgeClosedSessionRunningReconnecting",
+                    defaultValue: "The SSH terminal connection ended while the remote session is still running; cmux is reconnecting.",
+                    bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
                 )
             } else {
-                message = "ssh-pty-attach: bridge closed while remote PTY session is still running"
+                message = String(
+                    localized: "cli.sshPtyAttach.bridgeClosedSessionRunning",
+                    defaultValue: "The SSH terminal connection ended; the remote session may still be running.",
+                    bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+                )
             }
             throw CLIError(
                 message: message,
                 exitCode: sessionRunningExitCode
             )
         }
+        reconciliationConfirmedSessionEnded = true
         guard let surfaceID else { return true }
         do {
             _ = try client.sendV2(method: "workspace.remote.pty_attach_end", params: [
@@ -206,10 +217,115 @@ extension CMUXCLI {
         } catch {
             throw CLIError(
                 message: "ssh-pty-attach: remote PTY exited but local session cleanup failed: \(userFacingRemotePTYErrorMessage(error))",
-                exitCode: SSHPTYAttachExitCode.retryableTransient
+                exitCode: SSHPTYAttachExitCode.fatal
             )
         }
         return true
+    }
+
+    private func requestValidatedSSHPTYReconciliation(
+        client: SocketClient,
+        params: [String: Any],
+        unavailableExitCode: SSHPTYAttachExitCode
+    ) throws -> (intentionalCleanup: Bool, sessionIDs: [String]) {
+        let response: [String: Any]
+        do {
+            response = try client.sendV2(method: "workspace.remote.pty_sessions", params: params)
+        } catch {
+            throw CLIError(
+                message: sshPTYReconciliationUnavailableMessage(
+                    detail: userFacingRemotePTYErrorMessage(error)
+                ),
+                exitCode: unavailableExitCode
+            )
+        }
+        return try validatedSSHPTYReconciliation(
+            response,
+            unavailableExitCode: unavailableExitCode
+        )
+    }
+
+    private func validatedSSHPTYReconciliation(
+        _ response: [String: Any],
+        unavailableExitCode: SSHPTYAttachExitCode
+    ) throws -> (intentionalCleanup: Bool, sessionIDs: [String]) {
+        let requestedLifecycle: String?
+        if let rawRequestedLifecycle = response["requested_session_lifecycle"] {
+            guard let rawRequestedLifecycle = rawRequestedLifecycle as? String else {
+                throw CLIError(
+                    message: sshPTYReconciliationUnavailableMessage(detail: nil),
+                    exitCode: unavailableExitCode
+                )
+            }
+            let normalizedLifecycle = rawRequestedLifecycle
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard [
+                "active",
+                "intentional_cleanup_requested",
+                "intentionally_closed",
+            ].contains(normalizedLifecycle) else {
+                throw CLIError(
+                    message: sshPTYReconciliationUnavailableMessage(detail: nil),
+                    exitCode: unavailableExitCode
+                )
+            }
+            requestedLifecycle = normalizedLifecycle
+        } else {
+            requestedLifecycle = nil
+        }
+        let intentionalCleanup = requestedLifecycle == "intentional_cleanup_requested" ||
+            requestedLifecycle == "intentionally_closed"
+        guard let sessions = response["sessions"] as? [[String: Any]] else {
+            throw CLIError(
+                message: sshPTYReconciliationUnavailableMessage(detail: nil),
+                exitCode: unavailableExitCode
+            )
+        }
+        let sessionIDs = sessions.compactMap { session -> String? in
+            guard let rawSessionID = session["session_id"] as? String else { return nil }
+            let normalizedSessionID = rawSessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+            return normalizedSessionID.isEmpty ? nil : normalizedSessionID
+        }
+        guard sessionIDs.count == sessions.count else {
+            throw CLIError(
+                message: sshPTYReconciliationUnavailableMessage(detail: nil),
+                exitCode: unavailableExitCode
+            )
+        }
+        let errors: [[String: Any]]
+        if let rawErrors = response["errors"] {
+            guard let parsedErrors = rawErrors as? [[String: Any]] else {
+                throw CLIError(
+                    message: sshPTYReconciliationUnavailableMessage(detail: nil),
+                    exitCode: unavailableExitCode
+                )
+            }
+            errors = parsedErrors
+        } else {
+            errors = []
+        }
+        if !intentionalCleanup, !errors.isEmpty {
+            throw CLIError(
+                message: sshPTYReconciliationUnavailableMessage(
+                    detail: sshSessionListFailureMessage()
+                ),
+                exitCode: unavailableExitCode
+            )
+        }
+        return (intentionalCleanup, sessionIDs)
+    }
+
+    private func sshPTYReconciliationUnavailableMessage(detail: String?) -> String {
+        let message = String(
+            localized: "cli.sshPtyAttach.reconciliationUnavailableReattach",
+            defaultValue: "The SSH terminal connection ended before the remote session state could be confirmed; preserving the remote session for reconnection.",
+            bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+        )
+        guard let detail = detail?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !detail.isEmpty else {
+            return message
+        }
+        return "\(message): \(detail)"
     }
 
     func readSSHPTYBridgeReady(fd: Int32) throws -> (attachmentToken: String, replayBytes: Int) {

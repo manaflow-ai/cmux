@@ -544,8 +544,13 @@ extension ControlSurfaceContext {
     func controlSurfaceReportShellState(
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
+        terminalLifecycleID: UUID?,
         stateRawValue: String
     ) -> ControlSurfaceReportShellStateResolution { .pending }
+
+    func controlSurfaceInvalidTerminalLifecycleIDError() -> String {
+        "Terminal session is out of date; restart the shell and try again"
+    }
 
     func controlSurfacePortsKick(
         workspaceID: UUID,

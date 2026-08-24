@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use base64::Engine;
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::terminal_host::{
     CAPABILITY_TOKEN_LEN, CapabilityRights, CapabilityToken, ClientHello, ClientRole, TerminalId,
@@ -28,6 +29,15 @@ use cmux_tui_core::terminal_host_runtime::{
 use ghostty_vt::{Rgb, TerminalColorOverrides};
 
 const KITTY_REPLAY_STATE_ENCODED_LEN: usize = 52;
+
+fn test_timeout(timeout: Duration) -> Duration {
+    let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(1)
+        .clamp(1, 16);
+    timeout.saturating_mul(scale)
+}
 
 struct RecoveryHarness {
     child: Option<Child>,
@@ -273,6 +283,129 @@ fn short_lived_terminal_launch_converges_to_durable_exited_result() {
     assert_eq!(resolved["exit"]["outcome"], serde_json::json!({"kind":"exit","code":23}));
     assert!(resolved["exit"]["exited_at"].as_str().is_some());
     assert!(resolved["exit"]["revision"].as_str().is_some());
+}
+
+#[test]
+fn short_lived_resource_terminal_journals_initial_output_after_its_topology() {
+    let harness = RecoveryHarness::start_with_host_ready_delay("journal-initial-output", 250);
+    let marker = format!("fast-journal-marker-{}", std::process::id());
+    let created = resource_request(
+        &harness.socket,
+        "journal-initial-workspace",
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":"Journal initial output",
+            "initial_content":"empty",
+        }),
+        Some("journal-initial-workspace"),
+    );
+    let workspace = created["value"]["workspace_id"].as_str().unwrap();
+    let run = resource_request(
+        &harness.socket,
+        "journal-initial-run",
+        "workspace.run",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":workspace,
+            "argv":["/bin/sh","-c",format!("printf '{marker}\\n'")],
+        }),
+        Some("journal-initial-run"),
+    );
+    let path = &run["value"];
+    let terminal = path["terminal_id"].as_str().unwrap();
+    resource_request(
+        &harness.socket,
+        "journal-initial-wait",
+        "terminal.wait_exit",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "timeout_ms":"5000",
+        }),
+        None,
+    );
+
+    let stream = transport::connect(&harness.socket).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    writeln!(
+        writer,
+        "{}",
+        serde_json::json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"journal-initial-subscribe",
+            "operation":"session.journal.subscribe",
+            "params":{
+                "machine":"current",
+                "session":"current",
+                "stream_id":"stream_11111111111141118111111111111111",
+                "start":"beginning",
+                "filter":{
+                    "kinds":["workspace.run","terminal.output","terminal.exited"],
+                    "subjects":[{"kind":"terminal","id":terminal}],
+                    "max_sensitivity":"sensitive",
+                },
+            },
+        })
+    )
+    .unwrap();
+
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    let opened: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(opened["ok"], true, "journal subscription failed: {opened}");
+
+    let mut run_sequence = None;
+    let mut output_sequence = None;
+    let mut exit_sequence = None;
+    while exit_sequence.is_none() {
+        line.clear();
+        reader.read_line(&mut line).expect("journal stream omitted short-lived terminal output");
+        let envelope: serde_json::Value = serde_json::from_str(&line).unwrap();
+        let record = &envelope["item"];
+        let sequence = record["sequence"].as_str().unwrap().parse::<u64>().unwrap();
+        match record["kind"].as_str().unwrap() {
+            "workspace.run" => run_sequence = Some(sequence),
+            "terminal.output" => {
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(record["payload"]["data"].as_str().unwrap())
+                    .unwrap();
+                assert!(
+                    bytes.windows(marker.len()).any(|window| window == marker.as_bytes()),
+                    "journal output omitted marker: {:?}",
+                    String::from_utf8_lossy(&bytes)
+                );
+                for (kind, id) in [
+                    ("terminal", terminal),
+                    ("tab", path["tab_id"].as_str().unwrap()),
+                    ("pane", path["pane_id"].as_str().unwrap()),
+                    ("screen", path["screen_id"].as_str().unwrap()),
+                    ("workspace", path["workspace_id"].as_str().unwrap()),
+                ] {
+                    assert!(
+                        record["subjects"].as_array().unwrap().iter().any(|subject| {
+                            subject["kind"].as_str() == Some(kind)
+                                && subject["id"].as_str() == Some(id)
+                        }),
+                        "terminal output omitted {kind}:{id}: {record}"
+                    );
+                }
+                output_sequence = Some(sequence);
+            }
+            "terminal.exited" => exit_sequence = Some(sequence),
+            other => panic!("unexpected journal record {other}: {record}"),
+        }
+    }
+    assert!(
+        run_sequence < output_sequence && output_sequence < exit_sequence,
+        "journal order was run={run_sequence:?}, output={output_sequence:?}, exit={exit_sequence:?}"
+    );
 }
 
 #[test]
@@ -1859,25 +1992,28 @@ fn client_reserved_short_lived_create_replays_its_durable_exit_without_topology(
     let first = request(&harness.socket, create.clone());
     assert_eq!(first["terminal_id"], terminal_id);
     assert_eq!(first["replayed"], false);
-    assert_eq!(first["already_exited"], true);
-    assert_eq!(first["lifecycle"], "exited");
-    assert_eq!(first["exit"]["outcome"], serde_json::json!({"kind":"exit","code":17}));
-    assert_eq!(first["surface"], serde_json::Value::Null);
-    assert_eq!(first["pane"], serde_json::Value::Null);
-    assert_eq!(first["screen"], serde_json::Value::Null);
-    assert_eq!(first["workspace"], serde_json::Value::Null);
+    let already_exited = first["already_exited"].as_bool().unwrap();
+    assert_eq!(first["lifecycle"], if already_exited { "exited" } else { "running" });
+    for field in ["surface", "pane", "screen", "workspace"] {
+        assert_eq!(first[field].is_null(), already_exited, "unexpected {field}: {first}");
+    }
+    if already_exited {
+        assert_eq!(first["exit"]["outcome"], serde_json::json!({"kind":"exit","code":17}));
+    } else {
+        assert!(first["exit"].is_null());
+    }
+    wait_for_no_host_records(&harness.host_root());
 
     let retry = request(&harness.socket, create);
     assert_eq!(retry["replayed"], true);
     assert_eq!(retry["terminal_id"], terminal_id);
     assert_eq!(retry["already_exited"], true);
     assert_eq!(retry["lifecycle"], "exited");
-    assert_eq!(retry["exit"], first["exit"]);
+    assert_eq!(retry["exit"]["outcome"], serde_json::json!({"kind":"exit","code":17}));
     assert_eq!(retry["surface"], serde_json::Value::Null);
     assert_eq!(retry["pane"], serde_json::Value::Null);
     assert_eq!(retry["screen"], serde_json::Value::Null);
     assert_eq!(retry["workspace"], serde_json::Value::Null);
-    wait_for_no_host_records(&harness.host_root());
 }
 
 #[test]
@@ -2952,6 +3088,80 @@ fn daemon_restart_safe_prunes_dead_host_without_rematerializing_exited_terminal(
     );
 }
 
+#[test]
+fn daemon_restart_prunes_every_dead_host_behind_one_pane() {
+    let mut harness = RecoveryHarness::start("dead-hosts-restart");
+    let first = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let pane = first["pane"].as_u64().unwrap();
+    let workspace_id = first["workspace"].as_u64().unwrap();
+    let first_terminal = first["terminal_id"].as_str().unwrap().to_string();
+    let second = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":2,"cmd":"run","argv":["/bin/cat"],"pane":pane,
+            "cols":80,"rows":24,
+        }),
+    );
+    let second_terminal = second["terminal_id"].as_str().unwrap().to_string();
+    assert_eq!(second["pane"].as_u64(), Some(pane), "second terminal left the first pane");
+    let tree = request(&harness.socket, serde_json::json!({"id":3,"cmd":"list-workspaces"}));
+    let workspace_key = tree["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|workspace| workspace["id"].as_u64() == Some(workspace_id))
+        .unwrap()["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let records = wait_for_host_records(&harness.host_root(), 2);
+
+    // Stop the mux first so it observes neither Exit. Startup then has to
+    // reconcile two dead hosts behind the same pane. Recovery of the first
+    // one must not depend on the second one already having a live surface.
+    harness.signal_daemon(libc::SIGSTOP);
+    for (_, record) in &records {
+        // SAFETY: the record PIDs are the harness-owned terminal hosts.
+        assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+    }
+    harness.sigkill();
+    harness.restart();
+
+    for terminal_id in [&first_terminal, &second_terminal] {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let resolved = request(
+                &harness.socket,
+                serde_json::json!({"id":4,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+            );
+            if resolved["lifecycle"] == "exited" {
+                assert_eq!(resolved["surface"], serde_json::Value::Null);
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "dead startup host {terminal_id} was not projected as Exited"
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+    wait_for_no_host_records(&harness.host_root());
+    let recovered = request(&harness.socket, serde_json::json!({"id":5,"cmd":"list-workspaces"}));
+    let workspace = recovered["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|workspace| workspace["key"].as_str() == Some(&workspace_key))
+        .expect("original workspace was not recovered");
+    assert!(first_tab(workspace).is_none(), "Exited terminals were rematerialized after restart");
+}
+
 fn request(path: &Path, value: serde_json::Value) -> serde_json::Value {
     let response = request_response(path, value);
     assert_eq!(response["ok"], true, "request failed: {response}");
@@ -3048,6 +3258,39 @@ fn request_response(path: &Path, value: serde_json::Value) -> serde_json::Value 
     serde_json::from_str(&line).unwrap()
 }
 
+#[test]
+fn terminal_launch_rejection_preserves_the_host_error() {
+    let mut harness = RecoveryHarness::start_unstarted("launch-rejection-detail");
+    let child = harness.daemon_command().spawn().unwrap();
+    harness.child = Some(child);
+    wait_for_socket(&harness.socket);
+
+    let missing = format!("/tmp/cmux-terminal-host-missing-{}", std::process::id());
+    let response = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": [missing],
+            "new_workspace": true,
+            "name": "must-fail",
+            "cols": 80,
+            "rows": 24,
+        }),
+    );
+
+    assert_eq!(response["ok"], false, "missing command unexpectedly launched: {response}");
+    let error = response["error"].as_str().expect("rejection includes an error string");
+    assert!(
+        error.contains("No such file") || error.contains("not found"),
+        "terminal host discarded its launch error: {error}"
+    );
+    assert!(
+        !error.contains("closed before launch ready"),
+        "launcher exposed transport fallout instead of the host error: {error}"
+    );
+}
+
 fn resource_request(
     path: &Path,
     id: &str,
@@ -3074,7 +3317,7 @@ fn resource_request(
 }
 
 fn wait_for_socket(path: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
     while Instant::now() < deadline {
         if transport::connect(path).is_ok() {
             return;

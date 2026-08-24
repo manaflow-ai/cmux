@@ -14,6 +14,192 @@ import Testing
 /// where codex's blocking "Update available!" picker used to swallow the
 /// restored session. Replay must normalize those stale codex bindings.
 @Suite struct SurfaceResumeBindingCodexUpdateCheckTests {
+    @Test func codexAgentHookCannotReplaceTUIWithLowerProvenance() {
+        let existing = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume tui-session",
+            checkpointId: "tui-session",
+            source: "agent-hook",
+            autoResume: true,
+            resumeEvidenceProvenance: "tui"
+        )
+        let incoming = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume exec-session",
+            checkpointId: "exec-session",
+            source: "agent-hook",
+            autoResume: true,
+            resumeEvidenceProvenance: "exec"
+        )
+
+        #expect(!incoming.allowsCodexAgentHookReplacement(of: existing))
+    }
+
+    @Test func codexUnknownEvidenceCannotOwnOrReplaceBinding() {
+        let incoming = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume unknown-session",
+            checkpointId: "unknown-session",
+            source: "agent-hook",
+            autoResume: true,
+            resumeEvidenceProvenance: "unknown"
+        )
+        let legacy = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume legacy-session",
+            checkpointId: "legacy-session",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        #expect(!incoming.allowsCodexAgentHookReplacement(of: nil as SurfaceResumeBindingSnapshot?))
+        #expect(!incoming.allowsCodexAgentHookReplacement(of: legacy))
+
+        let manualLegacy = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume manual-session",
+            checkpointId: "manual-session",
+            source: "cli",
+            autoResume: true
+        )
+        #expect(!incoming.allowsCodexAgentHookReplacement(of: manualLegacy))
+    }
+
+    @Test func unprovenancedLegacyCodexCanEstablishAndRefreshLegacyBinding() {
+        let incoming = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume incoming-legacy-session",
+            checkpointId: "incoming-legacy-session",
+            source: "agent-hook",
+            autoResume: true
+        )
+        let existing = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume existing-legacy-session",
+            checkpointId: "existing-legacy-session",
+            source: "agent-hook",
+            autoResume: true
+        )
+        let manual = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume manual-session",
+            checkpointId: "manual-session",
+            source: "cli",
+            autoResume: true
+        )
+
+        #expect(incoming.allowsCodexAgentHookReplacement(of: nil))
+        #expect(incoming.allowsCodexAgentHookReplacement(of: existing))
+        #expect(!incoming.allowsCodexAgentHookReplacement(of: manual))
+    }
+
+    @Test func unprovenancedLegacyCodexCannotReplaceVerifiedBinding() {
+        let incoming = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume incoming-legacy-session",
+            checkpointId: "incoming-legacy-session",
+            source: "agent-hook",
+            autoResume: true
+        )
+        let verified = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume verified-session",
+            checkpointId: "verified-session",
+            source: "agent-hook",
+            autoResume: true,
+            resumeEvidenceProvenance: "tui"
+        )
+
+        #expect(!incoming.allowsCodexAgentHookReplacement(of: verified))
+    }
+
+    @Test @MainActor
+    func dockProtectsManagedCodexBindingBehindProcessDetectedBinding() {
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let panel = TerminalPanel(workspaceId: store.workspaceId)
+        store.panels[panel.id] = panel
+
+        let managed = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume tui-session",
+            checkpointId: "tui-session",
+            source: "agent-hook",
+            autoResume: true,
+            resumeEvidenceProvenance: "tui"
+        )
+        let processDetected = SurfaceResumeBindingSnapshot(
+            name: "tmux",
+            kind: "tmux",
+            command: "tmux attach-session -t work",
+            checkpointId: "work",
+            source: "process-detected",
+            autoResume: true
+        )
+        store.managedAgentResumeBindingsByPanelId[panel.id] = managed
+        store.surfaceResumeBindingsByPanelId[panel.id] = processDetected
+
+        let incoming = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume unclassified-session",
+            checkpointId: "unclassified-session",
+            source: "agent-hook",
+            autoResume: true,
+            resumeEvidenceProvenance: "unknown"
+        )
+
+        #expect(!store.setSurfaceResumeBinding(incoming, panelId: panel.id))
+        #expect(store.managedAgentResumeBindingsByPanelId[panel.id] == managed)
+        #expect(store.surfaceResumeBindingsByPanelId[panel.id] == processDetected)
+    }
+
+    @Test func unknownEvidenceCannotReplaceKindlessLegacyAgentHookBinding() {
+        let incoming = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume unknown-session",
+            checkpointId: "unknown-session",
+            source: "agent-hook",
+            autoResume: true,
+            resumeEvidenceProvenance: "unknown"
+        )
+        let kindlessLegacy = SurfaceResumeBindingSnapshot(
+            command: "codex resume legacy-kindless-session",
+            checkpointId: "legacy-kindless-session",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        #expect(!incoming.allowsCodexAgentHookReplacement(of: kindlessLegacy))
+    }
+
+    @Test func resumeEvidenceProvenanceOnlyPersistsForCodexAgentHooks() {
+        let valid = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume valid-session",
+            source: "agent-hook",
+            resumeEvidenceProvenance: "tui"
+        )
+        let wrongSource = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume cli-session",
+            source: "cli",
+            resumeEvidenceProvenance: "tui"
+        )
+        let wrongKind = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "claude --resume wrong-kind-session",
+            source: "agent-hook",
+            resumeEvidenceProvenance: "tui"
+        )
+
+        #expect(valid.resumeEvidenceProvenance == "tui")
+        #expect(wrongSource.resumeEvidenceProvenance == nil)
+        #expect(wrongKind.resumeEvidenceProvenance == nil)
+    }
+
     @Test func staleCodexBindingGainsUpdateCheckSuppressionOnReplay() throws {
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",

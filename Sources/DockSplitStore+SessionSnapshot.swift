@@ -18,6 +18,8 @@ extension DockSplitStore {
             return PIDPresence.current(pid: pid_t($0))
         }
     ) -> SessionSplitContainerSnapshot {
+        flushPendingTerminalTitleUpdates()
+        let notificationStore = resolvedNotificationStore()
         let layoutCodec = SessionSplitContainerLayoutCodec(controller: bonsplitController)
         let rawLayout = layoutCodec.snapshot(panelIdForTabId: { [self] in surfaceIdToPanelId[$0] })
         let orderedPanelIds = orderedSessionPanelIds()
@@ -62,6 +64,7 @@ extension DockSplitStore {
                         downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable,
                     terminalFontSizeSnapshotProjection:
                         terminalFontSizeSnapshotProjection,
+                    notificationStore: notificationStore,
                     currentAgentProcessIdentity: currentAgentProcessIdentity,
                     agentProcessPresence: agentProcessPresence
                 )
@@ -89,12 +92,34 @@ extension DockSplitStore {
         )
     }
 
+    /// Hashes the manual unread bits persisted for this global Dock's panels.
+    func sessionManualUnreadAutosaveFingerprint(
+        notificationStore: TerminalNotificationStore?
+    ) -> Int {
+        self.notificationStore = notificationStore
+        var hasher = Hasher()
+        let panelIds = Array(
+            orderedSessionPanelIds()
+                .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
+        )
+        hasher.combine(panelIds.count)
+        for panelId in panelIds {
+            hasher.combine(panelId)
+            hasher.combine(notificationStore?.hasManualUnread(
+                forTabId: workspaceId,
+                surfaceId: panelId
+            ) ?? false)
+        }
+        return hasher.finalize()
+    }
+
     /// Captures one Dock panel for the Dock-local closed-item history without
     /// walking every other panel in the split tree.
     func closedPanelSessionSnapshot(
         panelId: UUID,
         restorableAgentIndex: RestorableAgentSessionIndex?
     ) -> SessionPanelSnapshot? {
+        flushPendingTerminalTitleUpdate(panelId: panelId)
         let transfer = detachedSurfaceTransfersByPanelId[panelId]
         let observationWorkspaceId =
             transfer?.sessionRestoreWorkspaceId ?? workspaceId
@@ -131,6 +156,7 @@ extension DockSplitStore {
             downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: false,
             terminalFontSizeSnapshotProjection:
                 terminalFontSizeSnapshotProjection,
+            notificationStore: resolvedNotificationStore(),
             currentAgentProcessIdentity: {
                 guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
                 return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -170,18 +196,29 @@ extension DockSplitStore {
         downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool,
         terminalFontSizeSnapshotProjection:
             WorkspaceTerminalFontSizeSnapshotProjection?,
+        notificationStore: TerminalNotificationStore?,
         currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity?,
         agentProcessPresence: (Int) -> PIDPresence
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
         let transfer = detachedSurfaceTransfersByPanelId[panelId]
         let tab = surfaceId(forPanelId: panelId).flatMap { bonsplitController.tab($0) }
-        let tabTitle = tab?.title
-        let customTitle = transfer?.customTitle ?? (tab?.hasCustomTitle == true ? tabTitle : nil)
+        let titleMetadata = resolvedDockTitleMetadata(
+            panel: panel,
+            transfer: transfer,
+            tab: tab
+        )
         let directory = sessionWorkingDirectory(panel: panel, transfer: transfer)
+        let isManuallyUnread = scope == .global
+            ? notificationStore?.hasManualUnread(
+                forTabId: workspaceId,
+                surfaceId: panelId
+            ) == true
+            : manualUnreadPanelIds.contains(panelId)
 
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
+        let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
         switch panel.panelType {
         case .terminal:
             guard let terminal = panel as? TerminalPanel else { return nil }
@@ -292,6 +329,7 @@ extension DockSplitStore {
                 wasAgentRunning: agentWasRunning
             )
             browserSnapshot = nil
+            filePreviewSnapshot = nil
         case .browser:
             guard let browser = panel as? BrowserPanel, browser.shouldPersistSessionSnapshot() else {
                 return nil
@@ -306,12 +344,23 @@ extension DockSplitStore {
                 pageZoom: Double(browser.currentPageZoomFactor()),
                 developerToolsVisible: browser.isDeveloperToolsVisible(),
                 isMuted: browser.isMuted,
+                chromeVisibility: browser.chromeVisibility,
                 omnibarVisible: browser.isOmnibarVisible,
                 backHistoryURLStrings: history.backHistoryURLStrings,
                 forwardHistoryURLStrings: history.forwardHistoryURLStrings,
                 transparentBackground: browser.sessionSnapshotTransparentBackground,
                 diffViewerToken: diffViewer?.token,
                 diffViewerRequestPath: diffViewer?.requestPath
+            )
+            filePreviewSnapshot = nil
+        case .filePreview:
+            guard let filePreview = panel as? FilePreviewPanel else {
+                return nil
+            }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            filePreviewSnapshot = SessionFilePreviewPanelSnapshot(
+                filePath: filePreview.filePath
             )
         default:
             return nil
@@ -321,19 +370,19 @@ extension DockSplitStore {
             id: panelId,
             stableSurfaceId: panel.stableSurfaceId,
             type: panel.panelType,
-            title: tabTitle ?? panel.displayTitle,
-            customTitle: customTitle,
-            customTitleSource: transfer?.customTitleSource ?? (customTitle == nil ? nil : .user),
+            title: titleMetadata.title,
+            customTitle: titleMetadata.customTitle,
+            customTitleSource: titleMetadata.customTitleSource,
             directory: directory,
             directoryIsTrustedRemoteReport: transfer?.directoryIsTrustedRemoteReport,
-            isPinned: false,
-            isManuallyUnread: transfer?.manuallyUnread ?? false,
+            isPinned: tab?.isPinned ?? transfer?.isPinned ?? false,
+            isManuallyUnread: isManuallyUnread,
             listeningPorts: [],
             ttyName: transfer?.ttyName,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
             markdown: nil,
-            filePreview: nil,
+            filePreview: filePreviewSnapshot,
             rightSidebarTool: nil
         )
     }
@@ -435,7 +484,7 @@ extension DockSplitStore {
             }
             return candidate
         }()
-        let compatible = [
+        let compatibleCandidate = [
             terminal.agentHibernationState?.agent,
             observed,
             coordinated,
@@ -450,8 +499,12 @@ extension DockSplitStore {
                 resumeBinding: agentCompatibilityBinding
             )
         }.first
+        let compatible = restoredAgentLifecycle.reconcileSnapshotWithQueuedRestoreIntent(
+            panelId: panelId,
+            proposedSnapshot: compatibleCandidate
+        )
         if let compatible {
-            restoredAgentLifecycle.snapshotsByPanelId[panelId] = compatible
+            restoredAgentLifecycle.setSnapshot(compatible, panelId: panelId)
         }
         return compatible
     }
@@ -469,6 +522,12 @@ extension DockSplitStore {
         let managedBinding = managedResumeBinding
             ?? resumeBinding.flatMap { $0.isAgentHookBinding ? $0 : nil }
         guard restorableAgent != nil || managedBinding != nil else { return nil }
+        if restoredAgentLifecycle.hasQueuedRestoreIntent(
+            panelId: terminal.id,
+            matching: restorableAgent
+        ) {
+            return true
+        }
         let expectedKind = managedBinding != nil
             ? managedBinding?.kind.flatMap {
                 RestorableAgentKind(
@@ -480,18 +539,14 @@ extension DockSplitStore {
         let expectedSessionId = managedBinding != nil
             ? managedBinding?.checkpointId
             : restorableAgent?.sessionId
-        let relevantObservation = observation.flatMap { entry -> RestorableAgentSessionIndex.Entry? in
-            guard let expectedKind,
-                  let expectedSessionId,
-                  entry.snapshot.kind.rawValue == expectedKind.rawValue,
-                  ManagedAgentSessionIdentity.sessionIDsMatch(
-                      kind: expectedKind.rawValue,
-                      lhs: entry.snapshot.sessionId,
-                      rhs: expectedSessionId
-                  ) else {
-                return nil
-            }
-            return entry
+        let relevantObservation: RestorableAgentSessionIndex.Entry?
+        if let expectedKind, let expectedSessionId {
+            relevantObservation = observation?.matchingAgentSession(
+                kind: expectedKind.rawValue,
+                sessionId: expectedSessionId
+            )
+        } else {
+            relevantObservation = nil
         }
         let confirmedRuntimeIdentities: Set<AgentPIDProcessIdentity> = {
             guard let expectedKind, expectedKind != .claude,

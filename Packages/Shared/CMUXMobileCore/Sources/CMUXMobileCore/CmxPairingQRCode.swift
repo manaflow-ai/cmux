@@ -14,7 +14,16 @@ import Foundation
 ///
 /// Tailscale compatibility codes keep the v2 grammar so already-released
 /// clients can still scan them:
-/// `cmux-ios://attach?v=2&ub=<stack-user-id>&pc=<compat>&av=<version>&ab=<build>&r=<host>:<port>[&r=<host>:<port>...]`.
+/// `cmux-ios://attach?v=2&ub=<stack-user-id>&pc=<compat>&r=<host>:<port>[&r=<host>:<port>...]`.
+///
+/// The only metadata a Tailscale code carries is what the phone consults
+/// before dialing: `ub`, the opaque Stack user id the account preflight
+/// matches against the signed-in phone so a wrong-account scan fails fast
+/// (#6028), and `pc`, the pairing compatibility level, which fielded
+/// decoders default to 0 when absent — omitting it would spuriously fire the
+/// cross-version pairing warning on every current phone. App version and
+/// build (`av`/`ab`) only ever decorated that warning's message, so they are
+/// no longer written; the decoder still reads them from older Macs' codes.
 ///
 /// Both grammars share these properties:
 /// - **No auth token.** The owner's Stack access token is the host's sole
@@ -22,9 +31,10 @@ import Foundation
 ///   code look like a leaked credential.
 /// - **No expiry.** Ticket age authorizes nothing, so a code that sat on
 ///   screen for an hour still pairs.
-/// - **No display name, no device id.** Both arrive post-handshake from
-///   `mobile.host.status`; the decoder leaves `macDeviceID` empty and the
-///   shell adopts the host-reported identity once connected.
+/// - **No display name, no device id, no build metadata.** All arrive
+///   post-handshake from `mobile.host.status`; the decoder leaves
+///   `macDeviceID` empty and the shell adopts the host-reported identity
+///   once connected.
 /// - **No loopback, ever.** v2 routes are Tailscale `host:port` only: the
 ///   encoder drops a DEBUG Mac's dev loopback route instead of encoding it,
 ///   the Mac refuses to mint a QR without a Tailscale route (it shows the
@@ -77,8 +87,13 @@ public struct CmxPairingQRCode: Sendable {
     /// route is dropped, never written into a scannable code.
     public func encode(
         _ ticket: CmxAttachTicket,
-        routeDisclosureMode: CmxPairingRouteDisclosureMode
+        routeDisclosureMode: CmxPairingRouteDisclosureMode,
+        pairingURLScheme: CmxPairingURLScheme? =
+            CmxPairingURLSchemeResolver().resolved
     ) -> String? {
+        guard let scheme = pairingURLScheme?.rawValue else {
+            return nil
+        }
         let items: [String]
         switch routeDisclosureMode {
         case .irohIdentityOnly:
@@ -100,12 +115,6 @@ public struct CmxPairingQRCode: Sendable {
             if let compatibilityVersion = ticket.macPairingCompatibilityVersion {
                 compatibilityItems.append("pc=\(compatibilityVersion)")
             }
-            if let version = normalizedNonEmpty(ticket.macAppVersion) {
-                compatibilityItems.append("av=\(percentEncodeQueryValue(version))")
-            }
-            if let build = normalizedNonEmpty(ticket.macAppBuild) {
-                compatibilityItems.append("ab=\(percentEncodeQueryValue(build))")
-            }
             compatibilityItems.append(contentsOf: routes.map { route -> String in
                 guard case let .hostPort(host, port) = route.endpoint else {
                     // Unreachable: the selector admits host/port endpoints only.
@@ -119,7 +128,7 @@ public struct CmxPairingQRCode: Sendable {
         // Mac's QR opens the dev iOS build, a release Mac's QR opens the
         // release build, and the system camera can no longer hand a beta/prod
         // code to a dev build that also claimed the scheme.
-        return "\(CmxPairingURLScheme.current)://attach?" + items.joined(separator: "&")
+        return "\(scheme)://attach?" + items.joined(separator: "&")
     }
 
     /// Whether `ticket` is expressible in the selected minimal grammar.
@@ -224,7 +233,7 @@ public struct CmxPairingQRCode: Sendable {
     /// the minimal grammar).
     public func isPairingCodeURLString(_ rawValue: String) -> Bool {
         guard let url = URL(string: rawValue),
-              CmxPairingURLScheme.isPairingScheme(url.scheme),
+              CmxPairingURLScheme(rawValue: url.scheme) != nil,
               url.host == "attach",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return false
@@ -316,7 +325,10 @@ private extension CmxPairingQRCode {
             terminalID: nil,
             macDeviceID: "",
             macDisplayName: nil,
-            macPairingCompatibilityVersion: 0,
+            // v3 is intentionally endpoint-only. `nil` means the QR did not
+            // make a compatibility claim, unlike v2's explicit unknown value
+            // (0), which must continue to trigger its legacy warning.
+            macPairingCompatibilityVersion: nil,
             routes: [route],
             expiresAt: nil,
             authToken: nil

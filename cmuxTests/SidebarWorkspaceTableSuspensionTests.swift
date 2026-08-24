@@ -270,7 +270,7 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
-    func hidingRetiresNativeReorderSession() async {
+    func hidingClearsReorderIndicator() async {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let workspaceIds = (0..<6).map { _ in UUID() }
@@ -310,11 +310,9 @@ struct SidebarWorkspaceTableSuspensionTests {
         container.tableView.layoutSubtreeIfNeeded()
 
         #expect(controller.updateReorderDrag(windowPoint: NSPoint(x: 40, y: 120)))
-        #expect(controller.isReorderDropSessionActive)
 
         controller.setPresentationActive(false, workspaceIds: workspaceIds)
 
-        #expect(!controller.isReorderDropSessionActive)
         #expect(indicatorClears == 1)
     }
 
@@ -560,7 +558,10 @@ struct SidebarWorkspaceTableSuspensionTests {
         #expect(appliedInputs == 1)
         #expect(viewportFlushes == 1)
         #expect(postUpdateActions == 1)
-        #expect(reloads == 2)
+        #expect(
+            reloads == 1,
+            "An authoritative apply owns the current row graph, so a stale staged reload is superseded."
+        )
     }
 
     @Test
@@ -617,7 +618,8 @@ struct SidebarWorkspaceTableSuspensionTests {
             shortcutHintText: nil, shortcutHintXOffset: 0, shortcutHintYOffset: 0,
             fontScale: 1, globalFontMagnificationPercent: 100, cwdContextMenuItems: [],
             rowSpacing: 2, isFirstRow: true, isBeingDragged: false,
-            topDropIndicatorVisible: false, bottomDropIndicatorVisible: false
+            topDropIndicatorVisible: false, bottomDropIndicatorVisible: false,
+            colorSchemeIsDark: false
         )
     }
 

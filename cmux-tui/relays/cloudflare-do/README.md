@@ -94,7 +94,7 @@ Keep `RELAY_KEY` only in the provisioning shell. Start the foreground daemon in 
 
 ```sh
 RELAY_STATE="${XDG_RUNTIME_DIR:-$HOME/.cache}/cmux-relay-dev"
-target/debug/cmux-tui daemon --session dev \
+target/debug/cmux-tui server start --session dev \
   --relay "$(cat "$RELAY_STATE/route")" \
   --relay-slot "$(cat "$RELAY_STATE/slot")" \
   --relay-ticket-file "$RELAY_STATE/register.ticket"
@@ -105,7 +105,7 @@ For first enrollment, create an owner-only invitation file that carries a short-
 ```sh
 RELAY_STATE="${XDG_RUNTIME_DIR:-$HOME/.cache}/cmux-relay-dev"
 install -m 600 /dev/null "$RELAY_STATE/invitation.txt"
-target/debug/cmux-tui enroll create --session dev \
+target/debug/cmux-tui remote enroll create --session dev \
   --relay-route "$(cat "$RELAY_STATE/route")" \
   --relay-slot "$(cat "$RELAY_STATE/slot")" \
   --relay-ticket-file "$RELAY_STATE/connect.ticket" \
@@ -117,9 +117,9 @@ On the client, pre-create an owner-only destination, deliver `invitation.txt` in
 ```sh
 install -m 600 /dev/null invitation.txt
 # Copy the delivered invitation content into invitation.txt.
-cmux-tui connect --invite-file invitation.txt --device-name macbook
-cmux-tui enroll pending --session dev
-cmux-tui enroll approve <invitation-id> --session dev
+cmux-tui remote connect --invite-file invitation.txt --device-name macbook
+cmux-tui remote enroll pending --session dev
+cmux-tui remote enroll approve <invitation-id> --session dev
 ```
 
 In the provisioning shell, mint a fresh scoped Connect ticket into an owner-only file and deliver only that file to the enrolled client through a secure channel:
@@ -139,7 +139,7 @@ On the client, use the public route, slot, and delivered owner-only ticket file:
 ```sh
 install -m 600 /dev/null fresh-connect.ticket
 # Copy the delivered ticket content into fresh-connect.ticket.
-cmux-tui connect 'relay+do://cmux-remote-relay.<account>.workers.dev' \
+cmux-tui remote connect 'relay+do://cmux-remote-relay.<account>.workers.dev' \
   --relay-slot '<slot>' \
   --relay-ticket-file fresh-connect.ticket
 ```

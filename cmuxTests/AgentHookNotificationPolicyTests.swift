@@ -29,14 +29,17 @@ struct AgentHookNotificationPolicyTests {
         #expect(arbitrary.status == nil)
         #expect(arbitrary.notifyCategory == .idleReminder)
 
+        // An empty, cue-less message fabricates nothing: no needs-input
+        // claim and no body (callers reuse a stored summary or skip the
+        // banner). The old "%@ needs your attention" fallback is gone.
         let emptyFallback = AgentHookNotificationClassifier.classify(
             displayName: "Grok",
             signal: "",
             message: "",
             isFallback: true
         )
-        #expect(emptyFallback.status == .needsInput)
-        #expect(emptyFallback.notifyCategory == .idleReminder)
+        #expect(emptyFallback.status == nil)
+        #expect(emptyFallback.body.isEmpty)
         #expect(emptyFallback.isFallback == true)
     }
 
@@ -84,6 +87,34 @@ struct AgentHookNotificationPolicyTests {
             #expect(parsed.pending == false)
         }
         #expect(AgentHookNotifyCategory.other.metaSegment(pending: false) == nil)
+
+        // Extended meta with agent-event context round-trips through the
+        // app-side parser field by field.
+        for category in taggedCategories {
+            let extended = try #require(category.metaSegment(
+                pending: true,
+                agentKind: "claude",
+                isSubagent: true
+            ))
+            #expect(extended == "c=\(category.rawValue);p=1;a=claude;n=1")
+            let parsed = try #require(AgentNotificationMeta(meta: extended))
+            #expect(parsed.category.rawValue == category.rawValue)
+            #expect(parsed.pending == true)
+            #expect(parsed.agentKind == "claude")
+            #expect(parsed.isSubagent == true)
+        }
+
+        // Nil context degrades to the legacy two-field form; an invalid slug
+        // is dropped rather than poisoning the whole segment.
+        #expect(AgentHookNotifyCategory.turnComplete.metaSegment(
+            pending: false, agentKind: nil, isSubagent: nil
+        ) == "c=turn-complete;p=0")
+        #expect(AgentHookNotifyCategory.turnComplete.metaSegment(
+            pending: false, agentKind: "Not A Slug", isSubagent: false
+        ) == "c=turn-complete;p=0;n=0")
+        #expect(AgentHookNotifyCategory.other.metaSegment(
+            pending: false, agentKind: "claude", isSubagent: true
+        ) == nil)
 
         #expect(agentNotificationShouldDeliver(
             category: .idleReminder,

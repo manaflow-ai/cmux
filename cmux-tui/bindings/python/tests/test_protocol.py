@@ -21,8 +21,8 @@ from cmux.raw._generated.metadata import COMMANDS, EVENTS, IR_SHA256
 
 class GeneratedProtocolTests(unittest.TestCase):
     def test_protocol_inventory_is_exhaustive(self) -> None:
-        self.assertEqual(MUX_PROTOCOL, 11)
-        self.assertEqual(len(COMMANDS), 97)
+        self.assertEqual(MUX_PROTOCOL, 12)
+        self.assertEqual(len(COMMANDS), 103)
         self.assertEqual(set(COMMANDS), set(SCHEMA["commands"]))
         self.assertEqual(set(EVENTS), set(SCHEMA["events"]))
         self.assertEqual(len(IR_SHA256), 64)

@@ -15,12 +15,9 @@ enum AgentResumeLiveness {
         kind: String,
         sessionId: String
     ) -> Bool {
-        guard let entry, !entry.processIDs.isEmpty else { return false }
-        return entry.snapshot.kind.rawValue == kind &&
-            ManagedAgentSessionIdentity.sessionIDsMatch(
-                kind: kind,
-                lhs: entry.snapshot.sessionId,
-                rhs: sessionId
-            )
+        guard let entry = entry?.matchingAgentSession(kind: kind, sessionId: sessionId) else {
+            return false
+        }
+        return !entry.processIDs.isEmpty
     }
 }

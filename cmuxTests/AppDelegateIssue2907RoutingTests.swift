@@ -767,7 +767,7 @@ struct AppDelegateIssue2907RoutingTests {
         assertions.equal(setEnvironment["SPACED"] as? String, "  keep exact  ")
         assertions.isNil(setEnvironment["ANTHROPIC_API_KEY"])
         assertions.equal(setBinding["auto_resume"] as? Bool, false)
-        workspace.restoredAgentSnapshotsByPanelId[panelId] =
+        workspace.restoredAgentLifecycle.setSnapshot(
             SessionRestorableAgentSnapshot(
                 kind: .codex,
                 sessionId: UUID().uuidString.lowercased(),
@@ -778,7 +778,9 @@ struct AppDelegateIssue2907RoutingTests {
                     arguments: ["/opt/stale/codex"],
                     workingDirectory: "/tmp/stale-agent"
                 )
-            )
+            ),
+            panelId: panelId
+        )
 
         let getResult = try v2Result(
             method: "surface.resume.get",
@@ -854,13 +856,16 @@ struct AppDelegateIssue2907RoutingTests {
             panelId: panelId
         ))
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
-        workspace.restoredAgentSnapshotsByPanelId[panelId] = SessionRestorableAgentSnapshot(
-            kind: .grok,
-            sessionId: checkpointID,
-            workingDirectory: workingDirectory,
-            launchCommand: launchCommand
+        workspace.restoredAgentLifecycle.setSnapshot(
+            SessionRestorableAgentSnapshot(
+                kind: .grok,
+                sessionId: checkpointID,
+                workingDirectory: workingDirectory,
+                launchCommand: launchCommand
+            ),
+            panelId: panelId
         )
-        workspace.restoredAgentResumeStatesByPanelId[panelId] = .manualResumeAvailable
+        workspace.restoredAgentLifecycle.setResumeState(.manualResumeAvailable, panelId: panelId)
 
         // Shell integration reports commandRunning before `cmux restore` starts.
         workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
@@ -940,6 +945,8 @@ struct AppDelegateIssue2907RoutingTests {
         assertions.equal(restoreRecord["kind"] as? String, "hermes-agent")
         assertions.equal(restoreRecord["checkpoint_id"] as? String, checkpointID)
         assertions.isNil(restoreRecord["launch_command"] as? [String: Any])
+        // A binding-only record keeps the compatibility-shell path. Typed argv
+        // is rebuilt only when a newer binding supersedes a stale snapshot.
         assertions.isNil(restoreRecord["prepared_arguments"] as? [String])
         let legacyCommand = try assertions.require(restoreRecord["legacy_command"] as? String)
         assertions.isTrue(
@@ -1017,20 +1024,23 @@ struct AppDelegateIssue2907RoutingTests {
         ))
 
         let staleSessionID = UUID().uuidString.lowercased()
-        workspace.restoredAgentSnapshotsByPanelId[panelId] = SessionRestorableAgentSnapshot(
-            kind: .codex,
-            sessionId: staleSessionID,
-            workingDirectory: "/tmp/stale",
-            launchCommand: AgentLaunchCommandSnapshot(
-                launcher: "codex",
-                executablePath: "/opt/stale/codex",
-                arguments: ["/opt/stale/codex", "--model", "gpt-stale"],
+        workspace.restoredAgentLifecycle.setSnapshot(
+            SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: staleSessionID,
                 workingDirectory: "/tmp/stale",
-                environment: [
-                    "CODEX_HOME": "/tmp/stale-codex-home",
-                    "OPENAI_API_KEY": "must-not-cross-socket",
-                ]
-            )
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "codex",
+                    executablePath: "/opt/stale/codex",
+                    arguments: ["/opt/stale/codex", "--model", "gpt-stale"],
+                    workingDirectory: "/tmp/stale",
+                    environment: [
+                        "CODEX_HOME": "/tmp/stale-codex-home",
+                        "OPENAI_API_KEY": "must-not-cross-socket",
+                    ]
+                )
+            ),
+            panelId: panelId
         )
 
         let getResult = try v2Result(
@@ -1049,6 +1059,17 @@ struct AppDelegateIssue2907RoutingTests {
         assertions.equal(
             restoreRecord["prepared_arguments_working_directory"] as? String,
             "/tmp/current"
+        )
+        let preparedArguments = try assertions.require(
+            restoreRecord["prepared_arguments"] as? [String]
+        )
+        assertions.isTrue(
+            preparedArguments.contains(currentSessionID),
+            "\(preparedArguments)"
+        )
+        assertions.isFalse(
+            preparedArguments.contains(staleSessionID),
+            "\(preparedArguments)"
         )
         let launch = try assertions.require(restoreRecord["launch_command"] as? [String: Any])
         assertions.equal(launch["arguments"] as? [String], currentLaunch.arguments)
@@ -1070,6 +1091,7 @@ struct AppDelegateIssue2907RoutingTests {
         assertions.isNil(resumeLaunchEnvironment["OPENAI_API_KEY"])
         let legacyCommand = try assertions.require(restoreRecord["legacy_command"] as? String)
         assertions.isTrue(legacyCommand.contains("codex resume \(currentSessionID)"))
+        assertions.isFalse(legacyCommand.contains(staleSessionID), legacyCommand)
 
         let ompSessionID = UUID().uuidString.lowercased()
         assertions.isTrue(workspace.setSurfaceResumeBinding(
@@ -1182,19 +1204,22 @@ struct AppDelegateIssue2907RoutingTests {
             ),
             panelId: panelId
         ))
-        workspace.restoredAgentSnapshotsByPanelId[panelId] = SessionRestorableAgentSnapshot(
-            kind: .custom("cwd-agent"),
-            sessionId: sessionID,
-            workingDirectory: savedDirectory,
-            launchCommand: launch,
-            registration: CmuxVaultAgentRegistration(
-                id: "cwd-agent",
-                name: "CWD Agent",
-                detect: CmuxVaultAgentDetectRule(processName: "cwd-agent"),
-                sessionIdSource: .argvOption("--session"),
-                resumeCommand: "{{executable}} --cwd {{cwd}} --session {{sessionId}}",
-                cwd: .preserve
-            )
+        workspace.restoredAgentLifecycle.setSnapshot(
+            SessionRestorableAgentSnapshot(
+                kind: .custom("cwd-agent"),
+                sessionId: sessionID,
+                workingDirectory: savedDirectory,
+                launchCommand: launch,
+                registration: CmuxVaultAgentRegistration(
+                    id: "cwd-agent",
+                    name: "CWD Agent",
+                    detect: CmuxVaultAgentDetectRule(processName: "cwd-agent"),
+                    sessionIdSource: .argvOption("--session"),
+                    resumeCommand: "{{executable}} --cwd {{cwd}} --session {{sessionId}}",
+                    cwd: .preserve
+                )
+            ),
+            panelId: panelId
         )
         workspace.restoredResumeSessionWorkingDirectoriesByPanelId[panelId] =
             restoredDirectory
@@ -1217,7 +1242,7 @@ struct AppDelegateIssue2907RoutingTests {
         assertions.isTrue(preparedArguments.contains(restoredDirectory), "\(preparedArguments)")
         assertions.isFalse(preparedArguments.contains(savedDirectory), "\(preparedArguments)")
 
-        let replacementSessionID = "replacement-cwd-session"
+        let replacementSessionID = "replacement-current-session"
         let replacementDirectory = "/tmp/replacement-project"
         let replacementLaunch = AgentLaunchCommandSnapshot(
             launcher: "cwd-agent",
@@ -1256,6 +1281,18 @@ struct AppDelegateIssue2907RoutingTests {
         assertions.notEqual(
             replacementRecord["working_directory"] as? String,
             restoredDirectory
+        )
+        XCTAssertNil(replacementRecord["prepared_arguments"] as? [String])
+        let replacementLegacyCommand = try XCTUnwrap(
+            replacementRecord["legacy_command"] as? String
+        )
+        XCTAssertTrue(
+            replacementLegacyCommand.contains(replacementSessionID),
+            replacementLegacyCommand
+        )
+        XCTAssertFalse(
+            replacementLegacyCommand.contains(sessionID),
+            replacementLegacyCommand
         )
     }
 
