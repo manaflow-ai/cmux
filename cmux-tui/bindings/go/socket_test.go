@@ -140,6 +140,25 @@ func TestHighLevelSocketPathPrefersRuntimeBaseOverTmpCompatibilityPath(t *testin
 	}
 }
 
+func TestHighLevelSocketPathFallsBackToTmpBeforeHashing(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/"+strings.Repeat("x", 150))
+	t.Setenv("TMPDIR", "")
+	path, err := resolveSocketPath("", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(
+		"/tmp",
+		fmt.Sprintf("cmux-tui-%d", os.Getuid()),
+		"main.sock",
+	)
+	if path != want {
+		t.Fatalf("fallback path = %q, want %q", path, want)
+	}
+}
+
 func TestHighLevelLongSessionUsesSharedDigestFallback(t *testing.T) {
 	t.Setenv("CMUX_TUI_SOCKET", "")
 	t.Setenv("CMUX_MUX_SOCKET", "")
