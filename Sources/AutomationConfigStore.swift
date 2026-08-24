@@ -51,6 +51,25 @@ final class AutomationConfigStore {
         return configuration
     }
 
+    /// Loads and decodes the configuration on a utility task.
+    nonisolated func loadOffMain() async throws -> AutomationConfiguration {
+        let url = fileURL
+        return try await Task.detached(priority: .utility) {
+            try AutomationConfigStore(fileURL: url).load()
+        }.value
+    }
+
+    /// Updates one rule off the main actor and returns the persisted snapshot.
+    nonisolated func updateRuleOffMain(
+        id: String,
+        _ update: @escaping @Sendable (inout AutomationRule) -> Void
+    ) async throws -> AutomationRule {
+        let url = fileURL
+        return try await Task.detached(priority: .utility) {
+            try AutomationConfigStore(fileURL: url).updateRule(id: id, update)
+        }.value
+    }
+
     /// Writes a complete configuration using a temporary sibling and rename.
     func save(_ configuration: AutomationConfiguration) throws {
         guard configuration.version == AutomationConfiguration.currentVersion else {
@@ -60,18 +79,31 @@ final class AutomationConfigStore {
         let data = try encoder.encode(configuration)
         try fileManager.createDirectory(
             at: fileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: NSNumber(value: 0o700)]
+        )
+        try fileManager.setAttributes(
+            [.posixPermissions: NSNumber(value: 0o700)],
+            ofItemAtPath: fileURL.deletingLastPathComponent().path
         )
         let temporaryURL = fileURL
             .deletingLastPathComponent()
             .appendingPathComponent(".\(fileURL.lastPathComponent).\(UUID().uuidString).tmp")
         defer { try? fileManager.removeItem(at: temporaryURL) }
         try data.write(to: temporaryURL, options: .atomic)
+        try fileManager.setAttributes(
+            [.posixPermissions: NSNumber(value: 0o600)],
+            ofItemAtPath: temporaryURL.path
+        )
         if fileManager.fileExists(atPath: fileURL.path) {
             _ = try fileManager.replaceItemAt(fileURL, withItemAt: temporaryURL)
         } else {
             try fileManager.moveItem(at: temporaryURL, to: fileURL)
         }
+        try fileManager.setAttributes(
+            [.posixPermissions: NSNumber(value: 0o600)],
+            ofItemAtPath: fileURL.path
+        )
     }
 
     func updateRule(id: String, _ update: (inout AutomationRule) -> Void) throws -> AutomationRule {

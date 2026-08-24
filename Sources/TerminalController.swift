@@ -1485,7 +1485,8 @@ class TerminalController {
                 id: request.id,
                 v2FeedPush(
                     params: request.params,
-                    requiresIngestionAcknowledgment: request.id != nil
+                    requiresIngestionAcknowledgment: request.id != nil,
+                    automationOrigin: CmuxAutomationInvocationContext.eventOrigin
                 )
             )
         case "feed.permission.reply":
@@ -6146,7 +6147,8 @@ class TerminalController {
 
     private nonisolated func v2FeedPush(
         params: [String: Any],
-        requiresIngestionAcknowledgment: Bool
+        requiresIngestionAcknowledgment: Bool,
+        automationOrigin: CmuxAutomationEventOrigin? = nil
     ) -> V2CallResult {
         let waitTimeout: TimeInterval
         if let rawTimeout = params["wait_timeout_seconds"] {
@@ -6231,7 +6233,10 @@ class TerminalController {
             )
         }
         if requiresIngestionAcknowledgment && waitTimeout == 0 {
-            return v2IngestAcknowledgedFeedEvents(events)
+            return v2IngestAcknowledgedFeedEvents(
+                events,
+                automationOrigin: automationOrigin
+            )
         }
         guard let event = events.first, events.count == 1 else {
             return .err(
@@ -6241,7 +6246,11 @@ class TerminalController {
             )
         }
 
-        return v2IngestFeedEvent(event, waitTimeout: waitTimeout)
+        return v2IngestFeedEvent(
+            event,
+            waitTimeout: waitTimeout,
+            automationOrigin: automationOrigin
+        )
     }
 
     nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {

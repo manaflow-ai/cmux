@@ -106,6 +106,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "自動化ルールを %@ 件再読み込みしました" } }
       }
     },
+    "cli.automation.output.reloadRequested": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Automation configuration reload requested" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動化設定の再読み込みを要求しました" } }
+      }
+    },
     "cli.automation.output.enabled": {
       "extractionState": "manual",
       "localizations": {

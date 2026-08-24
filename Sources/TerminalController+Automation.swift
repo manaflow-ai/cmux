@@ -131,22 +131,18 @@ extension TerminalController {
                 data: nil
             )
         }
-        switch automationEngine.setEnabled(id: id, enabled: enabled) {
-        case .success(let rule):
-            return .ok([
-                "id": rule.id,
-                "enabled": rule.enabled
-            ])
-        case .failure(let error):
-            let code: String
-            if let configError = error as? AutomationConfigStoreError,
-               case .ruleNotFound = configError {
-                code = "not_found"
-            } else {
-                code = "invalid_config"
-            }
-            return .err(code: code, message: error.localizedDescription, data: ["id": id])
+        guard automationEngine.scheduleSetEnabled(id: id, enabled: enabled) else {
+            return .err(
+                code: "not_found",
+                message: String(localized: "automation.error.ruleNotFound", defaultValue: "Automation rule not found"),
+                data: ["id": id]
+            )
         }
+        return .ok([
+            "id": id,
+            "enabled": enabled,
+            "pending": true
+        ])
     }
 
     @MainActor
@@ -171,12 +167,11 @@ extension TerminalController {
                 data: nil
             )
         }
-        switch automationEngine.reload() {
-        case .success(let count):
-            return .ok(["reloaded": true, "rule_count": count])
-        case .failure(let error):
-            return .err(code: "invalid_config", message: error.localizedDescription, data: nil)
-        }
+        automationEngine.scheduleReload()
+        return .ok([
+            "reloading": true,
+            "rule_count": automationEngine.listPayload().count
+        ])
     }
 
     /// Dispatches an automation RPC through the normal v2 execution policy.

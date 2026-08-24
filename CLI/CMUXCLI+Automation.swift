@@ -162,6 +162,13 @@ extension CMUXCLI {
                 ))
             }
         case "reload":
+            if (response["reloading"] as? Bool) == true {
+                print(String(
+                    localized: "cli.automation.output.reloadRequested",
+                    defaultValue: "Automation configuration reload requested"
+                ))
+                return
+            }
             let count = response["rule_count"] as? Int ?? 0
             let format = String(
                 localized: "cli.automation.output.reloaded",

@@ -56,6 +56,7 @@ final class AutomationEngine {
     private var lastSequence: Int64?
     private var restartTask: Task<Void, Never>?
     private var restartAttempt = 0
+    private var reloadTask: Task<Void, Never>?
 
     init(
         configStore: AutomationConfigStore = AutomationConfigStore(),
@@ -86,6 +87,7 @@ final class AutomationEngine {
         subscription?.close()
         eventTask?.cancel()
         restartTask?.cancel()
+        reloadTask?.cancel()
         firingTasks.values.forEach { $0.cancel() }
     }
 
@@ -93,10 +95,7 @@ final class AutomationEngine {
     func start() {
         shouldRun = true
         guard eventTask == nil else { return }
-        _ = reload()
-        if eventTask == nil {
-            installSubscription(afterSequence: nil)
-        }
+        scheduleReload()
     }
 
     private func installSubscription(afterSequence: Int64?) {
@@ -161,6 +160,8 @@ final class AutomationEngine {
         shouldRun = false
         restartTask?.cancel()
         restartTask = nil
+        reloadTask?.cancel()
+        reloadTask = nil
         subscription?.close()
         if let subscription {
             eventBus.unsubscribe(subscription)
@@ -175,15 +176,20 @@ final class AutomationEngine {
     }
 
     /// Reloads the file and returns a compact command response.
-    @discardableResult
-    func reload() -> Result<Int, Error> {
+    func scheduleReload() {
+        guard reloadTask == nil else { return }
+        reloadTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = await self.reloadAsync()
+            self.reloadTask = nil
+        }
+    }
+
+    func reloadAsync() async -> Result<Int, Error> {
         do {
-            let configuration = try configStore.load()
-            rules = configuration.rules
-            rebuildRuleIndexes()
-            fireDatesByRuleID.removeAll(keepingCapacity: true)
-            workspaceTagsCache.removeAll(keepingCapacity: true)
-            pendingTagResolutions.removeAll(keepingCapacity: true)
+            let configuration = try await configStore.loadOffMain()
+            guard !Task.isCancelled else { return .failure(CancellationError()) }
+            apply(configuration)
             if shouldRun {
                 if let subscription {
                     eventBus.unsubscribe(subscription)
@@ -192,24 +198,13 @@ final class AutomationEngine {
                 }
                 eventTask?.cancel()
                 eventTask = nil
-                installSubscription(afterSequence: lastSequence)
+                // A rule-set change is not a reconnect: never replay events
+                // that arrived while the previous snapshot was active.
+                installSubscription(afterSequence: nil)
             }
             return .success(rules.count)
         } catch {
-            rules.removeAll(keepingCapacity: true)
-            rulesByEventName.removeAll(keepingCapacity: true)
-            rulesByCategory.removeAll(keepingCapacity: true)
-            unindexedRules.removeAll(keepingCapacity: true)
-            fireDatesByRuleID.removeAll(keepingCapacity: true)
-            workspaceTagsCache.removeAll(keepingCapacity: true)
-            pendingTagResolutions.removeAll(keepingCapacity: true)
-            if let subscription {
-                eventBus.unsubscribe(subscription)
-                subscription.close()
-                self.subscription = nil
-            }
-            eventTask?.cancel()
-            eventTask = nil
+            clearActiveRules()
             record(
                 ruleID: "",
                 eventName: "config.reload",
@@ -219,6 +214,31 @@ final class AutomationEngine {
             )
             return .failure(error)
         }
+    }
+
+    private func apply(_ configuration: AutomationConfiguration) {
+        rules = configuration.rules
+        rebuildRuleIndexes()
+        fireDatesByRuleID.removeAll(keepingCapacity: true)
+        workspaceTagsCache.removeAll(keepingCapacity: true)
+        pendingTagResolutions.removeAll(keepingCapacity: true)
+    }
+
+    private func clearActiveRules() {
+        rules.removeAll(keepingCapacity: true)
+        rulesByEventName.removeAll(keepingCapacity: true)
+        rulesByCategory.removeAll(keepingCapacity: true)
+        unindexedRules.removeAll(keepingCapacity: true)
+        fireDatesByRuleID.removeAll(keepingCapacity: true)
+        workspaceTagsCache.removeAll(keepingCapacity: true)
+        pendingTagResolutions.removeAll(keepingCapacity: true)
+        if let subscription {
+            eventBus.unsubscribe(subscription)
+            subscription.close()
+            self.subscription = nil
+        }
+        eventTask?.cancel()
+        eventTask = nil
     }
 
     private func rebuildRuleIndexes() {
@@ -294,9 +314,44 @@ final class AutomationEngine {
         return object
     }
 
-    func setEnabled(id: String, enabled: Bool) -> Result<AutomationRule, Error> {
+    func scheduleSetEnabled(id: String, enabled: Bool) -> Bool {
+        guard rules.contains(where: { $0.id == id }) else { return false }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let rule = try await self.configStore.updateRuleOffMain(id: id) { rule in
+                    rule.enabled = enabled
+                }
+                if let index = self.rules.firstIndex(where: { $0.id == id }) {
+                    self.rules[index] = rule
+                }
+                self.rebuildRuleIndexes()
+                if self.shouldRun {
+                    if let subscription = self.subscription {
+                        self.eventBus.unsubscribe(subscription)
+                        subscription.close()
+                        self.subscription = nil
+                    }
+                    self.eventTask?.cancel()
+                    self.eventTask = nil
+                    self.installSubscription(afterSequence: nil)
+                }
+            } catch {
+                self.record(
+                    ruleID: id,
+                    eventName: "config.enable",
+                    status: "error",
+                    detail: String(describing: error),
+                    chain: []
+                )
+            }
+        }
+        return true
+    }
+
+    func setEnabled(id: String, enabled: Bool) async -> Result<AutomationRule, Error> {
         do {
-            let rule = try configStore.updateRule(id: id) { rule in
+            let rule = try await configStore.updateRuleOffMain(id: id) { rule in
                 rule.enabled = enabled
             }
             if let index = rules.firstIndex(where: { $0.id == id }) {
@@ -311,7 +366,9 @@ final class AutomationEngine {
                 }
                 eventTask?.cancel()
                 eventTask = nil
-                installSubscription(afterSequence: lastSequence)
+                // Enabling/disabling a rule changes the action snapshot; start
+                // at the current tail instead of replaying historical events.
+                installSubscription(afterSequence: nil)
             }
             return .success(rule)
         } catch {
@@ -354,7 +411,7 @@ final class AutomationEngine {
             lastSequence = max(lastSequence ?? sequence, sequence)
         }
         if eventName == "config.reloaded" {
-            _ = reload()
+            scheduleReload()
         }
         let invalidatesWorkspaceTags =
             ["sidebar.metadata.updated", "sidebar.metadata.cleared", "sidebar.reset"].contains(eventName)
