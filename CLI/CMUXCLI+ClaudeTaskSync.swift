@@ -174,6 +174,14 @@ extension CMUXCLI {
                             )
                             guard cleanup.succeeded else { break }
                         }
+                        if cleanup.succeeded {
+                            for cleanupTaskStoreIdentity in cleanupTaskStoreIdentities {
+                                try sessionStore.clearClaudeTaskDirectoryBindings(
+                                    directoryName: cleanupTaskDirectoryName,
+                                    taskStoreIdentity: cleanupTaskStoreIdentity
+                                )
+                            }
+                        }
                         if let matchingRecord {
                             try sessionStore.retainClaudeTeamTaskBindingWorkspaces(
                                 cleanup.retainedWorkspaceIDs,
@@ -229,6 +237,10 @@ extension CMUXCLI {
                             for: previouslyBoundRecord.binding
                         )
                         if cleanup.succeeded {
+                            try sessionStore.clearClaudeTaskDirectoryBindings(
+                                directoryName: previouslyBoundRecord.binding.taskListID,
+                                taskStoreIdentity: previouslyBoundRecord.binding.taskStoreIdentity
+                            )
                             try sessionStore.removeClaudeTeamTaskListBinding(
                                 previouslyBoundRecord.binding
                             )
@@ -480,14 +492,6 @@ extension CMUXCLI {
                         socketPassword: socketPassword,
                         deadlineUptime: hookDeadlineUptime
                     ) else { return }
-                    try clearRetainedClaudeTeamTaskOwner(
-                        binding: deferredAutomaticTeamCleanup.binding,
-                        workspaceIDs: deferredAutomaticTeamCleanup.workspaceIDs,
-                        sessionStore: sessionStore,
-                        client: client,
-                        telemetry: telemetry,
-                        deadlineUptime: hookDeadlineUptime
-                    )
                     personalFeedAlreadyPublished = true
                 } else {
                     personalFeedAlreadyPublished = false
@@ -572,13 +576,30 @@ extension CMUXCLI {
                       delivery.retainedWorkspaceIDs.contains(normalizedWorkspaceID) else {
                     return
                 }
-                try sessionStore.bindClaudeTaskDirectory(
+                guard try sessionStore.bindClaudeTaskDirectory(
                     sessionId: sessionID,
                     directoryName: sessionSnapshot.directoryName,
                     taskStoreIdentity: taskStoreIdentity,
                     workspaceId: resolvedTarget.workspaceId,
-                    surfaceId: resolvedTarget.surfaceId
-                )
+                    surfaceId: resolvedTarget.surfaceId,
+                    expectedStartedAt: currentRecord?.startedAt
+                ) else {
+                    telemetry.breadcrumb("claude-hook.task-sync.session-ended")
+                    return
+                }
+                if let deferredAutomaticTeamCleanup {
+                    // Retire the superseded team owner only after the personal
+                    // checklist has been accepted. A rejected personal
+                    // replacement must leave the old owner available for retry.
+                    try clearRetainedClaudeTeamTaskOwner(
+                        binding: deferredAutomaticTeamCleanup.binding,
+                        workspaceIDs: deferredAutomaticTeamCleanup.workspaceIDs,
+                        sessionStore: sessionStore,
+                        client: client,
+                        telemetry: telemetry,
+                        deadlineUptime: hookDeadlineUptime
+                    )
+                }
             }
         } catch {
             telemetry.breadcrumb(

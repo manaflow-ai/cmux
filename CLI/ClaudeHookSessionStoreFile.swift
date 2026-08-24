@@ -13,6 +13,9 @@ struct ClaudeHookSessionStoreFile: Codable {
     // session in this pane is stale. Keyed by surface id.
     // https://github.com/manaflow-ai/cmux/issues/5908
     var activeSessionsBySurface: [String: ClaudeHookActiveSessionRecord] = [:]
+    // SessionEnd leaves a short-lived tombstone so an asynchronous task hook
+    // cannot recreate a session record after the lifecycle owner consumed it.
+    var endedSessionIDs: [String: TimeInterval] = [:]
     // Automatic-team task identity is list-scoped rather than session-scoped:
     // leader and teammate hooks can run in independent Claude sessions.
     var claudeTeamTaskBindings: [String: ClaudeHookTeamTaskBindingRecord] = [:]
@@ -27,6 +30,7 @@ struct ClaudeHookSessionStoreFile: Codable {
         case pendingSupersededSessionCleanup
         case activeSessionsByWorkspace
         case activeSessionsBySurface
+        case endedSessionIDs
         case claudeTeamTaskBindings
         case claudeTaskListDestinations
         case agentHookFailureReportTimestamps
@@ -49,6 +53,10 @@ struct ClaudeHookSessionStoreFile: Codable {
         activeSessionsBySurface = try container.decodeIfPresent(
             [String: ClaudeHookActiveSessionRecord].self,
             forKey: .activeSessionsBySurface
+        ) ?? [:]
+        endedSessionIDs = try container.decodeIfPresent(
+            [String: TimeInterval].self,
+            forKey: .endedSessionIDs
         ) ?? [:]
         claudeTeamTaskBindings = try container.decodeIfPresent(
             [String: ClaudeHookTeamTaskBindingRecord].self,
@@ -76,6 +84,9 @@ struct ClaudeHookSessionStoreFile: Codable {
         }
         if !activeSessionsBySurface.isEmpty {
             try container.encode(activeSessionsBySurface, forKey: .activeSessionsBySurface)
+        }
+        if !endedSessionIDs.isEmpty {
+            try container.encode(endedSessionIDs, forKey: .endedSessionIDs)
         }
         if !claudeTeamTaskBindings.isEmpty {
             try container.encode(claudeTeamTaskBindings, forKey: .claudeTeamTaskBindings)

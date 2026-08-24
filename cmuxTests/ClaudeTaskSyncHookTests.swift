@@ -1172,7 +1172,10 @@ struct ClaudeTaskSyncHookTests {
 
         let transitionReconciliations = Array(reconcileRequests(in: context).suffix(3))
         #expect(transitionReconciliations.count == 3)
-        let cleanupReconciliations = transitionReconciliations.prefix(2)
+        let cleanupReconciliations = transitionReconciliations.filter {
+            $0["owner_id"] as? String == teamOwnerID
+        }
+        #expect(cleanupReconciliations.count == 2)
         #expect(Set(cleanupReconciliations.compactMap { $0["workspace_id"] as? String }) == [
             workspaceId,
             teammateWorkspaceId,
@@ -1182,7 +1185,11 @@ struct ClaudeTaskSyncHookTests {
                 && (reconciliation["items"] as? [[String: Any]])?.isEmpty == true
         })
 
-        let personalReconciliation = transitionReconciliations[2]
+        let personalReconciliation = try #require(
+            transitionReconciliations.first {
+                $0["owner_id"] as? String != teamOwnerID
+            }
+        )
         #expect(personalReconciliation["workspace_id"] as? String == workspaceId)
         #expect(personalReconciliation["owner_id"] as? String == taskOwnerID(
             directoryName: leaderSessionId,

@@ -206,6 +206,7 @@ private struct CodexMonitorLeaseRecord: Codable {
 final class ClaudeHookSessionStore {
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
+    private static let maxEndedSessionIDs = 256
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
@@ -346,13 +347,15 @@ final class ClaudeHookSessionStore {
     /// Claude launches asynchronous hooks in separate CLI processes, so the
     /// binding is updated inside the existing cross-process session-store
     /// transaction rather than process-local mutable state.
+    @discardableResult
     func bindClaudeTaskDirectory(
         sessionId: String,
         directoryName: String,
         taskStoreIdentity: ClaudeTaskStoreIdentity,
         workspaceId: String,
-        surfaceId: String
-    ) throws {
+        surfaceId: String,
+        expectedStartedAt: TimeInterval? = nil
+    ) throws -> Bool {
         let normalizedSessionId = normalizeSessionId(sessionId)
         let normalizedDirectoryName = directoryName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let normalizedWorkspaceId = normalizeOptional(workspaceId),
@@ -362,21 +365,37 @@ final class ClaudeHookSessionStore {
               normalizedDirectoryName != ".",
               normalizedDirectoryName != "..",
               !normalizedDirectoryName.contains("/"),
-              !normalizedDirectoryName.contains("\0") else { return }
-        try withLockedState { state in
+              !normalizedDirectoryName.contains("\0") else { return false }
+        return try withLockedState { state in
+            // A task hook may finish after SessionEnd consumed its record. Do
+            // not let that stale process recreate the ended session.
+            guard state.endedSessionIDs[normalizedSessionId] == nil else { return false }
             let now = Date.now.timeIntervalSince1970
-            var record = state.sessions[normalizedSessionId] ?? ClaudeHookSessionRecord(
-                sessionId: normalizedSessionId,
-                workspaceId: normalizedWorkspaceId,
-                surfaceId: normalizedSurfaceId,
-                startedAt: now,
-                updatedAt: now
-            )
+            var record: ClaudeHookSessionRecord
+            if let existing = state.sessions[normalizedSessionId] {
+                if let expectedStartedAt {
+                    guard existing.startedAt == expectedStartedAt else { return false }
+                }
+                record = existing
+            } else {
+                // Preserve the historical first-hook behavior when no session
+                // record existed at hook entry. If one did exist, the caller
+                // supplies its generation and this branch fails closed after
+                // SessionEnd removes it.
+                guard expectedStartedAt == nil else { return false }
+                record = ClaudeHookSessionRecord(
+                    sessionId: normalizedSessionId,
+                    workspaceId: normalizedWorkspaceId,
+                    surfaceId: normalizedSurfaceId,
+                    startedAt: now,
+                    updatedAt: now
+                )
+            }
             let bindingChanged = record.claudeTaskDirectoryName != normalizedDirectoryName
                 || record.claudeTaskStoreID != taskStoreIdentity.rawValue
             let destinationChanged = record.workspaceId != normalizedWorkspaceId
                 || record.surfaceId != normalizedSurfaceId
-            guard bindingChanged || destinationChanged else { return }
+            guard bindingChanged || destinationChanged else { return true }
             if bindingChanged {
                 record.claudeTaskDirectoryName = normalizedDirectoryName
                 record.claudeTaskStoreID = taskStoreIdentity.rawValue
@@ -386,6 +405,49 @@ final class ClaudeHookSessionStore {
             record.surfaceId = normalizedSurfaceId
             record.updatedAt = now
             state.sessions[normalizedSessionId] = record
+            return true
+        }
+    }
+
+    /// Removes session task-directory proofs after the owning list is deleted.
+    ///
+    /// Team task lists are shared by several Claude sessions, so deleting the
+    /// list must invalidate every session-scoped fallback binding for the same
+    /// task-store identity. The session's lifecycle and pane routing remain
+    /// intact; only the task-directory proof is discarded.
+    func clearClaudeTaskDirectoryBindings(
+        directoryName: String,
+        taskStoreIdentity: ClaudeTaskStoreIdentity?
+    ) throws {
+        let normalizedDirectoryName = directoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedDirectoryName.isEmpty,
+              normalizedDirectoryName != ".",
+              normalizedDirectoryName != "..",
+              !normalizedDirectoryName.contains("/"),
+              !normalizedDirectoryName.contains("\0") else { return }
+        let expectedStoreID = taskStoreIdentity?.rawValue
+        try withLockedState { state in
+            let now = Date().timeIntervalSince1970
+            for sessionID in Array(state.sessions.keys) {
+                guard var record = state.sessions[sessionID],
+                      record.claudeTaskDirectoryName == normalizedDirectoryName,
+                      record.claudeTaskStoreID == expectedStoreID else { continue }
+                record.claudeTaskDirectoryName = nil
+                record.claudeTaskStoreID = nil
+                record.claudeTaskLegacyOwnerCleared = nil
+                record.updatedAt = now
+                state.sessions[sessionID] = record
+            }
+            for sessionID in Array(state.pendingSupersededSessionCleanup.keys) {
+                guard var record = state.pendingSupersededSessionCleanup[sessionID],
+                      record.claudeTaskDirectoryName == normalizedDirectoryName,
+                      record.claudeTaskStoreID == expectedStoreID else { continue }
+                record.claudeTaskDirectoryName = nil
+                record.claudeTaskStoreID = nil
+                record.claudeTaskLegacyOwnerCleared = nil
+                // Preserve the pending record's immutable cleanup age anchors.
+                state.pendingSupersededSessionCleanup[sessionID] = record
+            }
         }
     }
 
@@ -1427,12 +1489,18 @@ final class ClaudeHookSessionStore {
         markActive: Bool = false,
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false,
-        supersedesSameProcessSession: Bool = false
+        supersedesSameProcessSession: Bool = false,
+        clearsEndedSessionTombstone: Bool = false
     ) throws -> [ClaudeHookSessionRecord] {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return [] }
         return try withLockedState { state in
             let now = Date().timeIntervalSince1970
+            if clearsEndedSessionTombstone {
+                // SessionStart (and an explicitly accepted first prompt for a
+                // fork) establishes a new generation for this identifier.
+                state.endedSessionIDs.removeValue(forKey: normalized)
+            }
             var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
                 sessionId: normalized,
                 workspaceId: workspaceId,
@@ -2090,6 +2158,9 @@ final class ClaudeHookSessionStore {
             return true
         }
         return try withLockedState { state in
+            guard state.endedSessionIDs[normalizedSessionId] == nil else {
+                return false
+            }
             // The pane's own active boundary decides first: a hook is stale when a
             // DIFFERENT session was promoted in the SAME surface (post-/clear or
             // replaced-session races in one pane). This stays true even after a
@@ -2172,14 +2243,23 @@ final class ClaudeHookSessionStore {
         let normalizedWorkspace = normalizeOptional(workspaceId)
         let normalizedSurface = normalizeOptional(surfaceId)
         return try withLockedState { state in
+            let endedAt = Date().timeIntervalSince1970
             if let normalizedSessionId,
                let existing = state.sessions[normalizedSessionId] {
                 guard !hasActiveTurnMismatch(state, record: existing, turnId: turnId) else {
                     return nil
                 }
                 let removed = state.sessions.removeValue(forKey: normalizedSessionId) ?? existing
+                state.endedSessionIDs[normalizedSessionId] = endedAt
                 clearActiveSessionIfMatching(&state, removed: removed, turnId: turnId)
                 return removed
+            }
+
+            // Even when the record was already consumed by another lifecycle
+            // hook, retain the end boundary so a late task hook cannot
+            // synthesize it again before the next SessionStart.
+            if let normalizedSessionId {
+                state.endedSessionIDs[normalizedSessionId] = endedAt
             }
 
             guard let fallback = fallbackRecord(
@@ -2193,6 +2273,7 @@ final class ClaudeHookSessionStore {
                 return nil
             }
             state.sessions.removeValue(forKey: fallback.sessionId)
+            state.endedSessionIDs[fallback.sessionId] = endedAt
             clearActiveSessionIfMatching(&state, removed: fallback, turnId: turnId)
             return fallback
         }
@@ -2351,6 +2432,23 @@ final class ClaudeHookSessionStore {
         let cutoff = now - Self.maxStateAgeSeconds
         state.sessions = state.sessions.filter { _, record in
             record.updatedAt >= cutoff
+        }
+        state.endedSessionIDs = state.endedSessionIDs.filter { _, endedAt in
+            endedAt >= cutoff
+        }
+        if state.endedSessionIDs.count > Self.maxEndedSessionIDs {
+            let retainedIDs = Set(
+                state.endedSessionIDs
+                    .sorted { lhs, rhs in
+                        if lhs.value != rhs.value { return lhs.value > rhs.value }
+                        return lhs.key > rhs.key
+                    }
+                    .prefix(Self.maxEndedSessionIDs)
+                    .map(\.key)
+            )
+            state.endedSessionIDs = state.endedSessionIDs.filter {
+                retainedIDs.contains($0.key)
+            }
         }
         state.pendingSupersededSessionCleanup = state.pendingSupersededSessionCleanup.filter { _, record in
             (record.supersededCleanupEnqueuedAt ?? record.updatedAt) >= cutoff
@@ -25647,7 +25745,8 @@ struct CMUXCLI {
                     isRestorable: false,
                     agentLifecycle: shouldPromoteActiveSession ? .running : .unknown,
                     markActive: shouldPromoteActiveSession,
-                    turnId: parsedInput.turnId
+                    turnId: parsedInput.turnId,
+                    clearsEndedSessionTombstone: true
                 )
                 if shouldPromoteActiveSession {
                     publishAgentSurfaceResumeBinding(
@@ -25923,7 +26022,8 @@ struct CMUXCLI {
                     isRestorable: true,
                     agentLifecycle: .running,
                     markActive: true,
-                    turnId: parsedInput.turnId
+                    turnId: parsedInput.turnId,
+                    clearsEndedSessionTombstone: mappedSession == nil
                 )
                 publishAgentSurfaceResumeBinding(
                     client: client,
