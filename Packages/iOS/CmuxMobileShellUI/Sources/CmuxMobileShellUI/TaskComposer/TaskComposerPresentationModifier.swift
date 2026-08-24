@@ -34,12 +34,11 @@ private struct TaskComposerPresentationModifier<PresentedContent: View>: ViewMod
         content.fullScreenCover(
             isPresented: $isPresented,
             onDismiss: {
-                // The next presentation starts a new session that resumes the
-                // newest draft, and it must get a brand-new view identity:
-                // reusing the token would let @State (draft identity, persist
-                // flags, dirty baseline) leak from the closed session, and
-                // the fresh view must be built after this session's final
-                // save landed.
+                // The next presentation starts a fresh session (drafts load
+                // only from the drafts list), and it must get a brand-new
+                // view identity: reusing the token would let @State (draft
+                // identity, persist flags, dirty baseline) leak from the
+                // closed session.
                 launch = TaskComposerLaunch(token: launch.token + 1)
                 onDismiss()
             },

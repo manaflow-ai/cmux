@@ -108,7 +108,7 @@ struct TaskComposerSheet: View {
 
     init(
         store: CMUXMobileShellStore,
-        launchIntent: TaskComposerLaunchIntent = .automatic,
+        launchIntent: TaskComposerLaunchIntent = .new,
         onSwitchDraft: ((TaskComposerLaunchIntent) -> Void)? = nil,
         availableMachines: [MobilePairedMac]? = nil,
         availableWorkspaceGroups: [MobileWorkspaceGroupPreview]? = nil,

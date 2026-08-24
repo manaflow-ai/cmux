@@ -18,14 +18,6 @@ import Testing
         )
     }
 
-    @Test func automaticResumesTheNewestDraftAndFallsBackToFresh() {
-        let newest = Self.savedDraft(prompt: "Newest", at: 200)
-        let older = Self.savedDraft(prompt: "Older", at: 100)
-
-        #expect(TaskComposerLaunchIntent.automatic.resolveDraft(in: [newest, older]) == newest)
-        #expect(TaskComposerLaunchIntent.automatic.resolveDraft(in: []) == nil)
-    }
-
     @Test func resumeSelectsExactlyTheRequestedDraft() {
         let newest = Self.savedDraft(prompt: "Newest", at: 200)
         let older = Self.savedDraft(prompt: "Older", at: 100)
@@ -43,16 +35,16 @@ import Testing
         let newest = Self.savedDraft(prompt: "Newest", at: 200)
 
         #expect(TaskComposerLaunchIntent.new.resolveDraft(in: [newest]) == nil)
+        #expect(TaskComposerLaunch().intent == .new)
     }
 
     @Test func switchingAlwaysChangesSessionIdentity() {
         let first = TaskComposerLaunch()
         let second = first.switching(to: .new)
-        let third = second.switching(to: .automatic)
+        let third = second.switching(to: .resume(UUID()))
 
         #expect(second.token != first.token)
         #expect(third.token != second.token)
-        #expect(third.intent == .automatic)
         #expect(third != first)
     }
 }

@@ -2,14 +2,13 @@
 import CmuxMobileShellModel
 import Foundation
 
-/// Which draft a task-composer session starts from.
+/// Which draft a task-composer session starts from. Drafts are explicit,
+/// like X/Twitter: opening the composer always starts fresh, and a saved
+/// draft is only loaded by picking it from the drafts list.
 enum TaskComposerLaunchIntent: Equatable, Sendable {
-    /// Resume the newest saved draft, or start fresh when none exists. This
-    /// is the long-standing behavior of opening the composer.
-    case automatic
     /// Resume one saved draft; starts fresh if it was deleted meanwhile.
     case resume(UUID)
-    /// Start a fresh draft even when saved drafts exist.
+    /// Start a fresh draft.
     case new
 
     /// Resolves the saved draft this intent restores from `drafts`
@@ -18,8 +17,6 @@ enum TaskComposerLaunchIntent: Equatable, Sendable {
         in drafts: [MobileTaskComposerSavedDraft]
     ) -> MobileTaskComposerSavedDraft? {
         switch self {
-        case .automatic:
-            drafts.first
         case .resume(let id):
             drafts.first { $0.id == id }
         case .new:
@@ -33,7 +30,7 @@ enum TaskComposerLaunchIntent: Equatable, Sendable {
 /// restore-validation init instead of mutating live state in place.
 struct TaskComposerLaunch: Equatable, Sendable {
     var token = 0
-    var intent: TaskComposerLaunchIntent = .automatic
+    var intent: TaskComposerLaunchIntent = .new
 
     /// The next session for `intent`, always with a fresh view identity.
     func switching(to intent: TaskComposerLaunchIntent) -> TaskComposerLaunch {

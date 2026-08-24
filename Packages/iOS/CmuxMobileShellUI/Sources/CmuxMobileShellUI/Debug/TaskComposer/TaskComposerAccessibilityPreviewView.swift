@@ -28,6 +28,8 @@ public struct TaskComposerAccessibilityPreviewView: View {
     private let holdsSubmissionInPreparation: Bool
     private let advertisesTaskAttachments: Bool
     private let startsWithStagedAttachments: Bool
+    /// Drafts never auto-load, so seeded-draft previews resume explicitly.
+    private let seededDraftID: UUID?
     @State private var directoryPaginationRecoveryPreview: TaskComposerDirectoryPaginationRecoveryPreview?
 
     /// Creates the preview with isolated, in-memory task state so repeated UI
@@ -59,8 +61,11 @@ public struct TaskComposerAccessibilityPreviewView: View {
             "CMUX_UITEST_TASK_COMPOSER_OPEN_DIRECTORY_PREVIEW"
         ] == "1"
         let templateStore = TaskComposerAccessibilityTemplateStore()
+        // Drafts load only when explicitly resumed, so seeded-draft previews
+        // remember the seeded id and launch the composer with .resume(id).
+        var seededDraftID: UUID?
         if environment["CMUX_UITEST_TASK_COMPOSER_LONG_PROMPT"] == "1" {
-            templateStore.saveComposerDraft(MobileTaskComposerSavedDraft(
+            let seeded = MobileTaskComposerSavedDraft(
                 updatedAt: Date(),
                 content: MobileTaskComposerDraft(
                     prompt: Self.longPrompt,
@@ -70,10 +75,12 @@ public struct TaskComposerAccessibilityPreviewView: View {
                     directory: "~",
                     didEditDirectory: false
                 )
-            ))
+            )
+            templateStore.saveComposerDraft(seeded)
+            seededDraftID = seeded.id
         }
         if environment["CMUX_UITEST_TASK_COMPOSER_RESTORED_MODEL_DRAFT"] == "1" {
-            templateStore.saveComposerDraft(MobileTaskComposerSavedDraft(
+            let seeded = MobileTaskComposerSavedDraft(
                 updatedAt: Date(),
                 content: MobileTaskComposerDraft(
                     prompt: "Retry the persisted model",
@@ -85,8 +92,11 @@ public struct TaskComposerAccessibilityPreviewView: View {
                     didEditDirectory: false,
                     operationID: UUID(uuidString: "0D9A7F2E-0B69-49C7-A725-F6F72517C584")
                 )
-            ))
+            )
+            templateStore.saveComposerDraft(seeded)
+            seededDraftID = seeded.id
         }
+        self.seededDraftID = seededDraftID
         if presentsOpenDirectory {
             templateStore.setLastDirectory(
                 "/Users/ui/previous-task",
@@ -179,7 +189,8 @@ public struct TaskComposerAccessibilityPreviewView: View {
                 } else {
                     TaskComposerSheet(
                         store: store,
-                        launchIntent: launch.intent,
+                        launchIntent: seededDraftID.map(TaskComposerLaunchIntent.resume)
+                            ?? launch.intent,
                         onSwitchDraft: switchDraft,
                         availableMachines: [
                             Self.previewMac,
