@@ -73,6 +73,86 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func postRegistrationRequestsCarryExactBindingProof() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 201,
+                body: #"{"challenge_id":"123e4567-e89b-42d3-a456-426614174000","nonce":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","expires_at":"2026-07-10T01:00:00.000Z"}"#
+            ),
+            .json(status: 201, body: Self.registrationResponse),
+            .json(status: 200, body: Self.discoveryResponse),
+        ])
+        let client = try makeClient(transport: transport)
+        let signer = try registrationSigner()
+        let prepared = try signer.prepare(payload: registrationPayload())
+
+        _ = try await client.register(prepared: prepared, signer: signer)
+        _ = try await client.discover()
+
+        let requests = await transport.requests()
+        let discovery = try #require(requests.last)
+        #expect(
+            discovery.value(forHTTPHeaderField: "X-Cmux-Iroh-Binding-ID")
+                == "123e4567-e89b-42d3-a456-426614174010"
+        )
+        #expect(
+            Int64(
+                discovery.value(
+                    forHTTPHeaderField: "X-Cmux-Iroh-Request-Time"
+                ) ?? ""
+            ) != nil
+        )
+        #expect(
+            discovery.value(
+                forHTTPHeaderField: "X-Cmux-Iroh-Request-Signature"
+            )?.count == 86
+        )
+        #expect(
+            requests.dropLast().allSatisfy {
+                $0.value(
+                    forHTTPHeaderField: "X-Cmux-Iroh-Request-Signature"
+                ) == nil
+            }
+        )
+    }
+
+    @Test
+    func freshManagementClientUsesRetainedBindingProof() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 200, body: Self.discoveryResponse),
+        ])
+        let authorization = try CmxIrohBindingRequestAuthorization(
+            bindingID: Self.bindingID,
+            clientNamespace: "dev.cmux.app.internal",
+            identity: identityMaterial(),
+            endpointID: CmxIrohPeerIdentity(endpointID: Self.endpointID)
+        )
+        let client = try CmxIrohTrustBrokerClient(
+            baseURL: #require(URL(string: "https://cmux.example")),
+            tokenSource: Self.tokenSource,
+            clientNamespace: "dev.cmux.app.internal",
+            bindingAuthorization: authorization,
+            transport: transport
+        )
+
+        _ = try await client.discover()
+
+        let request = try #require(await transport.requests().first)
+        #expect(
+            request.value(forHTTPHeaderField: "X-Cmux-App-Namespace")
+                == "dev.cmux.app.internal"
+        )
+        #expect(
+            request.value(forHTTPHeaderField: "X-Cmux-Iroh-Binding-ID")
+                == Self.bindingID
+        )
+        #expect(
+            request.value(forHTTPHeaderField: "X-Cmux-Iroh-Request-Signature")?
+                .count == 86
+        )
+    }
+
+    @Test
     func registrationDecodesEmbeddedAuthoritativeDiscovery() async throws {
         var responseObject = try #require(
             JSONSerialization.jsonObject(
@@ -468,6 +548,51 @@ struct CmxIrohTrustBrokerClientTests {
             JSONSerialization.jsonObject(with: body) as? [String: Any]
         )
         #expect(object["bindingId"] as? String == bindingID)
+        #expect(object["intent"] == nil)
+    }
+
+    @Test
+    func forgetMacUsesExplicitAccountManagementIntent() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: #"{"revoked":true,"lan_rendezvous_rotated":true}"#
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+
+        try await client.forgetMac(bindingID: Self.bindingID)
+
+        let captured = try #require(await transport.requests().first)
+        #expect(captured.url?.path == "/api/devices/iroh")
+        #expect(captured.httpMethod == "DELETE")
+        let body = try #require(captured.httpBody)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        #expect(object["bindingId"] as? String == Self.bindingID)
+        #expect(object["intent"] as? String == "forget_mac")
+    }
+
+    @Test
+    func revokeStaleUsesExplicitStaleCleanupIntent() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: #"{"revoked":true,"lan_rendezvous_rotated":true}"#
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+
+        try await client.revokeStale(bindingID: Self.bindingID)
+
+        let captured = try #require(await transport.requests().first)
+        let body = try #require(captured.httpBody)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        #expect(object["bindingId"] as? String == Self.bindingID)
+        #expect(object["intent"] as? String == "revoke_stale")
     }
 
     @Test
@@ -1032,6 +1157,7 @@ struct CmxIrohTrustBrokerClientTests {
         try CmxIrohTrustBrokerClient(
             baseURL: #require(URL(string: "https://cmux.example")),
             tokenSource: Self.tokenSource,
+            clientNamespace: "dev.cmux.app.internal",
             discoveryScope: discoveryScope,
             transport: transport
         )
@@ -1060,12 +1186,18 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     private func registrationSigner() throws -> CmxIrohRegistrationSigner {
+        try CmxIrohRegistrationSigner(
+            identity: identityMaterial(),
+            endpointID: Self.endpointID
+        )
+    }
+
+    private func identityMaterial() throws -> CmxIrohIdentityMaterial {
         let secret = try CmxIrohSecretKey(bytes: Data((0 ..< 32).map(UInt8.init)))
-        let material = try CmxIrohIdentityMaterial(
+        return try CmxIrohIdentityMaterial(
             secretKey: secret,
             generation: 1
         )
-        return try CmxIrohRegistrationSigner(identity: material, endpointID: Self.endpointID)
     }
 
     private func registrationPayload() throws -> CmxIrohRegistrationPayload {

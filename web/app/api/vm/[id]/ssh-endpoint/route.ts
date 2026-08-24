@@ -8,7 +8,6 @@ import { setSpanAttributes } from "../../../../../services/telemetry";
 import { isVmNotFoundError } from "../../../../../services/vms/errors";
 import { openSshEndpoint, runVmWorkflow } from "../../../../../services/vms/workflows";
 
-export const dynamic = "force-dynamic";
 
 /**
  * Returns the SSH endpoint the mac client will dial to reach this VM's cmuxd-remote.

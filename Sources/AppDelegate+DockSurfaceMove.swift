@@ -57,21 +57,10 @@ extension AppDelegate {
         return context.fileExplorerState?.rightSidebarOwnsInputFocus ?? false
     }
 
-    /// Finds the Dock (any window's Dock or any workspace's local Dock) that
-    /// owns a pane. Used by the portal drop target to route a tab dropped on a
-    /// Dock pane to the Dock's own controller instead of the workspace's.
+    /// Finds the live Dock that owns a pane through the bounded Dock registry.
+    /// Used by portal drop targets to route into the Dock's own controller.
     func dockForPane(_ paneId: PaneID) -> DockSplitStore? {
-        if let windowDock = windowDockContainingPane(paneId.id) {
-            return windowDock
-        }
-        for context in mainWindowContexts.values {
-            for workspace in context.tabManager.tabs {
-                if let dock = workspace._dockSplit, dock.containsPane(paneId.id) {
-                    return dock
-                }
-            }
-        }
-        return nil
+        DockSplitStore.liveStore(containingPane: paneId.id)
     }
 
     /// Finds a Dock-hosted source for a Bonsplit tab (ignoring workspace panes).
@@ -208,11 +197,12 @@ extension AppDelegate {
         }
 
         if let splitTarget, let movedTabId = destinationWorkspace.surfaceIdFromPanelId(panelId) {
-            _ = destinationWorkspace.bonsplitController.splitPane(
+            _ = destinationWorkspace.splitPaneMovingTab(
                 resolvedPane,
                 orientation: splitTarget.orientation,
                 movingTab: movedTabId,
-                insertFirst: splitTarget.insertFirst
+                insertFirst: splitTarget.insertFirst,
+                focusIntent: focus ? .activateMovedTab : .preserveCurrent
             )
         }
         destinationWorkspace.scheduleTerminalGeometryReconcile()

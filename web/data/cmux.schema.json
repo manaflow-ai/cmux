@@ -543,6 +543,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "adaptiveDefaultTheme": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.terminal.adaptiveDefaultTheme",
+          "description": "When true (the default), cmux supplies its managed light/dark palette only when the Ghostty config contains no directives. When false, an untouched Ghostty config uses Ghostty's fixed built-in palette. Any Ghostty directive suppresses the managed palette; Ghostty theme = light:X,dark:Y remains appearance-adaptive."
+        },
         "showScrollBar": {
           "type": "boolean",
           "default": true,
@@ -1390,6 +1396,14 @@
           "default": "system",
           "description": "Embedded browser theme."
         },
+        "defaultZoomLevel": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 5,
+          "default": 1,
+          "descriptionKey": "schemaDescriptions.browser.defaultZoomLevel",
+          "description": "Default page zoom factor applied to newly opened browser pages (1 = 100%). Zoom In, Zoom Out, and Actual Size still adjust each page."
+        },
         "discardHiddenWebViews": {
           "type": "boolean",
           "default": true,
@@ -1448,6 +1462,22 @@
             "*.localtest.me"
           ],
           "description": "HTTP hosts allowed in the embedded browser without a warning prompt."
+        },
+        "urlAllowlist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "descriptionKey": "schemaDescriptions.browser.urlAllowlist",
+          "default": [
+            "localhost",
+            "*.localhost",
+            "127.0.0.1",
+            "::1",
+            "0.0.0.0",
+            "*.localtest.me"
+          ],
+          "description": "Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies."
         },
         "showImportHintOnBlankTabs": {
           "type": "boolean",
@@ -1632,6 +1662,8 @@
               "selectSurfaceByNumber",
               "nextSidebarTab",
               "prevSidebarTab",
+              "nextSidebarTabInGroup",
+              "prevSidebarTabInGroup",
               "moveWorkspaceUp",
               "moveWorkspaceDown",
               "focusHistoryBack",

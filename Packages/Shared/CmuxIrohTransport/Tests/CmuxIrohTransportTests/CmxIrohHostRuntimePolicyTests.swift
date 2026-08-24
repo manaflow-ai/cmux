@@ -88,6 +88,54 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test
+    func pendingRevocationInvalidatesEmbeddedRegistrationDiscovery() async throws {
+        let fixture = try HostRuntimeFixture()
+        let staleDiscovery = try HostRuntimeFixture.discovery(
+            binding: fixture.binding,
+            relays: HostRuntimeFixture.relayURLs,
+            lanGeneration: 1,
+            revision: 1
+        )
+        let authoritativeDiscovery = try HostRuntimeFixture.discovery(
+            binding: fixture.binding,
+            relays: HostRuntimeFixture.relayURLs,
+            lanGeneration: 2,
+            revision: 2
+        )
+        let pendingRevocations = fixture.pendingRevocations()
+        let pending = try CmxIrohPendingRevocation(
+            accountID: fixture.configuration.accountID,
+            tag: "older-build",
+            bindingID: "123e4567-e89b-42d3-a456-426614174099"
+        )
+        try await pendingRevocations.enqueue(pending)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: authoritativeDiscovery,
+            embeddedRegistrationDiscovery: staleDiscovery,
+            embeddedRegistrationDiscoveryIsComplete: true,
+            registrationRevision: 1
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: pendingRevocations,
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.observedRevokedBindingIDs() == [pending.bindingID])
+        #expect(await broker.observedDiscoveryCount() == 1)
+        #expect(await runtime.connectivityEngine?.snapshot().routeRevision == 2)
+        #expect(await runtime.lanAdvertisementContext()?.rendezvous.generation == 2)
+        await runtime.stop()
+    }
+
+    @Test
     func embeddedDiscoveryMustExactlyMatchTheRegistrationRevision() async throws {
         let fixture = try HostRuntimeFixture()
         let discovery = try HostRuntimeFixture.discovery(
@@ -148,8 +196,7 @@ extension CmxIrohHostRuntimeTests {
         try await runtime.start()
         #expect(await runtime.connectivityEngine?.snapshot().routeRevision == 2)
 
-        await endpoint.emit(.networkChanged)
-        await broker.waitForRegistrationCount(2)
+        await runtime.requestRegistrationRefresh()
         for _ in 0..<1_000 {
             if await runtime.snapshot().state == .failed { break }
             await Task.yield()
@@ -188,7 +235,7 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test
-    func networkChangeDuringActiveRefreshRequestsAnotherRegistration() async throws {
+    func networkChangeDuringActiveRefreshDoesNotRequestAnotherRegistration() async throws {
         let fixture = try HostRuntimeFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let gate = HostRuntimeRegistrationGate()
@@ -208,17 +255,18 @@ extension CmxIrohHostRuntimeTests {
         )
         try await runtime.start()
 
-        await endpoint.emit(.networkChanged)
+        let refresh = Task { await runtime.requestRegistrationRefresh() }
         await broker.waitForRegistrationCount(2)
         await endpoint.emit(.networkChanged)
-        #expect(await refreshes.waitForCount(2, timeout: .seconds(1)))
+        #expect(await refreshes.waitForCount(1, timeout: .seconds(1)))
         await gate.open()
+        await refresh.value
 
         let registeredAgain = await broker.waitForRegistrationCount(
             3,
-            timeout: .seconds(1)
+            timeout: .milliseconds(200)
         )
-        #expect(registeredAgain)
+        #expect(!registeredAgain)
         await runtime.stop()
     }
 
@@ -253,7 +301,7 @@ extension CmxIrohHostRuntimeTests {
             }
         )
         try await runtime.start()
-        await endpoint.emit(.networkChanged)
+        await runtime.requestRegistrationRefresh()
         await policies.waitForCount(2)
 
         #expect(await policies.contexts().map(\.rendezvous.generation) == [1, 2])

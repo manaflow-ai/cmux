@@ -168,6 +168,7 @@ validate_app_host_config_paths() {
       case "$canonical_reported_path" in
         "$canonical_app_host_home"|"${canonical_app_host_home%/}/"*) ;;
         *)
+          # A canonicalization failure is intentionally treated as a leak.
           echo "FAIL: Ghostty accessed configuration outside the isolated app-host home" >&2
           echo "$line" >&2
           return 1
