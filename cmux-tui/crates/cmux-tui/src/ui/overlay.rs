@@ -466,7 +466,8 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
                 continue;
             }
             if let Some(label) = item.label() {
-                let style = if i == level.selected { selected } else { base };
+                let style =
+                    if level.selection_active && i == level.selected { selected } else { base };
                 for dx in 0..row_content_w {
                     set_cell(buf, inner_x + dx, row_y, " ", style);
                 }

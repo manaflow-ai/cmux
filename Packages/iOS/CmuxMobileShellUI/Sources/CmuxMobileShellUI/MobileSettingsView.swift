@@ -54,8 +54,6 @@ struct MobileSettingsView: View {
     @State private var caffeineStatusLoadFailed = false
     @State private var caffeineStatusRetryID = 0
     #if DEBUG
-    @State private var showingChatDemo = false
-    @State private var showingTerminalDemo = false
     @State private var showingToastGallery = false
     /// Seconds between tapping "Run Toast Demo" and the first toast, so you
     /// can navigate to any screen (terminal, chat) and watch it play there.
@@ -66,10 +64,6 @@ struct MobileSettingsView: View {
         @Bindable var displaySettings = displaySettings
         return NavigationStack {
             Form {
-                if initialFocus == .connectionMethod {
-                    connectionMethodSettingsSection
-                }
-
                 MobileSettingsAccountSection(signOut: signOut)
 
                 // Stack team switcher. Only shown when the user belongs to more than
@@ -130,7 +124,7 @@ struct MobileSettingsView: View {
                             }
                         } else if !connectedHostName.isEmpty {
                             LabeledContent(
-                                L10n.string("mobile.settings.mac", defaultValue: "Computer"),
+                                L10n.string("mobile.settings.mac", defaultValue: "Connection"),
                                 value: connectedHostName
                             )
                         }
@@ -171,10 +165,6 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsHowPairingWorks")
-                }
-
-                if initialFocus != .connectionMethod {
-                    connectionMethodSettingsSection
                 }
 
                 if let irohSettingsController {
@@ -242,24 +232,6 @@ struct MobileSettingsView: View {
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
                     Button {
-                        showingChatDemo = true
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.agentChatDemo", defaultValue: "Agent Chat Demo"),
-                            systemImage: "bubble.left.and.bubble.right"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsAgentChatDemo")
-                    Button {
-                        showingTerminalDemo = true
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.terminalLogDemo", defaultValue: "Terminal Log Demo"),
-                            systemImage: "terminal"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsTerminalLogDemo")
-                    Button {
                         showingToastGallery = true
                     } label: {
                         Label(
@@ -307,6 +279,22 @@ struct MobileSettingsView: View {
                         range: MobileDisplaySettings.unreadIndicatorLeftShiftRange,
                         identifier: "MobileSettingsUnreadIndicatorLeftness"
                     )
+
+                    Toggle(isOn: $displaySettings.forceRebuildKeyboardDock) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.string(
+                                "mobile.settings.rebuildKeyboardDock",
+                                defaultValue: "Rebuilt Keyboard Pinning"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.rebuildKeyboardDockCaption",
+                                defaultValue: "Use the rebuilt keyboard path instead of the default (iOS 26 and earlier). Reopen the workspace to apply."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsRebuildKeyboardDock")
                 }
 
                 Section(L10n.string(
@@ -484,12 +472,6 @@ struct MobileSettingsView: View {
                 TerminalShortcutsSettingsView()
             }
             #if DEBUG
-            .fullScreenCover(isPresented: $showingChatDemo) {
-                AgentChatDemoScreen()
-            }
-            .fullScreenCover(isPresented: $showingTerminalDemo) {
-                TerminalLogDemoScreen()
-            }
             .sheet(isPresented: $showingToastGallery) {
                 ToastGalleryView()
             }
@@ -565,19 +547,6 @@ struct MobileSettingsView: View {
             dismissAction()
         } else {
             dismiss()
-        }
-    }
-
-    /// Reuses one Connection Method section at its focused or ordinary position.
-    @ViewBuilder
-    private var connectionMethodSettingsSection: some View {
-        if let connectionMethodStore {
-            MobileConnectionMethodSection(
-                store: connectionMethodStore,
-                hasUsableTailscaleAuthorization: store?.hasUsableTailscaleAuthorization ?? false,
-                startPairingScanner: startPairingScanner
-            )
-            .id(MobileSettingsFocus.connectionMethod)
         }
     }
 
