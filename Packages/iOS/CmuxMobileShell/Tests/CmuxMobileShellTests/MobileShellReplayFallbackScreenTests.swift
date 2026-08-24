@@ -12,14 +12,14 @@ import Testing
     await router.enqueueReplayPayload(
         text: "cold-replay",
         sequence: nil,
-        activeScreen: .primary,
+        anchor: .screen,
         columns: 16,
         rows: 4
     )
     await router.enqueueReplayPayload(
         text: "fallback-replay",
         sequence: nil,
-        activeScreen: .alternate,
+        anchor: .screen,
         columns: 16,
         rows: 4
     )
@@ -36,11 +36,11 @@ import Testing
         surfaceID: "live-terminal",
         seq: 3,
         text: "alt",
-        columns: 16,
+        columns: 20,
         activeScreen: .alternate
     ))
     let altDelivered = try await pollUntil {
-        collector.viewportPolicies.last == .remoteGrid(columns: 16, rows: 4)
+        collector.viewportPolicies.last == .remoteGrid(columns: 20, rows: 4)
     }
     #expect(altDelivered)
 

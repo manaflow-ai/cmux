@@ -96,6 +96,7 @@ actor LivenessHostRouter {
         sequence: UInt64?,
         renderGrid: MobileTerminalRenderGridFrame?,
         activeScreen: MobileTerminalRenderGridFrame.Screen?,
+        anchor: MobileTerminalRenderGridFrame.Anchor?,
         columns: Int?,
         rows: Int?
     )] = []
@@ -329,6 +330,7 @@ actor LivenessHostRouter {
         sequence: UInt64?,
         snapshotText: String? = nil,
         activeScreen: MobileTerminalRenderGridFrame.Screen? = nil,
+        anchor: MobileTerminalRenderGridFrame.Anchor? = nil,
         columns: Int? = nil,
         rows: Int? = nil
     ) {
@@ -338,6 +340,7 @@ actor LivenessHostRouter {
             sequence: sequence,
             renderGrid: nil,
             activeScreen: activeScreen,
+            anchor: anchor,
             columns: columns,
             rows: rows
         ))
@@ -350,6 +353,7 @@ actor LivenessHostRouter {
             sequence: nil,
             renderGrid: renderGrid,
             activeScreen: nil,
+            anchor: nil,
             columns: nil,
             rows: nil
         ))
@@ -694,6 +698,9 @@ actor LivenessHostRouter {
                 }
                 if let activeScreen = payload.activeScreen {
                     result["active_screen"] = activeScreen.rawValue
+                }
+                if let anchor = payload.anchor {
+                    result["anchor"] = anchor.rawValue
                 }
                 if let columns = payload.columns {
                     result["columns"] = columns

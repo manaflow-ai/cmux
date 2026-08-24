@@ -28,14 +28,17 @@ import Testing
     store.deliverTerminalBytes(Data("stalled-apply".utf8), surfaceID: surfaceID)
     let stalledChunk = try #require(await iterator.next())
 
-    for index in 0..<32 {
+    for index in 0..<TerminalOutputDeliveryQueue.maximumPendingCount {
         let admitted = store.deliverTerminalBytes(
             Data("queued-\(index)".utf8),
             surfaceID: surfaceID
         )
         #expect(admitted)
     }
-    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.pendingCount == 32)
+    #expect(
+        store.terminalOutputQueuesBySurfaceID[surfaceID]?.pendingCount
+            == TerminalOutputDeliveryQueue.maximumPendingCount
+    )
 
     let overloadAdmitted = store.deliverTerminalBytes(
         Data("queue-overload".utf8),
