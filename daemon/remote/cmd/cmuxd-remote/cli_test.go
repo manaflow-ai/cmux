@@ -639,6 +639,49 @@ func TestCLINotifyInTmuxFallsBackToControllingTTY(t *testing.T) {
 	}
 }
 
+func TestCLINotifyInTmuxWithWorkspaceOnlyUsesCallerTargeting(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	workspaceID := "11111111-1111-1111-1111-111111111111"
+	t.Setenv("CMUX_WORKSPACE_ID", workspaceID)
+	// cmux-zsh-integration intentionally removes surface-scoped variables
+	// inside tmux. The caller TTY is the remaining pane identity.
+	t.Setenv("CMUX_SURFACE_ID", "")
+	t.Setenv("CMUX_CLI_TTY_NAME", "/dev/pts/7")
+	t.Setenv("TMUX", "/tmp/tmux-current,123,0")
+
+	code := runCLI([]string{"--socket", sockPath, "--json", "notify", "--title", "Remote", "--body", "done"})
+	if code != 0 {
+		t.Fatalf("notify should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "notification.create_for_caller" {
+			t.Fatalf("expected notification.create_for_caller, got %v", got)
+		}
+		params, ok := req["params"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected notification params, got %T", req["params"])
+		}
+		if got := params["preferred_workspace_id"]; got != workspaceID {
+			t.Fatalf("expected preferred_workspace_id %s, got %v", workspaceID, got)
+		}
+		for _, key := range []string{"preferred_surface_id", "workspace_id", "surface_id"} {
+			if got, exists := params[key]; exists {
+				t.Fatalf("expected %s to be omitted for workspace-only caller context, got %v", key, got)
+			}
+		}
+		if got := params["caller_tty"]; got != "7" {
+			t.Fatalf("expected caller_tty 7, got %v", got)
+		}
+		if got := params["prefer_tty"]; got != true {
+			t.Fatalf("expected prefer_tty true, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for notify request")
+	}
+}
+
 func TestResolveCallerTTYNamePrefersControllingTTYOverSSHTTY(t *testing.T) {
 	t.Setenv("CMUX_CLI_TTY_NAME", "")
 	t.Setenv("CMUX_TTY_NAME", "")

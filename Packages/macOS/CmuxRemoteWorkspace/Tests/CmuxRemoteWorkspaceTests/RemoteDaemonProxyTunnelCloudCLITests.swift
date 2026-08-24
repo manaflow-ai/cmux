@@ -39,6 +39,39 @@ struct RemoteDaemonProxyTunnelCloudCLITests {
         #expect(params["prefer_tty"] == nil)
     }
 
+    @Test("workspace-only caller notify preserves TTY context")
+    func workspaceOnlyCallerNotifyIsForwardedForResolution() throws {
+        let workspaceID = UUID()
+        let request = try jsonData([
+            "id": "request-workspace-only",
+            "method": "notification.create_for_caller",
+            "params": [
+                "preferred_workspace_id": workspaceID.uuidString,
+                "caller_tty": "pts/7",
+                "prefer_tty": true,
+                "title": "cmux",
+                "body": "done",
+            ],
+        ])
+
+        let validation = RemoteDaemonProxyTunnel.validateCloudCLIRequest(request, ownerWorkspaceID: workspaceID)
+
+        guard case .forward(let forwarded) = validation else {
+            Issue.record("expected workspace-only caller request to be forwarded")
+            return
+        }
+        let envelope = try jsonObject(forwarded)
+        #expect(envelope["id"] as? String == "request-workspace-only")
+        #expect(envelope["method"] as? String == "notification.create_for_caller")
+        let params = try #require(envelope["params"] as? [String: Any])
+        #expect(params["preferred_workspace_id"] as? String == workspaceID.uuidString)
+        #expect(params["preferred_surface_id"] == nil)
+        #expect(params["caller_tty"] as? String == "pts/7")
+        #expect(params["prefer_tty"] as? Bool == true)
+        #expect(params["workspace_id"] == nil)
+        #expect(params["surface_id"] == nil)
+    }
+
     @Test("unscoped notify is rejected before the local socket")
     func unscopedNotifyIsRejected() throws {
         let workspaceID = UUID()

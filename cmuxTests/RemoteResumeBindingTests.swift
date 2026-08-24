@@ -511,6 +511,23 @@ struct RemoteResumeBindingTests {
         let pingEnvelope = try v2Envelope(requestData: ping)
         #expect(pingEnvelope["ok"] as? Bool == true, "\(pingEnvelope)")
 
+        let callerOnly = rewriter.rewriteRemoteRelayCommandLine(
+            try requestData([
+                "id": "relay-caller-only",
+                "method": "notification.create_for_caller",
+                "params": [
+                    "preferred_workspace_id": workspace.id.uuidString,
+                    "caller_tty": "pts/7",
+                    "prefer_tty": true,
+                    "title": "caller",
+                ],
+            ]),
+            workspaceAliases: [:],
+            surfaceAliases: [:]
+        )
+        let callerOnlyEnvelope = try v2Envelope(requestData: callerOnly)
+        #expect(callerOnlyEnvelope["ok"] as? Bool == true, "\(callerOnlyEnvelope)")
+
         let forbidden = rewriter.rewriteRemoteRelayCommandLine(
             try requestData([
                 "id": "relay-forbidden",

@@ -160,6 +160,78 @@ final class TerminalNotificationCallerTests: XCTestCase {
         XCTAssertFalse(store.hasUnreadNotification(forTabId: fallbackWorkspace.id, surfaceId: fallbackWorkspace.focusedPanelId))
     }
 
+    func testNotificationCreateForCallerDoesNotLetAValidStaleSurfaceHideTTYCaller() async throws {
+        let socketPath = makeSocketPath("notify-stale-surface")
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        let notificationQueued = expectation(description: "stale surface notification queued")
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in
+            notificationQueued.fulfill()
+        }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in
+            notificationQueued.fulfill()
+        }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let staleWorkspace = manager.addWorkspace(select: true)
+        let callerWorkspace = manager.addWorkspace(select: false)
+        defer {
+            for workspace in [staleWorkspace, callerWorkspace]
+                where manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let staleSurfaceID = try XCTUnwrap(staleWorkspace.focusedPanelId)
+        let callerSurfaceID = try XCTUnwrap(callerWorkspace.focusedPanelId)
+        staleWorkspace.surfaceTTYNames[staleSurfaceID] = "/dev/ttys-stale"
+        callerWorkspace.surfaceTTYNames[callerSurfaceID] = "/dev/ttys-caller"
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try await sendV2RequestAsync(
+            method: "notification.create_for_caller",
+            params: [
+                "preferred_workspace_id": staleWorkspace.id.uuidString,
+                "preferred_surface_id": staleSurfaceID.uuidString,
+                "caller_tty": "/dev/ttys-caller",
+                "prefer_tty": true,
+                "title": "Caller",
+                "body": "Body",
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["workspace_id"] as? String, callerWorkspace.id.uuidString)
+        XCTAssertEqual(result["surface_id"] as? String, callerSurfaceID.uuidString)
+
+        await fulfillment(of: [notificationQueued], timeout: 1.0)
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: callerWorkspace.id, surfaceId: callerSurfaceID))
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: staleWorkspace.id, surfaceId: staleSurfaceID))
+    }
+
     func testNotificationCreateForCallerResolvesPreferredSurfaceWhenWorkspaceIsStale() async throws {
         let socketPath = makeSocketPath("notify-surface-ref")
         let store = TerminalNotificationStore.shared
