@@ -228,6 +228,41 @@ struct MainWindowLifecycleCoordinatorTests {
         #expect(coordinator.orphanedRoutes().map(\.windowId) == [windowIds[3], windowIds[2]])
     }
 
+    @Test("Windowless recovery detection is coalesced and canceled when unused")
+    func windowlessRecoveryDetectionIsCoalescedAndCanceledWhenUnused() async {
+        let coordinator = MainWindowLifecycleCoordinator()
+        let probe = WindowlessRecoveryLoadProbe()
+        let bindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
+        let loader: @Sendable (
+            [SurfaceResumeBindingIndex.PanelKey: Int64]
+        ) async -> ProcessDetectedResumeIndexes = { _ in
+            await probe.load()
+        }
+
+        let first = Task { @MainActor in
+            await coordinator.loadWindowlessRecoveryResumeIndexes(
+                ttyDeviceBindings: bindings,
+                loader: loader
+            )
+        }
+        await probe.waitUntilStarted()
+        let second = Task { @MainActor in
+            await coordinator.loadWindowlessRecoveryResumeIndexes(
+                ttyDeviceBindings: bindings,
+                loader: loader
+            )
+        }
+        await Task.yield()
+
+        coordinator.cancelWindowlessRecoveryResumeIndexesLoadIfUnused()
+        await probe.release()
+        _ = await first.value
+        _ = await second.value
+
+        #expect(await probe.loadCount == 1)
+        #expect(await probe.observedCancellation)
+    }
+
     private func emptyWindowSnapshot(windowId: UUID) -> SessionWindowSnapshot {
         SessionWindowSnapshot(
             windowId: windowId,
@@ -277,5 +312,46 @@ struct MainWindowLifecycleCoordinatorTests {
             workspace.teardownRemoteConnection()
             workspace.owningTabManager = nil
         }
+    }
+}
+
+private actor WindowlessRecoveryLoadProbe {
+    private(set) var loadCount = 0
+    private(set) var observedCancellation = false
+    private var hasStarted = false
+    private var isReleased = false
+    private var startedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func load() async -> ProcessDetectedResumeIndexes {
+        loadCount += 1
+        hasStarted = true
+        for waiter in startedWaiters {
+            waiter.resume()
+        }
+        startedWaiters.removeAll(keepingCapacity: false)
+
+        if !isReleased {
+            await withCheckedContinuation { continuation in
+                releaseWaiters.append(continuation)
+            }
+        }
+        observedCancellation = Task.isCancelled
+        return .cached(restorableAgentIndex: .empty)
+    }
+
+    func waitUntilStarted() async {
+        guard !hasStarted else { return }
+        await withCheckedContinuation { continuation in
+            startedWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        isReleased = true
+        for waiter in releaseWaiters {
+            waiter.resume()
+        }
+        releaseWaiters.removeAll(keepingCapacity: false)
     }
 }

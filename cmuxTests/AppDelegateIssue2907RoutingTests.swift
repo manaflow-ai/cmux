@@ -1282,15 +1282,15 @@ struct AppDelegateIssue2907RoutingTests {
             replacementRecord["working_directory"] as? String,
             restoredDirectory
         )
-        XCTAssertNil(replacementRecord["prepared_arguments"] as? [String])
-        let replacementLegacyCommand = try XCTUnwrap(
+        assertions.isNil(replacementRecord["prepared_arguments"] as? [String])
+        let replacementLegacyCommand = try assertions.require(
             replacementRecord["legacy_command"] as? String
         )
-        XCTAssertTrue(
+        assertions.isTrue(
             replacementLegacyCommand.contains(replacementSessionID),
             replacementLegacyCommand
         )
-        XCTAssertFalse(
+        assertions.isFalse(
             replacementLegacyCommand.contains(sessionID),
             replacementLegacyCommand
         )

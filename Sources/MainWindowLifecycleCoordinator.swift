@@ -15,11 +15,55 @@ final class MainWindowLifecycleCoordinator {
     private let maximumFrozenOrphanRecords: Int
     private var nextOrder: UInt64 = 0
     private(set) var persistenceTopologyRevision: UInt64 = 0
+    @ObservationIgnored
+    private var windowlessRecoveryResumeIndexesTask:
+        Task<ProcessDetectedResumeIndexes, Never>?
+    private var windowlessRecoveryResumeIndexesGeneration: UInt64 = 0
 
     init(
         maximumFrozenOrphanRecords: Int = SessionPersistencePolicy.maxWindowsPerSnapshot
     ) {
         self.maximumFrozenOrphanRecords = max(0, maximumFrozenOrphanRecords)
+    }
+
+    /// Coalesces process/filesystem detection shared by windowless orphan freezes.
+    ///
+    /// A window prune can orphan several windows in one turn. One coordinator-owned
+    /// task keeps those routes on the same scan generation and prevents each route
+    /// from starting an independent process snapshot and registry walk.
+    func loadWindowlessRecoveryResumeIndexes(
+        ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64],
+        loader: @escaping @Sendable (
+            [SurfaceResumeBindingIndex.PanelKey: Int64]
+        ) async -> ProcessDetectedResumeIndexes
+    ) async -> ProcessDetectedResumeIndexes {
+        if let task = windowlessRecoveryResumeIndexesTask {
+            return await task.value
+        }
+
+        windowlessRecoveryResumeIndexesGeneration &+= 1
+        let generation = windowlessRecoveryResumeIndexesGeneration
+        let task = Task {
+            await loader(ttyDeviceBindings)
+        }
+        windowlessRecoveryResumeIndexesTask = task
+        let indexes = await task.value
+        if generation == windowlessRecoveryResumeIndexesGeneration {
+            windowlessRecoveryResumeIndexesTask = nil
+        }
+        return indexes
+    }
+
+    /// Cancels a pending detection once no live windowless orphan still needs it.
+    func cancelWindowlessRecoveryResumeIndexesLoadIfUnused() {
+        let hasPendingWindowlessOrphan = recordsByWindowId.values.contains { record in
+            guard case .orphaned(let route) = record.phase else { return false }
+            return route.window == nil && route.frozenWindowSnapshot == nil
+        }
+        guard !hasPendingWindowlessOrphan else { return }
+        windowlessRecoveryResumeIndexesGeneration &+= 1
+        windowlessRecoveryResumeIndexesTask?.cancel()
+        windowlessRecoveryResumeIndexesTask = nil
     }
 
     var registeredContexts: [AppDelegate.MainWindowContext] {

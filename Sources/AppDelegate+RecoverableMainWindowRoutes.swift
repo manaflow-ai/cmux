@@ -208,6 +208,7 @@ extension AppDelegate {
     private func scheduleWindowlessRecoverableMainWindowRouteFreeze(
         _ route: RecoverableMainWindowRoute
     ) {
+        let ttyDeviceBindings = currentSurfaceTTYDeviceBindings()
         Task { @MainActor [weak self, weak route] in
             guard let self, let route,
                   self.mainWindowLifecycleCoordinator.orphanedRoute(
@@ -217,7 +218,18 @@ extension AppDelegate {
                   self.windowForMainWindowId(route.windowId) == nil else {
                 return
             }
-            let resumeIndexes = await ProcessDetectedResumeIndexes.load()
+            defer {
+                self.mainWindowLifecycleCoordinator
+                    .cancelWindowlessRecoveryResumeIndexesLoadIfUnused()
+            }
+            let resumeIndexes = await self.mainWindowLifecycleCoordinator
+                .loadWindowlessRecoveryResumeIndexes(
+                    ttyDeviceBindings: ttyDeviceBindings
+                ) { bindings in
+                    await ProcessDetectedResumeIndexes.load(
+                        ttyDeviceBindings: bindings
+                    )
+                }
             guard self.mainWindowLifecycleCoordinator.orphanedRoute(
                       windowId: route.windowId
                   ) === route,
@@ -228,7 +240,9 @@ extension AppDelegate {
             self.freezeWindowlessRecoverableMainWindowRoute(
                 route,
                 restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-                surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+                surfaceResumeBindingIndex: ttyDeviceBindings.isEmpty
+                    ? nil
+                    : resumeIndexes.surfaceResumeBindingIndex
             )
         }
     }

@@ -4685,21 +4685,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func currentSurfaceTTYDeviceBindings()
         -> [SurfaceResumeBindingIndex.PanelKey: Int64] {
         var bindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
-        for context in mainWindowContexts.values {
-            for workspace in context.tabManager.tabs {
+        func appendBindings(from manager: TabManager) {
+            for workspace in manager.tabs {
                 for (panelID, panel) in workspace.panels {
                     guard let terminal = panel as? TerminalPanel else { continue }
                     let device = workspace.surfaceTTYDevices[panelID]
                         ?? terminal.surface.controllingTTYDeviceIdentifier
                     guard let device, device > 0 else { continue }
-                    bindings[
-                        SurfaceResumeBindingIndex.PanelKey(
-                            workspaceId: workspace.id,
-                            panelId: panelID
-                        )
-                    ] = device
+                    let key = SurfaceResumeBindingIndex.PanelKey(
+                        workspaceId: workspace.id,
+                        panelId: panelID
+                    )
+                    if bindings[key] == nil {
+                        bindings[key] = device
+                    }
                 }
             }
+        }
+        // Registered contexts are authoritative when a window id is shared.
+        for context in mainWindowContexts.values {
+            appendBindings(from: context.tabManager)
+        }
+        // A windowless orphan has already left `mainWindowContexts`, but its
+        // retained manager still owns the controlling TTYs needed to map plain
+        // SSH/tmux processes during the freeze scan.
+        for route in mainWindowLifecycleCoordinator.orphanedRoutes() {
+            guard let manager = route.tabManager else { continue }
+            appendBindings(from: manager)
         }
         return bindings
     }
