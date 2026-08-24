@@ -395,14 +395,19 @@ extension TerminalSurface {
         guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
         var validatedSurface: ghostty_surface_t? = liveSurface
         var validatedGeneration: UInt64? = runtimeSurfaceGeneration
+        let events = Self.parsedSocketInputEvents(for: text)
         var queuedInput = false
-        for input in Self.pendingSocketInputs(for: text) {
+        for input in Self.pendingSocketInputs(from: events) {
             queuedInput = deliverPendingSocketInput(
                 input,
                 validatedSurface: &validatedSurface,
                 validatedGeneration: &validatedGeneration
             ) || queuedInput
         }
+        // Live and cold surfaces share the same ownership ledger. Without
+        // this live-path record, a raw socket/mobile draft could be mistaken
+        // for an empty composer by the addressed-delivery guard.
+        recordPromptInputMutations(for: events)
         didAcceptExplicitInput()
         return queuedInput ? .queued : .sent
     }
@@ -541,7 +546,13 @@ extension TerminalSurface {
     private static func pendingSocketInputs(
         for text: String
     ) -> [PendingSocketInput] {
-        parsedSocketInputEvents(for: text).compactMap { event in
+        pendingSocketInputs(from: parsedSocketInputEvents(for: text))
+    }
+
+    private static func pendingSocketInputs(
+        from events: [ParsedSocketInput]
+    ) -> [PendingSocketInput] {
+        events.compactMap { event in
             switch event {
             case .rawBytes(let data):
                 return data.isEmpty ? nil : .inputText(data)

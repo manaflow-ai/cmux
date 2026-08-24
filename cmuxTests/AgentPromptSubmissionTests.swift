@@ -830,11 +830,10 @@ struct AgentPromptSubmissionTests {
         let pasteboard = TerminalPasteboardService(
             temporaryDirectory: directory
         )
-        let oversizedPayload = String(
-            repeating: "A",
-            count:
-                TerminalPasteboardService.maximumBase64ImageByteCount + 1
-        )
+        let oversizedPayload = Data(
+            repeating: 0,
+            count: TerminalPasteboardService.maximumImageDataByteCount + 1
+        ).base64EncodedString()
 
         let result = await TerminalController.prepareMobileChatAttachments(
             [

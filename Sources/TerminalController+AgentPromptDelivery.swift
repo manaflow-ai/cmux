@@ -34,7 +34,24 @@ extension TerminalController {
         // A running agent owns the foreground turn. Holding the request in the
         // app FIFO avoids writing into a composer that the agent may redraw or
         // consume mid-turn; the idle hook/shell-state transition drains it.
-        if workspace.panelShellActivityStates[target.surfaceID] == .commandRunning {
+        let shellState = workspace.panelShellActivityStates[target.surfaceID]
+        if !target.panel.isAgentHibernated,
+           shellState != .some(.promptIdle) {
+            return .agentBusy(
+                workspaceID: workspaceID,
+                surfaceID: target.surfaceID
+            )
+        }
+        if target.panel.isAgentHibernated {
+            // Wake without focus and keep the message in the app FIFO until
+            // the resumed runtime reports an authoritative idle prompt.
+            _ = target.panel.prepareAgentHibernationResume()
+            return .agentBusy(
+                workspaceID: workspaceID,
+                surfaceID: target.surfaceID
+            )
+        }
+        guard target.panel.surface.surface != nil else {
             return .agentBusy(
                 workspaceID: workspaceID,
                 surfaceID: target.surfaceID

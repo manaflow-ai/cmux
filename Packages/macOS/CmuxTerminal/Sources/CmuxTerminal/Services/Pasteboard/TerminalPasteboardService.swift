@@ -56,6 +56,8 @@ public final class TerminalPasteboardService: Sendable {
     /// Mirrors the clipboard-image size cap applied to every materialization
     /// path (local paste and remote-forwarded image bytes alike).
     static let maxClipboardImageSize = 10 * 1024 * 1024  // 10 MB
+    /// Maximum raw image payload accepted by remote/mobile materialization.
+    public static let maximumImageDataByteCount = 10 * 1024 * 1024
 
     // SAFETY: immutable references; NSPasteboard handles are usable from any
     // thread and the legacy code already wrote to these pasteboards from

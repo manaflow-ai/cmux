@@ -23,7 +23,7 @@ struct GhosttyPhysicalClaudeControlReturnTests {
             workingDirectory: nil
         )
         defer { surface.releaseSurfaceForTesting() }
-        let surfaceView = try #require(findSurfaceView(in: surface.hostedView))
+        _ = try #require(findSurfaceView(in: surface.hostedView))
 
         surface.synchronizePromptInputAgentScope(
             "agentPIDKey:claude.physical-control-return",
@@ -31,11 +31,10 @@ struct GhosttyPhysicalClaudeControlReturnTests {
         )
         surface.recordHumanPromptInput(.unknown)
 
-        var keyEvent = ghostty_input_key_s()
-        keyEvent.action = GHOSTTY_ACTION_PRESS
-        keyEvent.keycode = UInt32(kVK_Return)
-        keyEvent.mods = GHOSTTY_MODS_CTRL
-        surfaceView.recordPromptOwnershipAfterAcceptedGhosttyKey(keyEvent)
+        surface.recordHumanPromptKey(
+            keycode: UInt32(kVK_Return),
+            mods: GHOSTTY_MODS_CTRL
+        )
 
         #expect(
             surface.confirmPromptSubmission(message: "human prompt")

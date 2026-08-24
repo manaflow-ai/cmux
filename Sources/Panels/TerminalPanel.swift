@@ -644,6 +644,9 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func close() {
         isClosingPanel = true
+        TerminalController.shared.agentPromptSubmissionService.remove(
+            surfaceID: id
+        )
         AgentHibernationController.shared.discardTrackingStateForClosedPanel(
             workspaceId: workspaceId,
             panelId: id

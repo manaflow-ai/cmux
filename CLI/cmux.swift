@@ -5634,9 +5634,17 @@ struct CMUXCLI {
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
             let (windowOpt, rem2) = parseOption(rem1, name: "--window")
-            let addressedAgentDelivery = hasFlag(rem2, name: "--agent")
-                || hasFlag(rem2, name: "--atomic")
-            let addressedArgs = rem2.filter { $0 != "--agent" && $0 != "--atomic" }
+            let terminatorIndex = rem2.firstIndex(of: "--") ?? rem2.endIndex
+            let leadingArgs = rem2.prefix(upTo: terminatorIndex)
+            let addressedAgentDelivery = leadingArgs.contains("--agent")
+                || leadingArgs.contains("--atomic")
+            let addressedArgs = rem2.enumerated().compactMap { index, argument in
+                if index < terminatorIndex,
+                   argument == "--agent" || argument == "--atomic" {
+                    return nil
+                }
+                return argument
+            }
             let windowRaw = windowOpt ?? windowId
             let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
             let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)

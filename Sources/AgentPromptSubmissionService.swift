@@ -35,8 +35,10 @@ final class AgentPromptSubmissionService {
 
     private let maximumPendingRequests: Int
     private let maximumAcceptedMessagesPerSurface = 64
+    private let maximumTrackedSurfaces = 256
     private var pendingByWorkspace: [UUID: [PendingRequest]] = [:]
     private var acceptedBySurface: [UUID: [AcceptedMessage]] = [:]
+    private var acceptedSurfaceOrder: [UUID] = []
 
     init(maximumPendingRequests: Int = 256) {
         self.maximumPendingRequests = max(1, maximumPendingRequests)
@@ -120,6 +122,17 @@ final class AgentPromptSubmissionService {
                 )
             )
         case .submitted(let resolvedWorkspaceID, let surfaceID, let queued):
+            if queued {
+                enqueue(request, surfaceID: surfaceID)
+                return Receipt(
+                    messageID: messageID,
+                    result: .queued(
+                        workspaceID: resolvedWorkspaceID,
+                        surfaceID: surfaceID,
+                        reason: "runtime_starting"
+                    )
+                )
+            }
             recordAccepted(
                 messageID: messageID,
                 workspaceID: workspaceID,
@@ -157,6 +170,10 @@ final class AgentPromptSubmissionService {
                 pendingByWorkspace[workspaceID] = pending
                 return completed
             case .submitted(let resolvedWorkspaceID, let surfaceID, let queued):
+                if queued {
+                    pendingByWorkspace[workspaceID] = pending
+                    return completed
+                }
                 pending.removeFirst()
                 recordAccepted(
                     messageID: first.messageID,
@@ -237,6 +254,7 @@ final class AgentPromptSubmissionService {
             let remaining = messages.filter { $0.workspaceID != workspaceID }
             if remaining.isEmpty {
                 acceptedBySurface.removeValue(forKey: surfaceID)
+                acceptedSurfaceOrder.removeAll { $0 == surfaceID }
             } else {
                 acceptedBySurface[surfaceID] = remaining
             }
@@ -248,6 +266,12 @@ final class AgentPromptSubmissionService {
             })
         }
         return receipts
+    }
+
+    /// Releases hook-awaiting messages when a terminal surface is torn down.
+    func remove(surfaceID: UUID) {
+        acceptedBySurface.removeValue(forKey: surfaceID)
+        acceptedSurfaceOrder.removeAll { $0 == surfaceID }
     }
 
     var pendingCount: Int {
@@ -284,6 +308,12 @@ final class AgentPromptSubmissionService {
             messages.removeFirst(messages.count - maximumAcceptedMessagesPerSurface)
         }
         acceptedBySurface[surfaceID] = messages
+        acceptedSurfaceOrder.removeAll { $0 == surfaceID }
+        acceptedSurfaceOrder.append(surfaceID)
+        while acceptedSurfaceOrder.count > maximumTrackedSurfaces {
+            let evictedSurfaceID = acceptedSurfaceOrder.removeFirst()
+            acceptedBySurface.removeValue(forKey: evictedSurfaceID)
+        }
     }
 
     private static func normalized(_ text: String?) -> String? {
