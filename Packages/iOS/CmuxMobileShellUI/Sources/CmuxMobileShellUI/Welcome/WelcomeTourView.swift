@@ -44,6 +44,12 @@ struct WelcomeTourView: View {
     @State private var isRequestingNotifications = false
     /// Stages whose entry effects already fired this presentation.
     @State private var enteredStages: Set<WelcomeStage> = []
+    /// When the tour appeared, for the completion/skip events' `duration_ms`.
+    @State private var tourStartedAt: Date?
+    /// When the connect stage first entered, for stage-level time-to-link.
+    @State private var connectEnteredAt: Date?
+    /// Whether the connect-linked funnel event already fired this presentation.
+    @State private var reportedConnectLinked = false
     @Environment(\.analytics) private var analytics
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -108,13 +114,19 @@ struct WelcomeTourView: View {
         .background(PlatformPalette.systemBackground)
         .accessibilityIdentifier("MobileWelcomeTour")
         .animation(reduceMotion ? nil : .snappy(duration: 0.25), value: stage)
-        .onAppear { stageDidEnter(stage) }
+        .onAppear {
+            if tourStartedAt == nil {
+                tourStartedAt = Date()
+            }
+            stageDidEnter(stage)
+        }
         .onChange(of: stage) { _, newStage in
             stageDidEnter(newStage)
         }
         .onChange(of: connection) { previous, current in
             if case .linked = current, previous != current, stage == .connect {
                 MobileHapticFeedback().notification(.success)
+                reportConnectLinked()
             }
         }
     }
@@ -346,24 +358,50 @@ struct WelcomeTourView: View {
     }
 
     private func skipTour() {
-        analytics.capture(
-            "ios_welcome_skipped",
-            ["stage": .string(stage.rawValue)]
-        )
+        var props: [String: AnalyticsValue] = ["stage": .string(stage.rawValue)]
+        if let ms = elapsedMs(since: tourStartedAt) {
+            props["duration_ms"] = .int(ms)
+        }
+        analytics.capture("ios_welcome_skipped", props)
         skip()
     }
 
     private func finishTour(connected: Bool) {
-        analytics.capture(
-            "ios_welcome_completed",
-            ["connected": .bool(connected)]
-        )
+        var props: [String: AnalyticsValue] = ["connected": .bool(connected)]
+        if let ms = elapsedMs(since: tourStartedAt) {
+            props["duration_ms"] = .int(ms)
+        }
+        analytics.capture("ios_welcome_completed", props)
         finish()
+    }
+
+    /// Emits stage-level time-to-link once: first entering connect to seeing
+    /// `.linked`. The UX-side complement of the transport's
+    /// `ios_pairing_succeeded` duration, this one includes reading the
+    /// checklist, installing cmux on the Mac, and retries.
+    private func reportConnectLinked() {
+        guard !reportedConnectLinked else { return }
+        reportedConnectLinked = true
+        var props: [String: AnalyticsValue] = [
+            "method": .string(connectionMethod.rawValue)
+        ]
+        if let ms = elapsedMs(since: connectEnteredAt) {
+            props["duration_ms"] = .int(ms)
+        }
+        analytics.capture("ios_welcome_connect_linked", props)
+    }
+
+    private func elapsedMs(since start: Date?) -> Int? {
+        guard let start else { return nil }
+        return max(0, Int(Date().timeIntervalSince(start) * 1000))
     }
 
     private func stageDidEnter(_ stage: WelcomeStage) {
         guard !enteredStages.contains(stage) else { return }
         enteredStages.insert(stage)
+        if stage == .connect, connectEnteredAt == nil {
+            connectEnteredAt = Date()
+        }
         analytics.capture(
             "ios_welcome_stage_viewed",
             ["stage": .string(stage.rawValue)]

@@ -5685,7 +5685,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in here and on your Mac. That is how your phone finds it. No addresses, no port forwarding."
+            "value": "Sign in with the same account you use for cmux on your Mac. That is how your phone finds it. No addresses, no port forwarding."
           }
         },
         "ja": {
@@ -5787,13 +5787,47 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Check the steps below on your Mac, then search again."
+            "value": "cmux has to be open on your Mac for your phone to find it. Check the steps below, then search again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macで以下の手順を確認して、もう一度検索してください。"
+            "value": "iPhoneがMacを見つけるには、Macでcmuxが起動している必要があります。以下の手順を確認して、もう一度検索してください。"
+          }
+        }
+      }
+    },
+    "mobile.welcome.connect.getCmux": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxを入手"
+          }
+        }
+      }
+    },
+    "mobile.welcome.connect.sendLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Link to Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macにリンクを送信"
           }
         }
       }

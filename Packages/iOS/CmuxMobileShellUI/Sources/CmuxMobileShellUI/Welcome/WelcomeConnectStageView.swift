@@ -20,6 +20,12 @@ struct WelcomeConnectStageView: View {
     let scanPairingCode: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.analytics) private var analytics
+    @Environment(\.openURL) private var openURL
+
+    /// Whether the no-Mac guidance impression already fired this presentation,
+    /// so repeated search stalls don't refire the funnel event.
+    @State private var reportedInstallGuidance = false
 
     var body: some View {
         VStack(spacing: 24) {
@@ -29,9 +35,15 @@ struct WelcomeConnectStageView: View {
             } else {
                 macChecklist
             }
+            if status == .stalled {
+                installActions
+            }
             methodSection
         }
         .accessibilityIdentifier("MobileWelcomeStage-connect")
+        .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: status)
+        .onAppear { reportInstallGuidanceIfNeeded() }
+        .onChange(of: status) { _, _ in reportInstallGuidanceIfNeeded() }
     }
 
     // MARK: Hero
@@ -127,7 +139,7 @@ struct WelcomeConnectStageView: View {
         case .stalled:
             L10n.string(
                 "mobile.welcome.connect.stalledSubtitle",
-                defaultValue: "Check the steps below on your Mac, then search again."
+                defaultValue: "cmux has to be open on your Mac for your phone to find it. Check the steps below, then search again."
             )
         case .linked:
             L10n.string(
@@ -195,6 +207,52 @@ struct WelcomeConnectStageView: View {
                 .font(.subheadline)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    // MARK: Install actions
+
+    /// Recovery actions for the person whose Mac has no cmux yet: read about
+    /// it on this phone, or hand the link straight to the Mac (AirDrop lists a
+    /// nearby Mac first, which is exactly the machine being set up).
+    private var installActions: some View {
+        HStack(spacing: 10) {
+            Button {
+                analytics.capture("ios_welcome_install_link_opened", [:])
+                openURL(CmuxMarketingLink.download)
+            } label: {
+                Label(
+                    L10n.string("mobile.welcome.connect.getCmux", defaultValue: "Get cmux"),
+                    systemImage: "arrow.down.circle"
+                )
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("MobileWelcomeGetCmux")
+            ShareLink(item: CmuxMarketingLink.download) {
+                Label(
+                    L10n.string(
+                        "mobile.welcome.connect.sendLink",
+                        defaultValue: "Send Link to Mac"
+                    ),
+                    systemImage: "square.and.arrow.up"
+                )
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("MobileWelcomeSendLink")
+            .simultaneousGesture(TapGesture().onEnded {
+                analytics.capture("ios_welcome_install_link_shared", [:])
+            })
+        }
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    /// Reports the no-Mac guidance impression once per presentation: the
+    /// funnel edge for "reached connect and no Mac appeared".
+    private func reportInstallGuidanceIfNeeded() {
+        guard status == .stalled, !reportedInstallGuidance else { return }
+        reportedInstallGuidance = true
+        analytics.capture("ios_welcome_no_mac_guidance_shown", [:])
     }
 
     // MARK: Connection methods

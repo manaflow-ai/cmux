@@ -153,6 +153,8 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(automaticMethod.isSelected)
         XCTAssertFalse(tailscaleMethod.isSelected)
         XCTAssertFalse(app.buttons["MobileWelcomeScanPairingCode"].exists)
+        // Install actions belong to the stalled state, not the search.
+        XCTAssertFalse(app.buttons["MobileWelcomeGetCmux"].exists)
         // The connect stage exits through the footer, not header Skip.
         XCTAssertFalse(skipButton.exists)
         XCTAssertTrue(secondaryButton.exists)
@@ -173,6 +175,9 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["No Mac found yet"].waitForExistence(timeout: 4))
         XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
         XCTAssertTrue(primaryButton.label.contains("Search Again"))
+        // The no-Mac recovery actions appear once the search has stalled.
+        XCTAssertTrue(app.buttons["MobileWelcomeGetCmux"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["MobileWelcomeSendLink"].exists)
         capture("welcome-05-connect-stalled")
 
         // Methods are exclusive; Tailscale owns the pairing-code scanner.
