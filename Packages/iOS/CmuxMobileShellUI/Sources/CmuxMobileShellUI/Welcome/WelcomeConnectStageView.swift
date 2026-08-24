@@ -224,6 +224,8 @@ struct WelcomeConnectStageView: View {
                     L10n.string("mobile.welcome.connect.getCmux", defaultValue: "Get cmux"),
                     systemImage: "arrow.down.circle"
                 )
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
@@ -232,10 +234,12 @@ struct WelcomeConnectStageView: View {
                 Label(
                     L10n.string(
                         "mobile.welcome.connect.sendLink",
-                        defaultValue: "Send Link to Mac"
+                        defaultValue: "Send to Mac"
                     ),
                     systemImage: "square.and.arrow.up"
                 )
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)

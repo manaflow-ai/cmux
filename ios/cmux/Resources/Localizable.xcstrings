@@ -5821,13 +5821,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send Link to Mac"
+            "value": "Send to Mac"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macにリンクを送信"
+            "value": "Macに送信"
           }
         }
       }
