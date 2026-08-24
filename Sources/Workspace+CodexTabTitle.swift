@@ -82,8 +82,8 @@ extension Workspace {
         bonsplitController.updateTab(
             tabId,
             title: titleUpdate,
-            isLoading: animationUpdate,
-            hasCustomTitle: customTitleUpdate
+            hasCustomTitle: customTitleUpdate,
+            isLoading: animationUpdate
         )
         return true
     }
