@@ -915,6 +915,67 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func collapseAllGroupsRepairsSelectionForGroupsAlreadyCollapsed() throws {
+        let (model, host, groups, _) = makeWorld()
+        let alreadyCollapsedChild = CoordinatorStubTab()
+        let expandedChild = CoordinatorStubTab()
+        model.tabs = [alreadyCollapsedChild, expandedChild]
+        let alreadyCollapsedGroupId = try #require(groups.createWorkspaceGroup(
+            name: "Already collapsed",
+            childWorkspaceIds: [alreadyCollapsedChild.id]
+        ))
+        let expandedGroupId = try #require(groups.createWorkspaceGroup(
+            name: "Expanded",
+            childWorkspaceIds: [expandedChild.id]
+        ))
+        let alreadyCollapsedGroup = try #require(
+            model.workspaceGroups.first { $0.id == alreadyCollapsedGroupId }
+        )
+        let expandedGroup = try #require(
+            model.workspaceGroups.first { $0.id == expandedGroupId }
+        )
+        let alreadyCollapsedAnchor = alreadyCollapsedGroup.anchorWorkspaceId
+        let expandedAnchor = expandedGroup.anchorWorkspaceId
+        groups.setWorkspaceGroupCollapsed(groupId: alreadyCollapsedGroupId, isCollapsed: true)
+        model.selectedTabId = alreadyCollapsedChild.id
+        host.sidebarSelectedWorkspaceIds = [alreadyCollapsedChild.id, expandedChild.id]
+
+        groups.collapseAllWorkspaceGroups()
+
+        #expect(model.workspaceGroups.allSatisfy { $0.isCollapsed })
+        #expect(model.selectedTabId == alreadyCollapsedAnchor)
+        #expect(host.selectedWorkspaceIds == [alreadyCollapsedAnchor])
+        #expect(host.subtractedSidebarSelections.count == 1)
+        let reconciliation = try #require(host.subtractedSidebarSelections.first)
+        #expect(reconciliation.hidden == Set([alreadyCollapsedChild.id, expandedChild.id]))
+        #expect(reconciliation.focused == alreadyCollapsedAnchor)
+        #expect(!reconciliation.hidden.contains(expandedAnchor))
+    }
+
+    @Test
+    func collapseAllGroupsReconcilesFocusWhenSidebarSelectionIsStale() throws {
+        let (model, host, groups, _) = makeWorld()
+        let child = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [child, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(
+            name: "Stale selection",
+            childWorkspaceIds: [child.id]
+        ))
+        let group = try #require(model.workspaceGroups.first { $0.id == groupId })
+        model.selectedTabId = child.id
+        host.sidebarSelectedWorkspaceIds = [outside.id]
+
+        groups.collapseAllWorkspaceGroups()
+
+        #expect(model.selectedTabId == group.anchorWorkspaceId)
+        #expect(host.subtractedSidebarSelections.count == 1)
+        let reconciliation = try #require(host.subtractedSidebarSelections.first)
+        #expect(reconciliation.hidden == Set([child.id]))
+        #expect(reconciliation.focused == group.anchorWorkspaceId)
+    }
+
+    @Test
     func expandAllGroupsPreservesFocusAndSelection() throws {
         let (model, host, groups, _) = makeWorld()
         let firstChild = CoordinatorStubTab()
