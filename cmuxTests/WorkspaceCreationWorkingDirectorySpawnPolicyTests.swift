@@ -40,11 +40,11 @@ struct WorkspaceCreationWorkingDirectorySpawnPolicyTests {
             autoWelcomeIfNeeded: false,
             settings: settings,
             declarativeTerminalConfigurationFileURL: configurationFile,
+            defaultWorkspaceWorkingDirectoryProvider: { fallbackDirectory },
             declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache(
                 initialSnapshot: DeclarativeTerminalConfiguration().snapshot(fileURL: configurationFile),
                 fileURL: configurationFile
-            ),
-            defaultWorkspaceWorkingDirectoryProvider: { fallbackDirectory }
+            )
         )
 
         let workspace = manager.addWorkspace(
@@ -85,11 +85,11 @@ struct WorkspaceCreationWorkingDirectorySpawnPolicyTests {
             autoWelcomeIfNeeded: false,
             settings: settings,
             declarativeTerminalConfigurationFileURL: configurationFile,
+            defaultWorkspaceWorkingDirectoryProvider: { workspaceRoot },
             declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache(
                 initialSnapshot: DeclarativeTerminalConfiguration().snapshot(fileURL: configurationFile),
                 fileURL: configurationFile
-            ),
-            defaultWorkspaceWorkingDirectoryProvider: { workspaceRoot }
+            )
         )
 
         let workspace = manager.addWorkspace(
