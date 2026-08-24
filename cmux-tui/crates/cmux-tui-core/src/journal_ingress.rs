@@ -2034,6 +2034,7 @@ mod tests {
         let descendant_pid_path = root.join("descendant.pid");
         let release_gate_path = root.join("descendant.release");
         let release_ready_path = root.join("descendant.release-ready");
+        let release_ready_signal_path = root.join("descendant.release-signal");
         let mux = Mux::open_persistent(
             "terminal-descendant-shutdown",
             crate::SurfaceOptions::default(),
@@ -2057,17 +2058,35 @@ mod tests {
             .unwrap();
         let mut release_gate =
             std::fs::OpenOptions::new().write(true).open(&release_gate_path).unwrap();
+        let release_ready_signal_path_c = std::ffi::CString::new(
+            std::os::unix::ffi::OsStrExt::as_bytes(release_ready_signal_path.as_os_str()),
+        )
+        .unwrap();
+        assert_eq!(
+            unsafe { libc::mkfifo(release_ready_signal_path_c.as_ptr(), 0o600) },
+            0,
+            "failed to create descendant readiness signal: {}",
+            io::Error::last_os_error()
+        );
+        let release_ready_signal_reader = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&release_ready_signal_path)
+            .unwrap();
+        let release_ready_signal_writer =
+            std::fs::OpenOptions::new().write(true).open(&release_ready_signal_path).unwrap();
         let surface = crate::Surface::spawn(
             1,
             crate::SurfaceOptions {
                 command: Some(vec![
                     "/bin/sh".into(),
                     "-c".into(),
-                    "stty -echo; printf input-ready; read ready; /bin/sh -c 'exec 3<\"$1\"; : > \"$2\"; read release <&3' cmux-descendant \"$2\" \"$3\" & echo $! > \"$1\"; i=0; while [ ! -e \"$3\" ] && [ \"$i\" -lt 500 ]; do i=$((i + 1)); sleep 0.01; done; printf detached-ready; exit 0".into(),
+                    "stty -echo; printf input-ready; read ready; /bin/sh -c 'exec 3<\"$1\" || exit 1; : > \"$2\" || exit 1; printf \"\\n\" > \"$3\" || exit 1; read release <&3' cmux-descendant \"$2\" \"$3\" \"$4\" & echo $! > \"$1\"; read ready_signal < \"$4\" || exit 1; printf detached-ready; exit 0".into(),
                     "cmux-shutdown-test".into(),
                     descendant_pid_path.to_string_lossy().into_owned(),
                     release_gate_path.to_string_lossy().into_owned(),
                     release_ready_path.to_string_lossy().into_owned(),
+                    release_ready_signal_path.to_string_lossy().into_owned(),
                 ]),
                 ..crate::SurfaceOptions::default()
             },
@@ -2114,10 +2133,6 @@ mod tests {
             !std::fs::read_to_string(&descendant_pid_path).unwrap().trim().is_empty(),
             "descendant fixture did not publish its pid"
         );
-        let ready_deadline = Instant::now() + Duration::from_secs(5);
-        while !release_ready_path.exists() && Instant::now() < ready_deadline {
-            std::thread::yield_now();
-        }
         assert!(release_ready_path.exists(), "descendant did not open the release gate");
 
         let started = Instant::now();
@@ -2130,6 +2145,8 @@ mod tests {
         io::Write::write_all(&mut release_gate, b"release\n").unwrap();
         drop(release_gate);
         drop(release_gate_reader);
+        drop(release_ready_signal_writer);
+        drop(release_ready_signal_reader);
         assert!(
             surface.wait_for_terminal_reader_for_test(Instant::now() + Duration::from_secs(5)),
             "terminal reader did not finish after the descendant release"
