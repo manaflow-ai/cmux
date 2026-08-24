@@ -27,6 +27,9 @@ public enum ShellStartupMode: String, CaseIterable, Sendable, SettingCodable {
 @MainActor
 public final class DeclarativeTerminalConfigurationCache {
     private var snapshots: [String: DeclarativeTerminalConfiguration.Snapshot] = [:]
+    private let initialSnapshotReadyStream: AsyncStream<Void>
+    private let initialSnapshotReadyContinuation: AsyncStream<Void>.Continuation
+    private var hasInitialSnapshot = false
     /// The configuration URL used when callers omit an explicit URL.
     public let fileURL: URL
 
@@ -43,13 +46,33 @@ public final class DeclarativeTerminalConfigurationCache {
         initialSnapshot: DeclarativeTerminalConfiguration.Snapshot? = nil,
         fileURL: URL = CmuxConfigLocation().userConfigFile
     ) {
+        let (stream, continuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        self.initialSnapshotReadyStream = stream
+        self.initialSnapshotReadyContinuation = continuation
         self.fileURL = fileURL.standardizedFileURL
         if let initialSnapshot {
             snapshots[self.fileURL.path] = initialSnapshot
+            hasInitialSnapshot = true
         }
     }
 
-    deinit {}
+    deinit {
+        initialSnapshotReadyContinuation.finish()
+    }
+
+    /// Waits until the app-lifetime observer has published its first snapshot.
+    ///
+    /// The readiness signal lets composition roots defer creation of surfaces
+    /// that synchronously consume the cache without putting file I/O back on
+    /// the main actor. A cache constructed with an initial snapshot is ready
+    /// immediately.
+    public func waitForInitialSnapshot() async {
+        guard !hasInitialSnapshot else { return }
+        var iterator = initialSnapshotReadyStream.makeAsyncIterator()
+        _ = await iterator.next()
+    }
 
     /// Returns the last published snapshot without touching the filesystem.
     ///
@@ -70,6 +93,10 @@ public final class DeclarativeTerminalConfigurationCache {
     ) {
         let key = (fileURL ?? self.fileURL).standardizedFileURL.path
         snapshots[key] = value
+        if !hasInitialSnapshot {
+            hasInitialSnapshot = true
+            initialSnapshotReadyContinuation.yield(())
+        }
     }
 
     /// Drops every memoized file snapshot.

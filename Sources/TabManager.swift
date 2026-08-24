@@ -444,6 +444,7 @@ class TabManager: ObservableObject {
     private var selectionSideEffectsGeneration: UInt64 = 0
     private var workspaceCycleGeneration: UInt64 = 0
     private var workspaceCycleCooldownTask: Task<Void, Never>?
+    private var initialWorkspaceReadinessTask: Task<Void, Never>?
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
     var sidebarSelectedWorkspaceIds: Set<UUID> { sidebarMultiSelection.selectedWorkspaceIds }
     private var currentWindowTabBarLeadingInset: CGFloat?
@@ -516,7 +517,8 @@ class TabManager: ObservableObject {
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         closeTabWarningDefaults: UserDefaults = .standard,
-        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache? = nil
+        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache? = nil,
+        initialWorkspaceReadiness: (@MainActor @Sendable () async -> Void)? = nil
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.settings = settings
@@ -595,14 +597,29 @@ class TabManager: ObservableObject {
         workspaces.attach(host: self)
         workspaceReordering.attach(host: self)
         workspaceGrouping.attach(host: self)
-        addWorkspace(
-            title: initialWorkspaceTitle,
-            titleSource: .auto,
-            workingDirectory: initialWorkingDirectory,
-            initialTerminalInput: initialTerminalInput,
-            autoWelcomeIfNeeded: autoWelcomeIfNeeded,
-            initialRuntimeSpawnPolicy: initialRuntimeSpawnPolicy
-        )
+        if let initialWorkspaceReadiness {
+            initialWorkspaceReadinessTask = Task { @MainActor [weak self] in
+                await initialWorkspaceReadiness()
+                guard let self, self.tabs.isEmpty else { return }
+                self.addWorkspace(
+                    title: initialWorkspaceTitle,
+                    titleSource: .auto,
+                    workingDirectory: initialWorkingDirectory,
+                    initialTerminalInput: initialTerminalInput,
+                    autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+                    initialRuntimeSpawnPolicy: initialRuntimeSpawnPolicy
+                )
+            }
+        } else {
+            addWorkspace(
+                title: initialWorkspaceTitle,
+                titleSource: .auto,
+                workingDirectory: initialWorkingDirectory,
+                initialTerminalInput: initialTerminalInput,
+                autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+                initialRuntimeSpawnPolicy: initialRuntimeSpawnPolicy
+            )
+        }
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
             object: nil,
@@ -702,6 +719,7 @@ class TabManager: ObservableObject {
         }
         observers.removeAll()
         workspaceCycleCooldownTask?.cancel()
+        initialWorkspaceReadinessTask?.cancel()
         agentPIDSweepTimer?.cancel()
         // The sidebar git/PR services cancel their own poll, probe, snapshot,
         // and refresh tasks in their deinits; they deallocate with this
@@ -1255,9 +1273,12 @@ class TabManager: ObservableObject {
             // restore, or layout scaffolds) take the compatibility fallback.
             let allowsDeclarativeWorkingDirectoryDefaults =
                 effectiveInitialRuntimeSpawnPolicy.allowsDeclarativeWorkingDirectoryDefaults
+            let hasAuthoredWorkingDirectoryPolicy =
+                declarativeTerminalSettings.workingDirectoryPolicy != nil
+            let usesDeclarativeWorkingDirectoryPolicy =
+                allowsDeclarativeWorkingDirectoryDefaults && hasAuthoredWorkingDirectoryPolicy
             let effectiveWorkingDirectoryPolicy: NewSurfaceWorkingDirectoryPolicy
-            if allowsDeclarativeWorkingDirectoryDefaults,
-               declarativeTerminalSettings.workingDirectoryPolicy != nil {
+            if usesDeclarativeWorkingDirectoryPolicy {
                 // An explicitly authored cmux.json policy is authoritative for
                 // ordinary workspaces, even when a legacy caller disables the
                 // old inherit-cwd boolean.
@@ -1290,7 +1311,7 @@ class TabManager: ObservableObject {
             sentryBreadcrumb("workspace.create", data: ["tabCount": nextTabCount])
             let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
             let defaultWorkingDirectory = defaultWorkspaceWorkingDirectoryProvider()
-            let workspaceRootWorkingDirectory = allowsDeclarativeWorkingDirectoryDefaults
+            let workspaceRootWorkingDirectory = usesDeclarativeWorkingDirectoryPolicy
                 ? (sourceWorkspaceHasRemoteDirectoryProvenance
                     ? defaultWorkingDirectory
                     : normalizedWorkingDirectory(sourceWorkspace?.workspaceRootDirectory)
@@ -1298,7 +1319,8 @@ class TabManager: ObservableObject {
                 : defaultWorkingDirectory
             let workingDirectory = WorkspaceCreationWorkingDirectoryPolicy(
                 policy: effectiveWorkingDirectoryPolicy,
-                fixedPath: declarativeTerminalSettings.workingDirectoryPath
+                fixedPath: declarativeTerminalSettings.workingDirectoryPath,
+                fixedPathIsUsable: declarativeTerminalSettings.fixedPathIsUsable
             ).resolve(
                 explicitWorkingDirectory: explicitWorkingDirectory,
                 inheritedWorkingDirectory: snapshot.preferredWorkingDirectory,
@@ -1785,20 +1807,25 @@ class TabManager: ObservableObject {
         let declarative = declarativeTerminalConfigurationCache.snapshot(
             fileURL: declarativeTerminalConfigurationFileURL
         )
-        let policy = declarative.effectiveWorkingDirectoryPolicy(
-            legacyInheritanceEnabled: legacyInheritanceEnabled
-        )
+        let hasAuthoredPolicy = declarative.workingDirectoryPolicy != nil
+        let policy = hasAuthoredPolicy
+            ? declarative.effectiveWorkingDirectoryPolicy(legacyInheritanceEnabled: legacyInheritanceEnabled)
+            : (legacyInheritanceEnabled ? .inheritActivePane : .workspaceRoot)
         let defaultWorkingDirectory = defaultWorkspaceWorkingDirectoryProvider()
         let sourceWorkspaceHasRemoteDirectoryProvenance = sourceWorkspace.map {
             $0.isRemoteWorkspace || $0.isRemoteTmuxMirror
         } == true
-        let sourceWorkspaceRoot = sourceWorkspaceHasRemoteDirectoryProvenance
-            ? defaultWorkingDirectory
-            : normalizedWorkingDirectory(sourceWorkspace?.workspaceRootDirectory)
+        let sourceWorkspaceRoot: String
+        if hasAuthoredPolicy, !sourceWorkspaceHasRemoteDirectoryProvenance {
+            sourceWorkspaceRoot = normalizedWorkingDirectory(sourceWorkspace?.workspaceRootDirectory)
                 ?? defaultWorkingDirectory
+        } else {
+            sourceWorkspaceRoot = defaultWorkingDirectory
+        }
         return WorkspaceCreationWorkingDirectoryPolicy(
             policy: policy,
-            fixedPath: declarative.workingDirectoryPath
+            fixedPath: declarative.workingDirectoryPath,
+            fixedPathIsUsable: declarative.fixedPathIsUsable
         ).resolve(
             explicitWorkingDirectory: nil,
             inheritedWorkingDirectory: policy == .inheritActivePane

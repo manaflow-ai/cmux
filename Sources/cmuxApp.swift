@@ -202,7 +202,10 @@ struct cmuxApp: App {
         let tabManager = TabManager(
             workspaceCustomizationStore: workspaceCustomizationStore,
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
-            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache
+            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache,
+            initialWorkspaceReadiness: {
+                await declarativeTerminalConfigurationCache.waitForInitialSnapshot()
+            }
         )
         _tabManager = StateObject(wrappedValue: tabManager)
         _notificationStore = StateObject(wrappedValue: notificationStore)

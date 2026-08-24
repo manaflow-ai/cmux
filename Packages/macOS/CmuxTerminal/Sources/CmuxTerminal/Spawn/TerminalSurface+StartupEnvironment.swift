@@ -324,7 +324,11 @@ extension TerminalSurface {
                     integrationDir: integrationDir
                 )
                 guard !payload.isEmpty else { return nil }
-                return managedNushellShellCommand(shell: shell, startupPayload: payload)
+                return managedNushellShellCommand(
+                    shell: shell,
+                    startupPayload: payload,
+                    mode: shellStartupMode
+                )
             } catch {
                 Logger(subsystem: "com.cmuxterm.app", category: "ghostty.initialization")
                     .error("cmux nushell bootstrap unreadable at \(bootstrapPath, privacy: .private): \(error.localizedDescription, privacy: .public); nushell shell integration will not load")
@@ -380,11 +384,16 @@ extension TerminalSurface {
         return statements.joined(separator: "; ")
     }
 
-    /// The managed nushell launch command: a login shell that evaluates the
-    /// cmux payload after the user's env.nu/config.nu/login.nu, then enters
-    /// the interactive REPL (`--execute` semantics).
-    public static func managedNushellShellCommand(shell: String, startupPayload: String) -> String {
-        "\(shellSingleQuoted(shell)) -l -e \(shellSingleQuoted(startupPayload))"
+    /// The managed nushell launch command, honoring login versus non-login mode.
+    /// Both variants evaluate the cmux payload and enter the interactive REPL;
+    /// only login mode loads Nushell's `login.nu` startup file.
+    public static func managedNushellShellCommand(
+        shell: String,
+        startupPayload: String,
+        mode: TerminalShellStartupMode = .login
+    ) -> String {
+        let modeFlag = mode == .login ? "-l" : "-i"
+        return "\(shellSingleQuoted(shell)) \(modeFlag) -e \(shellSingleQuoted(startupPayload))"
     }
 
     /// Double-quotes a value for nushell (`\` and `"` escaped). Used for
