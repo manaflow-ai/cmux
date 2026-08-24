@@ -10281,10 +10281,10 @@ class TerminalController {
         let path = (raw["path"] as? String) ?? "/"
         let secure = v2Bool(raw, "secure") ?? false
         let expires: Date?
-        if let expires = raw["expires"] as? TimeInterval {
-            expires = Date(timeIntervalSince1970: expires)
-        } else if let expiresInt = raw["expires"] as? Int {
-            expires = Date(timeIntervalSince1970: TimeInterval(expiresInt))
+        if let expiresValue = raw["expires"] as? TimeInterval {
+            expires = Date(timeIntervalSince1970: expiresValue)
+        } else if let expiresIntValue = raw["expires"] as? Int {
+            expires = Date(timeIntervalSince1970: TimeInterval(expiresIntValue))
         } else {
             expires = nil
         }
