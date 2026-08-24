@@ -480,9 +480,11 @@ struct WorkspaceShellView: View {
         .taskComposerPresentation(
             isPresented: taskComposerPresentation.isPresented,
             onDismiss: taskComposerPresentation.didDismiss
-        ) {
+        ) { launch, switchDraft in
             TaskComposerSheet(
                 store: store,
+                launchIntent: launch.intent,
+                onSwitchDraft: switchDraft,
                 submitTaskComposer: submitTaskComposerFromShell
             )
         }
