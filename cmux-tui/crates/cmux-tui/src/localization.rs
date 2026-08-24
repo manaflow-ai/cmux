@@ -651,11 +651,23 @@ impl RemoteMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ConfigMessages {
     invalid_macos_option_as_alt: &'static str,
+    invalid_section: &'static str,
+    unknown_field: &'static str,
+    invalid_root: &'static str,
 }
 
 impl ConfigMessages {
     pub(crate) fn invalid_macos_option_as_alt(&self, value: &str) -> String {
         self.invalid_macos_option_as_alt.replace("{value}", value)
+    }
+    pub(crate) fn invalid_section(&self, value: &str) -> String {
+        self.invalid_section.replace("{section}", value)
+    }
+    pub(crate) fn unknown_field(&self, value: &str) -> String {
+        self.unknown_field.replace("{field}", value)
+    }
+    pub(crate) fn invalid_root(&self) -> &'static str {
+        self.invalid_root
     }
 }
 
@@ -1492,6 +1504,9 @@ OPTIONS:
     },
     config: ConfigMessages {
         invalid_macos_option_as_alt: "cmux-tui: ignoring non-boolean keys.macos_option_as_alt = {value}",
+        invalid_section: "cmux-tui: ignoring invalid config section {section}",
+        unknown_field: "cmux-tui: ignoring unknown config field {field}",
+        invalid_root: "cmux-tui: ignoring config because the root value is not an object",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
@@ -2081,6 +2096,9 @@ ID とセッション:
     },
     config: ConfigMessages {
         invalid_macos_option_as_alt: "cmux-tui: 真偽値ではない keys.macos_option_as_alt = {value} を無視します",
+        invalid_section: "cmux-tui: 無効な設定セクション {section} を無視します",
+        unknown_field: "cmux-tui: 不明な設定フィールド {field} を無視します",
+        invalid_root: "cmux-tui: ルート値がオブジェクトではないため設定を無視します",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",
