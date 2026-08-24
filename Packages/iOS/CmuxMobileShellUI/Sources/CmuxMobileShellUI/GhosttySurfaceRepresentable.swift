@@ -429,7 +429,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                        let renderRevisionFloor = effectiveGrid.renderRevisionFloor {
                         self.verifiedReplayState.acknowledgeViewport(
                             renderEpoch: renderEpoch,
-                            renderRevisionFloor: renderRevisionFloor
+                            renderRevisionFloor: renderRevisionFloor,
+                            reportedColumns: report.columns,
+                            reportedRows: report.rows,
+                            grantedColumns: effectiveGrid.columns,
+                            grantedRows: effectiveGrid.rows
                         )
                     }
                     if case .remoteGrid = self.activeViewportPolicy {

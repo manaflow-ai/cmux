@@ -25,11 +25,19 @@ final class VerifiedTerminalReplayStateMachine {
     /// This phone's current base-font capacity, fed from every prepared or
     /// sent viewport report. Nil until the first report.
     private var expectedViewportDimensions: Dimensions?
+    /// The grid the daemon granted in the acknowledgement that answered the
+    /// CURRENT `expectedViewportDimensions`, per epoch. Frames at this grid
+    /// are the settled negotiation even when it differs from the capacity
+    /// (another viewer constrains the shared PTY). Cleared whenever the
+    /// expected capacity changes: a grant answering an older report must not
+    /// whitelist frames against the new negotiation.
+    private var settledViewportGrantsByEpoch: [String: Dimensions] = [:]
     /// Frames held per epoch while waiting for the daemon to acknowledge a
     /// renegotiated viewport (see `begin`). Bounded so a lost report can
     /// never freeze the terminal on the last verified pixels: once the
     /// budget is spent, mismatched frames verify normally and render
-    /// letterboxed at the user's font.
+    /// letterboxed at the user's font. Reset when a negotiation settles or a
+    /// new one starts, so each negotiation gets a fresh budget.
     private var renegotiationHeldFramesByEpoch: [String: Int] = [:]
     static let maxRenegotiationHeldFramesPerEpoch = 4
 
@@ -116,27 +124,32 @@ final class VerifiedTerminalReplayStateMachine {
         return .keepFrozenAndRequestReplay
     }
 
-    /// Holds a frame sized for a grid that does not match this phone's
-    /// capacity when the daemon has not yet acknowledged any viewport report
-    /// for the frame's epoch — the shape of a reconnect replay captured
-    /// before the phone's post-reconnect capacity report landed. The caller
-    /// keeps the last verified pixels visible and (on the first hold)
-    /// re-sends the capacity report; the acknowledgement then both ends the
-    /// hold and floors stale captures, so the next accepted frame is sized
-    /// by the settled negotiation. Nil means the frame proceeds normally.
+    /// Holds a frame sized by stale daemon state: its grid matches neither
+    /// this phone's current capacity nor the grant the daemon acknowledged
+    /// for that capacity — the shape of a reconnect replay captured before
+    /// the phone's post-reconnect capacity report landed, or of daemon state
+    /// that regressed while the phone was detached. The caller keeps the
+    /// last verified pixels visible and (on the first hold) re-sends the
+    /// capacity report; the acknowledgement then ends the hold, floors stale
+    /// captures, and records the settled grant, so the next accepted frame
+    /// is sized by the settled negotiation. Nil means the frame proceeds
+    /// normally.
     ///
     /// Never holds without last verified pixels to show, and never holds
-    /// more than ``maxRenegotiationHeldFramesPerEpoch`` frames per epoch: a
-    /// genuinely smaller settled grant (another viewer constrains the shared
-    /// PTY) then verifies normally and renders letterboxed at the user's
-    /// font instead of freezing.
+    /// more than ``maxRenegotiationHeldFramesPerEpoch`` frames per epoch and
+    /// negotiation: if the report is lost, the mismatched frame verifies
+    /// normally and renders letterboxed at the user's font instead of
+    /// freezing.
     private func holdForViewportRenegotiation(
         frame: MobileTerminalRenderGridFrame
     ) -> BeginDecision? {
         guard let expected = expectedViewportDimensions,
-              visibleSnapshot != nil,
-              viewportRenderRevisionFloors[frame.renderEpoch] == nil,
-              frame.columns != expected.columns || frame.rows != expected.rows else {
+              visibleSnapshot != nil else {
+            return nil
+        }
+        let dims = Dimensions(columns: frame.columns, rows: frame.rows)
+        guard dims != expected,
+              dims != settledViewportGrantsByEpoch[frame.renderEpoch] else {
             return nil
         }
         let held = renegotiationHeldFramesByEpoch[frame.renderEpoch] ?? 0
@@ -149,10 +162,15 @@ final class VerifiedTerminalReplayStateMachine {
 
     /// Records the phone's current base-font capacity so `begin` can
     /// recognize frames sized by stale daemon state. Fed from every prepared
-    /// or sent viewport report.
+    /// or sent viewport report. A capacity CHANGE starts a new negotiation:
+    /// prior settlements and hold budgets no longer describe it.
     func updateExpectedViewportDimensions(columns: Int, rows: Int) {
         guard columns > 0, rows > 0 else { return }
-        expectedViewportDimensions = Dimensions(columns: columns, rows: rows)
+        let dims = Dimensions(columns: columns, rows: rows)
+        guard dims != expectedViewportDimensions else { return }
+        expectedViewportDimensions = dims
+        settledViewportGrantsByEpoch.removeAll()
+        renegotiationHeldFramesByEpoch.removeAll()
     }
 
     func complete(
@@ -194,12 +212,38 @@ final class VerifiedTerminalReplayStateMachine {
     /// Orders viewport acknowledgements against frame captures from the same
     /// producer epoch. A capture at or below the returned floor was taken
     /// before the Mac acknowledged the new effective grid.
-    func acknowledgeViewport(renderEpoch: String, renderRevisionFloor: UInt64) {
+    ///
+    /// `reportedColumns`/`reportedRows` identify the capacity report this
+    /// acknowledgement answered and `grantedColumns`/`grantedRows` the grid
+    /// the daemon granted for it. When the answered report matches the
+    /// CURRENT expected capacity, the grant is recorded as the settled
+    /// negotiation (ending the stale-grid hold) and that epoch's hold budget
+    /// resets. An out-of-order acknowledgement for an older report still
+    /// raises the capture floor but settles nothing. Zero dimensions (the
+    /// default) skip settlement entirely and keep floor-only semantics.
+    func acknowledgeViewport(
+        renderEpoch: String,
+        renderRevisionFloor: UInt64,
+        reportedColumns: Int = 0,
+        reportedRows: Int = 0,
+        grantedColumns: Int = 0,
+        grantedRows: Int = 0
+    ) {
         guard !renderEpoch.isEmpty else { return }
         viewportRenderRevisionFloors[renderEpoch] = max(
             viewportRenderRevisionFloors[renderEpoch] ?? 0,
             renderRevisionFloor
         )
+        if let expected = expectedViewportDimensions,
+           reportedColumns > 0, reportedRows > 0,
+           grantedColumns > 0, grantedRows > 0,
+           Dimensions(columns: reportedColumns, rows: reportedRows) == expected {
+            settledViewportGrantsByEpoch[renderEpoch] = Dimensions(
+                columns: grantedColumns,
+                rows: grantedRows
+            )
+            renegotiationHeldFramesByEpoch[renderEpoch] = 0
+        }
         guard let activeTransaction,
               activeTransaction.renderEpoch == renderEpoch,
               activeTransaction.renderRevision <= renderRevisionFloor else {
@@ -233,6 +277,7 @@ final class VerifiedTerminalReplayStateMachine {
         activeRenderEpoch = nil
         retiredRenderEpochs.removeAll()
         viewportRenderRevisionFloors.removeAll()
+        settledViewportGrantsByEpoch.removeAll()
         renegotiationHeldFramesByEpoch.removeAll()
         lastVerifiedRenderRevision = 0
         lastVerifiedStateSeq = 0

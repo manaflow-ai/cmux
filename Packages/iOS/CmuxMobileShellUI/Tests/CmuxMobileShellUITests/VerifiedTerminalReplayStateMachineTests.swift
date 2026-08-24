@@ -432,14 +432,31 @@ struct VerifiedTerminalReplayStateMachineTests {
             return
         }
 
-        // The report acknowledgement floors the stale captures; the fresh
-        // frame at the settled grid then verifies and reveals.
-        machine.acknowledgeViewport(renderEpoch: "epoch-default", renderRevisionFloor: 3)
+        // The acknowledgement answering the current report floors the stale
+        // captures; the fresh frame at the settled grid verifies and reveals.
+        machine.acknowledgeViewport(
+            renderEpoch: "epoch-default",
+            renderRevisionFloor: 3,
+            reportedColumns: 80,
+            reportedRows: 3,
+            grantedColumns: 80,
+            grantedRows: 3
+        )
         let settled = try frame(renderRevision: 4, stateSeq: 4, columns: 80, text: "settled grid")
         let transaction = try #require(extractTransaction(from: machine.begin(frame: settled)))
         #expect(machine.complete(transactionID: transaction.id, observedFrame: settled) == .reveal)
         #expect(machine.visibleSnapshot?.columns == 80)
         #expect(!machine.isFrozen)
+
+        // Daemon state regressing AFTER the settlement (a reconnect that
+        // reverted the shared PTY) contradicts both the capacity and the
+        // settled grant: the hold re-arms with a fresh budget.
+        let regressed = try frame(renderRevision: 5, stateSeq: 5, columns: 41, text: "regressed")
+        guard case .renegotiateViewportAndKeepFrozen = machine.begin(frame: regressed) else {
+            Issue.record("a post-settlement grid regression must hold and renegotiate")
+            return
+        }
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "settled grid")
     }
 
     @Test("an acknowledged smaller grant applies letterboxed instead of holding")
@@ -459,7 +476,14 @@ struct VerifiedTerminalReplayStateMachineTests {
         // shared PTY: the settled grant is genuinely smaller. Post-floor
         // frames at that grant verify normally (the surface letterboxes at
         // the user's font); holding here would freeze the terminal forever.
-        machine.acknowledgeViewport(renderEpoch: "epoch-default", renderRevisionFloor: 2)
+        machine.acknowledgeViewport(
+            renderEpoch: "epoch-default",
+            renderRevisionFloor: 2,
+            reportedColumns: 80,
+            reportedRows: 3,
+            grantedColumns: 41,
+            grantedRows: 3
+        )
         let constrained = try frame(
             renderRevision: 3,
             stateSeq: 3,
@@ -471,6 +495,65 @@ struct VerifiedTerminalReplayStateMachineTests {
             machine.complete(transactionID: transaction.id, observedFrame: constrained) == .reveal
         )
         #expect(machine.visibleSnapshot?.columns == 41)
+    }
+
+    @Test("a capacity change re-arms the hold despite an older acknowledgement")
+    func capacityChangeSupersedesOlderAcknowledgement() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let lastGood = try frame(renderRevision: 1, stateSeq: 1, columns: 80, text: "last good")
+        commit(lastGood, to: machine)
+        machine.updateExpectedViewportDimensions(columns: 80, rows: 3)
+        machine.acknowledgeViewport(
+            renderEpoch: "epoch-default",
+            renderRevisionFloor: 1,
+            reportedColumns: 80,
+            reportedRows: 3,
+            grantedColumns: 80,
+            grantedRows: 3
+        )
+
+        // The viewport changes (rotation/keyboard): a new report goes out.
+        // Frames still sized for the OLD negotiation must hold even though
+        // the epoch has a recorded acknowledgement — that acknowledgement
+        // answered the previous capacity, not this one.
+        machine.updateExpectedViewportDimensions(columns: 70, rows: 3)
+        let staleOldGrid = try frame(renderRevision: 2, stateSeq: 2, columns: 80, text: "old grid")
+        guard case .renegotiateViewportAndKeepFrozen = machine.begin(frame: staleOldGrid) else {
+            Issue.record("an acknowledgement for an older report must not bypass the hold")
+            return
+        }
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "last good")
+
+        // An out-of-order acknowledgement answering the OLD report settles
+        // nothing; frames at the old grid keep holding.
+        machine.acknowledgeViewport(
+            renderEpoch: "epoch-default",
+            renderRevisionFloor: 2,
+            reportedColumns: 80,
+            reportedRows: 3,
+            grantedColumns: 80,
+            grantedRows: 3
+        )
+        let stillStale = try frame(renderRevision: 3, stateSeq: 3, columns: 80, text: "still old")
+        guard case .keepFrozenAndRequestReplay = machine.begin(frame: stillStale) else {
+            Issue.record("an out-of-order acknowledgement must not settle the new negotiation")
+            return
+        }
+
+        // The acknowledgement answering the CURRENT report settles it; the
+        // fresh frame at the new grid verifies and reveals.
+        machine.acknowledgeViewport(
+            renderEpoch: "epoch-default",
+            renderRevisionFloor: 3,
+            reportedColumns: 70,
+            reportedRows: 3,
+            grantedColumns: 70,
+            grantedRows: 3
+        )
+        let settled = try frame(renderRevision: 4, stateSeq: 4, columns: 70, text: "new grid")
+        let transaction = try #require(extractTransaction(from: machine.begin(frame: settled)))
+        #expect(machine.complete(transactionID: transaction.id, observedFrame: settled) == .reveal)
+        #expect(machine.visibleSnapshot?.columns == 70)
     }
 
     @Test("the stale-grid hold budget is bounded when no acknowledgement ever lands")

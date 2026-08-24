@@ -4303,6 +4303,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         MobileDebugLog.anchormux(
             "zoom.viewport.reassert grid=\(pending.columns)x\(pending.rows)"
         )
+        // The report is serviced by the display link, and this method is
+        // called from the replay consumer where the link can be idle or torn
+        // down; without a wake the queued report would wait for unrelated UI
+        // activity while the caller keeps the presentation frozen.
+        needsDraw = true
+        startDisplayLink()
     }
 
     private func applyViewSize(cols: Int, rows: Int, confirmedViewportEcho: Bool) {
