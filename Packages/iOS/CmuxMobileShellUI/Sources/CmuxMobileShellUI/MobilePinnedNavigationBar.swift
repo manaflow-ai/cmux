@@ -52,6 +52,10 @@ private struct PinnedNavigationBarApplier: UIViewRepresentable {
     func updateUIView(_ view: PinnedNavigationBarProbeView, context: Context) {
         view.applyIfNeeded()
     }
+
+    static func dismantleUIView(_ view: PinnedNavigationBarProbeView, coordinator: ()) {
+        view.clearAssociation()
+    }
 }
 
 final class PinnedNavigationBarProbeView: UIView {
@@ -62,6 +66,10 @@ final class PinnedNavigationBarProbeView: UIView {
         scrollView.isScrollEnabled = false
         return scrollView
     }()
+    /// The controller currently pointed at the stand-in, so teardown can
+    /// release the association instead of leaving the bar tracking a
+    /// deallocated probe's scroll view.
+    private weak var appliedTarget: UIViewController?
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -80,25 +88,32 @@ final class PinnedNavigationBarProbeView: UIView {
         guard window != nil, let target = barOwningViewController() else { return }
         if target.contentScrollView(for: .top) !== anchorScrollView {
             target.setContentScrollView(anchorScrollView, for: .top)
+            appliedTarget = target
         }
     }
 
+    func clearAssociation() {
+        guard let target = appliedTarget,
+              target.contentScrollView(for: .top) === anchorScrollView
+        else { return }
+        target.setContentScrollView(nil, for: .top)
+        appliedTarget = nil
+    }
+
     /// The pushed screen's view controller: the ancestor whose parent is the
-    /// navigation controller (its navigation item drives the bar). Falls back
-    /// to the nearest ancestor view controller.
+    /// navigation controller (its navigation item drives the bar). Fails
+    /// closed when no such ancestor exists (previews, sheets), rather than
+    /// re-pointing an unrelated controller's scroll edge.
     private func barOwningViewController() -> UIViewController? {
         var responder: UIResponder? = next
-        var nearest: UIViewController?
         while let current = responder {
-            if let viewController = current as? UIViewController {
-                nearest = nearest ?? viewController
-                if viewController.parent is UINavigationController {
-                    return viewController
-                }
+            if let viewController = current as? UIViewController,
+               viewController.parent is UINavigationController {
+                return viewController
             }
             responder = current.next
         }
-        return nearest
+        return nil
     }
 }
 #endif

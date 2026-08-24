@@ -83,10 +83,15 @@ struct WorkspaceDetailView: View {
     // make the collapse sticky.
     @State private var trailingToolbarItemWidths: [String: CGFloat] = [:]
     /// Ratchets on when the trailing cluster's content leaves the bar while
-    /// structurally present: the system folded it into the More menu, so the
-    /// estimate reserves undershot this device's chrome. Never cleared for
-    /// this view's lifetime; the extra recovery reserve un-collapses the bar.
+    /// the screen's own content is still on a window: the system folded it
+    /// into the More menu, so the estimate reserves undershot this device's
+    /// chrome. Never cleared for this view's lifetime; the extra recovery
+    /// reserve un-collapses the bar.
     @State private var trailingToolbarCollapseDetected = false
+    /// Live window-attachment flags shared with the UIKit probes; reference
+    /// identity keeps event-time reads current where SwiftUI captures of
+    /// value state would be stale.
+    @State private var barPresence = WorkspaceBarPresence()
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
     /// Identity of the in-flight New Browser creation. A late RPC result must
@@ -181,6 +186,7 @@ struct WorkspaceDetailView: View {
             // minimizes the whole bar into a floating "…" pill, unlike the
             // terminal surface, which has no system scroll view.
             .mobilePinnedNavigationBar()
+            .trackBarPresence(barPresence)
             .toolbar { workspaceDetailToolbar }
             .task(id: workspace.rpcWorkspaceID.rawValue) {
                 await store.refreshMobileBrowserPanels(workspaceID: workspace.rpcWorkspaceID.rawValue)
@@ -380,7 +386,15 @@ struct WorkspaceDetailView: View {
             .measureTrailingToolbarItem(
                 "trailing-cluster",
                 into: $trailingToolbarItemWidths,
-                onLeaveBar: { trailingToolbarCollapseDetected = true }
+                onLeaveBar: {
+                    // A deeper push or a pop detaches the whole screen, this
+                    // content view included, before the bar items animate
+                    // out; only a cluster detach while the content is still
+                    // on a window is the More-menu collapse.
+                    if barPresence.detailContentAttached {
+                        trailingToolbarCollapseDetected = true
+                    }
+                }
             )
     }
 

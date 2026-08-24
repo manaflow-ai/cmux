@@ -3,11 +3,34 @@ import SwiftUI
 import UIKit
 #endif
 
+/// Live, reference-typed presence flags shared between probe islands. UIKit
+/// callbacks read and write these directly at event time; SwiftUI closure
+/// captures of value state would go stale between renders and misreport
+/// during navigation transitions.
+@MainActor
+final class WorkspaceBarPresence {
+    /// Whether the detail screen's content view is attached to a window.
+    /// False during whole-screen detachments (a deeper push, a pop, scene
+    /// teardown), when toolbar probes also detach for lifecycle reasons that
+    /// have nothing to do with the overflow More menu.
+    var detailContentAttached = false
+}
+
 extension View {
+    /// Tracks whether this view's content is attached to a UIKit window,
+    /// writing into the shared presence object in real time.
+    @ViewBuilder
+    func trackBarPresence(_ presence: WorkspaceBarPresence) -> some View {
+        #if canImport(UIKit)
+        background(ContentPresenceReader(presence: presence))
+        #else
+        self
+        #endif
+    }
+
     /// Reports this trailing toolbar item's rendered content width into the
     /// shared measurement dictionary, and optionally reports when the item's
-    /// content leaves the window while still structurally present, which on
-    /// iOS means the system folded the item into the overflow More menu.
+    /// content leaves the window while still structurally present.
     ///
     /// The leading title menu caps its width to the bar's remaining space so
     /// the trailing items are never squeezed into the More menu. Width
@@ -18,8 +41,10 @@ extension View {
     /// removed it.
     ///
     /// `onLeaveBar` is only wired for items that are always structurally
-    /// present: a conditional item's structural removal also detaches its
-    /// probe and would be indistinguishable from a collapse.
+    /// present, and the callback must gate on the screen's content still
+    /// being attached (`WorkspaceBarPresence`): a whole-screen detachment
+    /// (deeper push, pop) also detaches this probe and is indistinguishable
+    /// from a More-menu collapse at this level.
     @ViewBuilder
     func measureTrailingToolbarItem(
         _ key: String,
@@ -40,10 +65,39 @@ extension View {
 }
 
 #if canImport(UIKit)
+private struct ContentPresenceReader: UIViewRepresentable {
+    let presence: WorkspaceBarPresence
+
+    func makeUIView(context: Context) -> ContentPresenceProbeView {
+        let view = ContentPresenceProbeView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        view.presence = presence
+        return view
+    }
+
+    func updateUIView(_ view: ContentPresenceProbeView, context: Context) {
+        view.presence = presence
+    }
+}
+
+final class ContentPresenceProbeView: UIView {
+    var presence: WorkspaceBarPresence?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        let attached = window != nil
+        MainActor.assumeIsolated {
+            presence?.detailContentAttached = attached
+        }
+    }
+}
+
 /// Bridges out of the SwiftUI hosting island to observe whether the item's
 /// content is attached to a UIKit window. Detaching after having been
-/// attached, while the SwiftUI view is still alive, is the observable
-/// signature of the system moving the item into the overflow More menu.
+/// attached, while the screen's own content stays on a window, is the
+/// observable signature of the system moving the item into the overflow More
+/// menu; the caller supplies that content-presence gate.
 private struct BarPresenceReader: UIViewRepresentable {
     let probeKey: String
     let onLeaveBar: (@MainActor () -> Void)?
