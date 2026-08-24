@@ -680,10 +680,12 @@ async fn relay_session(
                             } else {
                                 local_trust.as_str().to_owned()
                             };
+                            let local_observe = effective_trust == Trust::Observe.as_str();
                             let mut snapshot = auth.lock().expect("auth lock");
                             snapshot.trust = effective_trust;
                             snapshot.roots = local_roots.clone();
                             snapshot.owner = config.owner_user_id.clone();
+                            workspace.set_local_observe(local_observe);
                         }
                         let mut interval = tokio::time::interval(Duration::from_millis(
                             hello.heartbeat_interval_ms,
@@ -713,6 +715,7 @@ async fn relay_session(
                             }
                             let frame = set_trust_frame(DEFAULT_RELAY_TRUST.as_str()).to_string();
                             let _ = send_socket_text(&socket, frame, cancellation).await;
+                            workspace.set_local_observe(DEFAULT_RELAY_TRUST == Trust::Observe);
                             eprintln!(
                                 "Refused an autonomous trust acknowledgement without this \
                                  machine's local YOLO receipt."
@@ -728,6 +731,7 @@ async fn relay_session(
                             save(config, config_path);
                         }
                         auth.lock().expect("auth lock").trust = ack.as_str().to_owned();
+                        workspace.set_local_observe(ack == Trust::Observe);
                         println!("Trust level set to {ack}.");
                     }
                     ServerFrame::ActionRequest { action_id, verb, raw } => {
