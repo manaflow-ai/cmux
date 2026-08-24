@@ -22,8 +22,7 @@ use sha2::{Digest as _, Sha256};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::actions::{
-    RootLists, ensure_scoped_file_roots_available,
-    validate_request_path as validate_action_path,
+    RootLists, ensure_scoped_file_roots_available, validate_request_path as validate_action_path,
 };
 use crate::preview_proxy::PreviewRegistry;
 use crate::relay_wire as wire;
