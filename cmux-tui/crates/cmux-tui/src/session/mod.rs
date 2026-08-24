@@ -2034,6 +2034,13 @@ impl Session {
 }
 
 impl SurfaceHandle {
+    #[cfg(test)]
+    pub(crate) fn test_scan_cursor_provenance(&self, bytes: &[u8]) {
+        if let SurfaceHandle::Remote(surface, _) = self {
+            surface.test_scan_cursor_provenance(bytes);
+        }
+    }
+
     pub fn is_remote(&self) -> bool {
         matches!(self, SurfaceHandle::Remote(_, _))
     }
@@ -2821,6 +2828,15 @@ pub(crate) fn test_remote_session_without_provider_authority() -> Session {
 #[cfg(test)]
 fn test_remote_session_with_view_attachment_leases() -> Session {
     Session::Remote(remote::test_session_with_view_attachment_leases())
+}
+
+#[cfg(test)]
+pub(crate) fn test_remote_session_with_unleased_view_surface(
+    surface_id: SurfaceId,
+) -> (Session, SurfaceHandle) {
+    let (session, surface) = remote::test_unleased_view_surface(surface_id);
+    let handle = SurfaceHandle::Remote(surface, session.clone());
+    (Session::Remote(session), handle)
 }
 
 #[cfg(test)]
