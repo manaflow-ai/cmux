@@ -1211,8 +1211,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     var hostedKeyboardHeight: CGFloat { keyboardHeight }
 
-    var hostedChromeHidden: Bool { chromeHidden }
-
     /// True while the mirrored terminal is on the ALTERNATE screen (a
     /// full-screen TUI that owns the whole grid). Injected by the hosting
     /// representable from the shell store; the keyboard blank-space
@@ -1225,17 +1223,50 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    /// Points of blank render below the content bottom (cursor-row proxy),
-    /// or nil when it cannot be trusted (alternate screen, unknown cursor,
-    /// no render yet). The host lets this blank band absorb the keyboard
-    /// intrusion before the render slides: a mostly-empty screen stays
-    /// top-pinned under the navigation bar and the keyboard covers only
-    /// blank rows.
+    /// Rows of the visible viewport that contain content, measured from the
+    /// rendered screen text on the serial output queue (see `processOutput`).
+    /// The cursor row alone is NOT a content proxy: apps like Claude Code
+    /// draw UI rows BELOW the cursor (input-box border, shortcut hints), and
+    /// covering them with the keyboard hid real content.
+    var hostedContentBottomRowCount: Int?
+
+    /// Points of blank render below the content bottom, or nil when it
+    /// cannot be trusted (alternate screen, nothing measured yet, no render).
+    /// Content bottom is the LOWER of the last non-blank screen row and the
+    /// cursor row (the cursor can sit on a blank line below the last text).
+    /// The host lets this blank band absorb the keyboard intrusion before
+    /// the render slides: a mostly-empty screen stays top-pinned under the
+    /// navigation bar and the keyboard covers only blank rows.
     var hostedBlankBelowContent: CGFloat? {
-        guard !hostedAltScreenActive,
-              !lastRenderRect.isEmpty,
-              let cursorBottom = cursorBottomInRenderPoints() else { return nil }
-        return max(0, lastRenderRect.height - cursorBottom)
+        guard !hostedAltScreenActive, !lastRenderRect.isEmpty else { return nil }
+        let cellHeight = cellPixelSize.height / max(preferredScreenScale, 1)
+        let rowsBottom: CGFloat? = hostedContentBottomRowCount.flatMap { rows in
+            cellHeight > 0 ? CGFloat(rows) * cellHeight : nil
+        }
+        let cursorBottom = cursorBottomInRenderPoints()
+        var contentBottom: CGFloat?
+        switch (rowsBottom, cursorBottom) {
+        case let (.some(rows), .some(cursor)): contentBottom = max(rows, cursor)
+        case let (.some(rows), nil): contentBottom = rows
+        case let (nil, .some(cursor)): contentBottom = cursor
+        case (nil, nil): contentBottom = nil
+        }
+        guard let contentBottom else { return nil }
+        return max(0, lastRenderRect.height - contentBottom)
+    }
+
+    /// The number of viewport rows up to and including the last row with any
+    /// non-whitespace content. Pure text scan, safe off the main actor.
+    nonisolated static func contentRowCount(inViewportText text: String) -> Int {
+        var lastNonBlank = 0
+        var row = 0
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            row += 1
+            if !line.allSatisfy(\.isWhitespace) {
+                lastNonBlank = row
+            }
+        }
+        return lastNonBlank
     }
 
     /// The cursor's bottom edge in render-local points (the coordinate space
@@ -2738,6 +2769,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 accessibilityText = Self.accessibilitySurfaceText(surface)
             }
             #endif
+            // Content-bottom measurement for the keyboard blank-space
+            // absorption. Same off-main lock discipline and throttling as the
+            // accessibility read above; only the row count crosses to main.
+            var contentBottomRows: Int?
+            let contentNow = CACurrentMediaTime()
+            if contentNow - workQueue.lastContentBottomTime > 0.25 {
+                workQueue.lastContentBottomTime = contentNow
+                if let viewportText = Self.surfaceText(surface, pointTag: GHOSTTY_POINT_VIEWPORT) {
+                    contentBottomRows = Self.contentRowCount(inViewportText: viewportText)
+                }
+            }
             DispatchQueue.main.async {
                 guard let self, !self.isDismantled else {
                     completion?(true)
@@ -2753,6 +2795,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 // callback so UIKit never scrolls ahead of the frame it shows.
                 self.hasAppliedOutput = true
                 self.needsDraw = true
+                if let contentBottomRows {
+                    self.hostedContentBottomRowCount = contentBottomRows
+                }
                 self.scheduleVisibleArtifactCountUpdate()
                 #if DEBUG
                 self.lastOutputAppliedTime = CACurrentMediaTime()

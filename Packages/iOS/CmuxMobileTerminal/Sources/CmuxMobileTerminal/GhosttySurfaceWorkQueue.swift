@@ -8,6 +8,9 @@ final class GhosttySurfaceWorkQueue: @unchecked Sendable {
     /// Accessed only from ``queue`` while producing DEBUG accessibility snapshots.
     var lastAccessibilityTextTime: CFTimeInterval = 0
     #endif
+    /// Accessed only from ``queue``: throttles the viewport content-bottom
+    /// measurement for the keyboard blank-space absorption.
+    var lastContentBottomTime: CFTimeInterval = 0
 
     init(generation: UInt64) {
         // carve-out justification: serial event-delivery queue for low-level libghostty C calls; not used as a lock.

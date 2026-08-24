@@ -4,65 +4,52 @@ import CmuxMobileTerminalKit
 import QuartzCore
 import UIKit
 
-/// iOS 27 can leave `keyboardLayoutGuide` at the screen bottom while the keyboard is
-/// visible. Only that OS uses notification-derived dock geometry; every other OS keeps
-/// UIKit's system guide as the dock constraint authority.
-private enum KeyboardDockGeometrySource {
-    case systemLayoutGuide
-    case keyboardNotifications
-
-    static var current: Self {
-        #if DEBUG
-        if UITestConfig.forceIOS27KeyboardDockWorkaround {
-            return .keyboardNotifications
-        }
-        #endif
-        return ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 27
-            ? .keyboardNotifications
-            : .systemLayoutGuide
-    }
-}
-
 /// UIKit root that owns terminal clipping, dock placement, and keyboard motion.
 ///
 /// The terminal grid never resizes for the keyboard (see
 /// `TerminalLetterboxGeometry.terminalContainerSize`): the render always has
-/// its full keyboard-down height, and this host pins its bottom edge to the
-/// dock (composer bar) with ONE constraint —
+/// its full keyboard-down height, and this host pins its bottom edge with ONE
+/// constraint —
 ///
 ///     renderWrapper.bottom == dock.top + steadyBottomChromeReservation + slack
 ///
-/// so keyboard motion is a single animated layout pass moving the dock, with
-/// the full-height render riding it and the top rows clipping behind the
-/// screen top. There is no grid renegotiation to mask, so there is no wrapper
-/// transform, no presentation-layer rebase on reversals, and no settle fold:
-/// an interrupted reversal is just a constraint retarget under
-/// `.beginFromCurrentState`. With the keyboard down the reservation constant
-/// places the wrapper exactly at its natural position, so the steady state is
-/// byte-identical to a keyboard-less layout.
+/// where `slack` is the blank-space absorption (`keyboardAbsorptionSlack`):
+/// while the content bottom fits above the composer bar, the blank rows below
+/// it absorb the keyboard and the terminal stays top-pinned; as content grows
+/// the render transitions continuously into the full bottom-pin.
 ///
-/// Dock seat authority:
-/// - chrome visible, non-iOS-27: `UIKeyboardLayoutGuide` (UIKit animates it).
-/// - iOS 27, or chrome hidden on any OS: a plain bottom constraint this host
-///   retargets from keyboard notifications. Chrome hidden cannot use the
-///   guide because its safe-area fallback would hold the (invisible) dock —
-///   and therefore the render bottom — 34pt above the screen bottom.
+/// ONE animation authority: keyboard notifications retarget the dock-bottom
+/// constant and the slack constant together and run a single animated layout
+/// pass with the keyboard's own curve. `UIKeyboardLayoutGuide` deliberately
+/// does NOT seat the dock: the guide animates inside UIKit's own transaction,
+/// and pairing it with a notification-driven slack retarget produced two
+/// racing timelines — the render visibly travelled on keyboard toggles even
+/// when the two changes cancel exactly (top-pinned short content). With both
+/// constants in one pass, a full-slack toggle does not move the wrapper's
+/// frame at all. The guide remains attached as a PASSIVE SENSOR: its settled
+/// frame self-heals the keyboard model after transitions missed while
+/// detached (workspace switches). iOS 27 can seat the guide at the screen
+/// bottom while the keyboard is visible, so the sensor is disabled there.
 @MainActor
 public final class GhosttySurfaceHostView: UIView {
     public let surfaceView: GhosttySurfaceView
     private let terminalClipView = UIView()
     private let terminalPresentationView = UIView()
-    /// dock.bottom == host.bottom + c; active whenever this host owns the seat.
+    /// dock.bottom == host.bottom + c; the sole dock seat authority.
     private var dockBottomConstraint: NSLayoutConstraint!
-    /// dock.bottom == keyboardLayoutGuide.top; active on guide-source OSes
-    /// while the chrome is visible.
-    private var guideDockConstraint: NSLayoutConstraint?
-    /// renderWrapper.bottom == dock.top + steady chrome reservation.
+    /// renderWrapper.bottom == dock.top + steady chrome reservation + slack.
     private var presentationBottomConstraint: NSLayoutConstraint!
-    private let keyboardDockGeometrySource = KeyboardDockGeometrySource.current
     /// Points of the keyboard intrusion currently absorbed by blank rows
     /// below the terminal content (see `syncPresentationReservation`).
     private var appliedAbsorptionSlack: CGFloat = 0
+    /// Whether the settled keyboard layout guide may self-heal the keyboard
+    /// model (false on iOS 27, where the guide can lie at the screen bottom).
+    private let usesKeyboardGuideSensor: Bool = {
+        #if DEBUG
+        if UITestConfig.forceIOS27KeyboardDockWorkaround { return false }
+        #endif
+        return ProcessInfo.processInfo.operatingSystemVersion.majorVersion != 27
+    }()
     #if DEBUG
     private var maximumTerminalDockPresentationGap: CGFloat = 0
     #endif
@@ -86,15 +73,11 @@ public final class GhosttySurfaceHostView: UIView {
         surfaceView.translatesAutoresizingMaskIntoConstraints = false
         terminalPresentationView.addSubview(surfaceView)
         dockBottomConstraint = surfaceView.moveBottomDock(to: self)
-        if keyboardDockGeometrySource == .systemLayoutGuide {
+        if usesKeyboardGuideSensor {
+            // Sensor only — nothing constrains to the guide. Configured so its
+            // layoutFrame tracks the keyboard the way the dock semantics do.
             keyboardLayoutGuide.followsUndockedKeyboard = true
             keyboardLayoutGuide.usesBottomSafeArea = true
-            let guide = surfaceView.hostedBottomDockBottomAnchor.constraint(
-                equalTo: keyboardLayoutGuide.topAnchor
-            )
-            guideDockConstraint = guide
-            dockBottomConstraint.isActive = false
-            guide.isActive = true
         }
 
         presentationBottomConstraint = terminalPresentationView.bottomAnchor.constraint(
@@ -143,9 +126,7 @@ public final class GhosttySurfaceHostView: UIView {
 
     public override func layoutSubviews() {
         super.layoutSubviews()
-        syncDockSeatAuthority()
-        syncPresentationReservation()
-        if keyboardDockGeometrySource == .systemLayoutGuide {
+        if usesKeyboardGuideSensor {
             // Self-heal for transitions missed while detached (workspace
             // switches): the settled guide is the keyboard's live seat.
             surfaceView.setHostedKeyboardState(
@@ -153,14 +134,13 @@ public final class GhosttySurfaceHostView: UIView {
                 isVisible: nil
             )
         }
-        if hostOwnsDockSeat {
-            let reservation = surfaceView.hostedBottomReservation(
-                keyboardHeight: surfaceView.hostedKeyboardHeight,
-                bottomSafeAreaInset: resolvedBottomSafeAreaInset
-            )
-            if abs(dockBottomConstraint.constant + reservation) > 0.25 {
-                dockBottomConstraint.constant = -reservation
-            }
+        syncPresentationReservation()
+        let reservation = surfaceView.hostedBottomReservation(
+            keyboardHeight: surfaceView.hostedKeyboardHeight,
+            bottomSafeAreaInset: resolvedBottomSafeAreaInset
+        )
+        if abs(dockBottomConstraint.constant + reservation) > 0.25 {
+            dockBottomConstraint.constant = -reservation
         }
     }
 
@@ -180,31 +160,15 @@ public final class GhosttySurfaceHostView: UIView {
         #if DEBUG
         maximumTerminalDockPresentationGap = 0
         #endif
-        let slack = TerminalLetterboxGeometry.keyboardAbsorptionSlack(
+        // Both constants retarget in ONE animated pass. When the slack equals
+        // the whole intrusion (short content) they cancel exactly and the
+        // wrapper frame does not change — the layout pass animates nothing.
+        appliedAbsorptionSlack = TerminalLetterboxGeometry.keyboardAbsorptionSlack(
             blankBelowContent: surfaceView.hostedBlankBelowContent,
             intrusion: keyboardIntrusion(forHeight: targetHeight)
         )
-        let slackChanged = abs(
-            (surfaceView.hostedBottomChromeReservation + slack)
-                - presentationBottomConstraint.constant
-        ) > 0.25
-        if slackChanged {
-            appliedAbsorptionSlack = slack
-            presentationBottomConstraint.constant =
-                surfaceView.hostedBottomChromeReservation + slack
-        }
-        guard hostOwnsDockSeat else {
-            // The system guide retargets the dock inside UIKit's own keyboard
-            // transaction; the wrapper and clip ride the same constraint pass.
-            // A slack retarget still needs an animated pass of its own, with
-            // the keyboard's curve, so both edges land together.
-            if slackChanged {
-                transition.animate { [weak self] in
-                    self?.layoutIfNeeded()
-                }
-            }
-            return
-        }
+        presentationBottomConstraint.constant =
+            surfaceView.hostedBottomChromeReservation + appliedAbsorptionSlack
         dockBottomConstraint.constant = -surfaceView.hostedBottomReservation(
             keyboardHeight: targetHeight,
             bottomSafeAreaInset: resolvedBottomSafeAreaInset
@@ -216,49 +180,14 @@ public final class GhosttySurfaceHostView: UIView {
         }
     }
 
-    /// Whether the plain bottom constraint (not the system guide) seats the dock.
-    private var hostOwnsDockSeat: Bool {
-        keyboardDockGeometrySource == .keyboardNotifications || surfaceView.hostedChromeHidden
-    }
-
-    /// The chrome-hidden mode cannot ride the system guide (its safe-area
-    /// fallback would float the invisible dock — and the render bottom — above
-    /// the screen bottom), so hiding the chrome hands the seat to the plain
-    /// constraint and showing it hands the seat back. Toggles happen outside
-    /// keyboard animations, so the swap never retargets a moving leg.
-    private func syncDockSeatAuthority() {
-        guard let guideDockConstraint else { return }
-        let wantsGuide = !surfaceView.hostedChromeHidden
-        guard guideDockConstraint.isActive != wantsGuide else { return }
-        if wantsGuide {
-            dockBottomConstraint.isActive = false
-            guideDockConstraint.isActive = true
-        } else {
-            guideDockConstraint.isActive = false
-            dockBottomConstraint.constant = -surfaceView.hostedBottomReservation(
-                keyboardHeight: surfaceView.hostedKeyboardHeight,
-                bottomSafeAreaInset: resolvedBottomSafeAreaInset
-            )
-            dockBottomConstraint.isActive = true
-        }
-    }
-
-    /// Keeps `renderWrapper.bottom == dock.top + reservation + slack` seated.
-    ///
-    /// `reservation` is the steady-state chrome band (composer band + toolbar
-    /// + bottom safe area; zero while the chrome is hidden) and changes only
-    /// on real chrome changes. `slack` is the blank-space absorption: while
-    /// the content bottom fits above the composer bar, the blank rows below
-    /// it absorb the keyboard intrusion and the terminal stays top-pinned
-    /// under the navigation bar; as content grows the slack shrinks and the
-    /// render transitions continuously into the full bottom-pin. A constant
-    /// change made inside an animation block rides that animation's layout
-    /// pass.
+    /// Keeps `renderWrapper.bottom == dock.top + reservation + slack` seated
+    /// for the CURRENT model state; used by non-animated paths (plain layout,
+    /// window attach, safe-area changes). Keyboard transitions retarget the
+    /// constant themselves so both edges share one animated pass.
     private func syncPresentationReservation() {
-        let reservation = surfaceView.hostedBottomChromeReservation
         let slack = currentAbsorptionSlack()
         appliedAbsorptionSlack = slack
-        let constant = reservation + slack
+        let constant = surfaceView.hostedBottomChromeReservation + slack
         guard abs(presentationBottomConstraint.constant - constant) > 0.25 else { return }
         presentationBottomConstraint.constant = constant
     }
@@ -305,14 +234,11 @@ public final class GhosttySurfaceHostView: UIView {
     }
 
     private func seatDockWithoutAnimation() {
-        syncDockSeatAuthority()
         syncPresentationReservation()
-        if hostOwnsDockSeat {
-            dockBottomConstraint.constant = -surfaceView.hostedBottomReservation(
-                keyboardHeight: surfaceView.hostedKeyboardHeight,
-                bottomSafeAreaInset: resolvedBottomSafeAreaInset
-            )
-        }
+        dockBottomConstraint.constant = -surfaceView.hostedBottomReservation(
+            keyboardHeight: surfaceView.hostedKeyboardHeight,
+            bottomSafeAreaInset: resolvedBottomSafeAreaInset
+        )
         UIView.performWithoutAnimation {
             layoutIfNeeded()
         }
@@ -351,14 +277,8 @@ public final class GhosttySurfaceHostView: UIView {
     }
 
     #if DEBUG
-    var debugUsesNotificationKeyboardDock: Bool {
-        keyboardDockGeometrySource == .keyboardNotifications
-    }
+    var debugUsesNotificationKeyboardDock: Bool { true }
     var debugKeyboardAbsorptionSlack: CGFloat { appliedAbsorptionSlack }
-    var debugKeyboardTargetHeight: CGFloat { surfaceView.hostedKeyboardHeight }
-    var debugKeyboardTargetTop: CGFloat {
-        surfaceView.hostedBottomDockFrame.maxY
-    }
     var debugTerminalDockPresentationGap: CGFloat {
         terminalDockPresentationGap
     }
