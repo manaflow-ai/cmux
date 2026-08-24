@@ -131,6 +131,21 @@ public final class MobilePushCoordinator {
     @ObservationIgnored private var replyRetryTask: Task<Void, Never>?
     @ObservationIgnored private let replyRetrySleep: @Sendable (Duration) async throws -> Void
     private static let replyRetryDelay: Duration = .seconds(5)
+    /// Held from the moment a reply parks until no reply is pending, so a
+    /// lock-screen reply's background wake survives past the notification
+    /// delegate's return long enough for the relay POST (and its bounded
+    /// retries) to complete. Without it iOS suspends the process within
+    /// seconds and the parked reply silently expires.
+    @ObservationIgnored private var replyBackgroundAssertion: BackgroundReplyRuntimeAssertion?
+    @ObservationIgnored private let backgroundRuntime: any BackgroundReplyRuntimeAsserting
+    /// Server relay for replies the phone cannot deliver directly: the
+    /// reliable lane for a backgrounded app, whose whole job is one HTTPS
+    /// POST. The Mac fetches and types the reply on its own schedule.
+    @ObservationIgnored private let replyRelay: any ReplyRelaying
+    @ObservationIgnored private let replyFailureNotifier: any ReplyFailureNoticing
+    /// Grace past ``PendingReplyState/lifetime`` so an in-flight final send
+    /// isn't raced by its own failure notice.
+    private static let replyFailureNoticeSlack: TimeInterval = 10
     /// The iOS API endpoint that accepted this installation's APNs token.
     public let phoneAPIOrigin: String
     /// Live OS authorization, refreshed at launch, on foreground, and when
@@ -209,12 +224,18 @@ public final class MobilePushCoordinator {
         replyRetrySleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await ContinuousClock().sleep(for: $0)
         },
+        backgroundRuntime: any BackgroundReplyRuntimeAsserting = SystemBackgroundReplyRuntime(),
+        replyRelay: any ReplyRelaying = NoopReplyRelay(),
+        replyFailureNotifier: any ReplyFailureNoticing = SystemReplyFailureNotifier(),
         notificationSettingsClock: any Clock<Duration> = ContinuousClock(),
         notificationSettingsTimeout: Duration = .seconds(5),
         authorizationRequestTimeout: Duration = .seconds(120)
     ) {
         self.registration = registration
         self.replyRetrySleep = replyRetrySleep
+        self.backgroundRuntime = backgroundRuntime
+        self.replyRelay = replyRelay
+        self.replyFailureNotifier = replyFailureNotifier
         self.notificationSettingsClock = notificationSettingsClock
         self.notificationSettingsTimeout = notificationSettingsTimeout
         self.authorizationRequestTimeout = authorizationRequestTimeout
@@ -1028,7 +1049,10 @@ public final class MobilePushCoordinator {
     ) async {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         diagnosticLog?.recordAppEvent(.pushReplyStarted)
+        let supersededReplyId = pendingReplyState.pending?.replyId
+        let replyId = UUID().uuidString
         pendingReplyState.park(PendingReply(
+            replyId: replyId,
             text: text,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
@@ -1037,6 +1061,20 @@ public final class MobilePushCoordinator {
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             createdAt: now()
         ))
+        // A lock-screen reply wakes the app in the BACKGROUND: hold runtime so
+        // the relay POST + retry ladder outlive the notification delegate, and
+        // pre-schedule the failure notice so even a process kill cannot turn a
+        // lost reply into silence. Both resolve when the reply does. Notices
+        // are keyed per reply id, so a superseded reply's notice is cancelled
+        // here and an older reply resolving can never void a newer notice.
+        beginReplyBackgroundAssertionIfNeeded()
+        await replyFailureNotifier.schedule(
+            after: PendingReplyState.lifetime + Self.replyFailureNoticeSlack,
+            replyId: replyId
+        )
+        if let supersededReplyId {
+            await replyFailureNotifier.cancel(replyId: supersededReplyId)
+        }
         await applyPendingReplyIfReady()
     }
 
@@ -1156,7 +1194,17 @@ public final class MobilePushCoordinator {
     }
 
     /// Applies the parked reply without mutating UI selection; later topology changes retry only unresolved prerequisites.
+    /// Also reconciles the reply background assertion: it is held exactly while
+    /// a reply is pending (or a send is in flight), so every resolution path —
+    /// sent, relayed, discarded, expired — releases the process back to iOS.
     private func applyPendingReplyIfReady() async {
+        await applyPendingReplyIfReadyCore()
+        if pendingReplyState.pending == nil, !replySendInFlight {
+            endReplyBackgroundAssertionIfHeld()
+        }
+    }
+
+    private func applyPendingReplyIfReadyCore() async {
         guard !replySendInFlight else { return }
         let initialDecision = pendingReplyState.evaluate(
             now: now(),
@@ -1180,7 +1228,7 @@ public final class MobilePushCoordinator {
             return
         }
 
-        guard let pending = pendingReplyState.pending, let store else { return }
+        guard let pending = pendingReplyState.pending else { return }
         guard let surfaceId = pending.surfaceId, !surfaceId.isEmpty else {
             pendingReplyState.discard()
             diagnosticLog?.recordAppEvent(
@@ -1188,6 +1236,18 @@ public final class MobilePushCoordinator {
                 failure: .protocolViolation
             )
             mobilePushLog.info("dropping inline reply without a surface id")
+            await replyFailureNotifier.deliverNow(replyId: pending.replyId)
+            return
+        }
+
+        // A backgrounded app is never asked to dial: the direct RPC lane is a
+        // fast path taken only when it can deliver RIGHT NOW. Everything else
+        // — no store yet (a store-less background wake), a target the local
+        // topology cannot resolve, a down or freshly-dead channel — hands the
+        // reply to the server relay in one HTTPS POST and lets the Mac fetch
+        // and type it.
+        guard let store else {
+            await relayPendingReply(pending)
             return
         }
 
@@ -1197,14 +1257,20 @@ public final class MobilePushCoordinator {
                 matchingRemoteWorkspaceID: workspaceId,
                 macDeviceID: pending.macDeviceId,
                 instanceTag: pending.macInstanceTag
-            ) else { return }
+            ) else {
+                await relayPendingReply(pending)
+                return
+            }
             workspaceTarget = resolved
         } else if pending.retargetsToLiveSurfaceOwner {
             guard let owner = store.workspaceID(
                 containingSurfaceID: surfaceId,
                 macDeviceID: pending.macDeviceId,
                 instanceTag: pending.macInstanceTag
-            ) else { return }
+            ) else {
+                await relayPendingReply(pending)
+                return
+            }
             workspaceTarget = owner
         } else {
             pendingReplyState.discard()
@@ -1213,6 +1279,7 @@ public final class MobilePushCoordinator {
                 failure: .protocolViolation
             )
             mobilePushLog.info("dropping confined inline reply without a workspace id")
+            await replyFailureNotifier.deliverNow(replyId: pending.replyId)
             return
         }
 
@@ -1223,12 +1290,10 @@ public final class MobilePushCoordinator {
                       macDeviceID: pending.macDeviceId,
                       instanceTag: pending.macInstanceTag
               ) else {
-                pendingReplyState.discard()
-                diagnosticLog?.recordAppEvent(
-                    .pushReplyFailed,
-                    failure: .noRoute
-                )
-                mobilePushLog.info("dropping inline reply because the target surface has no permitted live owner")
+                // The LOCAL topology says the target is gone, but a suspended
+                // snapshot is not authoritative — the Mac's resolution is.
+                // Relay and let the shared terminal.input path decide there.
+                await relayPendingReply(pending)
                 return
             }
             workspaceTarget = liveOwner
@@ -1245,11 +1310,8 @@ public final class MobilePushCoordinator {
                 mobilePushLog.info("dropping expired inline reply")
                 return
             }
-            // Channel not ready. A store/channel event retries immediately,
-            // but a channel that recovers without one would otherwise strand
-            // the reply until its lifetime expires — keep the bounded retry
-            // ladder armed while parked.
-            scheduleReplyRetry()
+            // Channel not usable right now; the relay does not wait for it.
+            await relayPendingReply(pending)
             return
         }
 
@@ -1262,12 +1324,10 @@ public final class MobilePushCoordinator {
         replySendInFlight = false
         if !sent {
             // A failed RPC send must not consume the reply: re-park it (with
-            // its original createdAt, so the 120 s lifetime still bounds the
-            // total retry window). A reply parked mid-send wins instead —
-            // latest user intent replaces the failed one. Store/channel
-            // readiness events retry immediately; the armed delay covers a
-            // transient failure whose topology never changes.
-            mobilePushLog.error("inline reply terminal input failed; re-parking for retry")
+            // its original createdAt, so the lifetime still bounds the total
+            // retry window; a reply parked mid-send wins instead), then hand
+            // it straight to the relay — the channel just proved unreliable.
+            mobilePushLog.error("inline reply terminal input failed; relaying")
             diagnosticLog?.recordAppEvent(
                 .pushReplyFailed,
                 failure: .connectionClosed
@@ -1275,13 +1335,78 @@ public final class MobilePushCoordinator {
             if pendingReplyState.pending == nil {
                 pendingReplyState.park(ready)
             }
-            scheduleReplyRetry()
+            await relayPendingReply(ready)
             return
         }
         replyRetryTask?.cancel()
         replyRetryTask = nil
         diagnosticLog?.recordAppEvent(.pushReplySucceeded)
+        // Per-reply notices: cancelling this reply's notice can never void a
+        // newer reply's.
+        await replyFailureNotifier.cancel(replyId: ready.replyId)
         await applyPendingReplyIfReady()
+    }
+
+    /// The reliable lane: park the reply in the presence worker's inbox with
+    /// one HTTPS POST; the Mac fetches and types it through the same shared
+    /// terminal.input path as a direct send. Consumes the reply on acceptance.
+    /// A reply whose push carried no Mac claim cannot be routed by the inbox
+    /// (and a Mac old enough to omit the claim cannot sweep it either), so it
+    /// stays parked for a late direct send within its lifetime.
+    private func relayPendingReply(_ pending: PendingReply) async {
+        guard let surfaceId = pending.surfaceId, !surfaceId.isEmpty else { return }
+        guard let macDeviceId = pending.macDeviceId, !macDeviceId.isEmpty else {
+            scheduleReplyRetry()
+            return
+        }
+        guard !replySendInFlight else { return }
+        replySendInFlight = true
+        let accepted = await replyRelay.relay(RelayedReply(
+            replyId: pending.replyId,
+            macDeviceId: macDeviceId,
+            workspaceId: pending.workspaceId,
+            surfaceId: surfaceId,
+            text: pending.text
+        ))
+        replySendInFlight = false
+        guard accepted else {
+            // Transient service failure: stay parked. The ladder re-runs the
+            // whole decision — direct first, relay again — within the
+            // reply's lifetime, and the pre-scheduled notice reports a reply
+            // that never leaves the phone.
+            mobilePushLog.error("inline reply relay POST failed; retrying on the ladder")
+            diagnosticLog?.recordAppEvent(
+                .pushReplyFailed,
+                failure: .connectionClosed
+            )
+            scheduleReplyRetry()
+            return
+        }
+        pendingReplyState.discardIfMatching(replyId: pending.replyId)
+        replyRetryTask?.cancel()
+        replyRetryTask = nil
+        diagnosticLog?.recordAppEvent(.pushReplySucceeded)
+        mobilePushLog.info("inline reply parked in the server relay inbox")
+        // Per-reply notices: cancelling this reply's notice can never void a
+        // newer reply's.
+        await replyFailureNotifier.cancel(replyId: pending.replyId)
+        await applyPendingReplyIfReady()
+    }
+
+    private func beginReplyBackgroundAssertionIfNeeded() {
+        guard replyBackgroundAssertion == nil else { return }
+        replyBackgroundAssertion = backgroundRuntime.begin { [weak self] in
+            // The system window is closing; release promptly. The reply stays
+            // parked — a foreground within its lifetime still delivers it, and
+            // the pre-scheduled failure notice reports it otherwise.
+            self?.endReplyBackgroundAssertionIfHeld()
+        }
+    }
+
+    private func endReplyBackgroundAssertionIfHeld() {
+        guard let assertion = replyBackgroundAssertion else { return }
+        replyBackgroundAssertion = nil
+        backgroundRuntime.end(assertion)
     }
 
     /// Arms one delayed `applyPendingReplyIfReady` pass (see `replyRetryTask`).

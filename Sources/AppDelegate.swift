@@ -1947,6 +1947,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if TelemetrySettings.enabledForCurrentLaunch && !isRunningUnderXCTestCached {
             PostHogAnalytics.shared.trackActive(reason: "didBecomeActive")
         }
+        // A Mac that slept through the reply nudge picks parked replies up here.
+        PhoneReplyInboxCoordinator.shared.sweepSoon(reason: "app-activation")
 
         guard let notificationStore else { return }
         notificationStore.handleApplicationDidBecomeActive()
@@ -2344,6 +2346,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
+        PhoneReplyInboxClient.shared.configure(auth: auth.coordinator)
+        PhoneReplyInboxCoordinator.shared.configure(client: PhoneReplyInboxClient.shared)
+        // Relayed phone replies type through the SAME entrypoint as the phone's
+        // direct RPC sends, so both lanes share claim resolution and injection.
+        PhoneReplyInboxCoordinator.shared.injectTerminalInput = { params in
+            switch TerminalController.shared.v2MobileTerminalInput(params: params) {
+            case .ok:
+                return .delivered
+            case .err(let code, _, _):
+                // `not_found` is transient here, not proof the target is gone:
+                // the sweep can run while session restore is still loading the
+                // claimed workspace. Retrying is bounded by the reply's
+                // server-side TTL, so a truly-deleted surface ages out instead
+                // of silently discarding the user's reply on first sight.
+                return code == "input_queue_full"
+                    || code == "surface_unavailable"
+                    || code == "not_found"
+                    ? .retryable
+                    : .permanentlyUndeliverable
+            }
+        }
         connectivityInvalidationSubscriberCoordinator.configure(auth: auth.coordinator)
         // DEV-only: auto-publish this Mac's attach route to the signed-in user's
         // pairedMacs backup so a fresh dev iOS build restores it (no manual host

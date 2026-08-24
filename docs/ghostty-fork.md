@@ -12,13 +12,13 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `61c4d1f02`, on the fork branch
+The submodule pinned by this branch is `466f85867`, on the fork branch
 `issue-10557-reload-config-stall`. It lets an embedded host commit app-scoped
 configuration without synchronously propagating it to every surface and fixes
 Fish SSH integration when only one forwarding feature is enabled. Its tree is
-current parent-main Ghostty pin `3da10da73` plus those two feature commits; it
-does not retain the renderer commits that parent main subsequently rewound. It
-includes the prior fork changes below, including the tokened iOS render work at
+current parent-main Ghostty pin `b17f1726f` plus those two feature commits,
+including the renderer updates that parent main reintroduced. It includes the
+prior fork changes below, including the tokened iOS render work at
 `3da10da73`, VT formatter cursor restoration at `f76c132e5`, VT
 stream-boundary visibility at `9513174f2`, and Hangul canonical font resolution
 at `3fbdd078d`.
@@ -28,19 +28,15 @@ at `3fbdd078d`.
 - Branch:
   - https://github.com/manaflow-ai/ghostty/tree/issue-10557-reload-config-stall
 - Commit:
-  - `61c4d1f02` (revert the superseded fork-main merge)
+  - `466f85867` (reapply the fork-main merge after main restored it)
 - Summary:
   - Preserves incremental embedded configuration propagation and Fish SSH
-    feature gating on top of the parent repository's `3da10da73` pin.
-  - Removes the renderer changes from the earlier `8ae680da5` merge after
-    parent main intentionally rewound those commits.
+    feature gating on top of the parent repository's `b17f1726f` pin.
+  - Restores the renderer changes from the earlier `8ae680da5` merge after
+    parent main reintroduced those commits in PR #10595.
 - Verification:
   - Universal ReleaseFast GhosttyKit build with native Sentry disabled.
   - `tests/test_issue_8093_ghostty_ssh_binary_path.py` with Fish 4.6.0.
-- Artifact:
-  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-61c4d1f02071d0a7c41653e9e4fd84586e730a6c-crashsubdir-cmux-crash-sentry-off-v1
-  - SHA-256 `edcf708fd9102931ba0690537b96938ca27d2aab51d5b6055fb7faa58b294846`
-    is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Fish SSH feature gating
 
