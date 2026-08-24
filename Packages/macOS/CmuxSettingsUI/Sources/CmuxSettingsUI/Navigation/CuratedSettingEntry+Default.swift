@@ -365,6 +365,7 @@ extension Array where Element == CuratedSettingEntry {
                 id: "capture-keyboard-shortcuts",
                 title: String(localized: "settings.browser.captureKeyboardShortcuts", defaultValue: "Allow Browser to Capture Keyboard Shortcuts"),
                 detailText: String(localized: "settings.browser.captureKeyboardShortcuts.subtitle", defaultValue: "When enabled, focused web pages receive shortcuts that would otherwise trigger cmux actions."),
+                paths: ["browser.captureKeyboardShortcuts"],
                 synonyms: String(localized: "settings.search.alias.setting.browser.capture-keyboard-shortcuts", defaultValue: "browser.captureKeyboardShortcuts browser web page keyboard shortcuts capture cmux vscode command p focus")
             ),
             .init(section: .browser, id: "terminal-links", title: "Open Terminal Links in cmux Browser", synonyms: "browser.openTerminalLinksInCmuxBrowser click url terminal links open in browser href"),
