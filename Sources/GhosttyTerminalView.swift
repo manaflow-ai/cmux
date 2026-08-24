@@ -11963,8 +11963,25 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeScrollbarAppearance()
 
         // Retile just the scroll view so contentSize reflects the current
-        // scroller preference without perturbing hosted terminal geometry.
+        // scroller preference. Update the hosted surface/document frames through
+        // the same narrow path instead of running the full pane reconciliation,
+        // which can perturb split-layout overlays during a system preference
+        // change.
         scrollView.tile()
+        synchronizeTerminalGeometryAfterScrollerStyleChange()
+    }
+
+    private func synchronizeTerminalGeometryAfterScrollerStyleChange() {
+        scrollView.layoutSubtreeIfNeeded()
+        let targetSize = scrollView.bounds.size
+        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
+        _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
+        let targetDocumentFrame = CGRect(
+            origin: documentView.frame.origin,
+            size: CGSize(width: scrollView.bounds.width, height: documentView.frame.height)
+        )
+        _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
+        synchronizeSurfaceView()
         _ = synchronizeCoreSurface()
     }
 

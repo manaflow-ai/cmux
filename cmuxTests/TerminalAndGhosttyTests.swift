@@ -4925,7 +4925,14 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
 
         NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(
+            waitUntil(description: "legacy terminal scrollbar geometry") {
+                scrollView.scrollerStyle == .legacy &&
+                    hostedView.debugPendingSurfaceSize().map {
+                        abs($0.width - legacyContentWidth) <= 0.5
+                    } == true
+            }
+        )
 
         let preservedLegacyContentWidth = scrollView.contentSize.width
         XCTAssertEqual(scrollView.scrollerStyle, .legacy)
@@ -4961,7 +4968,14 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
 
         NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(
+            waitUntil(description: "overlay terminal scrollbar geometry") {
+                scrollView.scrollerStyle == .overlay &&
+                    hostedView.debugPendingSurfaceSize().map {
+                        abs($0.width - overlayContentWidth) <= 0.5
+                    } == true
+            }
+        )
 
         XCTAssertEqual(scrollView.scrollerStyle, .overlay)
         assertPendingSurfaceWidth(
