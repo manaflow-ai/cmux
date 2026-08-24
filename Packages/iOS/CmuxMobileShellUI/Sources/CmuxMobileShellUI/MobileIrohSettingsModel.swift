@@ -247,15 +247,23 @@ final class MobileIrohSettingsModel {
         }
     }
 
-    func removeCustomPrivatePath(macDeviceID: String) {
+    func removeCustomPrivatePath(
+        macDeviceID: String,
+        instanceTag: String?
+    ) {
+        let identity = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
         mutate(
             started: .irohPrivatePathRemoveStarted,
             succeeded: .irohPrivatePathRemoveSucceeded,
             failed: .irohPrivatePathRemoveFailed,
-            correlationID: macDeviceID
+            correlationID: identity.id
         ) {
             try await self.controller.removeIrohCustomPrivatePath(
-                macDeviceID: macDeviceID
+                macDeviceID: identity.macDeviceID,
+                instanceTag: identity.instanceTag
             )
         }
     }

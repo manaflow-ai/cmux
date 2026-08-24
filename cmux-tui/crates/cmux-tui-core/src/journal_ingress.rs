@@ -1905,27 +1905,50 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn shutdown_is_bounded_when_a_descendant_keeps_the_pty_open() {
+        use std::os::unix::fs::OpenOptionsExt as _;
+
         let root = std::env::temp_dir().join(format!(
             "cmux-terminal-descendant-shutdown-{}-{}",
             std::process::id(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         let descendant_pid_path = root.join("descendant.pid");
+        let release_gate_path = root.join("descendant.release");
+        let release_ready_path = root.join("descendant.release-ready");
         let mux = Mux::open_persistent(
             "terminal-descendant-shutdown",
             crate::SurfaceOptions::default(),
             &root,
         )
         .unwrap();
+        let release_gate_path_c = std::ffi::CString::new(std::os::unix::ffi::OsStrExt::as_bytes(
+            release_gate_path.as_os_str(),
+        ))
+        .unwrap();
+        assert_eq!(
+            unsafe { libc::mkfifo(release_gate_path_c.as_ptr(), 0o600) },
+            0,
+            "failed to create descendant release gate: {}",
+            io::Error::last_os_error()
+        );
+        let release_gate_reader = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&release_gate_path)
+            .unwrap();
+        let mut release_gate =
+            std::fs::OpenOptions::new().write(true).open(&release_gate_path).unwrap();
         let surface = crate::Surface::spawn(
             1,
             crate::SurfaceOptions {
                 command: Some(vec![
                     "/bin/sh".into(),
                     "-c".into(),
-                    "stty -echo; printf input-ready; read ready; sleep 30 & echo $! > \"$1\"; printf detached-ready; exit 0".into(),
+                    "stty -echo; printf input-ready; read ready; /bin/sh -c 'exec 3<\"$1\"; : > \"$2\"; read release <&3' cmux-descendant \"$2\" \"$3\" & echo $! > \"$1\"; printf detached-ready; exit 0".into(),
                     "cmux-shutdown-test".into(),
                     descendant_pid_path.to_string_lossy().into_owned(),
+                    release_gate_path.to_string_lossy().into_owned(),
+                    release_ready_path.to_string_lossy().into_owned(),
                 ]),
                 ..crate::SurfaceOptions::default()
             },
@@ -1968,11 +1991,15 @@ mod tests {
                 "descendant fixture did not publish its pid"
             );
         }
-        let descendant_pid = std::fs::read_to_string(&descendant_pid_path)
-            .unwrap()
-            .trim()
-            .parse::<libc::pid_t>()
-            .unwrap();
+        assert!(
+            !std::fs::read_to_string(&descendant_pid_path).unwrap().trim().is_empty(),
+            "descendant fixture did not publish its pid"
+        );
+        let ready_deadline = Instant::now() + Duration::from_secs(5);
+        while !release_ready_path.exists() && Instant::now() < ready_deadline {
+            std::thread::yield_now();
+        }
+        assert!(release_ready_path.exists(), "descendant did not open the release gate");
 
         let started = Instant::now();
         mux.shutdown();
@@ -1981,16 +2008,12 @@ mod tests {
             "shutdown waited without a bound for a descendant-held PTY"
         );
 
-        if unsafe { libc::kill(descendant_pid, libc::SIGKILL) } != 0 {
-            assert_eq!(
-                io::Error::last_os_error().raw_os_error(),
-                Some(libc::ESRCH),
-                "descendant cleanup failed"
-            );
-        }
+        std::io::Write::write_all(&mut release_gate, b"release\n").unwrap();
+        drop(release_gate);
+        drop(release_gate_reader);
         assert!(
             surface.wait_for_terminal_reader_for_test(Instant::now() + Duration::from_secs(5)),
-            "terminal reader did not signal descendant cleanup"
+            "terminal reader did not finish after the descendant release"
         );
         assert!(surface.is_dead(), "terminal reader did not stop after descendant cleanup");
         drop(surface);

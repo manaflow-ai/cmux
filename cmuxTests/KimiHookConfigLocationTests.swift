@@ -13,129 +13,249 @@ struct KimiHookConfigLocationTests {
         let timedOut: Bool
     }
 
-    @Test("Setup writes the default Kimi config file")
-    func setupWritesDefaultKimiConfigFile() throws {
+    @Test("Setup targets the Kimi Code config when only it exists")
+    func setupTargetsKimiCodeConfigWhenOnlyItExists() throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
-        let currentConfig = fixture.home
-            .appendingPathComponent(".kimi", isDirectory: true)
-            .appendingPathComponent("config.toml", isDirectory: false)
-        let legacyConfig = fixture.home
-            .appendingPathComponent(".kimi-code", isDirectory: true)
-            .appendingPathComponent("config.toml", isDirectory: false)
-        try FileManager.default.createDirectory(
-            at: currentConfig.deletingLastPathComponent(),
-            withIntermediateDirectories: true
+        let kimiCodeConfig = try fixture.seedConfig(
+            directory: ".kimi-code",
+            content: Self.userHookContent(command: "orca")
         )
-        let result = try runCLI(
-            arguments: ["hooks", "setup", "kimi", "--yes"],
-            fixture: fixture
-        )
+        let kimiCliConfig = fixture.configURL(directory: ".kimi")
+
+        let result = try runCLI(arguments: ["hooks", "setup", "kimi", "--yes"], fixture: fixture)
 
         #expect(!result.timedOut, Comment(rawValue: result.output))
         #expect(result.status == 0, Comment(rawValue: result.output))
-        #expect(FileManager.default.fileExists(atPath: currentConfig.path), Comment(rawValue: result.output))
-        #expect(!FileManager.default.fileExists(atPath: legacyConfig.path), Comment(rawValue: result.output))
-        let installed = try String(contentsOf: currentConfig, encoding: .utf8)
-        #expect(installed.contains("hooks kimi stop"))
+        #expect(!FileManager.default.fileExists(atPath: kimiCliConfig.path), Comment(rawValue: result.output))
+        let installed = try String(contentsOf: kimiCodeConfig, encoding: .utf8)
+        #expect(installed.contains("hooks kimi stop"), Comment(rawValue: result.output))
+        #expect(installed.contains(#"command = "orca""#), Comment(rawValue: result.output))
         #expect(installed.contains(#"event = "Notification""#))
         #expect(!installed.contains(#"event = "PermissionRequest""#))
         #expect(!installed.contains(#"event = "Interrupt""#))
     }
 
-    @Test("Setup honors KIMI_SHARE_DIR and cleans the legacy cmux block")
-    func setupHonorsShareDirectoryAndCleansLegacyBlock() throws {
+    @Test("Setup targets the Kimi CLI config when only it exists")
+    func setupTargetsKimiCliConfigWhenOnlyItExists() throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
-        let currentDirectory = fixture.root.appendingPathComponent("current-kimi", isDirectory: true)
-        let legacyDirectory = fixture.root.appendingPathComponent("legacy-kimi", isDirectory: true)
-        try FileManager.default.createDirectory(at: currentDirectory, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
-
-        let currentUserContent = Self.userHookContent(command: "vibe-island")
-        let legacyUserContent = Self.userHookContent(command: "orca")
-        let legacyWithCmuxBlock = Self.installingCmuxBlock(in: legacyUserContent)
-        let currentConfig = currentDirectory.appendingPathComponent("config.toml", isDirectory: false)
-        let legacyConfig = legacyDirectory.appendingPathComponent("config.toml", isDirectory: false)
-        try currentUserContent.write(to: currentConfig, atomically: true, encoding: .utf8)
-        try legacyWithCmuxBlock.write(to: legacyConfig, atomically: true, encoding: .utf8)
-
-        let result = try runCLI(
-            arguments: ["hooks", "setup", "kimi", "--yes"],
-            fixture: fixture,
-            environmentOverrides: [
-                "KIMI_SHARE_DIR": currentDirectory.path,
-                "KIMI_CODE_HOME": legacyDirectory.path,
-            ]
+        let kimiCliConfig = try fixture.seedConfig(
+            directory: ".kimi",
+            content: Self.userHookContent(command: "vibe-island")
         )
+        let kimiCodeConfig = fixture.configURL(directory: ".kimi-code")
+
+        let result = try runCLI(arguments: ["hooks", "setup", "kimi", "--yes"], fixture: fixture)
 
         #expect(!result.timedOut, Comment(rawValue: result.output))
         #expect(result.status == 0, Comment(rawValue: result.output))
-        let installed = try String(contentsOf: currentConfig, encoding: .utf8)
-        let migratedLegacy = try String(contentsOf: legacyConfig, encoding: .utf8)
-        #expect(installed.contains(#"command = "vibe-island""#))
-        #expect(installed.contains("hooks kimi stop"))
-        #expect(migratedLegacy == legacyUserContent)
-    }
-
-    @Test("Setup succeeds when the legacy Kimi config cannot be read")
-    func setupSucceedsWhenLegacyConfigCannotBeRead() throws {
-        let fixture = try makeFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
-
-        let currentDirectory = fixture.root.appendingPathComponent("current-kimi", isDirectory: true)
-        let legacyDirectory = fixture.root.appendingPathComponent("legacy-kimi", isDirectory: true)
-        try FileManager.default.createDirectory(at: currentDirectory, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
-
-        let currentConfig = currentDirectory.appendingPathComponent("config.toml", isDirectory: false)
-        let legacyConfig = legacyDirectory.appendingPathComponent("config.toml", isDirectory: false)
-        try FileManager.default.createDirectory(at: legacyConfig, withIntermediateDirectories: true)
-
-        let result = try runCLI(
-            arguments: ["hooks", "setup", "kimi", "--yes"],
-            fixture: fixture,
-            environmentOverrides: [
-                "KIMI_SHARE_DIR": currentDirectory.path,
-                "KIMI_CODE_HOME": legacyDirectory.path,
-            ]
-        )
-
-        #expect(!result.timedOut, Comment(rawValue: result.output))
-        #expect(result.status == 0, Comment(rawValue: result.output))
-        #expect(try String(contentsOf: currentConfig, encoding: .utf8).contains("hooks kimi stop"))
-        #expect(result.output.contains(legacyConfig.path))
-    }
-
-    @Test("Setup does not clean the active Kimi config through a legacy symlink")
-    func setupDoesNotCleanActiveConfigThroughLegacySymlink() throws {
-        let fixture = try makeFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
-
-        let currentDirectory = fixture.root.appendingPathComponent("current-kimi", isDirectory: true)
-        let legacyDirectory = fixture.root.appendingPathComponent("legacy-kimi", isDirectory: true)
-        try FileManager.default.createDirectory(at: currentDirectory, withIntermediateDirectories: true)
-        try FileManager.default.createSymbolicLink(
-            at: legacyDirectory,
-            withDestinationURL: currentDirectory
-        )
-
-        let currentConfig = currentDirectory.appendingPathComponent("config.toml", isDirectory: false)
-        let result = try runCLI(
-            arguments: ["hooks", "setup", "kimi", "--yes"],
-            fixture: fixture,
-            environmentOverrides: [
-                "KIMI_SHARE_DIR": currentDirectory.path,
-                "KIMI_CODE_HOME": legacyDirectory.path,
-            ]
-        )
-
-        #expect(!result.timedOut, Comment(rawValue: result.output))
-        #expect(result.status == 0, Comment(rawValue: result.output))
-        let installed = try String(contentsOf: currentConfig, encoding: .utf8)
+        #expect(!FileManager.default.fileExists(atPath: kimiCodeConfig.path), Comment(rawValue: result.output))
+        let installed = try String(contentsOf: kimiCliConfig, encoding: .utf8)
         #expect(installed.contains("hooks kimi stop"), Comment(rawValue: result.output))
+        #expect(installed.contains(#"command = "vibe-island""#), Comment(rawValue: result.output))
+    }
+
+    @Test("Setup prefers the Kimi Code config and keeps the Kimi CLI block installed")
+    func setupPrefersKimiCodeAndRefreshesKimiCliBlock() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let kimiCodeConfig = try fixture.seedConfig(
+            directory: ".kimi-code",
+            content: Self.userHookContent(command: "orca")
+        )
+        let kimiCliConfig = try fixture.seedConfig(
+            directory: ".kimi",
+            content: Self.installingCmuxBlock(in: Self.userHookContent(command: "vibe-island"))
+        )
+
+        let result = try runCLI(arguments: ["hooks", "setup", "kimi", "--yes"], fixture: fixture)
+
+        #expect(!result.timedOut, Comment(rawValue: result.output))
+        #expect(result.status == 0, Comment(rawValue: result.output))
+        let installed = try String(contentsOf: kimiCodeConfig, encoding: .utf8)
+        let secondary = try String(contentsOf: kimiCliConfig, encoding: .utf8)
+        #expect(installed.contains("hooks kimi stop"), Comment(rawValue: result.output))
+        #expect(installed.contains(#"command = "orca""#), Comment(rawValue: result.output))
+        #expect(secondary.contains("hooks kimi stop"), Comment(rawValue: result.output))
+        #expect(secondary.contains(#"command = "vibe-island""#), Comment(rawValue: result.output))
+    }
+
+    @Test("Setup leaves a secondary config without a cmux block untouched")
+    func setupLeavesSecondaryConfigWithoutCmuxBlockUntouched() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let secondaryContent = Self.userHookContent(command: "vibe-island")
+        let kimiCodeConfig = try fixture.seedConfig(
+            directory: ".kimi-code",
+            content: Self.userHookContent(command: "orca")
+        )
+        let kimiCliConfig = try fixture.seedConfig(directory: ".kimi", content: secondaryContent)
+
+        let result = try runCLI(arguments: ["hooks", "setup", "kimi", "--yes"], fixture: fixture)
+
+        #expect(!result.timedOut, Comment(rawValue: result.output))
+        #expect(result.status == 0, Comment(rawValue: result.output))
+        #expect(
+            try String(contentsOf: kimiCodeConfig, encoding: .utf8).contains("hooks kimi stop"),
+            Comment(rawValue: result.output)
+        )
+        #expect(
+            try String(contentsOf: kimiCliConfig, encoding: .utf8) == secondaryContent,
+            Comment(rawValue: result.output)
+        )
+    }
+
+    @Test("Setup uses the config path the installed Kimi binary reports")
+    func setupUsesConfigPathReportedByKimiBinary() throws {
+        let probedDirectory = "probed-kimi"
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let probedConfig = fixture.root
+            .appendingPathComponent(probedDirectory, isDirectory: true)
+            .appendingPathComponent("config.toml", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: probedConfig.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try fixture.setDoctorOutput(Self.doctorReport(configPath: probedConfig.path))
+
+        let kimiCodeContent = Self.userHookContent(command: "orca")
+        let kimiCodeConfig = try fixture.seedConfig(directory: ".kimi-code", content: kimiCodeContent)
+
+        let result = try runCLI(arguments: ["hooks", "setup", "kimi", "--yes"], fixture: fixture)
+
+        #expect(!result.timedOut, Comment(rawValue: result.output))
+        #expect(result.status == 0, Comment(rawValue: result.output))
+        #expect(
+            try String(contentsOf: probedConfig, encoding: .utf8).contains("hooks kimi stop"),
+            Comment(rawValue: result.output)
+        )
+        #expect(
+            try String(contentsOf: kimiCodeConfig, encoding: .utf8) == kimiCodeContent,
+            Comment(rawValue: result.output)
+        )
+    }
+
+    @Test("Setup falls back to a well-known config when the reported path is unusable")
+    func setupFallsBackWhenReportedPathIsUnusable() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let missingConfig = fixture.root
+            .appendingPathComponent("never-created", isDirectory: true)
+            .appendingPathComponent("config.toml", isDirectory: false)
+        try fixture.setDoctorOutput(Self.doctorReport(configPath: missingConfig.path))
+        let kimiCodeConfig = try fixture.seedConfig(
+            directory: ".kimi-code",
+            content: Self.userHookContent(command: "orca")
+        )
+
+        let result = try runCLI(arguments: ["hooks", "setup", "kimi", "--yes"], fixture: fixture)
+
+        #expect(!result.timedOut, Comment(rawValue: result.output))
+        #expect(result.status == 0, Comment(rawValue: result.output))
+        #expect(!FileManager.default.fileExists(atPath: missingConfig.path), Comment(rawValue: result.output))
+        #expect(
+            try String(contentsOf: kimiCodeConfig, encoding: .utf8).contains("hooks kimi stop"),
+            Comment(rawValue: result.output)
+        )
+    }
+
+    @Test("Setup honors KIMI_CODE_HOME and keeps the Kimi CLI block installed")
+    func setupHonorsKimiCodeHomeAndKeepsKimiCliBlock() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let kimiCodeDirectory = try fixture.makeDirectory(named: "kimi-code-home")
+        let kimiCliDirectory = try fixture.makeDirectory(named: "kimi-share-dir")
+        let kimiCodeConfig = kimiCodeDirectory.appendingPathComponent("config.toml", isDirectory: false)
+        let kimiCliConfig = kimiCliDirectory.appendingPathComponent("config.toml", isDirectory: false)
+        try Self.userHookContent(command: "orca")
+            .write(to: kimiCodeConfig, atomically: true, encoding: .utf8)
+        try Self.installingCmuxBlock(in: Self.userHookContent(command: "vibe-island"))
+            .write(to: kimiCliConfig, atomically: true, encoding: .utf8)
+
+        let result = try runCLI(
+            arguments: ["hooks", "setup", "kimi", "--yes"],
+            fixture: fixture,
+            environmentOverrides: [
+                "KIMI_CODE_HOME": kimiCodeDirectory.path,
+                "KIMI_SHARE_DIR": kimiCliDirectory.path,
+            ]
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.output))
+        #expect(result.status == 0, Comment(rawValue: result.output))
+        let installed = try String(contentsOf: kimiCodeConfig, encoding: .utf8)
+        let secondary = try String(contentsOf: kimiCliConfig, encoding: .utf8)
+        #expect(installed.contains("hooks kimi stop"), Comment(rawValue: result.output))
+        #expect(installed.contains(#"command = "orca""#), Comment(rawValue: result.output))
+        #expect(secondary.contains("hooks kimi stop"), Comment(rawValue: result.output))
+        #expect(secondary.contains(#"command = "vibe-island""#), Comment(rawValue: result.output))
+    }
+
+    @Test("Setup succeeds when a secondary Kimi config cannot be read")
+    func setupSucceedsWhenSecondaryConfigCannotBeRead() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let kimiCodeDirectory = try fixture.makeDirectory(named: "kimi-code-home")
+        let kimiCliDirectory = try fixture.makeDirectory(named: "kimi-share-dir")
+        let kimiCodeConfig = kimiCodeDirectory.appendingPathComponent("config.toml", isDirectory: false)
+        let kimiCliConfig = kimiCliDirectory.appendingPathComponent("config.toml", isDirectory: false)
+        try FileManager.default.createDirectory(at: kimiCliConfig, withIntermediateDirectories: true)
+
+        let result = try runCLI(
+            arguments: ["hooks", "setup", "kimi", "--yes"],
+            fixture: fixture,
+            environmentOverrides: [
+                "KIMI_CODE_HOME": kimiCodeDirectory.path,
+                "KIMI_SHARE_DIR": kimiCliDirectory.path,
+            ]
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.output))
+        #expect(result.status == 0, Comment(rawValue: result.output))
+        #expect(
+            try String(contentsOf: kimiCodeConfig, encoding: .utf8).contains("hooks kimi stop"),
+            Comment(rawValue: result.output)
+        )
+        #expect(result.output.contains(kimiCliConfig.path), Comment(rawValue: result.output))
+    }
+
+    @Test("Setup writes one block when both Kimi paths resolve to the same directory")
+    func setupWritesOneBlockThroughSymlinkedConfigDirectory() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let kimiCodeDirectory = try fixture.makeDirectory(named: "kimi-code-home")
+        let kimiCliDirectory = fixture.root.appendingPathComponent("kimi-share-dir", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: kimiCliDirectory, withDestinationURL: kimiCodeDirectory)
+        let kimiCodeConfig = kimiCodeDirectory.appendingPathComponent("config.toml", isDirectory: false)
+
+        let result = try runCLI(
+            arguments: ["hooks", "setup", "kimi", "--yes"],
+            fixture: fixture,
+            environmentOverrides: [
+                "KIMI_CODE_HOME": kimiCodeDirectory.path,
+                "KIMI_SHARE_DIR": kimiCliDirectory.path,
+            ]
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.output))
+        #expect(result.status == 0, Comment(rawValue: result.output))
+        let installed = try String(contentsOf: kimiCodeConfig, encoding: .utf8)
+        #expect(installed.contains("hooks kimi stop"), Comment(rawValue: result.output))
+        #expect(
+            installed.components(separatedBy: #"event = "Stop""#).count == 2,
+            Comment(rawValue: installed)
+        )
     }
 
     @Test("Declining setup previews and preserves both Kimi configs")
@@ -143,148 +263,114 @@ struct KimiHookConfigLocationTests {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
-        let currentDirectory = fixture.root.appendingPathComponent("current-kimi", isDirectory: true)
-        let legacyDirectory = fixture.root.appendingPathComponent("legacy-kimi", isDirectory: true)
-        try FileManager.default.createDirectory(at: currentDirectory, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
-
-        let currentContent = Self.userHookContent(command: "vibe-island")
-        let legacyContent = Self.installingCmuxBlock(in: Self.userHookContent(command: "orca"))
-        let currentConfig = currentDirectory.appendingPathComponent("config.toml", isDirectory: false)
-        let legacyConfig = legacyDirectory.appendingPathComponent("config.toml", isDirectory: false)
-        try currentContent.write(to: currentConfig, atomically: true, encoding: .utf8)
-        try legacyContent.write(to: legacyConfig, atomically: true, encoding: .utf8)
+        let kimiCodeContent = Self.userHookContent(command: "orca")
+        let kimiCliContent = Self.installingCmuxBlock(in: Self.userHookContent(command: "vibe-island"))
+        let kimiCodeConfig = try fixture.seedConfig(directory: ".kimi-code", content: kimiCodeContent)
+        let kimiCliConfig = try fixture.seedConfig(directory: ".kimi", content: kimiCliContent)
 
         let result = try runCLI(
             arguments: ["hooks", "setup", "kimi"],
             fixture: fixture,
-            environmentOverrides: [
-                "KIMI_SHARE_DIR": currentDirectory.path,
-                "KIMI_CODE_HOME": legacyDirectory.path,
-            ],
             standardInput: "n\n"
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.output))
         #expect(result.status == 0, Comment(rawValue: result.output))
-        #expect(try String(contentsOf: currentConfig, encoding: .utf8) == currentContent)
-        #expect(try String(contentsOf: legacyConfig, encoding: .utf8) == legacyContent)
-        #expect(result.output.contains(currentConfig.path))
-        #expect(result.output.contains(legacyConfig.path))
+        #expect(try String(contentsOf: kimiCodeConfig, encoding: .utf8) == kimiCodeContent)
+        #expect(try String(contentsOf: kimiCliConfig, encoding: .utf8) == kimiCliContent)
+        #expect(result.output.contains(kimiCodeConfig.path), Comment(rawValue: result.output))
     }
 
-    @Test("Declining legacy cleanup preserves an up-to-date active Kimi config")
-    func decliningLegacyCleanupPreservesCurrentConfigs() throws {
+    @Test("Uninstall removes cmux blocks from both Kimi configs")
+    func uninstallRemovesBlocksFromBothConfigs() throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
-        let currentDirectory = fixture.root.appendingPathComponent("current-kimi", isDirectory: true)
-        let legacyDirectory = fixture.root.appendingPathComponent("legacy-kimi", isDirectory: true)
-        try FileManager.default.createDirectory(at: currentDirectory, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
-
-        let currentConfig = currentDirectory.appendingPathComponent("config.toml", isDirectory: false)
-        let legacyConfig = legacyDirectory.appendingPathComponent("config.toml", isDirectory: false)
-        let environment = [
-            "KIMI_SHARE_DIR": currentDirectory.path,
-            "KIMI_CODE_HOME": legacyDirectory.path,
-        ]
-        let seedResult = try runCLI(
-            arguments: ["hooks", "setup", "kimi", "--yes"],
-            fixture: fixture,
-            environmentOverrides: environment
+        let kimiCodeContent = Self.userHookContent(command: "orca")
+        let kimiCliContent = Self.userHookContent(command: "vibe-island")
+        let kimiCodeConfig = try fixture.seedConfig(
+            directory: ".kimi-code",
+            content: Self.installingCmuxBlock(in: kimiCodeContent)
         )
-        #expect(seedResult.status == 0, Comment(rawValue: seedResult.output))
-        let currentContent = try String(contentsOf: currentConfig, encoding: .utf8)
-        let legacyContent = Self.installingCmuxBlock(in: Self.userHookContent(command: "orca"))
-        try legacyContent.write(to: legacyConfig, atomically: true, encoding: .utf8)
-
-        let result = try runCLI(
-            arguments: ["hooks", "setup", "kimi"],
-            fixture: fixture,
-            environmentOverrides: environment,
-            standardInput: "n\n"
+        let kimiCliConfig = try fixture.seedConfig(
+            directory: ".kimi",
+            content: Self.installingCmuxBlock(in: kimiCliContent)
         )
+
+        let result = try runCLI(arguments: ["hooks", "uninstall", "kimi", "--yes"], fixture: fixture)
 
         #expect(!result.timedOut, Comment(rawValue: result.output))
         #expect(result.status == 0, Comment(rawValue: result.output))
-        #expect(try String(contentsOf: currentConfig, encoding: .utf8) == currentContent)
-        #expect(try String(contentsOf: legacyConfig, encoding: .utf8) == legacyContent)
-        #expect(result.output.contains(legacyConfig.path))
+        #expect(try String(contentsOf: kimiCodeConfig, encoding: .utf8) == kimiCodeContent)
+        #expect(try String(contentsOf: kimiCliConfig, encoding: .utf8) == kimiCliContent)
     }
 
-    @Test("Uninstall removes cmux blocks from current and legacy Kimi configs")
-    func uninstallRemovesCurrentAndLegacyBlocks() throws {
+    @Test("Uninstall succeeds when a secondary Kimi config cannot be read")
+    func uninstallSucceedsWhenSecondaryConfigCannotBeRead() throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
-        let currentDirectory = fixture.root.appendingPathComponent("current-kimi", isDirectory: true)
-        let legacyDirectory = fixture.root.appendingPathComponent("legacy-kimi", isDirectory: true)
-        try FileManager.default.createDirectory(at: currentDirectory, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
-
-        let currentUserContent = Self.userHookContent(command: "vibe-island")
-        let legacyUserContent = Self.userHookContent(command: "orca")
-        let currentConfig = currentDirectory.appendingPathComponent("config.toml", isDirectory: false)
-        let legacyConfig = legacyDirectory.appendingPathComponent("config.toml", isDirectory: false)
-        try Self.installingCmuxBlock(in: currentUserContent)
-            .write(to: currentConfig, atomically: true, encoding: .utf8)
-        try Self.installingCmuxBlock(in: legacyUserContent)
-            .write(to: legacyConfig, atomically: true, encoding: .utf8)
+        let kimiCodeDirectory = try fixture.makeDirectory(named: "kimi-code-home")
+        let kimiCliDirectory = try fixture.makeDirectory(named: "kimi-share-dir")
+        let kimiCodeContent = Self.userHookContent(command: "orca")
+        let kimiCodeConfig = kimiCodeDirectory.appendingPathComponent("config.toml", isDirectory: false)
+        let kimiCliConfig = kimiCliDirectory.appendingPathComponent("config.toml", isDirectory: false)
+        try Self.installingCmuxBlock(in: kimiCodeContent)
+            .write(to: kimiCodeConfig, atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: kimiCliConfig, withIntermediateDirectories: true)
 
         let result = try runCLI(
             arguments: ["hooks", "uninstall", "kimi", "--yes"],
             fixture: fixture,
             environmentOverrides: [
-                "KIMI_SHARE_DIR": currentDirectory.path,
-                "KIMI_CODE_HOME": legacyDirectory.path,
+                "KIMI_CODE_HOME": kimiCodeDirectory.path,
+                "KIMI_SHARE_DIR": kimiCliDirectory.path,
             ]
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.output))
         #expect(result.status == 0, Comment(rawValue: result.output))
-        #expect(try String(contentsOf: currentConfig, encoding: .utf8) == currentUserContent)
-        #expect(try String(contentsOf: legacyConfig, encoding: .utf8) == legacyUserContent)
-    }
-
-    @Test("Uninstall succeeds when the legacy Kimi config cannot be read")
-    func uninstallSucceedsWhenLegacyConfigCannotBeRead() throws {
-        let fixture = try makeFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
-
-        let currentDirectory = fixture.root.appendingPathComponent("current-kimi", isDirectory: true)
-        let legacyDirectory = fixture.root.appendingPathComponent("legacy-kimi", isDirectory: true)
-        try FileManager.default.createDirectory(at: currentDirectory, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
-
-        let currentUserContent = Self.userHookContent(command: "vibe-island")
-        let currentConfig = currentDirectory.appendingPathComponent("config.toml", isDirectory: false)
-        let legacyConfig = legacyDirectory.appendingPathComponent("config.toml", isDirectory: false)
-        try Self.installingCmuxBlock(in: currentUserContent)
-            .write(to: currentConfig, atomically: true, encoding: .utf8)
-        try FileManager.default.createDirectory(at: legacyConfig, withIntermediateDirectories: true)
-
-        let result = try runCLI(
-            arguments: ["hooks", "uninstall", "kimi", "--yes"],
-            fixture: fixture,
-            environmentOverrides: [
-                "KIMI_SHARE_DIR": currentDirectory.path,
-                "KIMI_CODE_HOME": legacyDirectory.path,
-            ]
-        )
-
-        #expect(!result.timedOut, Comment(rawValue: result.output))
-        #expect(result.status == 0, Comment(rawValue: result.output))
-        #expect(try String(contentsOf: currentConfig, encoding: .utf8) == currentUserContent)
-        #expect(FileManager.default.fileExists(atPath: legacyConfig.path))
-        #expect(result.output.contains(legacyConfig.path))
-        #expect(result.output.contains("cmux hooks uninstall kimi"))
+        #expect(try String(contentsOf: kimiCodeConfig, encoding: .utf8) == kimiCodeContent)
+        #expect(FileManager.default.fileExists(atPath: kimiCliConfig.path))
+        #expect(result.output.contains(kimiCliConfig.path), Comment(rawValue: result.output))
+        #expect(result.output.contains("cmux hooks uninstall kimi"), Comment(rawValue: result.output))
     }
 
     private struct Fixture {
         let root: URL
         let home: URL
         let bin: URL
+
+        func configURL(directory: String) -> URL {
+            home
+                .appendingPathComponent(directory, isDirectory: true)
+                .appendingPathComponent("config.toml", isDirectory: false)
+        }
+
+        @discardableResult
+        func seedConfig(directory: String, content: String) throws -> URL {
+            let url = configURL(directory: directory)
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try content.write(to: url, atomically: true, encoding: .utf8)
+            return url
+        }
+
+        func makeDirectory(named name: String) throws -> URL {
+            let url = root.appendingPathComponent(name, isDirectory: true)
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            return url
+        }
+
+        func setDoctorOutput(_ output: String) throws {
+            try output.write(
+                to: bin.appendingPathComponent("doctor-output.txt", isDirectory: false),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
     }
 
     private func makeFixture() throws -> Fixture {
@@ -296,7 +382,14 @@ struct KimiHookConfigLocationTests {
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
 
         let kimi = bin.appendingPathComponent("kimi", isDirectory: false)
-        try "#!/bin/sh\nexit 0\n".write(to: kimi, atomically: true, encoding: .utf8)
+        let stub = """
+        #!/bin/sh
+        if [ "$1" = "doctor" ]; then
+            cat "$(dirname "$0")/doctor-output.txt" 2>/dev/null
+        fi
+        exit 0
+        """
+        try (stub + "\n").write(to: kimi, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: kimi.path)
         return Fixture(root: root, home: home, bin: bin)
     }
@@ -357,6 +450,14 @@ struct KimiHookConfigLocationTests {
             output: String(data: data, encoding: .utf8) ?? "",
             timedOut: timedOut
         )
+    }
+
+    private static func doctorReport(configPath: String) -> String {
+        """
+        Checking Kimi Code CLI configuration
+        config.toml: \(configPath) ok
+        tui.toml: skipped
+        """ + "\n"
     }
 
     private static func userHookContent(command: String) -> String {

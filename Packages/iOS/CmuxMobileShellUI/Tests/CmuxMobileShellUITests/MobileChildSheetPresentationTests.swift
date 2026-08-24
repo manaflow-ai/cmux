@@ -52,7 +52,7 @@ struct MobileChildSheetPresentationTests {
     func rootForcedDismissalClearsOnlyTheActiveLocalIdentityOnDidDismiss() {
         let rootState = MobileRootPresentationStateBox()
         var localIsPresented = false
-        let child = MobileRootPresentationState.ChildPresentation.workspaceDetail(.chatShortcutsSettings)
+        let child = MobileRootPresentationState.ChildPresentation.workspaceDetail(.terminalArtifactFiles)
         let presentation = provider(rootState: rootState).presentation(
             for: child,
             fallback: Binding(
