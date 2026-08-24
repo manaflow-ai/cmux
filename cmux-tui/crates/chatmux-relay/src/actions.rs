@@ -151,6 +151,24 @@ pub struct ScopedPath {
 /// absent lists impose nothing; every NON-empty list must contain the path.
 pub type RootLists<'a> = [Option<&'a [String]>; 2];
 
+/// Windows does not yet have the handle-relative directory traversal needed
+/// to enforce a scoped file root across a symlink or rename race. Keep the
+/// refusal typed at the action boundary instead of treating this as a path
+/// error or silently using an unsafe path walk.
+pub(crate) const SCOPED_FILE_ROOTS_UNSUPPORTED:
+    &str = "scoped filesystem operations are unavailable on this relay platform";
+
+pub(crate) fn ensure_scoped_file_roots_available(
+    supports_descriptor_scoping: bool,
+    root_lists: &RootLists<'_>,
+) -> Result<(), &'static str> {
+    if supports_descriptor_scoping || !root_lists.iter().flatten().any(|roots| !roots.is_empty()) {
+        Ok(())
+    } else {
+        Err(SCOPED_FILE_ROOTS_UNSUPPORTED)
+    }
+}
+
 /// Resolve a request path and enforce every non-empty root list.
 pub fn resolve_scoped_path(
     raw_path: &str,
@@ -510,9 +528,7 @@ pub fn resolve_scoped_host_path(
         #[cfg(not(unix))]
         {
             if !roots.is_empty() {
-                return Err(HostError::Refusal(
-                    "scoped filesystem actions are unavailable on this platform".to_owned(),
-                ));
+                return Err(HostError::Refusal(SCOPED_FILE_ROOTS_UNSUPPORTED.to_owned()));
             }
             Ok(HostScopedPath { path, roots })
         }
@@ -1318,6 +1334,9 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
         Err(message) => return fail("bad_request", message),
     };
     let root_lists: RootLists<'_> = [context.local_roots.as_deref(), server_roots.as_deref()];
+    if let Err(message) = ensure_scoped_file_roots_available(cfg!(unix), &root_lists) {
+        return fail("unsupported_verb", message);
+    }
     let empty_args = Map::new();
     let args = frame.get("args").and_then(Value::as_object).unwrap_or(&empty_args);
     let timeout_ms = clamp_timeout(frame.get("timeoutMs"));
@@ -1672,6 +1691,19 @@ mod tests {
         assert_eq!(clamp_timeout(Some(&json!(50))), 1_000);
         assert_eq!(clamp_timeout(Some(&json!(9_999_999))), MAX_TIMEOUT_MS);
         assert_eq!(clamp_timeout(Some(&json!(-5))), DEFAULT_TIMEOUT_MS);
+    }
+
+    #[test]
+    fn scoped_file_capability_refusal_is_typed_and_fail_closed() {
+        let roots = vec!["/srv/work".to_owned()];
+        let scoped: RootLists<'_> = [Some(roots.as_slice()), None];
+        assert!(ensure_scoped_file_roots_available(true, &scoped).is_ok());
+        assert_eq!(
+            ensure_scoped_file_roots_available(false, &scoped),
+            Err(SCOPED_FILE_ROOTS_UNSUPPORTED),
+        );
+        let unscoped: RootLists<'_> = [None, None];
+        assert!(ensure_scoped_file_roots_available(false, &unscoped).is_ok());
     }
 
     #[test]
