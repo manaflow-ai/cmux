@@ -63,6 +63,10 @@ actor CmxConnectivityPeerSession {
     private var retiredDialWaiters: [
         UUID: CheckedContinuation<Void, Never>
     ] = [:]
+    // A test clock (and a very fast production clock) can expire the deadline
+    // before the continuation below is registered. Keep that one-shot result
+    // until the waiter observes it instead of dropping the wake-up.
+    private var expiredRetiredDialWaiters: Set<UUID> = []
     private var activeConnection: ActiveConnection?
     private var allPathsClosedEviction: (
         connectionID: UUID,
@@ -550,10 +554,15 @@ actor CmxConnectivityPeerSession {
             guard !Task.isCancelled else { return }
             await self?.expireRetiredDialWait(id: waiterID)
         }
-        defer { timeout.cancel() }
+        defer {
+            timeout.cancel()
+            expiredRetiredDialWaiters.remove(waiterID)
+        }
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 if retiredDialDrains.isEmpty {
+                    continuation.resume()
+                } else if expiredRetiredDialWaiters.remove(waiterID) != nil {
                     continuation.resume()
                 } else {
                     retiredDialWaiters[waiterID] = continuation
@@ -567,16 +576,22 @@ actor CmxConnectivityPeerSession {
     }
 
     private func resumeRetiredDialWaiter(id: UUID) {
+        expiredRetiredDialWaiters.remove(id)
         retiredDialWaiters.removeValue(forKey: id)?.resume()
     }
 
     private func expireRetiredDialWait(id: UUID) {
-        guard retiredDialWaiters[id] != nil else { return }
         retiredDialDrains.removeAll()
         let waiters = retiredDialWaiters.values
         retiredDialWaiters.removeAll()
-        for continuation in waiters {
-            continuation.resume()
+        if waiters.isEmpty {
+            // The timeout raced waiter registration; retain the result for
+            // that continuation instead of losing the only wake-up.
+            expiredRetiredDialWaiters.insert(id)
+        } else {
+            for continuation in waiters {
+                continuation.resume()
+            }
         }
     }
 
