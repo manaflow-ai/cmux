@@ -4,6 +4,7 @@ import AppKit
 import Carbon.HIToolbox
 import Combine
 import SwiftUI
+import ObjectiveC.runtime
 @testable import CmuxSettingsUI
 
 #if canImport(cmux_DEV)
@@ -103,6 +104,30 @@ private final class GhosttyCommandEquivalentProbeView: GhosttyNSView {
     override func pasteAsPlainText(_ sender: Any?) {
         pasteAsPlainTextCallCount += 1
     }
+}
+
+private var cmuxUnitTestBrowserKeyDownHook: ((CmuxWebView, NSEvent) -> Void)?
+private var cmuxUnitTestBrowserKeyDownOverrideInstalled = false
+
+private extension CmuxWebView {
+    @objc func cmuxUnitTest_keyDown(with event: NSEvent) {
+        cmuxUnitTestBrowserKeyDownHook?(self, event)
+        cmuxUnitTest_keyDown(with: event)
+    }
+}
+
+private func installCmuxUnitTestBrowserKeyDownOverride() {
+    guard !cmuxUnitTestBrowserKeyDownOverrideInstalled else { return }
+
+    let originalSelector = #selector(NSResponder.keyDown(with:))
+    let swizzledSelector = #selector(CmuxWebView.cmuxUnitTest_keyDown(with:))
+    guard let originalMethod = class_getInstanceMethod(CmuxWebView.self, originalSelector),
+          let swizzledMethod = class_getInstanceMethod(CmuxWebView.self, swizzledSelector) else {
+        fatalError("Unable to locate CmuxWebView keyDown methods for swizzling")
+    }
+
+    method_exchangeImplementations(originalMethod, swizzledMethod)
+    cmuxUnitTestBrowserKeyDownOverrideInstalled = true
 }
 
 @MainActor
@@ -12364,6 +12389,101 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(harness.webView.performKeyEquivalent(with: commandReturn))
         XCTAssertEqual(probe.callCount, 0, "Focus mode must consume unhandled Cmd+Return instead of falling through to the app menu")
         XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
+    }
+
+    func testBrowserCaptureShortcutSettingYieldsConfiguredShortcutToWebPage() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        let settingKey = "browserCaptureKeyboardShortcuts"
+        let previousSetting = UserDefaults.standard.object(forKey: settingKey)
+        defer {
+            if let previousSetting {
+                UserDefaults.standard.set(previousSetting, forKey: settingKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: settingKey)
+            }
+        }
+        UserDefaults.standard.set(true, forKey: settingKey)
+
+        guard let commandR = makeKeyDownEvent(
+            key: "r",
+            modifiers: [.command],
+            keyCode: 15,
+            windowNumber: harness.window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+R event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(
+            appDelegate.debugHandleCustomShortcut(event: commandR),
+            "Enabling browser shortcut capture must yield even cmux browser shortcuts to the page"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+    }
+
+    func testRemappedGoToWorkspaceDefaultReachesFocusedBrowserWebView() {
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        installCmuxUnitTestBrowserKeyDownOverride()
+        var browserKeyDownCount = 0
+        cmuxUnitTestBrowserKeyDownHook = { webView, _ in
+            if webView === harness.webView {
+                browserKeyDownCount += 1
+            }
+        }
+        defer { cmuxUnitTestBrowserKeyDownHook = nil }
+
+        let previousMainMenu = NSApp.mainMenu
+        let menuProbe = MenuActionProbe()
+        defer { NSApp.mainMenu = previousMainMenu }
+        let staleMenu = NSMenu(title: "Test")
+        let staleGoToWorkspaceItem = NSMenuItem(
+            title: "Go to Workspace",
+            action: #selector(MenuActionProbe.perform(_:)),
+            keyEquivalent: "p"
+        )
+        staleGoToWorkspaceItem.keyEquivalentModifierMask = [.command]
+        staleGoToWorkspaceItem.target = menuProbe
+        staleMenu.addItem(staleGoToWorkspaceItem)
+        NSApp.mainMenu = staleMenu
+
+        guard let commandP = makeKeyDownEvent(
+            key: "p",
+            modifiers: [.command],
+            keyCode: 35,
+            windowNumber: harness.window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+P event")
+            return
+        }
+
+        let remappedGoToWorkspace = StoredShortcut(
+            key: "p",
+            command: true,
+            shift: true,
+            option: false,
+            control: false
+        )
+        withTemporaryShortcut(action: .goToWorkspace, shortcut: remappedGoToWorkspace) {
+            NSApp.sendEvent(commandP)
+        }
+
+        XCTAssertEqual(menuProbe.callCount, 0, "A stale Cmd+P menu equivalent must not run after Go to Workspace is remapped")
+        XCTAssertEqual(
+            browserKeyDownCount,
+            1,
+            "A remapped-away cmux default must still reach the focused browser web view"
+        )
     }
 
     func testShowNotificationsShortcutYieldsToFocusedBrowserPane() {
