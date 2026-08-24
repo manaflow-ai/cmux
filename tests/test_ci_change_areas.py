@@ -249,6 +249,7 @@ def linux_preflight_needs(
     job_results = {
         "changes": "success",
         "workflow-guard-tests": "success",
+        "ghosttykit-release-check": "success",
         "remote-daemon-tests": "success",
         "web-typecheck": "success",
         "react-apps-check": "success",
@@ -641,6 +642,7 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     assert "name: linux-preflight" in block
     assert "      - changes" in block
     assert "      - workflow-guard-tests" in block
+    assert "      - ghosttykit-release-check" in block
     assert "      - remote-daemon-tests" in block
     assert "      - web-typecheck" in block
     assert "      - react-apps-check" in block
@@ -648,7 +650,7 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     assert "      - web-db-migrations" in block
     assert "      - agent-session-web-resources" in block
     assert "if: ${{ always() }}" in block
-    assert 'required = ("changes", "workflow-guard-tests")' in block
+    assert 'required = ("changes", "workflow-guard-tests", "ghosttykit-release-check")' in block
     assert 'allowed_routed = {' in block
     assert 'routed_outputs = {' in block
     assert 'bad[name] = f"{result} (route {route}=true)"' in block

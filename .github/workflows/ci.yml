@@ -1670,6 +1670,7 @@ jobs:
     needs:
       - changes
       - workflow-guard-tests
+      - ghosttykit-release-check
       - remote-daemon-tests
       - web-typecheck
       - react-apps-check
@@ -1690,7 +1691,7 @@ jobs:
           import sys
 
           needs = json.loads(os.environ["PREFLIGHT_NEEDS"])
-          required = ("changes", "workflow-guard-tests")
+          required = ("changes", "workflow-guard-tests", "ghosttykit-release-check")
           allowed_routed = {
               "remote-daemon-tests",
               "web-typecheck",
