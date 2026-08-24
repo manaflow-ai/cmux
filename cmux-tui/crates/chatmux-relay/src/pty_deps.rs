@@ -27,6 +27,9 @@ use crate::pty::{
 };
 
 const DAEMON_SOCKET_WAIT_MS: u64 = 5_000;
+// `lifecycle_ready` was added to the cmux-tui control protocol at version 12.
+// This is distinct from the relay's lower-level CONTROL_MIN_PROTOCOL floor.
+const DAEMON_LIFECYCLE_PROTOCOL_MIN: u64 = 12;
 
 async fn control_ready(control: &Arc<dyn ControlHandle>, session: &str) -> bool {
     control.request("identify", serde_json::Value::Null).await.is_some_and(|response| {
@@ -45,7 +48,7 @@ async fn control_ready(control: &Arc<dyn ControlHandle>, session: &str) -> bool 
                 .get("data")
                 .and_then(|data| data.get("protocol"))
                 .and_then(serde_json::Value::as_u64)
-                .is_some_and(|protocol| protocol >= 12)
+                .is_some_and(|protocol| protocol >= DAEMON_LIFECYCLE_PROTOCOL_MIN)
             && response
                 .get("data")
                 .and_then(|data| data.get("lifecycle_ready"))
@@ -531,8 +534,10 @@ impl PtyDeps for RealPtyDeps {
                         _ => tokio::time::sleep(Duration::from_millis(50)).await,
                     }
                 }
+                // Do not unlink the path here. Another daemon may have won
+                // the socket race after our initial absence check; ownership
+                // of a pathname cannot be proven after the fact.
                 cleanup_daemon(child).await;
-                let _ = tokio::fs::remove_file(&socket_path).await;
                 return Err(format!(
                     "cmux-tui daemon for \"{session}\" did not become control-ready"
                 ));
@@ -540,7 +545,6 @@ impl PtyDeps for RealPtyDeps {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         cleanup_daemon(child).await;
-        let _ = tokio::fs::remove_file(&socket_path).await;
         Err(format!("cmux-tui daemon for \"{session}\" never created {}", socket_path.display()))
     }
 
