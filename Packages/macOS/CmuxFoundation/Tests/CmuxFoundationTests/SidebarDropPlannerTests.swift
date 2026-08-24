@@ -71,6 +71,48 @@ import Testing
         #expect(plan == nil)
     }
 
+    @Test func droppingWorkspaceOnEmptyGroupHeaderProducesExplicitGroupPlan() throws {
+        let groupId = UUID()
+        let headerId = UUID()
+        let draggedId = UUID()
+        let plan = try #require(SidebarWorkspaceReorderDropResolver().plan(
+            for: SidebarWorkspaceReorderDropRequest(
+                point: CGPoint(x: 12, y: 24),
+                draggedWorkspaceId: draggedId,
+                workspaces: [
+                    SidebarWorkspaceReorderWorkspaceSnapshot(
+                        id: draggedId,
+                        isPinned: false,
+                        groupId: nil
+                    ),
+                ],
+                groups: [
+                    SidebarWorkspaceReorderGroupSnapshot(
+                        id: groupId,
+                        anchorWorkspaceId: headerId,
+                        isPinned: true,
+                        isEmpty: true
+                    ),
+                ],
+                targets: [
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: headerId,
+                        groupId: groupId,
+                        isGroupHeader: true,
+                        frame: CGRect(x: 0, y: 0, width: 180, height: 32)
+                    ),
+                ]
+            )
+        ))
+
+        guard case .reorder(_, _, let explicitGroupId) = plan.action else {
+            Issue.record("expected an explicit group reorder")
+            return
+        }
+        #expect(explicitGroupId == groupId)
+        #expect(plan.indicator?.tabId == headerId)
+    }
+
     @Test func orderedWorkspaceDropTargetsMatchArrayWorkspaceAction() {
         let first = UUID()
         let second = UUID()

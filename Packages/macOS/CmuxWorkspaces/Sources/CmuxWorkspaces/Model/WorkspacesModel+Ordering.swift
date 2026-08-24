@@ -6,7 +6,7 @@ public import Foundation
 extension WorkspacesModel {
     /// Whether the workspace anchors any group.
     public func isWorkspaceGroupAnchor(_ workspaceId: UUID) -> Bool {
-        workspaceGroups.contains { $0.anchorWorkspaceId == workspaceId }
+        workspaceGroups.contains { $0.liveAnchorWorkspaceId == workspaceId }
     }
 
     /// The top-level sidebar row id for each given workspace (its group's
@@ -164,7 +164,7 @@ extension WorkspacesModel {
     /// the front of its group's member list, then keep pinned member
     /// workspaces above unpinned member workspaces while preserving relative
     /// order inside each tier. No-op when the anchor isn't actually in the
-    /// list (anchor lifecycle elsewhere ensures it always should be).
+    /// list (empty groups do not enter this member-run path).
     func anchorFirst(_ members: [Tab], anchorId: UUID) -> [Tab] {
         guard let anchorIndex = members.firstIndex(where: { $0.id == anchorId }) else {
             return members
@@ -199,7 +199,7 @@ extension WorkspacesModel {
     ) -> Int? {
         guard let groupId = workspace.groupId,
               let group = workspaceGroups.first(where: { $0.id == groupId }),
-              workspace.id != group.anchorWorkspaceId else {
+              workspace.id != group.liveAnchorWorkspaceId else {
             return nil
         }
         let memberIndices = tabs.indices.filter { tabs[$0].groupId == groupId }
@@ -209,7 +209,7 @@ extension WorkspacesModel {
         }
         let pinnedMemberCount = memberIndices.reduce(into: 0) { count, index in
             let member = tabs[index]
-            if member.id != group.anchorWorkspaceId, member.isPinned {
+            if member.id != group.liveAnchorWorkspaceId, member.isPinned {
                 count += 1
             }
         }

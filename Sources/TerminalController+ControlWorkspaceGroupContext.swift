@@ -87,7 +87,7 @@ extension TerminalController: ControlWorkspaceGroupContext {
             return .childWorkspaceNotFound(missing)
         }
         if !childWorkspaceIDs.isEmpty {
-            let existingAnchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+            let existingAnchorIds = Set(tabManager.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
             let ineligible: [String] = childWorkspaceIDs.compactMap { id in
                 existingAnchorIds.contains(id) ? id.uuidString : nil
             }
@@ -194,7 +194,7 @@ extension TerminalController: ControlWorkspaceGroupContext {
         if tab.groupId == groupID {
             return .added
         }
-        if tabManager.workspaceGroups.contains(where: { $0.id != groupID && $0.anchorWorkspaceId == workspaceID }) {
+        if tabManager.workspaceGroups.contains(where: { $0.id != groupID && $0.liveAnchorWorkspaceId == workspaceID }) {
             return .workspaceIsOtherGroupAnchor
         }
         return .notFound

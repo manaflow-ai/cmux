@@ -34,9 +34,10 @@ enum SidebarWorkspaceRenderItem {
 
     static func renderItems(
         tabs: [Workspace],
-        groupsById: [UUID: WorkspaceGroup]
+        groupsById: [UUID: WorkspaceGroup],
+        orderedGroups: [WorkspaceGroup]? = nil
     ) -> [SidebarWorkspaceRenderItem] {
-        guard !tabs.isEmpty else { return [] }
+        guard !tabs.isEmpty || !groupsById.isEmpty else { return [] }
         var items: [SidebarWorkspaceRenderItem] = []
         items.reserveCapacity(tabs.count + groupsById.count)
         var lastEmittedGroupId: UUID? = nil
@@ -70,7 +71,60 @@ enum SidebarWorkspaceRenderItem {
                 items.append(.workspace(workspaceId: tab.id))
             }
         }
-        return items
+
+        // Empty pinned groups have no tab row from which a header can be
+        // discovered. Emit them as first-class header-only rows, keeping the
+        // model's group order within each pin tier. Empty unpinned groups are
+        // placed after live rows; they are uncommon (normal close paths remove
+        // them) but remain renderable until an explicit mutation removes them.
+        let ordered = orderedGroups
+            ?? groupsById.values.sorted { $0.id.uuidString < $1.id.uuidString }
+        let memberGroupIds = Set(tabs.compactMap(\.groupId))
+        let emptyGroups = ordered.filter { !memberGroupIds.contains($0.id) }
+        guard !emptyGroups.isEmpty else { return items }
+
+        var emptyBeforeGroup: [UUID: [WorkspaceGroup]] = [:]
+        var trailingPinned: [WorkspaceGroup] = []
+        var trailingUnpinned: [WorkspaceGroup] = []
+        for (index, group) in ordered.enumerated() where !memberGroupIds.contains(group.id) {
+            let nextLiveGroup = ordered.dropFirst(index + 1).first { memberGroupIds.contains($0.id) }
+            if let nextLiveGroup {
+                emptyBeforeGroup[nextLiveGroup.id, default: []].append(group)
+            } else if group.isPinned {
+                trailingPinned.append(group)
+            } else {
+                trailingUnpinned.append(group)
+            }
+        }
+
+        var rendered: [SidebarWorkspaceRenderItem] = []
+        rendered.reserveCapacity(items.count + emptyGroups.count)
+        for item in items {
+            if case .groupHeader(let groupId, _) = item,
+               let preceding = emptyBeforeGroup[groupId] {
+                rendered.append(contentsOf: preceding.map {
+                    .groupHeader(groupId: $0.id, anchorWorkspaceId: $0.anchorWorkspaceId)
+                })
+            }
+            rendered.append(item)
+        }
+        if !trailingPinned.isEmpty {
+            let firstUnpinnedIndex = rendered.firstIndex { item in
+                switch item {
+                case .groupHeader(let groupId, _):
+                    return groupsById[groupId]?.isPinned == false
+                case .workspace(let workspaceId):
+                    return tabs.first(where: { $0.id == workspaceId })?.isPinned == false
+                }
+            } ?? rendered.count
+            rendered.insert(contentsOf: trailingPinned.map {
+                .groupHeader(groupId: $0.id, anchorWorkspaceId: $0.anchorWorkspaceId)
+            }, at: firstUnpinnedIndex)
+        }
+        rendered.append(contentsOf: trailingUnpinned.map {
+            .groupHeader(groupId: $0.id, anchorWorkspaceId: $0.anchorWorkspaceId)
+        })
+        return rendered
     }
 
     /// Workspace ids represented by ordinary rows, in their rendered order.

@@ -85,7 +85,7 @@ extension TerminalController {
             }
 
             if moveGroup {
-                guard tabManager.workspaceGroups.contains(where: { $0.anchorWorkspaceId == workspaceID }) else {
+                guard tabManager.workspaceGroups.contains(where: { $0.liveAnchorWorkspaceId == workspaceID }) else {
                     mutationError = .err(
                         code: "invalid_request",
                         message: "Workspace is not a group anchor",

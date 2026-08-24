@@ -129,6 +129,9 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         // silently absorb it into the group above just because the request
         // resolved to "stay put."
         if model.tabs.count <= 1 {
+            if isDragOperation, explicitGroupId != nil {
+                applyDragInferredGroupMembership(workspaceId: tabId, explicitGroupId: explicitGroupId)
+            }
             return true
         }
         if plan.fromIndex == plan.toIndex {
@@ -150,7 +153,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         if isDragOperation {
             applyDragInferredGroupMembership(workspaceId: tabId, explicitGroupId: explicitGroupId)
         } else if !model.workspaceGroups.isEmpty {
-            if model.workspaceGroups.contains(where: { $0.anchorWorkspaceId == tabId }) {
+            if model.workspaceGroups.contains(where: { $0.liveAnchorWorkspaceId == tabId }) {
                 model.syncWorkspaceGroupsOrderToAnchorOrder()
             }
             model.normalizeWorkspaceGroupContiguity()
@@ -342,7 +345,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
                 explicitGroupId: explicitGroupId
             )
         }
-        let anchorIds = Set(model.workspaceGroups.map(\.anchorWorkspaceId))
+        let anchorIds = Set(model.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
         let containsAnchor = movingTabs.contains { anchorIds.contains($0.id) }
         let containsWorkspace = movingTabs.contains { !anchorIds.contains($0.id) }
         if containsAnchor, containsWorkspace {
@@ -419,7 +422,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             if case .assign(let destinationGroupId) = resolution {
                 // Anchors never change membership via drag (their group
                 // identity owns them) — same guard as the single-drag path.
-                let anchorIds = Set(model.workspaceGroups.map(\.anchorWorkspaceId))
+                let anchorIds = Set(model.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
                 for workspaceId in movingIds where !anchorIds.contains(workspaceId) {
                     model.assignGroup(workspaceId: workspaceId, groupId: destinationGroupId)
                 }
@@ -668,7 +671,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
     private func applyDragInferredGroupMembership(workspaceId: UUID, explicitGroupId: UUID? = nil) {
         guard let index = model.tabs.firstIndex(where: { $0.id == workspaceId }) else { return }
         let tab = model.tabs[index]
-        let isAnchor = model.workspaceGroups.contains(where: { $0.anchorWorkspaceId == workspaceId })
+        let isAnchor = model.workspaceGroups.contains(where: { $0.liveAnchorWorkspaceId == workspaceId })
         if isAnchor {
             // Anchors don't change group membership via drag (their group
             // identity owns them), but moving an anchor in `tabs[]` IS how

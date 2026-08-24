@@ -11338,7 +11338,8 @@ struct VerticalTabsSidebar: View, Equatable {
         )
         let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
             tabs: tabs,
-            groupsById: workspaceGroupById
+            groupsById: workspaceGroupById,
+            orderedGroups: workspaceGroups
         )
         let numberedWorkspaceIndexById = SidebarWorkspaceRenderItem.numberedWorkspaceIndexById(
             from: workspaceRenderItems
@@ -11945,7 +11946,7 @@ struct VerticalTabsSidebar: View, Equatable {
             workspaceRowsById: workspaceRowInputsById,
             groupRowsById: groupRowSnapshotsById,
             selectedContextTargetIds: renderContext.selectedContextTargetIds,
-            anchorWorkspaceIds: Set(renderContext.workspaceGroups.map(\.anchorWorkspaceId)),
+            anchorWorkspaceIds: Set(renderContext.workspaceGroups.compactMap(\.liveAnchorWorkspaceId)),
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             canCreateEmptyGroup: tabManager.selectedTab?.isRemoteTmuxMirror != true,
             notificationIndex: notificationIndex
@@ -12012,7 +12013,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     orderedWorkspaceIds: tabManager.tabs.map(\.id),
                     selectedIds: selectedTabIds,
                     draggedId: workspaceId,
-                    anchorIds: Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+                    anchorIds: Set(tabManager.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
                 ).count
             },
             endWorkspaceDrag: {
@@ -13620,7 +13621,7 @@ struct VerticalTabsSidebar: View, Equatable {
             workspaceRowsById: workspaceRowInputsById,
             groupRowsById: groupRowSnapshotsById,
             selectedContextTargetIds: renderContext.selectedContextTargetIds,
-            anchorWorkspaceIds: Set(renderContext.workspaceGroups.map(\.anchorWorkspaceId)),
+            anchorWorkspaceIds: Set(renderContext.workspaceGroups.compactMap(\.liveAnchorWorkspaceId)),
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             canCreateEmptyGroup: tabManager.selectedTab?.isRemoteTmuxMirror != true,
             notificationIndex: notificationIndex
@@ -13684,7 +13685,8 @@ struct VerticalTabsSidebar: View, Equatable {
                             reorderTargetBridge: workspaceReorderDropTargetBridge,
                             reorderTargets: renderContext.visibleWorkspaceRowIds.compactMap { workspaceId in
                                 guard let anchor = anchors[workspaceId],
-                                      renderContext.workspaceById[workspaceId] != nil else {
+                                      renderContext.workspaceById[workspaceId] != nil
+                                          || workspaceGroupsByAnchor[workspaceId] != nil else {
                                     return nil
                                 }
                                 let group = workspaceGroupsByAnchor[workspaceId]
@@ -13803,7 +13805,7 @@ struct VerticalTabsSidebar: View, Equatable {
             // (which left the rest of the drag indicator-less and made the
             // final drop a silent no-op).
             let isSourceGroupAnchor = tabManager.workspaceGroups.contains {
-                $0.anchorWorkspaceId == dragId
+                $0.liveAnchorWorkspaceId == dragId
             }
             guard !SidebarWorkspaceDragActivationPolicy().shouldRejectRecovery(
                 isLocalWorkspace: true,
@@ -13818,7 +13820,7 @@ struct VerticalTabsSidebar: View, Equatable {
             return false
         }
         let isSourceGroupAnchor = sourceManager.workspaceGroups.contains {
-            $0.anchorWorkspaceId == dragId
+            $0.liveAnchorWorkspaceId == dragId
         }
         guard !SidebarWorkspaceDragActivationPolicy().shouldRejectRecovery(
             isLocalWorkspace: false,
@@ -13917,11 +13919,12 @@ struct VerticalTabsSidebar: View, Equatable {
                     )
                 },
                 groups: renderContext.workspaceGroups.map {
-                    SidebarWorkspaceReorderGroupSnapshot(
-                        id: $0.id,
-                        anchorWorkspaceId: $0.anchorWorkspaceId,
-                        isPinned: $0.isPinned
-                    )
+                        SidebarWorkspaceReorderGroupSnapshot(
+                            id: $0.id,
+                            anchorWorkspaceId: $0.anchorWorkspaceId,
+                            isPinned: $0.isPinned,
+                            isEmpty: $0.isEmpty
+                        )
                 },
                 targets: targets.map {
                     SidebarWorkspaceReorderDropTarget(
@@ -13947,7 +13950,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 orderedWorkspaceIds: tabManager.tabs.map(\.id),
                 selectedIds: selectedTabIds,
                 draggedId: plan.draggedWorkspaceId,
-                anchorIds: Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+                anchorIds: Set(tabManager.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
             )
             let didReorder: Bool
             if movingIds.count > 1 {
@@ -13985,7 +13988,7 @@ struct VerticalTabsSidebar: View, Equatable {
         guard let app = AppDelegate.shared,
               let destinationWindowId = app.windowId(for: tabManager),
               let sourceManager = app.tabManagerFor(tabId: plan.draggedWorkspaceId),
-              !sourceManager.workspaceGroups.contains(where: { $0.anchorWorkspaceId == plan.draggedWorkspaceId }) else {
+              !sourceManager.workspaceGroups.contains(where: { $0.liveAnchorWorkspaceId == plan.draggedWorkspaceId }) else {
             return false
         }
 
@@ -13993,7 +13996,7 @@ struct VerticalTabsSidebar: View, Equatable {
             orderedWorkspaceIds: sourceManager.tabs.map(\.id),
             selectedIds: sourceManager.sidebarSelectedWorkspaceIds,
             draggedId: plan.draggedWorkspaceId,
-            anchorIds: Set(sourceManager.workspaceGroups.map(\.anchorWorkspaceId))
+            anchorIds: Set(sourceManager.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
         )
         guard !movingIds.isEmpty else { return false }
 
@@ -14117,7 +14120,7 @@ struct VerticalTabsSidebar: View, Equatable {
 #endif
 
         let workspaceIds = tabManager.tabs.map(\.id)
-        let anchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+        let anchorIds = Set(tabManager.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
         let selectionKindPolicy = SidebarSelectionKindPolicy()
         let shiftAnchorIndex = isShift
             ? SidebarWorkspaceSelectionSyncPolicy().shiftClickAnchorIndex(
@@ -14135,7 +14138,9 @@ struct VerticalTabsSidebar: View, Equatable {
                 tabManager.workspaceGroups.filter(\.isCollapsed).map(\.id)
             )
             let anchorIdsByGroup = Dictionary(
-                uniqueKeysWithValues: tabManager.workspaceGroups.map { ($0.id, $0.anchorWorkspaceId) }
+                uniqueKeysWithValues: tabManager.workspaceGroups.compactMap { group in
+                    group.liveAnchorWorkspaceId.map { (group.id, $0) }
+                }
             )
             let visibleRangeIds = tabManager.tabs[lower...upper].compactMap { candidate -> UUID? in
                 if let groupId = candidate.groupId,
@@ -16890,7 +16895,7 @@ struct SidebarTabDropDelegate: DropDelegate {
               let sourceManager = AppDelegate.shared?.tabManagerFor(tabId: draggedTabId) else {
             return false
         }
-        return sourceManager.workspaceGroups.contains { $0.anchorWorkspaceId == draggedTabId }
+        return sourceManager.workspaceGroups.contains { $0.liveAnchorWorkspaceId == draggedTabId }
     }
 
     /// The destination's top-level sidebar ids (each group is represented by its
@@ -17119,7 +17124,7 @@ struct SidebarTabDropDelegate: DropDelegate {
             orderedWorkspaceIds: tabManager.tabs.map(\.id),
             selectedIds: selectedTabIds,
             draggedId: draggedTabId,
-            anchorIds: Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+            anchorIds: Set(tabManager.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
         )
         if movingIds.count > 1 {
 #if DEBUG
@@ -17222,7 +17227,7 @@ struct SidebarTabDropDelegate: DropDelegate {
               // A group header drag carries its anchor; moving only the anchor
               // would dissolve the group, so cross-window header drops are
               // disallowed (also gated in validateDrop).
-              !sourceManager.workspaceGroups.contains(where: { $0.anchorWorkspaceId == draggedTabId }) else {
+              !sourceManager.workspaceGroups.contains(where: { $0.liveAnchorWorkspaceId == draggedTabId }) else {
 #if DEBUG
             cmuxDebugLog("sidebar.drop.crossWindow.abort reason=unresolvedRouteOrGroupAnchor tab=\(draggedTabId.uuidString.prefix(5))")
 #endif
@@ -17233,7 +17238,7 @@ struct SidebarTabDropDelegate: DropDelegate {
             orderedWorkspaceIds: sourceManager.tabs.map(\.id),
             selectedIds: sourceManager.sidebarSelectedWorkspaceIds,
             draggedId: draggedTabId,
-            anchorIds: Set(sourceManager.workspaceGroups.map(\.anchorWorkspaceId))
+            anchorIds: Set(sourceManager.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
         )
         guard !movingIds.isEmpty else { return false }
 

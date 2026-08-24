@@ -213,6 +213,23 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             context: context,
             fallbackAnchorWorkspaceId: group.anchorWorkspaceId
         )
+        if group.isEmpty {
+            // There is no member index for a header-only group. The explicit
+            // group action still carries the destination group id; the model
+            // will promote the dragged workspace to the new anchor and then
+            // normalize it into the group's section.
+            let targetIndex = max(0, request.workspaces.count - 1)
+            return SidebarWorkspaceReorderDropPlan(
+                draggedWorkspaceId: request.draggedWorkspaceId,
+                indicator: targetIndicator,
+                indicatorScope: .group(explicitGroupId),
+                action: .reorder(
+                    targetIndex: targetIndex,
+                    usesTopLevelRows: false,
+                    explicitGroupId: explicitGroupId
+                )
+            )
+        }
         guard let targetWorkspaceId = targetIndicator.tabId else { return nil }
         let tabIds = request.workspaces.map(\.id)
         let pinnedTabIds = Set(request.workspaces.filter { $0.groupId == nil && $0.isPinned }.map(\.id))

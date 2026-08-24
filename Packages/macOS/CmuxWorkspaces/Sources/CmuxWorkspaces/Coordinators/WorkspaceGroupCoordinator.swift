@@ -48,7 +48,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         // Pulling an anchor into a new group would orphan the
         // source group (its anchorWorkspaceId would no longer match), so we
         // reject those silently and let the user explicitly ungroup first.
-        let existingAnchorIds = Set(model.workspaceGroups.map(\.anchorWorkspaceId))
+        let existingAnchorIds = Set(model.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
         let eligibleChildren = childWorkspaceIds.compactMap { id -> UUID? in
             guard model.tabs.contains(where: { $0.id == id }),
                   !existingAnchorIds.contains(id) else { return nil }
@@ -139,7 +139,8 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         let placement = explicitPlacement
             ?? host.defaultNewWorkspacePlacementInGroup
         guard let group = model.workspaceGroups.first(where: { $0.id == groupId }) else { return nil }
-        let cwd = model.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
+        let cwd = group.liveAnchorWorkspaceId
+            .flatMap { anchorId in model.tabs.first(where: { $0.id == anchorId })?.currentDirectory }
         let newWorkspace = host.createWorkspaceForGroup(
             title: title,
             workingDirectory: cwd,
@@ -263,13 +264,13 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     }
 
     /// Remove a non-anchor workspace from its group. If the workspace is its
-    /// group's anchor, the group is dissolved instead (other members survive
-    /// as ungrouped workspaces).
+    /// group's anchor, the group is explicitly ungrouped instead (other
+    /// members survive as ungrouped workspaces).
     public func removeWorkspaceFromGroup(workspaceId: UUID) {
         guard let tab = model.tabs.first(where: { $0.id == workspaceId }),
               let groupId = tab.groupId else { return }
         if let group = model.workspaceGroups.first(where: { $0.id == groupId }),
-           group.anchorWorkspaceId == workspaceId {
+           group.liveAnchorWorkspaceId == workspaceId {
             ungroupWorkspaceGroup(groupId: groupId)
             return
         }
@@ -290,7 +291,11 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     /// instead of a flatten-in-place.
     public func ungroupWorkspaceGroup(groupId: UUID) {
         let memberIds = model.tabs.filter { $0.groupId == groupId }.map(\.id)
-        guard !memberIds.isEmpty || model.workspaceGroups.contains(where: { $0.id == groupId }) else { return }
+        guard let group = model.workspaceGroups.first(where: { $0.id == groupId }) else { return }
+        // An empty pinned group is durable state. Removing it through Ungroup
+        // would bypass the explicit Delete Group action that owns its
+        // confirmation; users can unpin it first if they want to flatten it.
+        guard !memberIds.isEmpty || !group.isPinned else { return }
         for id in memberIds {
             model.assignGroup(workspaceId: id, groupId: nil)
         }
@@ -338,7 +343,10 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         guard let index = model.workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
         let nextCollapsed = !model.workspaceGroups[index].isCollapsed
         if nextCollapsed {
-            let anchorId = model.workspaceGroups[index].anchorWorkspaceId
+            guard let anchorId = model.workspaceGroups[index].liveAnchorWorkspaceId else {
+                setWorkspaceGroupCollapsed(groupId: groupId, isCollapsed: nextCollapsed)
+                return
+            }
             if let selectedTabId = model.selectedTabId,
                selectedTabId != anchorId,
                let selectedTab = model.tabs.first(where: { $0.id == selectedTabId }),
@@ -420,7 +428,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     public func setWorkspaceGroupAnchor(groupId: UUID, workspaceId: UUID) {
         guard let groupIndex = model.workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
         guard let tab = model.tabs.first(where: { $0.id == workspaceId }), tab.groupId == groupId else { return }
-        guard model.workspaceGroups[groupIndex].anchorWorkspaceId != workspaceId else { return }
+        guard model.workspaceGroups[groupIndex].liveAnchorWorkspaceId != workspaceId else { return }
         model.workspaceGroups[groupIndex].anchorWorkspaceId = workspaceId
         // Hoist the new anchor to the front of its members in tabs[] so the
         // sidebar header is rendered at the anchor's position. Without this,
@@ -473,7 +481,9 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     }
 
     private func applyWorkspaceGroupSlotOrderToTabs() {
-        let groupsByAnchorId = Dictionary(uniqueKeysWithValues: model.workspaceGroups.map { ($0.anchorWorkspaceId, $0) })
+        let groupsByAnchorId = Dictionary(uniqueKeysWithValues: model.workspaceGroups.compactMap { group in
+            group.liveAnchorWorkspaceId.map { ($0, group) }
+        })
         let topLevelIds = model.sidebarTopLevelWorkspaceIds()
         let tabsById = Dictionary(uniqueKeysWithValues: model.tabs.map { ($0.id, $0) })
 
@@ -497,9 +507,13 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         unpinnedAnchors.reserveCapacity(model.workspaceGroups.count)
         for group in model.workspaceGroups {
             if group.isPinned {
-                pinnedAnchors.append(group.anchorWorkspaceId)
+                if let anchorId = group.liveAnchorWorkspaceId {
+                    pinnedAnchors.append(anchorId)
+                }
             } else {
-                unpinnedAnchors.append(group.anchorWorkspaceId)
+                if let anchorId = group.liveAnchorWorkspaceId {
+                    unpinnedAnchors.append(anchorId)
+                }
             }
         }
         var pinnedAnchorIndex = 0
