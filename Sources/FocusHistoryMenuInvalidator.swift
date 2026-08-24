@@ -7,14 +7,14 @@ import SwiftUI
 final class FocusHistoryMenuInvalidator: ObservableObject {
     struct State: Equatable {
         let managerIdentity: ObjectIdentifier?
-        let recentlyFocused: FocusHistoryMenuSnapshot
+        let recentlyFocusedItems: [FocusHistoryMenuItem]
         let recentlyClosed: ClosedItemHistoryMenuSnapshot
         let canNavigateBack: Bool
         let canNavigateForward: Bool
 
         static let empty = State(
             managerIdentity: nil,
-            recentlyFocused: FocusHistoryMenuSnapshot(items: [], totalItemCount: 0, isLimited: false),
+            recentlyFocusedItems: [],
             recentlyClosed: ClosedItemHistoryMenuSnapshot(items: [], totalItemCount: 0, isLimited: false),
             canNavigateBack: false,
             canNavigateForward: false
@@ -96,26 +96,21 @@ final class FocusHistoryMenuInvalidator: ObservableObject {
         }
 
         let shouldRefreshFocusHistory = cachedManager !== manager || cachedFocusHistoryRevision != revision
-        let recentlyFocused: FocusHistoryMenuSnapshot
+        let recentlyFocusedItems: [FocusHistoryMenuItem]
         let canNavigateBack: Bool
         let canNavigateForward: Bool
         if shouldRefreshFocusHistory {
-            let items = manager.recentlyFocusedFocusHistoryMenuItems(maxItemCount: 10)
-            recentlyFocused = FocusHistoryMenuSnapshot(
-                items: items,
-                totalItemCount: items.count,
-                isLimited: items.count == 10
-            )
+            recentlyFocusedItems = manager.recentlyFocusedFocusHistoryMenuItems(maxItemCount: 10)
             canNavigateBack = manager.canNavigateBack
             canNavigateForward = manager.canNavigateForward
         } else {
-            recentlyFocused = state.recentlyFocused
+            recentlyFocusedItems = state.recentlyFocusedItems
             canNavigateBack = state.canNavigateBack
             canNavigateForward = state.canNavigateForward
         }
         let nextState = State(
             managerIdentity: ObjectIdentifier(manager),
-            recentlyFocused: recentlyFocused,
+            recentlyFocusedItems: recentlyFocusedItems,
             recentlyClosed: closedItemHistoryStore.menuSnapshot(maxItemCount: 10),
             canNavigateBack: canNavigateBack,
             canNavigateForward: canNavigateForward

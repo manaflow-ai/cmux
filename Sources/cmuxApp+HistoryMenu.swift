@@ -21,7 +21,7 @@ extension cmuxApp {
             Divider()
 
             recentlyFocusedMenuSection(
-                snapshot: historyState.recentlyFocused
+                items: historyState.recentlyFocusedItems
             )
 
             Divider()
@@ -54,7 +54,7 @@ extension cmuxApp {
 
     @ViewBuilder
     private func recentlyFocusedMenuSection(
-        snapshot: FocusHistoryMenuSnapshot
+        items: [FocusHistoryMenuItem]
     ) -> some View {
         Button(historyMenuSectionTitle(
             title: String(localized: "menu.history.recentlyFocused", defaultValue: "Recently Focused"),
@@ -62,11 +62,11 @@ extension cmuxApp {
         )) {}
             .disabled(true)
 
-        if snapshot.items.isEmpty {
+        if items.isEmpty {
             Button(String(localized: "menu.history.noFocusHistory", defaultValue: "No Focus History")) {}
                 .disabled(true)
         } else {
-            ForEach(snapshot.items, id: \.historyIndex) { item in
+            ForEach(items, id: \.historyIndex) { item in
                 Button(FocusHistoryMenuFormatter.menuTitle(for: item)) {
                     if !activeTabManager.navigateToFocusHistoryMenuItem(item) {
                         NSSound.beep()
