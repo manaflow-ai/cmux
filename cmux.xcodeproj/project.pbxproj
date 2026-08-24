@@ -5743,6 +5743,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			files = (
 				B057B0017E57B0017E57B001 /* Bonsplit in Frameworks */,
 				C9A2B00000000000000000C3 /* CmuxAppKitSupportUI in Frameworks */,
+				5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */,
+				53750003A0B1C2D3E4F50003 /* CmuxAuthRuntime in Frameworks */,
 				D7032A060000000000000001 /* CmuxBrowser in Frameworks */,
 				CA52A007CA52A007CA52A007 /* CmuxCanvas in Frameworks */,
 				5E55500000000000000000E4 /* CmuxCommandPalette in Frameworks */,
