@@ -298,11 +298,3 @@ Publisher jobs use least-privilege permissions. npm, PyPI, and crates.io
 authenticate with short-lived OIDC credentials. PyPI emits PEP 740 attestations
 and npm publishes provenance. Stable npm and crates.io packages reject API-token
 publishing. GitHub Actions are pinned to full commit SHAs.
-
-## Raw binary manifest contract
-
-The R2 raw-binary manifest is the source of truth for artifact identity and
-runtime requirements. Each manifest records the release commit, a SHA-256
-digest for every binary, the `MIT` license, and the Linux floor `glibc >=2.28`.
-Installers must verify the selected binary digest before installation and may
-use the runtime field to reject hosts that cannot run the binary.
