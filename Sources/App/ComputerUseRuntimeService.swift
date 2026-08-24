@@ -642,7 +642,8 @@ final class ComputerUseRuntimeService {
                         let request = Self.setDriverCursorVisibleRequest(
                             visible,
                             driverSessionID: cursorSessionID,
-                            profile: profile
+                            profile: profile,
+                            proxySessionID: proxySessionID
                         ),
                         let expectedPeerIdentity = self.processIdentity(for: profile),
                         AgentPIDProcessIdentity(pid: expectedPeerIdentity.pid)
@@ -669,9 +670,9 @@ final class ComputerUseRuntimeService {
     }
 
     /// Reasserts the helper cursor above the authenticated target window after
-    /// a cmux focus transition. The helper keeps the existing cursor position;
-    /// this is deliberately a single host command rather than another state or
-    /// app snapshot request.
+    /// a cmux focus transition. This is strictly an ordering repair: lifecycle
+    /// visibility is owned by `setDriverCursorVisible` and cannot be changed by
+    /// a stale focus request.
     func reassertDriverCursor(
         driverSessionID: String,
         proxySessionID: String? = nil,
@@ -788,7 +789,6 @@ final class ComputerUseRuntimeService {
             "args": [
                 "session": session,
                 "window_id": Int(targetWindowID),
-                "enabled": true,
             ],
         ]
     }
@@ -796,7 +796,8 @@ final class ComputerUseRuntimeService {
     nonisolated static func setDriverCursorVisibleRequest(
         _ visible: Bool,
         driverSessionID: String,
-        profile: ComputerUseDaemonProfile
+        profile: ComputerUseDaemonProfile,
+        proxySessionID: String? = nil
     ) -> [String: Any]? {
         switch profile {
         case .native:
@@ -807,13 +808,18 @@ final class ComputerUseRuntimeService {
             else {
                 return nil
             }
+            var args: [String: Any] = [
+                "cursor_id": driverSessionID,
+                "_host_session": driverSessionID,
+                "enabled": visible,
+            ]
+            if let proxySessionID {
+                args["generation"] = proxySessionID
+            }
             return [
                 "method": "call",
                 "name": "set_agent_cursor_enabled",
-                "args": [
-                    "cursor_id": driverSessionID,
-                    "enabled": visible,
-                ],
+                "args": args,
             ]
         case .codexCompatibility:
             guard let stableSession = ComputerUseSessionScope.driverSessionID(
@@ -821,12 +827,16 @@ final class ComputerUseRuntimeService {
             ) else {
                 return nil
             }
+            var args: [String: Any] = [
+                "session": stableSession,
+                "enabled": visible,
+            ]
+            if let proxySessionID {
+                args["generation"] = proxySessionID
+            }
             return [
                 "method": "set_cursor_enabled",
-                "args": [
-                    "session": stableSession,
-                    "enabled": visible,
-                ],
+                "args": args,
             ]
         }
     }

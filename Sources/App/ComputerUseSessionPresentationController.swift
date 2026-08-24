@@ -24,13 +24,16 @@ final class ComputerUseSessionPresentationController {
         _ driverSessionID: String,
         _ proxySessionID: String?,
         _ targetWindowID: UInt32?,
-        _ visible: Bool,
         _ isCurrent: @escaping EffectValidity
     ) async -> Void
 
     private enum ActivityPhase: Equatable {
         case active
-        case completed
+        /// The turn ended, but the stable cursor identity remains reusable.
+        case hiddenReusable
+        /// The owning driver/session disappeared. A later start explicitly
+        /// revives the stable identity and receives a fresh cursor epoch.
+        case ended
     }
 
     private struct SessionState: Equatable {
@@ -56,7 +59,7 @@ final class ComputerUseSessionPresentationController {
     init(
         setCursorVisibility: @escaping CursorVisibilityEffect,
         focusTerminal: @escaping TerminalFocusEffect,
-        reassertCursor: @escaping CursorReassertEffect = { _, _, _, _, _ in }
+        reassertCursor: @escaping CursorReassertEffect = { _, _, _, _ in }
     ) {
         self.setCursorVisibility = setCursorVisibility
         self.focusTerminal = focusTerminal
@@ -90,7 +93,8 @@ final class ComputerUseSessionPresentationController {
         state.proxySessionID = proxySessionID ?? state.proxySessionID
         let shouldScheduleCursorEffect =
             previous == nil
-                || previous?.activityPhase == .completed
+                || previous?.activityPhase == .hiddenReusable
+                || previous?.activityPhase == .ended
                 || previous?.cursorVisible == false
                 || state.cursorEffectProxySessionID
                     != state.proxySessionID
@@ -134,7 +138,6 @@ final class ComputerUseSessionPresentationController {
             driverSessionID: driverSessionID,
             proxySessionID: state.proxySessionID,
             targetWindowID: state.targetWindowID,
-            visible: state.cursorVisible,
             epoch: state.focusEpoch,
             isCurrent: isCurrent
         ) { [focusTerminal] in
@@ -165,7 +168,6 @@ final class ComputerUseSessionPresentationController {
             driverSessionID: driverSessionID,
             proxySessionID: state.proxySessionID,
             targetWindowID: state.targetWindowID,
-            visible: state.cursorVisible,
             epoch: state.focusEpoch,
             isCurrent: isCurrent
         ) {
@@ -195,7 +197,6 @@ final class ComputerUseSessionPresentationController {
             driverSessionID: driverSessionID,
             proxySessionID: state.proxySessionID,
             targetWindowID: state.targetWindowID,
-            visible: state.cursorVisible,
             epoch: state.focusEpoch,
             isCurrent: isCurrent
         ) { [focusTerminal] in
@@ -236,7 +237,6 @@ final class ComputerUseSessionPresentationController {
             driverSessionID: driverSessionID,
             proxySessionID: state.proxySessionID,
             targetWindowID: state.targetWindowID,
-            visible: state.cursorVisible,
             epoch: state.focusEpoch
         )
     }
@@ -259,11 +259,11 @@ final class ComputerUseSessionPresentationController {
         let resolvedProxySessionID =
             proxySessionID ?? state.proxySessionID
         let shouldScheduleCursorEffect =
-            state.activityPhase != .completed
+            state.activityPhase != .hiddenReusable
                 || state.cursorVisible
                 || state.cursorEffectProxySessionID
                     != resolvedProxySessionID
-        state.activityPhase = .completed
+        state.activityPhase = .hiddenReusable
         state.focusMode = .automatic
         state.cursorVisible = false
         state.proxySessionID = resolvedProxySessionID
@@ -290,6 +290,25 @@ final class ComputerUseSessionPresentationController {
             visible: false,
             epoch: state.cursorEpoch
         )
+    }
+
+    /// Retires the whole driver generation after the live-session projection
+    /// confirms that its owner is gone. The cursor is still hidden through the
+    /// same idempotent path, but the phase records that a future start is a new
+    /// lifecycle rather than another turn on the current owner.
+    func driverSessionDidEnd(
+        _ driverSessionID: String,
+        proxySessionID: String? = nil
+    ) {
+        driverSessionDidComplete(
+            driverSessionID,
+            proxySessionID: proxySessionID
+        )
+        guard var state = statesByDriverSessionID[driverSessionID] else {
+            return
+        }
+        state.activityPhase = .ended
+        statesByDriverSessionID[driverSessionID] = state
     }
 
     func proxySessionDidBecomeKnown(
@@ -354,7 +373,7 @@ final class ComputerUseSessionPresentationController {
                 cursorEpoch: 0
             )
         }
-        if state.activityPhase == .completed {
+        if state.activityPhase != .active {
             state.focusMode = Self.defaultActiveFocusMode
             state.cursorVisible = true
         }
@@ -401,7 +420,6 @@ final class ComputerUseSessionPresentationController {
         driverSessionID: String,
         proxySessionID: String?,
         targetWindowID: UInt32?,
-        visible: Bool,
         epoch: UInt64,
         isCurrent: @escaping EffectValidity,
         effect: @escaping @MainActor () -> Void
@@ -422,7 +440,6 @@ final class ComputerUseSessionPresentationController {
                 driverSessionID: driverSessionID,
                 proxySessionID: proxySessionID,
                 targetWindowID: targetWindowID,
-                visible: visible,
                 epoch: epoch
             )
         }
@@ -432,7 +449,6 @@ final class ComputerUseSessionPresentationController {
         driverSessionID: String,
         proxySessionID: String?,
         targetWindowID: UInt32?,
-        visible: Bool,
         epoch: UInt64
     ) {
         guard targetWindowID != nil else { return }
@@ -448,7 +464,6 @@ final class ComputerUseSessionPresentationController {
                 driverSessionID,
                 proxySessionID,
                 targetWindowID,
-                visible,
                 isCurrent
             )
         }

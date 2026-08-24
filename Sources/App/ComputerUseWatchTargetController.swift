@@ -291,7 +291,7 @@ final class ComputerUseWatchTargetController {
                 .CursorVisibilityEffect = { _, _, _, _ in },
         onCursorReassert:
             @escaping ComputerUseSessionPresentationController
-                .CursorReassertEffect = { _, _, _, _, _ in },
+                .CursorReassertEffect = { _, _, _, _ in },
         frontmostApplicationProcessIdentifier:
             @escaping @MainActor () -> pid_t? = {
                 NSWorkspace.shared.frontmostApplication?.processIdentifier
@@ -496,6 +496,20 @@ final class ComputerUseWatchTargetController {
             for: driverSessionID
         )
         presentationController.driverSessionDidComplete(
+            driverSessionID,
+            proxySessionID: cursorProxySessionID
+        )
+    }
+
+    func driverSessionDidEnd(
+        _ driverSessionID: String,
+        proxySessionID: String? = nil
+    ) {
+        let cursorProxySessionID = rememberManagedProxySessionID(
+            proxySessionID,
+            for: driverSessionID
+        )
+        presentationController.driverSessionDidEnd(
             driverSessionID,
             proxySessionID: cursorProxySessionID
         )
@@ -776,7 +790,7 @@ final class ComputerUseWatchTargetController {
                 .subtracting(liveDriverSessionIDs)
                 .union(replacedDriverSessionIDs)
         for driverSessionID in endedDriverSessionIDs {
-            presentationController.driverSessionDidComplete(
+            presentationController.driverSessionDidEnd(
                 driverSessionID,
                 proxySessionID:
                     proxySessionIDByDriverSessionID[driverSessionID]

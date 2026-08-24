@@ -25,6 +25,16 @@ final class ComputerUseUXCoordinator {
     private var enabledSettingTask: Task<Void, Never>?
     private var toolInvocationTask: Task<Void, Never>?
     private var onboardingGateTask: Task<Void, Never>?
+    /// Hook completion events can briefly race a live-index refresh. Retain
+    /// the last accepted invocation identity so a matching Stop/SessionEnd can
+    /// still retire the cursor during that bookkeeping gap without allowing a
+    /// delayed event from a replaced agent generation to hide its successor.
+    private var acceptedInvocationByDriverSessionID:
+        [String: (
+            surfaceID: UUID,
+            agentSessionID: String,
+            receivedAt: Date
+        )] = [:]
 
     init(
         liveAgentIndex: SharedLiveAgentIndex,
@@ -154,9 +164,8 @@ final class ComputerUseUXCoordinator {
                 driverSessionID,
                 proxySessionID,
                 targetWindowID,
-                visible,
                 isCurrent in
-                guard visible, let targetWindowID else { return }
+                guard let targetWindowID else { return }
                 _ = await runtimeService.reassertDriverCursor(
                     driverSessionID: driverSessionID,
                     proxySessionID: proxySessionID,
@@ -280,6 +289,7 @@ final class ComputerUseUXCoordinator {
         watchTargetController = nil
         onboardingWindowController?.dismiss()
         onboardingWindowController = nil
+        acceptedInvocationByDriverSessionID.removeAll()
     }
 
     func teardownForTermination() {
@@ -308,18 +318,46 @@ final class ComputerUseUXCoordinator {
             event.hookEventName == .stop
                 || event.hookEventName == .sessionEnd
         guard isComputerUseInvocation || isCompletion else { return }
-        guard
-            let driverSessionID = liveSessionProjection.driverSessionID(
+        let resolvedDriverSessionID = liveSessionProjection.driverSessionID(
                 surfaceID: event.surfaceId,
                 agentSessionID: event.sessionId,
                 hookProcessID: event.ppid
             )
-        else {
+        let driverSessionID: String?
+        if let resolvedDriverSessionID {
+            driverSessionID = resolvedDriverSessionID
+        } else if isCompletion,
+                  let surfaceString = event.surfaceId,
+                  let surfaceID = UUID(uuidString: surfaceString),
+                  let candidate = acceptedInvocationByDriverSessionID.first(
+                    where: {
+                        $0.value.surfaceID == surfaceID
+                            && $0.value.agentSessionID == event.sessionId
+                            && event.receivedAt >= $0.value.receivedAt
+                    }
+                  )?.key {
+            // The candidate was accepted for this exact surface + logical
+            // agent session earlier in the run. This fallback only bridges a
+            // transient projection refresh; a replaced generation has a
+            // different agent session id and cannot match.
+            driverSessionID = candidate
+        } else {
+            driverSessionID = nil
+        }
+        guard let driverSessionID else {
             return
         }
 
         switch event.hookEventName {
         case .preToolUse where isComputerUseInvocation:
+            if let surfaceString = event.surfaceId,
+               let surfaceID = UUID(uuidString: surfaceString) {
+                acceptedInvocationByDriverSessionID[driverSessionID] = (
+                    surfaceID,
+                    event.sessionId,
+                    event.receivedAt
+                )
+            }
             watchTargetController?.driverSessionDidStart(driverSessionID)
         case .stop, .sessionEnd:
             activityLifecycle.recordCompletion(
@@ -334,6 +372,9 @@ final class ComputerUseUXCoordinator {
                 proxySessionID: proxySessionID
             )
             menuBarSnapshotStore?.driverSessionDidComplete(driverSessionID)
+            acceptedInvocationByDriverSessionID.removeValue(
+                forKey: driverSessionID
+            )
         default:
             break
         }

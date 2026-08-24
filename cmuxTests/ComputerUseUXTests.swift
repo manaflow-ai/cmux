@@ -1588,6 +1588,10 @@ struct ComputerUseUXTests {
                 as? String == driverSessionID
         )
         #expect(
+            (nativeCursorRequest?["args"] as? [String: Any])?["_host_session"]
+                as? String == driverSessionID
+        )
+        #expect(
             (nativeCursorRequest?["args"] as? [String: Any])?["enabled"]
                 as? Bool == true
         )
@@ -1614,6 +1618,18 @@ struct ComputerUseUXTests {
 
         let proxyCursorSessionID =
             "\(driverSessionID)-mcp-42-1000"
+        let generationScopedCursorRequest =
+            ComputerUseRuntimeService.setDriverCursorVisibleRequest(
+                false,
+                driverSessionID: driverSessionID,
+                profile: .codexCompatibility,
+                proxySessionID: proxyCursorSessionID
+            )
+        #expect(
+            (generationScopedCursorRequest?["args"] as? [String: Any])?["generation"]
+                as? String == proxyCursorSessionID,
+            "Turn completion visibility must be scoped to the proxy generation that started it"
+        )
         let proxyCursorRequest =
             ComputerUseRuntimeService.setDriverCursorVisibleRequest(
                 false,
@@ -3044,8 +3060,8 @@ struct ComputerUseUXTests {
         let controller = ComputerUseSessionPresentationController(
             setCursorVisibility: { _, _, _, _ in },
             focusTerminal: { _, _, _ in terminalFocuses += 1 },
-            reassertCursor: { _, _, targetWindowID, visible, _ in
-                reassertions.continuation.yield((targetWindowID, visible))
+            reassertCursor: { _, _, targetWindowID, _ in
+                reassertions.continuation.yield((targetWindowID, true))
             }
         )
         controller.driverSessionDidStart(driverSessionID)
