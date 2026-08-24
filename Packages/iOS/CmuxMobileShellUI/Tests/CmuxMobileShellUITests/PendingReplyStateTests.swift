@@ -77,6 +77,7 @@ import Testing
             workspaceId: "workspace-1",
             surfaceId: "surface-1",
             macDeviceId: "mac-1",
+            macInstanceTag: "nightly",
             retargetsToLiveSurfaceOwner: true,
             createdAt: createdAt ?? now
         )

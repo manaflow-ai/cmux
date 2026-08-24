@@ -1191,6 +1191,23 @@
         }
       }
     },
+    "mobile.simulatorStream.disabledDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator panes are disabled on the Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacでSimulatorペインが無効になっています。"
+          }
+        }
+      }
+    },
     "mobile.simulatorStream.home": {
       "extractionState": "manual",
       "localizations": {
@@ -1310,6 +1327,91 @@
         }
       }
     },
+    "mobile.simulatorStream.panelClosedDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator pane was closed on the Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacでSimulatorペインが閉じられました。"
+          }
+        }
+      }
+    },
+    "mobile.simulatorStream.quality": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stream Quality"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ストリーム画質"
+          }
+        }
+      }
+    },
+    "mobile.simulatorStream.qualityBalanced": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Balanced"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バランス"
+          }
+        }
+      }
+    },
+    "mobile.simulatorStream.qualityDataSaver": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data Saver"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "データセーバー"
+          }
+        }
+      }
+    },
+    "mobile.simulatorStream.qualityHigh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高画質"
+          }
+        }
+      }
+    },
     "mobile.simulatorStream.sendText": {
       "extractionState": "manual",
       "localizations": {
@@ -1378,6 +1480,40 @@
         }
       }
     },
+    "mobile.simulatorStream.supersededDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another device took over this Simulator stream."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のデバイスがこのSimulatorストリームを引き継ぎました。"
+          }
+        }
+      }
+    },
+    "mobile.simulatorStream.switchSimulator": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Simulator"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorを切り替え"
+          }
+        }
+      }
+    },
     "mobile.simulatorStream.textPlaceholder": {
       "extractionState": "manual",
       "localizations": {
@@ -1391,6 +1527,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "テキスト"
+          }
+        }
+      }
+    },
+    "mobile.simulatorStream.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator Unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorを利用できません"
+          }
+        }
+      }
+    },
+    "mobile.simulatorStream.unavailableDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Mac closed this Simulator stream."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacがこのSimulatorストリームを終了しました。"
           }
         }
       }
@@ -1735,6 +1905,40 @@
         }
       }
     },
+    "mobile.browser.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザを待機中"
+          }
+        }
+      }
+    },
+    "mobile.browser.waitingDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The browser will appear when the Mac is ready."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac の準備ができるとブラウザが表示されます。"
+          }
+        }
+      }
+    },
     "mobile.browser.reload": {
       "extractionState": "manual",
       "localizations": {
@@ -2003,6 +2207,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "自動"
+          }
+        }
+      }
+    },
+    "mobile.computers.build.dev": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV"
+          }
+        }
+      }
+    },
+    "mobile.computers.build.devTaggedFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV · %@"
+          }
+        }
+      }
+    },
+    "mobile.computers.build.nightly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ナイトリー"
+          }
+        }
+      }
+    },
+    "mobile.computers.build.rc": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RC"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RC"
+          }
+        }
+      }
+    },
+    "mobile.computers.build.stable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安定版"
+          }
+        }
+      }
+    },
+    "mobile.computers.build.staging": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staging"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステージング"
           }
         }
       }
@@ -5991,13 +6297,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use BETA, INTERNAL, or the App Store app with Stable or Nightly. Use this DEV app with a Mac that has the same DEV tag."
+            "value": "Use BETA, INTERNAL, or the App Store app with Stable or Nightly. Use a DEV iPhone build with any DEV Mac build."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "BETA、INTERNAL、または App Store アプリは Stable または Nightly と一緒に使用してください。この DEV アプリは同じ DEV タグを持つ Mac と一緒に使用してください。"
+            "value": "BETA、INTERNAL、または App Store アプリは Stable または Nightly と一緒に使用してください。DEV iPhone ビルドは任意の DEV Mac ビルドと一緒に使用できます。"
           }
         }
       }
@@ -6025,13 +6331,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "DEV builds must use the same DEV tag. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
+            "value": "DEV iPhone builds connect to any DEV Mac build. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "DEV ビルド同士は同じ DEV タグを使用する必要があります。BETA、INTERNAL、App Store ビルドは Stable または Nightly にのみ接続できます。"
+            "value": "DEV iPhone ビルドは任意の DEV Mac ビルドに接続できます。BETA、INTERNAL、App Store ビルドは Stable または Nightly にのみ接続できます。"
           }
         }
       }
@@ -7311,193 +7617,6 @@
         }
       }
     },
-    "mobile.settings.agentChatDemo": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent Chat Demo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントチャットデモ"
-          }
-        }
-      }
-    },
-    "mobile.settings.agentChat.failureScenario": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Failure scenario"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エラーケース"
-          }
-        }
-      }
-    },
-    "mobile.settings.agentChat.failureScenarios.category.connection": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connection and auth"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "接続と認証"
-          }
-        }
-      }
-    },
-    "mobile.settings.agentChat.failureScenarios.category.filesystem": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "File system"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイルシステム"
-          }
-        }
-      }
-    },
-    "mobile.settings.agentChat.failureScenarios.category.media": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Media and preview"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メディアとプレビュー"
-          }
-        }
-      }
-    },
-    "mobile.settings.agentChat.failureScenarios.category.request": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Request and scope"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リクエストと範囲"
-          }
-        }
-      }
-    },
-    "mobile.settings.agentChat.failureScenarios.category.storage": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Device storage"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デバイスのストレージ"
-          }
-        }
-      }
-    },
-    "mobile.settings.agentChat.failureScenarios.category.transfer": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Transfer"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "転送"
-          }
-        }
-      }
-    },
-    "mobile.settings.agentChat.failureScenarios.done": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Done"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "完了"
-          }
-        }
-      }
-    },
-    "mobile.settings.agentChat.failureScenarios.instructions": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose a case, then tap the CI attachment in the conversation to see its message."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ケースを選んでから、会話内のCI添付ファイルをタップするとメッセージを確認できます。"
-          }
-        }
-      }
-    },
-    "mobile.settings.agentChat.failureScenarios.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Artifact failure scenarios"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アーティファクトのエラーケース"
-          }
-        }
-      }
-    },
     "mobile.settings.cmuxLabs": {
       "extractionState": "manual",
       "localizations": {
@@ -8118,23 +8237,6 @@
         }
       }
     },
-    "mobile.settings.terminalLogDemo": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal Log Demo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルログデモ"
-          }
-        }
-      }
-    },
     "mobile.settings.shellIconLab": {
       "extractionState": "manual",
       "localizations": {
@@ -8726,40 +8828,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "カスタムアクションを追加"
-          }
-        }
-      }
-    },
-    "mobile.shortcuts.chat.footer": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose which compatible terminal buttons appear on both the chat and terminal keyboard bars. Changes here also update the terminal keyboard bar."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "チャットとターミナル両方のキーボードバーに表示する互換性のあるターミナルボタンを選びます。ここでの変更はターミナルのキーボードバーにも反映されます。"
-          }
-        }
-      }
-    },
-    "mobile.shortcuts.chat.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shared Shortcuts"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "共有ショートカット"
           }
         }
       }
@@ -9399,13 +9467,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Full-screen mode mirrors the Mac terminal's exact size, so it may not fill this screen. Claude Code: `/tui default`. Codex: restart with `codex --no-alt-screen`."
+            "value": "Full-screen mode mirrors the Mac terminal's exact size, so it may not fill this screen, and scrolling won't be as smooth. Claude Code: `/tui default`. Codex: restart with `codex --no-alt-screen`."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "全画面モードは Mac 側ターミナルのサイズをそのまま表示するため、この画面いっぱいに広がらない場合があります。Claude Code: `/tui default`。Codex: `codex --no-alt-screen` で再起動。"
+            "value": "全画面モードは Mac 側ターミナルのサイズをそのまま表示するため、この画面いっぱいに広がらない場合があり、スクロールも滑らかではなくなります。Claude Code: `/tui default`。Codex: `codex --no-alt-screen` で再起動。"
           }
         }
       }
@@ -13294,6 +13362,23 @@
         }
       }
     },
+    "mobile.taskComposer.warning.noConnectedMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Mac is connected. Open cmux on a Mac to start this task."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続されているMacがありません。タスクを開始するには、Macでcmuxを開いてください。"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.workspace": {
       "extractionState": "manual",
       "localizations": {
@@ -13511,23 +13596,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "ボタンのラベル"
-          }
-        }
-      }
-    },
-    "mobile.workspace.agentChat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent Chat"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントチャット"
           }
         }
       }
@@ -18543,6 +18611,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "このプライベートネットワークを削除しますか？"
+          }
+        }
+      }
+    },
+    "mobile.iroh.private.custom.macUpdateRequiredFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (Update cmux)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (cmux を更新)"
           }
         }
       }
