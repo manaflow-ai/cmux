@@ -638,22 +638,23 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
         windowID: UUID?,
         boundWorkspace: Workspace?
     ) -> ControlWorkspaceTaskQueueItem {
-        let displayedWorkspace = boundWorkspace ?? workspace
-        let displayedManager = AppDelegate.shared?.tabManagerFor(tabId: displayedWorkspace.id)
-        let displayedWindowID = displayedManager.flatMap { AppDelegate.shared?.windowId(for: $0) } ?? windowID
+        let boundManager = boundWorkspace.flatMap { AppDelegate.shared?.tabManagerFor(tabId: $0.id) }
+        let boundWindowID = boundManager.flatMap { AppDelegate.shared?.windowId(for: $0) }
         return ControlWorkspaceTaskQueueItem(
             id: item.id,
             text: item.text,
             state: item.state.rawValue,
-            workspaceID: displayedWorkspace.id,
-            workspaceTitle: displayedWorkspace.title,
-            windowID: displayedWindowID,
+            workspaceID: workspace.id,
+            workspaceTitle: workspace.title,
+            windowID: windowID,
             owningAgent: item.boundAgent ?? item.agentTaskRef?.workstreamId ?? item.dispatchTarget?.agentName,
             lastActivityAt: item.lastActivityAt,
             targetWorkingDirectory: item.dispatchTarget?.workingDirectory,
             targetAgentCommand: item.dispatchTarget?.agentCommand,
             targetAgentName: item.dispatchTarget?.agentName,
-            boundWorkspaceID: item.boundWorkspaceID
+            boundWorkspaceID: item.boundWorkspaceID,
+            boundWorkspaceTitle: boundWorkspace?.title,
+            boundWindowID: boundWindowID
         )
     }
 

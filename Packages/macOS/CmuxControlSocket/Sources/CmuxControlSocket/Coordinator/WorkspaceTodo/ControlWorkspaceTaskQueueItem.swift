@@ -14,6 +14,8 @@ public struct ControlWorkspaceTaskQueueItem: Sendable, Equatable {
     public let targetAgentCommand: String?
     public let targetAgentName: String?
     public let boundWorkspaceID: UUID?
+    public let boundWorkspaceTitle: String?
+    public let boundWindowID: UUID?
 
     public init(
         id: UUID,
@@ -27,7 +29,9 @@ public struct ControlWorkspaceTaskQueueItem: Sendable, Equatable {
         targetWorkingDirectory: String?,
         targetAgentCommand: String?,
         targetAgentName: String?,
-        boundWorkspaceID: UUID?
+        boundWorkspaceID: UUID?,
+        boundWorkspaceTitle: String? = nil,
+        boundWindowID: UUID? = nil
     ) {
         self.id = id
         self.text = text
@@ -41,5 +45,7 @@ public struct ControlWorkspaceTaskQueueItem: Sendable, Equatable {
         self.targetAgentCommand = targetAgentCommand
         self.targetAgentName = targetAgentName
         self.boundWorkspaceID = boundWorkspaceID
+        self.boundWorkspaceTitle = boundWorkspaceTitle
+        self.boundWindowID = boundWindowID
     }
 }

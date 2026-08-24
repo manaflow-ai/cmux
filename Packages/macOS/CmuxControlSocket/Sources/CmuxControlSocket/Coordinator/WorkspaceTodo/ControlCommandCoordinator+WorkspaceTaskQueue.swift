@@ -33,6 +33,9 @@ extension ControlCommandCoordinator {
             "last_activity_at": orNull(item.lastActivityAt?.ISO8601Format()),
             "bound_workspace_id": orNull(item.boundWorkspaceID?.uuidString),
             "bound_workspace_ref": ref(.workspace, item.boundWorkspaceID),
+            "bound_workspace_title": orNull(item.boundWorkspaceTitle),
+            "bound_window_id": orNull(item.boundWindowID?.uuidString),
+            "bound_window_ref": ref(.window, item.boundWindowID),
         ]
         object["target"] = .object([
             "working_directory": orNull(item.targetWorkingDirectory),

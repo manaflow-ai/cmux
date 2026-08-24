@@ -45,6 +45,7 @@ final class WorkspaceTaskQueueModel {
     private(set) var isRefreshing = false
     private(set) var errorMessage: String?
     @ObservationIgnored private var scheduledRefresh: Task<Void, Never>?
+    @ObservationIgnored private var refreshRequested = false
     var statusFilter: StatusFilter = .all { didSet { refresh() } }
     var workspaceFilter: UUID? { didSet { refresh() } }
     var sortKey: SortKey = .activity { didSet { sortRows() } }
@@ -65,6 +66,11 @@ final class WorkspaceTaskQueueModel {
     func refresh() {
         scheduledRefresh?.cancel()
         scheduledRefresh = nil
+        refreshRequested = false
+        performRefresh()
+    }
+
+    private func performRefresh() {
         isRefreshing = true
         defer { isRefreshing = false }
         let status = statusFilter == .all ? nil : statusFilter.rawValue
@@ -85,11 +91,15 @@ final class WorkspaceTaskQueueModel {
     /// Coalesces a burst of checklist notifications into one main-actor read.
     /// Task-yield is a scheduling boundary, not a time-based retry or poll.
     func scheduleRefresh() {
-        scheduledRefresh?.cancel()
+        refreshRequested = true
+        guard scheduledRefresh == nil else { return }
         scheduledRefresh = Task { @MainActor [weak self] in
-            await Task.yield()
-            guard !Task.isCancelled, let self else { return }
-            self.refresh()
+            guard let self else { return }
+            while !Task.isCancelled, self.refreshRequested {
+                self.refreshRequested = false
+                self.performRefresh()
+                await Task.yield()
+            }
             self.scheduledRefresh = nil
         }
     }

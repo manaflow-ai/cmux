@@ -34,6 +34,7 @@ final class FeedCoordinator: @unchecked Sendable {
     @MainActor var lastTodoWorkspaceByWorkstream: [String: UUID] = [:]
     @MainActor private var todoWorkspaceRecency: [String] = []
     @MainActor private let maxTrackedTodoWorkstreams = 128
+    @MainActor private var todoRecoveryRecency: [String] = []
     @MainActor private var dispatchedTaskOwnersByTargetWorkspace: [UUID: [DispatchedTaskOwner]] = [:]
     @MainActor private var dispatchedTaskOwnerRecency: [UUID] = []
     @MainActor private var dispatchTargetRecoveryScans: Set<UUID> = []
@@ -183,6 +184,7 @@ final class FeedCoordinator: @unchecked Sendable {
     private func forgetTodoWorkspace(for workstreamId: String) {
         lastTodoWorkspaceByWorkstream.removeValue(forKey: workstreamId)
         todoWorkspaceRecency.removeAll { $0 == workstreamId }
+        todoRecoveryRecency.removeAll { $0 == workstreamId }
     }
 
     @MainActor
@@ -202,6 +204,7 @@ final class FeedCoordinator: @unchecked Sendable {
         let overflow = dispatchedTaskOwnerRecency.count - maxTrackedDispatchTargets
         for old in dispatchedTaskOwnerRecency.prefix(overflow) {
             dispatchedTaskOwnersByTargetWorkspace.removeValue(forKey: old)
+            dispatchTargetRecoveryScans.remove(old)
         }
         dispatchedTaskOwnerRecency.removeFirst(overflow)
     }
@@ -214,6 +217,16 @@ final class FeedCoordinator: @unchecked Sendable {
     @MainActor
     func markDispatchTargetRecoveryScan(_ targetWorkspaceID: UUID) -> Bool {
         dispatchTargetRecoveryScans.insert(targetWorkspaceID).inserted
+    }
+
+    @MainActor
+    func markTodoRecoveryAttempt(_ workstreamId: String) -> Bool {
+        guard !todoRecoveryRecency.contains(workstreamId) else { return false }
+        todoRecoveryRecency.append(workstreamId)
+        if todoRecoveryRecency.count > maxTrackedTodoWorkstreams {
+            todoRecoveryRecency.removeFirst(todoRecoveryRecency.count - maxTrackedTodoWorkstreams)
+        }
+        return true
     }
 
     struct DispatchedTaskOwner: Sendable, Equatable {

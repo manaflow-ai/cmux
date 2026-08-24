@@ -28,7 +28,14 @@ struct WorkstreamTaskToolTodos: Sendable {
     /// Seeds the accumulator from persisted agent rows after an app restart.
     mutating func seed(with restored: [WorkstreamTaskTodo]) {
         todos = restored
-        for todo in restored { claim(todo.id) }
+        for todo in restored {
+            claim(todo.id)
+            if todo.id.hasPrefix("pending-"),
+               let suffix = Int(todo.id.dropFirst("pending-".count)) {
+                nextProvisionalID = max(nextProvisionalID, suffix)
+                provisionalIDsInOrder.append(todo.id)
+            }
+        }
         trim()
     }
 

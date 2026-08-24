@@ -10,7 +10,10 @@ extension FeedCoordinator {
     func recoverAgentTodosIfNeeded(for event: WorkstreamEvent) {
         let isTaskEvent = event.hookEventName == .todoWrite
             || event.toolName.flatMap(WorkstreamTaskTool.init(rawValue:)) != nil
-        guard isTaskEvent, let store, store.ownedTaskIds(forWorkstream: event.sessionId).isEmpty else {
+        guard isTaskEvent,
+              let store,
+              store.ownedTaskIds(forWorkstream: event.sessionId).isEmpty,
+              markTodoRecoveryAttempt(event.sessionId) else {
             return
         }
         // An accumulator can be empty after restart while persisted rows still
