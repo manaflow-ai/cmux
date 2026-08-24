@@ -15,6 +15,11 @@ export const remoteTmuxDocsLocales = [
   "ja",
 ] as const satisfies readonly Locale[];
 
+export const managedPoliciesDocsLocales = [
+  "en",
+  "ja",
+] as const satisfies readonly Locale[];
+
 // Routes in this registry intentionally expose only their authored locales.
 export const fallbackContentLocales = [
   "en",

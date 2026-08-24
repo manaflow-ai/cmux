@@ -373,12 +373,13 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             teamID: team,
             requiresExactInstanceTag: false
         )
+        guard let target else { return }
         try await setCustomization(
             macDeviceID: macDeviceID,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,
-            stackUserID: target?.stackUserID,
+            stackUserID: target.stackUserID,
             teamID: team,
             now: now
         )
@@ -412,9 +413,10 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             teamID: team,
             requiresExactInstanceTag: false
         )
+        guard let target else { return }
         try await setActive(
             macDeviceID: macDeviceID,
-            instanceTag: target?.instanceTag,
+            instanceTag: target.instanceTag,
             stackUserID: stackUserID,
             teamID: team
         )
@@ -520,9 +522,10 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             teamID: team,
             requiresExactInstanceTag: false
         )
+        guard let target else { return }
         try await setCustomization(
             macDeviceID: macDeviceID,
-            instanceTag: target?.instanceTag,
+            instanceTag: target.instanceTag,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,
@@ -588,9 +591,10 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             teamID: team,
             requiresExactInstanceTag: false
         )
+        guard let target else { return }
         try await remove(
             macDeviceID: macDeviceID,
-            instanceTag: target?.instanceTag,
+            instanceTag: target.instanceTag,
             stackUserID: stackUserID,
             teamID: team
         )
@@ -1082,10 +1086,19 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         requiresExactInstanceTag: Bool
     ) async throws -> MobilePairedMac? {
         let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        return try await inner.loadAll(stackUserID: stackUserID, teamID: teamID).first {
+        let matches = try await inner.loadAll(stackUserID: stackUserID, teamID: teamID).filter {
             cmxCanonicalDeviceID($0.macDeviceID) == macDeviceID
-                && (!requiresExactInstanceTag || $0.instanceTag == instanceTag)
+                && (!requiresExactInstanceTag
+                    || MacPairingKey(
+                        macDeviceID: $0.macDeviceID,
+                        instanceTag: $0.instanceTag
+                    ) == MacPairingKey(
+                        macDeviceID: macDeviceID,
+                        instanceTag: instanceTag
+                    ))
         }
+        guard requiresExactInstanceTag || matches.count == 1 else { return nil }
+        return matches.first
     }
 
     /// Build a backup record for a Mac from the local row. Callers choose whether
@@ -1142,9 +1155,14 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             return false
         }
         guard let mac = localMacs.first(where: {
-                cmxCanonicalDeviceID($0.macDeviceID) == macDeviceID
-                    && $0.instanceTag == instanceTag
-            }) else {
+            MacPairingKey(
+                macDeviceID: $0.macDeviceID,
+                instanceTag: $0.instanceTag
+            ) == MacPairingKey(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
+        }) else {
             diagnosticLog?.recordAppEvent(
                 .pairedMacBackupWriteFailed,
                 correlationID: pairingID,

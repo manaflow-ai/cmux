@@ -767,6 +767,7 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     case displayWorkspacePreviewLinesChanged = 528
     case terminalScrollbackRowsChanged = 529
     case telemetrySharingChanged = 530
+    /// `c`: ``DiagnosticConnectionMethod`` the user switched to.
     case connectionMethodPreferenceChanged = 531
     /// Detail: ``DiagnosticAppEventDetail/toolbarConfigurationAction(_:)``.
     case customToolbarChanged = 532
@@ -836,6 +837,22 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
 
     // MARK: Appended persistence events
     case pairedMacStoreWriteStarted = 660
+
+    // MARK: Appended connection reporting events
+    /// The configured connection method, recorded at composition and on every
+    /// foreground so any shared report window states it even after the ring
+    /// rolls past app launch. `c`: ``DiagnosticConnectionMethod``.
+    case connectionMethodConfigured = 661
+    /// The transport that actually carries the foreground connection, recorded
+    /// on connect and on every active-route change. `c`: ``DiagnosticTransportKind``.
+    case foregroundTransportSelected = 662
+}
+
+/// The user's configured connection method, mirrored from the settings picker
+/// without account, address, or grant details.
+public enum DiagnosticConnectionMethod: Int, Sendable, Codable, CaseIterable {
+    case automatic = 0
+    case tailscale = 1
 }
 
 /// High-level lifecycle state for one phone-controlled Simulator stream.

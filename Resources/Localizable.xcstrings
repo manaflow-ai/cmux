@@ -4113,6 +4113,81 @@
         }
       }
     },
+    "cli.agentHook.error.notificationDelivery": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "فشل تسليم إشعار خطاف الوكيل لـ %@ %@." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Dostava obavijesti agentske kuke nije uspjela za %@ %@." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Levering af agent-hook-notifikationen mislykkedes for %@ %@." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die Zustellung der Agent-Hook-Benachrichtigung ist für %@ %@ fehlgeschlagen." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Agent hook notification delivery failed for %@ %@." } },
+        "es": { "stringUnit": { "state": "translated", "value": "No se pudo entregar la notificación del hook del agente para %@ %@." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Échec de la livraison de la notification du hook d’agent pour %@ %@." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Impossibile recapitare la notifica dell’hook dell’agente per %@ %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ %@ のエージェントフック通知を配信できませんでした。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការបញ្ជូនការជូនដំណឹង agent hook បានបរាជ័យសម្រាប់ %@ %@។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%@ %@에 대한 에이전트 훅 알림을 전달하지 못했습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Levering av agent-hook-varslingen mislyktes for %@ %@." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie udało się dostarczyć powiadomienia haka agenta dla %@ %@." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Falha ao entregar a notificação do hook do agente para %@ %@." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось доставить уведомление хука агента для %@ %@." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ส่งการแจ้งเตือน agent hook สำหรับ %@ %@ ไม่สำเร็จ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%@ %@ için aracı kancası bildirimi teslim edilemedi." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося доставити сповіщення хуку агента для %@ %@." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法传递 %@ %@ 的代理钩子通知。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法傳遞 %@ %@ 的代理程式掛鉤通知。" } }
+      }
+    },
+    "cli.agentHook.error.journalAppend": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "فشل إلحاق سجل خطاف الوكيل لـ %@ %@." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Dodavanje agentske kuke u dnevnik nije uspjelo za %@ %@." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Tilføjelse af agent-hook til journalen mislykkedes for %@ %@." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Das Anhängen des Agent-Hooks an das Journal ist für %@ %@ fehlgeschlagen." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Agent hook journal append failed for %@ %@." } },
+        "es": { "stringUnit": { "state": "translated", "value": "No se pudo añadir el hook del agente al diario para %@ %@." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Échec de l’ajout du hook d’agent au journal pour %@ %@." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Impossibile aggiungere l’hook dell’agente al diario per %@ %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ %@ のエージェントフックのジャーナル追記に失敗しました。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការបន្ថែម agent hook ទៅក្នុងកំណត់ហេតុបានបរាជ័យសម្រាប់ %@ %@។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%@ %@에 대한 에이전트 훅 저널 추가에 실패했습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Det oppstod en feil ved å legge agent-hooken til journalen for %@ %@." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie udało się dodać haka agenta do dziennika dla %@ %@." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Falha ao adicionar o hook do agente ao diário para %@ %@." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось добавить хук агента в журнал для %@ %@." } },
+        "th": { "stringUnit": { "state": "translated", "value": "เพิ่ม agent hook ลงในบันทึกประจำวันสำหรับ %@ %@ ไม่สำเร็จ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%@ %@ için aracı kancasını günlüğe ekleme başarısız oldu." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося додати хук агента до журналу для %@ %@." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法将 %@ %@ 的代理钩子追加到日志。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法將 %@ %@ 的代理程式掛鉤追加到日誌。" } }
+      }
+    },
+    "cli.agentHook.error.targetResolution": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "فشل حل هدف خطاف الوكيل لـ %@ %@." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Rješavanje odredišta agentske kuke nije uspjelo za %@ %@." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Agent-hook-målløsning mislykkedes for %@ %@." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die Zielauflösung des Agent-Hooks ist für %@ %@ fehlgeschlagen." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Agent hook target resolution failed for %@ %@." } },
+        "es": { "stringUnit": { "state": "translated", "value": "No se pudo resolver el destino del hook del agente para %@ %@." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Échec de la résolution de la cible du hook d’agent pour %@ %@." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Risoluzione della destinazione dell’hook dell’agente non riuscita per %@ %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ %@ のエージェントフック配信先を解決できませんでした。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការដោះស្រាយគោលដៅ agent hook បានបរាជ័យសម្រាប់ %@ %@។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%@ %@에 대한 에이전트 훅 대상을 확인하지 못했습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Fant ikke målet for agent-hooken for %@ %@." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie udało się rozpoznać celu haka agenta dla %@ %@." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Falha ao resolver o destino do hook do agente para %@ %@." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось определить цель хука агента для %@ %@." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่สามารถแก้ไขปลายทาง agent hook สำหรับ %@ %@ ได้" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%@ %@ için aracı kancası hedefi çözülemedi." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося визначити ціль хуку агента для %@ %@." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法解析 %@ %@ 的代理钩子目标。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法解析 %@ %@ 的代理程式掛鉤目標。" } }
+      }
+    },
     "agent.generic.notification.body.approvalNeeded": {
       "extractionState": "manual",
       "localizations": {
@@ -4130,23 +4205,6 @@
         }
       }
     },
-    "agent.generic.notification.body.needsAttention": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ needs your attention"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ の確認が必要です"
-          }
-        }
-      }
-    },
     "agent.generic.notification.body.reportedError": {
       "extractionState": "manual",
       "localizations": {
@@ -4160,23 +4218,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ がエラーを報告しました"
-          }
-        }
-      }
-    },
-    "agent.generic.notification.body.sentNotification": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ sent a notification"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ から通知が届きました"
           }
         }
       }
@@ -26725,6 +26766,41 @@
         }
       }
     },
+    "browser.error.urlAllowlist.attemptedURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Attempted URL" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "試行したURL" } }
+      }
+    },
+    "browser.error.urlAllowlist.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This URL is not allowed by your organization's embedded-browser policy." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このURLは組織の内蔵ブラウザポリシーで許可されていません。" } }
+      }
+    },
+    "browser.error.urlAllowlist.userMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This URL is not allowed by the embedded-browser URL policy." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このURLは内蔵ブラウザのURLポリシーで許可されていません。" } }
+      }
+    },
+    "browser.error.urlAllowlist.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Blocked by your organization's policy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "組織のポリシーによりブロックされました" } }
+      }
+    },
+    "browser.error.urlAllowlist.userTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Blocked by the embedded-browser URL policy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザのURLポリシーによりブロックされました" } }
+      }
+    },
     "browser.error.insecure.message": {
       "extractionState": "manual",
       "localizations": {
@@ -35138,6 +35214,20 @@
         }
       }
     },
+    "cli.browser.error.urlBlockedByPolicy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Blocked by your organization's browser policy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "組織のブラウザポリシーによりブロックされました" } }
+      }
+    },
+    "cli.browser.error.urlBlockedByUserPolicy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Blocked by the embedded-browser URL policy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザのURLポリシーによりブロックされました" } }
+      }
+    },
     "cli.browser.error.operationFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -38094,6 +38184,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "ssh-session-attach: --workspace の値を指定してください"
+          }
+        }
+      }
+    },
+    "cli.error.sshSessionAttachSessionNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: no persisted SSH PTY session with id '%@'. Run 'cmux ssh-session-list --all-workspaces' to see valid session ids."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: ID '%@' の永続 SSH PTY セッションが見つかりません。有効なセッション ID を確認するには 'cmux ssh-session-list --all-workspaces' を実行してください。"
+          }
+        }
+      }
+    },
+    "cli.error.sshSessionAttachStateUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: persisted SSH PTY session state is unavailable. Run 'cmux ssh-session-list --all-workspaces' and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: 永続 SSH PTY セッションの状態を利用できません。'cmux ssh-session-list --all-workspaces' を実行してから再試行してください。"
+          }
+        }
+      }
+    },
+    "cli.error.sshSessionAttachWorkspaceMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: session '%1$@' belongs to workspace %2$@, but --workspace requested a different workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: セッション '%1$@' はワークスペース %2$@ に属していますが、--workspace では別のワークスペースが指定されました"
+          }
+        }
+      }
+    },
+    "cli.error.sshSessionAttachWorkspaceAmbiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: session '%1$@' exists in multiple workspaces (%2$@). Pass --workspace <workspace> to choose one."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: セッション '%1$@' は複数のワークスペース (%2$@) に存在します。--workspace <workspace> で指定してください。"
           }
         }
       }
@@ -43102,40 +43260,6 @@
         }
       }
     },
-    "cli.hooks.kimi.legacyCleanupWarning": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Warning: cmux hooks are active at %@, but cmux could not remove its legacy hook block from %@. Check that path and re-run `cmux hooks setup kimi` to finish cleanup."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "警告: cmux hooks は %@ で有効ですが、従来の hook ブロックを %@ から削除できませんでした。そのパスを確認し、`cmux hooks setup kimi` を再実行してクリーンアップを完了してください。"
-          }
-        }
-      }
-    },
-    "cli.hooks.kimi.legacyUninstallWarning": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Warning: cmux could not remove its legacy hook block from %@. Check that path and re-run `cmux hooks uninstall kimi` to finish cleanup."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "警告: 従来の hook ブロックを %@ から削除できませんでした。そのパスを確認し、`cmux hooks uninstall kimi` を再実行してクリーンアップを完了してください。"
-          }
-        }
-      }
-    },
     "cli.hooks.kimi.noneFound": {
       "extractionState": "manual",
       "localizations": {
@@ -43489,6 +43613,256 @@
           "stringUnit": {
             "state": "translated",
             "value": "Removed 0 cmux hook(s) from %@"
+          }
+        }
+      }
+    },
+    "cli.hooks.kimi.secondaryRefreshWarning": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحذير: تم تثبيت خطافات cmux في %@، لكن تعذّر على cmux تحديث كتلة الخطافات الموجودة في %@. تحقّق من هذا المسار وأعد تشغيل `cmux hooks setup kimi` لإكمال التحديث."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upozorenje: cmux hookovi su instalirani u %@, ali cmux nije mogao osvježiti postojeći blok hookova u %@. Provjerite tu putanju i ponovo pokrenite `cmux hooks setup kimi` da dovršite ažuriranje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advarsel: cmux-hooks er installeret i %@, men cmux kunne ikke opdatere sin eksisterende hook-blok i %@. Tjek den sti, og kør `cmux hooks setup kimi` igen for at fuldføre opdateringen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warnung: cmux-Hooks sind in %@ installiert, aber cmux konnte den vorhandenen Hook-Block in %@ nicht aktualisieren. Prüfe diesen Pfad und führe `cmux hooks setup kimi` erneut aus, um die Aktualisierung abzuschließen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warning: cmux hooks are installed at %@, but cmux could not refresh its existing hook block in %@. Check that path and re-run `cmux hooks setup kimi` to finish the update."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advertencia: los hooks de cmux están instalados en %@, pero cmux no pudo actualizar su bloque de hooks existente en %@. Revisa esa ruta y vuelve a ejecutar `cmux hooks setup kimi` para completar la actualización."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avertissement : les hooks cmux sont installés dans %@, mais cmux n'a pas pu actualiser son bloc de hooks existant dans %@. Vérifiez ce chemin et relancez `cmux hooks setup kimi` pour terminer la mise à jour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avviso: gli hook di cmux sono installati in %@, ma cmux non è riuscito ad aggiornare il blocco di hook esistente in %@. Controlla quel percorso ed esegui di nuovo `cmux hooks setup kimi` per completare l'aggiornamento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告: cmux hooks は %@ にインストールされましたが、%@ にある既存の hook ブロックを更新できませんでした。そのパスを確認し、`cmux hooks setup kimi` を再実行して更新を完了してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការព្រមាន៖ cmux hooks ត្រូវបានដំឡើងនៅ %@ ប៉ុន្តែ cmux មិនអាចធ្វើបច្ចុប្បន្នភាពប្លុក hook ដែលមានស្រាប់នៅក្នុង %@ បានទេ។ សូមពិនិត្យផ្លូវនោះ រួចដំណើរការ `cmux hooks setup kimi` ម្ដងទៀត ដើម្បីបញ្ចប់ការធ្វើបច្ចុប្បន្នភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "경고: cmux hooks가 %@에 설치되었지만 %@에 있는 기존 hook 블록을 갱신하지 못했습니다. 해당 경로를 확인한 뒤 `cmux hooks setup kimi`를 다시 실행해 업데이트를 완료하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advarsel: cmux-hooks er installert i %@, men cmux kunne ikke oppdatere den eksisterende hook-blokken i %@. Sjekk den banen og kjør `cmux hooks setup kimi` på nytt for å fullføre oppdateringen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostrzeżenie: hooki cmux są zainstalowane w %@, ale cmux nie mógł odświeżyć istniejącego bloku hooków w %@. Sprawdź tę ścieżkę i uruchom ponownie `cmux hooks setup kimi`, aby dokończyć aktualizację."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aviso: os hooks do cmux estão instalados em %@, mas o cmux não conseguiu atualizar o bloco de hooks existente em %@. Verifique esse caminho e execute `cmux hooks setup kimi` novamente para concluir a atualização."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предупреждение: хуки cmux установлены в %@, но cmux не смог обновить существующий блок хуков в %@. Проверьте этот путь и запустите `cmux hooks setup kimi` ещё раз, чтобы завершить обновление."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำเตือน: ติดตั้ง cmux hooks ไว้ที่ %@ แล้ว แต่ cmux ไม่สามารถอัปเดตบล็อก hook ที่มีอยู่ใน %@ ได้ ตรวจสอบพาธนั้นแล้วรัน `cmux hooks setup kimi` อีกครั้งเพื่อทำการอัปเดตให้เสร็จสมบูรณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uyarı: cmux hook'ları %@ konumuna kuruldu ancak cmux, %@ içindeki mevcut hook bloğunu güncelleyemedi. Bu yolu kontrol edin ve güncellemeyi tamamlamak için `cmux hooks setup kimi` komutunu yeniden çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попередження: хуки cmux встановлено в %@, але cmux не зміг оновити наявний блок хуків у %@. Перевірте цей шлях і запустіть `cmux hooks setup kimi` ще раз, щоб завершити оновлення."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告：cmux hooks 已安装到 %@，但 cmux 无法刷新 %@ 中已有的 hook 块。请检查该路径，然后重新运行 `cmux hooks setup kimi` 以完成更新。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告：cmux hooks 已安裝到 %@，但 cmux 無法更新 %@ 中既有的 hook 區塊。請檢查該路徑，然後重新執行 `cmux hooks setup kimi` 以完成更新。"
+          }
+        }
+      }
+    },
+    "cli.hooks.kimi.secondaryUninstallWarning": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحذير: تعذّر على cmux إزالة كتلة الخطافات من %@. تحقّق من هذا المسار وأعد تشغيل `cmux hooks uninstall kimi` لإكمال التنظيف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upozorenje: cmux nije mogao ukloniti svoj blok hookova iz %@. Provjerite tu putanju i ponovo pokrenite `cmux hooks uninstall kimi` da dovršite čišćenje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advarsel: cmux kunne ikke fjerne sin hook-blok fra %@. Tjek den sti, og kør `cmux hooks uninstall kimi` igen for at fuldføre oprydningen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warnung: cmux konnte seinen Hook-Block nicht aus %@ entfernen. Prüfe diesen Pfad und führe `cmux hooks uninstall kimi` erneut aus, um die Bereinigung abzuschließen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warning: cmux could not remove its hook block from %@. Check that path and re-run `cmux hooks uninstall kimi` to finish cleanup."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advertencia: cmux no pudo eliminar su bloque de hooks de %@. Revisa esa ruta y vuelve a ejecutar `cmux hooks uninstall kimi` para completar la limpieza."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avertissement : cmux n'a pas pu supprimer son bloc de hooks de %@. Vérifiez ce chemin et relancez `cmux hooks uninstall kimi` pour terminer le nettoyage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avviso: cmux non è riuscito a rimuovere il proprio blocco di hook da %@. Controlla quel percorso ed esegui di nuovo `cmux hooks uninstall kimi` per completare la pulizia."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告: hook ブロックを %@ から削除できませんでした。そのパスを確認し、`cmux hooks uninstall kimi` を再実行してクリーンアップを完了してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការព្រមាន៖ cmux មិនអាចលុបប្លុក hook របស់ខ្លួនចេញពី %@ បានទេ។ សូមពិនិត្យផ្លូវនោះ រួចដំណើរការ `cmux hooks uninstall kimi` ម្ដងទៀត ដើម្បីបញ្ចប់ការសម្អាត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "경고: %@에서 hook 블록을 제거하지 못했습니다. 해당 경로를 확인한 뒤 `cmux hooks uninstall kimi`를 다시 실행해 정리를 완료하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advarsel: cmux kunne ikke fjerne hook-blokken sin fra %@. Sjekk den banen og kjør `cmux hooks uninstall kimi` på nytt for å fullføre oppryddingen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostrzeżenie: cmux nie mógł usunąć swojego bloku hooków z %@. Sprawdź tę ścieżkę i uruchom ponownie `cmux hooks uninstall kimi`, aby dokończyć czyszczenie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aviso: o cmux não conseguiu remover seu bloco de hooks de %@. Verifique esse caminho e execute `cmux hooks uninstall kimi` novamente para concluir a limpeza."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предупреждение: cmux не смог удалить свой блок хуков из %@. Проверьте этот путь и запустите `cmux hooks uninstall kimi` ещё раз, чтобы завершить очистку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำเตือน: cmux ไม่สามารถลบบล็อก hook ออกจาก %@ ได้ ตรวจสอบพาธนั้นแล้วรัน `cmux hooks uninstall kimi` อีกครั้งเพื่อทำความสะอาดให้เสร็จสมบูรณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uyarı: cmux, hook bloğunu %@ konumundan kaldıramadı. Bu yolu kontrol edin ve temizliği tamamlamak için `cmux hooks uninstall kimi` komutunu yeniden çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попередження: cmux не зміг видалити свій блок хуків із %@. Перевірте цей шлях і запустіть `cmux hooks uninstall kimi` ще раз, щоб завершити очищення."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告：cmux 无法从 %@ 中移除其 hook 块。请检查该路径，然后重新运行 `cmux hooks uninstall kimi` 以完成清理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告：cmux 無法從 %@ 移除其 hook 區塊。請檢查該路徑，然後重新執行 `cmux hooks uninstall kimi` 以完成清理。"
           }
         }
       }
@@ -51358,6 +51732,41 @@
         }
       }
     },
+    "cli.sessions.command": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "da": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "de": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
+        "es": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "it": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
+        "km": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "th": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } }
+      }
+    },
     "cli.sessions.error.agentRequiresValue": {
       "extractionState": "manual",
       "localizations": {
@@ -53574,6 +53983,23 @@
         }
       }
     },
+    "cli.ssh.autoReconnect.recovered": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH reconnected (attempt %s/%s)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH が再接続されました（試行 %s/%s）。"
+          }
+        }
+      }
+    },
     "cli.ssh.autoReconnect.stopHint": {
       "extractionState": "manual",
       "localizations": {
@@ -54996,6 +55422,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] リモート PTY ブリッジが閉じました。再接続しています（試行 %s/%s）。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.reconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote PTY reconnected (attempt %s/%s)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート PTY が再接続されました（試行 %s/%s）。"
           }
         }
       }
@@ -85386,13 +85829,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No user theme or terminal colors, so cmux applies its managed default colors."
+            "value": "No user Ghostty settings, so cmux applies its managed default colors."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ユーザーのテーマやターミナル色がないため、cmux の管理されたデフォルト色を適用します。"
+            "value": "ユーザーの Ghostty 設定がないため、cmux の管理するデフォルト色を適用します。"
           }
         }
       }
@@ -112439,6 +112882,20 @@
         }
       }
     },
+    "emptyPanel.action.browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ" } }
+      }
+    },
+    "emptyPanel.action.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナル" } }
+      }
+    },
     "emptyPanel.title": {
       "extractionState": "manual",
       "localizations": {
@@ -137786,23 +138243,6 @@
         }
       }
     },
-    "mobile.pairing.codeMode.tailscaleDetail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscale pairing code. Keep Tailscale connected on both devices. Both devices must be connected to the same Tailscale network."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscale ペアリングコードです。両方のデバイスで Tailscale の接続を維持してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"
-          }
-        }
-      }
-    },
     "mobile.panel.artifact.error.forbidden": {
       "extractionState": "manual",
       "localizations": {
@@ -138177,23 +138617,6 @@
         }
       }
     },
-    "mobile.pairing.getApp.prompt": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Don't have it yet?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "まだお持ちでないですか？"
-          }
-        }
-      }
-    },
     "mobile.pairing.manual.copied": {
       "extractionState": "manual",
       "localizations": {
@@ -138209,6 +138632,356 @@
             "value": "コピー済み"
           }
         }
+      }
+    },
+    "mobile.pairing.irohInstruction": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "ثبّت cmux على جهاز iPhone وسجّل الدخول بالحساب نفسه. يتصل تلقائيًا — لا حاجة إلى رمز." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Instalirajte cmux na svoj iPhone i prijavite se istim računom. Povezuje se automatski — kôd nije potreban." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Installer cmux på din iPhone, og log ind med den samme konto. Den forbinder automatisk — ingen kode nødvendig." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Installiere cmux auf deinem iPhone und melde dich mit demselben Konto an. Die Verbindung erfolgt automatisch — kein Code nötig." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Install cmux on your iPhone and sign in with the same account. It connects automatically — no code needed." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Instala cmux en tu iPhone e inicia sesión con la misma cuenta. Se conecta automáticamente: no se necesita código." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Installez cmux sur votre iPhone et connectez-vous avec le même compte. La connexion est automatique — aucun code nécessaire." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Installa cmux sul tuo iPhone e accedi con lo stesso account. Si connette automaticamente — nessun codice necessario." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iPhoneにcmuxをインストールし、同じアカウントにサインインしてください。自動的に接続されます。コードは不要です。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ដំឡើង cmux នៅលើ iPhone របស់អ្នក ហើយចូលគណនីដូចគ្នា។ វាភ្ជាប់ដោយស្វ័យប្រវត្តិ — មិនត្រូវការកូដទេ។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "iPhone에 cmux를 설치하고 동일한 계정으로 로그인하세요. 자동으로 연결되며 코드가 필요 없습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Installer cmux på iPhonen din og logg på med samme konto. Den kobler til automatisk — ingen kode nødvendig." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zainstaluj cmux na swoim iPhonie i zaloguj się na to samo konto. Łączy się automatycznie — kod nie jest potrzebny." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Instale o cmux no seu iPhone e entre com a mesma conta. Ele conecta automaticamente — nenhum código necessário." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Установите cmux на iPhone и войдите в ту же учётную запись. Подключение происходит автоматически — код не нужен." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ติดตั้ง cmux บน iPhone ของคุณและลงชื่อเข้าด้วยบัญชีเดียวกัน ระบบจะเชื่อมต่อโดยอัตโนมัติ — ไม่ต้องใช้โค้ด" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "iPhone'unuza cmux'u yükleyin ve aynı hesapla oturum açın. Otomatik olarak bağlanır — kod gerekmez." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Установіть cmux на iPhone та увійдіть у той самий обліковий запис. Підключення відбувається автоматично — код не потрібен." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "在 iPhone 上安装 cmux 并使用同一账户登录。它会自动连接——无需扫码。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "在 iPhone 上安裝 cmux 並使用同一帳戶登入。它會自動連線——無需掃碼。" } }
+      }
+    },
+    "mobile.pairing.subheading": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "زامن مساحات عمل الطرفية مع جهاز iPhone الخاص بك." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Sinhronizujte svoje terminalske radne prostore sa svojim iPhoneom." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Synkroniser dine terminal-arbejdsområder til din iPhone." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Synchronisiere deine Terminal-Arbeitsbereiche mit deinem iPhone." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Sync your terminal workspaces to your iPhone." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Sincroniza tus espacios de trabajo de terminal con tu iPhone." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Synchronisez vos espaces de travail de terminal avec votre iPhone." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Sincronizza i tuoi spazi di lavoro del terminale con il tuo iPhone." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルのワークスペースをiPhoneと同期します。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ធ្វើសមកាលកម្មកន្លែងធ្វើការតឺមីណាល់របស់អ្នកទៅ iPhone របស់អ្នក។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "터미널 워크스페이스를 iPhone과 동기화하세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Synkroniser terminalarbeidsområdene dine til iPhonen din." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Synchronizuj swoje terminalowe przestrzenie robocze z iPhone'em." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Sincronize seus espaços de trabalho de terminal com o seu iPhone." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Синхронизируйте рабочие пространства терминала со своим iPhone." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ซิงค์เวิร์กสเปซเทอร์มินัลของคุณไปยัง iPhone ของคุณ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Terminal çalışma alanlarınızı iPhone'unuzla eşitleyin." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Синхронізуйте робочі простори термінала зі своїм iPhone." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "将您的终端工作区同步到 iPhone。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "將您的終端機工作區同步到 iPhone。" } }
+      }
+    },
+    "mobile.pairing.transportPicker": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "الاتصال" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Veza" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Forbindelse" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Verbindung" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Connection" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Conexión" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Connexion" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Connessione" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "接続" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការតភ្ជាប់" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "연결" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Tilkobling" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Połączenie" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Conexão" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Подключение" } },
+        "th": { "stringUnit": { "state": "translated", "value": "การเชื่อมต่อ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bağlantı" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Підключення" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "连接" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "連線" } }
+      }
+    },
+    "mobile.pairing.getApp.badge.caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "نزّل cmux لجهاز" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Preuzmite cmux za" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Hent cmux til" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Lade cmux für" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Download cmux for" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Descarga cmux para" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Téléchargez cmux pour" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Scarica cmux per" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmuxをダウンロード" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ទាញយក cmux សម្រាប់" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "cmux 다운로드" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Last ned cmux til" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Pobierz cmux na" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Baixe o cmux para" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Скачать cmux для" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ดาวน์โหลด cmux สำหรับ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "cmux'u indirin" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Завантажити cmux для" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "下载 cmux" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "下載 cmux" } }
+      }
+    },
+    "mobile.pairing.getApp.badge.platform": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "iPhone" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "iPhone" } },
+        "da": { "stringUnit": { "state": "translated", "value": "iPhone" } },
+        "de": { "stringUnit": { "state": "translated", "value": "iPhone" } },
+        "en": { "stringUnit": { "state": "translated", "value": "iPhone" } },
+        "es": { "stringUnit": { "state": "translated", "value": "iPhone" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "iPhone" } },
+        "it": { "stringUnit": { "state": "translated", "value": "iPhone" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iPhone版" } },
+        "km": { "stringUnit": { "state": "translated", "value": "iPhone" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "iPhone용" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "iPhone" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "iPhone" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "iPhone" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "iPhone" } },
+        "th": { "stringUnit": { "state": "translated", "value": "iPhone" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "iPhone" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "iPhone" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "iPhone 版" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "iPhone 版" } }
+      }
+    },
+    "mobile.pairing.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "اقرن جهاز iPhone الخاص بك" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Uparite svoj iPhone" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Par din iPhone" } },
+        "de": { "stringUnit": { "state": "translated", "value": "iPhone koppeln" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Pair your iPhone" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Empareja tu iPhone" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Jumelez votre iPhone" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Abbina il tuo iPhone" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iPhoneをペアリング" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ផ្គូផ្គង iPhone របស់អ្នក" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "iPhone 페어링" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Par iPhonen din" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Sparuj swojego iPhone'a" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Emparelhe seu iPhone" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Подключите свой iPhone" } },
+        "th": { "stringUnit": { "state": "translated", "value": "จับคู่ iPhone ของคุณ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "iPhone'unuzu eşleyin" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Підключіть свій iPhone" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "配对您的 iPhone" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "配對您的 iPhone" } }
+      }
+    },
+    "mobile.pairing.scanInstruction": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "في cmux على جهاز iPhone، سجّل الدخول بالحساب نفسه، واختر Tailscale، ثم امسح هذا الرمز." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "U cmux-u na svom iPhoneu prijavite se istim računom, odaberite Tailscale, a zatim skenirajte ovaj kôd." } },
+        "da": { "stringUnit": { "state": "translated", "value": "I cmux på din iPhone skal du logge ind med den samme konto, vælge Tailscale og derefter scanne denne kode." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Melde dich in cmux auf deinem iPhone mit demselben Konto an, wähle Tailscale und scanne dann diesen Code." } },
+        "en": { "stringUnit": { "state": "translated", "value": "In cmux on your iPhone, sign in with the same account, choose Tailscale, then scan this code." } },
+        "es": { "stringUnit": { "state": "translated", "value": "En cmux en tu iPhone, inicia sesión con la misma cuenta, elige Tailscale y luego escanea este código." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Dans cmux sur votre iPhone, connectez-vous avec le même compte, choisissez Tailscale, puis scannez ce code." } },
+        "it": { "stringUnit": { "state": "translated", "value": "In cmux sul tuo iPhone, accedi con lo stesso account, scegli Tailscale e poi scansiona questo codice." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iPhoneのcmuxで同じアカウントにサインインし、Tailscaleを選択して、このコードをスキャンしてください。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "នៅក្នុង cmux លើ iPhone របស់អ្នក ចូលគណនីដូចគ្នា ជ្រើសរើស Tailscale បន្ទាប់មកស្កេនកូដនេះ។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "iPhone의 cmux에서 동일한 계정으로 로그인하고 Tailscale을 선택한 다음 이 코드를 스캔하세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "I cmux på iPhonen din logger du på med samme konto, velger Tailscale og skanner deretter denne koden." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "W cmux na swoim iPhonie zaloguj się na to samo konto, wybierz Tailscale, a następnie zeskanuj ten kod." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "No cmux no seu iPhone, entre com a mesma conta, escolha Tailscale e depois escaneie este código." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "В cmux на iPhone войдите в ту же учётную запись, выберите Tailscale, затем отсканируйте этот код." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ใน cmux บน iPhone ของคุณ ให้ลงชื่อเข้าด้วยบัญชีเดียวกัน เลือก Tailscale แล้วสแกนโค้ดนี้" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "iPhone'unuzdaki cmux'ta aynı hesapla oturum açın, Tailscale'i seçin ve ardından bu kodu tarayın." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "У cmux на iPhone увійдіть у той самий обліковий запис, виберіть Tailscale, а потім відскануйте цей код." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "在 iPhone 上的 cmux 中，使用同一账户登录，选择 Tailscale，然后扫描此码。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "在 iPhone 上的 cmux 中，使用同一帳戶登入，選擇 Tailscale，然後掃描此代碼。" } }
+      }
+    },
+    "mobile.pairing.signedInAs": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تم تسجيل الدخول باسم %@" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Prijavljeni ste kao %@" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Logget ind som %@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Angemeldet als %@" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Signed in as %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Sesión iniciada como %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Connecté en tant que %@" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Accesso effettuato come %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@でサインイン中" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បានចូលជា %@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%@(으)로 로그인됨" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Pålogget som %@" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zalogowano jako %@" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Conectado como %@" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Выполнен вход как %@" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ลงชื่อเข้าเป็น %@" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%@ olarak oturum açıldı" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Ви увійшли як %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已登录为 %@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已登入為 %@" } }
+      }
+    },
+    "mobile.pairing.transport.iroh.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تعثر أجهزة iPhone المسجّلة الدخول إلى حسابك على هذا الـ Mac تلقائيًا عبر Iroh — بتشفير من طرف إلى طرف، مباشرةً عند الإمكان، وعبر مُرحّل cmux عند التعذّر. لا حاجة إلى رمز." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "iPhone uređaji prijavljeni na vaš račun automatski pronalaze ovaj Mac preko Iroha — s end-to-end enkripcijom, direktno kad je moguće, a preko cmux releja kad nije. Kôd nije potreban." } },
+        "da": { "stringUnit": { "state": "translated", "value": "iPhones, der er logget ind på din konto, finder automatisk denne Mac via Iroh — end-to-end-krypteret, direkte når det er muligt og via et cmux-relæ, når det ikke er. Ingen kode nødvendig." } },
+        "de": { "stringUnit": { "state": "translated", "value": "iPhones, die mit deinem Konto angemeldet sind, finden diesen Mac automatisch über Iroh — Ende-zu-Ende-verschlüsselt, direkt wenn möglich, sonst über ein cmux-Relay. Kein Code nötig." } },
+        "en": { "stringUnit": { "state": "translated", "value": "iPhones signed in to your account find this Mac automatically over Iroh — end-to-end encrypted, direct when possible, through a cmux relay when not. No code needed." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Los iPhone con sesión iniciada en tu cuenta encuentran este Mac automáticamente a través de Iroh: cifrado de extremo a extremo, directo cuando es posible y mediante un relay de cmux cuando no. No se necesita código." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Les iPhone connectés à votre compte trouvent automatiquement ce Mac via Iroh — chiffré de bout en bout, en direct quand c'est possible, via un relais cmux sinon. Aucun code nécessaire." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Gli iPhone con l'accesso effettuato al tuo account trovano questo Mac automaticamente tramite Iroh — crittografato end-to-end, in modo diretto quando possibile e tramite un relay cmux quando non lo è. Nessun codice necessario." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アカウントにサインインしたiPhoneは、Irohを介してこのMacを自動的に検出します。エンドツーエンド暗号化で、可能な場合は直接、そうでない場合はcmuxリレー経由で接続します。コードは不要です。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "iPhone ដែលបានចូលគណនីរបស់អ្នក រកឃើញ Mac នេះដោយស្វ័យប្រវត្តិតាមរយៈ Iroh — អ៊ិនគ្រីបពីចុងដល់ចុង ដោយផ្ទាល់នៅពេលអាច និងតាមរយៈ relay របស់ cmux នៅពេលមិនអាច។ មិនត្រូវការកូដទេ។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "계정에 로그인된 iPhone은 Iroh를 통해 이 Mac을 자동으로 찾습니다. 종단 간 암호화되며, 가능하면 직접, 불가능하면 cmux 릴레이를 통해 연결합니다. 코드가 필요 없습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "iPhoner som er logget på kontoen din, finner denne Macen automatisk via Iroh — ende-til-ende-kryptert, direkte når det er mulig og via et cmux-relé når det ikke er det. Ingen kode nødvendig." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "iPhone'y zalogowane na Twoje konto automatycznie znajdują tego Maca przez Iroh — z szyfrowaniem end-to-end, bezpośrednio gdy to możliwe, a przez przekaźnik cmux gdy nie. Kod nie jest potrzebny." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "iPhones conectados à sua conta encontram este Mac automaticamente via Iroh — criptografado de ponta a ponta, direto quando possível e por um relay do cmux quando não. Nenhum código necessário." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "iPhone, вошедшие в вашу учётную запись, находят этот Mac автоматически через Iroh — со сквозным шифрованием, напрямую, когда это возможно, и через ретранслятор cmux, когда нет. Код не нужен." } },
+        "th": { "stringUnit": { "state": "translated", "value": "iPhone ที่ลงชื่อเข้าบัญชีของคุณจะพบ Mac เครื่องนี้โดยอัตโนมัติผ่าน Iroh — เข้ารหัสจากต้นทางถึงปลายทาง เชื่อมต่อโดยตรงเมื่อทำได้ และผ่านรีเลย์ของ cmux เมื่อทำไม่ได้ ไม่ต้องใช้โค้ด" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Hesabınızda oturum açmış iPhone'lar bu Mac'i Iroh üzerinden otomatik olarak bulur — uçtan uca şifreli, mümkün olduğunda doğrudan, olmadığında bir cmux aktarıcısı üzerinden. Kod gerekmez." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "iPhone, що увійшли у ваш обліковий запис, знаходять цей Mac автоматично через Iroh — з наскрізним шифруванням, напряму, коли це можливо, і через ретранслятор cmux, коли ні. Код не потрібен." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "登录了您账户的 iPhone 会通过 Iroh 自动发现这台 Mac——端到端加密，可行时直接连接，否则经由 cmux 中继。无需扫码。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "登入您帳戶的 iPhone 會透過 Iroh 自動發現這台 Mac——端對端加密，可行時直接連線，否則經由 cmux 中繼。無需掃碼。" } }
+      }
+    },
+    "mobile.pairing.transport.status.connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "متصل" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Povezano" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Forbundet" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Verbunden" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Connected" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Conectado" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Connecté" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Connesso" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "接続済み" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បានភ្ជាប់" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "연결됨" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Tilkoblet" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Połączono" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Conectado" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Подключено" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เชื่อมต่อแล้ว" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bağlı" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Підключено" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已连接" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已連線" } }
+      }
+    },
+    "mobile.pairing.transport.status.notDetected": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "لم يُكتشف" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Nije otkriveno" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ikke fundet" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Nicht erkannt" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Not detected" } },
+        "es": { "stringUnit": { "state": "translated", "value": "No detectado" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Non détecté" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Non rilevato" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未検出" } },
+        "km": { "stringUnit": { "state": "translated", "value": "រកមិនឃើញ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "감지되지 않음" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Ikke funnet" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie wykryto" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Não detectado" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не обнаружено" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่พบ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Algılanmadı" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не виявлено" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "未检测到" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "未偵測到" } }
+      }
+    },
+    "mobile.pairing.transport.status.notRegistered": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "غير مسجّل" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Nije registrovano" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ikke registreret" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Nicht registriert" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Not registered" } },
+        "es": { "stringUnit": { "state": "translated", "value": "No registrado" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Non enregistré" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Non registrato" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未登録" } },
+        "km": { "stringUnit": { "state": "translated", "value": "មិនទាន់ចុះឈ្មោះ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "등록되지 않음" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Ikke registrert" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Niezarejestrowano" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Não registrado" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не зарегистрировано" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ยังไม่ได้ลงทะเบียน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Kayıtlı değil" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не зареєстровано" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "未注册" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "未註冊" } }
+      }
+    },
+    "mobile.pairing.transport.status.ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "جاهز" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Spremno" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Klar" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Bereit" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Ready" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Listo" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Prêt" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Pronto" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "準備完了" } },
+        "km": { "stringUnit": { "state": "translated", "value": "រួចរាល់" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "준비됨" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Klar" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Gotowe" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Pronto" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Готово" } },
+        "th": { "stringUnit": { "state": "translated", "value": "พร้อม" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Hazır" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Готово" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "就绪" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "就緒" } }
+      }
+    },
+    "mobile.pairing.transport.tailscale.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "يُقرِن هذا الرمز عبر Tailscale بدلًا من ذلك. يجب أن يكون كلا الجهازين متصلًا بشبكة Tailscale نفسها." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Ovaj kôd uparuje preko Tailscalea. Oba uređaja moraju biti povezana na istu Tailscale mrežu." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Denne kode parrer via Tailscale i stedet. Begge enheder skal være forbundet til det samme Tailscale-netværk." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Dieser Code koppelt stattdessen über Tailscale. Beide Geräte müssen mit demselben Tailscale-Netzwerk verbunden sein." } },
+        "en": { "stringUnit": { "state": "translated", "value": "This code pairs over Tailscale instead. Both devices must be connected to the same Tailscale network." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Este código empareja a través de Tailscale. Ambos dispositivos deben estar conectados a la misma red de Tailscale." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ce code jumelle via Tailscale à la place. Les deux appareils doivent être connectés au même réseau Tailscale." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Questo codice abbina invece tramite Tailscale. Entrambi i dispositivi devono essere connessi alla stessa rete Tailscale." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このコードは代わりにTailscale経由でペアリングします。両方のデバイスが同じTailscaleネットワークに接続されている必要があります。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "កូដនេះផ្គូផ្គងតាមរយៈ Tailscale ជំនួសវិញ។ ឧបករណ៍ទាំងពីរត្រូវតែភ្ជាប់ទៅបណ្ដាញ Tailscale ដូចគ្នា។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "이 코드는 대신 Tailscale을 통해 페어링합니다. 두 기기가 동일한 Tailscale 네트워크에 연결되어 있어야 합니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Denne koden parer via Tailscale i stedet. Begge enhetene må være koblet til det samme Tailscale-nettverket." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Ten kod paruje natomiast przez Tailscale. Oba urządzenia muszą być połączone z tą samą siecią Tailscale." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Este código emparelha via Tailscale. Os dois dispositivos precisam estar conectados à mesma rede Tailscale." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Этот код выполняет подключение через Tailscale. Оба устройства должны быть подключены к одной и той же сети Tailscale." } },
+        "th": { "stringUnit": { "state": "translated", "value": "โค้ดนี้ใช้จับคู่ผ่าน Tailscale แทน อุปกรณ์ทั้งสองต้องเชื่อมต่อกับเครือข่าย Tailscale เดียวกัน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bu kod bunun yerine Tailscale üzerinden eşler. Her iki cihaz da aynı Tailscale ağına bağlı olmalıdır." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Цей код виконує підключення через Tailscale. Обидва пристрої мають бути підключені до однієї мережі Tailscale." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "此码改为通过 Tailscale 配对。两台设备必须连接到同一个 Tailscale 网络。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "此代碼改為透過 Tailscale 配對。兩台裝置必須連線到同一個 Tailscale 網路。" } }
       }
     },
     "mobile.pairing.manual.copyIP": {
@@ -138258,23 +139031,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "スキャンできない場合は、この Mac を手動で追加します:"
-          }
-        }
-      }
-    },
-    "mobile.pairing.needsTailscale.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This Mac has no Tailscale address, so your iPhone can't reach it. Install Tailscale on this Mac and your iPhone (same account), then refresh."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この Mac には Tailscale アドレスがないため、iPhone から接続できません。この Mac と iPhone の両方に（同じアカウントで）Tailscale をインストールしてから、更新してください。"
           }
         }
       }
@@ -138347,40 +139103,6 @@
         }
       }
     },
-    "mobile.pairing.req.signIn.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sign in to authorize this Mac for pairing."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この Mac のペアリングを許可するにはサインインしてください。"
-          }
-        }
-      }
-    },
-    "mobile.pairing.req.signIn.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Signed in to cmux"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux にサインイン済み"
-          }
-        }
-      }
-    },
     "mobile.pairing.req.tailscale.get": {
       "extractionState": "manual",
       "localizations": {
@@ -138394,23 +139116,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tailscale を入手"
-          }
-        }
-      }
-    },
-    "mobile.pairing.req.tailscale.hint": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscale must be installed and connected on both this Mac and your iPhone. Both devices must be connected to the same Tailscale network."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この Mac と iPhone の両方に Tailscale をインストールして接続してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"
           }
         }
       }
@@ -138432,40 +139137,6 @@
         }
       }
     },
-    "mobile.pairing.req.tailscale.reachable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscale is connected on this Mac. It must also be installed and connected on your iPhone. Both devices must be connected to the same Tailscale network."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この Mac は Tailscale に接続済みです。iPhone にも Tailscale をインストールして接続してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"
-          }
-        }
-      }
-    },
-    "mobile.pairing.req.tailscale.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscale"
-          }
-        }
-      }
-    },
     "mobile.pairing.retry": {
       "extractionState": "manual",
       "localizations": {
@@ -138483,462 +139154,104 @@
         }
       }
     },
-    "mobile.pairing.signIn.button": {
+    "mobile.pairing.target.appStore": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign In"
+            "value": "cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サインイン"
+            "value": "cmux"
           }
         }
       }
     },
-    "mobile.pairing.signIn.connecting": {
+    "mobile.pairing.target.beta": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جارٍ الاتصال…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Povezivanje…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Forbinder…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verbindung wird hergestellt…"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connecting…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conectando…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connexion…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connessione…"
+            "value": "cmux BETA"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続しています…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កំពុងភ្ជាប់…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "연결 중…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kobler til…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Łączenie…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conectando…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Подключение…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "กำลังเชื่อมต่อ…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bağlanıyor…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Підключення…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在连接…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在連接…"
+            "value": "cmux BETA"
           }
         }
       }
     },
-    "mobile.pairing.signIn.openInBrowser": {
+    "mobile.pairing.target.demo": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "فتح في المتصفح"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Otvori u pregledniku"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Åbn i browser"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Im Browser öffnen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open in Browser"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abrir en el navegador"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ouvrir dans le navigateur"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Apri nel browser"
+            "value": "cmux DEMO"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ブラウザで開く"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បើកក្នុងកម្មវិធីរុករក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "브라우저에서 열기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Åpne i nettleser"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Otwórz w przeglądarce"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abrir no navegador"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Открыть в браузере"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เปิดในเบราว์เซอร์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tarayıcıda Aç"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Відкрити у браузері"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在浏览器中打开"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在瀏覽器中打開"
+            "value": "cmux DEMO"
           }
         }
       }
     },
-    "mobile.pairing.signIn.prompt": {
+    "mobile.pairing.target.dev": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in with your cmux account to pair your iPhone."
+            "value": "cmux DEV %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone をペアリングするには、cmux アカウントでサインインしてください。"
+            "value": "cmux DEV %@"
           }
         }
       }
     },
-    "mobile.pairing.signIn.slowHint": {
+    "mobile.pairing.target.internal": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "قد تتوقف نافذة تسجيل الدخول في النظام عن الاستجابة. إذا لم يحدث شيء، فافتح تسجيل الدخول في المتصفح الافتراضي بدلاً من ذلك."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sistemski prozor za prijavu može prestati odgovarati. Ako se ništa ne dogodi, otvorite prijavu u zadanom pregledniku."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Systemets loginvindue kan holde op med at svare. Hvis der ikke sker noget, skal du i stedet åbne login i din standardbrowser."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Das System-Anmeldefenster reagiert möglicherweise nicht mehr. Wenn nichts passiert, öffne die Anmeldung stattdessen in deinem Standardbrowser."
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The system sign-in window may stop responding. If nothing happens, open sign-in in your default browser instead."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La ventana de inicio de sesión del sistema puede dejar de responder. Si no sucede nada, abre el inicio de sesión en tu navegador predeterminado."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La fenêtre de connexion du système peut ne plus répondre. Si rien ne se passe, ouvrez plutôt la connexion dans votre navigateur par défaut."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La finestra di accesso di sistema potrebbe smettere di rispondere. Se non succede nulla, apri l’accesso nel browser predefinito."
+            "value": "cmux INTERNAL"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "システムのサインインウィンドウが応答しなくなることがあります。何も起きない場合は、デフォルトのブラウザでサインインを開いてください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្អួចចូលគណនីរបស់ប្រព័ន្ធអាចឈប់ឆ្លើយតប។ ប្រសិនបើគ្មានអ្វីកើតឡើង សូមបើកការចូលគណនីក្នុងកម្មវិធីរុករកលំនាំដើមរបស់អ្នកជំនួសវិញ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "시스템 로그인 창이 응답하지 않을 수 있습니다. 아무 반응이 없으면 기본 브라우저에서 로그인을 열어 주세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Systemets påloggingsvindu kan slutte å svare. Hvis ingenting skjer, åpner du påloggingen i standardnettleseren i stedet."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Systemowe okno logowania może przestać odpowiadać. Jeśli nic się nie dzieje, otwórz logowanie w domyślnej przeglądarce."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A janela de login do sistema pode parar de responder. Se nada acontecer, abra o login no navegador padrão."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Системное окно входа может перестать отвечать. Если ничего не происходит, откройте вход в браузере по умолчанию."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "หน้าต่างลงชื่อเข้าของระบบอาจหยุดตอบสนอง หากไม่มีอะไรเกิดขึ้น ให้เปิดการลงชื่อเข้าในเบราว์เซอร์เริ่มต้นแทน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sistem oturum açma penceresi yanıt vermeyi durdurabilir. Hiçbir şey olmazsa oturum açmayı varsayılan tarayıcınızda açın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Системне вікно входу може перестати відповідати. Якщо нічого не відбувається, відкрийте вхід у браузері за умовчанням."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "系统登录窗口可能会停止响应。如果没有任何反应，请改用默认浏览器打开登录。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "系統登入視窗可能會停止回應。如果沒有任何反應，請改用預設瀏覽器開啟登入。"
+            "value": "cmux INTERNAL"
           }
         }
       }
     },
-    "mobile.pairing.step.install": {
+    "mobile.pairing.targetApp": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install cmux on your iPhone and open it."
+            "value": "Open with"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone に cmux をインストールして開きます。"
-          }
-        }
-      }
-    },
-    "mobile.pairing.step.scan": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "On your iPhone, choose Tailscale, tap Scan QR Code, then scan the code above."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "接続方法として Tailscale を選び、「QR コードをスキャン」をタップして上のコードにカメラを向けます。"
-          }
-        }
-      }
-    },
-    "mobile.pairing.step.signIn": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sign in with the same account you use on this Mac."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この Mac と同じアカウントでサインインします。"
+            "value": "開くアプリ"
           }
         }
       }
@@ -138956,40 +139269,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "iPhone を待っています…"
-          }
-        }
-      }
-    },
-    "mobile.pairing.window.heading": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pair your iPhone with Tailscale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "TailscaleでiPhoneをペアリング"
-          }
-        }
-      }
-    },
-    "mobile.pairing.window.subheading": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "iPhones on your cmux account connect automatically. Use this code only for Tailscale."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "同じ cmux アカウントでサインインしている iPhone は自動的に接続されます。iPhone の接続方法で Tailscale を選択した場合は、このコードを使用してください。"
           }
         }
       }
@@ -145298,6 +145577,125 @@
         }
       }
     },
+    "remoteDaemon.bootstrap.buildOutputEmpty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote daemon files are missing or empty"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンのファイルがないか空です"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.reconnectPaused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブートストラップを続行できないため自動再接続を一時停止しました。表示されたリモートの問題を修復して「再接続」を実行してください。"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not prepare the remote daemon"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンを準備できませんでした"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.helloFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not confirm that the remote daemon is ready"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンが準備完了したことを確認できませんでした"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.probeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not inspect the remote daemon installation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンのインストールを検査できませんでした"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.removeCorruptFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "failed to remove corrupt remote daemon install"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "破損したリモートデーモンのインストールを削除できませんでした"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.removeCorruptFailedWithDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "failed to remove corrupt remote daemon install: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "破損したリモートデーモンのインストールを削除できませんでした：%@"
+          }
+        }
+      }
+    },
     "remoteDaemon.upload.createDirectoryFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -145338,13 +145736,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "failed to install remote daemon binary"
+            "value": "failed to install remote daemon"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リモートデーモンのバイナリをインストールできませんでした"
+            "value": "リモートデーモンをインストールできませんでした"
           }
         }
       }
@@ -145366,19 +145764,53 @@
         }
       }
     },
+    "remoteDaemon.upload.verifyFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote daemon integrity verification failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンの整合性検証に失敗しました"
+          }
+        }
+      }
+    },
+    "remoteDaemon.upload.verifyFailedWithDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote daemon integrity verification failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンの整合性検証に失敗しました：%@"
+          }
+        }
+      }
+    },
     "remoteDaemon.upload.transferFailed": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "failed to upload cmuxd-remote"
+            "value": "failed to upload remote daemon"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxd-remote をアップロードできませんでした"
+            "value": "リモートデーモンをアップロードできませんでした"
           }
         }
       }
@@ -146021,6 +146453,23 @@
         }
       }
     },
+    "remoteRelay.commandDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote relay command denied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートリレーコマンドが拒否されました"
+          }
+        }
+      }
+    },
     "remoteSession.controlMaster.ownershipUnavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -146034,6 +146483,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "別の cmux プロセスが SSH 接続を使用しています。"
+          }
+        }
+      }
+    },
+    "remoteSession.proxy.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote proxy unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートプロキシを利用できません"
           }
         }
       }
@@ -171554,7 +172020,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me."
+            "value": "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me. Remove entries to block them; reset to restore defaults."
           }
         },
         "es": {
@@ -171578,7 +172044,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "警告プロンプトなしでcmuxで開けるHTTP（非HTTPS）ホストを制御します。デフォルトにはlocalhost、*.localhost、127.0.0.1、::1、0.0.0.0、*.localtest.meが含まれます。"
+            "value": "警告プロンプトなしでcmuxで開けるHTTP（非HTTPS）ホストを制御します。デフォルトにはlocalhost、*.localhost、127.0.0.1、::1、0.0.0.0、*.localtest.meが含まれます。エントリを削除するとそのホストをブロックし、リセットでデフォルトに戻せます。"
           }
         },
         "ko": {
@@ -171673,7 +172139,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "One host or wildcard per line (for example: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "One host or wildcard per line. Remove entries to block them."
           }
         },
         "es": {
@@ -171697,7 +172163,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1行に1つのホストまたはワイルドカード（例: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me）。"
+            "value": "1行に1つのホストまたはワイルドカード。エントリを削除するとそのホストをブロックします。"
           }
         },
         "ko": {
@@ -171879,6 +172345,80 @@
             "value": "儲存"
           }
         }
+      }
+    },
+    "settings.browser.httpAllowlist.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset to Defaults" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルトに戻す" } }
+      }
+    },
+    "settings.browser.urlAllowlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Embedded Browser URL Allowlist" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザURL許可リスト" } }
+      }
+    },
+    "settings.browser.urlAllowlist.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or, when no managed policy applies, clear the list to allow all web origins. Invalid-only values fail closed. Internal cmux documents remain available." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザの移動を、一致するホストまたはURLパターンに制限します。localhostの候補リストが表示され、保存すると制限が有効になります。エントリを削除するとそのURLをブロックし、管理ポリシーがない場合にリストを空にするとすべてのWebオリジンを許可します。無効なルールだけの値は安全側でブロックされます。cmux内部ドキュメントは引き続き利用できます。" } }
+      }
+    },
+    "settings.browser.urlAllowlist.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "One rule per line: localhost, *.localhost, example.com, https://git.example.com, or http://localhost:3000. Remove entries to block them." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1行に1ルール: localhost、*.localhost、example.com、https://git.example.com、または http://localhost:3000。エントリを削除するとそのURLをブロックします。" } }
+      }
+    },
+    "settings.browser.urlAllowlist.invalidRule": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "One or more rules are invalid. Invalid-only values fail closed; use a host or HTTP(S) URL pattern." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無効なルールがあります。無効なルールだけの値は安全側でブロックされます。ホストまたはHTTP(S) URLパターンを使用してください。" } }
+      }
+    },
+    "settings.browser.urlAllowlist.save": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Save" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "保存" } }
+      }
+    },
+    "settings.browser.urlAllowlist.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset to Defaults" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルトに戻す" } }
+      }
+    },
+    "settings.search.alias.setting.browser.url-allowlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist قائمة سماح URL localhost حرف بدل مخطط منفذ سياسة المؤسسة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist lista dozvoljenih URL-ova localhost zamjenski znak shema port organizacijska politika" } },
+        "da": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL-tilladelsesliste localhost jokertegn skema port organisationspolitik" } },
+        "de": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL-Zulassungsliste localhost Wildcard Schema Port Organisationsrichtlinie" } },
+        "en": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL allowlist localhost wildcard scheme port organization policy" } },
+        "es": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist lista de URL permitidas localhost comodín esquema puerto política de la organización" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist liste d’autorisation URL localhost caractère générique schéma port politique de l’organisation" } },
+        "it": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist elenco URL consentiti localhost carattere jolly schema porta criterio organizzativo" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL許可リスト localhost ワイルドカード スキーム ポート 組織 ポリシー" } },
+        "km": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL allowlist localhost wildcard scheme port organization policy" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL 허용 목록 localhost 와일드카드 스킴 포트 조직 정책" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL-tillatelsesliste localhost jokertegn skjema port organisasjonspolicy" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist lista dozwolonych URL localhost wildcard schemat port polityka organizacji" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist lista de URLs permitidas localhost curinga esquema porta política da organização" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist список разрешённых URL localhost подстановочный знак схема порт политика организации" } },
+        "th": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist รายการ URL ที่อนุญาต localhost wildcard รูปแบบ พอร์ต นโยบายองค์กร" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL izin listesi localhost joker karakter şema bağlantı noktası kuruluş politikası" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist список дозволених URL localhost шаблон схема порт політика організації" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL 允许列表 localhost 通配符 协议 端口 组织策略" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL 允許清單 localhost 萬用字元 通訊協定 連接埠 組織政策" } }
       }
     },
     "settings.browser.import": {
@@ -176146,6 +176686,13 @@
         }
       }
     },
+    "settings.managedByOrganization": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Managed by your organization" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "組織によって管理されています" } }
+      }
+    },
     "settings.material.contentBackground": {
       "extractionState": "manual",
       "localizations": {
@@ -177912,6 +178459,13 @@
             "value": "iOS アプリがローカルネットワーク上でこの Mac を検出し、同期できるようにします。"
           }
         }
+      }
+    },
+    "settings.mobile.managedByOrganization": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote control from the iOS app is disabled by your organization." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iOS アプリからのリモート操作は組織によって無効化されています。" } }
       }
     },
     "settings.mobile.phonePush.forwarding": {
@@ -195123,6 +195677,23 @@
         }
       }
     },
+    "settings.search.alias.setting.terminal.adaptive-default-theme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.adaptiveDefaultTheme adaptive default theme appearance light dark palette Ghostty managed colors empty untouched config preserve settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.adaptiveDefaultTheme 適応 デフォルト テーマ 外観 ライト ダーク パレット Ghostty 管理 色 空 未設定 設定 保持"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.terminal.copy-on-select": {
       "extractionState": "manual",
       "localizations": {
@@ -200770,6 +201341,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "非使用中"
+          }
+        }
+      }
+    },
+    "settings.terminal.adaptiveDefaultTheme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adapt Default Theme to Appearance"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトテーマを外観に合わせる"
+          }
+        }
+      }
+    },
+    "settings.terminal.adaptiveDefaultTheme.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An untouched Ghostty config uses Ghostty's fixed built-in palette. Existing Ghostty settings, including light/dark theme pairs, are always preserved."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty 設定が空の場合は、固定された組み込みパレットを使用します。ライト／ダークのテーマペアを含む既存の Ghostty 設定は常に保持します。"
+          }
+        }
+      }
+    },
+    "settings.terminal.adaptiveDefaultTheme.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux's managed light and dark palettes follow the app appearance only when your Ghostty config has no settings. Existing Ghostty settings are never overlaid."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty 設定が空の場合のみ、cmux の管理するライト／ダークパレットがアプリの外観に追従します。既存の Ghostty 設定には重ねて適用しません。"
           }
         }
       }

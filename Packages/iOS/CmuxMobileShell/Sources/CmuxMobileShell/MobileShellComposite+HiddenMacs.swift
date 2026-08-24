@@ -44,7 +44,8 @@ extension MobileShellComposite {
         hiddenIDs: Set<String>
     ) -> [MobilePairedMac] {
         return loadedMacs.filter {
-            !hiddenIDs.contains($0.id) && !hiddenIDs.contains($0.macDeviceID)
+            !hiddenIDs.contains($0.id)
+                && ($0.instanceTag != nil || !hiddenIDs.contains($0.macDeviceID))
         }
     }
 
@@ -57,7 +58,9 @@ extension MobileShellComposite {
         hiddenIDs: Set<String>,
         scope: MobileShellScopeSnapshot
     ) async -> Set<String> {
-        let rowBackedIDs = Set(loadedMacs.flatMap { [$0.id, $0.macDeviceID] })
+        // A bare device marker is backed only by an untagged legacy row. A
+        // Stable/Nightly row backs its exact composite pairing id instead.
+        let rowBackedIDs = Set(loadedMacs.map(\.id))
         let rowlessIDs = hiddenIDs.subtracting(rowBackedIDs)
         guard !rowlessIDs.isEmpty else { return hiddenIDs }
 
@@ -82,10 +85,15 @@ extension MobileShellComposite {
         scope: MobileShellScopeSnapshot
     ) async -> Bool {
         let ids = await hiddenMacDeviceIDs(scope: scope)
-        return ids.contains(macDeviceID) || ids.contains(MobilePairedMac.pairingID(
+        let pairingID = MobilePairedMac.pairingID(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
-        ))
+        )
+        // A bare marker is the legacy untagged pairing only. It must never
+        // hide a Stable/Nightly sibling that shares the physical device id.
+        return ids.contains(pairingID)
+            || (macInstanceTagAuthority.normalize(instanceTag) == nil
+                && ids.contains(macDeviceID))
     }
 
     func rememberHiddenMacDeviceID(
@@ -102,9 +110,19 @@ extension MobileShellComposite {
             )
         }
         let identity = MobilePairedMac.pairingIdentity(from: macDeviceID)
-        registryDevices.removeAll {
-            $0.deviceId == macDeviceID || $0.deviceId == identity.macDeviceID
+        for index in registryDevices.indices
+        where registryDevices[index].deviceId == identity.macDeviceID {
+            registryDevices[index].instances.removeAll { instance in
+                CmxMacAppInstanceIdentity(
+                    macDeviceID: identity.macDeviceID,
+                    instanceTag: instance.tag
+                ).id == CmxMacAppInstanceIdentity(
+                    macDeviceID: identity.macDeviceID,
+                    instanceTag: identity.instanceTag
+                ).id
+            }
         }
+        registryDevices.removeAll { $0.instances.isEmpty }
     }
 
     func rememberHiddenMacDeviceID(_ macDeviceID: String, scopeKey key: String) async {
@@ -120,10 +138,14 @@ extension MobileShellComposite {
         scope: MobileShellScopeSnapshot?
     ) async {
         guard !macDeviceID.isEmpty, let scope else { return }
-        let ids = Set([
-            macDeviceID,
-            MobilePairedMac.pairingID(macDeviceID: macDeviceID, instanceTag: instanceTag),
-        ])
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        var ids = Set([pairingID])
+        if macInstanceTagAuthority.normalize(instanceTag) == nil {
+            ids.insert(macDeviceID)
+        }
         for id in ids {
             await clearHiddenMacDeviceID(id, scopeKey: pairedMacScopeKey(scope))
         }
@@ -314,8 +336,14 @@ extension MobileShellComposite {
         }
         for row in rows
         where row.stackUserID == pinnedAccountID
-            && (computer.instanceTag == nil || row.instanceTag == computer.instanceTag)
-            && !(row.instanceTag == primary.instanceTag && row.teamID == primary.teamID) {
+            && macInstanceTagAuthority.sameStoredAuthority(
+                row.instanceTag,
+                computer.instanceTag
+            )
+            && !(macInstanceTagAuthority.sameStoredAuthority(
+                row.instanceTag,
+                primary.instanceTag
+            ) && row.teamID == primary.teamID) {
             scopes.append(MobilePairedMacExactScope(
                 macDeviceID: row.macDeviceID,
                 instanceTag: row.instanceTag,
@@ -511,7 +539,7 @@ extension MobileShellComposite {
                 macDeviceID: macDeviceID,
                 instanceTag: nil
             ),
-            aliasIDs: pairedMacAliasIDs(for: macDeviceID)
+            aliasIDs: [macDeviceID]
         )
     }
 
@@ -519,7 +547,10 @@ extension MobileShellComposite {
     public func hideMac(macDeviceID: String, instanceTag: String?) async {
         guard let scope = await currentScopeSnapshot() else { return }
         let targets = pairedMacsForIdentityMatching.filter {
-            $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag
+            MacPairingKey($0) == MacPairingKey(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
         }
         guard !targets.isEmpty else { return }
         await hideStoredPairedMacs(targets, scope: scope)
@@ -660,7 +691,10 @@ extension MobileShellComposite {
     public func hideStoredMac(macDeviceID: String, instanceTag: String?) async {
         guard let scope = await currentScopeSnapshot() else { return }
         let targets = pairedMacsForIdentityMatching.filter {
-            $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag
+            MacPairingKey($0) == MacPairingKey(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
         }
         guard !targets.isEmpty else { return }
         await hideStoredPairedMacs(targets, scope: scope)
@@ -783,7 +817,8 @@ extension MobileShellComposite {
         hiddenIDs: Set<String>
     ) {
         let entries = loadedMacs.compactMap { mac -> MobileHiddenComputer? in
-            guard hiddenIDs.contains(mac.id) || hiddenIDs.contains(mac.macDeviceID) else {
+            guard hiddenIDs.contains(mac.id)
+                || (mac.instanceTag == nil && hiddenIDs.contains(mac.macDeviceID)) else {
                 return nil
             }
             return MobileHiddenComputer(

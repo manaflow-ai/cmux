@@ -13,6 +13,7 @@ fileprivate struct QueuedTerminalNotification: Sendable {
     let subtitle: String
     let body: String
     let replyShape: TerminalNotificationReplyShape
+    let agent: TerminalNotificationPolicyAgentContext?
 }
 
 fileprivate enum TerminalSocketMutation {
@@ -74,6 +75,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         subtitle: String,
         body: String,
         replyShape: TerminalNotificationReplyShape = .none,
+        agent: TerminalNotificationPolicyAgentContext? = nil,
         coalesces: Bool = true
     ) {
         enqueueNotification(QueuedTerminalNotification(
@@ -81,7 +83,8 @@ final class TerminalMutationBus: @unchecked Sendable {
             title: title,
             subtitle: subtitle,
             body: body,
-            replyShape: replyShape
+            replyShape: replyShape,
+            agent: agent
         ), coalesces: coalesces)
     }
 
@@ -459,6 +462,7 @@ final class TerminalMutationBus: @unchecked Sendable {
                     subtitle: notification.subtitle,
                     body: notification.body,
                     replyShape: notification.replyShape,
+                    agent: notification.agent,
                     notificationGeneration: entry.notificationGeneration ?? 0
                 )
             case .clearAllNotifications(let boundary):

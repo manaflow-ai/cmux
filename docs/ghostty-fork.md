@@ -12,9 +12,10 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `987780a132`, which is on fork `main`
-after https://github.com/manaflow-ai/ghostty/pull/201. It includes the prior
-fork changes below, including the `f76c132e5` formatter/cursor line, VT
+The submodule pinned by this branch is `b17f1726f`, the fork-main merge of the
+latest Ghostty renderer and iOS fixes. It includes the prior fork changes below,
+including the cmux theme encoder at `987780a132`, tokened iOS render disposition
+at `3da10da73`, VT formatter cursor restoration at `f76c132e5`, VT
 stream-boundary visibility at `9513174f2`, and Hangul canonical font resolution
 at `3fbdd078d`.
 
@@ -39,7 +40,55 @@ at `3fbdd078d`.
 - Artifact:
   - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-987780a132a33fd69ab800b09e254b4584537d04-crashsubdir-cmux-crash-sentry-off-v1
   - SHA-256 `6f7a62fbc9ae63e85f12b78e42c0f8a8d7abecb07df13cf6d2a7d0c95dad91fd`
+  - This artifact is retained for the cmux theme fix; the pinned fork-main
+    artifact also includes the later Ghostty changes below.
+
+### iOS tokened render disposition and nonblocking prompt reveal
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/200
+- Commits:
+  - `6b221bd26` (ios: report tokened render dispositions)
+  - `e96f2fa1a` (refactor: simplify render failure callback)
+  - `531e49bd6` (ios: make prompt scroll nonblocking)
+  - `d13061b27` (test: cover terminal render delivery gaps)
+  - `3da10da73` (fix: guarantee tokened render disposition)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/renderer.zig`
+  - `src/renderer/Thread.zig`
+  - `src/renderer/generic.zig`
+  - `src/renderer/metal/Frame.zig`
+  - `src/renderer/metal/IOSurfaceLayer.zig`
+  - `src/renderer/opengl/Frame.zig`
+  - `src/termio/Termio.zig`
+- Summary:
+  - Pairs the existing exact-frame presentation callback with discarded and
+    backend-failed outcomes, including layer-size and surface-generation
+    rejection after GPU completion.
+  - Rejects asynchronous tokened requests on iOS, where external-drain mode
+    does not service the renderer-thread request slot, and terminally fails a
+    request accepted across another platform's drain-mode transition.
+  - Releases delivery gates even when a host omits the optional failure
+    callback, while preserving explicitly null callback userdata.
+  - Adds a try-only scroll-to-bottom operation so iOS prompt reveal retries on
+    its display driver instead of blocking the output queue on Ghostty state.
+- Conflict note:
+  - Preserve one terminal disposition for every accepted token. If upstream
+    changes Metal layer assignment or external-drain ownership, keep iOS
+    submissions on the external driver and retain the post-GPU discard signal.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3da10da73ae848c0310e3e0f0cb29e509c2f6963-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `6a02a2ec3794de79a02af993083292a89517d2533eb20c746deca377f23456bd`
     is pinned in `scripts/ghosttykit-checksums.txt`.
+
+The current fork-main pin `b17f1726f` has a ReleaseFast artifact at:
+
+- https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b17f1726fc53495dd827f7d85c9ec38da3d03814-crashsubdir-cmux-crash-sentry-off-v1
+- SHA-256 `1a790e1363a03f2fbd2c2e0bca13e99efac0ac03ba8d7083ad335e4d39e45a0a`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### VT formatter cursor restoration after margins
 

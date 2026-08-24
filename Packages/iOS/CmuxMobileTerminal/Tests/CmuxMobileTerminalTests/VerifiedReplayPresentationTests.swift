@@ -34,8 +34,8 @@ struct VerifiedReplayPresentationTests {
         defer { view.prepareForDismantle() }
 
         let beforeScrollGeneration = view.userViewportInteractionGeneration
-        view.debugEnqueueScrollForTesting(
-            deltaY: 42,
+        view.enqueueScrollMechanicsDelta(
+            42,
             touchPoint: CGPoint(x: 12, y: 18)
         )
 
@@ -50,6 +50,71 @@ struct VerifiedReplayPresentationTests {
         #expect(await view.restoreVerifiedReplayViewportAnchor(staleAnchor) == false)
         #expect(await view.drainPendingScrollForVerifiedReplayReveal())
         #expect(delegate.scrollEvents.count == 1)
+    }
+
+    @MainActor
+    @Test("only explicit user scrolling preserves a replay viewport anchor")
+    func replayViewportAnchorRequiresUserScrollIntent() throws {
+        let runtime = try GhosttyRuntime.shared()
+        let view = GhosttySurfaceView(
+            runtime: runtime,
+            delegate: ScrollDrainDelegate(),
+            fontSize: 10
+        )
+        defer { view.prepareForDismantle() }
+
+        #expect(!view.preservesUserViewportAnchor)
+
+        view.enqueueScrollMechanicsDelta(
+            42,
+            touchPoint: CGPoint(x: 12, y: 18)
+        )
+        #expect(view.preservesUserViewportAnchor)
+
+        view.enqueueScrollToBottom()
+        #expect(!view.preservesUserViewportAnchor)
+    }
+
+    @MainActor
+    @Test("user scrolling cancels a pending prompt scroll snap")
+    func userScrollCancelsPendingPromptScrollSnap() throws {
+        let runtime = try GhosttyRuntime.shared()
+        let view = GhosttySurfaceView(
+            runtime: runtime,
+            delegate: ScrollDrainDelegate(),
+            fontSize: 10
+        )
+        defer { view.prepareForDismantle() }
+
+        view.scrollToBottomRequested = true
+        view.scrollToBottomRetryCount = 3
+        view.scrollToBottomRetryAt = CACurrentMediaTime() + 10
+
+        view.enqueueScrollMechanicsDelta(
+            42,
+            touchPoint: CGPoint(x: 12, y: 18)
+        )
+
+        #expect(!view.scrollToBottomRequested)
+        #expect(view.scrollToBottomRetryCount == 0)
+        #expect(view.scrollToBottomRetryAt == nil)
+    }
+
+    @MainActor
+    @Test("surface replacement releases a pending prompt scroll snap")
+    func surfaceReplacementReleasesPendingPromptScrollSnap() throws {
+        let runtime = try GhosttyRuntime.shared()
+        let view = GhosttySurfaceView(
+            runtime: runtime,
+            delegate: ScrollDrainDelegate(),
+            fontSize: 10
+        )
+        defer { view.prepareForDismantle() }
+
+        view.scrollToBottomInFlight = true
+        view.resetScrollStateForSurfaceReplacement()
+
+        #expect(!view.scrollToBottomInFlight)
     }
 
     @MainActor
