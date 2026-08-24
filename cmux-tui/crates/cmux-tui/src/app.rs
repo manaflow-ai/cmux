@@ -37276,7 +37276,7 @@ mod tests {
         };
 
         app.reset_frame_cursor_spec();
-        assert!(matches!(app.desired_outer_cursor, OuterCursorSpec::Terminal { .. }));
+        assert_eq!(app.desired_outer_cursor, OuterCursorSpec::Reset);
 
         surface.test_scan_cursor_provenance(b"\x1b[3 q");
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[3 q"));
