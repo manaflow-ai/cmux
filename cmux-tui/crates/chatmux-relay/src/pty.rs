@@ -2374,6 +2374,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("cmux-pty-cwd-{}", std::process::id()));
         let nested = root.join("nested");
         std::fs::create_dir_all(&nested).unwrap();
+        let home = root.to_string_lossy().into_owned();
         assert_eq!(
             scoped_cwd(Some(&home), Path::new(&home), None, None).unwrap(),
             std::fs::canonicalize(&root).unwrap()
@@ -2482,7 +2483,7 @@ mod tests {
 
     #[test]
     fn backlog_overflow_uses_explicit_pty_error_code() {
-        let harness = Harness::new();
+        let harness = harness(None, None);
         let context = harness.context("supervised", harness.owner.clone());
         send_pty_error(
             &context,
