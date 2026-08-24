@@ -58,11 +58,14 @@ import Testing
         ) == .statusLine(.reconnecting))
     }
 
-    @Test func storeRecoveryFailureWithConnectedStatusShowsStatusLine() {
+    /// A stale recovery-failed flag never overrides a connected aggregate:
+    /// the visible list is healthy (for example through a secondary Mac), so
+    /// claiming Not Connected would be untruthful chrome.
+    @Test func storeRecoveryFailureWithConnectedStatusShowsNoChrome() {
         #expect(chrome(
             connectionRecoveryFailed: true,
             connectionStatus: .connected
-        ) == .statusLine(.notConnected))
+        ) == .none)
     }
 
     @Test func initialConnectionLoadingShowsMacStatusRow() {
@@ -105,6 +108,13 @@ import Testing
 
     @Test func healthyConnectionShowsNoChrome() {
         #expect(chrome(connectionStatus: .connected) == .none)
+    }
+
+    @Test func healthyConnectionShowsConcreteActiveTransport() {
+        #expect(chrome(
+            connectionStatus: .connected,
+            activeTransportPath: "Tailscale · 100.64.0.5"
+        ) == .statusLine(.activeTransport("Tailscale · 100.64.0.5")))
     }
 
     @Test func noStoreConnectedStatusShowsNoChromeEvenWithStoreFlags() {
@@ -167,7 +177,7 @@ import Testing
         #expect(chrome(connectionStatus: .connected).showsMacUpdateHintIndicator)
         #expect(!chrome(connectionRequiresReauth: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
         #expect(!chrome(isRecoveringConnection: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
-        #expect(!chrome(connectionRecoveryFailed: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
+        #expect(chrome(connectionRecoveryFailed: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
         #expect(!chrome(connectionStatus: .unavailable).showsMacUpdateHintIndicator)
         #expect(!chrome(connectionStatus: .reconnecting).showsMacUpdateHintIndicator)
         #expect(!chrome(
@@ -221,7 +231,8 @@ import Testing
         connectionStatus: MobileMacConnectionStatus,
         tailscalePairingRequired: Bool = false,
         isInitialConnectionLoading: Bool = false,
-        initialConnectionTimedOut: Bool = false
+        initialConnectionTimedOut: Bool = false,
+        activeTransportPath: String? = nil
     ) -> WorkspaceListConnectionChrome {
         WorkspaceListConnectionChrome(
             hasStore: hasStore,
@@ -231,7 +242,8 @@ import Testing
             connectionStatus: connectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
-            initialConnectionTimedOut: initialConnectionTimedOut
+            initialConnectionTimedOut: initialConnectionTimedOut,
+            activeTransportPath: activeTransportPath
         )
     }
 

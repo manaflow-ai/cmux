@@ -28,6 +28,7 @@ public enum DiagnosticTransportMode: Int, Codable, CaseIterable, Hashable, Senda
     case lan = 1
     case tailscale = 2
     case iroh = 3
+    case direct = 4
 
     public init(_ mode: CmxTransportMode) {
         switch mode {
@@ -35,6 +36,7 @@ public enum DiagnosticTransportMode: Int, Codable, CaseIterable, Hashable, Senda
         case .lan: self = .lan
         case .tailscale: self = .tailscale
         case .iroh: self = .iroh
+        case .direct: self = .direct
         }
     }
 }

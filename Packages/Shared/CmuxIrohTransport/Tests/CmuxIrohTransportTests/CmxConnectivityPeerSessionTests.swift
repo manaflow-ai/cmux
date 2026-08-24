@@ -5,6 +5,32 @@ import Testing
 
 struct CmxConnectivityPeerSessionTests {
     @Test
+    func aChangedTransportModeCannotReuseAnActivePeerSession() async throws {
+        let automatic = try Self.request()
+        let pinned = CmxByteTransportRequest(
+            route: automatic.route,
+            expectedPeerDeviceID: automatic.expectedPeerDeviceID,
+            authorizationMode: automatic.authorizationMode,
+            transportMode: .iroh
+        )
+        let peerID = try CmxConnectivityPeerID(request: automatic)
+        let first = TestConnectivitySession(continuityID: 101)
+        let second = TestConnectivitySession(continuityID: 102)
+        let builder = SequencedConnectivitySessionBuilder(sessions: [first, second])
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in try await builder.build(request) }
+        )
+
+        _ = try await peer.connectedSession(for: automatic)
+        _ = try await peer.connectedSession(for: pinned)
+
+        #expect(await builder.callCount() == 2)
+        #expect(await first.closeCount() == 1)
+        #expect(await peer.connectionContinuityID() == 102)
+    }
+
+    @Test
     func concurrentCallersShareOneDialAndOneAdmittedSession() async throws {
         let request = try Self.request()
         let routeVariant = try Self.request(routeID: "iroh-v2-refreshed")

@@ -31,12 +31,7 @@ struct cmuxApp: App {
             reachability: reachability,
             diagnosticLog: diagnosticLog
         )
-        let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
-            buildScope: MobileIOSBuildScope.current(),
-            compatibleMacTags: Bundle.main.object(
-                forInfoDictionaryKey: "CMUXCompatibleMacTags"
-            ) as? String
-        )
+        let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current()
         let iroh = MobileIrohRuntimeComposition(
             apiBaseURL: auth.config.apiBaseURL,
             reachability: reachability,
@@ -110,6 +105,15 @@ struct cmuxApp: App {
                     for: request,
                     resourceID: resourceID,
                     offset: offset
+                )
+            },
+            simulatorStreamLaneProvider: { request, panelID in
+                guard let panelUUID = UUID(uuidString: panelID) else {
+                    throw MobileIrohSimulatorStreamLaneError.invalidPanelID
+                }
+                return try await iroh.openSimulatorStreamLane(
+                    for: request,
+                    panelID: panelUUID
                 )
             }
         )

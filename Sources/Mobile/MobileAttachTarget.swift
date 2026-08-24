@@ -28,36 +28,63 @@ enum MobileAttachTarget: String, Sendable {
                 : irohRoutes
         case .physicalDevice:
             let irohRoutes = try Self.identityOnlyIrohRoutes(from: routes)
-            guard irohRoutes.isEmpty else {
-                selected = irohRoutes
-                break
-            }
-            let physicalRoutes = routes.filter {
-                ($0.kind == .tailscale || $0.kind == .lan)
-                    && !CmxLoopbackHost().matches($0)
-            }
-            // A route-id filter can leave `tailscale_2` as the only route.
-            // Reindex the selected endpoints to the canonical sequence the v2
-            // QR decoder reconstructs, keeping the destination lossless while
-            // avoiding a token-bearing v1 fallback on physical devices.
-            var occurrenceByKind: [CmxAttachTransportKind: Int] = [:]
-            selected = try physicalRoutes.map { route in
-                let occurrence = (occurrenceByKind[route.kind] ?? 0) + 1
-                occurrenceByKind[route.kind] = occurrence
-                try CmxAttachRoute(
-                    id: occurrence == 1
-                        ? route.kind.rawValue
-                        : "\(route.kind.rawValue)_\(occurrence)",
-                    kind: route.kind,
-                    endpoint: route.endpoint,
-                    priority: route.priority
-                )
-            }
+            let tailscaleRoutes = try Self.canonicalTailscaleRoutes(from: routes)
+            let lanRoutes = try Self.canonicalLANRoutes(from: routes)
+            // Keep every explicitly advertised network class alongside the
+            // identity-only Iroh route. The iPhone's pinned mode filters this
+            // set after pairing; dropping LAN/Tailscale here would make those
+            // modes impossible whenever the Mac also has Iroh online.
+            selected = irohRoutes + lanRoutes + tailscaleRoutes
         }
         guard !selected.isEmpty else {
             throw MobileAttachTicketStoreError.routeUnavailable
         }
         return selected
+    }
+
+    /// The non-loopback Tailscale routes of `routes`, reindexed to the
+    /// canonical id/priority sequence the v2 pairing decoder resynthesizes.
+    ///
+    /// A route-id filter can leave `tailscale_2` as the only route, and mixed
+    /// snapshots interleave Iroh and loopback entries. Reindexing keeps the
+    /// disclosed subsequence expressible in the bare `host:port` grammar
+    /// (which encodes neither ids nor priorities) without a token-bearing v1
+    /// fallback. Shared by the physical-device destination and the pairing
+    /// window's Tailscale compatibility code.
+    static func canonicalTailscaleRoutes(
+        from routes: [CmxAttachRoute]
+    ) throws -> [CmxAttachRoute] {
+        try routes
+            .filter { $0.kind == .tailscale && !CmxLoopbackHost().matches($0) }
+            .enumerated().map { index, route in
+                try CmxAttachRoute(
+                    id: index == 0
+                        ? CmxAttachTransportKind.tailscale.rawValue
+                        : "\(CmxAttachTransportKind.tailscale.rawValue)_\(index + 1)",
+                    kind: .tailscale,
+                    endpoint: route.endpoint,
+                    priority: 10 + index * 10
+                )
+            }
+    }
+
+    /// The non-loopback LAN routes of `routes`, reindexed for compact pairing
+    /// payloads that synthesize IDs from route class and position.
+    static func canonicalLANRoutes(
+        from routes: [CmxAttachRoute]
+    ) throws -> [CmxAttachRoute] {
+        try routes
+            .filter { $0.kind == .lan && !CmxLoopbackHost().matches($0) }
+            .enumerated().map { index, route in
+                try CmxAttachRoute(
+                    id: index == 0
+                        ? CmxAttachTransportKind.lan.rawValue
+                        : "\(CmxAttachTransportKind.lan.rawValue)_\(index + 1)",
+                    kind: .lan,
+                    endpoint: route.endpoint,
+                    priority: 5 + index * 5
+                )
+            }
     }
 
     private static func identityOnlyIrohRoutes(

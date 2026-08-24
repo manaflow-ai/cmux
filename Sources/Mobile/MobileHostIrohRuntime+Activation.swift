@@ -81,7 +81,10 @@ extension MobileHostIrohRuntime {
             tag: tag,
             endpointID: derivedEndpointID,
             identityGeneration: identity.generation,
-            pairingEnabled: true,
+            // Under a managed remote-control disable the runtime should never
+            // activate at all; reporting pairingEnabled=false is defense in
+            // depth so the trust broker also refuses to mint pair grants.
+            pairingEnabled: MobileRemoteControlPolicy.isEnabled,
             capabilities: Self.capabilities
         )
         let cachedHostPolicy: CmxIrohCachedHostPolicy?
@@ -257,7 +260,10 @@ extension MobileHostIrohRuntime {
             tag: tag,
             displayName: MobileHostIdentity.instanceDisplayName(),
             identity: identity,
-            pairingEnabled: true,
+            // Under a managed remote-control disable the runtime should never
+            // activate at all; reporting pairingEnabled=false is defense in
+            // depth so the trust broker also refuses to mint pair grants.
+            pairingEnabled: MobileRemoteControlPolicy.isEnabled,
             capabilities: Self.capabilities,
             bindPolicy: .preferred(
                 try CmxIrohBindAddress(
@@ -323,7 +329,8 @@ extension MobileHostIrohRuntime {
                     session: session,
                     artifactHandler: MobileHostIrohArtifactLaneHandler(
                         registry: artifactTransfers
-                    )
+                    ),
+                    simulatorStreamHandler: MobileHostIrohSimulatorStreamLaneHandler()
                 )
                 let connectionSupervisor = CmxIrohAdmittedConnectionSupervisor(
                     runControl: {

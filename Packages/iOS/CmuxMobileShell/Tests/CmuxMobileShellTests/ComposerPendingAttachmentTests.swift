@@ -84,6 +84,98 @@ import Testing
         #expect(composite.pendingAttachments(forTerminalID: "term-a").isEmpty)
     }
 
+    @Test func fileAddStagesKindDisplayNameAndExtension() throws {
+        let composite = Self.makeComposite()
+        let id = try #require(composite.addPendingFileAttachment(
+            Self.bytes("file-bytes"),
+            fileExtension: "pdf",
+            displayName: "Q3 report.pdf",
+            forTerminalID: "term-a"
+        ))
+        let staged = composite.pendingAttachments(forTerminalID: "term-a")
+        #expect(staged.map(\.id) == [id])
+        #expect(staged.first?.kind == .file)
+        #expect(staged.first?.displayName == "Q3 report.pdf")
+        #expect(staged.first?.format == "pdf")
+        #expect(composite.composerCanSend(forTerminalID: "term-a"))
+    }
+
+    /// The chip preview travels ON the staged attachment, so a composer view
+    /// recreated by a terminal/workspace switch re-renders the same thumbnail
+    /// instead of a placeholder.
+    @Test func thumbnailDataPersistsOnStagedAttachments() throws {
+        let composite = Self.makeComposite()
+        let thumb = Self.bytes("thumb-bytes")
+        let imageID = try #require(composite.addPendingAttachment(
+            Self.bytes("img"),
+            format: "png",
+            thumbnailData: thumb,
+            forTerminalID: "term-a"
+        ))
+        let fileID = try #require(composite.addPendingFileAttachment(
+            Self.bytes("file"),
+            fileExtension: "pdf",
+            displayName: "doc.pdf",
+            thumbnailData: thumb,
+            forTerminalID: "term-a"
+        ))
+        let staged = composite.pendingAttachments(forTerminalID: "term-a")
+        #expect(staged.first { $0.id == imageID }?.thumbnailData == thumb)
+        #expect(staged.first { $0.id == fileID }?.thumbnailData == thumb)
+    }
+
+    @Test func imageAddsStayImageKindWithoutDisplayName() {
+        let composite = Self.makeComposite()
+        composite.addPendingAttachment(Self.bytes("img"), format: "png", forTerminalID: "term-a")
+        let staged = composite.pendingAttachments(forTerminalID: "term-a")
+        #expect(staged.first?.kind == .image)
+        #expect(staged.first?.displayName == nil)
+    }
+
+    /// A payload between the 8 MB image cap and the 32 MB file cap is accepted
+    /// as a file but rejected as an image: the per-item cap is kind-specific.
+    @Test func perItemCapIsKindSpecific() {
+        let composite = Self.makeComposite()
+        let midSized = Data(count: MobileShellComposite.maxPendingAttachmentImageBytes + 1)
+
+        composite.addPendingAttachment(midSized, format: "png", forTerminalID: "term-a")
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").isEmpty)
+
+        composite.addPendingFileAttachment(
+            midSized,
+            fileExtension: "bin",
+            displayName: "big.bin",
+            forTerminalID: "term-a"
+        )
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").count == 1)
+    }
+
+    @Test func fileAddRejectsOverFileCap() {
+        let composite = Self.makeComposite()
+        let oversized = Data(count: MobileShellComposite.maxPendingAttachmentFileBytes + 1)
+        composite.addPendingFileAttachment(
+            oversized,
+            fileExtension: "bin",
+            displayName: "too-big.bin",
+            forTerminalID: "term-a"
+        )
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").isEmpty)
+    }
+
+    @Test func staleSessionGenerationDropsFileAdd() {
+        let composite = Self.makeComposite()
+        let captured = composite.currentSessionGeneration
+        composite.signOut()
+        composite.addPendingFileAttachment(
+            Self.bytes("stale"),
+            fileExtension: "txt",
+            displayName: "stale.txt",
+            forTerminalID: "term-a",
+            ifSessionGeneration: captured
+        )
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").isEmpty)
+    }
+
     @Test func removeDropsOnlyTheTargetedAttachment() {
         let composite = Self.makeComposite()
         composite.addPendingAttachment(Self.bytes("one"), format: "png", forTerminalID: "term-a")

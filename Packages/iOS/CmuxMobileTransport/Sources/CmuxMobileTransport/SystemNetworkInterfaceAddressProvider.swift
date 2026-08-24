@@ -37,8 +37,18 @@ public struct SystemNetworkInterfaceAddressProvider: NetworkInterfaceAddressProv
 
             results.append(
                 NetworkInterfaceAddress(
-                    interfaceName: String(cString: entry.pointee.ifa_name),
-                    address: String(cString: host)
+                    interfaceName: String(
+                        decoding: UnsafeBufferPointer(
+                            start: entry.pointee.ifa_name,
+                            count: Int(strlen(entry.pointee.ifa_name))
+                        ).map { UInt8(bitPattern: $0) },
+                        as: UTF8.self
+                    ),
+                    address: String(
+                        decoding: host.prefix(while: { $0 != 0 })
+                            .map { UInt8(bitPattern: $0) },
+                        as: UTF8.self
+                    )
                 )
             )
         }

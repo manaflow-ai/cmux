@@ -861,8 +861,12 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
 public enum DiagnosticConnectionMethod: Int, Sendable, Codable, CaseIterable {
     case automatic = 0
     case tailscale = 1
-    case lan = 2
-    case iroh = 3
+    /// Legacy per-computer direct-address allowlist.
+    case direct = 2
+    /// Require a directly advertised local-network route.
+    case lan = 3
+    /// Require an authenticated Iroh route (direct or relay).
+    case iroh = 4
 }
 
 /// High-level lifecycle state for one phone-controlled Simulator stream.

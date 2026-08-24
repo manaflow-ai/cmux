@@ -3,7 +3,7 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-/// The Auto-Connect vs Tailscale choice on the onboarding connect page.
+/// The explicit transport-mode choice on the onboarding connect page.
 /// Selection persists through the shared connection-method store, so the
 /// Settings picker shows the same value afterward.
 struct OnboardingConnectionMethodPicker: View {
@@ -16,15 +16,28 @@ struct OnboardingConnectionMethodPicker: View {
             optionCard(
                 .automatic,
                 title: L10n.string(
-                    "mobile.onboarding.connect.method.automatic",
-                    defaultValue: "Auto-Connect"
+                    "mobile.onboarding.connect.method.auto",
+                    defaultValue: "Auto"
                 ),
                 subtitle: L10n.string(
-                    "mobile.onboarding.connect.method.automaticDetail",
-                    defaultValue: "Requires cmux 0.64.20 or later on your Mac."
+                    "mobile.onboarding.connect.method.autoDetail",
+                    defaultValue: "Use the normal authenticated route selection."
                 ),
                 systemImage: "bolt.fill",
-                accessibilityIdentifier: "MobileOnboardingConnectionMethodAutomatic"
+                accessibilityIdentifier: "MobileOnboardingConnectionMethodAuto"
+            )
+            optionCard(
+                .lan,
+                title: L10n.string(
+                    "mobile.onboarding.connect.method.lan",
+                    defaultValue: "LAN Only"
+                ),
+                subtitle: L10n.string(
+                    "mobile.onboarding.connect.method.lanDetail",
+                    defaultValue: "Use only the Mac's local-network address."
+                ),
+                systemImage: "wifi",
+                accessibilityIdentifier: "MobileOnboardingConnectionMethodLAN"
             )
             optionCard(
                 .tailscale,
@@ -38,6 +51,19 @@ struct OnboardingConnectionMethodPicker: View {
                 ),
                 systemImage: "qrcode",
                 accessibilityIdentifier: "MobileOnboardingConnectionMethodTailscale"
+            )
+            optionCard(
+                .iroh,
+                title: L10n.string(
+                    "mobile.onboarding.connect.method.iroh",
+                    defaultValue: "iroh Only"
+                ),
+                subtitle: L10n.string(
+                    "mobile.onboarding.connect.method.irohDetail",
+                    defaultValue: "Use only authenticated iroh direct or relay paths."
+                ),
+                systemImage: "network",
+                accessibilityIdentifier: "MobileOnboardingConnectionMethodIroh"
             )
         }
         .accessibilityElement(children: .contain)

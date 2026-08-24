@@ -25,14 +25,13 @@ extension MacComputerSnapshot {
         // source of truth for the dot, distinct from presence.
         let connectionStatuses = store.macConnectionStatuses
         var snapshots = store.displayPairedMacs.map { mac in
-            let presenceInstanceTag = instanceTag ?? mac.instanceTag
             let aliases = store.pairedMacAliasIDs(
                 for: mac.macDeviceID,
                 instanceTag: mac.instanceTag
             )
             let summary = store.presenceSummary(
                 for: mac.macDeviceID,
-                instanceTag: presenceInstanceTag
+                instanceTag: mac.instanceTag
             )
             let presence: DeviceTreePresence? = summary
                 .map { $0.online ? .online : .offline(lastSeenAt: $0.lastSeenAt) }
@@ -46,19 +45,35 @@ extension MacComputerSnapshot {
                     rowMacDeviceID: mac.macDeviceID,
                     rowInstanceTag: mac.instanceTag
                 )
-            return MacComputerSnapshot(
+            // The Computer's own method decides its section and which route's
+            // endpoint the row leads with (generic fallback when the method
+            // has no advertised route yet).
+            let method = store.connectionMethod(for: mac)
+            let directEndpoint = mac.directAddresses.first(where: \.enabled).map(\.id)
+            var snapshot = MacComputerSnapshot(
                 deviceId: mac.macDeviceID,
                 instanceTag: mac.instanceTag,
                 title: buildScope?.computerDisplayName(mac.resolvedName) ?? mac.resolvedName,
                 platform: "mac",
-                colorIndex: aliases.compactMap { colorIndex[$0] }.first,
+                colorIndex: colorIndex[mac.id]
+                    ?? aliases.compactMap {
+                        colorIndex[MobilePairedMac.pairingID(
+                            macDeviceID: $0,
+                            instanceTag: mac.instanceTag
+                        )]
+                    }.first,
                 customColor: mac.customColor,
                 customIcon: mac.customIcon,
                 connectionStatus: exactConnectionStatus,
                 presence: presence,
                 buildLabel: summary?.buildLabel
                     ?? MacBuildChannel().label(bundleID: nil, tag: mac.instanceTag),
-                routeDescription: CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes),
+                routeDescription: method == .direct
+                    ? directEndpoint
+                    : method.routeKind.flatMap {
+                        CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes, kind: $0)
+                    } ?? CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes),
+                routes: mac.routes,
                 lastSeenAt: mac.lastSeenAt,
                 workspaceCount: store.workspaceCount(
                     for: mac.macDeviceID,
@@ -66,6 +81,9 @@ extension MacComputerSnapshot {
                 ),
                 aliasIDs: aliases
             )
+            snapshot.connectionMethod = method
+            snapshot.routeKind = method.routeKind
+            return snapshot
         }
         markOlderDuplicates(&snapshots)
         return snapshots

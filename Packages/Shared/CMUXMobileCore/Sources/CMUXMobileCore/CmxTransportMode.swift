@@ -25,6 +25,10 @@ public enum CmxTransportMode: String, Codable, CaseIterable, Hashable, Sendable 
     case tailscale
     /// Permit only an Iroh route and Iroh-native paths.
     case iroh
+    /// Preserve the legacy per-computer direct-address allowlist. The wire
+    /// transport remains Iroh; its configured candidates are enforced by the
+    /// direct-candidate policy rather than this generic path filter.
+    case direct
 
     /// Source-compatible spelling for callers that use the UI vocabulary.
     public static var auto: Self { .automatic }
@@ -39,6 +43,7 @@ public enum CmxTransportMode: String, Codable, CaseIterable, Hashable, Sendable 
         case .lan: .lan
         case .tailscale: .tailscale
         case .iroh: .iroh
+        case .direct: .iroh
         }
     }
 
@@ -52,6 +57,7 @@ public enum CmxTransportMode: String, Codable, CaseIterable, Hashable, Sendable 
         case .lan: "LAN"
         case .tailscale: "Tailscale"
         case .iroh: "iroh"
+        case .direct: "Direct"
         }
     }
 }
@@ -183,7 +189,7 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
     /// empty Iroh plan rather than silently riding Iroh.
     public func irohDialPlan(_ plan: CmxIrohDialPlan) -> CmxIrohDialPlan {
         switch mode {
-        case .automatic:
+        case .automatic, .direct:
             return plan
         case .iroh:
             // Iroh-only still permits Iroh's native direct/relay phases.  The
@@ -219,7 +225,7 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
     /// reconnect races, and future factories that bypass the route catalog.
     public func validate(irohDialPlan plan: CmxIrohDialPlan) throws {
         switch mode {
-        case .automatic:
+        case .automatic, .direct:
             return
         case .iroh:
             let hints = plan.publicPaths + plan.privateFallbackPaths

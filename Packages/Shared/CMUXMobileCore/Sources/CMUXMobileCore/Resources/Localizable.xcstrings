@@ -137,6 +137,27 @@
         }
       }
     },
+    "diagnostics.connectionMethod.direct": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Direct" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "直接" } }
+      }
+    },
+    "diagnostics.connectionMethod.lan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "LAN Only" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "LANのみ" } }
+      }
+    },
+    "diagnostics.connectionMethod.iroh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "iroh Only" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "irohのみ" } }
+      }
+    },
     "diagnostics.count.bytes": {
       "extractionState": "manual",
       "localizations": {
@@ -3760,6 +3781,13 @@
         }
       }
     },
+    "diagnostics.transport.lan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "LAN" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "LAN" } }
+      }
+    },
     "diagnostics.transport.tailscale": {
       "extractionState": "manual",
       "localizations": {
@@ -5777,6 +5805,7 @@
     "diagnostics.transportMode.lan": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"LAN only"}},"ja":{"stringUnit":{"state":"translated","value":"LANのみ"}}}},
     "diagnostics.transportMode.tailscale": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tailscale only"}},"ja":{"stringUnit":{"state":"translated","value":"Tailscaleのみ"}}}},
     "diagnostics.transportMode.iroh": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"iroh only"}},"ja":{"stringUnit":{"state":"translated","value":"irohのみ"}}}},
+    "diagnostics.transportMode.direct": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Direct"}},"ja":{"stringUnit":{"state":"translated","value":"直接"}}}},
     "diagnostics.field.peer": {
       "extractionState": "manual",
       "localizations": {

@@ -105,6 +105,7 @@ pub const MAX_CREATION_SELECTOR_FALLBACKS: usize = 7;
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
+pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -113,6 +114,16 @@ pub const TERMINAL_LIFECYCLE_PROTOCOL_VERSION: u32 = 11;
 pub const LIFECYCLE_READINESS_PROTOCOL_VERSION: u32 = 12;
 pub const PROTOCOL_VERSION: u32 = LIFECYCLE_READINESS_PROTOCOL_VERSION;
 const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = CLEAR_HISTORY_KEY_TEXT_MAX_BYTES;
+
+fn validate_client_focus_id(client_id: &str) -> anyhow::Result<()> {
+    if client_id.is_empty()
+        || client_id.len() > 128
+        || !client_id.bytes().all(|byte| byte.is_ascii_graphic())
+    {
+        anyhow::bail!("bad request: invalid client_id");
+    }
+    Ok(())
+}
 
 fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
     let mut capabilities = vec![
@@ -134,6 +145,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         CREATION_SELECTOR_FALLBACKS_CAPABILITY,
         PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
         BROWSER_PROVIDER_CAPABILITY,
+        CLIENT_FOCUS_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -1182,6 +1194,18 @@ enum Command {
         index: Option<usize>,
         #[serde(default)]
         delta: Option<isize>,
+    },
+    /// Report one client's focus: applied as the session focus and remembered
+    /// per client id so that client's own reconnection restores it.
+    ReportFocus {
+        client_id: String,
+        pane: PaneId,
+        #[serde(default)]
+        tab: Option<usize>,
+    },
+    /// The remembered focus for one client, if its pane is still alive.
+    ClientFocus {
+        client_id: String,
     },
     /// Stream mux events on this connection.
     Subscribe {
@@ -12218,6 +12242,25 @@ fn handle_command_with_cancellation(
         Command::SelectWorkspace { index, delta } => {
             mux.select_workspace(index, delta);
             Ok(json!({}))
+        }
+        Command::ReportFocus { client_id, pane, tab } => {
+            validate_client_focus_id(&client_id)?;
+            if !mux.with_state(|state| state.panes.contains_key(&pane)) {
+                anyhow::bail!("unknown pane {pane}");
+            }
+            // A report only writes memory (the session's last reported focus
+            // and this client's own record). It never moves the live shared
+            // focus, so other attached clients stay where they are.
+            mux.record_session_focus(pane, tab);
+            mux.remember_client_focus(client_id, pane, tab);
+            Ok(json!({}))
+        }
+        Command::ClientFocus { client_id } => {
+            validate_client_focus_id(&client_id)?;
+            Ok(match mux.client_focus(&client_id).or_else(|| mux.session_focus()) {
+                Some((pane, tab)) => json!({"pane": pane, "tab": tab}),
+                None => json!({"pane": null, "tab": null}),
+            })
         }
         Command::ScrollSurface { surface, delta } => {
             let surface = get_surface(mux, surface)?;

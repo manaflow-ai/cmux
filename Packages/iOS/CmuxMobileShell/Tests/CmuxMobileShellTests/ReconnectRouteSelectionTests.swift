@@ -723,7 +723,10 @@ import Testing
         )
     }
 
-    @Test func changingToUnavailableTailscaleDropsLiveIrohWithoutFallback() async throws {
+    /// Switching an Iroh-identified pairing to Tailscale Only replaces the live
+    /// session with the explicitly advertised Tailscale route. The Iroh route
+    /// is never reused as a silent fallback, even though it remains stored.
+    @Test func changingToTailscaleReplacesLiveIrohWithPinnedTailscaleDial() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
         // The factory boxes the live Iroh transport it hands out, so the test
@@ -731,8 +734,7 @@ import Testing
         let liveTransportBox = TransportBox()
         let factory = KindRecordingTransportFactory(
             router: router,
-            box: liveTransportBox,
-            failingKinds: [.tailscale]
+            box: liveTransportBox
         )
         let tailscale = try tailscale()
         let iroh = try iroh()
@@ -781,21 +783,23 @@ import Testing
         #expect(store.activeRoute?.kind == .iroh)
         #expect(factory.attemptedKinds().filter { $0 == .iroh }.count == 1)
 
+        // The box tracks the most recent transport, so capture the original
+        // live session before the method change replaces it.
+        let originalTransport = await liveTransportBox.get()
+
         methodStore.method = .tailscale
 
-        // `activeRoute == nil` only proves the store cleared its logical
-        // route; the dropped live Iroh transport must also finish closing so
-        // no physical cleanup work is still pending when the test completes.
+        // The replaced live Iroh transport must finish closing, and the new
+        // session must be the raw authorized Tailscale route.
         let applied = try await pollUntil {
-            let liveTransportClosed =
-                await liveTransportBox.get()?.isClosedForTesting() == true
+            let originalTransportClosed =
+                await originalTransport?.isClosedForTesting() == true
             return factory.attemptedKinds().contains(.tailscale)
-                && store.connectionState == .disconnected
-                && store.activeRoute == nil
-                && liveTransportClosed
+                && store.connectionState == .connected
+                && originalTransportClosed
         }
         #expect(applied)
-        #expect(store.activeRoute == nil)
-        #expect(factory.attemptedKinds().filter { $0 == .iroh }.count == 1)
+        #expect(store.activeRoute?.kind == .tailscale)
+        #expect(factory.attemptedKinds() == [.iroh, .tailscale])
     }
 }

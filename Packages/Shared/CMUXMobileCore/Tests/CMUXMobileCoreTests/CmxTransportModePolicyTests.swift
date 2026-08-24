@@ -137,6 +137,19 @@ struct CmxTransportModePolicyTests {
         }
     }
 
+    @Test("legacy Direct mode fails closed without an explicit allowlist")
+    func directModeRequiresCandidates() throws {
+        let request = CmxByteTransportRequest(
+            route: try irohRoute(),
+            expectedPeerDeviceID: "mac",
+            authorizationMode: .transportAdmission,
+            transportMode: .direct
+        )
+        #expect(throws: CmxTransportModeError.self) {
+            try request.validateTransportMode()
+        }
+    }
+
     private func route(
         id: String,
         kind: CmxAttachTransportKind,

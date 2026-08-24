@@ -1,32 +1,72 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "mobile.settings.connectionMethod.lan" : {
+    "mobile.terminal.outputRecovery.dismiss" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "LAN Only" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "LANのみ" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dismiss"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "閉じる"
+          }
+        }
       }
     },
-    "mobile.settings.connectionMethod.iroh" : {
+    "mobile.terminal.outputRecovery.message" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "iroh Only" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "irohのみ" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal output stopped unexpectedly. Retry to reconnect this terminal."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ターミナル出力が予期せず停止しました。再試行してこのターミナルに再接続してください。"
+          }
+        }
       }
     },
-    "mobile.settings.connectionMethod.lanFooter" : {
+    "mobile.terminal.outputRecovery.retry" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Uses only the Mac's local-network address. If the devices are not on the same network, cmux stays disconnected and does not switch to another transport." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Macのローカルネットワークアドレスのみを使用します。同じネットワークにない場合、cmuxは別のトランスポートへ切り替えず接続を維持しません。" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retry"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "再試行"
+          }
+        }
       }
     },
-    "mobile.settings.connectionMethod.irohFooter" : {
+    "mobile.terminal.outputRecovery.title" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Uses only authenticated iroh paths (direct or relay). LAN and Tailscale routes are not used." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "認証済みのiroh経路（直接またはリレー）のみを使用します。LANやTailscaleの経路は使用しません。" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal paused"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ターミナルを一時停止しました"
+          }
+        }
       }
     },
     "mobile.workspaces.statusLine.notConnected" : {
@@ -880,6 +920,34 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "削除" } }
       }
     },
+    "mobile.connections.route.remove" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Remove route" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "経路を削除" } }
+      }
+    },
+    "mobile.connections.route.deleteComputer.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Delete this computer?" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このコンピュータを削除しますか？" } }
+      }
+    },
+    "mobile.connections.route.deleteComputer.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This is the last route. Deleting it will delete this computer record. You can reconnect later by pairing this computer again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "最後の経路です。削除すると、このコンピュータの登録も削除されます。もう一度ペアリングすれば再接続できます。" } }
+      }
+    },
+    "mobile.connections.route.deleteComputer.confirm" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Delete Computer" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コンピュータを削除" } }
+      }
+    },
     "mobile.common.save" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -906,6 +974,20 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Send" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "送信" } }
+      }
+    },
+    "mobile.push.reply.failure.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reply not sent" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "返信を送信できませんでした" } }
+      }
+    },
+    "mobile.push.reply.failure.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Your reply didn’t reach your Mac. Open cmux to send it again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "返信はMacに届きませんでした。cmuxを開いてもう一度送信してください。" } }
       }
     },
     "mobile.push.debugReply.title" : {
@@ -1081,6 +1163,13 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Update cmux on this Mac before using private addresses." } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "プライベートアドレスを使用する前に、このMacのcmuxを更新してください。" } }
+      }
+    },
+    "mobile.iroh.private.custom.macUpdateRequiredFormat" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@ (Update cmux)" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@ (cmux を更新)" } }
       }
     },
     "mobile.iroh.private.lan" : {
@@ -1635,6 +1724,82 @@
     "mobile.iroh.check.action.repair" : { "extractionState" : "manual", "localizations" : {
       "en" : { "stringUnit" : { "state" : "translated", "value" : "Update cmux on both devices. If needed, remove and pair the Mac again." } },
       "ja" : { "stringUnit" : { "state" : "translated", "value" : "両方のデバイスで cmux を更新してください。必要に応じて Mac を削除し、再度ペアリングしてください。" } }
+    } },
+    "mobile.settings.connectionMethod.auto" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Auto" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "自動" } }
+    } },
+    "mobile.settings.connectionMethod.lan" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "LAN Only" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "LANのみ" } }
+    } },
+    "mobile.settings.connectionMethod.iroh" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "iroh Only" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "irohのみ" } }
+    } },
+    "mobile.settings.connectionMethod.lanFooter" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Uses only the Mac's advertised local-network address. If the devices are not on the same network, cmux stays disconnected and does not switch transports." } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac が公開するローカルネットワークアドレスのみを使用します。同じネットワークにない場合、cmux は別のトランスポートに切り替えず切断されたままです。" } }
+    } },
+    "mobile.settings.connectionMethod.irohFooter" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Uses only authenticated iroh paths (direct or relay). LAN and Tailscale routes are not used." } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "認証済みの iroh 経路（直接またはリレー）のみを使用します。LAN と Tailscale の経路は使用しません。" } }
+    } },
+    "mobile.connections.lanUnavailableWarning" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "No LAN route is advertised for this computer — it stays disconnected until both devices share a local network." } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "このコンピュータの LAN 経路が公開されていません。両方のデバイスを同じローカルネットワークに接続するまで切断されたままです。" } }
+    } },
+    "mobile.connections.irohUnavailableWarning" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "No iroh route is available for this computer — update cmux on the Mac or choose another mode." } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "このコンピュータで iroh 経路を利用できません。Mac の cmux を更新するか、別のモードを選択してください。" } }
+    } },
+    "mobile.onboarding.connect.method.auto" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Auto" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "自動" } }
+    } },
+    "mobile.onboarding.connect.method.autoDetail" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Use the normal authenticated route selection." } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "通常の認証済み経路選択を使用します。" } }
+    } },
+    "mobile.onboarding.connect.method.lan" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "LAN Only" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "LANのみ" } }
+    } },
+    "mobile.onboarding.connect.method.lanDetail" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Use only the Mac's local-network address." } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "Macのローカルネットワークアドレスのみを使用します。" } }
+    } },
+    "mobile.onboarding.connect.method.iroh" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "iroh Only" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "irohのみ" } }
+    } },
+    "mobile.onboarding.connect.method.irohDetail" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Use only authenticated iroh direct or relay paths." } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "認証済みの iroh 直接経路またはリレー経路のみを使用します。" } }
+    } },
+    "mobile.onboarding.connect.lanTitle" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Connect over LAN" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "LANで接続" } }
+    } },
+    "mobile.onboarding.connect.lanBody" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "The iPhone and Mac must be on the same local network. cmux stays disconnected instead of switching transports when they are not." } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "iPhoneとMacを同じローカルネットワークに接続してください。異なるネットワークでは、別のトランスポートに切り替えず切断されたままです。" } }
+    } },
+    "mobile.onboarding.connect.irohTitle" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Connect over iroh" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "irohで接続" } }
+    } },
+    "mobile.onboarding.connect.irohBody" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Use the same cmux account on both devices. Only authenticated iroh direct or relay paths are allowed." } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "両方のデバイスで同じcmuxアカウントを使用してください。認証済みの iroh 直接経路またはリレー経路のみが許可されます。" } }
+    } },
+    "mobile.connections.method.auto" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Auto" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "自動" } }
+    } },
+    "mobile.connections.method.lan" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "LAN" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "LAN" } }
     } },
     "mobile.iroh.diagnostics.failure.unknown" : {
       "extractionState" : "manual",

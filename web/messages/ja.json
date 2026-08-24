@@ -1437,6 +1437,38 @@
     }
   },
   "docs": {
+    "managedPolicies": {
+      "title": "管理デバイスポリシー（MDM）",
+      "metaTitle": "管理デバイスポリシー（MDM）",
+      "metaDescription": "管理対象の Mac で cmux に MDM 強制可能なポリシーを展開：com.cmuxterm.app を対象とする構成プロファイルで内蔵ブラウザと iOS リモート操作を無効化できます。",
+      "intro": "cmux は管理対象の Mac 向けに MDM で強制できるポリシーをサポートします。管理者は macOS 構成プロファイル（カスタム設定ペイロード）を使って強制環境設定値として配布します。強制値は最優先で、環境変数、ユーザー設定、~/.config/cmux/cmux.json のインポート、組み込みデフォルトに優先します。",
+      "lockSummary": "強制値はアプリ内から変更できません。設定 UI には「組織によって管理されています」と表示され、コマンドパレットの該当コマンドは非表示になり、cmux CLI は管理ポリシーエラーで拒否します。",
+      "domainTitle": "ペイロードドメイン",
+      "domainDesc": "リリース版アプリの環境設定ドメインを対象にします：",
+      "domainChannels": "チャンネルビルド（debug、nightly、staging）は独自のバンドル ID で動作しますが、com.cmuxterm.app を対象とするプロファイルも尊重するため、1 つのプロファイルですべてのチャンネルを管理できます。アプリ自身のドメインで強制された値がリリースドメインのフォールバックに優先します。",
+      "keysTitle": "ポリシーキー",
+      "keyHeader": "キー",
+      "typeHeader": "型",
+      "defaultHeader": "デフォルト",
+      "behaviorHeader": "true に強制したときの動作",
+      "booleanType": "Boolean",
+      "browserKeyDesc": "すべての内蔵ブラウザ面を無効化します：ブラウザペインとタブ、ターミナルリンクのインターセプト、自動化・レイアウト・セッション復元からのブラウザ作成。ポリシーの有効化時には表示中のブラウザペインを閉じ、リンクはシステムのデフォルトブラウザで開きます。同じゲートを共有する WebKit ベースのローカルビューア（差分ビューア、エージェントチャット、アプリ内アップグレードページ）も利用できなくなり、Mac は iOS アプリへのブラウザ機能のアドバタイズを停止します。",
+      "remoteKeyDesc": "Mac が cmux iOS アプリのリモート表示・操作ホストとして動作することを無効化します：Iroh ホストランタイム（ローカルネットワークへのアドバタイズを含む）、旧式 TCP ペアリングリスナー、接続受け入れ、デバイスペアリング。ポリシーの有効化時には接続中のフォン接続を閉じ、ペアリングのトラストブローカーは新規ペア許可の発行を拒否します。送信専用の通知転送、アプリのアップデート、ローカル自動化ソケット、Mac をクライアントとする SSH は影響を受けません。",
+      "noteBoolean": "値は Boolean である必要があります。false（または Boolean 以外の値）に強制されたキーはポリシーを有効化しませんが、書き込みロックの対象としては管理済みと見なされます。",
+      "noteForcedOnly": "ポリシーとして尊重されるのは強制（プロファイル配布）値のみです。これらのキーへの単純な defaults write は効果がありません。",
+      "noteTiming": "ポリシーはアプリ起動時、環境設定変更時、アプリのアクティブ化時に適用され、さらに実行中は定期的（約 1 分ごと）に再確認されます。実行中にプッシュされたプロファイルは、ユーザーがアプリを離れなくてもおよそ 1 分以内に有効になります。",
+      "lockTitle": "ロック可能性",
+      "lockDesc": "構成プロファイルの強制値は macOS 自体によってロックされます：ユーザーの書き込み（「すべての設定をリセット」を含む）では有効値を変更できず、プロファイルを削除すると通常の動作に戻ります。さらに cmux は自身の書き込みを抑止します：cmux.json インポーターは強制されたすべてのキーをスキップし、ブラウザとリモート操作の制御については設定 UI が管理状態を表示し、コマンドパレットは該当コマンドを非表示にし、CLI は管理ポリシーエラーで拒否します。管理者が専用ポリシーキーの代わりにユーザーレベルの browserDisabledOverride キーを直接強制した場合も同様です。",
+      "supportTitle": "対応プラットフォームとバージョン",
+      "supportMacos": "macOS 14（Sonoma）以降。cmux のシステム要件に準拠します。",
+      "supportVersions": "この機能を含む cmux for macOS ビルド（リリース時のチェンジログを参照）。すべてのリリースチャンネルがリリースペイロードドメインを尊重します。",
+      "supportIos": "これらは macOS 側の制御です。iOS アプリに個別のポリシーは不要です：DisableRemoteControl が強制された Mac は接続受け入れとペアリングを拒否するため、フォンは接続できません。",
+      "sampleTitle": "構成プロファイルのサンプル",
+      "sampleDesc": "MDM から com.cmuxterm.app 向けのカスタム設定ペイロードとして展開するか、テスト用に以下のプロファイルを手動でインストールします（システム設定 → 一般 → デバイス管理）。",
+      "verifyTitle": "管理対象 Mac での確認",
+      "verifyDesc": "有効な強制値と CLI の管理状態を確認します：",
+      "verifyUi": "cmux では、設定 → ブラウザに有効化トグルが無効状態で「組織によって管理されています」と表示され、設定 → モバイルに「iOS アプリからのリモート操作は組織によって無効化されています」と表示されます。"
+    },
     "remoteTmux": {
       "title": "リモート tmux",
       "metaTitle": "リモート tmux（ベータ）",
@@ -1784,7 +1816,8 @@
           "customSearchEngineName": "defaultSearchEngine が custom のときに使う表示名です。",
           "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。",
           "defaultZoomLevel": "新しく開いたブラウザページに適用されるデフォルトのページズーム倍率（1 = 100%）。ズームイン・ズームアウト・実際のサイズは引き続き各ページごとに調整できます。",
-          "askWhereToSaveDownloads": "ブラウザのダウンロードを直接「ダウンロード」に保存せず、保存パネルを表示します。"
+          "askWhereToSaveDownloads": "ブラウザのダウンロードを直接「ダウンロード」に保存せず、保存パネルを表示します。",
+          "urlAllowlist": "内蔵ブラウザの移動を制限するホストまたはURLパターンです。設定画面ではローカル開発用オリジンを候補として表示します。リストを保存すると任意の制限が有効になり、エントリを削除するとそのURLをブロックします。管理ポリシーがない場合はユーザー値を空にすると無効になります。"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "グループ内で Cmd-N、グループヘッダーの + ボタン、設定済みグループアクションが新しいワークスペースを配置する場所のグローバル既定値です: `afterCurrent` (アクティブなグループ内ワークスペースの直後。ない場合は top)、`top` (アンカー直後の2番目の位置)、`end` (最後のメンバーの後)。",
@@ -2532,6 +2565,7 @@
       "browserAutomation": "ブラウザ自動化",
       "skills": "スキル",
       "notifications": "通知",
+      "managedPolicies": "管理ポリシー（MDM）",
       "remoteTmux": "リモート tmux",
       "agentIntegrations": "エージェント連携",
       "claudeCodeTeams": "Claude Code Teams",
@@ -3055,6 +3089,10 @@
       "metaDescription": "cmuxと他のmacOSターミナルの比較、Ghostty上に構築されている仕組み、Claude Code・Codex・OpenCodeをcmuxで実行する方法のガイド。",
       "title": "ガイド",
       "intro": "cmuxの比較・背景・ユースケースのガイドです。製品ドキュメントについてはドキュメントをご覧ください。"
+    },
+    "managedPolicies": {
+      "title": "管理デバイスポリシー（MDM）",
+      "metaDescription": "管理対象の Mac で cmux に MDM 強制可能なポリシー：構成プロファイルで内蔵ブラウザと iOS リモート操作を無効化できます。"
     },
     "remoteTmux": {
       "title": "リモート tmux",
@@ -4577,6 +4615,7 @@
       "cursorCli": "Cursor CLI のためのターミナル",
       "keyboardShortcuts": "キーボードショートカット",
       "browserAutomation": "ブラウザ自動化",
+      "managedPolicies": "管理ポリシー（MDM）",
       "remoteTmux": "リモート tmux",
       "compare": "cmuxを比較"
     },

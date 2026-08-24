@@ -32,6 +32,11 @@ extension CmxTransportModeError {
                     "mobile.transportMode.noRoute",
                     defaultValue: "No route to %@ is available."
                 )
+            case .direct:
+                format = L10n.string(
+                    "mobile.transportMode.noDirectRoute",
+                    defaultValue: "Direct mode is selected, but no configured direct route to %@ is available."
+                )
             }
             let target = macDisplayName?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -73,6 +78,11 @@ extension CmxTransportModeError {
                 return L10n.string(
                     "mobile.transportMode.guidance.auto",
                     defaultValue: "Check that cmux is running on the Mac, then retry."
+                )
+            case .direct:
+                return L10n.string(
+                    "mobile.transportMode.guidance.direct",
+                    defaultValue: "Enable a direct address for this computer or choose another transport mode."
                 )
             }
         case .routeClassMismatch:

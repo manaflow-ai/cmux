@@ -137,7 +137,7 @@ private final class NetworkEchoServer: @unchecked Sendable {
     private let listener: NWListener
     private let response: Data
     private let queue = DispatchQueue(label: "dev.cmux.mobile.network-echo-server")
-    private var readyContinuation: CheckedContinuation<UInt16, Error>?
+    private var readyContinuation: CheckedContinuation<UInt16, any Error>?
     private var cancelledContinuation: CheckedContinuation<Void, Never>?
     private var didCancel = false
     private var connections: [NWConnection] = []

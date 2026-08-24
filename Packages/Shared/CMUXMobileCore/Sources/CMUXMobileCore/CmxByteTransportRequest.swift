@@ -25,9 +25,13 @@ public struct CmxByteTransportRequest: Equatable, Sendable {
     public let authorizationMode: CmxTransportAuthorizationMode
     /// The local owner whose network path this request represents.
     public let sessionPurpose: CmxTransportSessionPurpose
-    /// The user-selected transport policy captured for this physical dial.
-    /// Capturing it here makes the no-fallback guarantee survive route-pool,
-    /// background-lane, and reconnect boundaries.
+    /// When non-nil, the Iroh dial for this request may attempt ONLY these
+    /// user-pinned addresses (the per-Computer "Direct" connection method):
+    /// no relay path, no broker-advertised or discovered paths, and no LAN or
+    /// custom private-path joins. An empty or unusable allowlist must fail
+    /// the dial instead of substituting another path.
+    public let irohDirectOnlyDialCandidates: [CmxIrohDirectDialCandidate]?
+    /// The hard transport-class policy captured for this physical dial.
     public let transportMode: CmxTransportMode
 
     /// Creates a route-bound transport request with explicit peer authority.
@@ -36,12 +40,14 @@ public struct CmxByteTransportRequest: Equatable, Sendable {
         expectedPeerDeviceID: String?,
         authorizationMode: CmxTransportAuthorizationMode,
         sessionPurpose: CmxTransportSessionPurpose = .foregroundControl,
+        irohDirectOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
         transportMode: CmxTransportMode = .automatic
     ) {
         self.route = route
         self.expectedPeerDeviceID = expectedPeerDeviceID
         self.authorizationMode = authorizationMode
         self.sessionPurpose = sessionPurpose
+        self.irohDirectOnlyDialCandidates = irohDirectOnlyDialCandidates
         self.transportMode = transportMode
     }
 
@@ -54,6 +60,7 @@ public struct CmxByteTransportRequest: Equatable, Sendable {
             expectedPeerDeviceID: expectedPeerDeviceID,
             authorizationMode: authorizationMode,
             sessionPurpose: sessionPurpose,
+            irohDirectOnlyDialCandidates: irohDirectOnlyDialCandidates,
             transportMode: transportMode
         )
     }
@@ -62,5 +69,12 @@ public struct CmxByteTransportRequest: Equatable, Sendable {
     /// transport factory can allocate a socket or Iroh session.
     public func validateTransportMode() throws {
         try CmxTransportModePolicy(transportMode).validate(route: route)
+        if transportMode == .direct,
+           irohDirectOnlyDialCandidates == nil {
+            throw CmxTransportModeError.noRoute(
+                mode: .direct,
+                macDisplayName: nil
+            )
+        }
     }
 }
