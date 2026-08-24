@@ -17225,10 +17225,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled(),
               browserPanelOwning(webView) != nil,
               let window = webView.window,
-              let responder = window.firstResponder as? NSView else {
+              let responder = window.firstResponder else {
             return false
         }
-        return responder === webView || responder.isDescendant(of: webView)
+        var current: NSResponder? = responder
+        while let candidate = current {
+            if candidate === webView {
+                return true
+            }
+            if let view = candidate as? NSView,
+               view.isDescendant(of: webView) {
+                return true
+            }
+            current = candidate.nextResponder
+        }
+        return false
     }
 
     /// Event-oriented companion used by the app and window routing layers.
