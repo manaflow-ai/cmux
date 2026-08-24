@@ -1051,8 +1051,8 @@ class TabManager: ObservableObject {
             settings: settings,
             closeTabWarningDefaults: closeTabWarningDefaults,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
-            nativeSSHConnectionBroker: nativeSSHConnectionBroker,
-            fileContentChangeCoordinator: fileContentChangeCoordinator
+            fileContentChangeCoordinator: fileContentChangeCoordinator,
+            nativeSSHConnectionBroker: nativeSSHConnectionBroker
         )
     }
 
@@ -1073,8 +1073,8 @@ class TabManager: ObservableObject {
             closeTabWarningDefaults: closeTabWarningDefaults,
             initialDetachedSurface: detachedSurface,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
-            nativeSSHConnectionBroker: nativeSSHConnectionBroker,
-            fileContentChangeCoordinator: fileContentChangeCoordinator
+            fileContentChangeCoordinator: fileContentChangeCoordinator,
+            nativeSSHConnectionBroker: nativeSSHConnectionBroker
         )
     }
 
@@ -6348,8 +6348,8 @@ extension TabManager {
                 settings: settings,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
-                nativeSSHConnectionBroker: nativeSSHConnectionBroker,
-                fileContentChangeCoordinator: fileContentChangeCoordinator
+                fileContentChangeCoordinator: fileContentChangeCoordinator,
+                nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             workspace.owningTabManager = self
             let restoredPanelIds = workspace.restoreSessionSnapshot(
@@ -6383,8 +6383,8 @@ extension TabManager {
                 settings: settings,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
-                nativeSSHConnectionBroker: nativeSSHConnectionBroker,
-                fileContentChangeCoordinator: fileContentChangeCoordinator
+                fileContentChangeCoordinator: fileContentChangeCoordinator,
+                nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             fallback.owningTabManager = self
             wireClosedBrowserTracking(for: fallback)
