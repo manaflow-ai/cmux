@@ -22,9 +22,11 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio::sync::{Mutex as AsyncMutex, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinSet;
+use tokio::time::timeout;
 use tokio_tungstenite::connect_async_with_config;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Error as TungsteniteError, Message};
+use tokio_util::sync::CancellationToken;
 
 use crate::actions::{ActionContext, perform_action, process_env_snapshot, scrubbed_env};
 use crate::config::{Config, save_config};
@@ -48,6 +50,7 @@ const MAX_OUTBOUND_BYTES: usize = 8 << 20;
 const MAX_PTY_INGRESS_FRAMES: usize = 64;
 // Keep room for the workspace fs_write 2 MiB payload plus its JSON envelope.
 const MAX_INBOUND_FRAME_BYTES: usize = 4 << 20;
+const CONNECTION_TASK_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub struct SessionState {
     pub first_connect: bool,
@@ -70,11 +73,32 @@ pub(crate) struct OutboundFrame {
     _bytes: OwnedSemaphorePermit,
 }
 
-async fn send_socket_text<S>(socket: &Arc<AsyncMutex<S>>, text: String) -> Result<(), ()>
+async fn send_socket_message<S>(
+    socket: &Arc<AsyncMutex<S>>,
+    message: Message,
+    cancellation: &CancellationToken,
+) -> Result<(), ()>
 where
     S: futures_util::Sink<Message> + Unpin,
 {
-    socket.lock().await.send(Message::Text(text.into())).await.map_err(|_| ())
+    tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => Err(()),
+        result = async {
+            socket.lock().await.send(message).await
+        } => result.map_err(|_| ()),
+    }
+}
+
+async fn send_socket_text<S>(
+    socket: &Arc<AsyncMutex<S>>,
+    text: String,
+    cancellation: &CancellationToken,
+) -> Result<(), ()>
+where
+    S: futures_util::Sink<Message> + Unpin,
+{
+    send_socket_message(socket, Message::Text(text.into()), cancellation).await
 }
 
 /// One socket's bounded outbound capacity. Critical request responses wait
@@ -228,30 +252,67 @@ fn jitter() -> f64 {
     0.5 + f64::from(byte[0]) / 512.0
 }
 
-/// Keep the machine online forever. Fatal errors end the process; anything
-/// else rides a jittered exponential backoff with a 30s ceiling.
-pub async fn stay_online(mut config: Config, config_path: &Path, mut state: SessionState) -> ! {
+/// Wait for one reconnect backoff interval without making shutdown wait for
+/// the current delay. The biased cancellation branch makes a signal that
+/// races the timer resolve as a shutdown, never as one more dial attempt.
+async fn wait_for_reconnect(cancellation: &CancellationToken, delay: Duration) -> bool {
+    tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => false,
+        _ = tokio::time::sleep(delay) => true,
+    }
+}
+
+/// Cancel and await all work admitted by one physical socket. The timeout is
+/// a final guard for provider code that does not reach an async cancellation
+/// point; dropping the JoinSet after the timeout aborts the remaining handles.
+async fn shutdown_connection_tasks(
+    connection_tasks: &mut JoinSet<()>,
+    cancellation: &CancellationToken,
+) -> bool {
+    cancellation.cancel();
+    timeout(CONNECTION_TASK_SHUTDOWN_TIMEOUT, connection_tasks.shutdown())
+        .await
+        .is_ok()
+}
+
+/// Keep the machine online until the process cancellation token is raised.
+/// Fatal errors are returned to the CLI; transient errors ride a jittered
+/// exponential backoff with a 30s ceiling.
+pub async fn stay_online(
+    mut config: Config,
+    config_path: &Path,
+    mut state: SessionState,
+    cancellation: CancellationToken,
+) -> Result<(), RelayError> {
     let runtime = SessionRuntime::with_roots(config.allowed_roots.clone());
     let mut attempt: u32 = 0;
     loop {
-        match relay_session(&mut config, config_path, &mut state, &runtime).await {
+        if cancellation.is_cancelled() {
+            return Ok(());
+        }
+        match relay_session(&mut config, config_path, &mut state, &runtime, &cancellation).await {
             Ok(was_connected) => {
                 if was_connected {
                     attempt = 0;
                 }
             }
             Err(RelayError::Fatal { message, exit_code }) => {
-                eprintln!("{message}");
-                std::process::exit(exit_code);
+                return Err(RelayError::Fatal { message, exit_code });
             }
             Err(error) => {
                 eprintln!("Relay offline: {error}");
             }
         }
+        if cancellation.is_cancelled() {
+            return Ok(());
+        }
         let ceiling = 500_u64.saturating_mul(1_u64 << attempt.min(10)).min(30_000);
         attempt = attempt.saturating_add(1);
         let delay = (ceiling as f64 * jitter()).round().max(0.0) as u64;
-        tokio::time::sleep(Duration::from_millis(delay)).await;
+        if !wait_for_reconnect(&cancellation, Duration::from_millis(delay)).await {
+            return Ok(());
+        }
     }
 }
 
@@ -328,6 +389,7 @@ async fn relay_session(
     config_path: &Path,
     state: &mut SessionState,
     runtime: &SessionRuntime,
+    cancellation: &CancellationToken,
 ) -> Result<bool, RelayError> {
     if config.backend.is_empty() {
         return Err(RelayError::fatal(
@@ -340,10 +402,12 @@ async fn relay_session(
     let websocket_config = WebSocketConfig::default()
         .max_message_size(Some(MAX_INBOUND_FRAME_BYTES))
         .max_frame_size(Some(MAX_INBOUND_FRAME_BYTES));
-    let (socket, _response) =
-        connect_async_with_config(socket_url.as_str(), Some(websocket_config), true)
-            .await
-            .map_err(|error| RelayError::transient(error.to_string()))?;
+    let connect = connect_async_with_config(socket_url.as_str(), Some(websocket_config), true);
+    let (socket, _response) = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => return Ok(false),
+        result = connect => result.map_err(|error| RelayError::transient(error.to_string()))?,
+    };
     let socket = Arc::new(AsyncMutex::new(socket));
 
     let local_roots = config.allowed_roots.clone().filter(|roots| !roots.is_empty());
@@ -359,12 +423,9 @@ async fn relay_session(
     };
     let hello_text =
         serde_json::to_string(&hello).map_err(|error| RelayError::transient(error.to_string()))?;
-    socket
-        .lock()
-        .await
-        .send(Message::Text(hello_text.into()))
-        .await
-        .map_err(|error| RelayError::transient(error.to_string()))?;
+    if send_socket_text(&socket, hello_text, cancellation).await.is_err() {
+        return Ok(false);
+    }
 
     // Outbound frame channel (exec/PTY tasks -> socket) + backpressure gauge.
     let (out_tx, mut critical_rx, mut watch_rx) = OutboundSink::channels();
@@ -373,6 +434,10 @@ async fn relay_session(
     let auth = Arc::new(std::sync::Mutex::new(AuthSnapshot::default()));
     let workspace_runtime = Arc::clone(&runtime.workspace);
     let workspace = crate::workspace::Connection::new(workspace_runtime, out_tx.clone());
+    // A child token ends every task admitted by this physical connection on
+    // disconnect. The parent token is the process-level signal cancellation;
+    // this child is also raised for ordinary reconnects.
+    let connection_cancellation = cancellation.child_token();
     let mut connection_tasks = JoinSet::new();
 
     // Ordered PTY frame dispatch on its own task so a slow open (daemon
@@ -388,11 +453,24 @@ async fn relay_session(
         let out = out_tx.clone();
         let pending = Arc::clone(&pending);
         let auth = Arc::clone(&auth);
+        let cancellation = connection_cancellation.clone();
         connection_tasks.spawn(async move {
-            while let Some(frame) = pty_rx.recv().await {
+            loop {
+                let frame = tokio::select! {
+                    biased;
+                    _ = cancellation.cancelled() => break,
+                    frame = pty_rx.recv() => {
+                        let Some(frame) = frame else { break };
+                        frame
+                    }
+                };
                 let snapshot = auth.lock().expect("auth lock").clone();
                 let context = make_context(&out, &pending, &snapshot);
-                manager.handle_frame(&frame, &context).await;
+                tokio::select! {
+                    biased;
+                    _ = cancellation.cancelled() => break,
+                    _ = manager.handle_frame(&frame, &context) => {}
+                }
             }
         });
         pty_tx
@@ -427,6 +505,7 @@ async fn relay_session(
             break Err(error);
         }
         enum Wake {
+            Shutdown,
             Heartbeat,
             Outbound(bool, Option<OutboundFrame>),
             Incoming(Option<Result<Message, TungsteniteError>>),
@@ -444,6 +523,7 @@ async fn relay_session(
                             None => std::future::pending().await,
                         }
                     }, if heartbeat.is_some() => Wake::Heartbeat,
+                    _ = cancellation.cancelled() => Wake::Shutdown,
                     incoming = guard.next() => Wake::Incoming(incoming),
                 }
             } else {
@@ -457,15 +537,17 @@ async fn relay_session(
                             None => std::future::pending().await,
                         }
                     }, if heartbeat.is_some() => Wake::Heartbeat,
+                    _ = cancellation.cancelled() => Wake::Shutdown,
                     incoming = guard.next() => Wake::Incoming(incoming),
                 }
             }
         };
         match wake {
+            Wake::Shutdown => break Ok(connected),
             Wake::Heartbeat => {
                 critical_burst = 0;
                 let frame = heartbeat_frame(now_ms()).to_string();
-                if send_socket_text(&socket, frame).await.is_err() {
+                if send_socket_text(&socket, frame, cancellation).await.is_err() {
                     break Ok(connected);
                 }
             }
@@ -477,7 +559,7 @@ async fn relay_session(
                 }
                 let text = frame.text;
                 let size = text.len() as u64;
-                let sent = send_socket_text(&socket, text).await;
+                let sent = send_socket_text(&socket, text, cancellation).await;
                 pending.fetch_sub(size.min(pending.load(Ordering::SeqCst)), Ordering::SeqCst);
                 if sent.is_err() {
                     break Ok(connected);
@@ -496,7 +578,12 @@ async fn relay_session(
                 let text = match message {
                     Message::Text(text) => text,
                     Message::Ping(payload) => {
-                        let _ = socket.lock().await.send(Message::Pong(payload)).await;
+                        let _ = send_socket_message(
+                            &socket,
+                            Message::Pong(payload),
+                            cancellation,
+                        )
+                        .await;
                         continue;
                     }
                     Message::Close(_) => break Ok(connected),
@@ -576,8 +663,7 @@ async fn relay_session(
                                 || local_trust == Trust::Autonomous)
                         {
                             let frame = set_trust_frame(local_trust.as_str()).to_string();
-                            if socket.lock().await.send(Message::Text(frame.into())).await.is_err()
-                            {
+                            if send_socket_text(&socket, frame, cancellation).await.is_err() {
                                 break Ok(connected);
                             }
                         } else if !state.managed {
@@ -626,7 +712,7 @@ async fn relay_session(
                                 save(config, config_path);
                             }
                             let frame = set_trust_frame(DEFAULT_RELAY_TRUST.as_str()).to_string();
-                            let _ = socket.lock().await.send(Message::Text(frame.into())).await;
+                            let _ = send_socket_text(&socket, frame, cancellation).await;
                             eprintln!(
                                 "Refused an autonomous trust acknowledgement without this \
                                  machine's local YOLO receipt."
@@ -666,6 +752,7 @@ async fn relay_session(
                             .and_then(Value::as_str)
                             .unwrap_or("chatmux")
                             .to_owned();
+                        let task_cancellation = connection_cancellation.clone();
                         let permit = match action_slots.try_acquire_owned() {
                             Ok(permit) => permit,
                             Err(_) => {
@@ -681,7 +768,12 @@ async fn relay_session(
                                     .map(|text| text.len() as u64)
                                     .unwrap_or(0);
                                 pending.fetch_add(size, Ordering::SeqCst);
-                                if out.critical_value(result).await.is_err() {
+                                let sent = tokio::select! {
+                                    biased;
+                                    _ = connection_cancellation.cancelled() => Err(()),
+                                    result = out.critical_value(result) => result,
+                                };
+                                if sent.is_err() {
                                     pending.fetch_sub(
                                         size.min(pending.load(Ordering::SeqCst)),
                                         Ordering::SeqCst,
@@ -692,7 +784,11 @@ async fn relay_session(
                         };
                         connection_tasks.spawn(async move {
                             let _permit = permit;
-                            let result = perform_action(&raw, &action).await;
+                            let result = tokio::select! {
+                                biased;
+                                _ = task_cancellation.cancelled() => return,
+                                result = perform_action(&raw, &action) => result,
+                            };
                             let ok = result.get("ok").and_then(Value::as_bool).unwrap_or(false);
                             if ok {
                                 println!(
@@ -708,7 +804,12 @@ async fn relay_session(
                                 .map(|text| text.len() as u64)
                                 .unwrap_or(0);
                             pending.fetch_add(size, Ordering::SeqCst);
-                            if out.critical_value(result).await.is_err() {
+                            let sent = tokio::select! {
+                                biased;
+                                _ = task_cancellation.cancelled() => Err(()),
+                                result = out.critical_value(result) => result,
+                            };
+                            if sent.is_err() {
                                 pending.fetch_sub(
                                     size.min(pending.load(Ordering::SeqCst)),
                                     Ordering::SeqCst,
@@ -736,7 +837,11 @@ async fn relay_session(
                                 // synchronous and short, so this cannot create an unbounded wait.
                                 let snapshot = auth_direct.lock().expect("auth lock").clone();
                                 let context = make_context(&out_tx, &pending, &snapshot);
-                                manager_direct.handle_frame(&raw, &context).await;
+                                tokio::select! {
+                                    biased;
+                                    _ = cancellation.cancelled() => break Ok(connected),
+                                    _ = manager_direct.handle_frame(&raw, &context) => {}
+                                }
                                 continue;
                             }
                             match pty_tx.try_send(raw) {
@@ -786,7 +891,11 @@ async fn relay_session(
                             // Non-Unix relays cannot allocate PTYs; answer typed.
                             let reply = unsupported_platform_pty_reply(&frame_type, &raw);
                             if let Some(reply) = reply {
-                                let _ = out_tx.critical_value(reply).await;
+                                let _ = tokio::select! {
+                                    biased;
+                                    _ = connection_cancellation.cancelled() => Err(()),
+                                    result = out_tx.critical_value(reply) => result,
+                                };
                             }
                         }
                     }
@@ -830,8 +939,16 @@ async fn relay_session(
     };
 
     // Handlers are owned by this socket. Cancel them before returning so a
-    // dropped connection cannot leave work sending into a dead session.
-    connection_tasks.shutdown().await;
+    // dropped connection cannot leave work sending into a dead session. A
+    // handler may be inside a non-cooperative provider call, so retain a hard
+    // deadline for the final await instead of letting reconnect or process
+    // shutdown wait forever.
+    if !shutdown_connection_tasks(&mut connection_tasks, &connection_cancellation).await {
+        eprintln!(
+            "Relay connection task shutdown exceeded {:?}; abandoning remaining handlers.",
+            CONNECTION_TASK_SHUTDOWN_TIMEOUT
+        );
+    }
 
     // Attachments die with the socket; sessions persist (docs/TERMINAL.md).
     #[cfg(unix)]
@@ -843,7 +960,6 @@ async fn relay_session(
 mod tests {
     use super::*;
 
-    #[cfg(not(unix))]
     #[test]
     fn unsupported_pty_requests_get_typed_replies() {
         let open =
@@ -861,5 +977,41 @@ mod tests {
         assert_eq!(list["type"], "surface_list_result");
         assert_eq!(list["requestId"], "list_1");
         assert_eq!(list["surfaces"], serde_json::json!([]));
+    }
+}
+
+#[cfg(test)]
+mod cancellation_tests {
+    use super::{shutdown_connection_tasks, wait_for_reconnect};
+    use std::time::Duration;
+
+    use tokio::task::JoinSet;
+    use tokio_util::sync::CancellationToken;
+
+    #[tokio::test]
+    async fn reconnect_backoff_stops_when_process_is_cancelled() {
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+        assert!(!wait_for_reconnect(&cancellation, Duration::from_secs(60)).await);
+    }
+
+    #[tokio::test]
+    async fn reconnect_backoff_completes_without_cancellation() {
+        let cancellation = CancellationToken::new();
+        assert!(wait_for_reconnect(&cancellation, Duration::from_millis(1)).await);
+    }
+
+    #[tokio::test]
+    async fn connection_shutdown_cancels_and_joins_owned_tasks() {
+        let cancellation = CancellationToken::new();
+        let worker_cancellation = cancellation.clone();
+        let mut tasks = JoinSet::new();
+        tasks.spawn(async move {
+            worker_cancellation.cancelled().await;
+        });
+
+        assert!(shutdown_connection_tasks(&mut tasks, &cancellation).await);
+        assert!(cancellation.is_cancelled());
+        assert!(tasks.is_empty());
     }
 }
