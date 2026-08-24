@@ -87,6 +87,7 @@ func sidebarActiveForegroundNSColor(
     )
 }
 
+@MainActor
 func titlebarControlForegroundNSColor(opacity: CGFloat) -> NSColor {
     let app = GhosttyApp.shared
     let appearance = WindowAppearanceResolver(
@@ -97,7 +98,10 @@ func titlebarControlForegroundNSColor(opacity: CGFloat) -> NSColor {
             usesHostLayerBackground: app.usesHostLayerBackground,
             resolvedColorScheme: app.effectiveTerminalColorSchemePreference == .dark ? .dark : .light
         )
-    ).currentFromUserDefaults(defaults: .standard)
+    ).currentFromUserDefaults(
+        defaults: .standard,
+        colorScheme: AppearanceSettings.currentAmbientColorScheme()
+    )
     return titlebarControlForegroundNSColor(
         opacity: opacity,
         appearance: appearance

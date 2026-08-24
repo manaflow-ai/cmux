@@ -625,6 +625,11 @@ enum BrowserAvailabilitySettings {
     static let defaultDisabled = false
 
     static func isDisabled(defaults: UserDefaults = .standard) -> Bool {
+        // An MDM configuration profile (DisableEmbeddedBrowser) wins over
+        // every user-level source and cannot be overridden from the app.
+        if isManagedByPolicy {
+            return true
+        }
         // No synchronize() on read: it forces a blocking prefs-plist reload on a path hit from link-open/pane-create; UserDefaults stays coherent in-process and via cfprefsd.
         if defaults.object(forKey: disabledKey) == nil {
             return defaultDisabled
@@ -656,18 +661,18 @@ enum BrowserInsecureHTTPSettings {
     static let defaultAllowlistText = defaultAllowlistPatterns.joined(separator: "\n")
 
     static func normalizedAllowlistPatterns(defaults: UserDefaults = .standard) -> [String] {
-        normalizedAllowlistPatterns(rawValue: defaults.string(forKey: allowlistKey))
+        guard defaults.object(forKey: allowlistKey) != nil else {
+            return defaultAllowlistPatterns
+        }
+        return normalizedAllowlistPatterns(rawValue: defaults.string(forKey: allowlistKey))
     }
 
     static func normalizedAllowlistPatterns(rawValue: String?) -> [String] {
-        let source: String
-        if let rawValue, !rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            source = rawValue
-        } else {
-            source = defaultAllowlistText
-        }
-        let parsed = parsePatterns(from: source)
-        return parsed.isEmpty ? defaultAllowlistPatterns : parsed
+        // `nil` means no user override, so retain the safe loopback defaults.
+        // An explicitly empty string is a real override and intentionally
+        // removes every default entry.
+        guard let rawValue else { return defaultAllowlistPatterns }
+        return parsePatterns(from: rawValue)
     }
 
     static func isHostAllowed(_ host: String, defaults: UserDefaults = .standard) -> Bool {
@@ -996,8 +1001,22 @@ func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager
 
 @MainActor
 @discardableResult
-func browserLoadRequest(_ request: URLRequest, in webView: WKWebView) -> WKNavigation? {
+func browserLoadRequest(
+    _ request: URLRequest,
+    in webView: WKWebView,
+    trustedInternalNavigation: Bool = false
+) -> WKNavigation? {
     guard let url = request.url else { return nil }
+    let policy = BrowserURLAllowlistPolicy(defaults: .standard)
+    if trustedInternalNavigation {
+        guard policy.allowsTrustedInternalURL(url) else {
+            return nil
+        }
+        if let cmuxWebView = webView as? CmuxWebView,
+           BrowserURLAllowlistPolicy.trustedInternalSchemes.contains(url.scheme?.lowercased() ?? "") {
+            cmuxWebView.markTrustedInternalNavigation(url)
+        }
+    }
     webView.applyBrowserUserAgentPolicy(for: url)
     let nudgeReason = "navigationStart:\(url.scheme?.lowercased() ?? "none")"
     if url.isFileURL {
@@ -3263,6 +3282,13 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func publishCommittedURL(from webView: WKWebView) {
+        if let blockedURL = navigationDelegate?.activePolicyBlockedURL {
+            let safeURL = URL(string: BrowserURLAllowlistBlockedPage.safeDisplayOrigin(for: blockedURL))
+            currentURL = Self.remoteProxyDisplayURL(for: safeURL) ?? safeURL
+            refreshBackgroundAppearance()
+            GlobalSearchCoordinator.shared.captureBrowserPanel(self)
+            return
+        }
         if let errorPageDisplayURL = navigationDelegate?.activeErrorPageDisplayURL {
             currentURL = Self.remoteProxyDisplayURL(for: errorPageDisplayURL) ?? errorPageDisplayURL
             refreshBackgroundAppearance()
@@ -3527,6 +3553,20 @@ final class BrowserPanel: Panel, ObservableObject {
                 zone: .right
             )
         }
+        navDelegate.handleBlockedURLAllowlistNavigation = { [weak self] url, webView in
+            guard let self, self.isCurrentWebView(webView) else { return }
+            let safeURL = URL(string: BrowserURLAllowlistBlockedPage.safeDisplayOrigin(for: url))
+            self.currentURL = Self.remoteProxyDisplayURL(for: safeURL) ?? safeURL
+            let policy = BrowserURLAllowlistPolicy(defaults: .standard)
+            self.pageTitle = BrowserURLAllowlistBlockedPage.title(isManaged: policy.isManaged)
+            self.faviconPNGData = nil
+            self.lastFaviconURLString = nil
+            BrowserURLAllowlistBlockedPage(
+                blockedURL: url,
+                isManaged: policy.isManaged
+            ).load(in: webView)
+            self.refreshBackgroundAppearance()
+        }
         navDelegate.didTerminateWebContentProcess = { [weak self] webView in
             self?.replaceWebViewAfterContentProcessTermination(for: webView)
         }
@@ -3685,6 +3725,9 @@ final class BrowserPanel: Panel, ObservableObject {
             refreshWebViewLifecycleState()
             guard renderInitialNavigation else { return }
             if let url = initialRequest.url,
+               !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
+                navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
+            } else if let url = initialRequest.url,
                insecureHTTPBypassHostOnce == nil,
                shouldBlockInsecureHTTPNavigation(to: url) {
                 presentInsecureHTTPAlert(
@@ -4950,6 +4993,27 @@ final class BrowserPanel: Panel, ObservableObject {
         reevaluateHiddenWebViewDiscardScheduling(reason: "popup_closed")
     }
 
+    /// Re-evaluates the live panel and popup documents after a managed or user
+    /// allowlist change. Navigation delegates remain the final backstop for
+    /// redirects, while this sweep closes the window in which an already-open
+    /// document could otherwise remain visible under a newly stricter policy.
+    func enforceURLAllowlistPolicy() {
+        navigationDelegate?.enforceURLAllowlistPolicy(
+            in: webView,
+            displayURL: Self.remoteProxyDisplayURL(for: webView.url)
+                ?? webView.url
+                ?? currentURL
+                ?? navigationDelegate?.lastAttemptedURL
+        )
+        for popup in popupControllers {
+            popup.enforceURLAllowlistPolicy()
+        }
+    }
+
+    func blockURLAllowlistNavigation(_ url: URL, in webView: WKWebView) {
+        navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
+    }
+
     private func closeAllPopupControllers() {
         let popupsToClose = popupControllers
         popupControllers.removeAll()
@@ -5299,6 +5363,11 @@ final class BrowserPanel: Panel, ObservableObject {
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
         let request = URLRequest(url: url)
+        if !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
+            navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
+            onNavigationStarted?(nil)
+            return nil
+        }
         if shouldBlockInsecureHTTPNavigation(to: url) {
             presentInsecureHTTPAlert(
                 for: request,
@@ -5344,6 +5413,11 @@ final class BrowserPanel: Panel, ObservableObject {
             return nil
         }
         cancelHiddenWebViewDiscard()
+        guard BrowserURLAllowlistPolicy(defaults: .standard).allows(url) else {
+            onNavigationStarted?(nil)
+            navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
+            return nil
+        }
         if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
             pendingRemoteNavigation?.onNavigationStarted?(nil)
             pendingRemoteNavigation = PendingRemoteNavigation(
@@ -5418,7 +5492,13 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         noteDiscardedWebViewRestoreNavigationStarted()
         userStoppedLoadSinceWebViewReplacement = false
-        let startedNavigation = browserLoadRequest(effectiveRequest, in: webView)
+        let startedNavigation = browserLoadRequest(
+            effectiveRequest,
+            in: webView,
+            trustedInternalNavigation: BrowserURLAllowlistPolicy
+                .trustedInternalSchemes
+                .contains(originalURL.scheme?.lowercased() ?? "")
+        )
         if startedNavigation == nil {
             noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_not_started")
         } else if hiddenWebViewDiscardManager.isDiscardedForMemory {
@@ -5525,6 +5605,13 @@ final class BrowserPanel: Panel, ObservableObject {
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) {
         guard let url = request.url else {
+            onNavigationStarted?(nil)
+            return
+        }
+        if !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
+            if intent == .currentTab {
+                navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
+            }
             onNavigationStarted?(nil)
             return
         }
@@ -8202,6 +8289,13 @@ private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
             "windowFeatures={\(windowFeaturesSummary)}"
         )
 #endif
+        if let url = navigationAction.request.url,
+           navigationAction.targetFrame?.isMainFrame != false,
+           url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased(),
+           !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
+            return nil
+        }
+
         // Auth-callback-shaped URLs never get the external-app prompt from the
         // popup path: the only legitimate producer is the app's own
         // after-sign-in page, which the main navigation delegate consumes.

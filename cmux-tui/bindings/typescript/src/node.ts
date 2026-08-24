@@ -2,6 +2,7 @@ import { Client as ResourceClient, type ClientOptions as ResourceClientOptions }
 import {
   defaultSocketPath,
   envSocketPath,
+  validateSocketPath,
   UnixSocketTransport,
   type UnixSocketTransportOptions,
 } from "./node-transport.js";
@@ -29,6 +30,7 @@ export class NodeClient extends ResourceClient {
       options.socketPath
       ?? envSocketPath()
       ?? defaultSocketPath(options.session ?? "main");
+    validateSocketPath(socketPath);
     super({
       transport: new UnixSocketTransport(socketPath, options),
       ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
