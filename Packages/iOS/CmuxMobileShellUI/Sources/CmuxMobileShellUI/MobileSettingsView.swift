@@ -80,7 +80,7 @@ struct MobileSettingsView: View {
                     } label: {
                         Label(
                             L10n.string("mobile.settings.whatsNew", defaultValue: "What's New"),
-                            systemImage: "sparkles"
+                            systemImage: "megaphone"
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsWhatsNewRow")
