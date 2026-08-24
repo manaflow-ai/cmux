@@ -1119,6 +1119,16 @@ async fn run_spec(
                 if exited.is_some() {
                     signal_process_group(pid, false);
                 } else {
+                    // The process group is the authoritative target. If the
+                    // group disappeared before we could signal it, use the
+                    // live Child handle instead of the numeric PID. A PID
+                    // can be reused by an unrelated process while this
+                    // invocation is still draining inherited pipes.
+                    #[cfg(unix)]
+                    if !signal_process_tree(pid, false) {
+                        let _ = child.start_kill();
+                    }
+                    #[cfg(not(unix))]
                     signal_process_tree(pid, false);
                 }
                 #[cfg(windows)]
@@ -1146,6 +1156,13 @@ async fn run_spec(
                 if exited.is_some() {
                     signal_process_group(pid, true);
                 } else {
+                    // See the timeout branch above: never fall back to a
+                    // numeric PID after a process-group signal fails.
+                    #[cfg(unix)]
+                    if !signal_process_tree(pid, true) {
+                        let _ = child.start_kill();
+                    }
+                    #[cfg(not(unix))]
                     signal_process_tree(pid, true);
                 }
                 #[cfg(windows)]
@@ -1196,17 +1213,22 @@ async fn run_spec(
 }
 
 #[cfg(unix)]
-fn signal_process_tree(pid: Option<u32>, kill: bool) {
-    let Some(pid) = pid else { return };
+fn signal_process_tree(pid: Option<u32>, kill: bool) -> bool {
+    signal_process_group_id(pid, kill, |group, signal| {
+        // SAFETY: the process group id is owned by the child we spawned.
+        unsafe { libc::kill(group, signal) }
+    })
+}
+
+#[cfg(unix)]
+fn signal_process_group_id<F>(pid: Option<u32>, kill: bool, send: F) -> bool
+where
+    F: FnOnce(libc::pid_t, libc::c_int) -> libc::c_int,
+{
+    let Some(pid) = pid else { return false };
     let signal = if kill { libc::SIGKILL } else { libc::SIGTERM };
-    // SAFETY: sending a signal to a process group id we spawned; failure is
-    // harmless (the group may have exited already).
     let group = -(pid as i32);
-    unsafe {
-        if libc::kill(group, signal) != 0 {
-            libc::kill(pid as i32, signal);
-        }
-    }
+    send(group, signal) == 0
 }
 
 #[cfg(unix)]
@@ -1731,6 +1753,19 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         // realpath so canonical checks match (macOS /tmp -> /private/tmp).
         std::fs::canonicalize(&dir).unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_group_failure_does_not_fallback_to_numeric_pid() {
+        let mut targets = Vec::new();
+        let signalled = signal_process_group_id(Some(4_321), false, |target, _| {
+            targets.push(target);
+            -1
+        });
+
+        assert!(!signalled);
+        assert_eq!(targets, vec![-4_321]);
     }
 
     #[cfg(windows)]
