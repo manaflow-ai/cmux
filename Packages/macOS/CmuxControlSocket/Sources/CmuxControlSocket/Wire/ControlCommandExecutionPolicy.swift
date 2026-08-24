@@ -434,6 +434,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     /// callable from the main thread.
     static let diagnosticReadV1Commands: Set<String> = [
         "iroh_diag",
+        // Graduation P4 dev verbs (DEBUG-only surfaces): same actor-owned
+        // await shape as iroh_diag, so same worker policy.
+        "next_transport_ticket",
+        "next_transport_grant",
     ]
 
     /// The v1 resolution-read family (tranche D): the v1 twins of the v2
