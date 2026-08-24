@@ -152,6 +152,23 @@ public final class GhosttySurfaceHostView: UIView {
         }
         keyboardTransitionGeneration &+= 1
         keyboardTransitionActive = false
+        if usesKeyboardGuideSensor {
+            // Self-heal ONLY at attach for transitions missed while detached
+            // (workspace switches): the settled guide is the keyboard's live
+            // seat, and the VISIBILITY heals too — the model lives on the
+            // persistent surface, so a dismissal that happened while this
+            // host was detached leaves it stuck at "visible" and the
+            // toolbar's keyboard toggle opens a fresh workspace in the wrong
+            // state. While ATTACHED the notifications are authoritative; a
+            // per-layout sensor read front-ran them during toggles (the
+            // resolved guide updates a layout pass before the notification
+            // arrives) and snapped the constants without animation.
+            let overlap = keyboardLayoutGuideOverlap
+            surfaceView.setHostedKeyboardState(
+                height: overlap,
+                isVisible: overlap > 0.5
+            )
+        }
         seatDockWithoutAnimation()
     }
 
@@ -160,22 +177,6 @@ public final class GhosttySurfaceHostView: UIView {
         // A keyboard leg owns both constants until its animation completes;
         // layout passes inside the leg must not reseat them.
         guard !keyboardTransitionActive else { return }
-        if usesKeyboardGuideSensor {
-            // Self-heal for transitions missed while detached (workspace
-            // switches): the settled guide is the keyboard's live seat. The
-            // VISIBILITY heals too — the model lives on the (persistent)
-            // surface, so a dismissal that happened while this host was
-            // detached leaves it stuck at "visible" and the toolbar's
-            // keyboard toggle opens a fresh workspace in the wrong state,
-            // needing two taps. A settled guide at the screen bottom is an
-            // authoritative "keyboard down" on the OS versions the sensor
-            // runs on.
-            let overlap = keyboardLayoutGuideOverlap
-            surfaceView.setHostedKeyboardState(
-                height: overlap,
-                isVisible: overlap > 0.5
-            )
-        }
         syncPresentationReservation()
         let reservation = surfaceView.hostedBottomReservation(
             keyboardHeight: surfaceView.hostedKeyboardHeight,
