@@ -51,7 +51,7 @@ sessions. New turns must have a named deliverable.
 
 ## Current state
 
-The latest code tail is `52fbf8153ff2c4a1e518ea8e0b792c25c6439964`. It carries the watch compatibility,
+The latest code tail is `df419568b0490c794ec1230244936f70bf2e118f`. It carries the watch compatibility,
 queue-ownership, fairness, timer-bound, shell-reservation, PTY overflow,
 preview saturation, SDK lifecycle, CLI grammar, capability documentation,
 credential-child reaping, journal-writer ownership/finalization, explicit

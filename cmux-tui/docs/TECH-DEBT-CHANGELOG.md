@@ -214,3 +214,8 @@ goal was not reached. Empty or duplicate turns were not created to inflate it.
 The exact-head autoreview was clean for in-scope changes. It reported two
 out-of-scope remote-tmux findings, which were intentionally ignored: they do
 not affect cmux-tui protocol, SDK, relay, or preview ownership in this wave.
+# Current exact-state correction
+
+The exact documentation tip is `df419568b0490c794ec1230244936f70bf2e118f`.
+The branch is 556 commits ahead of `origin/main`. The substantive-turn lower
+bound is at least 205.
