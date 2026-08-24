@@ -189,6 +189,12 @@ public actor TransportHost {
         }
     }
 
+    /// The admitted session bound to one live connection, if any. Host
+    /// applications attach bridged services with this after `serve` admits.
+    public func activeSession(for connection: any PeerConnection) -> ActiveSession? {
+        sessions.values.first { $0.connection === connection }
+    }
+
     /// The expiry lifecycle (contract 3.6), driven by an injected clock:
     /// warn inside the warning window, close ONCE after expiry + grace.
     /// Expiry alone never closes anything (3.6b).

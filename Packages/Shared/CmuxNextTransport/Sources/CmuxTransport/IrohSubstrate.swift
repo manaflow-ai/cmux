@@ -169,9 +169,12 @@ public actor IrohPeerConnection: PeerConnection {
     }
 
     /// Must be called once after init (an actor cannot spawn tasks on itself
-    /// mid-init); the factory methods on IrohSubstrate do this.
+    /// mid-init); the factory methods on IrohSubstrate do this. Both roles
+    /// run the inbound accept loop: the acceptor for peer-opened lanes, the
+    /// dialer for host-opened streams (server events over the graduation
+    /// bridge). A dialer that never receives one just parks on acceptBi.
     public func start() {
-        guard role == .acceptor, acceptLoop == nil else { return }
+        guard acceptLoop == nil else { return }
         acceptLoop = Task { await self.runAcceptLoop() }
     }
 
@@ -448,8 +451,17 @@ public struct RawByteStream: Sendable {
         return data.isEmpty ? nil : data
     }
 
+    /// Bytes the handshake decoder read past the `raw.open` frame. A consumer
+    /// managing its own read buffer seeds it with this before live reads.
+    public var handshakeRemainder: Data { buffered }
+
     public func write(_ data: Data) async throws {
         try await send.writeAll(buf: data)
+    }
+
+    /// Relative QUIC scheduling priority of the send half.
+    public func setSendPriority(_ priority: Int32) async throws {
+        try await send.setPriority(p: priority)
     }
 
     public func finishSend() async throws {
