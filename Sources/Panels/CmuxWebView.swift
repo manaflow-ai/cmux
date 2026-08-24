@@ -688,10 +688,21 @@ final class CmuxWebView: WKWebView {
                 return finish(true)
             }
             let result = super.performKeyEquivalent(with: event)
-            // The owning NSWindow forwards an unhandled Command equivalent to
-            // keyDown after this returns, keeping AppKit's main menu out of the
-            // captured page path without dropping the native key event.
-            return finish(result)
+            guard !result,
+                  normalizedFlags.contains(.command),
+                  let window else {
+                return finish(result)
+            }
+            // WebKit declined the equivalent. Deliver one native keyDown before
+            // returning so AppKit's main menu cannot consume the captured chord.
+            if window.cmuxForceDispatchKeyDownOnce(
+                event,
+                to: self,
+                reason: "browser capture setting keyDown fallback"
+            ) {
+                return finish(true)
+            }
+            return finish(true)
         }
         if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
             event,
