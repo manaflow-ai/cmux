@@ -188,10 +188,7 @@ func NewClient(options Options) (*Client, error) {
 	}
 	legacy := ""
 	if options.SocketPath == "" && EnvSocketPath() == "" {
-		legacy = legacySocketPathForSession(session)
-		if legacy == socketPath {
-			legacy = ""
-		}
+		legacy = legacySocketPathForResolvedSession(socketPath, session)
 	}
 	conn, effective, err := dialJSONWithFallback(
 		socketPath,
@@ -288,6 +285,24 @@ func legacySocketPathForSession(session string) string {
 		return path
 	}
 	return ""
+}
+
+func legacySocketPathForResolvedSession(resolved, session string) string {
+	if runtime.GOOS == "windows" {
+		return ""
+	}
+	base := firstNonEmptyEnv("XDG_RUNTIME_DIR", "TMPDIR")
+	if base == "" {
+		base = "/tmp"
+	}
+	leaf := sessionpath.Digest(session) + ".sock"
+	uid := fmt.Sprintf("cmux-tui-hashed-%d", os.Getuid())
+	preferredHashed := filepath.Join(base, uid, leaf)
+	tmpHashed := filepath.Join("/tmp", uid, leaf)
+	if resolved != preferredHashed && resolved != tmpHashed {
+		return ""
+	}
+	return legacySocketPathForSession(session)
 }
 
 // invalidSessionSocketPath is retained for source-compatible path queries.

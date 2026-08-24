@@ -40,6 +40,8 @@ func defaultSocketPathForSession(session string) string {
 
 func legacySocketPathForSession(session string) string { return "" }
 
+func legacySocketPathForResolvedSession(resolved, session string) string { return "" }
+
 // invalidSessionSocketPath keeps the unexported compatibility helper
 // deterministic and outside named-pipe names derived from user text. It is
 // not a connector route; resolveSocketPath returns ErrInvalidArgument first.

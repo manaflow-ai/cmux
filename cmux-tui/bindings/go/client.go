@@ -213,8 +213,8 @@ func NewClient(ctx context.Context, options ClientOptions) (*Client, error) {
 	conn, err := dial(ctx, "unix", socket)
 	if err != nil && options.SocketPath == "" && envSocketPath() == "" &&
 		(errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED)) {
-		legacy := legacySocketPathForSession(session)
-		if legacy != "" && legacy != socket {
+		legacy := legacySocketPathForResolvedSession(socket, session)
+		if legacy != "" {
 			if fallbackConn, fallbackErr := dial(ctx, "unix", legacy); fallbackErr == nil {
 				conn, err = fallbackConn, nil
 			} else {

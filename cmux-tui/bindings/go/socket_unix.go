@@ -80,6 +80,24 @@ func legacySocketPathForSession(session string) string {
 	return ""
 }
 
+func legacySocketPathForResolvedSession(resolved, session string) string {
+	base := os.Getenv("XDG_RUNTIME_DIR")
+	if base == "" {
+		base = os.Getenv("TMPDIR")
+	}
+	if base == "" {
+		base = "/tmp"
+	}
+	leaf := sessionpath.Digest(session) + ".sock"
+	uid := "cmux-tui-hashed-" + strconv.Itoa(os.Getuid())
+	preferredHashed := filepath.Join(base, uid, leaf)
+	tmpHashed := filepath.Join("/tmp", uid, leaf)
+	if resolved != preferredHashed && resolved != tmpHashed {
+		return ""
+	}
+	return legacySocketPathForSession(session)
+}
+
 // invalidSessionSocketPath keeps the unexported compatibility helper
 // deterministic and outside the normal runtime directory. It is not a
 // connector route; resolveSocketPath returns ErrInvalidArgument first.
