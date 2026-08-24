@@ -280,6 +280,11 @@ final class MobileHostService {
         payload["terminal_theme_revision_epoch"] = terminalThemeRevisionEpoch
         payload["mac_device_id"] = MobileHostIdentity.deviceID()
         payload["mac_instance_tag"] = MobileHostIdentity.instanceTag()
+        if let clientNamespace = CmxIrohMacBundleNamespace(
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        )?.rawValue {
+            payload["mac_client_namespace"] = clientNamespace
+        }
         payload["phone_push"] = [
             "forwarding_enabled": PhonePushConfiguration.forwardingEnabled(
                 in: phonePushDefaults
