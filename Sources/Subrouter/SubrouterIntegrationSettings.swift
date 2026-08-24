@@ -5,6 +5,7 @@ import CmuxSubrouter
 /// declared in `CmuxSettings`' `SubrouterCatalogSection` and the sidebar
 /// catalog) and assembles the store's ``SubrouterConfiguration``.
 struct SubrouterIntegrationSettings {
+    private static let maximumServerRegistryBytes = 1_048_576
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
@@ -126,6 +127,11 @@ struct SubrouterIntegrationSettings {
         let fileManager = FileManager.default
         let candidates = serverRegistryCandidates()
         for registry in candidates where fileManager.fileExists(atPath: registry.path) {
+            guard let attributes = try? fileManager.attributesOfItem(atPath: registry.path),
+                  let size = attributes[.size] as? NSNumber,
+                  size.intValue <= Self.maximumServerRegistryBytes else {
+                return .unreadable
+            }
             guard let data = try? Data(contentsOf: registry),
                   let parsed = SubrouterServerSelection(serversJSON: data) else {
                 return .unreadable

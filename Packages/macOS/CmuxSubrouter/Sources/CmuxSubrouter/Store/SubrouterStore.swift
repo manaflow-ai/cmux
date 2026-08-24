@@ -73,6 +73,7 @@ public final class SubrouterStore {
     @ObservationIgnored private(set) var visibleSurfaces: Set<SubrouterVisibleSurface> = []
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var refreshTaskIncludesSessions = false
     @ObservationIgnored private(set) var consecutiveFailureCount = 0
     @ObservationIgnored private let historyStorageURL: URL?
     /// The one-shot off-main load of the persisted history; kept so deinit
@@ -267,6 +268,7 @@ public final class SubrouterStore {
         pollTask = nil
         let endpoint = configurationStorage.endpoint
         let client = client
+        refreshTaskIncludesSessions = includeSessions
         refreshTask = Task { @MainActor [weak self] in
             async let usageFetch = client.usageStatuses(endpoint: endpoint)
             var sessionsResult: Result<[SubrouterSessionAssignment], any Error>?
@@ -298,6 +300,7 @@ public final class SubrouterStore {
             }
             guard let self, !Task.isCancelled else { return }
             self.refreshTask = nil
+            self.refreshTaskIncludesSessions = false
             self.apply(outcome)
             self.updatePollTimer()
         }
@@ -320,8 +323,14 @@ public final class SubrouterStore {
         includingSessions: Bool = true
     ) async -> SubrouterSnapshot {
         guard configurationStorage.isEnabled else { return snapshot }
-        while let inFlight = refreshTask {
+        if let inFlight = refreshTask {
+            let inFlightIncludesSessions = refreshTaskIncludesSessions
             await inFlight.value
+            // A sessions-capable caller cannot reuse a sessions-less result;
+            // all other callers share the refresh that was already in flight.
+            if !includingSessions || inFlightIncludesSessions {
+                return snapshot
+            }
         }
         startRefresh(reason: reason, includeSessions: includingSessions)
         if let started = refreshTask {
@@ -482,6 +491,7 @@ public final class SubrouterStore {
         pollTask = nil
         refreshTask?.cancel()
         refreshTask = nil
+        refreshTaskIncludesSessions = false
         consecutiveFailureCount = 0
     }
 

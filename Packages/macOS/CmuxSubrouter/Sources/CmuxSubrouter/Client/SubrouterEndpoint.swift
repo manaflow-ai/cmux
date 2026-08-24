@@ -91,6 +91,9 @@ public struct SubrouterEndpoint: Sendable, Hashable {
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return url
         }
+        while components.path.count > 1, components.path.hasSuffix("/") {
+            components.path.removeLast()
+        }
         let suffixes = ["/v1", "/backend-api"]
         for suffix in suffixes where components.path.hasSuffix(suffix) {
             components.path = String(components.path.dropLast(suffix.count))

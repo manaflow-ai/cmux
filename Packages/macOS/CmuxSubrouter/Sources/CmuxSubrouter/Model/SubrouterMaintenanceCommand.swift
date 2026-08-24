@@ -16,7 +16,7 @@ public enum SubrouterMaintenanceCommand {
     ) -> String? {
         switch provider {
         case .codex:
-            return scoped("cmux sr add", provider: provider, target: target)
+            return scoped("cmux sr add codex", provider: provider, target: target)
         case .claude:
             return scoped("cmux sr claude add", provider: provider, target: target)
         default:
@@ -48,7 +48,7 @@ public enum SubrouterMaintenanceCommand {
     ) -> String? {
         switch provider {
         case .codex:
-            return scoped("cmux sr add", provider: provider, target: target)
+            return scoped("cmux sr add codex", provider: provider, target: target)
         case .claude:
             return nil
         default:

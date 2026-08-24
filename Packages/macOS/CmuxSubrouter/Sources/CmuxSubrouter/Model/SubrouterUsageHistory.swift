@@ -32,6 +32,8 @@ public struct SubrouterUsageHistory: Sendable, Equatable, Codable {
     public static let retention: TimeInterval = 7 * 24 * 3600
     /// Hard cap on distinct series; least-recently-sampled series fall off.
     public static let maximumSeriesCount = 256
+    /// Maximum persisted JSON size accepted during startup adoption.
+    public static let maximumPersistedBytes = 8 * 1_024 * 1_024
 
     private var seriesByKey: [String: [Sample]]
 
@@ -161,11 +163,19 @@ public struct SubrouterUsageHistory: Sendable, Equatable, Codable {
     /// Loads a persisted history, or an empty one for missing/undecodable
     /// data.
     public static func load(from url: URL) -> SubrouterUsageHistory {
-        guard let data = try? Data(contentsOf: url),
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = attributes[.size] as? NSNumber,
+              size.intValue <= Self.maximumPersistedBytes,
+              let data = try? Data(contentsOf: url),
               let history = try? JSONDecoder().decode(SubrouterUsageHistory.self, from: data) else {
             return SubrouterUsageHistory()
         }
-        return history
+        // Normalize every decoded series before it reaches the main-actor
+        // store; malformed/legacy files cannot bypass the caps simply by
+        // avoiding a fresh `record` call.
+        var bounded = SubrouterUsageHistory()
+        bounded.merge(olderHistory: history)
+        return bounded
     }
 
     /// Persists the history, creating parent directories as needed.

@@ -1,5 +1,6 @@
 public import Foundation
 public import CmuxFoundation
+import Darwin
 import os
 
 /// The production ``SubrouterAccountSwitching``: runs the `sr` CLI through
@@ -213,8 +214,12 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
                 guard process.terminationStatus == 0 else { return nil }
                 output.closeFile()
                 try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stagingURL.path)
-                try? fileManager.removeItem(at: binaryURL)
-                try fileManager.moveItem(at: stagingURL, to: binaryURL)
+                // `rename` atomically replaces the previous managed binary;
+                // never create a window where concurrent tagged apps see no
+                // executable if publication fails.
+                guard rename(stagingURL.path, binaryURL.path) == 0 else {
+                    return nil
+                }
                 try fingerprint.write(to: fingerprintURL, atomically: true, encoding: .utf8)
             } catch {
                 return nil

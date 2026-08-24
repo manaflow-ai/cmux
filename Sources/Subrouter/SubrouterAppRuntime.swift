@@ -27,10 +27,10 @@ final class SubrouterAppRuntime {
     private var serverRegistryWatch: DispatchSourceFileSystemObject?
 
     /// The cached `sr server` default from `~/.subrouter/codex/servers.json`.
-    /// Read once synchronously at init — the store must never start against
-    /// the loopback endpoint while the registry selects a remote server, or
-    /// an early socket `subrouter.switch` could pass the local-switch guard
-    /// — then re-read off-main on app activation. The hot `UserDefaults`
+    /// Loaded off-main before any visible/socket surface is enabled — the
+    /// store must never start against the loopback endpoint while the registry
+    /// selects a remote server, or an early socket `subrouter.switch` could
+    /// pass the local-switch guard. The hot `UserDefaults`
     /// did-change path composes configuration from this cache instead of
     /// re-reading disk on every defaults write.
     private var serverSelection: SubrouterServerSelection.Server?
@@ -53,8 +53,12 @@ final class SubrouterAppRuntime {
             .first?
             .appendingPathComponent("cmux/subrouter-usage-history.json")
         store = SubrouterStore(historyStorageURL: historyURL)
-        applyServerRegistryState(SubrouterIntegrationSettings.loadServerRegistryState())
-        applyCurrentConfiguration()
+        // Keep startup on the main actor free of registry disk I/O. The store
+        // starts disabled and every visible/socket boundary awaits this
+        // single-flight read before enabling work.
+        Task { @MainActor [weak self] in
+            await self?.refreshServerSelectionAndApply()
+        }
         // Every switch entrypoint (panel, footer popover, socket) re-reads
         // sr's registry through the store's preflight so the remote-server
         // guard never trusts a cache from before an `sr server use` run.
