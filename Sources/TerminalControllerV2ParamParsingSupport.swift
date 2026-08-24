@@ -1,5 +1,6 @@
 import Foundation
 import Bonsplit
+import CmuxControlSocket
 
 extension TerminalController {
     nonisolated func v2String(_ params: [String: Any], _ key: String) -> String? {
@@ -82,6 +83,26 @@ extension TerminalController {
             )
         }
         return (min(max(rawPosition, 0.1), 0.9), nil)
+    }
+
+    /// Decodes the routing selectors carried by a v2 request's params.
+    ///
+    /// The single decoder for every app-side request path, so a selector's
+    /// present-but-unresolvable flag cannot be set on one entrypoint and
+    /// silently omitted on another (issue #9191). The package-side dispatch
+    /// has its own equivalent in `ControlCommandCoordinator.routingSelectors`.
+    nonisolated func v2RoutingSelectors(_ params: [String: Any]) -> ControlRoutingSelectors {
+        ControlRoutingSelectors(
+            hasWindowIDParam: v2HasNonNullParam(params, "window_id"),
+            windowID: v2UUID(params, "window_id"),
+            groupID: v2UUID(params, "group_id"),
+            workspaceID: v2UUID(params, "workspace_id"),
+            surfaceID: v2UUID(params, "surface_id")
+                ?? v2UUID(params, "terminal_id")
+                ?? v2UUID(params, "tab_id"),
+            paneID: v2UUID(params, "pane_id"),
+            hasWorkspaceIDParam: v2HasNonNullParam(params, "workspace_id")
+        )
     }
 
     nonisolated func v2UUID(_ params: [String: Any], _ key: String) -> UUID? {

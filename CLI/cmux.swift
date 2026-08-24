@@ -8317,7 +8317,8 @@ struct CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat,
         windowOverride: String?,
-        honorJSONOutput: Bool
+        honorJSONOutput: Bool,
+        preserveStableIDs: Bool = false
     ) throws {
         let (commandOpt, rem0) = parseOption(commandArgs, name: "--command")
         let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
@@ -8384,17 +8385,45 @@ struct CMUXCLI {
         }
         try applyFocusOption(focusOpt, defaultValue: false, to: &params)
         let response = try client.sendV2(method: "workspace.create", params: params)
-        let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
+        let wsRef = response["workspace_ref"] as? String
+        let wsUUID = response["workspace_id"] as? String
+        // The ref stays first so existing `OK <ref>` parsers keep working; the
+        // UUID follows because it is the only identity that survives this
+        // process exiting and is the one the input RPCs accept.
+        let wsDisplayId = [wsRef, wsUUID].compactMap { $0 }.joined(separator: " ")
         if jsonOutput && honorJSONOutput {
-            print(jsonString(formatIDs(response, mode: idFormat)))
+            // Refs are per-connection handles that can be recycled, while the
+            // input RPCs (`surface.send_text`, `surface.send_key`,
+            // `workspace.prompt_submit`) key off UUIDs. `create` is the only
+            // place a caller can learn the new workspace's UUID, so keep the
+            // created object's UUIDs in the payload even in `refs` mode.
+            print(jsonString(formatIDs(
+                response,
+                mode: idFormat,
+                preservingIDKinds: preserveStableIDs ? ["workspace", "surface", "pane"] : []
+            )))
         } else {
-            print("OK \(wsId)")
+            print("OK \(wsDisplayId)")
         }
-        if layoutOpt == nil, let commandText = commandOpt, !wsId.isEmpty {
+        // Route the initial command by UUID only. Falling back to the ref would
+        // reintroduce the wrong-session delivery this command exists to avoid:
+        // a recycled ref resolves to a different workspace, and against a
+        // server without the fail-closed routing it lands in the focused one.
+        if layoutOpt == nil, let commandText = commandOpt {
+            guard let wsUUID, !wsUUID.isEmpty else {
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.workspace.create.error.commandMissingWorkspaceUUID",
+                        defaultValue: "%@: the workspace was created, but the app did not return its UUID, so --command was not delivered. Update the cmux app, then send the command with 'cmux send --workspace <uuid>'."
+                    ),
+                    locale: .current,
+                    commandName
+                ))
+            }
             let text = unescapeSendText(commandText + "\\n")
             let sendParams: [String: Any] = [
                 "text": text,
-                "workspace_id": wsId
+                "workspace_id": wsUUID
             ]
             _ = try client.sendV2(method: "surface.send_text", params: sendParams)
         }
@@ -9060,7 +9089,8 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 idFormat: idFormat,
                 windowOverride: windowOverride,
-                honorJSONOutput: true
+                honorJSONOutput: true,
+                preserveStableIDs: preserveStableListIDs
             )
         case "env":
             try runWorkspaceEnvCommand(

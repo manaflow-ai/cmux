@@ -3975,45 +3975,15 @@ class TerminalController {
 
     // MARK: - V2 Context Resolution
 
+    /// The params-shaped entry to the shared routing resolution.
+    ///
+    /// Decodes the selectors once and defers to
+    /// ``resolveTabManager(routing:)``, so the legacy params path and the
+    /// coordinator path cannot drift — including the fail-closed handling of a
+    /// named-but-unresolvable workspace (issue #9191).
     nonisolated func v2ResolveTabManager(params: [String: Any]) -> TabManager? {
-        // Prefer explicit window_id routing. Otherwise prefer group_id (group
-        // methods are the only routing key for cross-window group ops, and
-        // CLI helpers always inject caller workspace_id/surface_id, which
-        // would otherwise win even when the group belongs to a different
-        // window). Then use workspace/surface/pane lookup and the active window.
-        if v2HasNonNullParam(params, "window_id") {
-            guard let windowId = v2UUID(params, "window_id") else { return nil }
-            return v2MainSync { AppDelegate.shared?.tabManagerFor(windowId: windowId) }
-        }
-        if let groupId = v2UUID(params, "group_id") {
-            if let tm = v2MainSync({ v2LocateTabManager(forGroupId: groupId) }) {
-                return tm
-            }
-        }
-        if let wsId = v2UUID(params, "workspace_id") {
-            if wsId == AppDelegate.windowDockAliasWorkspaceId {
-                return v2MainSync { tabManager ?? AppDelegate.shared?.currentScriptableMainWindow()?.tabManager }
-            }
-            if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(tabId: wsId) }) {
-                return tm
-            }
-            // A window-Dock owner id IS its owning window's id, so a Dock-scoped
-            // workspace_id routes to that window rather than the caller's.
-            if let tm = v2MainSync({ AppDelegate.shared?.tabManagerForWindowDockOwner(wsId) }) {
-                return tm
-            }
-        }
-        if let surfaceId = v2UUID(params, "surface_id")
-            ?? v2UUID(params, "terminal_id")
-            ?? v2UUID(params, "tab_id") {
-            if let manager = v2MainSync({ controlTabManager(surfaceID: surfaceId) }) { return manager }
-        }
-        if let paneId = v2UUID(params, "pane_id") {
-            if let tm = v2MainSync({ controlTabManager(paneID: paneId) }) {
-                return tm
-            }
-        }
-        return v2MainSync { tabManager ?? AppDelegate.shared?.currentScriptableMainWindow()?.tabManager }
+        let routing = v2RoutingSelectors(params)
+        return v2MainSync { resolveTabManager(routing: routing) }
     }
 
     @MainActor
@@ -4036,6 +4006,12 @@ class TerminalController {
     /// active scriptable window. Lives here so it can read the controller's
     /// `private` `tabManager` / `v2LocateTabManager`.
     func resolveTabManager(routing: ControlRoutingSelectors) -> TabManager? {
+        // A named-but-unresolvable workspace yields no target, the same way an
+        // unresolvable `window_id` does. This is the choke point every routed
+        // command reaches, so no consumer with an optional workspace (todos,
+        // status, remote-tmux host selection) can quietly read the flag as
+        // "workspace omitted" and act on the caller's own window (issue #9191).
+        if routing.hasWorkspaceIDParam, routing.workspaceID == nil { return nil }
         if routing.hasWindowIDParam {
             guard let windowId = routing.windowID else { return nil }
             return AppDelegate.shared?.tabManagerFor(windowId: windowId)
@@ -4056,6 +4032,12 @@ class TerminalController {
             if let tm = AppDelegate.shared?.tabManagerForWindowDockOwner(workspaceId) {
                 return tm
             }
+            // The request named a workspace that no window owns — a closed one,
+            // or an id from another app instance. Falling through to the
+            // surface/pane/caller selectors would act on the caller's own
+            // window, which is the wrong-session failure this guard exists to
+            // prevent (issue #9191).
+            return nil
         }
         if let surfaceId = routing.surfaceID {
             if let manager = controlTabManager(surfaceID: surfaceId) { return manager }
@@ -5743,16 +5725,7 @@ class TerminalController {
             // resolve, exactly as the former main-actor dispatch did before
             // handing off to the coordinator.
             self.v2RefreshKnownRefs()
-            let routing = ControlRoutingSelectors(
-                hasWindowIDParam: self.v2HasNonNullParam(params, "window_id"),
-                windowID: self.v2UUID(params, "window_id"),
-                groupID: self.v2UUID(params, "group_id"),
-                workspaceID: self.v2UUID(params, "workspace_id"),
-                surfaceID: self.v2UUID(params, "surface_id")
-                    ?? self.v2UUID(params, "terminal_id")
-                    ?? self.v2UUID(params, "tab_id"),
-                paneID: self.v2UUID(params, "pane_id")
-            )
+            let routing = self.v2RoutingSelectors(params)
             guard let tabManager = self.resolveTabManager(routing: routing) else {
                 return .finished(.err(code: "unavailable", message: "TabManager not available", data: nil))
             }

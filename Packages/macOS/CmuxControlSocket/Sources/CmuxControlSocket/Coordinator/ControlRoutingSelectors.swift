@@ -24,6 +24,12 @@ public struct ControlRoutingSelectors: Sendable, Equatable {
     public let groupID: UUID?
     /// The resolved `workspace_id` target, if any.
     public let workspaceID: UUID?
+    /// Whether the request carried a non-null `workspace_id` param at all. A
+    /// present-but-unresolvable `workspace_id` (a recycled or foreign
+    /// `workspace:N` ref, or a typo) must resolve to no target rather than
+    /// falling through to the caller's focused workspace, which would deliver
+    /// input to the wrong session with no error (issue #9191).
+    public let hasWorkspaceIDParam: Bool
     /// The resolved surface target (`surface_id`, then `terminal_id`, then
     /// `tab_id`), if any.
     public let surfaceID: UUID?
@@ -39,18 +45,23 @@ public struct ControlRoutingSelectors: Sendable, Equatable {
     ///   - workspaceID: The resolved `workspace_id` target.
     ///   - surfaceID: The resolved surface target.
     ///   - paneID: The resolved `pane_id` target.
+    ///   - hasWorkspaceIDParam: Whether a non-null `workspace_id` param was
+    ///     present. Defaults to `false` for in-app callers that synthesize
+    ///     routing rather than decoding it from request params.
     public init(
         hasWindowIDParam: Bool,
         windowID: UUID?,
         groupID: UUID?,
         workspaceID: UUID?,
         surfaceID: UUID?,
-        paneID: UUID?
+        paneID: UUID?,
+        hasWorkspaceIDParam: Bool = false
     ) {
         self.hasWindowIDParam = hasWindowIDParam
         self.windowID = windowID
         self.groupID = groupID
         self.workspaceID = workspaceID
+        self.hasWorkspaceIDParam = hasWorkspaceIDParam
         self.surfaceID = surfaceID
         self.paneID = paneID
     }

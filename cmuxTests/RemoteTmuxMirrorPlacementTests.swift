@@ -14,7 +14,7 @@ import Testing
         let explicit = UUID()
         let active = UUID()
 
-        #expect(RemoteTmuxAttachWindowTarget.unresolvedExplicitWindow.resolve(
+        #expect(RemoteTmuxAttachWindowTarget.unresolvedExplicitTarget.resolve(
             existingMirrorWindowID: nil,
             activeWindowID: active,
             isLive: { $0 == active }
@@ -24,11 +24,33 @@ import Testing
             activeWindowID: active,
             isLive: { $0 == active }
         ) == nil)
-        #expect(RemoteTmuxAttachWindowTarget.unresolvedExplicitWindow.resolve(
+        #expect(RemoteTmuxAttachWindowTarget.unresolvedExplicitTarget.resolve(
             existingMirrorWindowID: existing,
             activeWindowID: active,
             isLive: { $0 == existing || $0 == active }
         ) == existing)
+    }
+
+    /// Issue #9191: an explicit but unresolvable `workspace_id` must not let
+    /// the mirror land in the active window.
+    @Test func explicitUnresolvableWorkspaceRoutingFailsClosed() {
+        let controller = TerminalController.shared
+        let active = UUID()
+
+        for params in [
+            ["workspace_id": "workspace:999"],
+            ["workspace_id": UUID().uuidString],
+        ] {
+            let target = controller.remoteTmuxAttachWindowTarget(
+                routing: controller.v2RoutingSelectors(params)
+            )
+            #expect(target == .unresolvedExplicitTarget, Comment(rawValue: "params=\(params)"))
+            #expect(target.resolve(
+                existingMirrorWindowID: nil,
+                activeWindowID: active,
+                isLive: { $0 == active }
+            ) == nil)
+        }
     }
 
     @Test func contextualRoutingRecoversFromAClosedPreferredWindow() {

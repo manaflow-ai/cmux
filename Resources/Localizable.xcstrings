@@ -56673,6 +56673,35 @@
         }
       }
     },
+    "cli.workspace.create.error.commandMissingWorkspaceUUID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: the workspace was created, but the app did not return its UUID, so --command was not delivered. Update the cmux app, then send the command with 'cmux send --workspace <uuid>'."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: ワークスペースは作成されましたが、アプリが UUID を返さなかったため --command は配信されませんでした。cmux アプリを更新してから、'cmux send --workspace <uuid>' でコマンドを送信してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: 작업 공간은 생성되었지만 앱이 UUID를 반환하지 않아 --command가 전달되지 않았습니다. cmux 앱을 업데이트한 뒤 'cmux send --workspace <uuid>'로 명령을 보내세요."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: робочий простір створено, але застосунок не повернув його UUID, тому --command не було доставлено. Оновіть застосунок cmux, а потім надішліть команду через 'cmux send --workspace <uuid>'."
+          }
+        }
+      }
+    },
     "cli.workspace.create.error.envFileRequiresValue": {
       "extractionState": "manual",
       "localizations": {
