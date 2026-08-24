@@ -101,6 +101,40 @@ struct WorkspaceRepositorySidebarTests {
     }
 
     @Test
+    func closingPanelClearsRepositoryLinkState() throws {
+        let workspace = Workspace(title: "Repository teardown workspace")
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelID])
+        defer { panel.close() }
+
+        workspace.updatePanelRepositoryLink(
+            panelId: panelID,
+            link: try Self.repositoryLink(
+                remoteName: "origin",
+                displayName: "manaflow-ai/cmux",
+                destination: "https://github.com/manaflow-ai/cmux"
+            )
+        )
+        #expect(workspace.panelRepositoryLinks[panelID] != nil)
+        #expect(workspace.repositoryLink != nil)
+
+        workspace.discardClosedPanelLifecycleState(
+            panelId: panelID,
+            paneId: nil,
+            panel: panel,
+            origin: "repository_link_teardown_test",
+            closePanel: false,
+            publishSurfaceClosedEvent: false,
+            clearSurfaceNotifications: false,
+            requestTransferredRemoteCleanup: false,
+            discardAgentHibernationTracking: false
+        )
+
+        #expect(workspace.panelRepositoryLinks[panelID] == nil)
+        #expect(workspace.repositoryLink == nil)
+    }
+
+    @Test
     func preferredBrowserOpenActionTargetsClickedWorkspaceBrowserBeforeFallback() throws {
         let clickedWorkspaceId = UUID()
         let url = try #require(URL(string: "https://github.com/manaflow-ai/cmux"))
