@@ -5016,6 +5016,48 @@
         }
       }
     },
+    "mobile.settings.activeTransport.lanFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "LAN · %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "LAN · %@" } }
+      }
+    },
+    "mobile.settings.activeTransport.tailscaleFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tailscale · %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Tailscale · %@" } }
+      }
+    },
+    "mobile.settings.activeTransport.irohDirect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "iroh direct" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iroh直接" } }
+      }
+    },
+    "mobile.settings.activeTransport.irohRelay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "iroh relay" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "irohリレー" } }
+      }
+    },
+    "mobile.settings.activeTransport.irohRelayFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "iroh relay %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "irohリレー %@" } }
+      }
+    },
+    "mobile.settings.activeTransport.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Transport unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "接続経路を取得できません" } }
+      }
+    },
     "mobile.settings.activeTransport.iroh": {
       "extractionState": "manual",
       "localizations": {
@@ -19979,6 +20021,17 @@
     "mobile.notifications.test.unavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The Mac could not confirm a queue stage."}},"ja":{"stringUnit":{"state":"translated","value":"Macでキューの状態を確認できませんでした。"}}}},
     "push.test.body": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Your Mac sent a test alert to cmux."}},"ja":{"stringUnit":{"state":"translated","value":"Mac から cmux にテスト通知が送信されました。"}}}},
     "push.test.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux Notification Test"}},"ja":{"stringUnit":{"state":"translated","value":"cmux 通知テスト"}}}},
+    "mobile.transportMode.thisComputer": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"this computer"}},"ja":{"stringUnit":{"state":"translated","value":"このコンピュータ"}}}},
+    "mobile.transportMode.noLANRoute": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"LAN only is selected, but no LAN route to %@ is available."}},"ja":{"stringUnit":{"state":"translated","value":"LANのみが選択されていますが、%@へのLAN経路がありません。"}}}},
+    "mobile.transportMode.noTailscaleRoute": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tailscale only is selected, but no Tailscale route to %@ is available."}},"ja":{"stringUnit":{"state":"translated","value":"Tailscaleのみが選択されていますが、%@へのTailscale経路がありません。"}}}},
+    "mobile.transportMode.noIrohRoute": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"iroh only is selected, but no iroh route to %@ is available."}},"ja":{"stringUnit":{"state":"translated","value":"irohのみが選択されていますが、%@へのiroh経路がありません。"}}}},
+    "mobile.transportMode.noRoute": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No route to %@ is available."}},"ja":{"stringUnit":{"state":"translated","value":"%@への経路がありません。"}}}},
+    "mobile.transportMode.routeClassMismatch": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The selected %@ mode cannot use a %@ route."}},"ja":{"stringUnit":{"state":"translated","value":"選択した%@モードでは%@経路を使用できません。"}}}},
+    "mobile.transportMode.guidance.lan": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Put the iPhone and Mac on the same local network, make sure cmux is running, then retry."}},"ja":{"stringUnit":{"state":"translated","value":"iPhoneとMacを同じローカルネットワークに接続し、cmuxを起動してから再試行してください。"}}}},
+    "mobile.transportMode.guidance.tailscale": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open Tailscale on both devices and confirm the Mac is advertising its Tailscale address, then retry."}},"ja":{"stringUnit":{"state":"translated","value":"両方のデバイスでTailscaleを起動し、MacがTailscaleアドレスを公開していることを確認してから再試行してください。"}}}},
+    "mobile.transportMode.guidance.iroh": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Make sure both devices are signed in to the same cmux account and the Mac's iroh endpoint is online, then retry."}},"ja":{"stringUnit":{"state":"translated","value":"両方のデバイスが同じcmuxアカウントでサインインし、Macのirohエンドポイントがオンラインであることを確認してから再試行してください。"}}}},
+    "mobile.transportMode.guidance.auto": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Check that cmux is running on the Mac, then retry."}},"ja":{"stringUnit":{"state":"translated","value":"Macでcmuxが起動していることを確認してから再試行してください。"}}}},
+    "mobile.transportMode.guidance.mismatch": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Change the transport mode or restore a route in the selected network."}},"ja":{"stringUnit":{"state":"translated","value":"トランスポートモードを変更するか、選択したネットワークの経路を復旧してください。"}}}},
     "push.generic.body": {
       "extractionState": "manual",
       "localizations": {

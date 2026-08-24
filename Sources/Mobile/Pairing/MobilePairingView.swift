@@ -131,8 +131,8 @@ struct MobilePairingView: View {
 
     private var tailscaleReachable: Bool? {
         switch model.state {
-        case let .ready(ready): return ready.reachableViaTailscale
-        case let .connected(ready): return ready.reachableViaTailscale
+        case let .ready(ready): return ready.reachableViaAnyRoute
+        case let .connected(ready): return ready.reachableViaAnyRoute
         case .needsReachableTransport: return false
         default: return nil
         }
@@ -217,20 +217,15 @@ struct MobilePairingView: View {
                 .cmuxFont(size: 28)
                 .foregroundStyle(.orange)
             Text(String(
-                localized: "mobile.pairing.req.tailscale.missing",
+                localized: "mobile.pairing.req.privateNetwork.missing",
                 defaultValue: """
-                Tailscale is not connected on this Mac. Install it on both devices \
-                and connect both to the same Tailscale network.
+                No phone-reachable LAN or Tailscale route is available on this Mac. \
+                Put both devices on the same network or connect Tailscale, then refresh.
                 """
             ))
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Link(
-                String(localized: "mobile.pairing.req.tailscale.get", defaultValue: "Get Tailscale"),
-                destination: Self.tailscaleDownloadURL
-            )
-            .buttonStyle(.borderedProminent)
+            .multilineTextAlignment(.center)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
             Button(String(localized: "mobile.pairing.refresh", defaultValue: "Refresh Code")) {
                 Task { await model.refresh() }
             }

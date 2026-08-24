@@ -138716,6 +138716,23 @@
         }
       }
     },
+    "mobile.pairing.req.privateNetwork.missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No phone-reachable LAN or Tailscale route is available on this Mac. Put both devices on the same network or connect Tailscale, then refresh."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacにiPhoneから到達できるLANまたはTailscale経路がありません。同じネットワークに接続するかTailscaleを有効にして、更新してください。"
+          }
+        }
+      }
+    },
     "mobile.pairing.req.tailscale.reachable": {
       "extractionState": "manual",
       "localizations": {
@@ -139199,13 +139216,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "On your iPhone, choose Tailscale, tap Scan QR Code, then scan the code above."
+            "value": "On your iPhone, choose a connection method, tap Scan QR Code, then scan the code above."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続方法として Tailscale を選び、「QR コードをスキャン」をタップして上のコードにカメラを向けます。"
+            "value": "iPhoneで接続方法を選び、「QRコードをスキャン」をタップして上のコードにカメラを向けます。"
           }
         }
       }

@@ -251,20 +251,31 @@ final class MobileAttachTicketStore {
                 return url
             }
             guard ticket.routes.allSatisfy({
-                $0.kind == .tailscale && !CmxLoopbackHost().matches($0)
-            }),
-            let pairingURL = CmxPairingQRCode().encode(
-                ticket,
-                routeDisclosureMode: .legacyPrivateNetworkCompatibility,
-                pairingURLScheme: pairingURLScheme
-            ),
-            let url = URL(string: pairingURL),
-            let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-            let decoded = try? CmxPairingQRCode().decode(components),
-            decoded.routes == ticket.routes else {
+                ($0.kind == .tailscale || $0.kind == .lan)
+                    && !CmxLoopbackHost().matches($0)
+            }) else {
                 throw MobileAttachTicketStoreError.invalidAttachURL
             }
-            return url
+            // The minimal v2 grammar is Tailscale-only. LAN routes retain
+            // their explicit class through the compact compatibility payload
+            // instead of being dropped or relabeled as Tailscale.
+            if ticket.routes.allSatisfy({ $0.kind == .tailscale }),
+               let pairingURL = CmxPairingQRCode().encode(
+                   ticket,
+                   routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+                   pairingURLScheme: pairingURLScheme
+               ),
+               let url = URL(string: pairingURL),
+               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+               let decoded = try? CmxPairingQRCode().decode(components),
+               decoded.routes == ticket.routes {
+                return url
+            }
+            return try compactAttachURL(
+                for: ticket,
+                routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+                pairingURLScheme: pairingURLScheme
+            )
         }
     }
 

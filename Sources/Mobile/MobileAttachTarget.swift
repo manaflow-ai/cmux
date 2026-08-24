@@ -33,18 +33,24 @@ enum MobileAttachTarget: String, Sendable {
                 break
             }
             let physicalRoutes = routes.filter {
-                $0.kind == .tailscale && !CmxLoopbackHost().matches($0)
+                ($0.kind == .tailscale || $0.kind == .lan)
+                    && !CmxLoopbackHost().matches($0)
             }
             // A route-id filter can leave `tailscale_2` as the only route.
             // Reindex the selected endpoints to the canonical sequence the v2
             // QR decoder reconstructs, keeping the destination lossless while
             // avoiding a token-bearing v1 fallback on physical devices.
-            selected = try physicalRoutes.enumerated().map { index, route in
+            var occurrenceByKind: [CmxAttachTransportKind: Int] = [:]
+            selected = try physicalRoutes.map { route in
+                let occurrence = (occurrenceByKind[route.kind] ?? 0) + 1
+                occurrenceByKind[route.kind] = occurrence
                 try CmxAttachRoute(
-                    id: index == 0 ? "tailscale" : "tailscale_\(index + 1)",
-                    kind: .tailscale,
+                    id: occurrence == 1
+                        ? route.kind.rawValue
+                        : "\(route.kind.rawValue)_\(occurrence)",
+                    kind: route.kind,
                     endpoint: route.endpoint,
-                    priority: 10 + index * 10
+                    priority: route.priority
                 )
             }
         }

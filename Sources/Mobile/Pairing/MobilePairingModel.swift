@@ -41,21 +41,25 @@ final class MobilePairingModel {
         let attachURL: String
         /// Reachable Tailscale `host:port` routes represented by the code.
         let tailscaleLines: [String]
+        /// Reachable LAN `host:port` routes represented by the code.
+        let lanLines: [String]
         /// The best route for manual phone entry, behind the "Copy IP" and
         /// "Copy Port" buttons. `nil` when no phone-dialable route exists.
         let manualEntry: CmxManualPairingEntry?
 
         /// Whether at least one Tailscale route resolved.
         var reachableViaTailscale: Bool { !tailscaleLines.isEmpty }
+        /// Whether at least one direct private-network route is available.
+        var reachableViaAnyRoute: Bool { reachableViaTailscale || !lanLines.isEmpty }
     }
 
     struct PairingRoutePlan: Equatable, Sendable {
         let disclosureMode: CmxPairingRouteDisclosureMode
 
         static func make(routes: [CmxAttachRoute]) -> PairingRoutePlan? {
-            guard routes.contains(
-                where: MobilePairingModel.isPhoneReachableTailscaleRoute
-            ) else { return nil }
+            guard routes.contains(where: MobilePairingModel.isPhoneReachableRoute) else {
+                return nil
+            }
             return PairingRoutePlan(
                 disclosureMode: .legacyPrivateNetworkCompatibility
             )
@@ -199,6 +203,7 @@ final class MobilePairingModel {
                 Ready(
                     attachURL: attachURL,
                     tailscaleLines: Self.tailscaleLines(status.routes),
+                    lanLines: Self.lanLines(status.routes),
                     manualEntry: CmxManualPairingEntry.best(in: status.routes)
                 )
             )
@@ -346,17 +351,28 @@ final class MobilePairingModel {
         UserDefaults.standard.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
     }
 
-    /// Whether `route` can serve a physical iPhone: a Tailscale route that does
-    /// not point back at this Mac.
-    private nonisolated static func isPhoneReachableTailscaleRoute(
+    /// Whether `route` can serve a physical iPhone without pointing back at
+    /// this Mac. LAN and Tailscale are both explicit route classes.
+    private nonisolated static func isPhoneReachableRoute(
         _ route: CmxAttachRoute
     ) -> Bool {
-        route.kind == .tailscale && !CmxLoopbackHost().matches(route)
+        (route.kind == .tailscale || route.kind == .lan)
+            && !CmxLoopbackHost().matches(route)
     }
 
     private static func tailscaleLines(_ routes: [CmxAttachRoute]) -> [String] {
         routes.compactMap { route in
             guard route.kind == .tailscale,
+                  case let .hostPort(host, port) = route.endpoint else {
+                return nil
+            }
+            return "\(host):\(port)"
+        }
+    }
+
+    private static func lanLines(_ routes: [CmxAttachRoute]) -> [String] {
+        routes.compactMap { route in
+            guard route.kind == .lan,
                   case let .hostPort(host, port) = route.endpoint else {
                 return nil
             }

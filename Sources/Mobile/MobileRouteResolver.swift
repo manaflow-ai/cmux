@@ -27,13 +27,15 @@ final class MobileRouteResolver: @unchecked Sendable {
     func routes(
         port: Int,
         now: Date = Date(),
-        immediateHosts: () -> [String] = { MobileRouteResolver.tailscaleRouteHosts(resolveDNS: false) }
+        immediateHosts: () -> [String] = { MobileRouteResolver.tailscaleRouteHosts(resolveDNS: false) },
+        immediateLANHosts: () -> [String] = { MobileRouteResolver.lanRouteHosts() }
     ) -> MobileHostRouteSnapshot {
         refreshTailscaleRoutes()
         let cachedHosts = resolvedTailscaleRouteHostsFromCache(now: now) ?? []
         return routes(
             port: port,
-            tailscaleHosts: Self.deduplicatedHosts(cachedHosts + immediateHosts())
+            tailscaleHosts: Self.deduplicatedHosts(cachedHosts + immediateHosts()),
+            lanHosts: immediateLANHosts()
         )
     }
 
@@ -45,7 +47,7 @@ final class MobileRouteResolver: @unchecked Sendable {
         now: Date = Date()
     ) async -> MobileHostRouteSnapshot {
         let hosts = await resolvedTailscaleRouteHosts(resolveHosts: resolveHosts, now: now)
-        return routes(port: port, tailscaleHosts: hosts)
+        return routes(port: port, tailscaleHosts: hosts, lanHosts: Self.lanRouteHosts())
     }
 
     /// Drop the resolved-host cache and orphan any in-flight resolution.
@@ -66,7 +68,11 @@ final class MobileRouteResolver: @unchecked Sendable {
         cacheLock.unlock()
     }
 
-    func routes(port: Int, tailscaleHosts: [String]) -> MobileHostRouteSnapshot {
+    func routes(
+        port: Int,
+        tailscaleHosts: [String],
+        lanHosts: [String] = MobileRouteResolver.lanRouteHosts()
+    ) -> MobileHostRouteSnapshot {
         var resolved: [CmxAttachRoute] = []
 
         if Self.includesDebugLoopbackRoute {
@@ -77,6 +83,23 @@ final class MobileRouteResolver: @unchecked Sendable {
                 priority: 0
             ) {
                 resolved.append(debugRoute)
+            }
+        }
+
+        let numericLANHosts = Self.deduplicatedHosts(lanHosts).filter {
+            Self.isLANPeerAddress($0) && !Self.isTailscalePeerAddress($0)
+        }
+        for (index, lanHost) in numericLANHosts.enumerated() {
+            let id = index == 0
+                ? CmxAttachTransportKind.lan.rawValue
+                : "\(CmxAttachTransportKind.lan.rawValue)_\(index + 1)"
+            if let lanRoute = try? CmxAttachRoute(
+                id: id,
+                kind: .lan,
+                endpoint: .hostPort(host: lanHost, port: port),
+                priority: 5 + (index * 5)
+            ) {
+                resolved.append(lanRoute)
             }
         }
 
@@ -385,6 +408,65 @@ final class MobileRouteResolver: @unchecked Sendable {
 
     private static func isTailscalePeerAddress(_ host: String) -> Bool {
         isTailscaleCGNAT(host) || isTailscaleIPv6ULA(host)
+    }
+
+    /// Enumerates usable non-loopback addresses on ordinary LAN interfaces.
+    /// Tailscale/packet-tunnel interfaces are deliberately excluded so route
+    /// provenance remains explicit and a pinned LAN policy cannot inherit an
+    /// overlay address.
+    private static func lanRouteHosts() -> [String] {
+        var interfaces: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&interfaces) == 0, let firstInterface = interfaces else {
+            return []
+        }
+        defer { freeifaddrs(interfaces) }
+
+        var hosts: [String] = []
+        var pointer: UnsafeMutablePointer<ifaddrs>? = firstInterface
+        while let current = pointer {
+            defer { pointer = current.pointee.ifa_next }
+            guard let nameCString = current.pointee.ifa_name,
+                  let address = current.pointee.ifa_addr else {
+                continue
+            }
+            let interfaceName = String(cString: nameCString)
+            let flags = Int32(current.pointee.ifa_flags)
+            guard flags & IFF_UP != 0,
+                  flags & IFF_RUNNING != 0,
+                  flags & IFF_LOOPBACK == 0,
+                  !isTailscaleInterfaceName(interfaceName),
+                  let host = numericHost(for: address),
+                  isLANPeerAddress(host) else {
+                continue
+            }
+            hosts.append(host)
+        }
+        return deduplicatedHosts(hosts)
+    }
+
+    private static func isLANPeerAddress(_ host: String) -> Bool {
+        let normalized = host.split(separator: "%", maxSplits: 1, omittingEmptySubsequences: true)
+            .first.map(String.init) ?? host
+        let octets = normalized.split(separator: ".").compactMap { Int($0) }
+        if octets.count == 4 {
+            guard octets.allSatisfy({ (0...255).contains($0) }) else { return false }
+            if octets[0] == 10 || (octets[0] == 192 && octets[1] == 168) {
+                return true
+            }
+            if octets[0] == 172 && (16...31).contains(octets[1]) {
+                return true
+            }
+            return octets[0] == 169 && octets[1] == 254
+        }
+
+        var address = in6_addr()
+        guard normalized.withCString({ inet_pton(AF_INET6, $0, &address) }) == 1 else {
+            return false
+        }
+        let bytes = withUnsafeBytes(of: &address) { Array($0) }
+        let isULA = bytes.first.map { $0 & 0xfe == 0xfc } ?? false
+        let isLinkLocal = bytes.count >= 2 && bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80
+        return isULA || isLinkLocal
     }
 
     private static func isTailscaleInterfaceName(_ name: String) -> Bool {
