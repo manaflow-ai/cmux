@@ -2,6 +2,9 @@ import Foundation
 
 extension GitMetadataService {
     /// Resolves refs on the package's bounded blocking-I/O lane.
+    ///
+    /// - Parameter repository: The already-resolved repository to inspect.
+    /// - Returns: A consistent branch, commit, and head-signature snapshot.
     nonisolated func gitReferenceSnapshot(
         repository: ResolvedGitRepository
     ) async -> GitReferenceSnapshot {

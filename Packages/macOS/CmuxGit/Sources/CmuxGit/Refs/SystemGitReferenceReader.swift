@@ -4,6 +4,8 @@ import Foundation
 struct SystemGitReferenceReader: GitReferenceReading {
     private static let maximumSymbolicReferenceByteCount = 16 * 1_024
     private static let maximumObjectIDByteCount = 128
+    /// Configs above this bound use Git plumbing instead of an unbounded scan.
+    private static let maximumReferenceStorageConfigByteCount = 1 * 1_024 * 1_024
 
     /// The bounded process runner used only for non-files reference storage.
     private let runner: any WorkspaceChangesGitRunning
@@ -177,29 +179,39 @@ struct SystemGitReferenceReader: GitReferenceReading {
     }
 
     /// Reads the local extensions.refStorage value, if one is declared.
+    ///
+    /// Root config files are size-bounded before decoding. An oversized config
+    /// returns an unknown storage name, which conservatively selects Git
+    /// plumbing rather than allowing repeated refreshes to scan unbounded data.
     private func referenceStorageName(repository: ResolvedGitRepository) -> String? {
         var storageName: String?
         var seenPaths: Set<String> = []
         for configURL in GitMetadataService.gitRootConfigURLs(repository: repository) {
             let configURL = configURL.standardizedFileURL
-            guard seenPaths.insert(configURL.path).inserted,
-                  let config = try? String(contentsOf: configURL, encoding: .utf8) else {
+            guard seenPaths.insert(configURL.path).inserted else {
+                continue
+            }
+            let configRead = boundedReferenceStorageConfig(at: configURL)
+            if configRead.isOversized {
+                return "unknown"
+            }
+            guard let config = configRead.contents else {
                 continue
             }
             var isExtensionsSection = false
-            for rawLine in config.components(separatedBy: .newlines) {
+            config.enumerateLines { rawLine, _ in
                 let line = GitMetadataService.gitConfigLineRemovingInlineComment(rawLine)
                     .trimmingCharacters(in: .whitespaces)
                 if line.hasPrefix("[") && line.hasSuffix("]") {
                     isExtensionsSection = line.lowercased() == "[extensions]"
-                    continue
+                    return
                 }
-                guard isExtensionsSection else { continue }
+                guard isExtensionsSection else { return }
                 let parts = line.split(separator: "=", maxSplits: 1).map {
                     $0.trimmingCharacters(in: .whitespaces)
                 }
                 guard parts.count == 2, parts[0].lowercased() == "refstorage" else {
-                    continue
+                    return
                 }
                 let value = GitMetadataService.gitConfigUnquotedValue(parts[1]).lowercased()
                 if !value.isEmpty {
@@ -208,6 +220,25 @@ struct SystemGitReferenceReader: GitReferenceReading {
             }
         }
         return storageName
+    }
+
+    /// Reads at most the configured backend-detection limit from one config.
+    private func boundedReferenceStorageConfig(
+        at configURL: URL
+    ) -> (contents: String?, isOversized: Bool) {
+        guard let handle = try? FileHandle(forReadingFrom: configURL) else {
+            return (nil, false)
+        }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(
+            upToCount: Self.maximumReferenceStorageConfigByteCount + 1
+        ) else {
+            return (nil, false)
+        }
+        guard data.count <= Self.maximumReferenceStorageConfigByteCount else {
+            return (nil, true)
+        }
+        return (String(data: data, encoding: .utf8), false)
     }
 
     /// Accepts only complete SHA-1 or SHA-256 object IDs.

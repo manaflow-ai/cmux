@@ -2,7 +2,7 @@ import Foundation
 
 /// One resolved view of a repository's checked-out ref and commit.
 struct GitReferenceSnapshot: Equatable, Sendable {
-    /// The branch/detached/unreadable classification returned by Git or the file parser.
+    /// The branch, detached, or unreadable classification returned by Git or the file parser.
     let checkedOutBranch: GitCheckedOutBranch
 
     /// A stable signature that changes when the symbolic ref or resolved commit changes.

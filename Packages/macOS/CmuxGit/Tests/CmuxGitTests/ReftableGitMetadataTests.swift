@@ -3,6 +3,7 @@ import Testing
 @testable import CmuxGit
 
 @Suite struct ReftableGitMetadataTests {
+    /// Reproduces a linked reftable worktree whose HEAD contains `.invalid`.
     @Test func metadataUsesGitResolvedWorktreeBranchAndWatchesReftableStorage() async throws {
         let fixture = try WorkspaceChangesGitRepositoryFixture(initializeRepository: false)
         let repository = fixture.root.appendingPathComponent("repository", isDirectory: true)
@@ -56,5 +57,35 @@ import Testing
         let nextMetadata = await service.workspaceMetadata(for: worktree.path)
         #expect(nextMetadata.branch == nextBranch)
         #expect(nextMetadata.headSignature != initialMetadata.headSignature)
+    }
+
+    /// Uses plumbing when a generated config exceeds the bounded backend scan.
+    @Test func oversizedReferenceConfigFallsBackToGitPlumbing() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch(".invalid")
+        try fixture.writeConfig(
+            "[core]\n" + String(repeating: "generated = value\n", count: 70_000)
+        )
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let commit = String(repeating: "a", count: 40)
+        let reader = SystemGitReferenceReader(
+            runner: FakeWorkspaceChangesGitRunner(results: [
+                ["symbolic-ref", "--quiet", "HEAD"]: FakeWorkspaceChangesGitRunner.result(
+                    "refs/heads/feature/large-config\n"
+                ),
+                [
+                    "rev-parse",
+                    "--verify",
+                    "refs/heads/feature/large-config^{commit}",
+                ]: FakeWorkspaceChangesGitRunner.result("\(commit)\n"),
+            ])
+        )
+
+        let snapshot = reader.snapshot(repository: repository)
+
+        #expect(snapshot.checkedOutBranch == GitCheckedOutBranch.branch("feature/large-config"))
+        #expect(snapshot.currentCommit == commit)
     }
 }
