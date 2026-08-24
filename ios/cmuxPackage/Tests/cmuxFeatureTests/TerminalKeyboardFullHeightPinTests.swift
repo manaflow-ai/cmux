@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CMUXMobileCore
+import CmuxMobileTerminalKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -140,7 +141,20 @@ struct TerminalKeyboardFullHeightPinTests {
         await settle()
         let dockTopUp = try #require(view.hostedBottomDockPresentationTop(in: host))
         #expect(abs(dockTopUp - (874 - 336)) <= 1, "dock seat did not ride the keyboard: dockTop=\(dockTopUp)")
-        #expect(gap() <= 1, "render bottom detached from the dock while the keyboard seat is up; gap=\(gap())")
+        // Blank rows below the content absorb the keyboard before the render
+        // slides: the seam equals min(blank, intrusion). On this idle screen
+        // (cursor at the top) that is the FULL intrusion — the terminal stays
+        // top-pinned and the keyboard covers only blank rows. If the cursor
+        // is unreadable in this harness the absorption reports nil and the
+        // render is fully bottom-pinned instead; both satisfy gap == slack.
+        let expectedSlack = TerminalLetterboxGeometry.keyboardAbsorptionSlack(
+            blankBelowContent: view.hostedBlankBelowContent,
+            intrusion: 336
+        )
+        #expect(
+            abs(gap() - expectedSlack) <= 1,
+            "render seam must equal the blank-space slack; gap=\(gap()) slack=\(expectedSlack)"
+        )
         #expect(
             delegate.reports.count == reportsBefore,
             "the keyboard seat must not renegotiate the grid. reports=\(delegate.reports)"

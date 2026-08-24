@@ -463,6 +463,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             ? bottomDockContainer.convert(bottomDockContainer.bounds, to: self).maxY
             : bounds.maxY
         let keyboardDockTargetTop = pointValue(dockBottomInSurface)
+        let keyboardSlack = pointValue(host?.debugKeyboardAbsorptionSlack ?? 0)
         let keyboardDockSource = host?.debugUsesNotificationKeyboardDock == true
             ? "notification"
             : "layoutGuide"
@@ -491,6 +492,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "dockMaxInternalPresentationGap=\(maximumInternalPresentationGap)",
             "terminalDockPresentationGap=\(terminalDockPresentationGap)",
             "terminalDockMaxPresentationGap=\(maximumTerminalDockPresentationGap)",
+            "keyboardSlack=\(keyboardSlack)",
             "screenScale=\(pointValue(preferredScreenScale))",
             "bottomSafeArea=\(pointValue(safeAreaInsetsBottom))",
             "keyboardGuideTop=\(keyboardDockTargetTop)",
@@ -1112,7 +1114,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func sampleHostedKeyboardPresentation() {
-        (bottomDockHostView as? GhosttySurfaceHostView)?.sampleTerminalDockPresentationGap()
+        let host = bottomDockHostView as? GhosttySurfaceHostView
+        // Content written while the keyboard is up consumes the blank band;
+        // the host re-derives the absorption slack so the render follows the
+        // content bottom down to the composer bar (and back up after a
+        // `clear`). Cheap: a single non-blocking cursor query per frame,
+        // only while a keyboard is actually up.
+        host?.refreshKeyboardAbsorptionIfNeeded()
+        host?.sampleTerminalDockPresentationGap()
         #if DEBUG
         sampleInternalDockPresentationGap()
         #endif
@@ -1203,6 +1212,46 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var hostedKeyboardHeight: CGFloat { keyboardHeight }
 
     var hostedChromeHidden: Bool { chromeHidden }
+
+    /// True while the mirrored terminal is on the ALTERNATE screen (a
+    /// full-screen TUI that owns the whole grid). Injected by the hosting
+    /// representable from the shell store; the keyboard blank-space
+    /// absorption is disabled then, because a TUI's cursor position says
+    /// nothing about which rows are safe to cover.
+    public var hostedAltScreenActive = false {
+        didSet {
+            guard hostedAltScreenActive != oldValue else { return }
+            bottomDockHostView?.setNeedsLayout()
+        }
+    }
+
+    /// Points of blank render below the content bottom (cursor-row proxy),
+    /// or nil when it cannot be trusted (alternate screen, unknown cursor,
+    /// no render yet). The host lets this blank band absorb the keyboard
+    /// intrusion before the render slides: a mostly-empty screen stays
+    /// top-pinned under the navigation bar and the keyboard covers only
+    /// blank rows.
+    var hostedBlankBelowContent: CGFloat? {
+        guard !hostedAltScreenActive,
+              !lastRenderRect.isEmpty,
+              let cursorBottom = cursorBottomInRenderPoints() else { return nil }
+        return max(0, lastRenderRect.height - cursorBottom)
+    }
+
+    /// The cursor's bottom edge in render-local points (the coordinate space
+    /// of `lastRenderRect.size`), or nil when not measurable. A non-blocking
+    /// `ghostty_surface_ime_point` query; Ghostty remains the sole cursor
+    /// renderer.
+    private func cursorBottomInRenderPoints() -> CGFloat? {
+        guard let surface else { return nil }
+        var x: Double = 0
+        var y: Double = 0
+        var width: Double = 0
+        var height: Double = 0
+        ghostty_surface_ime_point(surface, &x, &y, &width, &height)
+        guard y > 0 else { return nil }
+        return CGFloat(y)
+    }
 
     /// The steady-state bottom chrome band in points: what
     /// `renderWrapper.bottom` must sit BELOW the dock top so the full-height

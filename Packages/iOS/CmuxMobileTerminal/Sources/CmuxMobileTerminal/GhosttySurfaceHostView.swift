@@ -30,7 +30,7 @@ private enum KeyboardDockGeometrySource {
 /// its full keyboard-down height, and this host pins its bottom edge to the
 /// dock (composer bar) with ONE constraint —
 ///
-///     renderWrapper.bottom == dock.top + steadyBottomChromeReservation
+///     renderWrapper.bottom == dock.top + steadyBottomChromeReservation + slack
 ///
 /// so keyboard motion is a single animated layout pass moving the dock, with
 /// the full-height render riding it and the top rows clipping behind the
@@ -60,6 +60,9 @@ public final class GhosttySurfaceHostView: UIView {
     /// renderWrapper.bottom == dock.top + steady chrome reservation.
     private var presentationBottomConstraint: NSLayoutConstraint!
     private let keyboardDockGeometrySource = KeyboardDockGeometrySource.current
+    /// Points of the keyboard intrusion currently absorbed by blank rows
+    /// below the terminal content (see `syncPresentationReservation`).
+    private var appliedAbsorptionSlack: CGFloat = 0
     #if DEBUG
     private var maximumTerminalDockPresentationGap: CGFloat = 0
     #endif
@@ -174,9 +177,32 @@ public final class GhosttySurfaceHostView: UIView {
             height: targetHeight,
             isVisible: transition.isVisible(in: self)
         )
+        #if DEBUG
+        maximumTerminalDockPresentationGap = 0
+        #endif
+        let slack = TerminalLetterboxGeometry.keyboardAbsorptionSlack(
+            blankBelowContent: surfaceView.hostedBlankBelowContent,
+            intrusion: keyboardIntrusion(forHeight: targetHeight)
+        )
+        let slackChanged = abs(
+            (surfaceView.hostedBottomChromeReservation + slack)
+                - presentationBottomConstraint.constant
+        ) > 0.25
+        if slackChanged {
+            appliedAbsorptionSlack = slack
+            presentationBottomConstraint.constant =
+                surfaceView.hostedBottomChromeReservation + slack
+        }
         guard hostOwnsDockSeat else {
             // The system guide retargets the dock inside UIKit's own keyboard
             // transaction; the wrapper and clip ride the same constraint pass.
+            // A slack retarget still needs an animated pass of its own, with
+            // the keyboard's curve, so both edges land together.
+            if slackChanged {
+                transition.animate { [weak self] in
+                    self?.layoutIfNeeded()
+                }
+            }
             return
         }
         dockBottomConstraint.constant = -surfaceView.hostedBottomReservation(
@@ -217,16 +243,65 @@ public final class GhosttySurfaceHostView: UIView {
         }
     }
 
-    /// Keeps `renderWrapper.bottom == dock.top + reservation` seated on the
-    /// CURRENT steady-state chrome band (composer band + toolbar + bottom safe
-    /// area; zero while the chrome is hidden). The constant changes only on
-    /// real chrome changes — composer growth, toolbar visibility, safe-area
-    /// updates — never on keyboard motion, and a change made inside an
-    /// animation block rides that animation's layout pass.
+    /// Keeps `renderWrapper.bottom == dock.top + reservation + slack` seated.
+    ///
+    /// `reservation` is the steady-state chrome band (composer band + toolbar
+    /// + bottom safe area; zero while the chrome is hidden) and changes only
+    /// on real chrome changes. `slack` is the blank-space absorption: while
+    /// the content bottom fits above the composer bar, the blank rows below
+    /// it absorb the keyboard intrusion and the terminal stays top-pinned
+    /// under the navigation bar; as content grows the slack shrinks and the
+    /// render transitions continuously into the full bottom-pin. A constant
+    /// change made inside an animation block rides that animation's layout
+    /// pass.
     private func syncPresentationReservation() {
         let reservation = surfaceView.hostedBottomChromeReservation
-        guard abs(presentationBottomConstraint.constant - reservation) > 0.25 else { return }
-        presentationBottomConstraint.constant = reservation
+        let slack = currentAbsorptionSlack()
+        appliedAbsorptionSlack = slack
+        let constant = reservation + slack
+        guard abs(presentationBottomConstraint.constant - constant) > 0.25 else { return }
+        presentationBottomConstraint.constant = constant
+    }
+
+    /// The blank-space absorption for the CURRENT keyboard model state.
+    private func currentAbsorptionSlack() -> CGFloat {
+        TerminalLetterboxGeometry.keyboardAbsorptionSlack(
+            blankBelowContent: surfaceView.hostedBlankBelowContent,
+            intrusion: keyboardIntrusion(forHeight: surfaceView.hostedKeyboardHeight)
+        )
+    }
+
+    /// How far the dock top sits above its keyboard-down seat for a keyboard
+    /// of `height`: the reservation delta between the live keyboard and the
+    /// steady state, in the current chrome mode.
+    private func keyboardIntrusion(forHeight height: CGFloat) -> CGFloat {
+        let inset = resolvedBottomSafeAreaInset
+        return max(
+            0,
+            surfaceView.hostedBottomReservation(keyboardHeight: height, bottomSafeAreaInset: inset)
+                - surfaceView.hostedBottomReservation(keyboardHeight: 0, bottomSafeAreaInset: inset)
+        )
+    }
+
+    /// Per-frame follow while a keyboard is up: content written under the
+    /// keyboard consumes the blank band, so the slack shrinks and the render
+    /// slides just enough to keep the content bottom above the composer bar
+    /// (and re-expands after a `clear`). Driven by the surface's display
+    /// link; a no-op within half a point.
+    func refreshKeyboardAbsorptionIfNeeded() {
+        guard surfaceView.hostedKeyboardHeight > 0 else { return }
+        let slack = currentAbsorptionSlack()
+        guard abs(slack - appliedAbsorptionSlack) > 0.5 else { return }
+        appliedAbsorptionSlack = slack
+        let constant = surfaceView.hostedBottomChromeReservation + slack
+        UIView.animate(
+            withDuration: 0.2,
+            delay: 0,
+            options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
+        ) {
+            self.presentationBottomConstraint.constant = constant
+            self.layoutIfNeeded()
+        }
     }
 
     private func seatDockWithoutAnimation() {
@@ -279,6 +354,7 @@ public final class GhosttySurfaceHostView: UIView {
     var debugUsesNotificationKeyboardDock: Bool {
         keyboardDockGeometrySource == .keyboardNotifications
     }
+    var debugKeyboardAbsorptionSlack: CGFloat { appliedAbsorptionSlack }
     var debugKeyboardTargetHeight: CGFloat { surfaceView.hostedKeyboardHeight }
     var debugKeyboardTargetTop: CGFloat {
         surfaceView.hostedBottomDockFrame.maxY
@@ -292,7 +368,9 @@ public final class GhosttySurfaceHostView: UIView {
 
     /// The pixel seam between the render's bottom edge and the dock's top
     /// edge. Both derive from one constraint system laid out in one pass, so
-    /// this must hold near zero on EVERY frame of every keyboard transition.
+    /// on every frame of every keyboard transition this must equal the
+    /// blank-space absorption slack (zero whenever content reaches the
+    /// composer bar).
     private var terminalDockPresentationGap: CGFloat {
         guard let terminalBottom = surfaceView.hostedTerminalPresentationBottom(in: self),
               let dockTop = surfaceView.hostedBottomDockPresentationTop(in: self) else { return 0 }

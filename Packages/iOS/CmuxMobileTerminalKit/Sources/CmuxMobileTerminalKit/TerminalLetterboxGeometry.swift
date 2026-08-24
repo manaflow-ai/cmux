@@ -181,6 +181,30 @@ public struct TerminalLetterboxGeometry {
         )
     }
 
+    /// How much of the keyboard intrusion the BLANK space below the terminal
+    /// content absorbs before the render slides at all.
+    ///
+    /// While the content bottom fits above the composer bar the terminal
+    /// stays top-pinned (the keyboard covers only blank rows); once content
+    /// outgrows the visible window the slack shrinks row by row and the
+    /// render transitions smoothly into the full bottom-pin, where the newest
+    /// rows ride the composer bar. `nil` blank (cursor unknown, or an
+    /// alternate-screen app that owns the whole grid) absorbs nothing: the
+    /// safe default is the plain bottom-pin.
+    ///
+    /// - Parameters:
+    ///   - blankBelowContent: Points of blank render below the content bottom,
+    ///     or `nil` when it cannot be trusted.
+    ///   - intrusion: How far the dock top sits above its keyboard-down seat.
+    /// - Returns: The slack in points, in `[0, intrusion]`.
+    public static func keyboardAbsorptionSlack(
+        blankBelowContent: CGFloat?,
+        intrusion: CGFloat
+    ) -> CGFloat {
+        guard let blankBelowContent else { return 0 }
+        return min(max(0, blankBelowContent), max(0, intrusion))
+    }
+
     /// The cell size in device pixels derived from a measured surface size.
     ///
     /// Returns `.zero` when any measured dimension is non-positive, matching the

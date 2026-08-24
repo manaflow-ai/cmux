@@ -181,6 +181,36 @@ struct TerminalLetterboxGeometryTests {
         #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 0, windowInset: 0) == 0)
     }
 
+    @Test("keyboard absorption slack: blank rows absorb before content moves")
+    func keyboardAbsorptionSlackContract() {
+        // Post-`clear` shell: nearly the whole render is blank, so the whole
+        // intrusion is absorbed and the terminal stays top-pinned.
+        #expect(TerminalLetterboxGeometry.keyboardAbsorptionSlack(
+            blankBelowContent: 700, intrusion: 302
+        ) == 302)
+        // Full screen of content: nothing to absorb, plain bottom-pin.
+        #expect(TerminalLetterboxGeometry.keyboardAbsorptionSlack(
+            blankBelowContent: 0, intrusion: 302
+        ) == 0)
+        // Partially filled: content slides only past the blank rows, so the
+        // transition from top-pin to bottom-pin is continuous.
+        #expect(TerminalLetterboxGeometry.keyboardAbsorptionSlack(
+            blankBelowContent: 120, intrusion: 302
+        ) == 120)
+        // Unknown content bottom (or alternate screen): safe bottom-pin.
+        #expect(TerminalLetterboxGeometry.keyboardAbsorptionSlack(
+            blankBelowContent: nil, intrusion: 302
+        ) == 0)
+        // Keyboard down: no intrusion, no slack, natural layout.
+        #expect(TerminalLetterboxGeometry.keyboardAbsorptionSlack(
+            blankBelowContent: 700, intrusion: 0
+        ) == 0)
+        // Defensive: negative inputs cannot create motion.
+        #expect(TerminalLetterboxGeometry.keyboardAbsorptionSlack(
+            blankBelowContent: -5, intrusion: -5
+        ) == 0)
+    }
+
     @Test("clampPinnedSize bounds refined pixels by the container")
     func clampPinned() {
         // refined 540x540 px at scale 3 = 180x180 points, within container.
