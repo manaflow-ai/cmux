@@ -131,4 +131,64 @@ struct AgentObservedAttentionConclusionLedgerTests {
             )
         )
     }
+
+    @Test("Reinserted boundaries remain owned after bounded queue churn")
+    func reinsertedBoundariesRemainOwned() {
+        let generation = AgentProcessGeneration(
+            pid: 50,
+            startSeconds: 110,
+            startMicroseconds: 210
+        )
+        var ledger = AgentObservedAttentionConclusionLedger()
+        let reusedSession = "reused-boundary-session"
+
+        ledger.record(
+            source: "amp",
+            sessionId: reusedSession,
+            observationId: nil,
+            scopeId: nil,
+            processGeneration: generation,
+            boundaryEpoch: 1
+        )
+        for index in 0 ... 4_096 {
+            ledger.record(
+                source: "amp",
+                sessionId: "boundary-session-\(index)",
+                observationId: nil,
+                scopeId: nil,
+                processGeneration: generation,
+                boundaryEpoch: UInt64(index)
+            )
+        }
+        ledger.record(
+            source: "amp",
+            sessionId: reusedSession,
+            observationId: nil,
+            scopeId: nil,
+            processGeneration: generation,
+            boundaryEpoch: 10_000
+        )
+
+        for index in 4_097 ... 8_191 {
+            ledger.record(
+                source: "amp",
+                sessionId: "boundary-session-\(index)",
+                observationId: nil,
+                scopeId: nil,
+                processGeneration: generation,
+                boundaryEpoch: UInt64(index)
+            )
+        }
+
+        #expect(
+            ledger.contains(
+                source: "amp",
+                sessionId: reusedSession,
+                observationId: "observation",
+                scopeId: "scope",
+                processGeneration: generation,
+                observationEpoch: 10_000
+            )
+        )
+    }
 }

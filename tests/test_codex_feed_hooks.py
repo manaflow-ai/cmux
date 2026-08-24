@@ -1294,9 +1294,17 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
         source: str,
         session_id: str,
         turn_id: str,
-        work_id: str,
+        work_id: str | None,
         env: dict[str, str],
     ) -> None:
+        payload = {
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "cwd": str(root),
+            "hook_event_name": "SubagentStart",
+        }
+        if work_id is not None:
+            payload["agent_id"] = work_id
         run_hook(
             [
                 "hooks",
@@ -1306,13 +1314,7 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
                 "--event",
                 "SubagentStart",
             ],
-            {
-                "session_id": session_id,
-                "turn_id": turn_id,
-                "cwd": str(root),
-                "hook_event_name": "SubagentStart",
-                "agent_id": work_id,
-            },
+            payload,
             env,
         )
 
@@ -1321,9 +1323,17 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
         source: str,
         session_id: str,
         turn_id: str,
-        work_id: str,
+        work_id: str | None,
         env: dict[str, str],
     ) -> None:
+        payload = {
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "cwd": str(root),
+            "hook_event_name": "SubagentStop",
+        }
+        if work_id is not None:
+            payload["agent_id"] = work_id
         run_hook(
             [
                 "hooks",
@@ -1333,13 +1343,7 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
                 "--event",
                 "SubagentStop",
             ],
-            {
-                "session_id": session_id,
-                "turn_id": turn_id,
-                "cwd": str(root),
-                "hook_event_name": "SubagentStop",
-                "agent_id": work_id,
-            },
+            payload,
             env,
         )
 
@@ -1451,6 +1455,69 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
             raise AssertionError(
                 "Structured work retained a 33rd exact turn: "
                 f"{bounded_state!r}"
+            )
+
+        unknown_session_id = (
+            f"structured-background-work-unknown-id-{os.getpid()}"
+        )
+        unknown_turn_id = "structured-work-unknown-id"
+        record_work(
+            source="codex",
+            session_id=unknown_session_id,
+            turn_id=unknown_turn_id,
+            work_id=None,
+            env=bounds_env,
+        )
+        unknown_state = session_state(
+            bounds_state_dir,
+            "codex",
+            unknown_session_id,
+        )
+        if unknown_turn_id not in unknown_state.get(
+            "backgroundWorkOverflowTurnKeys",
+            [],
+        ):
+            raise AssertionError(
+                "A missing subagent id did not fail closed: "
+                f"{unknown_state!r}"
+            )
+        unknown_stop_start = len(fake.frames)
+        run_hook(
+            ["hooks", "codex", "stop"],
+            {
+                "session_id": unknown_session_id,
+                "turn_id": unknown_turn_id,
+                "cwd": str(root),
+            },
+            bounds_env,
+        )
+        wait_for_stop_delivery(fake, unknown_stop_start)
+        unknown_stop_commands = [
+            frame.get("raw", "")
+            for frame in fake.frames[unknown_stop_start:]
+            if "raw" in frame
+        ]
+        if any(
+            "set_agent_lifecycle codex idle" in command
+            or command.startswith("notify_target_async ")
+            for command in unknown_stop_commands
+        ):
+            raise AssertionError(
+                "A missing subagent id allowed Stop to settle: "
+                f"{unknown_stop_commands!r}"
+            )
+        unknown_stopped_state = session_state(
+            bounds_state_dir,
+            "codex",
+            unknown_session_id,
+        )
+        if unknown_turn_id not in unknown_stopped_state.get(
+            "deferredTurnSettlementsByTurn",
+            {},
+        ):
+            raise AssertionError(
+                "A missing subagent id did not retain a provisional Stop: "
+                f"{unknown_stopped_state!r}"
             )
 
         before_stop = len(fake.frames)
