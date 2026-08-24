@@ -5343,10 +5343,37 @@ mod tests {
     use super::*;
     use std::ffi::OsString;
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     /// Config env vars are process-global state; tests that set them must not
     /// run concurrently with each other.
     static CONFIG_ENV_LOCK: Mutex<()> = Mutex::new(());
+    static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+    struct TestDirectory {
+        path: PathBuf,
+    }
+
+    impl TestDirectory {
+        fn new(label: &str) -> Self {
+            loop {
+                let sequence = NEXT_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+                let path = std::env::temp_dir()
+                    .join(format!("cmux-tui-config-{label}-{}-{sequence}", std::process::id()));
+                match std::fs::create_dir(&path) {
+                    Ok(()) => return Self { path },
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => panic!("create config test directory failed: {error}"),
+                }
+            }
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
 
     fn restore_env_var(key: &str, value: Option<OsString>) {
         match value {
@@ -7756,17 +7783,14 @@ mod tests {
     #[test]
     fn invalid_section_does_not_discard_valid_sections() {
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
-        let dir =
-            std::env::temp_dir().join(format!("cmux-tui-section-recovery-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("cmux-tui.json");
+        let dir = TestDirectory::new("section-recovery");
+        let path = dir.path.join("cmux-tui.json");
         std::fs::write(&path, r##"{"theme":{"sidebar_rail":42},"browser":{"mode":"stealth"}}"##)
             .unwrap();
         let old = std::env::var_os("CMUX_TUI_CONFIG");
         unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
         let config = load();
         restore_env_var("CMUX_TUI_CONFIG", old);
-        let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(config.theme.sidebar_rail, Color::Indexed(42));
         assert_eq!(config.browser.mode, BrowserMode::Headful);
     }
