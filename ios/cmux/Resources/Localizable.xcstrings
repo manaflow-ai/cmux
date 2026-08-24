@@ -7504,6 +7504,40 @@
         }
       }
     },
+    "mobile.settings.rebuildKeyboardDock": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebuilt Keyboard Pinning"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再構築版キーボード固定"
+          }
+        }
+      }
+    },
+    "mobile.settings.rebuildKeyboardDockCaption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use the rebuilt keyboard path instead of the default (iOS 26 and earlier). Reopen the workspace to apply."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトの代わりに再構築版キーボード処理を使用します（iOS 26 以前）。ワークスペースを開き直すと適用されます。"
+          }
+        }
+      }
+    },
     "mobile.settings.devices": {
       "extractionState": "manual",
       "localizations": {
