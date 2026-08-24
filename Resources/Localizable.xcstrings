@@ -561,6 +561,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "検索中…" } }
       }
     },
+    "sessionIndex.search.noResults": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No matching sessions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "一致するセッションはありません" } }
+      }
+    },
     "sessionIndex.search.results": {
       "extractionState": "manual",
       "localizations": {

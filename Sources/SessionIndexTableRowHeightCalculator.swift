@@ -14,12 +14,15 @@ final class SessionIndexTableRowHeightCalculator {
         case .gap:
             return 4
         case .section(let section, let rowLimit, _, _, let isCollapsed, _, _, _):
-            let headerHeight = lineHeight(
-                baseFontSize: 13,
-                minimumContentHeight: 14,
-                verticalPadding: 6,
-                environment: environment
-            )
+            let isSearchResultsSection = section.key == SessionIndexView.searchResultsSectionKey
+            let headerHeight: CGFloat = isSearchResultsSection
+                ? 0
+                : lineHeight(
+                    baseFontSize: 13,
+                    minimumContentHeight: 14,
+                    verticalPadding: 6,
+                    environment: environment
+                )
             guard !isCollapsed else { return headerHeight }
 
             let entryHeight = lineHeight(

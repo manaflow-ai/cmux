@@ -53,6 +53,9 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
 
     private weak var containerView: SessionIndexTableContainerView?
     private var rows: [SessionIndexTableRow] = []
+    /// The table owns disclosure state so a click can commit one row snapshot
+    /// without waiting for the outer SwiftUI graph to rebuild.
+    private var collapsedSectionKeys: Set<SectionKey> = []
     private var environment: SessionIndexTableEnvironmentSnapshot?
     private let rowHeightCalculator = SessionIndexTableRowHeightCalculator()
     private let popoverPresenter: SessionIndexTablePopoverPresenter
@@ -116,13 +119,97 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
         )
     }
 
+    /// Projects incoming rows onto the controller-owned disclosure snapshot.
+    /// The parent may rebuild rows for unrelated Vault changes, but it cannot
+    /// accidentally reset an in-progress disclosure transition.
+    private func canonicalRows(from inputRows: [SessionIndexTableRow]) -> [SessionIndexTableRow] {
+        var availableSections = Set<SectionKey>()
+        let projected = inputRows.map { row -> SessionIndexTableRow in
+            guard case let .section(
+                section,
+                rowLimit,
+                isDragged,
+                popoverIdentity,
+                _,
+                actions,
+                parentSetCollapsed,
+                setPopoverOpen
+            ) = row else {
+                return row
+            }
+
+            availableSections.insert(section.key)
+            let sectionKey = section.key
+            let isSearchResultsSection = sectionKey == SessionIndexView.searchResultsSectionKey
+            let isCollapsed = !isSearchResultsSection
+                && collapsedSectionKeys.contains(sectionKey)
+            // A stale parent snapshot can still carry the popover identity
+            // for the click that just collapsed this section. Clear it in the
+            // same canonical projection so the table never paints a hidden
+            // anchor for one frame while SwiftUI catches up.
+            let effectivePopoverIdentity = isCollapsed ? nil : popoverIdentity
+            return .section(
+                section: section,
+                rowLimit: rowLimit,
+                isDragged: isDragged,
+                popoverIdentity: effectivePopoverIdentity,
+                isCollapsed: isCollapsed,
+                actions: actions,
+                setCollapsed: { [weak self] value in
+                    self?.setCollapsed(
+                        sectionKey: sectionKey,
+                        value: value,
+                        parentAction: parentSetCollapsed
+                    )
+                },
+                setPopoverOpen: setPopoverOpen
+            )
+        }
+        collapsedSectionKeys.formIntersection(availableSections)
+        collapsedSectionKeys.remove(SessionIndexView.searchResultsSectionKey)
+        return projected
+    }
+
+    /// Commits a disclosure mutation directly through the table controller.
+    /// The outer SwiftUI projection will converge to this snapshot afterward,
+    /// but it cannot create a second visible transition.
+    private func setCollapsed(
+        sectionKey: SectionKey,
+        value: Bool,
+        parentAction: @escaping @MainActor (Bool) -> Void
+    ) {
+        guard !isApplyingRows,
+              collapsedSectionKeys.contains(sectionKey) != value else {
+            return
+        }
+
+        collapsedSectionKeys.remove(sectionKey)
+        if value {
+            collapsedSectionKeys.insert(sectionKey)
+        }
+
+        // Preserve the existing popover-dismissal contract without letting
+        // that parent state change own the table transition.
+        parentAction(value)
+        mutationScheduler.cancelPending()
+
+        guard let environment else { return }
+        let nextRows = canonicalRows(from: rows)
+        flushApply(
+            SessionIndexTableApplyInput(
+                rows: nextRows,
+                environment: environment
+            )
+        )
+    }
+
     func dismantle() {
         popoverPresenter.dismiss()
     }
 
     private func flushApply(_ input: SessionIndexTableApplyInput) {
         guard let table = containerView?.tableView else { return }
-        let nextRows = input.rows
+        let nextRows = canonicalRows(from: input.rows)
         let nextEnvironment = input.environment
         let previousRows = rows
         let hasStructuralChanges = previousRows.map(\.id) != nextRows.map(\.id)

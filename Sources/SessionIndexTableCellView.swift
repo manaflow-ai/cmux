@@ -4,27 +4,29 @@ import SwiftUI
 /// Recycled AppKit cell containing one stable Vault row hosting view.
 @MainActor
 final class SessionIndexTableCellView: NSTableCellView {
+    private let model: SessionIndexTableCellModel
     private let highlightProjection = SessionIndexTableCellHighlightProjection()
     private var popoverAnchorRects: [SessionIndexTablePopoverIdentity: NSRect] = [:]
     private lazy var hostingView = NSHostingView(
         rootView: SessionIndexTableCellRootView(
-            row: .gap(beforeKey: nil, isValidDrop: true, actions: SectionGapActions(
-                currentDraggedKey: { nil },
-                moveSection: { _, _ in },
-                clearDraggedKey: {}
-            )),
-            environment: .fallback,
+            model: model,
             highlight: highlightProjection,
             onPopoverAnchorChange: { [weak self] identity, rect in
                 self?.updatePopoverAnchor(identity, rect: rect)
             }
         )
     )
-    private var configuredRow: SessionIndexTableRow?
-    private var configuredEnvironment: SessionIndexTableEnvironmentSnapshot?
     var onPopoverAnchorChange: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
+        model = SessionIndexTableCellModel(
+            row: .gap(beforeKey: nil, isValidDrop: true, actions: SectionGapActions(
+                currentDraggedKey: { nil },
+                moveSection: { _, _ in },
+                clearDraggedKey: {}
+            )),
+            environment: .fallback
+        )
         super.init(frame: frameRect)
         wantsLayer = true
         hostingView.wantsLayer = true
@@ -51,23 +53,10 @@ final class SessionIndexTableCellView: NSTableCellView {
         environment: SessionIndexTableEnvironmentSnapshot
     ) {
         highlightProjection.sync(from: row)
-        if let configuredRow,
-           let configuredEnvironment,
-           configuredRow.hasEquivalentContent(to: row),
-           configuredEnvironment.hasEquivalentPresentation(to: environment) {
+        guard model.configure(row: row, environment: environment) else {
             return
         }
         popoverAnchorRects.removeAll()
-        configuredRow = row
-        configuredEnvironment = environment
-        hostingView.rootView = SessionIndexTableCellRootView(
-            row: row,
-            environment: environment,
-            highlight: highlightProjection,
-            onPopoverAnchorChange: { [weak self] identity, rect in
-                self?.updatePopoverAnchor(identity, rect: rect)
-            }
-        )
     }
 
     func updatePresentation(from row: SessionIndexTableRow) {

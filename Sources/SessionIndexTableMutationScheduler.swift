@@ -24,6 +24,15 @@ final class SessionIndexTableMutationScheduler {
         }
     }
 
+    /// Drops a queued projection before an interactive table mutation applies
+    /// its authoritative snapshot synchronously.
+    func cancelPending() {
+        pendingApply = nil
+        // Keep the already scheduled RunLoop turn reserved. Resetting this
+        // flag here allows a second callback to race the first one and makes
+        // a parent projection land in a separate layout transaction.
+    }
+
     private func flushPendingApply() {
         let input = pendingApply
         pendingApply = nil

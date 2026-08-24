@@ -108,8 +108,6 @@ struct SessionIndexView: View {
     /// transitions don't invalidate data-subscribed views elsewhere in the
     /// sidebar.
     @State private var dragCoordinator = SessionDragCoordinator()
-    /// Sections the user has explicitly collapsed (default is expanded).
-    @State private var collapsedSections: Set<SectionKey> = []
     /// Single source of truth for both Vault popover variants.
     @State private var popoverIdentity: SessionIndexTablePopoverIdentity?
     /// Recency ("All") grouping: global session search input + results.
@@ -155,7 +153,7 @@ struct SessionIndexView: View {
             controlBar
             VaultAllSessionsBar(
                 store: store,
-                showsSortAndFilter: store.grouping == .recency,
+                showsSortAndFilter: store.grouping == .recency && !isShowingSearchResults,
                 searchText: $searchText,
                 onPeekTopResult: { peekTopSearchResult() },
                 onResumeTopResult: { resumeTopSearchResult() }
@@ -167,12 +165,24 @@ struct SessionIndexView: View {
                 loadingView
             } else if store.entries.isEmpty {
                 emptyView
+            } else if isShowingSearchResults && isSearchInFlight {
+                searchStatusView
+            } else if isShowingSearchResults && searchResults.isEmpty {
+                searchEmptyView
             } else {
                 sessionsList
             }
         }
         .task(id: searchTaskKey) {
             await runGlobalSearch()
+        }
+        .onChange(of: trimmedSearchText) { _, newValue in
+            // Flip the presentation into its searching state in the same
+            // event that the query changes; waiting for the async task to
+            // start leaves one stale frame of the previous result list.
+            searchResults = []
+            searchErrors = []
+            isSearchInFlight = !newValue.isEmpty
         }
         .onAppear {
             // RightSidebarPanelView's mode toggle also kicks reload() when
@@ -199,21 +209,23 @@ struct SessionIndexView: View {
 
             Spacer(minLength: 4)
 
-            ScopeButton(
-                isOn: $store.scopeToCurrentDirectory,
-                isEnabled: store.currentDirectory != nil,
-                label: String(localized: "sessionIndex.scope.thisFolder", defaultValue: "This folder only")
-            )
-            .frame(height: RightSidebarChromeMetrics.controlHeight)
-            .reportRightSidebarChromeNamedGeometryForBonsplitUITest(keyPrefix: "rightSidebarSecondaryControl_scope", isVisible: true)
-            .accessibilityIdentifier("SessionScopeToggle.thisFolder")
-            .titlebarInteractiveControl()
+            if !isShowingSearchResults {
+                ScopeButton(
+                    isOn: $store.scopeToCurrentDirectory,
+                    isEnabled: store.currentDirectory != nil,
+                    label: String(localized: "sessionIndex.scope.thisFolder", defaultValue: "This folder only")
+                )
+                .frame(height: RightSidebarChromeMetrics.controlHeight)
+                .reportRightSidebarChromeNamedGeometryForBonsplitUITest(keyPrefix: "rightSidebarSecondaryControl_scope", isVisible: true)
+                .accessibilityIdentifier("SessionScopeToggle.thisFolder")
+                .titlebarInteractiveControl()
 
-            VaultOverflowMenu(
-                isLoading: store.isLoading,
-                onReload: { store.reload() }
-            )
-            .accessibilityIdentifier("SessionIndexOverflowMenu")
+                VaultOverflowMenu(
+                    isLoading: store.isLoading,
+                    onReload: { store.reload() }
+                )
+                .accessibilityIdentifier("SessionIndexOverflowMenu")
+            }
         }
         // Match the right-sidebar mode bar above: the same 4/6-point outer
         // insets and the same 28-point chrome rhythm.
@@ -309,9 +321,45 @@ struct SessionIndexView: View {
                 loadSnapshot: loadSnapshotFn
             )
             // Day buckets and the search-results section are computed, not
-            // user-orderable: their gaps reject drops and "Show more" expands
-            // inline instead of opening the scope-keyed popover.
+            // user-orderable: their gaps reject drops. Day buckets can still
+            // expand inline; search results are already rendered to the full
+            // bounded response cap.
             let isComputedSection = Self.isComputedSectionKey(section.key)
+            let sectionRow = SessionIndexTableRow.section(
+                section: section,
+                rowLimit: rowLimit(for: section),
+                isDragged: draggedKey == section.key,
+                popoverIdentity: popoverIdentity?.sectionKey == section.key
+                    ? popoverIdentity
+                    : nil,
+                isCollapsed: false,
+                actions: sectionActions,
+                setCollapsed: { newValue in
+                    // Disclosure is committed by the AppKit table
+                    // controller. The parent only owns the independent
+                    // popover lifecycle, so collapsing an open section
+                    // still dismisses its presentation without becoming
+                    // a second source of row geometry.
+                    if newValue,
+                       popoverIdentity?.sectionKey == section.key {
+                        popoverIdentity = nil
+                    }
+                },
+                setPopoverOpen: { newValue in
+                    if isComputedSection {
+                        if newValue {
+                            expandedDaySections.insert(section.key)
+                        }
+                        return
+                    }
+                    if newValue {
+                        popoverIdentity = .section(section.key)
+                    } else if popoverIdentity == .section(section.key) {
+                        popoverIdentity = nil
+                    }
+                }
+            )
+            guard !isShowingSearchResults else { return [sectionRow] }
             return [
                 SessionIndexTableRow.gap(
                     beforeKey: section.key,
@@ -319,47 +367,15 @@ struct SessionIndexView: View {
                         && (draggedKey == nil || draggedKey != section.key),
                     actions: gapActions
                 ),
-                SessionIndexTableRow.section(
-                    section: section,
-                    rowLimit: rowLimit(for: section),
-                    isDragged: draggedKey == section.key,
-                    popoverIdentity: popoverIdentity?.sectionKey == section.key
-                        ? popoverIdentity
-                        : nil,
-                    isCollapsed: collapsedSections.contains(section.key),
-                    actions: sectionActions,
-                    setCollapsed: { newValue in
-                        if newValue {
-                            collapsedSections.insert(section.key)
-                            if popoverIdentity?.sectionKey == section.key {
-                                popoverIdentity = nil
-                            }
-                        } else {
-                            collapsedSections.remove(section.key)
-                        }
-                    },
-                    setPopoverOpen: { newValue in
-                        if isComputedSection {
-                            if newValue {
-                                expandedDaySections.insert(section.key)
-                            }
-                            return
-                        }
-                        if newValue {
-                            popoverIdentity = .section(section.key)
-                        } else if popoverIdentity == .section(section.key) {
-                            popoverIdentity = nil
-                        }
-                    }
-                ),
+                sectionRow,
             ]
-        } + [
+        } + (isShowingSearchResults ? [] : [
             SessionIndexTableRow.gap(
                 beforeKey: nil,
                 isValidDrop: true,
                 actions: gapActions
             ),
-        ]
+        ])
 
         return SessionIndexTableView(rows: rows)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -375,6 +391,11 @@ struct SessionIndexView: View {
     }
 
     private func rowLimit(for section: IndexSection) -> Int {
+        if section.key == Self.searchResultsSectionKey {
+            // Search is a flat result list, not a collapsible day bucket;
+            // render the complete bounded search response in one pass.
+            return SessionIndexStore.globalSearchResultCap
+        }
         guard Self.isComputedSectionKey(section.key) else {
             return Self.collapsedRowLimit
         }
@@ -399,6 +420,24 @@ struct SessionIndexView: View {
         )
     }
 
+    private var searchStatusView: some View {
+        Text(String(localized: "sessionIndex.search.searching", defaultValue: "Searching…"))
+            .cmuxFont(size: 11, weight: .medium)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+    }
+
+    private var searchEmptyView: some View {
+        Text(String(localized: "sessionIndex.search.noResults", defaultValue: "No matching sessions"))
+            .cmuxFont(size: 11)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+    }
+
     /// `.task(id:)` key: re-runs the search when the query changes, when the
     /// user enters/leaves the recency grouping, and after a reload finishes
     /// (fresh entries can change the metadata phase).
@@ -414,11 +453,15 @@ struct SessionIndexView: View {
             isSearchInFlight = false
             return
         }
+        // Clear stale matches as soon as the query changes so the list never
+        // shows results for the previous query while the new one is running.
+        searchResults = []
+        searchErrors = []
+        isSearchInFlight = true
         // Rapid keystrokes bump the task id, cancelling this genuine debounce
         // deadline before any transcript work starts.
         try? await ContinuousClock().sleep(for: .milliseconds(200))
         guard !Task.isCancelled else { return }
-        isSearchInFlight = true
         let outcome = await store.searchAllSessions(rawQuery: trimmedSearchText)
         guard !Task.isCancelled else { return }
         searchResults = outcome.entries
@@ -649,13 +692,18 @@ struct IndexSectionView: View, Equatable {
     /// opacity fade doesn't require observing the drag coordinator here.
     let isDragged: Bool
     let previewEntryId: SessionEntry.ID?
-    @Binding var isCollapsed: Bool
+    let isCollapsed: Bool
+    let onToggleCollapsed: () -> Void
     let onShowMore: () -> Void
     let onPopoverAnchorChange: (SessionIndexTablePopoverIdentity, CGRect?) -> Void
     /// Value-type action bundle. See `IndexSectionActions`; replaces the
     /// earlier `store` / `dragCoordinator` class references so rows can't
     /// observe the store.
     let actions: IndexSectionActions
+
+    private var isSearchResultsSection: Bool {
+        section.key == SessionIndexView.searchResultsSectionKey
+    }
 
     /// Skip body re-eval when this view's inputs are unchanged. `actions` is
     /// not comparable (closures) but is expected to be stable (closures
@@ -675,7 +723,9 @@ struct IndexSectionView: View, Equatable {
             for: section.entries.prefix(rowLimit)
         )
         VStack(alignment: .leading, spacing: 0) {
-            sectionHeader
+            if !isSearchResultsSection {
+                sectionHeader
+            }
             if !isCollapsed {
                 ForEach(rows) { row in
                     SessionRow(
@@ -685,7 +735,8 @@ struct IndexSectionView: View, Equatable {
                         beginSessionDrag: actions.beginSessionDrag,
                         onPreview: { actions.onPreviewEntry(row.entry) },
                         onResume: actions.onResume,
-                        onOpen: actions.onOpen
+                        onOpen: actions.onOpen,
+                        leadingPadding: isSearchResultsSection ? 12 : 32
                     )
                         .equatable()
                         .id(row.id)
@@ -704,7 +755,7 @@ struct IndexSectionView: View, Equatable {
                             )
                         }
                 }
-                if section.shouldOfferShowMore(rowLimit: rowLimit) {
+                if !isSearchResultsSection && section.shouldOfferShowMore(rowLimit: rowLimit) {
                     showMoreButton
                 }
                 Spacer(minLength: 2)
@@ -727,7 +778,7 @@ struct IndexSectionView: View, Equatable {
             Text(String(localized: "sessionIndex.section.showMore", defaultValue: "Show more"))
                 .cmuxFont(size: 12, weight: .medium)
                 .foregroundColor(.secondary.opacity(0.7))
-                .padding(.leading, 32)
+                .padding(.leading, isSearchResultsSection ? 12 : 32)
                 .padding(.trailing, 12)
                 .padding(.vertical, 4)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -771,7 +822,7 @@ struct IndexSectionView: View, Equatable {
 
     private var sectionHeaderButton: some View {
         Button {
-            isCollapsed.toggle()
+            onToggleCollapsed()
         } label: {
             HStack(spacing: 8) {
                 sectionIconView
@@ -811,12 +862,12 @@ struct IndexSectionView: View, Equatable {
         case .day:
             Image(systemName: "calendar")
                 .cmuxFont(size: 12, weight: .regular)
-                .foregroundColor(.accentColor.opacity(0.82))
+                .foregroundColor(.secondary)
                 .frame(width: 14, height: 14)
         case .search:
             Image(systemName: "magnifyingglass")
                 .cmuxFont(size: 12, weight: .regular)
-                .foregroundColor(.accentColor.opacity(0.82))
+                .foregroundColor(.secondary)
                 .frame(width: 14, height: 14)
         }
     }
@@ -905,6 +956,7 @@ private struct SessionRow: View, Equatable {
     let onPreview: () -> Void
     let onResume: ((SessionEntry) -> Void)?
     let onOpen: ((SessionEntry) -> Void)?
+    let leadingPadding: CGFloat
     @State private var isHovered: Bool = false
 
     static func == (lhs: SessionRow, rhs: SessionRow) -> Bool {
@@ -913,6 +965,7 @@ private struct SessionRow: View, Equatable {
         lhs.entry == rhs.entry
             && lhs.accessory == rhs.accessory
             && lhs.isPreviewPresented == rhs.isPreviewPresented
+            && lhs.leadingPadding == rhs.leadingPadding
     }
 
     var body: some View {
@@ -964,7 +1017,7 @@ private struct SessionRow: View, Equatable {
                 .padding(.leading, 26)
             }
         }
-        .padding(.leading, 32)
+        .padding(.leading, leadingPadding)
         .padding(.trailing, 12)
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
