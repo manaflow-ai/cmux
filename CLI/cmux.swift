@@ -25078,7 +25078,14 @@ struct CMUXCLI {
                 surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                 telemetry: telemetry
             )
-            let shouldPromoteActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
+            // A compact SessionStart may be delivered through the focused pane
+            // while its recorded pane is temporarily absent. That surface is
+            // only a delivery guess: retain the persisted identity above, but
+            // never promote or register visible state on the borrowed pane.
+            let canMutateVisibleTarget = !isCompactSessionStart || resolvedSurface.isAuthoritative
+            let shouldPromoteActiveSession = canMutateVisibleTarget
+                && !isForkSessionLaunch
+                && (isClearSessionStart || canReplaceStoppedSession)
             var sessionRecordWorkspaceId = workspaceId
             var sessionRecordSurfaceId = surfaceId
             if isCompactSessionStart,
@@ -25142,16 +25149,18 @@ struct CMUXCLI {
             // cleanup clears only authoritative targets, so a fallback-pane
             // registration would leave a stale agent PID on a pane the fork
             // never owned.
-            let shouldRegisterPID = isForkSessionLaunch
-                ? resolvedSurface.isAuthoritative
-                : shouldPromoteActiveSession ||
-                    shouldApplyClaudeHookVisibleMutation(
-                        sessionStore: sessionStore,
-                        parsedInput: parsedInput,
-                        workspaceId: workspaceId,
-                        surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
-                        telemetry: telemetry
-                    )
+            let shouldRegisterPID = canMutateVisibleTarget && (
+                isForkSessionLaunch
+                    ? resolvedSurface.isAuthoritative
+                    : shouldPromoteActiveSession ||
+                        shouldApplyClaudeHookVisibleMutation(
+                            sessionStore: sessionStore,
+                            parsedInput: parsedInput,
+                            workspaceId: workspaceId,
+                            surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
+                            telemetry: telemetry
+                        )
+            )
             if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
