@@ -98,12 +98,32 @@ const CMUX_PROVISION_COMMAND = [
   "} >/tmp/cmux/provision.log 2>&1 || true",
 ].join(" ");
 
-// The machine knows its own name: the prompt reads noble-wren:~#, not (none):~#. Runtime
-// state, so it re-applies on resurrection too (this method runs on both paths).
+// The machine knows its own name: the prompt reads noble-wren:~#, not (none):~#. But a
+// renamed host must stay *resolvable*: TigerVNC's `vncserver` wrapper calls `hostname -f`
+// and aborts the whole desktop session when the name has no /etc/hosts entry. A bare
+// `hostname <name>` (all we used to do) silently broke noVNC on every desktop machine —
+// 5901 never bound and the browser showed "Failed to connect to server". Map the name to
+// loopback so `hostname -f` resolves. Idempotent: re-runs harmlessly on resurrection.
 export function hostnameSetupCommand(name: string): string {
   const q = shellQuote(name);
-  return `hostname ${q} 2>/dev/null; echo ${q} > /etc/hostname || true`;
+  return (
+    `hostname ${q} 2>/dev/null; echo ${q} > /etc/hostname || true; ` +
+    `grep -qF ${q} /etc/hosts || printf '127.0.0.1 %s\\n127.0.1.1 %s\\n' ${q} ${q} >> /etc/hosts`
+  );
 }
+
+// Desktop images (blaxel/xfce-vnc) start TigerVNC via supervisord at boot — before this
+// driver's bootstrap makes the hostname resolvable — so that first attempt fails and
+// supervisord exhausts its retries and gives up (FATAL). Once hostnameSetupCommand has
+// fixed /etc/hosts nothing kicks vncserver again, so we start it ourselves, as the image's
+// `cua` desktop user, when 5901 is not already listening (a snapshot-resumed machine keeps
+// its running Xtigervnc, so we skip). A no-op on base images, which have no start-vnc.sh.
+const DESKTOP_VNC_HEAL_PROCESS_NAME = "cmux-vnc-heal";
+export const DESKTOP_VNC_HEAL_COMMAND = [
+  "[ -x /usr/local/bin/start-vnc.sh ] || exit 0;",
+  "for i in 1 2 3 4 5; do { ss -tln 2>/dev/null || netstat -tln 2>/dev/null; } | grep -q ':5901 ' && exit 0; sleep 1; done;",
+  "exec runuser -u cua -- env HOME=/home/cua USER=cua DISPLAY=:1 bash /usr/local/bin/start-vnc.sh",
+].join(" ");
 
 const CMUXD_PREVIEW_NAME = "cmuxd";
 const PREVIEW_TOKEN_TTL_SECONDS = 12 * 60 * 60;
@@ -368,7 +388,9 @@ export class BlaxelProvider implements VMProvider {
     await this.startDaemonProcess(sandboxUrl);
     await this.startWatcherProcess(sandboxUrl);
     // Runtime state, so it re-applies on resurrection too (this method runs on both paths).
+    // Must precede the VNC heal: the heal only succeeds once the hostname resolves.
     await this.sandboxExec(sandboxUrl, hostnameSetupCommand(name)).catch(() => undefined);
+    await this.startDesktopVncHeal(sandboxUrl);
     // Agents and dev essentials come with the machine, installed in the background so attach
     // is never delayed. The .bashrc seed is write-once: /root persists, and a user's edits win.
     await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
@@ -402,6 +424,18 @@ export class BlaxelProvider implements VMProvider {
       waitForCompletion: false,
       keepAlive: true,
     });
+  }
+
+  // Best-effort: a desktop machine should come up with its screen, but a base machine has no
+  // start-vnc.sh and the command self-exits, so this is safe to run on every bootstrap. Not
+  // keepAlive — a live desktop is pinned by the attached client, not by this starter.
+  private async startDesktopVncHeal(sandboxUrl: string): Promise<void> {
+    await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
+      name: DESKTOP_VNC_HEAL_PROCESS_NAME,
+      command: DESKTOP_VNC_HEAL_COMMAND,
+      waitForCompletion: false,
+      keepAlive: false,
+    }).catch(() => undefined);
   }
 
   async destroy(vmId: string): Promise<void> {

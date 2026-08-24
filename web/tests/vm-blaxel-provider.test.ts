@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 import {
   BlaxelProvider,
+  DESKTOP_VNC_HEAL_COMMAND,
   hostnameSetupCommand,
   parseMachineStats,
   resolveBlaxelMemoryMb,
@@ -440,5 +441,14 @@ describe("BlaxelProvider desktop VNC bootstrap", () => {
     const cmd = hostnameSetupCommand("a; rm -rf /");
     expect(cmd).toContain("'a; rm -rf /'");
     expect(cmd).not.toMatch(/;\s*rm -rf \/\s*(;|$)/);
+  });
+
+  // The VNC heal starts TigerVNC as the desktop user only when it is really down, and never
+  // touches a base machine (no start-vnc.sh) or a snapshot-resumed one (5901 already up).
+  test("desktop VNC heal is guarded on start-vnc.sh, port 5901, and the cua user", () => {
+    expect(DESKTOP_VNC_HEAL_COMMAND).toContain("[ -x /usr/local/bin/start-vnc.sh ] || exit 0");
+    expect(DESKTOP_VNC_HEAL_COMMAND).toContain(":5901 ");
+    expect(DESKTOP_VNC_HEAL_COMMAND).toContain("runuser -u cua");
+    expect(DESKTOP_VNC_HEAL_COMMAND).toContain("start-vnc.sh");
   });
 });
