@@ -34,16 +34,17 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
 
     /// Reports whether this repository needs storage-independent Git plumbing.
     func requiresGitPlumbing(repository: ResolvedGitRepository) -> Bool {
-        if referenceStorageName(repository: repository).map({ $0 != "files" }) == true {
-            return true
-        }
-        return [repository.gitDirectory, repository.commonDirectory].contains { directory in
+        let hasReftableDirectory = [repository.gitDirectory, repository.commonDirectory].contains { directory in
             var isDirectory: ObjCBool = false
             let path = URL(fileURLWithPath: directory)
                 .appendingPathComponent("reftable", isDirectory: true).path
             return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
                 && isDirectory.boolValue
         }
+        if hasReftableDirectory {
+            return true
+        }
+        return referenceStorageName(repository: repository).map({ $0 != "files" }) == true
     }
 
     /// Builds a snapshot from loose/packed reference files.
