@@ -403,6 +403,22 @@ actor VMClient {
         shared = VMClient(session: session, auth: auth)
     }
 
+    /// Revoke endpoint credentials issued by the Cloud VM service during sign-out.
+    ///
+    /// The caller supplies the captured pair because local sign-out clears the
+    /// coordinator's token store before this best-effort network tail runs.
+    @MainActor
+    static func revokeEndpointLeases(
+        accessToken: String?,
+        refreshToken: String?
+    ) async {
+        guard let shared else { return }
+        await shared.revokeEndpointLeases(
+            accessToken: accessToken,
+            refreshToken: refreshToken
+        )
+    }
+
     private static let createTimeoutSeconds: TimeInterval = 16 * 60
     private static let attachTimeoutSeconds: TimeInterval = 16 * 60
 
@@ -848,6 +864,39 @@ actor VMClient {
         return VMOpenPortEndpoint(url: url, token: token, openUrl: openUrl)
     }
 
+    /// Best-effort native sign-out tail. This deliberately does not read the
+    /// live auth coordinator: the coordinator has already destroyed its local
+    /// session by the time the hook executes.
+    private func revokeEndpointLeases(
+        accessToken: String?,
+        refreshToken: String?
+    ) async {
+        guard let accessToken = accessToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !accessToken.isEmpty,
+              let refreshToken = refreshToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !refreshToken.isEmpty,
+              var url = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
+            return
+        }
+        url.path = (url.path.hasSuffix("/") ? String(url.path.dropLast()) : url.path) + "/api/vm/leases/revoke"
+        guard let resolved = url.url else { return }
+        var request = URLRequest(url: resolved)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 4
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = Data("{}".utf8)
+        do {
+            _ = try await session.data(for: request)
+        } catch {
+            // Sign-out must never be held hostage by an unreachable Cloud VM
+            // service. Local workspace teardown and token deletion already
+            // make this device signed out; the server lease cron is the retry
+            // safety net when this tail cannot reach the API.
+        }
+    }
+
     // MARK: - HTTP
 
     private func request(
@@ -857,6 +906,15 @@ actor VMClient {
         extraHeaders: [String: String] = [:],
         timeoutSeconds: TimeInterval? = nil
     ) async throws -> (Data, HTTPURLResponse) {
+        // Bind every control-plane request to the currently published auth
+        // session. A request that was already queued when sign-out began must
+        // not publish/use a stale result after the session epoch flips.
+        let sessionIdentity = await auth.authenticatedSessionIdentity
+        let isAuthenticated = await auth.isAuthenticated
+        let isRestoringSession = await auth.isRestoringSession
+        guard isAuthenticated || isRestoringSession else {
+            throw VMClientError.notSignedIn
+        }
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await auth.currentTokens()
@@ -923,6 +981,18 @@ actor VMClient {
                 let delaySeconds = min(max(retryAfterSeconds ?? 2, 1), 10)
                 try await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
                 continue
+            }
+            if let sessionIdentity {
+                guard await auth.isAuthenticatedSessionIdentityCurrent(sessionIdentity) else {
+                    throw VMClientError.notSignedIn
+                }
+            } else {
+                // A request started during launch restore has no published
+                // identity yet; it may complete only if restore actually
+                // publishes an authenticated session rather than signing out.
+                guard await auth.isAuthenticated else {
+                    throw VMClientError.notSignedIn
+                }
             }
             return (data, http)
         }

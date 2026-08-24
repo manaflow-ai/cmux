@@ -25,7 +25,7 @@ export const vmStatus = pgEnum("vm_status", [
   "destroyed",
 ]);
 
-export const vmLeaseKind = pgEnum("vm_lease_kind", ["pty", "rpc", "ssh"]);
+export const vmLeaseKind = pgEnum("vm_lease_kind", ["pty", "rpc", "ssh", "preview"]);
 
 export const cloudVmSessionStatus = pgEnum("cloud_vm_session_status", [
   "running",

@@ -122594,6 +122594,23 @@
         }
       }
     },
+    "machines.signOut.disconnectedDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM access ended because cmux signed out."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxからサインアウトしたため、クラウドVMへのアクセスを終了しました。"
+          }
+        }
+      }
+    },
     "machines.delete.confirm": {
       "extractionState": "manual",
       "localizations": {

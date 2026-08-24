@@ -162,6 +162,16 @@ export interface VMProvider {
   // if the driver doesn't mint revocable credentials (e.g. E2B), must not throw on unknown
   // or already-revoked handles. Cleanup paths rely on it being safe to call.
   revokeSSHIdentity(identityHandle: string): Promise<void>;
+
+  /**
+   * Invalidates endpoint credentials and live daemon connections for one VM.
+   *
+   * This is invoked during account sign-out after the local client has closed
+   * its workspaces. Providers that do not expose revocable WebSocket/preview
+   * credentials may omit it; the control plane still marks their lease rows
+   * revoked so no new endpoint can be returned to the signed-out account.
+   */
+  revokeEndpointLeases?(vmId: string): Promise<void>;
 }
 
 export class ProviderError extends Error {

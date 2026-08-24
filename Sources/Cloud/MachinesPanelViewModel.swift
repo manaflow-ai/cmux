@@ -1,6 +1,10 @@
 import Foundation
 import SwiftUI
 
+extension Notification.Name {
+    static let cmuxCloudVMAccessDidEnd = Notification.Name("cmux.cloudVM.accessDidEnd")
+}
+
 /// One machine row's immutable render state. Rows below the lazy-list boundary
 /// receive only these snapshots plus a closure bundle (snapshot-boundary rule).
 struct MachineSnapshot: Equatable, Identifiable {
@@ -120,7 +124,24 @@ final class MachinesPanelViewModel: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
     private var statsTask: Task<Void, Never>?
+    private var authSignOutObserver: NSObjectProtocol?
     private static let statsInterval: Duration = .seconds(20)
+
+    init() {
+        authSignOutObserver = NotificationCenter.default.addObserver(
+            forName: .cmuxCloudVMAccessDidEnd,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.clearForAuthTransition()
+        }
+    }
+
+    deinit {
+        if let authSignOutObserver {
+            NotificationCenter.default.removeObserver(authSignOutObserver)
+        }
+    }
 
     /// Samples every machine's CPU/memory/disk. Sleeping machines report
     /// `asleep` without being woken, so polling never costs the user anything.
@@ -174,6 +195,19 @@ final class MachinesPanelViewModel: ObservableObject {
         pollTask = nil
         statsTask?.cancel()
         statsTask = nil
+    }
+
+    private func clearForAuthTransition() {
+        refreshTask?.cancel()
+        refreshTask = nil
+        statsTask?.cancel()
+        statsTask = nil
+        machines = []
+        plan = nil
+        activeOperation = nil
+        lastErrorDescription = nil
+        hasLoadedOnce = false
+        isLoading = false
     }
 
     private func performRefresh() async {

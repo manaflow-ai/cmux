@@ -129,6 +129,47 @@ describe("BlaxelProvider SSH surface", () => {
     await expect(provider.revokeSSHIdentity("anything")).resolves.toBeUndefined();
     await expect(provider.revokeSSHIdentity("")).resolves.toBeUndefined();
   });
+
+  test("revokes daemon and preview ingress credentials", async () => {
+    const previousKey = process.env.BL_API_KEY;
+    const previousWorkspace = process.env.BL_WORKSPACE;
+    process.env.BL_API_KEY = "test-key";
+    process.env.BL_WORKSPACE = "cmux";
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ method: string; url: string; body?: string }> = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      calls.push({ method: init?.method ?? "GET", url, body: typeof init?.body === "string" ? init.body : undefined });
+      if (url.endsWith("/sandboxes/machine-a")) {
+        return new Response(JSON.stringify({ metadata: { url: "https://sandbox-api.test" } }), { status: 200 });
+      }
+      if (url === "https://sandbox-api.test/process") {
+        return new Response(JSON.stringify({ exitCode: 0, status: "completed" }), { status: 200 });
+      }
+      if (url.endsWith("/sandboxes/machine-a/previews")) {
+        return new Response(JSON.stringify([
+          { metadata: { name: "cmuxd" } },
+          { metadata: { name: "port-3000" } },
+        ]), { status: 200 });
+      }
+      if (url.includes("/previews/")) return new Response("", { status: 200 });
+      return new Response("unexpected", { status: 500 });
+    }) as typeof fetch;
+    try {
+      await new BlaxelProvider().revokeEndpointLeases("machine-a");
+      const processCall = calls.find((call) => call.url === "https://sandbox-api.test/process");
+      expect(processCall?.method).toBe("POST");
+      expect(processCall?.body).toContain("attach-pty-lease.json");
+      expect(processCall?.body).toContain("pkill");
+      expect(calls.filter((call) => call.method === "DELETE")).toHaveLength(2);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (previousKey === undefined) delete process.env.BL_API_KEY;
+      else process.env.BL_API_KEY = previousKey;
+      if (previousWorkspace === undefined) delete process.env.BL_WORKSPACE;
+      else process.env.BL_WORKSPACE = previousWorkspace;
+    }
+  });
 });
 
 describe("BlaxelProvider configuration errors", () => {

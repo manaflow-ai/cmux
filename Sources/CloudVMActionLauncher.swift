@@ -17,6 +17,7 @@ final class CloudVMActionLauncher {
     }
 
     private var processes: [Int32: Process] = [:]
+    private var authTransitionSuppressedProcessIDs: Set<Int32> = []
     private var isShuttingDown = false
 
     private init() {}
@@ -24,6 +25,18 @@ final class CloudVMActionLauncher {
     func terminateAll() {
         isShuttingDown = true
         for process in processes.values where process.isRunning {
+            process.terminate()
+        }
+        processes.removeAll()
+    }
+
+    /// Cancel Cloud VM CLI children when the account is signing out without
+    /// putting the launcher into the permanent application-termination state.
+    /// Their late termination callbacks are suppressed so a failed CLI cannot
+    /// present an alert over the signed-out account screen.
+    func cancelAllForAuthTransition() {
+        for (processID, process) in processes where process.isRunning {
+            authTransitionSuppressedProcessIDs.insert(processID)
             process.terminate()
         }
         processes.removeAll()
@@ -40,6 +53,10 @@ final class CloudVMActionLauncher {
         environmentOverrides: [String: String] = [:],
         onCompletion: ((Completion) -> Void)? = nil
     ) -> Bool {
+        if let accountFlow = AppDelegate.shared?.auth?.accountFlow,
+           !accountFlow.isAuthenticated {
+            return false
+        }
         let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux")
         guard let cliURL,
               FileManager.default.isExecutableFile(atPath: cliURL.path) else {
@@ -85,6 +102,7 @@ final class CloudVMActionLauncher {
             let terminationStatus = terminatedProcess.terminationStatus
             Task { @MainActor in
                 Self.shared.processes.removeValue(forKey: processIdentifier)
+                let suppressPresentation = Self.shared.authTransitionSuppressedProcessIDs.remove(processIdentifier) != nil
                 onCompletion?(
                     Completion(
                         terminationStatus: terminationStatus,
@@ -92,14 +110,17 @@ final class CloudVMActionLauncher {
                         workspaceId: Self.createdWorkspaceId(from: output)
                     )
                 )
-                if terminationStatus == 0, presentOutputOnSuccess, !Self.shared.isShuttingDown {
+                if terminationStatus == 0, presentOutputOnSuccess, !Self.shared.isShuttingDown, !suppressPresentation {
                     Self.shared.presentCommandResult(
                         title: successTitle ?? String(localized: "command.cloudVM.result.title", defaultValue: "Cloud VM"),
                         output: output,
                         preferredWindow: launchWindow
                     )
                 }
-                guard terminationStatus != 0, !Self.shared.isShuttingDown, presentsFailureAlert else { return }
+                guard terminationStatus != 0,
+                      !Self.shared.isShuttingDown,
+                      !suppressPresentation,
+                      presentsFailureAlert else { return }
                 let format = String(
                     localized: "command.cloudVM.failed.exit",
                     defaultValue: "Cloud VM command exited with status %d."

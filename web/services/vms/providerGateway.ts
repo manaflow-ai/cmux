@@ -54,6 +54,10 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     identityHandle: string,
   ) => Effect.Effect<void, VmProviderOperationError>;
+  readonly revokeEndpointLeases?: (
+    provider: ProviderId,
+    vmId: string,
+  ) => Effect.Effect<void, VmProviderOperationError>;
 };
 
 export class VmProviderGateway extends Context.Tag("cmux/VmProviderGateway")<
@@ -125,4 +129,9 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "revokeSSHIdentity", () =>
       getProvider(provider).revokeSSHIdentity(identityHandle)
     ),
+  revokeEndpointLeases: (provider, vmId) => {
+    const driver = getProvider(provider);
+    if (!driver.revokeEndpointLeases) return Effect.void;
+    return providerEffect(provider, "revokeEndpointLeases", () => driver.revokeEndpointLeases!(vmId));
+  },
 });

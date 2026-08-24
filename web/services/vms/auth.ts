@@ -98,6 +98,8 @@ const MAX_AUTH_CACHE_ENTRIES = 256;
 
 type AuthCacheEntry = {
   readonly user: AuthedUser;
+  /** Hash of the exact native access/refresh pair, used for sign-out invalidation. */
+  readonly tokenFingerprint: string;
   readonly expiresAt: number;
 };
 
@@ -125,6 +127,12 @@ function nativeAuthCacheKey(
   return createHash("sha256").update(material).digest("hex");
 }
 
+function nativeAuthTokenFingerprint(tokens: NativeStackTokens): string {
+  return createHash("sha256")
+    .update(`${tokens.accessToken}\n${tokens.refreshToken}`)
+    .digest("hex");
+}
+
 function readNativeAuthCache(key: string): AuthedUser | null {
   const entry = nativeAuthCache.get(key);
   if (!entry) return null;
@@ -135,19 +143,43 @@ function readNativeAuthCache(key: string): AuthedUser | null {
   return entry.user;
 }
 
-function writeNativeAuthCache(key: string, user: AuthedUser, ttlMs: number): void {
+function writeNativeAuthCache(
+  key: string,
+  user: AuthedUser,
+  tokens: NativeStackTokens,
+  ttlMs: number,
+): void {
   if (ttlMs <= 0) return;
   if (nativeAuthCache.size >= MAX_AUTH_CACHE_ENTRIES) {
     const oldest = nativeAuthCache.keys().next().value;
     if (oldest !== undefined) nativeAuthCache.delete(oldest);
   }
   nativeAuthCache.delete(key);
-  nativeAuthCache.set(key, { user, expiresAt: Date.now() + ttlMs });
+  nativeAuthCache.set(key, {
+    user,
+    tokenFingerprint: nativeAuthTokenFingerprint(tokens),
+    expiresAt: Date.now() + ttlMs,
+  });
 }
 
 /** Test hook: clear the native verification cache between cases. */
 export function clearNativeAuthCacheForTests(): void {
   nativeAuthCache.clear();
+}
+
+/**
+ * Drop every cached verification for an exact native Stack token pair.
+ *
+ * Sign-out revokes the Stack session asynchronously, while this process may
+ * otherwise continue serving a short-lived positive cache entry. The VM
+ * sign-out route calls this immediately after authenticating the request so a
+ * second request cannot reuse that entry during the revocation tail.
+ */
+export function invalidateNativeAuthCacheForTokens(tokens: NativeStackTokens): void {
+  const fingerprint = nativeAuthTokenFingerprint(tokens);
+  for (const [key, entry] of nativeAuthCache) {
+    if (entry.tokenFingerprint === fingerprint) nativeAuthCache.delete(key);
+  }
 }
 
 let activeStackAuthorizationCalls = 0;
@@ -439,7 +471,7 @@ export async function verifyRequest(
     if (user) {
       const authed = await authedUserFromStackUser(user, options);
       if (authed && cacheKey) {
-        writeNativeAuthCache(cacheKey, authed, authCacheTtlMs());
+        writeNativeAuthCache(cacheKey, authed, tokens, authCacheTtlMs());
       }
       return authed;
     }

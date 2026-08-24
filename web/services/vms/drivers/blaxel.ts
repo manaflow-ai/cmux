@@ -156,6 +156,7 @@ type BlaxelProcess = {
 };
 
 type BlaxelPreview = {
+  metadata?: { name?: string };
   spec?: {
     url?: string;
     public?: boolean;
@@ -631,6 +632,73 @@ export class BlaxelProvider implements VMProvider {
   async revokeSSHIdentity(identityHandle: string): Promise<void> {
     void identityHandle;
     // openSSH always throws, so there is never an identity to revoke.
+  }
+
+  /**
+   * Close every cmux ingress for a machine during account sign-out.
+   *
+   * Blaxel preview tokens are independent of Stack Auth, so deleting only the
+   * Postgres lease row would leave a copied preview URL usable until its TTL.
+   * Remove the private previews and stop cmuxd before returning; the next
+   * authenticated attach recreates both idempotently.
+   */
+  async revokeEndpointLeases(vmId: string): Promise<void> {
+    const previewsBase = `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}/previews`;
+    let sandbox: BlaxelSandbox | null = null;
+    try {
+      sandbox = await this.getSandbox(vmId);
+    } catch (err) {
+      if (!(err instanceof ProviderError && /-> 404/.test(err.message))) throw err;
+    }
+
+    const sandboxUrl = sandbox?.metadata?.url;
+    if (sandboxUrl) {
+      const result = await this.sandboxExec(
+        sandboxUrl,
+        [
+          `rm -f ${shellQuote(CMUXD_WS_PTY_LEASE_PATH)} ${shellQuote(CMUXD_WS_RPC_LEASE_PATH)} ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
+          `pkill -TERM -x ${shellQuote(CMUXD_PROCESS_NAME)} 2>/dev/null || true`,
+          `pkill -TERM -x ${shellQuote(SMART_SLEEP_PROCESS_NAME)} 2>/dev/null || true`,
+          `pkill -KILL -x ${shellQuote(CMUXD_PROCESS_NAME)} 2>/dev/null || true`,
+        ].join("; "),
+        15_000,
+      );
+      if (result.exitCode !== 0) {
+        throw new ProviderError(
+          "blaxel",
+          `revokeEndpointLeases(${vmId}) failed to stop cmuxd: ${result.stderr || result.stdout}`,
+        );
+      }
+    }
+
+    // Preview deletion is control-plane-only, so it also works when the
+    // sandbox is asleep and has no live sandbox API URL.
+    let listed: unknown;
+    try {
+      listed = await blaxelFetch<unknown>("GET", previewsBase);
+    } catch (err) {
+      if (err instanceof ProviderError && /-> 404/.test(err.message)) return;
+      throw err;
+    }
+    const rawItems = Array.isArray(listed)
+      ? listed
+      : listed && typeof listed === "object" && Array.isArray((listed as { items?: unknown }).items)
+      ? (listed as { items: unknown[] }).items
+      : [];
+    const names = rawItems
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const candidate = item as BlaxelPreview;
+        return candidate.metadata?.name?.trim() || null;
+      })
+      .filter((name): name is string => !!name);
+    await Promise.all(names.map(async (name) => {
+      try {
+        await blaxelFetch("DELETE", `${previewsBase}/${encodeURIComponent(name)}`);
+      } catch (err) {
+        if (!(err instanceof ProviderError && /-> 404/.test(err.message))) throw err;
+      }
+    }));
   }
 
   private async getSandbox(vmId: string): Promise<BlaxelSandbox> {

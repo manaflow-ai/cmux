@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -37,6 +37,11 @@ export type CloudVmBaseGenerationRow = typeof cloudVmBaseGenerations.$inferSelec
 export type CloudVmLeaseRow = typeof cloudVmLeases.$inferSelect;
 export type CloudVmIdentityLeaseRow = CloudVmLeaseRow & {
   readonly provider: ProviderId;
+};
+/** An active endpoint lease together with the provider address it protects. */
+export type CloudVmAccessLeaseRow = CloudVmLeaseRow & {
+  readonly provider: ProviderId;
+  readonly providerVmId: string;
 };
 export type CloudVmSessionRow = typeof cloudVmSessions.$inferSelect;
 export type CloudVmLeaseKind = typeof cloudVmLeases.$inferInsert.kind;
@@ -221,6 +226,8 @@ export type VmRepositoryShape = {
     readonly metadata?: Record<string, unknown>;
   }) => Effect.Effect<CloudVmSessionRow, VmDatabaseError>;
   readonly activeIdentityLeases: (vmId: string, limit?: number) => Effect.Effect<CloudVmLeaseRow[], VmDatabaseError>;
+  /** Endpoint leases issued to one signed-in user and still within their TTL. */
+  readonly activeAccessLeasesForUser?: (userId: string) => Effect.Effect<CloudVmAccessLeaseRow[], VmDatabaseError>;
   readonly markLeasesRevoked: (ids: readonly string[]) => Effect.Effect<void, VmDatabaseError>;
   readonly recordUsageEvent: (input: {
     readonly userId: string;
@@ -1466,6 +1473,39 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
       return typeof limit === "number" && limit > 0
         ? await query.limit(limit)
         : await query;
+    }),
+
+  activeAccessLeasesForUser: (userId) =>
+    dbEffect("activeAccessLeasesForUser", async () => {
+      const db = cloudDb();
+      return await db
+        .select({
+          id: cloudVmLeases.id,
+          vmId: cloudVmLeases.vmId,
+          userId: cloudVmLeases.userId,
+          kind: cloudVmLeases.kind,
+          tokenHash: cloudVmLeases.tokenHash,
+          providerIdentityHandle: cloudVmLeases.providerIdentityHandle,
+          sessionId: cloudVmLeases.sessionId,
+          transport: cloudVmLeases.transport,
+          metadata: cloudVmLeases.metadata,
+          expiresAt: cloudVmLeases.expiresAt,
+          consumedAt: cloudVmLeases.consumedAt,
+          revokedAt: cloudVmLeases.revokedAt,
+          createdAt: cloudVmLeases.createdAt,
+          provider: cloudVms.provider,
+          providerVmId: cloudVms.providerVmId,
+        })
+        .from(cloudVmLeases)
+        .innerJoin(cloudVms, eq(cloudVmLeases.vmId, cloudVms.id))
+        .where(and(
+          eq(cloudVmLeases.userId, userId),
+          isNull(cloudVmLeases.revokedAt),
+          gt(cloudVmLeases.expiresAt, new Date()),
+          ne(cloudVms.status, "destroyed"),
+          isNotNull(cloudVms.providerVmId),
+        ))
+        .orderBy(asc(cloudVmLeases.createdAt), asc(cloudVmLeases.id)) as CloudVmAccessLeaseRow[];
     }),
 
   markLeasesRevoked: (ids) =>

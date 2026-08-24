@@ -41,6 +41,7 @@ import {
   type BeginBaseCreateResult,
   type CloudVmBaseGenerationRow,
   type CloudVmBaseRow,
+  type CloudVmAccessLeaseRow,
   type CloudVmSessionRow,
   type CloudVmStatus,
   type CloudVmLeaseKind,
@@ -76,6 +77,7 @@ const IDENTITY_REVOKE_PROVIDER_TIMEOUT = "5 seconds";
 const ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT = 8;
 const ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH = 8;
 const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
+const PREVIEW_ENDPOINT_LEASE_TTL_MS = 12 * 60 * 60 * 1000;
 
 type ExistingVmAccessInput = {
   readonly userId: string;
@@ -1538,6 +1540,25 @@ export function openVmPort(input: {
       );
     }
     const endpoint = yield* providers.openPort(vm.provider, input.providerVmId, input.port);
+    // Keep the preview token in the same revocation ledger as terminal/RPC
+    // endpoints. The raw token is never persisted; only its hash is needed to
+    // identify and invalidate this account's lease during sign-out.
+    yield* repo.recordLease({
+      vmId: vm.id,
+      userId: input.userId,
+      kind: "preview",
+      tokenHash: hashToken(endpoint.token),
+      expiresAt: new Date(Date.now() + PREVIEW_ENDPOINT_LEASE_TTL_MS),
+      transport: "https",
+      metadata: { port: input.port },
+    }).pipe(
+      Effect.catchAll((err) => {
+        const cleanup = providers.revokeEndpointLeases
+          ? providers.revokeEndpointLeases(vm.provider, input.providerVmId).pipe(Effect.catchAll(() => Effect.void))
+          : Effect.void;
+        return cleanup.pipe(Effect.andThen(Effect.fail(err)));
+      }),
+    );
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,
@@ -1549,6 +1570,58 @@ export function openVmPort(input: {
       metadata: { port: input.port },
     }).pipe(Effect.catchAll(() => Effect.void));
     return endpoint;
+  });
+}
+
+export type VmAccessRevocationResult = {
+  readonly revoked: number;
+  readonly cleanupFailures: number;
+};
+
+/**
+ * Invalidates endpoint credentials issued to one signed-in account.
+ *
+ * Lease rows are account-scoped even when the VM itself is team-owned. This
+ * keeps signing out one team member from revoking another member's session,
+ * while the provider hook closes the concrete daemon/preview credentials that
+ * were already handed to this client.
+ */
+export function revokeUserVmAccess(input: { readonly userId: string }) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const loadLeases = repo.activeAccessLeasesForUser;
+    if (!loadLeases) return { revoked: 0, cleanupFailures: 0 } satisfies VmAccessRevocationResult;
+
+    const leases = yield* loadLeases(input.userId);
+    const byVm = new Map<string, CloudVmAccessLeaseRow[]>();
+    for (const lease of leases) {
+      const existing = byVm.get(lease.vmId) ?? [];
+      existing.push(lease);
+      byVm.set(lease.vmId, existing);
+    }
+
+    let cleanupFailures = 0;
+    if (providers.revokeEndpointLeases) {
+      for (const vmLeases of byVm.values()) {
+        const first = vmLeases[0];
+        if (!first) continue;
+        yield* providers.revokeEndpointLeases(first.provider, first.providerVmId).pipe(
+          Effect.catchAll(() =>
+            Effect.sync(() => {
+              cleanupFailures += 1;
+            })
+          ),
+        );
+      }
+    }
+
+    const leaseIDs = leases.map((lease) => lease.id);
+    yield* repo.markLeasesRevoked(leaseIDs);
+    return {
+      revoked: leaseIDs.length,
+      cleanupFailures,
+    } satisfies VmAccessRevocationResult;
   });
 }
 

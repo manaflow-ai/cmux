@@ -16,6 +16,7 @@ const openAttachEndpoint = mock(() => ({ workflow: "attach" }));
 const openSshEndpoint = mock(() => ({ workflow: "ssh" }));
 const restoreVm = mock(() => ({ workflow: "restore" }));
 const snapshotVm = mock(() => ({ workflow: "snapshot" }));
+const revokeUserVmAccess = mock(() => ({ workflow: "revoke-access" }));
 const VM_ENV_KEYS = [
   "CMUX_VM_CREATE_ENABLED",
   "CMUX_VM_E2B_ENABLED",
@@ -58,6 +59,7 @@ const realResetBaseVm = workflowsModule.resetBaseVm;
 const realRestoreVm = workflowsModule.restoreVm;
 const realRunVmWorkflow = workflowsModule.runVmWorkflow;
 const realSnapshotVm = workflowsModule.snapshotVm;
+const realRevokeUserVmAccess = workflowsModule.revokeUserVmAccess;
 const realVmWorkflowLive = workflowsModule.VmWorkflowLive;
 const dbClientModule = await import("../db/client");
 const realCloudDb = dbClientModule.cloudDb;
@@ -113,6 +115,8 @@ mock.module("../services/vms/workflows", () => ({
     useWorkflowStubs ? callMock(runVmWorkflow, args) : realRunVmWorkflow(...args)) as typeof realRunVmWorkflow,
   snapshotVm: ((...args: Parameters<typeof realSnapshotVm>) =>
     useWorkflowStubs ? callMock(snapshotVm, args) : realSnapshotVm(...args)) as typeof realSnapshotVm,
+  revokeUserVmAccess: ((...args: Parameters<typeof realRevokeUserVmAccess>) =>
+    useWorkflowStubs ? callMock(revokeUserVmAccess, args) : realRevokeUserVmAccess(...args)) as typeof realRevokeUserVmAccess,
 }));
 
 // Self-shield from other suites' process-global db mocks AND from the real
@@ -152,6 +156,7 @@ const _forkRoute = await import("../app/api/vm/[id]/fork/route");
 const _snapshotRoute = await import("../app/api/vm/[id]/snapshot/route");
 const sshRoute = await import("../app/api/vm/[id]/ssh-endpoint/route");
 const restoreRoute = await import("../app/api/vm/restore/route");
+const revokeAccessRoute = await import("../app/api/vm/leases/revoke/route");
 const {
   VmAccountDeletionInProgressError,
   VmCreateCreditsInsufficientError,
@@ -180,6 +185,11 @@ beforeEach(() => {
   getUser.mockResolvedValue(null);
   authTombstoneRows = [];
   runVmWorkflow.mockClear();
+  (runVmWorkflow as unknown as { mockImplementation(next: () => Promise<never>): void }).mockImplementation(
+    async () => {
+      throw new Error("unauthenticated VM routes must not reach the VM workflow");
+    },
+  );
   createVm.mockClear();
   openBaseVm.mockClear();
   resetBaseVm.mockClear();
@@ -192,6 +202,7 @@ beforeEach(() => {
   openSshEndpoint.mockClear();
   restoreVm.mockClear();
   snapshotVm.mockClear();
+  revokeUserVmAccess.mockClear();
 });
 
 afterEach(() => {
@@ -199,6 +210,43 @@ afterEach(() => {
 });
 
 describe("VM REST auth", () => {
+  test("rejects unauthenticated Cloud VM lease revocation before the workflow", async () => {
+    const response = await revokeAccessRoute.POST(
+      new Request("https://cmux.test/api/vm/leases/revoke", { method: "POST" }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(revokeUserVmAccess).not.toHaveBeenCalled();
+  });
+
+  test("revokes only the authenticated account's endpoint leases", async () => {
+    (getUser as unknown as { mockResolvedValue(value: unknown): void }).mockResolvedValue({
+      id: "user-signout",
+      displayName: "Signout User",
+      primaryEmail: "signout@example.com",
+      selectedTeam: null,
+      clientReadOnlyMetadata: {},
+      listTeams: async () => [],
+    });
+    (runVmWorkflow as unknown as { mockImplementation(next: () => Promise<unknown>): void }).mockImplementation(
+      async () => ({ revoked: 2, cleanupFailures: 0 }),
+    );
+
+    const response = await revokeAccessRoute.POST(
+      new Request("https://cmux.test/api/vm/leases/revoke", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-signout",
+          "x-stack-refresh-token": "refresh-signout",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, revoked: 2 });
+    expect(revokeUserVmAccess).toHaveBeenCalledWith({ userId: "user-signout" });
+  });
+
   test("rejects unauthenticated provisioning before reaching Postgres or providers", async () => {
     const response = await POST(
       new Request("https://cmux.test/api/vm", {
