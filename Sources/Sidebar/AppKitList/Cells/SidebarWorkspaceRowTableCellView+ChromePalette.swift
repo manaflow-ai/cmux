@@ -27,29 +27,3 @@ extension SidebarWorkspaceRowTableCellView {
         needsLayout = true
     }
 }
-
-#if DEBUG
-extension SidebarWorkspaceRowTableCellView {
-    /// Test convenience that supplies the default palette matching the row's
-    /// explicit color scheme. Production call sites pass the runtime palette.
-    func configure(
-        model: SidebarWorkspaceRowModel,
-        actions: SidebarAppKitRowActions,
-        isPointerHovering: Bool,
-        contextMenuDidOpen: @escaping () -> Void,
-        contextMenuDidClose: @escaping () -> Void
-    ) {
-        configure(
-            model: model,
-            actions: actions,
-            chromePalette: ChromePalette.resolve(
-                theme: .default,
-                colorScheme: model.colorSchemeIsDark ? .dark : .light
-            ),
-            isPointerHovering: isPointerHovering,
-            contextMenuDidOpen: contextMenuDidOpen,
-            contextMenuDidClose: contextMenuDidClose
-        )
-    }
-}
-#endif

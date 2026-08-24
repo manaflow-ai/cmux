@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxSidebar
 import SwiftUI
 import Testing
@@ -235,11 +236,19 @@ struct SidebarAppKitRowCellTests {
                 onOpenWorkspaceDescriptionURL: onOpenWorkspaceDescriptionURL,
                 onOpenStatusURL: onOpenStatusURL
             ),
+            chromePalette: defaultChromePalette(for: model),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
         )
         return cell
+    }
+
+    fileprivate static func defaultChromePalette(for model: SidebarWorkspaceRowModel) -> ChromePalette {
+        ChromePalette.resolve(
+            theme: .default,
+            colorScheme: model.colorSchemeIsDark ? .dark : .light
+        )
     }
 
     fileprivate static func descendants(of view: NSView) -> [NSView] {
@@ -801,6 +810,7 @@ struct SidebarAppKitRowCellTests {
                 model: selectedModel,
                 onOpenWorkspaceDescriptionURL: { openedURL = $0 }
             ),
+            chromePalette: Self.defaultChromePalette(for: selectedModel),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
@@ -859,6 +869,7 @@ struct SidebarAppKitRowCellTests {
                 model: secondModel,
                 onOpenWorkspaceDescriptionURL: { openedURL = $0 }
             ),
+            chromePalette: Self.defaultChromePalette(for: secondModel),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
@@ -1205,6 +1216,7 @@ struct SidebarAppKitRowCellTests {
                 model: replacementModel,
                 onOpenWorkspaceDescriptionURL: { openedURL = $0 }
             ),
+            chromePalette: Self.defaultChromePalette(for: replacementModel),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
@@ -1235,6 +1247,7 @@ struct SidebarAppKitRowCellTests {
                 model: clearedModel,
                 onOpenWorkspaceDescriptionURL: { openedURL = $0 }
             ),
+            chromePalette: Self.defaultChromePalette(for: clearedModel),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
@@ -1296,6 +1309,7 @@ struct SidebarAppKitRowCellTests {
         cell.configure(
             model: shrunkModel,
             actions: Self.makeActions(model: shrunkModel, onOpenStatusURL: { openedURL = $0 }),
+            chromePalette: Self.defaultChromePalette(for: shrunkModel),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
@@ -1871,6 +1885,7 @@ struct SidebarAppKitRowCellTests {
         cell.configure(
             model: replacement,
             actions: Self.makeActions(model: replacement),
+            chromePalette: Self.defaultChromePalette(for: replacement),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}

@@ -8,6 +8,13 @@ import Testing
 @Suite
 @MainActor
 struct SidebarWorkspaceRowSuspensionTests {
+    private static func defaultChromePalette(for model: SidebarWorkspaceRowModel) -> ChromePalette {
+        ChromePalette.resolve(
+            theme: .default,
+            colorScheme: model.colorSchemeIsDark ? .dark : .light
+        )
+    }
+
     private static func makeSnapshot(
         customDescription: String? = nil,
         manualTaskStatus: WorkspaceTaskStatus? = nil,
@@ -183,6 +190,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         cell.configure(
             model: model,
             actions: Self.makeActions(model: model, workspace: workspace!),
+            chromePalette: Self.defaultChromePalette(for: model),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
@@ -202,6 +210,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         cell.configure(
             model: model,
             actions: Self.makeActions(model: model, onCommitRename: { committedTitle = $0 }),
+            chromePalette: Self.defaultChromePalette(for: model),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
@@ -226,6 +235,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         cell.configure(
             model: model,
             actions: Self.makeActions(model: model),
+            chromePalette: Self.defaultChromePalette(for: model),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
@@ -236,6 +246,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         cell.configure(
             model: model,
             actions: Self.makeActions(model: model),
+            chromePalette: Self.defaultChromePalette(for: model),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
@@ -265,6 +276,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         cell.configure(
             model: model,
             actions: Self.makeActions(model: model),
+            chromePalette: Self.defaultChromePalette(for: model),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
@@ -321,6 +333,7 @@ struct SidebarWorkspaceRowSuspensionTests {
                 onConsumeChecklistAddFieldActivation: { tokenConsumptions += 1 },
                 onChecklistPopoverPresentedChange: { presentationChanges.append($0) }
             ),
+            chromePalette: Self.defaultChromePalette(for: model),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
@@ -355,6 +368,7 @@ struct SidebarWorkspaceRowSuspensionTests {
                 onConsumeChecklistAddFieldActivation: { consumptions += 1 },
                 onChecklistAddItem: { additions.append($0) }
             ),
+            chromePalette: Self.defaultChromePalette(for: model),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
@@ -399,6 +413,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         defer { window.close() }
         cell.configure(
             model: firstModel, actions: actions, isPointerHovering: false,
+            chromePalette: Self.defaultChromePalette(for: firstModel),
             contextMenuDidOpen: {}, contextMenuDidClose: {}
         )
         let field = try #require(
@@ -410,6 +425,7 @@ struct SidebarWorkspaceRowSuspensionTests {
 
         cell.configure(
             model: secondModel, actions: actions, isPointerHovering: false,
+            chromePalette: Self.defaultChromePalette(for: secondModel),
             contextMenuDidOpen: {}, contextMenuDidClose: {}
         )
 
@@ -436,6 +452,7 @@ struct SidebarWorkspaceRowSuspensionTests {
                 onChecklistEditItem: { edits.append(($0, $1)) },
                 onEndChecklistItemEdit: { endedItemIds.append($0) }
             ),
+            chromePalette: Self.defaultChromePalette(for: model),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
@@ -476,6 +493,7 @@ struct SidebarWorkspaceRowSuspensionTests {
                 onChecklistEditItem: { edits.append(($0, $1)) },
                 onEndChecklistItemEdit: { endedItemIds.append($0) }
             ),
+            chromePalette: Self.defaultChromePalette(for: model),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
