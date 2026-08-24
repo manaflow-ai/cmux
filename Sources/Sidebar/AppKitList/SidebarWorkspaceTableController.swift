@@ -1713,10 +1713,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         guard columnWidth > 0 else { return }
         for index in indexes where rows.indices.contains(index) {
             let row = rows[index]
-            guard pumpHeightOverrides[row.id] != nil,
-                  let cell = table.view(atColumn: 0, row: index, makeIfNecessary: false)
+            guard pumpHeightOverrides[row.id] != nil else { continue }
+            guard let cell = table.view(atColumn: 0, row: index, makeIfNecessary: false)
                     as? SidebarWorkspaceRowTableCellView,
                   let model = cell.currentModelForMeasurement else {
+                // The cache just remeasured this buffer row at the live width,
+                // but there is no painted cell whose newer pump model we can
+                // measure. Drop the old-width override so the fresh cache
+                // answer wins if the row scrolls into view before settle.
+                pumpHeightOverrides.removeValue(forKey: row.id)
+                heightRows.insert(index)
                 continue
             }
             let height = ceil(cell.layoutContent(model: model, width: columnWidth, apply: false))
