@@ -251,7 +251,7 @@ extension TerminalController {
             // Caller TTY resolution may recover a moved pane, but an
             // authenticated relay must never resolve outside its owner.
             sanitizedParams[WorkspaceRemoteRelayCommandRewriter.callerWorkspaceIDKey] =
-                snapshot.ownerWorkspaceID.uuidString
+                .string(snapshot.ownerWorkspaceID.uuidString)
         }
         let sanitizedRequest = ControlRequest(
             id: request.id,
