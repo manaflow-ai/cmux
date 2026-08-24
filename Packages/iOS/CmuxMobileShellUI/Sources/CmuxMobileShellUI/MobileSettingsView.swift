@@ -21,6 +21,10 @@ struct MobileSettingsView: View {
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
     /// Optional so previews and hosts without the app root still render; the
+    /// Notification Filters row is hidden when absent.
+    @Environment(MobilePushFilterSettings.self) private var pushFilterSettings:
+        MobilePushFilterSettings?
+    /// Optional so previews and hosts without the app root still render; the
     /// Connection Method section is hidden when absent.
     @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
         MobileConnectionMethodStore?
@@ -398,6 +402,22 @@ struct MobileSettingsView: View {
                         applyEnabledIntent: setPhonePushEnabledIntent
                     )
 #endif
+                    if pushFilterSettings != nil {
+                        NavigationLink {
+                            MobilePushFilterSettingsView(
+                                knownGroups: pushFilterGroupOptions
+                            )
+                        } label: {
+                            Label(
+                                L10n.string(
+                                    "mobile.settings.pushFilters.row",
+                                    defaultValue: "Notification Filters"
+                                ),
+                                systemImage: "bell.slash"
+                            )
+                        }
+                        .accessibilityIdentifier("MobileSettingsNotificationFilters")
+                    }
                 }
 
                 Section {
@@ -674,6 +694,26 @@ struct MobileSettingsView: View {
             )
         }
         return stage
+    }
+
+    /// Plain-value snapshot of the known workspace groups (Mac-local group id,
+    /// name, owning Mac) offered as mute toggles, derived from the live shell
+    /// store's group previews. The owning Mac's display name comes from the
+    /// anchor workspace (or any member) because group previews carry only the
+    /// Mac device id.
+    private var pushFilterGroupOptions: [MobilePushFilterGroupOption] {
+        guard let store else { return [] }
+        let workspaces = store.workspaces
+        return store.workspaceGroups.map { group in
+            let member = workspaces.first { $0.id == group.anchorWorkspaceID }
+                ?? workspaces.first { $0.groupID == group.id }
+            return MobilePushFilterGroupOption(
+                groupId: group.rpcGroupID.rawValue,
+                name: group.name,
+                macDeviceId: group.macDeviceID ?? member?.macDeviceID,
+                macDisplayName: member?.macDisplayName
+            )
+        }
     }
 
     private static var crashReportingEnabled: Bool {

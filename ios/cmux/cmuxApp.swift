@@ -176,6 +176,7 @@ struct cmuxApp: App {
             reachability: Self.root.reachability,
             analytics: Self.root.analytics.emitter,
             pushCoordinator: Self.root.pushCoordinator,
+            pushFilterSettings: Self.root.pushFilterSettings,
             displaySettings: Self.root.displaySettings,
             featureFlags: Self.root.featureFlags,
             connectionMethodStore: Self.root.connectionMethodStore,

@@ -59,7 +59,10 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
             workspaceId: ids.workspaceId,
             surfaceId: ids.surfaceId,
             macDeviceId: ids.macDeviceId,
-            macInstanceTag: ids.macInstanceTag
+            macInstanceTag: ids.macInstanceTag,
+            title: notification.request.content.title,
+            workspaceGroupId: ids.workspaceGroupId,
+            workspaceGroupName: ids.workspaceGroupName
         ) ?? true
         return present ? [.banner, .sound, .badge] : []
     }
@@ -193,16 +196,20 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
         surfaceId: String?,
         macDeviceId: String?,
         macInstanceTag: String?,
+        workspaceGroupId: String?,
+        workspaceGroupName: String?,
         retargetsToLiveSurfaceOwner: Bool
     ) {
         guard let cmux = userInfo["cmux"] as? [String: Any] else {
-            return (nil, nil, nil, nil, true)
+            return (nil, nil, nil, nil, nil, nil, true)
         }
         return (
             cmux["workspaceId"] as? String,
             cmux["surfaceId"] as? String,
             cmux["macDeviceId"] as? String,
             cmux["macInstanceTag"] as? String,
+            cmux["workspaceGroupId"] as? String,
+            cmux["workspaceGroupName"] as? String,
             cmux["retargetsToLiveSurfaceOwner"] as? Bool ?? true
         )
     }

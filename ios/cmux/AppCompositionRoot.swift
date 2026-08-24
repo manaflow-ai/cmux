@@ -28,6 +28,10 @@ final class AppCompositionRoot {
     let buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy
     let reachability: any ReachabilityProviding
     let pushCoordinator: MobilePushCoordinator
+    /// User-authored push mute rules. Mutations persist locally, feed the
+    /// push coordinator's foreground filtering, and forward the encoded
+    /// document to the registration service's per-device-token filters sync.
+    let pushFilterSettings: MobilePushFilterSettings
     let signOutHook: MobileSignOutHook
     let analytics: MobileAnalyticsComposition
     let featureFlags: MobileFeatureFlags
@@ -164,11 +168,23 @@ final class AppCompositionRoot {
         let pushNotificationSettings:
             (@MainActor () async -> MobilePushSystemSettings)? = nil
         #endif
+        let pushRegistration = auth.pushRegistration
+        let pushFilterSettings = MobilePushFilterSettings(
+            defaults: .standard
+        ) { document in
+            // Encoding a store-authored document cannot fail in practice
+            // (bounded count, plain strings); a failure only skips one sync
+            // and the next mutation re-sends the full document.
+            guard let data = try? document.encodedData() else { return }
+            Task { await pushRegistration.updateFilters(data) }
+        }
+        self.pushFilterSettings = pushFilterSettings
         let pushCoordinator = MobilePushCoordinator(
             registration: auth.pushRegistration,
             analytics: analytics.emitter,
             diagnosticLog: diagnosticLog,
             phoneAPIOrigin: auth.config.apiBaseURL,
+            filterSettings: pushFilterSettings,
             notificationSettings: pushNotificationSettings
         )
         self.pushCoordinator = pushCoordinator

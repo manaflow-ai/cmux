@@ -56,6 +56,17 @@ public actor PushRegistrationService: PushRegistering {
     private var uploadTaskTokenHex: String?
     private var uploadTaskGeneration: UUID?
     private var operationGeneration = UUID()
+    /// One drain worker keeps filter PUTs ordered: rapid Settings mutations
+    /// must not race two PUTs whose server apply order is undefined.
+    private var filtersSyncTask: Task<Void, Never>?
+    /// Set when the caller cleared filters (`updateFilters(nil)`) and the
+    /// clearing PUT has not been acknowledged. In-memory only: a re-created
+    /// token row starts with no filters, so a lost clear self-repairs.
+    private var pendingFiltersClear = false
+    /// The document+token pair the server last acknowledged, so the drain and
+    /// the post-registration re-push can skip redundant PUTs.
+    private var acknowledgedFiltersDocument: Data?
+    private var acknowledgedFiltersTokenHex: String?
     private var snapshotValue: PushRegistrationSnapshot
     private var snapshotContinuations:
         [UUID: AsyncStream<PushRegistrationSnapshot>.Continuation] = [:]
@@ -68,6 +79,11 @@ public actor PushRegistrationService: PushRegistering {
     private static let pendingUnregisterQueueKey =
         "cmux.notifications.pendingUnregisters.v2"
     private static let pendingUnregisterAttemptBudget = 4
+    /// The latest caller-encoded filters document (opaque JSON bytes),
+    /// persisted so a relaunch can still re-push it after the next successful
+    /// token registration re-creates the server row.
+    private static let filtersDocumentKey =
+        "cmux.notifications.pushFilters.document.v1"
 
     private static func defaultPendingUnregisterStoreURL(
         suiteName: String?,
@@ -411,6 +427,153 @@ public actor PushRegistrationService: PushRegistering {
         }
     }
 
+    public func updateFilters(_ documentData: Data?) async {
+        if let documentData {
+            defaults.set(documentData, forKey: Self.filtersDocumentKey)
+            pendingFiltersClear = false
+        } else {
+            defaults.removeObject(forKey: Self.filtersDocumentKey)
+            pendingFiltersClear = true
+        }
+        // The document changed: whatever the server acknowledged is stale.
+        acknowledgedFiltersDocument = nil
+        acknowledgedFiltersTokenHex = nil
+        // Await the ordered drain so callers observe a bounded attempt. An
+        // already-running drain re-reads the persisted document each loop, so
+        // it picks this change up; the second pass covers the window where it
+        // exited between our persist and its final condition check.
+        if let running = filtersSyncTask {
+            await running.value
+        }
+        if filtersSyncTask == nil, filtersSyncIsRequired {
+            scheduleFiltersSync()
+            await filtersSyncTask?.value
+        }
+    }
+
+    /// Whether the persisted filters intent differs from what the server last
+    /// acknowledged for the current token.
+    private var filtersSyncIsRequired: Bool {
+        guard let tokenHex = cachedTokenHex else { return false }
+        let pending = defaults.data(forKey: Self.filtersDocumentKey)
+        if pending == nil, !pendingFiltersClear { return false }
+        if acknowledgedFiltersTokenHex == tokenHex,
+           acknowledgedFiltersDocument == pending,
+           !(pending == nil && pendingFiltersClear) {
+            return false
+        }
+        return true
+    }
+
+    private func scheduleFiltersSync() {
+        guard filtersSyncTask == nil else { return }
+        filtersSyncTask = Task { [weak self] in
+            await self?.drainFiltersSync()
+        }
+    }
+
+    private func drainFiltersSync() async {
+        defer { filtersSyncTask = nil }
+        while filtersSyncIsRequired {
+            guard let tokenHex = cachedTokenHex else { return }
+            let document = defaults.data(forKey: Self.filtersDocumentKey)
+            let clearing = document == nil
+            guard await sendFilters(
+                documentData: document,
+                tokenHex: tokenHex,
+                allowRecovery: true
+            ) else { return }
+            acknowledgedFiltersDocument = document
+            acknowledgedFiltersTokenHex = tokenHex
+            if clearing, defaults.data(forKey: Self.filtersDocumentKey) == nil {
+                pendingFiltersClear = false
+            }
+        }
+    }
+
+    /// PUTs the current filters document (or an explicit `null` clear) for the
+    /// token, using the same auth headers as registration.
+    /// - Returns: Whether the server acknowledged the update.
+    private func sendFilters(
+        documentData: Data?,
+        tokenHex: String,
+        allowRecovery: Bool
+    ) async -> Bool {
+        var body: [String: Any] = [
+            "deviceToken": tokenHex,
+            "bundleId": bundleID,
+        ]
+        if let documentData,
+           let document = try? JSONSerialization.jsonObject(with: documentData) {
+            body["filters"] = document
+        } else {
+            body["filters"] = NSNull()
+        }
+        guard case let .success(context) = await makeRequest(
+            method: "PUT",
+            path: "/api/device-tokens/filters",
+            body: body,
+            authPhase: .pushRegistrationSession
+        ) else { return false }
+        switch await performFiltersUpdate(context.request) {
+        case .success:
+            return true
+        case .unknownDeviceToken:
+            // The token row is gone server-side (pruned, or re-created state
+            // was lost). Re-register once, then retry the PUT once.
+            guard allowRecovery else { return false }
+            await syncTokenIfPossible()
+            guard cachedTokenHex == tokenHex else { return false }
+            return await sendFilters(
+                documentData: documentData,
+                tokenHex: tokenHex,
+                allowRecovery: false
+            )
+        case .failure:
+            return false
+        }
+    }
+
+    private func performFiltersUpdate(
+        _ request: URLRequest
+    ) async -> FiltersUpdateResult {
+        let redirectDelegate = RedirectMethodPreservingDelegate()
+        do {
+            let (data, response) = try await session.data(
+                for: request,
+                delegate: redirectDelegate
+            )
+            guard let http = response as? HTTPURLResponse else {
+                return .failure
+            }
+            if http.statusCode == 404 {
+                let body = try? JSONDecoder().decode(
+                    RegistrationErrorResponse.self,
+                    from: data
+                )
+                return body?.error == "unknown_device_token"
+                    ? .unknownDeviceToken
+                    : .failure
+            }
+            guard (200...299).contains(http.statusCode),
+                  let acknowledgement = try? JSONDecoder().decode(
+                      RegistrationAcknowledgement.self,
+                      from: data
+                  ),
+                  acknowledgement.ok
+            else {
+                pushLog.error(
+                    "filters update failed status=\(http.statusCode, privacy: .public)"
+                )
+                return .failure
+            }
+            return .success
+        } catch {
+            pushLog.error("filters update transport failure")
+            return .failure
+        }
+    }
+
     public func unregisterFromServer() async {
         // Treat direct cleanup retries as the current opt-out operation too,
         // so a newer enable can supersede an in-flight DELETE and trigger the
@@ -691,6 +854,14 @@ public actor PushRegistrationService: PushRegistering {
             if previousOwnerID != nil || hasPendingUnregisters {
                 clearPendingUnregisterToken(tokenHex: tokenHex)
             }
+            // The upsert may have re-created the token row, which starts with
+            // no filters server-side. Re-push the retained document; the drain
+            // worker orders it after any in-flight filters PUT.
+            if defaults.data(forKey: Self.filtersDocumentKey) != nil {
+                acknowledgedFiltersDocument = nil
+                acknowledgedFiltersTokenHex = nil
+                scheduleFiltersSync()
+            }
             if pushServiceConfigured {
                 publish(PushRegistrationSnapshot(
                     isEnabled: true,
@@ -836,10 +1007,14 @@ public actor PushRegistrationService: PushRegistering {
         return true
     }
 
+    // Untyped body carve-out justification: the filters PUT splices a
+    // caller-encoded opaque JSON document (the mobile filter schema lives in
+    // CMUXMobileCore, which this package must not depend on) under typed
+    // sibling keys; every other call site passes plain string pairs.
     private func makeRequest(
         method: String,
         path: String,
-        body: [String: String],
+        body: [String: Any],
         capturedAccessToken: String? = nil,
         capturedRefreshToken: String? = nil,
         sessionSnapshot: AuthenticatedSessionSnapshot? = nil,
@@ -1420,6 +1595,12 @@ public actor PushRegistrationService: PushRegistering {
 private enum RegistrationResult {
     case success(pushServiceConfigured: Bool)
     case failure(PushRegistrationFailure, retryAfter: Duration?)
+}
+
+private enum FiltersUpdateResult {
+    case success
+    case unknownDeviceToken
+    case failure
 }
 
 private struct PushRequest {
