@@ -666,12 +666,16 @@ fn run_write(scope: &Scope, op: &wire::FsWriteOp) -> Result<wire::WorkspaceResul
         ));
     }
     let path = scope.resolve(&op.path, true)?;
-    let existing = match read_bytes_no_follow(&path, WRITE_MAX_BYTES) {
-        Ok(bytes) => Some(bytes),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => {
-            return Err(Refusal::failed(format!("could not read {}: {error}", op.path)));
+    let existing = if op.base_sha256.is_some() {
+        match read_bytes_no_follow(&path, WRITE_MAX_BYTES) {
+            Ok(bytes) => Some(bytes),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => {
+                return Err(Refusal::failed(format!("could not read {}: {error}", op.path)));
+            }
         }
+    } else {
+        None
     };
     if let Some(base) = &op.base_sha256 {
         // Compare-and-swap (HD6 explicit save): a stale base refuses with
@@ -711,6 +715,10 @@ fn run_rename(scope: &Scope, op: &wire::FsRenameOp) -> Result<wire::WorkspaceRes
             wire::WorkspaceErrorCode::DestinationExists,
             format!("{} already exists", op.to_path),
         ));
+    }
+    #[cfg(windows)]
+    if destination_exists && op.overwrite == Some(true) {
+        return Err(Refusal::path_forbidden("overwrite rename is unavailable on Windows relays"));
     }
     create_parent_dirs_no_symlink(&to)?;
     std::fs::rename(&from, &to).map_err(|error| {
@@ -845,6 +853,10 @@ fn git_command(root: &Path, args: &[&str]) -> tokio::process::Command {
         .arg("-C")
         .arg(root)
         .args(args)
+        .env_clear()
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", if cfg!(windows) { "NUL" } else { "/dev/null" })
+        .env("LC_ALL", "C")
         .env("GIT_OPTIONAL_LOCKS", "0")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
