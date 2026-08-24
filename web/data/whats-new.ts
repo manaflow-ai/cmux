@@ -47,8 +47,9 @@ export interface WhatsNewList {
 
 export const whatsNewList: WhatsNewList = {
   // Binary catalog ids the app may show. "connections.v1" ships in the iOS
-  // binary catalog but stays hidden here until the per-computer connection
-  // release it describes is actually out; add it to this list at release.
-  visibleEntryIds: [],
+  // binary catalog, so only binaries that carry the page can render it; the
+  // list needs no extra version gating for binary pages. Remove an id here
+  // to hide its page remotely.
+  visibleEntryIds: ["connections.v1"],
   announcements: [],
 };
