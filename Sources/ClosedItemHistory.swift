@@ -137,8 +137,12 @@ enum ClosedWindowRestoreValidation {
 
 @MainActor
 final class ClosedItemHistoryStore: ObservableObject {
+    /// Bounds the shared reopen history to a useful recency window without
+    /// allowing persisted panel snapshots to grow for the life of the file.
+    static let defaultTotalCapacity = 500
     static let defaultWorkspaceCapacity = 100
     static let shared = ClosedItemHistoryStore(
+        capacity: defaultTotalCapacity,
         workspaceCapacity: defaultWorkspaceCapacity,
         fileURL: defaultHistoryFileURL()
     )

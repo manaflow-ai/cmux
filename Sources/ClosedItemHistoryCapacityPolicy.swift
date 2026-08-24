@@ -40,10 +40,16 @@ struct ClosedItemHistoryCapacityPolicy {
     ) {
         guard let totalCapacity, records.count > totalCapacity else { return }
         let overflow = records.count - totalCapacity
-        let removalIds = Set(records.lazy
-            .filter { $0.id != protectedRecordId }
+        let removalIds = Set(records.enumerated()
+            .filter { $0.element.id != protectedRecordId }
+            .sorted { lhs, rhs in
+                if lhs.element.closedAt != rhs.element.closedAt {
+                    return lhs.element.closedAt < rhs.element.closedAt
+                }
+                return lhs.offset < rhs.offset
+            }
             .prefix(overflow)
-            .map(\.id))
+            .map(\.element.id))
         records.removeAll { removalIds.contains($0.id) }
     }
 

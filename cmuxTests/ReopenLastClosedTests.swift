@@ -33,7 +33,7 @@ struct ReopenLastClosedTests {
         let baseSnapshot = try #require(
             workspace.sessionSnapshot(includeScrollback: false).panels.first
         )
-        let expectedCapacity = 500
+        let expectedCapacity = ClosedItemHistoryStore.defaultTotalCapacity
 
         for index in 0...expectedCapacity {
             var snapshot = baseSnapshot
