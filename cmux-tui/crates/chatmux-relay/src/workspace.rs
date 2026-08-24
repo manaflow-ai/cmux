@@ -1142,7 +1142,7 @@ fn run_write(scope: &Scope, op: &wire::FsWriteOp) -> Result<wire::WorkspaceResul
             Err(refusal) => return Err(refusal),
         };
         let mut existing = Vec::with_capacity(WRITE_MAX_BYTES.saturating_add(1));
-        file.by_ref()
+        std::io::Read::by_ref(&mut file)
             .take(WRITE_MAX_BYTES.saturating_add(1) as u64)
             .read_to_end(&mut existing)
             .map_err(|error| descriptor_io_refusal(&path, error))?;
