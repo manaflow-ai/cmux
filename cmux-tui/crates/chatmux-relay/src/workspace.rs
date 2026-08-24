@@ -55,10 +55,6 @@ const MAX_TIMEOUT_MS: i64 = 300_000;
 /// plane's pending-request cap and makes refusal explicit under load.
 pub const MAX_IN_FLIGHT_WORKSPACE_REQUESTS: usize = 256;
 
-fn admit_workspace_request(in_flight: usize) -> bool {
-    in_flight < MAX_IN_FLIGHT_WORKSPACE_REQUESTS
-}
-
 fn validate_allowed_roots_value(frame: &Value) -> Result<(), &'static str> {
     let Some(value) = frame.get("allowedRoots") else { return Ok(()) };
     let Some(roots) = value.as_array() else {
@@ -287,7 +283,7 @@ impl Scope {
             }
             let total_bytes =
                 list.iter().try_fold(0usize, |total, root| total.checked_add(root.len()));
-            if total_bytes.map_or(true, |bytes| bytes > MAX_ALLOWED_ROOTS_CHARS) {
+            if total_bytes.is_none_or(|bytes| bytes > MAX_ALLOWED_ROOTS_CHARS) {
                 return Err(Refusal::path_forbidden(format!(
                     "allowed roots exceed {MAX_ALLOWED_ROOTS_CHARS} characters"
                 )));
@@ -1104,7 +1100,7 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn new(runtime: Arc<SharedRuntime>, outbound: OutboundSink) -> Connection {
+    pub(crate) fn new(runtime: Arc<SharedRuntime>, outbound: OutboundSink) -> Connection {
         let watches = WatchRegistry::new(outbound.clone());
         Connection {
             runtime,
@@ -1947,13 +1943,5 @@ mod tests {
         assert_eq!(clamp_i64(0, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS), MIN_TIMEOUT_MS);
         assert_eq!(clamp_i64(999_999, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS), MAX_TIMEOUT_MS);
         let _ = root;
-    }
-
-    #[test]
-    fn workspace_admission_refuses_only_at_the_bound() {
-        assert!(admit_workspace_request(0));
-        assert!(admit_workspace_request(MAX_IN_FLIGHT_WORKSPACE_REQUESTS - 1));
-        assert!(!admit_workspace_request(MAX_IN_FLIGHT_WORKSPACE_REQUESTS));
-        assert!(!admit_workspace_request(MAX_IN_FLIGHT_WORKSPACE_REQUESTS + 1));
     }
 }
