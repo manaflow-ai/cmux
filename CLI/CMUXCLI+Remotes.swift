@@ -42,10 +42,10 @@ extension CMUXCLI {
 
           cmux remotes add <name> --route <host:port> [--route <host:port> ...] [--tag <tag>] [--json]
               Register or update a remote with one or more attach routes. Idempotent on
-              <name>: re-adding the same name updates its routes. <host> must be a Tailscale
-              address the phone can authenticate to: a 100.64.x.x-100.127.x.x (CGNAT) IP or a
-              *.ts.net MagicDNS name. Plain LAN IPs, hostnames, and loopback are rejected
-              because they would show in the device list but fail to connect from iOS.
+              <name>: re-adding the same name updates its routes. <host> must be a numeric
+              Tailscale IPv4/IPv6 peer or a *.ts.net MagicDNS name. cmux matches MagicDNS
+              against the local authenticated Tailscale peer map and stores the peer's numeric
+              address. Plain LAN IPs, other hostnames, and loopback are rejected.
 
           cmux remotes remove <name-or-deviceId> [--json]
               Remove a remote you registered from the device registry.

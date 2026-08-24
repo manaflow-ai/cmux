@@ -1,0 +1,173 @@
+name: cmux-tui publish pypi
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "TUI package version to publish, for example 0.1.0"
+        required: true
+        type: string
+      artifact_run_id:
+        description: "Successful cmux-tui release run containing verified packages"
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: tui-publish-pypi-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate-version:
+    name: validate release source
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      release_sha: ${{ steps.release.outputs.release_sha }}
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Require protected main and resolve release tag
+        id: release
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$DISPATCH_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "workflow_dispatch version must match X.Y.Z" >&2
+            exit 1
+          }
+          git fetch --force origin main --tags
+          tag="cmux-tui-v$DISPATCH_VERSION"
+          expected_ref="refs/tags/$tag"
+          if [[ "$GITHUB_REF" != "$expected_ref" ]]; then
+            echo "Refusing to publish PyPI from $GITHUB_REF; dispatch this workflow on $expected_ref." >&2
+            exit 1
+          fi
+          release_sha="$(git rev-parse "refs/tags/$tag^{commit}")" || {
+            echo "release tag does not exist: $tag" >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$release_sha" origin/main || {
+            echo "release tag $tag is not an ancestor of protected main" >&2
+            exit 1
+          }
+          if [[ "$release_sha" != "$GITHUB_SHA" ]]; then
+            echo "release tag $tag resolves to $release_sha, but package provenance would identify workflow commit $GITHUB_SHA" >&2
+            echo "Dispatch from main only while the release tag points at the current main commit." >&2
+            exit 1
+          fi
+          {
+            echo "tag=$tag"
+            echo "release_sha=$release_sha"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Require successful verified artifact run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$ARTIFACT_RUN_ID" =~ ^[0-9]+$ ]] || {
+            echo "artifact_run_id must be a GitHub Actions run ID" >&2
+            exit 1
+          }
+
+          artifact_path=".github/workflows/cmux-tui-release.yml"
+          artifact_status=""
+          artifact_conclusion=""
+          release_sha="$RELEASE_SHA"
+          for _ in {1..24}; do
+            IFS=$'\t' read -r actual_path artifact_head_sha artifact_head_branch artifact_status artifact_conclusion <<<"$(
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ARTIFACT_RUN_ID" \
+                --jq '[.path, .head_sha, .head_branch, .status, (.conclusion // "")] | @tsv'
+            )"
+            if [[ "$actual_path" != "$artifact_path" ]]; then
+              echo "artifact run $ARTIFACT_RUN_ID came from $actual_path, expected $artifact_path" >&2
+              exit 1
+            fi
+            if [[ "$artifact_head_sha" != "$release_sha" ]]; then
+              echo "artifact run commit $artifact_head_sha does not match release commit $release_sha" >&2
+              exit 1
+            fi
+            if [[ "$artifact_head_branch" != "$RELEASE_TAG" ]]; then
+              echo "artifact run ref $artifact_head_branch does not match release tag $RELEASE_TAG" >&2
+              exit 1
+            fi
+            if [[ "$artifact_status" == "completed" ]]; then
+              break
+            fi
+            case "$artifact_status" in
+              queued|in_progress|pending|waiting|requested)
+                sleep 5
+                ;;
+              *)
+                echo "artifact run $ARTIFACT_RUN_ID has unexpected status $artifact_status" >&2
+                exit 1
+                ;;
+            esac
+          done
+          if [[ "$artifact_status" != "completed" ]]; then
+            echo "artifact run $ARTIFACT_RUN_ID did not complete in time" >&2
+            exit 1
+          fi
+          if [[ "$artifact_conclusion" != "success" ]]; then
+            echo "artifact run $ARTIFACT_RUN_ID concluded $artifact_conclusion" >&2
+            exit 1
+          fi
+
+  publish:
+    needs: validate-version
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    environment:
+      name: pypi-tui
+      url: https://pypi.org/p/cmux
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.validate-version.outputs.release_sha }}
+
+      - name: Download PyPI wheels
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: pypi-wheels
+          path: dist
+          run-id: ${{ inputs.artifact_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Revalidate PyPI wheel contract
+        run: |
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --pypi-wheels dist \
+            --version "${{ inputs.version }}"
+
+      - name: Trusted publisher setup note
+        run: |
+          cat <<'EOF'
+          PyPI Trusted Publisher required:
+          - Project: cmux
+          - Repository: manaflow-ai/cmux
+          - Workflow: tui-publish-pypi.yml
+          - Environment: pypi-tui
+          EOF
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          packages-dir: dist
+          attestations: true

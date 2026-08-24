@@ -5,11 +5,20 @@ import WebKit
 
 final class BrowserPaneDropTargetView: NSView {
     weak var slotView: WindowBrowserSlotView?
-    var dropContext: BrowserPaneDropContext?
+    var dropContext: BrowserPaneDropContext? {
+        didSet {
+            if dropContext != oldValue {
+                transferDropRouter.clear()
+            }
+        }
+    }
     private var activeZone: DropZone?
-    private weak var activeFileDropWebView: NSView?
-    private weak var preparedFileDropWebView: NSView?
-    private weak var performedFileDropWebView: NSView?
+    private let transferDropRouter = PaneTransferDropRouter()
+    private let dropRoutingRegistration = PaneDropRoutingRegistration()
+    weak var activeFileDropWebView: NSView?
+    weak var preparedFileDropWebView: NSView?
+    weak var performedFileDropWebView: NSView?
+    var didRequestWebViewRestoreForDrag = false
 #if DEBUG
     private var lastHitTestSignature: String?
 #endif
@@ -31,6 +40,14 @@ final class BrowserPaneDropTargetView: NSView {
 
     deinit {}
 
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        if newSuperview == nil {
+            dropRoutingRegistration.clear()
+            transferDropRouter.clear()
+        }
+        super.viewWillMove(toSuperview: newSuperview)
+    }
+
     @MainActor
     static func shouldCaptureHitTesting(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
@@ -39,13 +56,20 @@ final class BrowserPaneDropTargetView: NSView {
         guard WindowInputRoutingContext.allowsPaneDropHitTesting(eventType: eventType) else { return false }
 
         let hasFileURL = DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
-        let fileDropBehavior = DragOverlayRoutingPolicy.resolvedFileDropBehavior(
+        // Dock-hosted status is deliberately not consulted here: it cannot change
+        // the capture result (a file-URL payload always yields a disposition, so
+        // `shouldCaptureFileDrop` is true either way; without a file URL the
+        // disposition is nil either way), and this runs from `hitTest` on
+        // pointer-hover events, where an app-wide dock ownership sweep per event
+        // is too expensive. Prepare/perform resolve the real dock-aware
+        // disposition via `fileDropDisposition(_:)`.
+        let disposition = BrowserPaneFileDropRouting.disposition(
             pasteboardTypes: pasteboardTypes,
             modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
-            canDropAsText: true
+            isDockHosted: false
         )
-        let fileDropWantsPreview = fileDropBehavior == .preview
-        let shouldCaptureFileDrop = fileDropBehavior != nil
+        let fileDropWantsPreview = disposition == .previewInWorkspace
+        let shouldCaptureFileDrop = disposition != nil
         let hasFilePreviewTransfer = DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes)
         let hasBonsplitTransfer = DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
         let shouldCaptureFilePreviewTransfer = hasFilePreviewTransfer && (!hasFileURL || fileDropWantsPreview)
@@ -75,16 +99,36 @@ final class BrowserPaneDropTargetView: NSView {
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        updateDragState(sender, phase: "entered")
+        if let dropContext {
+            transferDropRouter.begin(context: dropContext)
+        } else {
+            transferDropRouter.clear()
+        }
+        let operation = updateDragState(sender, phase: "entered")
+        dropRoutingRegistration.update(sender, operation: operation, targetView: self)
+        return operation
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        updateDragState(sender, phase: "updated")
+        let operation = updateDragState(sender, phase: "updated")
+        dropRoutingRegistration.update(sender, operation: operation, targetView: self)
+        return operation
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        dropRoutingRegistration.clear(sender)
         exitActiveFileDropWebView(sender)
+        didRequestWebViewRestoreForDrag = false
         clearDragState(phase: "exited")
+        transferDropRouter.clear()
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        dropRoutingRegistration.clear(sender)
+        exitActiveFileDropWebView(sender)
+        didRequestWebViewRestoreForDrag = false
+        clearDragState(phase: "ended")
+        transferDropRouter.clear()
     }
 
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
@@ -96,9 +140,9 @@ final class BrowserPaneDropTargetView: NSView {
         }
 
         let location = convert(sender.draggingLocation, from: nil)
-        if shouldRouteFileDropToHostedWebView(sender, at: location) {
+        if fileDropDisposition(sender) == .forwardToPage {
             clearDragState(phase: "prepare.text")
-            let webView = activeFileDropWebView ?? slotView?.hostedWebViewForFileDrop(at: location)
+            let webView = activeFileDropWebView ?? webViewForFileDropDelivery(at: location)
             let accepted = webView?.prepareForDragOperation(sender) ?? false
             preparedFileDropWebView = accepted ? webView : nil
 #if DEBUG
@@ -110,30 +154,32 @@ final class BrowserPaneDropTargetView: NSView {
             return accepted
         }
 
-        // A Dock-hosted browser pane only supports live-surface tab drops (routed
-        // to the Dock in performDragOperation). Reject unsupported file-preview /
-        // file-URL payloads here so prepare doesn't accept a drop that perform
-        // would then fail — the window file-drop overlay can hold this pane as its
-        // target and call prepare before perform. Mirrors update/perform. (File
-        // URLs over page content already returned via the hosted-WebView branch
-        // above, so they are not rejected here.)
-        if AppDelegate.shared?.dockForPane(dropContext.paneId) != nil,
-           liveSurfaceTransfer(for: sender) == nil {
-#if DEBUG
-            cmuxDebugLog(
-                "browser.paneDrop.prepare.dock panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "allowed=0 reason=nonLiveDockDrop"
-            )
-#endif
+        let proposedZone = BrowserPaneDropRouting.zone(
+            for: location,
+            in: bounds.size,
+            topChromeHeight: slotView?.effectivePaneTopChromeHeight() ?? 0
+        )
+        switch transferDropRouter.resolve(
+            pasteboard: sender.draggingPasteboard,
+            context: dropContext,
+            proposedZone: proposedZone
+        ) {
+        case .accepted:
+            return true
+        case .rejected:
             return false
+        case .notTransfer:
+            return DragOverlayRoutingPolicy.hasFileURL(sender.draggingPasteboard.types)
+                && transferDropRouter.container(for: dropContext) != nil
         }
-
-        return true
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         defer {
+            dropRoutingRegistration.clear(sender)
+            didRequestWebViewRestoreForDrag = false
             clearDragState(phase: "perform.clear")
+            transferDropRouter.clear()
         }
 
         guard let dropContext = activeDropContext() else {
@@ -150,10 +196,15 @@ final class BrowserPaneDropTargetView: NSView {
             topChromeHeight: slotView?.effectivePaneTopChromeHeight() ?? 0
         )
 
-        if shouldRouteFileDropToHostedWebView(sender, at: location) {
-            let webView = preparedFileDropWebView ?? activeFileDropWebView ?? slotView?.hostedWebViewForFileDrop(at: location)
+        if fileDropDisposition(sender) == .forwardToPage {
+            let webView = preparedFileDropWebView ?? activeFileDropWebView ?? webViewForFileDropDelivery(at: location)
             let handled = webView?.performDragOperation(sender) ?? false
             if handled {
+                // Arm the fallback guard only for delivered drops; WebKit resolves the
+                // fallback navigation asynchronously, so it still sees the record.
+                if let webView = webView as? WKWebView {
+                    BrowserFileDropNavigationGuard.shared.recordDelivery(webView: webView, pasteboard: sender.draggingPasteboard)
+                }
                 performedFileDropWebView = webView
                 focusBrowserPanelAfterSuccessfulFileDrop(context: dropContext)
             } else {
@@ -169,122 +220,38 @@ final class BrowserPaneDropTargetView: NSView {
             return handled
         }
 
-        // A Dock-hosted browser pane lives in a `DockSplitStore`, not the owning
-        // workspace's Bonsplit tree. Route a live-surface tab drop to the Dock
-        // (mirroring `PaneDropTargetView`) and reject anything else; a main-area
-        // pane (`dockForPane` is nil) falls through to the workspace handlers
-        // below. Unsupported payloads are rejected here rather than mis-routed
-        // (and, for file previews, consumed) through the workspace handlers, which
-        // target a pane the workspace does not own.
-        if let dock = AppDelegate.shared?.dockForPane(dropContext.paneId) {
-            guard let transfer = liveSurfaceTransfer(for: sender) else {
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.paneDrop.perform.dock panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                    "allowed=0 reason=nonLiveDockDrop"
-                )
-#endif
-                return false
-            }
-            let dockZone = dock.portalPaneDropZone(
-                tabId: transfer.tabId,
-                sourcePaneId: transfer.sourcePaneId,
-                targetPane: dropContext.paneId,
-                proposedZone: zone
-            )
-            let handled = dock.performPortalPaneDrop(
-                tabId: transfer.tabId,
-                sourcePaneId: transfer.sourcePaneId,
-                targetPane: dropContext.paneId,
-                zone: dockZone
+        switch transferDropRouter.resolve(
+            pasteboard: sender.draggingPasteboard,
+            context: dropContext,
+            proposedZone: zone
+        ) {
+        case .accepted(let plan):
+            let handled = transferDropRouter.perform(
+                plan,
+                pasteboard: sender.draggingPasteboard
             )
 #if DEBUG
             cmuxDebugLog(
-                "browser.paneDrop.perform.dock panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(dockZone) handled=\(handled ? 1 : 0)"
+                "browser.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                "tab=\(plan.transfer.tabId.uuidString.prefix(5)) zone=\(plan.zone) handled=\(handled ? 1 : 0)"
             )
 #endif
             return handled
-        }
-
-        if let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard),
-           transfer.isFromCurrentProcess {
-            if transfer.isFilePreview {
-                guard let entry = FilePreviewDragRegistry.shared.consume(id: transfer.tabId),
-                      let workspace = AppDelegate.shared?.workspaceFor(tabId: dropContext.workspaceId) else {
+        case .rejected:
 #if DEBUG
-                    cmuxDebugLog(
-                        "browser.paneDrop.perform allowed=0 panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                        "reason=missingFilePreviewEntry tab=\(transfer.tabId.uuidString.prefix(5))"
-                    )
+            cmuxDebugLog(
+                "browser.paneDrop.perform allowed=0 panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                "reason=rejectedTransfer zone=\(zone)"
+            )
 #endif
-                    return false
-                }
-                let handled = workspace.handleFilePreviewDrop(
-                    entry: entry,
-                    destination: BrowserPaneDropRouting.filePreviewDestination(
-                        target: dropContext,
-                        zone: zone
-                    )
-                )
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                    "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(zone) filePreview=1 handled=\(handled ? 1 : 0)"
-                )
-#endif
-                return handled
-            }
-
-            guard let action = BrowserPaneDropRouting.action(
-                for: transfer,
-                target: dropContext,
-                zone: zone
-            ) else {
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.paneDrop.perform allowed=0 panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                    "reason=noAction zone=\(zone)"
-                )
-#endif
-                return false
-            }
-
-            switch action {
-            case .noOp:
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.paneDrop.perform allowed=1 panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                    "tab=\(transfer.tabId.uuidString.prefix(5)) action=noop"
-                )
-#endif
-                return true
-            case .move(let tabId, let workspaceId, let targetPane, let splitTarget):
-                let moved = AppDelegate.shared?.moveBonsplitTab(
-                    tabId: tabId,
-                    toWorkspace: workspaceId,
-                    targetPane: targetPane,
-                    splitTarget: splitTarget.map { ($0.orientation, $0.insertFirst) },
-                    focus: true,
-                    focusWindow: true
-                ) ?? false
-#if DEBUG
-                let splitLabel = splitTarget.map {
-                    "\($0.orientation.rawValue):\($0.insertFirst ? 1 : 0)"
-                } ?? "none"
-                cmuxDebugLog(
-                    "browser.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                    "tab=\(tabId.uuidString.prefix(5)) zone=\(zone) pane=\(targetPane.id.uuidString.prefix(5)) " +
-                    "split=\(splitLabel) moved=\(moved ? 1 : 0)"
-                )
-#endif
-                return moved
-            }
+            return false
+        case .notTransfer:
+            break
         }
 
         let urls = DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard)
         guard !urls.isEmpty,
-              let workspace = AppDelegate.shared?.workspaceFor(tabId: dropContext.workspaceId) else {
+              let container = transferDropRouter.container(for: dropContext) else {
 #if DEBUG
             cmuxDebugLog(
                 "browser.paneDrop.perform allowed=0 panel=\(dropContext.panelId.uuidString.prefix(5)) reason=missingTransferAndFiles"
@@ -292,9 +259,9 @@ final class BrowserPaneDropTargetView: NSView {
 #endif
             return false
         }
-        let handled = workspace.handleExternalFileDrop(BonsplitController.ExternalFileDropRequest(
+        let handled = container.handleExternalFileDrop(BonsplitController.ExternalFileDropRequest(
             urls: urls,
-            destination: PaneDropRouting.filePreviewDestination(
+            destination: PaneDropRouting.destination(
                 targetPane: dropContext.paneId,
                 zone: zone
             )
@@ -310,10 +277,13 @@ final class BrowserPaneDropTargetView: NSView {
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
         defer {
+            dropRoutingRegistration.clear(sender)
             activeFileDropWebView = nil
             preparedFileDropWebView = nil
             performedFileDropWebView = nil
+            didRequestWebViewRestoreForDrag = false
             clearDragState(phase: "conclude.clear")
+            transferDropRouter.clear()
         }
         guard let sender else { return }
         if let webView = performedFileDropWebView ?? preparedFileDropWebView ?? activeFileDropWebView {
@@ -341,56 +311,37 @@ final class BrowserPaneDropTargetView: NSView {
             topChromeHeight: slotView?.effectivePaneTopChromeHeight() ?? 0
         )
 
-        if shouldRouteFileDropToHostedWebView(sender, at: location) {
+        if fileDropDisposition(sender) == .forwardToPage {
             clearDragState(phase: "\(phase).text")
             return updateHostedWebViewDragState(sender, at: location)
         }
 
         exitActiveFileDropWebView(sender)
 
-        // Dock-hosted browser pane: route a live-surface tab move into the Dock
-        // and reject anything else (see performDragOperation). A main-area pane
-        // (`dockForPane` is nil) falls through to the workspace handling below.
-        if let dock = AppDelegate.shared?.dockForPane(dropContext.paneId) {
-            guard let transfer = liveSurfaceTransfer(for: sender) else {
-                clearDragState(phase: "\(phase).reject")
-                return []
-            }
-            let dockZone = dock.portalPaneDropZone(
-                tabId: transfer.tabId,
-                sourcePaneId: transfer.sourcePaneId,
-                targetPane: dropContext.paneId,
-                proposedZone: zone
-            )
-            activeZone = dockZone
-            slotView?.setPortalDragDropZone(dockZone)
-#if DEBUG
-            cmuxDebugLog(
-                "browser.paneDrop.\(phase).dock panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(dockZone)"
-            )
-#endif
-            return .move
-        }
-
-        if let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard) {
-            guard transfer.isFromCurrentProcess,
-                  (!transfer.isFilePreview || FilePreviewDragRegistry.shared.contains(id: transfer.tabId)) else {
-                clearDragState(phase: "\(phase).reject")
-                return []
-            }
-            activeZone = zone
-            slotView?.setPortalDragDropZone(zone)
+        switch transferDropRouter.resolve(
+            pasteboard: sender.draggingPasteboard,
+            context: dropContext,
+            proposedZone: zone
+        ) {
+        case .accepted(let plan):
+            activeZone = plan.zone
+            slotView?.setPortalDragDropZone(plan.zone)
 #if DEBUG
             cmuxDebugLog(
                 "browser.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(zone)"
+                "tab=\(plan.transfer.tabId.uuidString.prefix(5)) zone=\(plan.zone)"
             )
 #endif
             return .move
+        case .rejected:
+            clearDragState(phase: "\(phase).reject")
+            return []
+        case .notTransfer:
+            break
         }
 
-        guard DragOverlayRoutingPolicy.hasFileURL(sender.draggingPasteboard.types) else {
+        guard DragOverlayRoutingPolicy.hasFileURL(sender.draggingPasteboard.types),
+              transferDropRouter.container(for: dropContext) != nil else {
             clearDragState(phase: "\(phase).reject")
             return []
         }
@@ -404,78 +355,19 @@ final class BrowserPaneDropTargetView: NSView {
         return .copy
     }
 
-    private func shouldRouteFileDropToHostedWebView(_ sender: any NSDraggingInfo, at location: NSPoint) -> Bool {
-        guard DragOverlayRoutingPolicy.hasFileURL(sender.draggingPasteboard.types) else { return false }
-        let canDropIntoHostedWebView = slotView?.hostedWebViewForFileDrop(at: location) != nil
-        // A Dock-hosted browser pane has no workspace-tree file-preview
-        // destination, so a file URL dropped over its page content always
-        // forwards to the hosted WKWebView (normal page upload) regardless of the
-        // text/preview file-drop setting. This preserves the pre-Dock-drop
-        // behavior, where the pane target did not claim the drop and it fell
-        // through to the web view; without it, preview-mode (or Shift-inverted)
-        // file drops on Dock browsers would be claimed by the pane target and
-        // rejected by the Dock guard instead of reaching the page.
-        if canDropIntoHostedWebView,
-           let context = dropContext,
-           AppDelegate.shared?.dockForPane(context.paneId) != nil {
-            return true
-        }
-        return DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
-            pasteboardTypes: sender.draggingPasteboard.types,
-            modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
-            canDropAsText: canDropIntoHostedWebView
-        )
-    }
-
     private func activeDropContext() -> BrowserPaneDropContext? {
         dropContext
     }
 
-    /// The live container tab a drop would move, or nil when the payload is not a
-    /// supported live-surface tab (registry-backed virtual drags such as
-    /// file-preview own no live surface). Shared by prepare/update/perform so the
-    /// Dock accept/reject decision cannot diverge across the three paths: a
-    /// Dock-hosted browser pane lives in a `DockSplitStore`, not the owning
-    /// workspace's Bonsplit tree, so only a live-surface tab can be routed in;
-    /// anything else must be rejected rather than mis-routed (and, for file
-    /// previews, consumed) through the workspace handlers.
-    private func liveSurfaceTransfer(for sender: any NSDraggingInfo) -> BrowserPaneDragTransfer? {
-        guard let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard),
-              transfer.isFromCurrentProcess,
-              !transfer.isFilePreview,
-              AppDelegate.shared?.locateContainerSurface(tabId: transfer.tabId) != nil else {
-            return nil
-        }
-        return transfer
-    }
-
-    private func updateHostedWebViewDragState(_ sender: any NSDraggingInfo, at location: NSPoint) -> NSDragOperation {
-        guard let webView = slotView?.hostedWebViewForFileDrop(at: location) else {
-            exitActiveFileDropWebView(sender)
-            return []
-        }
-        if activeFileDropWebView !== webView {
-            exitActiveFileDropWebView(sender)
-            activeFileDropWebView = webView
-            return webView.draggingEntered(sender)
-        }
-        return webView.draggingUpdated(sender)
-    }
-
-    private func exitActiveFileDropWebView(_ sender: (any NSDraggingInfo)?) {
-        if let webView = activeFileDropWebView {
-            webView.draggingExited(sender)
-            activeFileDropWebView = nil
-        }
-    }
-
     private func focusBrowserPanelAfterSuccessfulFileDrop(context: BrowserPaneDropContext) {
-        guard let workspace = AppDelegate.shared?.workspaceFor(tabId: context.workspaceId) else { return }
-        FileDropTextDropController.focusPanelAfterSuccessfulTextDrop(
-            workspace: workspace,
-            panelId: context.panelId,
-            focusIntent: .browser(.webView),
-            window: window ?? slotView?.window
+        guard let appDelegate = AppDelegate.shared,
+              let panel = appDelegate.browserPanel(for: context.panelId),
+              let target = appDelegate.browserActionTarget(for: panel) else {
+            return
+        }
+        _ = BrowserActionDispatcher(appDelegate: appDelegate).perform(
+            .focus,
+            on: target
         )
     }
 

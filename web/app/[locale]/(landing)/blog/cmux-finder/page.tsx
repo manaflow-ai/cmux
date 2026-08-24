@@ -1,8 +1,9 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
+import { BlogPostMeta } from "@/app/[locale]/components/blog-author";
 
 export async function generateMetadata({
   params,
@@ -15,22 +16,22 @@ export async function generateMetadata({
   const keywords = Array.isArray(rawKeywords)
     ? rawKeywords.filter((keyword): keyword is string => typeof keyword === "string")
     : [];
+  const alternates = buildAlternates(locale, "/blog/cmux-finder");
+  const title = t("metaTitle");
+  const description = seoDescription(locale, t("metaDescription"));
   return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
+    title,
+    description,
     keywords,
     openGraph: {
-      title: t("metaTitle"),
-      description: t("metaDescription"),
-      type: "article",
+      ...openGraphDefaults(locale, "article"),
+      title,
+      description,
+      url: alternates.canonical,
       publishedTime: "2026-05-22T00:00:00Z",
     },
-    twitter: {
-      card: "summary_large_image",
-      title: t("metaTitle"),
-      description: t("metaDescription"),
-    },
-    alternates: buildAlternates(locale, "/blog/cmux-finder"),
+    twitter: twitterSummary(locale, title, description),
+    alternates,
   };
 }
 
@@ -51,9 +52,7 @@ export default function CmuxFinderPage() {
       </div>
 
       <h1>{t("title")}</h1>
-      <time dateTime="2026-05-22" className="text-sm text-muted">
-        {t("date")}
-      </time>
+      <BlogPostMeta date={t("date")} dateTime="2026-05-22" />
 
       <video
         src="/blog/cmux-finder.mp4"

@@ -1,10 +1,12 @@
 import AppKit
 import Combine
+import CmuxAppKitSupportUI
 import SwiftUI
 
 @MainActor
 final class RightSidebarToolPanel: Panel, ObservableObject {
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .rightSidebarTool
     let mode: RightSidebarMode
 
@@ -240,7 +242,7 @@ struct RightSidebarToolPanelView: View {
     @EnvironmentObject private var tabManager: TabManager
     let isFocused: Bool
     let isVisibleInUI: Bool
-    let appearance: PanelAppearance
+    let resolvedChromeBackgroundColor: NSColor
     let onRequestPanelFocus: () -> Void
 
     @State private var focusFlashOpacity: Double = 0.0
@@ -249,7 +251,7 @@ struct RightSidebarToolPanelView: View {
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: appearance.backgroundColor))
+            .background(Color(nsColor: resolvedChromeBackgroundColor))
             .overlay {
                 WorkspaceAttentionFlashRingView(opacity: focusFlashOpacity)
             }
@@ -285,6 +287,7 @@ struct RightSidebarToolPanelView: View {
         case .sessions:
             SessionIndexView(
                 store: panel.sessionIndexStore,
+                chromeBackgroundColor: resolvedChromeBackgroundColor,
                 onResume: { entry in
                     SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
                 }

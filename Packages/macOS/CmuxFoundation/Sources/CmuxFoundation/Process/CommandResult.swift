@@ -2,8 +2,9 @@
 ///
 /// All fields are optional because a command can fail to launch, time out, or be
 /// killed before producing output. Inspect ``executionError`` first (the process
-/// never started), then ``timedOut`` (it was terminated for exceeding its
-/// deadline), then ``exitStatus`` and the captured streams.
+/// never started or its awaiting task was cancelled), then ``timedOut`` (it was
+/// terminated for exceeding its deadline), then ``exitStatus`` and the captured
+/// streams.
 ///
 /// ```swift
 /// let result = await runner.run(directory: ".", executable: "gh", arguments: ["auth", "token"], timeout: 5)
@@ -21,7 +22,7 @@ public struct CommandResult: Sendable, Equatable {
     public let exitStatus: Int32?
     /// Whether the process was terminated for exceeding its timeout.
     public let timedOut: Bool
-    /// A description of the launch failure when the process never started, else `nil`.
+    /// A description of the launch or cancellation failure, else `nil`.
     public let executionError: String?
 
     /// Creates a command result.
@@ -30,7 +31,7 @@ public struct CommandResult: Sendable, Equatable {
     ///   - stderr: UTF-8 standard error, or `nil`.
     ///   - exitStatus: The process exit status, or `nil` if it did not exit normally.
     ///   - timedOut: Whether the process was killed for exceeding its deadline.
-    ///   - executionError: A launch-failure description, or `nil`.
+    ///   - executionError: A launch- or cancellation-failure description, or `nil`.
     public init(
         stdout: String?,
         stderr: String?,

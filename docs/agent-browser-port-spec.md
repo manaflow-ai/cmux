@@ -19,7 +19,7 @@ As of February 12, 2026:
 1. `./scripts/run-tests-v1.sh` passes on `cmux-vm`.
 2. `./scripts/run-tests-v2.sh` passes on `cmux-vm`.
 3. Browser parity suites passing in v2: `test_browser_api_comprehensive.py`, `test_browser_api_p0.py`, `test_browser_api_extended_families.py`, `test_browser_api_unsupported_matrix.py`, and `test_browser_cli_agent_port.py`.
-4. Visual suite note: `tests/test_visual_screenshots.py` and `tests_v2/test_visual_screenshots.py` both report D12 (`Nested: Close Top of T-shape`) as a known non-blocking VM failure when it reproduces (`VIEW_DETACHED`).
+4. Visual suite note: `tests_v2/test_visual_screenshots.py` reports D12 (`Nested: Close Top of T-shape`) as a known non-blocking VM failure when it reproduces (`VIEW_DETACHED`).
 
 ## Concepts (Canonical Terms)
 
@@ -350,7 +350,7 @@ Hard invariant:
 ### Phase 4: Advanced/Optional Parity (P2)
 
 - [ ] Evaluate feasibility of request interception/mocking in `WKWebView`; implement supported subset.
-- [ ] Add emulation settings that are feasible in `WKWebView`.
+- [x] Add exact 1...4096 CSS-pixel viewport emulation for `WKWebView`; aspect-fit the page without changing pane layout, preserve focus, and restore native sizing with `browser viewport reset`.
 - [ ] Add trace/recording equivalents where practical.
 - [x] Add script/style injection helpers.
 - [x] Document unsupported commands with explicit error `not_supported`.

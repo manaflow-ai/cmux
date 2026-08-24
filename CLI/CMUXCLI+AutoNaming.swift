@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 // Auto-naming engine: pure, dependency-injected logic for naming workspaces
@@ -89,15 +90,9 @@ struct AutoNamingTranscriptMessage: Codable, Equatable, Sendable {
 /// for users on any auth path.
 struct AutoNamingEnvironmentPolicy: Sendable {
     /// Exact variables marking a live agent session or cmux terminal; never pass them to the summarizer.
-    private static let scrubbedExactKeys: Set<String> = [
-        "CLAUDECODE",
-        "CLAUDE_CODE", "CLAUDE_CODE_CHILD_SESSION",
-        "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_PARENT_SESSION_ID",
-        "CLAUDE_CODE_SESSION_ID",
-        "CLAUDE_CODE_EXECPATH",
-        "CLAUDE_CODE_SSE_PORT",
-        "NODE_OPTIONS"
-    ]
+    private static let scrubbedExactKeys = ClaudeSessionEnvironmentPolicy()
+        .inheritedSessionIdentityKeys
+        .union(["NODE_OPTIONS"])
 
     func summarizerEnvironment(from env: [String: String]) -> [String: String] {
         env.filter { key, _ in
@@ -145,6 +140,26 @@ struct AutoNamingEnvironmentPolicy: Sendable {
         let override = env["ANTHROPIC_SMALL_FAST_MODEL"]?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return override.isEmpty ? "haiku" : override
+    }
+
+    /// Inline MCP configuration passed with `--strict-mcp-config` so the
+    /// summarizer starts no MCP servers. Claude Code validates this JSON
+    /// against a schema requiring an `mcpServers` record, so a bare `{}` is
+    /// rejected during argument parsing and the subprocess exits before it
+    /// can produce a title (cmux#9457).
+    static let emptyMCPConfigJSON = #"{"mcpServers":{}}"#
+
+    /// Argument vector for the tool-disabled `claude -p` summarizer call.
+    func claudeSummarizerArguments(from env: [String: String]) -> [String] {
+        [
+            "-p",
+            "--model", claudeModel(from: env),
+            "--tools", "",
+            "--disable-slash-commands",
+            "--no-session-persistence",
+            "--strict-mcp-config",
+            "--mcp-config", Self.emptyMCPConfigJSON
+        ]
     }
 }
 

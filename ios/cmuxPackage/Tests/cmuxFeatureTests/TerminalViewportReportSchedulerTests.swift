@@ -36,7 +36,16 @@ private final class SchedulerProbe {
             Issue.record("no in-flight send for report \(id)")
             return
         }
-        continuation.resume(returning: rows.map { (columns: 40, rows: $0) })
+        continuation.resume(
+            returning: rows.map {
+                (
+                    columns: 40,
+                    rows: $0,
+                    renderEpoch: nil,
+                    renderRevisionFloor: nil
+                )
+            }
+        )
     }
 
     /// Cooperatively spin until `condition` holds (all work is main-actor, so

@@ -15,7 +15,8 @@ private let macPairedMacPublishLog = Logger(subsystem: "com.cmuxterm.app", categ
 /// localhost and the presence `devices` projection isn't wired into the live iOS
 /// app yet, so neither delivers the Mac's route to the phone. The per-user
 /// `pairedMacs` backup IS reachable from the dev iOS build (it restores from it),
-/// so this bridges the gap until those pipelines work on dev.
+/// so this bridges the gap until those pipelines work on dev. Every Mac build
+/// publishes into the exact iOS bundle target selected for pairing and pushes.
 ///
 /// Strictly DEV-gated and best-effort, mirroring ``PresenceHeartbeatClient``:
 /// a failure never disturbs the Mac, and Release builds never publish.
@@ -98,14 +99,19 @@ final class MacPairedMacBackupPublisher {
             + "/v1/sync/paired-macs"
         guard let url = comps.url else { return }
 
-        let nowMs = Date().timeIntervalSince1970 * 1000.0
+        let disclosureDate = Date()
+        let nowMs = disclosureDate.timeIntervalSince1970 * 1000.0
+        let cloudSafeRoutes = routes.compactMap {
+            $0.disclosed(for: .pairedMacCloudBackup, at: disclosureDate)
+        }
         let body = MacPairedMacBackupBody(ops: [
             MacPairedMacBackupOpWire(
                 macDeviceID: MobileHostIdentity.deviceID(),
                 record: MacPairedMacBackupRecordWire(
                     macDeviceID: MobileHostIdentity.deviceID(),
-                    displayName: MobileHostIdentity.displayName(),
-                    routes: routes,
+                    displayName: MobileHostIdentity.baseDisplayName(),
+                    routes: cloudSafeRoutes,
+                    instanceTag: MobileHostIdentity.instanceTag(),
                     createdAt: nowMs,
                     lastSeenAt: nowMs,
                     // Mark active so a fresh dev iOS build auto-targets the
@@ -117,15 +123,17 @@ final class MacPairedMacBackupPublisher {
         ])
         guard let payload = try? JSONEncoder().encode(body) else { return }
 
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.timeoutInterval = 10
-        req.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
-        if let teamID, !teamID.isEmpty {
-            req.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
+        guard let targetNamespace =
+            MobileIOSPairingTargetStore().selectedNamespace else {
+            return
         }
-        req.setValue("application/json", forHTTPHeaderField: "content-type")
-        req.httpBody = payload
+        let req = Self.makeRequest(
+            url: url,
+            accessToken: tokens.accessToken,
+            teamID: teamID,
+            targetNamespace: targetNamespace,
+            payload: payload
+        )
 
         do {
             let (_, response) = try await session.data(for: req)
@@ -138,5 +146,36 @@ final class MacPairedMacBackupPublisher {
         } catch {
             macPairedMacPublishLog.warning("self-publish error: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    /// Builds a request for the exact iOS bundle selected by the user.
+    nonisolated static func makeRequest(
+        url: URL,
+        accessToken: String,
+        teamID: String?,
+        targetNamespace: MobileIOSAppNamespace,
+        payload: Data
+    ) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        if let teamID, !teamID.isEmpty {
+            request.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
+        }
+        request.setValue(
+            targetNamespace.serverScope,
+            forHTTPHeaderField: "X-Cmux-Client-Scope"
+        )
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = payload
+        return request
+    }
+
+    /// Republishes unchanged routes after the selected iOS target changes.
+    func pairingTargetDidChange(routes: [CmxAttachRoute]) {
+        lastPublishedRoutes = []
+        guard !routes.isEmpty else { return }
+        Task { await publish(routes: routes) }
     }
 }

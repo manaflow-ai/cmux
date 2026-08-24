@@ -165,7 +165,7 @@ extension CMUXCLI {
             let processCount = padLeft(String(topInt(group["process_count"]) ?? 0), width: 5)
             let name = topLabelText(group["name"] as? String)
             let command = name.padding(toLength: 26, withPad: " ", startingAt: 0)
-            let attribution = memoryAttributionText(group["top_attribution"], idFormat: idFormat)
+            let attribution = memoryGroupAttributionText(group, idFormat: idFormat)
             lines.append("\(rss) \(processCount)  \(command) \(attribution)")
         }
 
@@ -182,48 +182,4 @@ extension CMUXCLI {
         )
     }
 
-    private func memoryAttributionText(_ raw: Any?, idFormat: CLIIDFormat) -> String {
-        guard let attribution = raw as? [String: Any] else {
-            return String(localized: "cli.memory.output.unattributed", defaultValue: "unattributed")
-        }
-
-        var parts: [String] = []
-        if let workspace = memoryAttributionHandle(attribution, prefix: "workspace", idFormat: idFormat) {
-            parts.append(String.localizedStringWithFormat(
-                String(localized: "cli.memory.output.workspaceAttribution", defaultValue: "workspace %@"),
-                workspace
-            ))
-        }
-        if let pane = memoryAttributionHandle(attribution, prefix: "pane", idFormat: idFormat) {
-            parts.append(String.localizedStringWithFormat(
-                String(localized: "cli.memory.output.paneAttribution", defaultValue: "pane %@"),
-                pane
-            ))
-        }
-        if let surface = memoryAttributionHandle(attribution, prefix: "surface", idFormat: idFormat) {
-            parts.append(String.localizedStringWithFormat(
-                String(localized: "cli.memory.output.surfaceAttribution", defaultValue: "surface %@"),
-                surface
-            ))
-        }
-        return parts.isEmpty ? String(localized: "cli.memory.output.unattributed", defaultValue: "unattributed") : parts.joined(separator: " / ")
-    }
-
-    private func memoryAttributionHandle(
-        _ attribution: [String: Any],
-        prefix: String,
-        idFormat: CLIIDFormat
-    ) -> String? {
-        let ref = topLabelText(attribution["\(prefix)_ref"] as? String)
-        let id = topLabelText(attribution["\(prefix)_id"] as? String)
-        switch idFormat {
-        case .refs:
-            return ref.isEmpty ? (id.isEmpty ? nil : id) : ref
-        case .uuids:
-            return id.isEmpty ? (ref.isEmpty ? nil : ref) : id
-        case .both:
-            let values = [ref, id].filter { !$0.isEmpty }
-            return values.isEmpty ? nil : values.joined(separator: " ")
-        }
-    }
 }

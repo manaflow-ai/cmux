@@ -28,6 +28,7 @@ struct SharedLiveAgentIndexAgentLivenessTests {
         let agentPID = 7_286
         let childPID = 7_287
         let agentIdentity = AgentPIDProcessIdentity(pid: pid_t(agentPID), startSeconds: 42, startMicroseconds: 7)
+        let childIdentity = AgentPIDProcessIdentity(pid: pid_t(childPID), startSeconds: 43, startMicroseconds: 8)
         let executable = "/usr/local/bin/\(agentId)"
         let registry = CmuxVaultAgentRegistry(registrations: [
             CmuxVaultAgentRegistration(
@@ -98,7 +99,7 @@ struct SharedLiveAgentIndexAgentLivenessTests {
                         return processArguments.withLock { $0 }
                     },
                     processIdentityProvider: { pid in
-                        pid == agentPID ? agentIdentity : nil
+                        [agentPID: agentIdentity, childPID: childIdentity][pid]
                     }
                 )
                 .loadResultSynchronously()
@@ -111,6 +112,10 @@ struct SharedLiveAgentIndexAgentLivenessTests {
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
 
         #expect(sharedIndex.index?.processIDs(workspaceId: workspaceId, panelId: panelId) == Set([agentPID, childPID]))
+        #expect(sharedIndex.index?.processIdentities(
+            workspaceId: workspaceId,
+            panelId: panelId
+        ) == [agentPID: agentIdentity, childPID: childIdentity])
         #expect(sharedIndex.index?.agentProcessIDs(workspaceId: workspaceId, panelId: panelId) == Set([agentPID]))
         #expect(sharedIndex.index?.agentProcessIdentities(workspaceId: workspaceId, panelId: panelId) == [agentPID: agentIdentity])
         #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId))

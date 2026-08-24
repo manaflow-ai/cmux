@@ -301,6 +301,9 @@ struct ProBadgeView: View {
                 withAnimation(.easeOut(duration: 0.15)) {
                     isHovered = hovering
                 }
+                if hovering {
+                    ProUpgradePresenter.prefetch()
+                }
             }
         }
     }

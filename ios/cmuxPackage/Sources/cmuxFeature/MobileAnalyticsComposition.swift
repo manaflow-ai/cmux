@@ -51,23 +51,31 @@ public struct MobileAnalyticsComposition {
     ///   - tokenProvider: The auth token source (production: `AuthCoordinator`).
     ///   - defaults: Persistence for the opt-out flag, the anonymous client id,
     ///     and sessionization. Defaults to `.standard`; inject a suite in tests.
+    ///   - consent: The telemetry opt-out gate. Defaults to the same
+    ///     `UserDefaults`-backed provider used before; the app composition root
+    ///     injects its crash-reporting provider so both systems read the same
+    ///     gate instance.
     ///   - session: The URLSession used by the uploader. Defaults to a
     ///     short-timeout session (see ``analyticsSession()``) so a hung analytics
     ///     request cannot keep the emitter's consumer pinned in `upload` for long;
     ///     pass an explicit session in tests.
+    ///   - diagnosticLog: Optional privacy-safe app diagnostic recorder.
     @MainActor public init(
         apiBaseURL: String,
         tokenProvider: any TokenProviding,
         defaults: UserDefaults = .standard,
-        session: URLSession? = nil
+        consent: (any AnalyticsConsentProviding)? = nil,
+        session: URLSession? = nil,
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         let networkSession = session ?? Self.analyticsSession()
+        let uploadSession = session ?? Self.analyticsSession()
         let uploader = HTTPAnalyticsUploader(
             apiBaseURL: apiBaseURL,
             tokenProvider: AnalyticsTokenProviderBridge(tokenProvider: tokenProvider),
-            session: networkSession
+            session: uploadSession
         )
-        let consent = UserDefaultsAnalyticsConsentProvider(defaults: defaults)
+        let consent = consent ?? UserDefaultsAnalyticsConsentProvider(defaults: defaults)
         // Resolve the per-install id once, here, at the single point that owns
         // analytics. This composition is built before the app shell, so reading
         // the id is also what *mints* it on a fresh install — which is exactly why
@@ -78,7 +86,8 @@ public struct MobileAnalyticsComposition {
         let emitter = AnalyticsEmitter(
             uploader: uploader,
             consent: consent,
-            anonymousID: anonymousID
+            anonymousID: anonymousID,
+            diagnosticLog: diagnosticLog
         )
         emitter.setSuperProperties(Self.deviceSuperProperties(anonymousID: anonymousID))
         if resolved.created {
@@ -113,6 +122,9 @@ public struct MobileAnalyticsComposition {
     @MainActor private static func deviceSuperProperties(anonymousID: String) -> [String: AnalyticsValue] {
         let info = Bundle.main.infoDictionary
         var props: [String: AnalyticsValue] = ["client_id": .string(anonymousID)]
+        if let bundleIdentifier = Bundle.main.bundleIdentifier {
+            props["bundle_identifier"] = .string(bundleIdentifier)
+        }
         if let version = info?["CFBundleShortVersionString"] as? String {
             props["app_version"] = .string(version)
         }
@@ -134,6 +146,9 @@ public struct MobileAnalyticsComposition {
             "client_id": .string(anonymousID),
             "platform": .string("ios"),
         ]
+        if let bundleIdentifier = Bundle.main.bundleIdentifier {
+            props["bundle_identifier"] = .string(bundleIdentifier)
+        }
         if let version = info?["CFBundleShortVersionString"] as? String {
             props["app_version"] = .string(version)
         }

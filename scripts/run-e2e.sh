@@ -5,6 +5,7 @@
 #   ./scripts/run-e2e.sh UpdatePillUITests
 #   ./scripts/run-e2e.sh UpdatePillUITests --wait
 #   ./scripts/run-e2e.sh UpdatePillUITests/testFoo --ref my-branch
+#   ./scripts/run-e2e.sh cmuxTests/ForkParentFallbackGeneralizationTests
 #   ./scripts/run-e2e.sh UpdatePillUITests --no-video --timeout 300
 set -euo pipefail
 
@@ -22,7 +23,8 @@ usage() {
 Usage: $(basename "$0") <test_filter> [options]
 
 Arguments:
-  test_filter    Test class or class/method (e.g. UpdatePillUITests)
+  test_filter    Test class or class/method. Bare filters target cmuxUITests;
+                 use cmuxUITests/Class or cmuxTests/Class for explicit targets.
 
 Options:
   --ref <ref>      Branch or SHA to test (default: current branch)
@@ -92,10 +94,4 @@ if [ "$WAIT" = true ]; then
   echo ""
   echo "Result: $STATUS"
   echo "Run: $RUN_URL"
-
-  # Find the issue created for this run (search by run ID in body)
-  ISSUE_URL=$(gh search issues "$RUN_ID" --repo manaflow-ai/cmux-dev-artifacts --limit 1 --json url --jq '.[0].url' 2>/dev/null || true)
-  if [ -n "$ISSUE_URL" ]; then
-    echo "Issue: $ISSUE_URL"
-  fi
 fi

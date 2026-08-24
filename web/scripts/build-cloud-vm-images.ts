@@ -10,8 +10,9 @@ import {
   waitForURL,
 } from "e2b";
 import { Freestyle } from "freestyle";
+import { Daytona, Image } from "@daytonaio/sdk";
 
-type Target = "e2b" | "freestyle" | "all";
+type Target = "e2b" | "freestyle" | "daytona" | "all";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = path.resolve(__dirname, "..");
@@ -23,13 +24,16 @@ const STRICT_SEMVER_RE =
 const CLOUD_SHELL_PACKAGES = [
   "bash",
   "build-essential",
+  "btop",
   "ca-certificates",
   "curl",
   "dirmngr",
+  "gh",
   "git",
   "gnupg",
   "golang-go",
   "gpg-agent",
+  "htop",
   "libssl3t64",
   "locales",
   "openssl",
@@ -38,8 +42,11 @@ const CLOUD_SHELL_PACKAGES = [
   "python3-pip",
   "python3-venv",
   "sudo",
+  "tmux",
   "unzip",
   "xz-utils",
+  "zsh",
+  "zsh-autosuggestions",
 ];
 const TOOLCHAIN_SHIMS_DIR = "/usr/local/share/mise/shims";
 const RUSTUP_HOME = "/opt/rustup";
@@ -73,6 +80,11 @@ const FREESTYLE_SNAPSHOT_RECOVERY_CLOCK_SKEW_MS = positiveIntFromEnv(
   "CMUX_FREESTYLE_SNAPSHOT_RECOVERY_CLOCK_SKEW_MS",
   2 * 60 * 1000,
 );
+const DAYTONA_SNAPSHOT_CREATE_TIMEOUT_MS = positiveIntFromEnv(
+  "CMUX_DAYTONA_SNAPSHOT_CREATE_TIMEOUT_MS",
+  20 * 60 * 1000,
+);
+const DAYTONA_ENTRYPOINT_PATH = "/usr/local/bin/cmux-daytona-entrypoint";
 const CLOUD_AGENT_TOOLS = [
   {
     name: "claude",
@@ -124,8 +136,8 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
 
 async function main(): Promise<void> {
   const target = (argValue("--target") ?? "all") as Target;
-  if (!["e2b", "freestyle", "all"].includes(target)) {
-    throw new Error("--target must be e2b, freestyle, or all");
+  if (!["e2b", "freestyle", "daytona", "all"].includes(target)) {
+    throw new Error("--target must be e2b, freestyle, daytona, or all");
   }
   const tag = (argValue("--tag") ?? defaultTag()).trim();
   const skipCache = hasFlag("--skip-cache");
@@ -165,6 +177,11 @@ async function main(): Promise<void> {
     output.freestyle = freestyle;
     (output.manifestEntries as unknown[]).push(freestyle.manifestEntry);
   }
+  if (target === "daytona" || target === "all") {
+    const daytona = await buildDaytonaSnapshot(tag, binaryPath, skipCache, imageMetadata);
+    output.daytona = daytona;
+    (output.manifestEntries as unknown[]).push(daytona.manifestEntry);
+  }
 
   console.log(JSON.stringify(output, null, 2));
 }
@@ -200,6 +217,7 @@ async function buildE2BTemplate(
     })
     .runCmd(cloudToolInstallCommands(), { user: "root" })
     .runCmd(cloudRootSetupCommands(), { user: "root" })
+    .runCmd(cloudShellProfileCommands(), { user: "root" })
     .runCmd(cloudImageSmokeTestCommands(), { user: "root" })
     .setStartCmd(
       "/usr/local/bin/cmuxd-remote serve --ws --listen 0.0.0.0:7777 --auth-lease-file /tmp/cmux/attach-pty-lease.json --rpc-auth-lease-file /tmp/cmux/attach-rpc-lease.json --shell /bin/bash",
@@ -247,13 +265,12 @@ async function buildFreestyleSnapshot(
   const createStartedAt = new Date();
   let result: unknown;
   try {
-    result = await fs.vms.snapshots.create({
+    result = await createFreestyleSnapshot(fs, {
       name,
       template: {
         baseImage: {
           dockerfileContent: freestyleBaseDockerfileContent(daemonURL),
         },
-        ports: [{ port: 443, targetPort: 7777 }],
         discriminator: `cmuxd-ws-${tag}`,
         skipCache,
       },
@@ -288,6 +305,9 @@ async function buildFreestyleSnapshot(
       imageId,
       envVar: "FREESTYLE_SANDBOX_SNAPSHOT",
       defaultForLocalDev: false,
+      features: process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY?.trim()
+        ? { bakedFreestyleSignedAdmin: true }
+        : undefined,
       cmuxdRemoteCommit: metadata.cmuxdRemoteCommit,
       builtAt: metadata.builtAt,
       builderScriptVersion: metadata.builderScriptVersion,
@@ -296,6 +316,113 @@ async function buildFreestyleSnapshot(
       notes: imageNotes(metadata),
     },
   };
+}
+
+async function buildDaytonaSnapshot(
+  tag: string,
+  daemonPath: string,
+  skipCache: boolean,
+  metadata: ImageBuildMetadata,
+): Promise<Record<string, unknown>> {
+  if (!process.env.DAYTONA_API_KEY) {
+    throw new Error("DAYTONA_API_KEY is required to build the Daytona snapshot");
+  }
+  // Daytona has no skip-cache switch; the tag-unique snapshot name and discriminating
+  // RUN layers make cache reuse a per-layer Docker concern, same as a fresh docker build.
+  void skipCache;
+  const daytona = new Daytona({
+    apiKey: process.env.DAYTONA_API_KEY,
+    apiUrl: process.env.DAYTONA_API_URL,
+  });
+  const name = `cmuxd-ws-${tag}`;
+  const snapshot = await daytona.snapshot.create(
+    {
+      name,
+      image: daytonaSnapshotImage(daemonPath),
+      // Also registered on the snapshot record so sandboxes restart cmuxd-remote on
+      // every stop/start cycle without relying on the baked ENTRYPOINT alone.
+      entrypoint: [DAYTONA_ENTRYPOINT_PATH],
+    },
+    {
+      onLogs: (chunk) => process.stderr.write(chunk),
+      timeout: Math.ceil(DAYTONA_SNAPSHOT_CREATE_TIMEOUT_MS / 1000),
+    },
+  );
+  return {
+    name,
+    result: { snapshotId: snapshot.id, state: snapshot.state },
+    manifestEntry: {
+      provider: "daytona",
+      version: `daytona-${tag}`,
+      // Daytona sandboxes are created from snapshots by name, so the name is the image id.
+      imageId: name,
+      envVar: "DAYTONA_SANDBOX_SNAPSHOT",
+      defaultForLocalDev: false,
+      cmuxdRemoteCommit: metadata.cmuxdRemoteCommit,
+      builtAt: metadata.builtAt,
+      builderScriptVersion: metadata.builderScriptVersion,
+      agentToolResolvedVersions: metadata.agentToolResolvedVersions,
+      validationStatus: metadata.validationStatus,
+      notes: imageNotes(metadata),
+    },
+  };
+}
+
+/**
+ * Declarative Daytona image with the same payload as the E2B/Freestyle images: cloud shell
+ * packages, the cmux Linux user, agent tools, and cmuxd-remote on 7777 with lease files.
+ *
+ * No sshd is baked. cmux uses Daytona attach exclusively over preview-URL WebSockets, and even
+ * Daytona's own token SSH gateway terminates in the runner's injected daemon, not sandbox sshd,
+ * so an in-image sshd would be dead weight.
+ */
+export function daytonaSnapshotImage(daemonPath: string): Image {
+  return Image.base("ubuntu:24.04")
+    .env({ LANG: UTF8_LOCALE, LC_ALL: UTF8_LOCALE, LANGUAGE: UTF8_LOCALE })
+    .runCommands(
+      `apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${CLOUD_SHELL_PACKAGES.join(" ")} && rm -rf /var/lib/apt/lists/*`,
+    )
+    .addLocalFile(daemonPath, "/usr/local/bin/cmuxd-remote")
+    .runCommands(
+      ...[
+        "chmod 0755 /usr/local/bin/cmuxd-remote",
+        ...cloudToolInstallCommands(),
+        ...cloudRootSetupCommands(),
+        ...cloudShellProfileCommands(),
+        ...daytonaEntrypointCommands(),
+        ...cloudImageSmokeTestCommands(),
+      ].map(toDockerfileRunCommand),
+    )
+    .entrypoint([DAYTONA_ENTRYPOINT_PATH]);
+}
+
+/**
+ * The declarative builder emits each runCommands entry as one Dockerfile RUN line, so a
+ * command containing newlines (the shared heredoc-based profile/entrypoint writers) would be
+ * parsed as stray Dockerfile instructions. Wrap multi-line commands so they reach `sh` intact.
+ */
+export function toDockerfileRunCommand(command: string): string {
+  if (!command.includes("\n")) return command;
+  const encoded = Buffer.from(command, "utf8").toString("base64");
+  return `printf '%s' '${encoded}' | base64 -d | sh`;
+}
+
+export function daytonaEntrypointCommands(): string[] {
+  // Daytona containers have no systemd; the entrypoint is the daemon supervisor. Daytona
+  // re-runs it on every sandbox start, which is what brings cmuxd-remote back after a
+  // stop/start (cmux pause/resume) cycle.
+  return [
+    `cat > ${DAYTONA_ENTRYPOINT_PATH} <<'CMUX_DAYTONA_ENTRYPOINT'
+#!/bin/sh
+mkdir -p /tmp/cmux
+chmod 700 /tmp/cmux
+while true; do
+  /usr/local/bin/cmuxd-remote serve --ws --listen 0.0.0.0:7777 --auth-lease-file /tmp/cmux/attach-pty-lease.json --rpc-auth-lease-file /tmp/cmux/attach-rpc-lease.json --shell /usr/local/bin/cmux-cloud-shell
+  sleep 2
+done
+CMUX_DAYTONA_ENTRYPOINT`,
+    `chmod 0755 ${DAYTONA_ENTRYPOINT_PATH}`,
+  ];
 }
 
 type FreestyleSnapshotRecord = {
@@ -375,13 +502,58 @@ export async function waitForFreestyleSnapshotByName(
 function cloudRootSetupCommands(): string[] {
   return [
     `printf 'LANG=${UTF8_LOCALE}\\nLC_ALL=${UTF8_LOCALE}\\n' > /etc/default/locale`,
-    `useradd -m -s /bin/bash ${PRIMARY_LINUX_USER} || true`,
+    `useradd -m -s /bin/zsh ${PRIMARY_LINUX_USER} || true`,
     `printf '${PRIMARY_LINUX_USER} ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/90-${PRIMARY_LINUX_USER}-nopasswd`,
     `chmod 0440 /etc/sudoers.d/90-${PRIMARY_LINUX_USER}-nopasswd`,
     "if id -u user >/dev/null 2>&1; then printf 'user ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/91-user-nopasswd && chmod 0440 /etc/sudoers.d/91-user-nopasswd; fi",
-    "mkdir -p /tmp/cmux && chmod 700 /tmp/cmux",
+    "mkdir -p /tmp/cmux && chown cmux:cmux /tmp/cmux && chmod 700 /tmp/cmux",
     "ln -sf /usr/local/bin/cmuxd-remote /usr/local/bin/cmux",
   ];
+}
+
+function cloudShellProfileCommands(): string[] {
+  return [
+    "mkdir -p /etc/cmux /home/cmux/.config/cmux /home/cmux/.cmux",
+    "cat > /etc/cmux/zshrc <<'CMUX_ZSHRC'\n# cmux default zsh profile. Put personal overrides in ~/.zshrc.local.\nexport PATH=\"/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}\"\nexport SHELL=\"$(command -v zsh)\"\nmkdir -p \"$HOME/.cmux\" 2>/dev/null || true\nprintf '%s' '/tmp/cmux-cloud-cli.sock' > \"$HOME/.cmux/socket_addr\" 2>/dev/null || true\nexport CMUX_SOCKET_PATH=\"${CMUX_SOCKET_PATH:-/tmp/cmux-cloud-cli.sock}\"\nautoload -Uz colors 2>/dev/null && colors\nsetopt prompt_subst interactivecomments no_beep hist_ignore_dups share_history 2>/dev/null || true\nPROMPT_EOL_MARK=''\nunsetopt prompt_sp 2>/dev/null || true\nHISTFILE=\"${HISTFILE:-$HOME/.zsh_history}\"\nHISTSIZE=\"${HISTSIZE:-50000}\"\nSAVEHIST=\"${SAVEHIST:-50000}\"\nbindkey -e 2>/dev/null || true\nif [ -r /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]; then\n  source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh\n  ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE=\"${ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE:-fg=8}\"\nfi\n: ${CMUX_PROMPT_USER:=cmux-cloud}\n: ${CMUX_PROMPT_CHAR:=$'\\u03bb'}\nPROMPT='%F{magenta}${CMUX_PROMPT_USER}%f in %F{green}%~%f ${CMUX_PROMPT_CHAR} '\nCMUX_ZSHRC",
+    "cat > /home/cmux/.zshrc <<'CMUX_USER_ZSHRC'\n# cmux-managed zsh defaults. Edit ~/.zshrc.local for personal overrides.\nmkdir -p \"$HOME/.cmux\" 2>/dev/null || true\nprintf '%s' '/tmp/cmux-cloud-cli.sock' > \"$HOME/.cmux/socket_addr\" 2>/dev/null || true\nexport CMUX_SOCKET_PATH=\"${CMUX_SOCKET_PATH:-/tmp/cmux-cloud-cli.sock}\"\n[ -r /etc/cmux/zshrc ] && source /etc/cmux/zshrc\n[ -r \"$HOME/.zshrc.local\" ] && source \"$HOME/.zshrc.local\"\nif [ \"${CMUX_CLOUD_WELCOME:-1}\" != \"0\" ] && [ -z \"${CMUX_CLOUD_WELCOME_SHOWN:-}\" ] && [ -t 1 ]; then\n  export CMUX_CLOUD_WELCOME_SHOWN=1\n  printf '\\033[38;2;0;212;255m  ::\\033[0m\\n'\n  printf '\\033[38;2;24;181;250m    ::::              \\033[38;2;0;212;255mc\\033[38;2;24;181;250mm\\033[38;2;48;150;245mu\\033[38;2;124;58;237mx cloud\\033[0m\\n'\n  printf '\\033[38;2;48;150;245m      ::::::\\033[0m\\n'\n  printf '\\033[38;2;72;119;241m        ::::::\\033[0m        \\033[38;2;130;130;140mpersistent cloud VM\\033[0m\\n'\n  printf '\\033[38;2;96;88;239m      ::::::\\033[0m          \\033[38;2;130;130;140mready for coding agents\\033[0m\\n'\n  printf '\\033[38;2;110;73;238m    ::::\\033[0m\\n'\n  printf '\\033[38;2;124;58;237m  ::\\033[0m\\n'\n  printf '\\n'\nfi\nCMUX_USER_ZSHRC",
+    "cat > /home/cmux/.zshrc.local <<'CMUX_LOCAL_ZSHRC'\n# Personal zsh overrides for this cloud VM.\n# Examples:\n#   CMUX_CLOUD_WELCOME=0\n#   CMUX_PROMPT_USER='cmux-cloud'\n#   CMUX_PROMPT_CHAR='>'\n#   PROMPT='%F{cyan}%n%f:%F{green}%~%f %# '\nCMUX_LOCAL_ZSHRC",
+    "cat > /usr/local/bin/cmux-cloud-shell <<'CMUX_CLOUD_SHELL'\n#!/bin/sh\ncd /home/cmux 2>/dev/null || true\nexport HOME=/home/cmux\nexport USER=cmux\nexport LOGNAME=cmux\nexport SHELL=/bin/zsh\nexec runuser -u cmux -- /bin/zsh -l\nCMUX_CLOUD_SHELL\nchmod 0755 /usr/local/bin/cmux-cloud-shell",
+    "touch /home/cmux/.hushlogin",
+    "chown -R cmux:cmux /home/cmux/.zshrc /home/cmux/.zshrc.local /home/cmux/.hushlogin /home/cmux/.config /home/cmux/.cmux",
+  ];
+}
+
+function freestyleSignedAdminServiceCommands(): string[] {
+  const publicKey = process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY?.trim();
+  if (!publicKey) return [];
+  validateFreestyleAdminPublicKey(publicKey);
+  return [
+    "mkdir -p /tmp/cmux && chmod 700 /tmp/cmux",
+    `cat > /etc/systemd/system/cmuxd-ws.service <<'CMUXD_WS_SERVICE'
+[Unit]
+Description=cmux remote WebSocket daemon
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Environment=CMUXD_WS_ADMIN_ED25519_PUBLIC_KEY=${publicKey}
+ExecStart=/usr/local/bin/cmuxd-remote serve --ws --listen 0.0.0.0:7777 --auth-lease-file /tmp/cmux/attach-pty-lease.json --rpc-auth-lease-file /tmp/cmux/attach-rpc-lease.json --shell /usr/local/bin/cmux-cloud-shell
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+CMUXD_WS_SERVICE`,
+    "mkdir -p /etc/systemd/system/multi-user.target.wants && ln -sf /etc/systemd/system/cmuxd-ws.service /etc/systemd/system/multi-user.target.wants/cmuxd-ws.service",
+  ];
+}
+
+function validateFreestyleAdminPublicKey(publicKey: string): void {
+  const decoded = Buffer.from(publicKey.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+  if (decoded.length !== 32) {
+    throw new Error("CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY must decode to 32 bytes");
+  }
 }
 
 export function cloudImageSmokeTestCommands(): string[] {
@@ -392,6 +564,12 @@ export function cloudImageSmokeTestCommands(): string[] {
   return [
     "printf 'int main(void) { return 0; }\\n' >/tmp/cmux-build-smoke.c && gcc /tmp/cmux-build-smoke.c -o /tmp/cmux-build-smoke && /tmp/cmux-build-smoke && g++ --version >/dev/null && make --version >/dev/null && pkg-config --version >/dev/null && rm -f /tmp/cmux-build-smoke.c /tmp/cmux-build-smoke",
     "openssl version -a >/tmp/cmux-openssl-version.txt 2>&1",
+    "gh --version >/tmp/cmux-gh-version.txt 2>&1",
+    "htop --version >/tmp/cmux-htop-version.txt 2>&1",
+    "btop --version >/tmp/cmux-btop-version.txt 2>&1",
+    "tmux -V >/tmp/cmux-tmux-version.txt 2>&1",
+    "zsh --version >/tmp/cmux-zsh-version.txt 2>&1",
+    "test -r /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh",
     "python3 -X faulthandler -c 'import ssl; print(ssl.OPENSSL_VERSION)'",
     "python3 -m http.server --help >/dev/null",
     "python3 -m pip --version >/tmp/cmux-pip-version.txt 2>&1",
@@ -403,6 +581,7 @@ export function cloudImageSmokeTestCommands(): string[] {
     "gh --version >/tmp/cmux-gh-version.txt 2>&1",
     `${toolchainEnv} rustup show active-toolchain >/tmp/cmux-rustup-toolchain.txt 2>&1 && grep -q '^stable' /tmp/cmux-rustup-toolchain.txt && rustc --version >/tmp/cmux-rustc-version.txt 2>&1 && cargo --version >/tmp/cmux-cargo-version.txt 2>&1`,
     "mise --version >/tmp/cmux-mise-version.txt 2>&1",
+    "test -x /usr/local/bin/cmuxd-remote && test -x /usr/local/bin/cmux",
     "cmux --help >/tmp/cmux-cli-help.txt 2>&1",
     "cmux --socket /tmp/cmux-browser-smoke.sock browser >/tmp/cmux-browser-help.txt 2>&1; status=$?; test \"$status\" -eq 2 && grep -q 'requires a subcommand' /tmp/cmux-browser-help.txt",
     "cmuxd-remote version >/tmp/cmuxd-remote-version.txt 2>&1",
@@ -570,6 +749,8 @@ export function freestyleBaseDockerfileContent(daemonURL: string): string {
     `RUN curl -fsSL ${shellQuote(daemonURL)} -o /usr/local/bin/cmuxd-remote && chmod 0755 /usr/local/bin/cmuxd-remote`,
     ...cloudToolInstallCommands().map((command) => `RUN ${command}`),
     ...cloudRootSetupCommands().map((command) => `RUN ${command}`),
+    ...cloudShellProfileCommands().map((command) => `RUN ${command}`),
+    ...freestyleSignedAdminServiceCommands().map((command) => `RUN ${command}`),
     ...cloudImageSmokeTestCommands().map((command) => `RUN ${command}`),
     "RUN mkdir -p /etc/systemd/system/multi-user.target.wants",
     `RUN ${freestyleSystemdServiceCommand()}`,
@@ -714,6 +895,24 @@ export function semverFromEnv(key: string, fallback: string): string {
 
 export function freestyleRecoveryWindowStart(startedAt: Date): string {
   return new Date(startedAt.getTime() - FREESTYLE_SNAPSHOT_RECOVERY_CLOCK_SKEW_MS).toISOString();
+}
+
+async function createFreestyleSnapshot(
+  fs: Freestyle,
+  body: Record<string, unknown>,
+): Promise<unknown> {
+  const base = (process.env.FREESTYLE_API_URL ?? "https://api.freestyle.sh").replace(/\/+$/, "");
+  const response = await fs.fetch(`${base}/v1/vms/snapshots`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(`Freestyle snapshot create failed: HTTP ${response.status} ${await response.text()}`);
+  }
+  return await response.json();
 }
 
 function fetchWithTimeout(timeoutMs: number): typeof fetch {

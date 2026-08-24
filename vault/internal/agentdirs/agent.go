@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -172,7 +173,7 @@ func statSession(agentName, root, path, id, cwd string) (Session, error) {
 }
 
 func statSessionWithLogicalPath(agentName, root, path, logicalPath, id, cwd string) (Session, error) {
-	info, err := os.Stat(path)
+	info, err := RegularFileInfoNoSymlink(path)
 	if err != nil {
 		return Session{}, err
 	}
@@ -192,7 +193,7 @@ func statSessionWithLogicalPath(agentName, root, path, logicalPath, id, cwd stri
 }
 
 func recoverCWDFromJSONL(path string) string {
-	file, err := os.Open(path)
+	file, _, err := OpenRegularFileNoSymlink(path)
 	if err != nil {
 		return ""
 	}
@@ -211,6 +212,19 @@ func recoverCWDFromJSONL(path string) string {
 		}
 	}
 	return ""
+}
+
+func IsSymlinkEntry(entry fs.DirEntry) bool {
+	return entry.Type()&fs.ModeSymlink != 0
+}
+
+func RegularFileInfoNoSymlink(path string) (os.FileInfo, error) {
+	file, info, err := OpenRegularFileNoSymlink(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return info, nil
 }
 
 func cwdFromJSON(data []byte) string {

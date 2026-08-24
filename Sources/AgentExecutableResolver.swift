@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxSettings
 import Foundation
 
@@ -38,10 +39,16 @@ struct AgentExecutableResolver {
                 .appendingPathComponent(executableName, isDirectory: false)
                 .standardizedFileURL
             let candidatePath = candidateURL.path
-            guard fileManager.isExecutableFile(atPath: candidatePath) else { continue }
+            // `isExecutableFile(atPath:)` is true for directories, so a directory named
+            // like the provider binary earlier on PATH would shadow the real executable
+            // and fail at launch (#8743).
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: candidatePath, isDirectory: &isDirectory),
+                  !isDirectory.boolValue,
+                  fileManager.isExecutableFile(atPath: candidatePath) else { continue }
             guard !isBundledProviderExecutable(candidateURL) else { continue }
-            guard !isKnownCmuxClaudeCommandShim(candidateURL, provider: provider) else { continue }
-            guard !isKnownCmuxClaudeWrapper(candidateURL, provider: provider) else { continue }
+            guard !isKnownCmuxAgentCommandShim(candidateURL) else { continue }
+            guard !isKnownCmuxAgentWrapper(candidateURL, provider: provider) else { continue }
 
             return launchPlan(provider: provider, executableURL: candidateURL, searchDirectories: searchDirectories)
         }
@@ -77,16 +84,9 @@ struct AgentExecutableResolver {
             ])
         }
 
-        var seen: Set<String> = []
-        return directories.compactMap { rawDirectory in
-            let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            let standardized = URL(fileURLWithPath: trimmed, isDirectory: true)
-                .standardizedFileURL
-                .path
-            guard seen.insert(standardized).inserted else { return nil }
-            return standardized
-        }
+        return AgentExecutableSearchPathResolver(
+            currentDirectoryPath: fileManager.currentDirectoryPath
+        ).normalizedDirectories(from: directories)
     }
 
     private func userRuntimeSearchDirectories(home: String) -> [String] {
@@ -181,8 +181,8 @@ struct AgentExecutableResolver {
               !isDirectory.boolValue,
               fileManager.isExecutableFile(atPath: candidateURL.path),
               !isBundledProviderExecutable(candidateURL),
-              !isKnownCmuxClaudeCommandShim(candidateURL, provider: provider),
-              !isKnownCmuxClaudeWrapper(candidateURL, provider: provider) else {
+              !isKnownCmuxAgentCommandShim(candidateURL),
+              !isKnownCmuxAgentWrapper(candidateURL, provider: provider) else {
             return nil
         }
         return candidateURL
@@ -203,26 +203,32 @@ struct AgentExecutableResolver {
         return false
     }
 
-    private func isKnownCmuxClaudeCommandShim(_ url: URL, provider: AgentSessionProviderID) -> Bool {
-        guard provider == .claude else { return false }
+    private func isKnownCmuxAgentCommandShim(_ url: URL) -> Bool {
         let candidatePath = url.standardizedFileURL.path
-        if let shimPath = environment["CMUX_CLAUDE_WRAPPER_SHIM"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !shimPath.isEmpty,
-           candidatePath == URL(fileURLWithPath: shimPath, isDirectory: false).standardizedFileURL.path {
-            return true
+        for (key, rawPath) in environment where key.hasSuffix("_WRAPPER_SHIM") {
+            let shimPath = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !shimPath.isEmpty else { continue }
+            if candidatePath == URL(fileURLWithPath: shimPath, isDirectory: false).standardizedFileURL.path {
+                return true
+            }
         }
 
-        let shimRoots: [String?] = [
-            environment["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"],
+        var shimRoots = environment.compactMap { key, rawPath -> String? in
+            guard key == "CMUX_AGENT_COMMAND_SHIM_ROOT" || key.hasSuffix("_WRAPPER_SHIM_ROOT") else {
+                return nil
+            }
+            return rawPath
+        }
+        shimRoots.append(contentsOf: [
             URL(fileURLWithPath: environment["TMPDIR"] ?? NSTemporaryDirectory(), isDirectory: true)
                 .appendingPathComponent("cmux-cli-shims", isDirectory: true)
                 .standardizedFileURL
                 .path,
             "/tmp/cmux-cli-shims",
-        ]
+        ])
         for shimRoot in shimRoots {
-            guard let shimRoot = shimRoot?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !shimRoot.isEmpty else { continue }
+            let shimRoot = shimRoot.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !shimRoot.isEmpty else { continue }
             let standardizedRoot = URL(fileURLWithPath: shimRoot, isDirectory: true)
                 .standardizedFileURL
                 .path
@@ -242,13 +248,27 @@ struct AgentExecutableResolver {
         return path.hasPrefix(resourcePath + "/")
     }
 
-    private func isKnownCmuxClaudeWrapper(_ url: URL, provider: AgentSessionProviderID) -> Bool {
-        guard provider == .claude,
-              let data = fileManager.contents(atPath: url.path),
-              let prefix = String(data: data.prefix(512), encoding: .utf8) else {
+    private func isKnownCmuxAgentWrapper(_ url: URL, provider: AgentSessionProviderID) -> Bool {
+        let marker: String
+        switch provider {
+        case .claude:
+            marker = "cmux claude wrapper - injects hooks and session tracking"
+        case .codex:
+            marker = "cmux codex wrapper - per-invocation Codex hook injection"
+        case .opencode:
             return false
         }
-        return prefix.contains("cmux claude wrapper - injects hooks and session tracking")
+
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+        let data: Data
+        do {
+            data = try handle.read(upToCount: 512) ?? Data()
+        } catch {
+            return false
+        }
+        let prefix = String(decoding: data, as: UTF8.self)
+        return prefix.contains(marker)
     }
 
     private static func isCmuxAppBundleResourceBinDirectory(_ path: String) -> Bool {

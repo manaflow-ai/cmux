@@ -46,6 +46,31 @@ extension ControlCommandCoordinator {
         }
 
         let source = publicResumeSource(params)
+        let remoteWorkspaceID = uuid(params, "_cmux_remote_workspace_id")
+        if hasNonNull(params, "_cmux_remote_workspace_id"), remoteWorkspaceID == nil {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.surfaceSplitOff.error.invalidWorkspaceId",
+                    defaultValue: "Missing or invalid workspace_id"
+                ),
+                data: nil
+            )
+        }
+        let launchCommand: ControlAgentLaunchCommand?
+        switch params["launch_command"] {
+        case nil, .null:
+            launchCommand = nil
+        case let value?:
+            guard let parsed = controlAgentLaunchCommand(value) else {
+                return .err(
+                    code: "invalid_params",
+                    message: surfaceResumeStrings().launchCommandMustBeValid,
+                    data: nil
+                )
+            }
+            launchCommand = parsed
+        }
         let inputs = ControlSurfaceResumeSetInputs(
             name: optionalTrimmedRawString(params, "name"),
             kind: optionalTrimmedRawString(params, "kind"),
@@ -55,7 +80,12 @@ extension ControlCommandCoordinator {
                 ?? optionalTrimmedRawString(params, "checkpointId"),
             source: source,
             environment: stringMap(params, "environment"),
-            autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false
+            launchCommand: launchCommand,
+            permissionMode: optionalTrimmedRawString(params, "permission_mode"),
+            autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false,
+            remoteWorkspaceID: remoteWorkspaceID,
+            remoteRelayParameters: remoteWorkspaceID == nil ? nil : params,
+            resumeEvidenceProvenance: optionalTrimmedRawString(params, "resume_evidence_provenance")
         )
         return surfaceResumeResult(
             context?.controlSurfaceResumeSet(
@@ -100,15 +130,37 @@ extension ControlCommandCoordinator {
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: Self.surfaceWindowUnavailableMessage, data: nil)
         }
+        let agentSessionEnded: Bool
+        switch params["agent_session_ended"] {
+        case .none:
+            agentSessionEnded = false
+        case .some(.bool(let value)):
+            agentSessionEnded = value
+        case .some:
+            return .err(
+                code: "invalid_params",
+                message: surfaceResumeStrings().agentSessionEndedMustBeBoolean,
+                data: nil
+            )
+        }
         let resolution = context?.controlSurfaceResumeClear(
             routing: routing,
             explicitTargetID: surfaceResumeExplicitTargetID(params),
             hasResolvedWindowID: uuid(params, "window_id") != nil,
             expectedCheckpointID: optionalTrimmedRawString(params, "checkpoint_id")
                 ?? optionalTrimmedRawString(params, "checkpointId"),
-            expectedSource: optionalTrimmedRawString(params, "source")
+            expectedSource: optionalTrimmedRawString(params, "source"),
+            agentSessionEnded: agentSessionEnded
         ) ?? .surfaceNotFound
         return surfaceResumeResult(resolution)
+    }
+
+    /// The localized surface-resume strings supplied by the app bundle.
+    private func surfaceResumeStrings() -> ControlSurfaceResumeStrings {
+        context?.controlSurfaceResumeStrings() ?? ControlSurfaceResumeStrings(
+            agentSessionEndedMustBeBoolean: "",
+            launchCommandMustBeValid: ""
+        )
     }
 
     /// Shapes the shared `surface.resume.*` result.
@@ -122,6 +174,12 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "Surface not found", data: nil)
         case .emptyResumeCommand:
             return .err(code: "invalid_params", message: "Resume command is empty", data: nil)
+        case .approvalPending(let message):
+            return .err(
+                code: "busy",
+                message: message,
+                data: .object(["retryable": .bool(true)])
+            )
         case .setFailed:
             return .err(code: "internal_error", message: "Failed to set resume binding", data: nil)
         case .result(let snapshot):
@@ -136,6 +194,7 @@ extension ControlCommandCoordinator {
                 "surface_ref": ref(.surface, snapshot.surfaceID),
                 "cleared": .bool(snapshot.cleared),
                 "resume_binding": surfaceResumeBindingPayload(snapshot.binding),
+                "restore_record": surfaceRestoreRecordPayload(snapshot.restoreRecord),
             ]))
         }
     }
@@ -157,56 +216,117 @@ extension ControlCommandCoordinator {
             "checkpoint_id": orNull(binding.checkpointID),
             "source": orNull(binding.source),
             "environment": environment,
+            "launch_command": controlAgentLaunchCommandPayload(binding.launchCommand),
+            "permission_mode": orNull(binding.permissionMode),
             "auto_resume": .bool(binding.autoResume),
+            "resume_evidence_provenance": orNull(binding.resumeEvidenceProvenance),
             "approval_policy": orNull(binding.approvalPolicyRawValue),
             "approval_record_id": orNull(binding.approvalRecordID),
+            "execution_location": .string(binding.executionLocationRawValue),
+            "remote_workspace_id": orNull(binding.remoteWorkspaceID?.uuidString),
+            "remote_surface_id": orNull(binding.remoteSurfaceID?.uuidString),
+            "remote_pty_session_id": orNull(binding.remotePTYSessionID),
             "updated_at": .double(binding.updatedAt),
         ])
     }
 
-    // MARK: - report_tty
-
-    /// `surface.report_tty` — record a reported TTY name.
-    func surfaceReportTTY(_ params: [String: JSONValue]) -> ControlCallResult {
-        guard let workspaceID = uuid(params, "workspace_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+    private func controlAgentLaunchCommand(_ value: JSONValue?) -> ControlAgentLaunchCommand? {
+        guard case .object(let object)? = value,
+              case .array(let rawArguments)? = object["arguments"] else {
+            return nil
         }
-        let requestedSurfaceID = uuid(params, "surface_id")
-        if hasNonNull(params, "surface_id"), requestedSurfaceID == nil {
-            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        for key in ["launcher", "executable_path", "working_directory", "verification_home", "source"] {
+            switch object[key] {
+            case nil, .null, .string:
+                break
+            default:
+                return nil
+            }
         }
-        guard let ttyName = rawString(params, "tty_name")?
-            .trimmingCharacters(in: .whitespacesAndNewlines), !ttyName.isEmpty else {
-            return .err(code: "invalid_params", message: "Missing tty_name", data: nil)
+        switch object["environment"] {
+        case nil, .null:
+            break
+        case .object(let environment):
+            guard environment.values.allSatisfy({
+                if case .string = $0 { return true }
+                return false
+            }) else {
+                return nil
+            }
+        default:
+            return nil
         }
-
-        let resolution = context?.controlSurfaceReportTTY(
-            workspaceID: workspaceID,
-            requestedSurfaceID: requestedSurfaceID,
-            ttyName: ttyName
-        ) ?? .workspaceNotFound
-        let requestedSurfaceData = surfaceReportSurfaceFields(
-            workspaceID: workspaceID,
-            requestedSurfaceID: requestedSurfaceID
+        switch object["captured_at"] {
+        case nil, .null, .double, .int:
+            break
+        default:
+            return nil
+        }
+        let arguments = rawArguments.compactMap { value -> String? in
+            guard case .string(let argument) = value else { return nil }
+            return argument
+        }
+        guard arguments.count == rawArguments.count, !arguments.isEmpty else { return nil }
+        return ControlAgentLaunchCommand(
+            launcher: rawString(object, "launcher"),
+            executablePath: rawString(object, "executable_path"),
+            arguments: arguments,
+            workingDirectory: rawString(object, "working_directory"),
+            environment: stringMap(object, "environment"),
+            verificationHome: rawString(object, "verification_home"),
+            capturedAt: doubleValue(object["captured_at"]),
+            source: rawString(object, "source")
         )
-        switch resolution {
-        case .workspaceNotFound:
-            return .err(code: "not_found", message: "Workspace not found", data: .object(requestedSurfaceData))
-        case .surfaceNotFound:
-            return .err(code: "not_found", message: "Surface not found", data: .object(requestedSurfaceData))
-        case .pending:
-            var payload = requestedSurfaceData
-            payload["tty_name"] = .string(ttyName)
-            payload["pending"] = .bool(true)
-            return .ok(.object(payload))
-        case .recorded(let surfaceID):
-            return .ok(.object([
-                "workspace_id": .string(workspaceID.uuidString),
-                "workspace_ref": ref(.workspace, workspaceID),
-                "surface_id": .string(surfaceID.uuidString),
-                "surface_ref": ref(.surface, surfaceID),
-                "tty_name": .string(ttyName),
-            ]))
+    }
+
+    private nonisolated func controlAgentLaunchCommandPayload(
+        _ command: ControlAgentLaunchCommand?
+    ) -> JSONValue {
+        guard let command else { return .null }
+        let environment = command.environment.map {
+            JSONValue.object($0.mapValues(JSONValue.string))
+        } ?? .null
+        return .object([
+            "launcher": orNull(command.launcher),
+            "executable_path": orNull(command.executablePath),
+            "arguments": .array(command.arguments.map(JSONValue.string)),
+            "working_directory": orNull(command.workingDirectory),
+            "environment": environment,
+            "verification_home": orNull(command.verificationHome),
+            "captured_at": command.capturedAt.map(JSONValue.double) ?? .null,
+            "source": orNull(command.source),
+        ])
+    }
+
+    private nonisolated func surfaceRestoreRecordPayload(
+        _ record: ControlSurfaceRestoreRecord?
+    ) -> JSONValue {
+        guard let record else { return .null }
+        return .object([
+            "mode": .string(record.modeRawValue),
+            "kind": .string(record.kind),
+            "checkpoint_id": orNull(record.checkpointID),
+            "source": orNull(record.source),
+            "working_directory": orNull(record.workingDirectory),
+            "environment": .object(record.environment.mapValues(JSONValue.string)),
+            "launch_command": controlAgentLaunchCommandPayload(record.launchCommand),
+            "prepared_arguments": record.preparedArguments.map {
+                .array($0.map(JSONValue.string))
+            } ?? .null,
+            "prepared_arguments_working_directory": orNull(
+                record.preparedArgumentsWorkingDirectory
+            ),
+            "permission_mode": orNull(record.permissionMode),
+            "legacy_command": orNull(record.legacyCommand),
+        ])
+    }
+
+    private func doubleValue(_ value: JSONValue?) -> Double? {
+        switch value {
+        case .double(let value): value
+        case .int(let value): Double(value)
+        case .decimal(let value): NSDecimalNumber(string: value).doubleValue
+        default: nil
         }
     }
 
@@ -273,6 +393,16 @@ extension ControlCommandCoordinator {
         if hasNonNull(params, "surface_id"), requestedSurfaceID == nil {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
+        let terminalLifecycleID = uuid(params, "terminal_lifecycle_id")
+        if hasNonNull(params, "terminal_lifecycle_id"), terminalLifecycleID == nil {
+            return .err(
+                code: "invalid_params",
+                message: context?
+                    .controlSurfaceInvalidTerminalLifecycleIDError()
+                    ?? "Terminal session is out of date; restart the shell and try again",
+                data: nil
+            )
+        }
         let rawState = rawString(params, "state")
             ?? rawString(params, "shell_state")
             ?? rawString(params, "activity")
@@ -284,6 +414,7 @@ extension ControlCommandCoordinator {
         let resolution = context?.controlSurfaceReportShellState(
             workspaceID: workspaceID,
             requestedSurfaceID: requestedSurfaceID,
+            terminalLifecycleID: terminalLifecycleID,
             stateRawValue: stateRawValue
         ) ?? .pending
         switch resolution {
@@ -362,7 +493,7 @@ extension ControlCommandCoordinator {
 
     /// The shared workspace/requested-surface field block the report/kick payloads
     /// echo (the legacy `v2OrNull` requested-surface shape).
-    private func surfaceReportSurfaceFields(
+    func surfaceReportSurfaceFields(
         workspaceID: UUID,
         requestedSurfaceID: UUID?
     ) -> [String: JSONValue] {

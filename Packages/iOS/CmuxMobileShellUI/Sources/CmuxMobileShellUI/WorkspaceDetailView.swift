@@ -1,11 +1,14 @@
+import CMUXMobileCore
 import CmuxAgentChat
 import CmuxAgentChatUI
 import CmuxMobileBrowser
+import CmuxMobileBrowserStream
 import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTerminal
+import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
 #if os(iOS)
@@ -15,6 +18,13 @@ import AppKit
 #endif
 
 struct WorkspaceDetailView: View {
+    static func reconnectAction(
+        connectionRequiresReauth: Bool,
+        reconnect: @escaping () -> Void
+    ) -> (() -> Void)? {
+        connectionRequiresReauth ? nil : reconnect
+    }
+
     let host: String
     let connectionStatus: MobileMacConnectionStatus
     let workspace: MobileWorkspacePreview
@@ -22,15 +32,24 @@ struct WorkspaceDetailView: View {
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
     let createTerminal: () -> Void
-    /// Close this workspace on the Mac. When `nil` (older Macs without the `workspace.close.v1`
-    /// capability, or previews) the close affordance is hidden from the top-bar menu.
+    let renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
+    let customizeWorkspace: WorkspaceCustomizationAction?
+    let setWorkspaceUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
+    /// Close this workspace on the Mac. When `nil`, the close affordance is
+    /// hidden from the top-bar menu, matching the workspace list's gating.
     let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
-    let signOut: (() -> Void)?
-    @Environment(BrowserSurfaceStore.self) private var browserStore
+    let signOut: (@MainActor @Sendable () -> Void)?
+    @Environment(BrowserSurfaceStore.self) var browserStore
+    @Environment(BrowserStreamStore.self) var browserStreamStore
+    @Environment(MobileSimulatorStreamStore.self) var simulatorStreamStore
+    @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(ToastCenter.self) private var toasts
+    @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
+    @Environment(\.terminalFilesChipEnabled) var isTerminalFilesChipEnabled
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -39,40 +58,122 @@ struct WorkspaceDetailView: View {
     @State private var feedbackEmail = ""
     @State private var isSubmittingFeedback = false
     @State private var feedbackErrorMessage: String?
-    @State private var isTextSheetPresented = false
+    @State private var isTextSheetPresented = {
+        #if DEBUG
+        AutoConnectMigrationUITestConfiguration.currentProcess?.initialModalHost
+            == .workspaceDetailTerminalText
+        #else
+        false
+        #endif
+    }()
     /// Drives the rename-workspace dialog launched from the picker menu, and its
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
     @State var renameText = ""
+    /// Drives the shared workspace identity editor from the title menu.
+    @State var isCustomizationPresented = false
     /// Live pane width for capping the leading glass title pill.
     @State private var contentWidth: CGFloat = 0
+    // Rendered content width per trailing toolbar item, keyed by item. The
+    // title's width cap subtracts the structurally visible items' widths so
+    // they always fit and iOS never folds them into the overflow More menu
+    // (no per-item priority exists below iOS 27). Only structural removal
+    // deletes an entry (see the onChange handlers); a layout-driven
+    // disappearance (overflow into More) cannot release a reservation and
+    // make the collapse sticky.
+    @State private var trailingToolbarItemWidths: [String: CGFloat] = [:]
+    /// Ratchets on when the trailing cluster's content leaves the bar while
+    /// the screen's own content is still on a window: the system folded it
+    /// into the More menu, so the estimate reserves undershot this device's
+    /// chrome. Never cleared for this view's lifetime; the extra recovery
+    /// reserve un-collapses the bar.
+    @State private var trailingToolbarCollapseDetected = false
+    /// Live window-attachment flags shared with the UIKit probes; reference
+    /// identity keeps event-time reads current where SwiftUI captures of
+    /// value state would be stale.
+    @State private var barPresence = WorkspaceBarPresence()
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
+    /// Identity of the in-flight New Browser creation. A late RPC result must
+    /// not activate its panel over a selection the user made in the meantime,
+    /// so completion applies only while its request is still current.
+    @State private var browserCreateRequest: UUID?
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
-    /// Chat-mode toggle for inline agent chat in place of the terminal.
-    @State var isChatMode = false
-    /// The session chat mode was entered on, pinned so sorting cannot swap the conversation
-    /// out from under the user mid-read. Cleared when chat mode turns off.
-    @State var pinnedChatSessionID: String?
-    @State var chatSessions: [ChatSessionDescriptor] = []
-    @State var chatSessionsWorkspaceID: String?
-    /// Last terminal id whose cached snapshot said it had a chat session.
-    @State var cachedChatToggleTerminalID: String?
-    @State var ignoredChatSessionRefreshKey: String?
-    @State var ignoredChatSessionRefreshID: UUID?
-    @State var ignoredChatSessionRefreshTask: Task<[ChatSessionDescriptor]?, Never>?
-    /// Per-session chat stores kept warm while the workspace detail is visible.
-    @State var chatConversationStores: [String: ChatConversationStore] = [:]
-    /// Per-session composer drafts, surviving toggles back to the terminal.
-    @State var chatDrafts: [String: String] = [:]
-    /// App lifecycle phase used to re-pull chat sessions on foreground.
+    /// Local presenter identity remains separate from the artifact popover payload.
+    @State var isTerminalArtifactFilesPresented = false
+    @State var terminalArtifactFilesContext: TerminalArtifactContext?
+    @State var selectedTerminalArtifact: TerminalArtifactSelection?
+    @State var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
+    @State var visibleArtifactCount = 0
+    /// Shared presentation state for the toolbar, title-menu, and hint entry points.
+    @State var isWorkspaceChangesSheetPresented = false
+    @State var workspaceChangesHint: MobileWorkspaceChangesHint?
+    @State var artifactGalleryRefreshSignal = TerminalArtifactGalleryRefreshSignal.initial
     @Environment(\.scenePhase) var scenePhase
     #endif
     /// The active browser surface for this workspace, when a browser pane is open.
-    private var activeBrowser: BrowserSurfaceState? {
+    var activeBrowser: BrowserSurfaceState? {
         browserStore.activeBrowser(for: workspace.id.rawValue)
     }
+    var activeBrowserStream: BrowserStreamSurfaceState? {
+        browserStreamStore.activeState(in: workspace.rpcWorkspaceID.rawValue)
+    }
+    var activeSimulatorStream: MobileSimulatorStreamSurfaceState? {
+        simulatorStreamStore.activeState(in: workspace.rpcWorkspaceID.rawValue)
+    }
+    #if os(iOS)
+    /// Uses the root modal owner in the live app and local state in previews.
+    func resolvedPresentation(
+        for child: MobileRootPresentationState.ChildPresentation,
+        fallback: Binding<Bool>
+    ) -> MobileChildSheetPresentation {
+        childPresentationProvider?.presentation(for: child, fallback: fallback)
+            ?? MobileChildSheetPresentation(isPresented: fallback)
+    }
 
+    private var feedbackPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceDetail(.feedbackComposer),
+            fallback: $isFeedbackComposerPresented
+        )
+    }
+
+    private var textSheetPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceDetail(.terminalText),
+            fallback: $isTextSheetPresented
+        )
+    }
+
+    var workspaceChangesPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceDetail(.workspaceChanges),
+            fallback: $isWorkspaceChangesSheetPresented
+        )
+    }
+
+    private var customizationPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceDetail(.customization),
+            fallback: $isCustomizationPresented
+        )
+    }
+
+    var showMissingFiles: Bool {
+        displaySettings.showMissingFiles
+    }
+    var terminalFolderTapEnabled: Bool {
+        displaySettings.terminalFolderTapEnabled
+    }
+    var activeSurface: WorkspaceActiveSurface {
+        WorkspaceActiveSurface.derive(
+            hasActiveBrowser: activeBrowser != nil,
+            hasActiveBrowserStream: activeBrowserStream != nil,
+            hasActiveSimulatorStream: activeSimulatorStream != nil,
+            selectedMacSurface: workspace.selectedMacSurface(id: store.selectedMacSurfaceID)
+        )
+    }
+    #endif
     var body: some View {
         let content = Group { detailSurfaceContent }
 
@@ -80,29 +181,95 @@ struct WorkspaceDetailView: View {
         content
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
-            .mobileTerminalNavigationChrome()
+            .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
+            // The browser and chat surfaces scroll; without this the system
+            // minimizes the whole bar into a floating "…" pill, unlike the
+            // terminal surface, which has no system scroll view.
+            .mobilePinnedNavigationBar()
+            .trackBarPresence(barPresence)
             .toolbar { workspaceDetailToolbar }
-            .task(id: chatRefreshKey) { await refreshChatSessions() }
-            .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
+            .task(id: workspace.rpcWorkspaceID.rawValue) {
+                await store.refreshMobileBrowserPanels(workspaceID: workspace.rpcWorkspaceID.rawValue)
+                syncSimulatorStreamPanels()
+                store.refreshWorkspaceSelection()
+            }
+            .onChange(of: browserStreamStore.panelDiscoveryRevision(in: workspace.rpcWorkspaceID.rawValue)) { _, _ in
+                store.refreshWorkspaceSelection()
+            }
+            .onChange(of: workspace.simulators) { _, _ in
+                syncSimulatorStreamPanels()
+                store.refreshWorkspaceSelection()
+            }
+            // Structural removal drops the item's retained measurement so a
+            // returning item takes the fail-safe unmeasured reserve instead of
+            // a stale width for its first layout pass. Layout-driven
+            // disappearance (overflow into More) never flips these conditions,
+            // so it cannot release a reservation and make the collapse sticky.
+            .onChange(of: workspaceChangesAreAvailable) { _, isAvailable in
+                if !isAvailable { trailingToolbarItemWidths["changes"] = nil }
+            }
+            .onChange(of: altScreenNoticeIsVisible) { _, isVisible in
+                if !isVisible { trailingToolbarItemWidths["altscreen-notice"] = nil }
+            }
+            .onAppear { refreshWorkspaceChangesHint() }
+            .onChange(of: workspaceChangesHintEligibilityKey) { _, _ in
+                refreshWorkspaceChangesHint()
+            }
             .onChange(of: selectedTerminalID) { _, _ in
-                refreshCachedChatToggleAnchor()
+                visibleArtifactCount = 0
                 syncTerminalPickerRows(includeTitleChanges: true)
+            }
+            .onChange(of: store.supportsTerminalArtifacts) { _, supportsArtifacts in
+                visibleArtifactCount = 0
+            }
+            .onChange(of: store.supportsChatArtifactGallery) { _, _ in
+                visibleArtifactCount = 0
             }
             .closeWorkspaceConfirmation(
                 isPresented: $isConfirmingClose,
                 confirm: confirmCloseWorkspaceFromMenu
             )
-            .sheet(isPresented: $isFeedbackComposerPresented) {
+            .sheet(
+                isPresented: feedbackPresentation.isPresented,
+                onDismiss: feedbackPresentation.didDismiss
+            ) {
                 feedbackComposer
             }
-            .sheet(isPresented: $isTextSheetPresented) {
+            .sheet(
+                isPresented: textSheetPresentation.isPresented,
+                onDismiss: {
+                    textSheetSurfaceID = nil
+                    textSheetPresentation.didDismiss()
+                }
+            ) {
                 TerminalTextSheetView(surfaceID: textSheetSurfaceID)
+            }
+            .sheet(
+                isPresented: workspaceChangesPresentation.isPresented,
+                onDismiss: workspaceChangesPresentation.didDismiss
+            ) {
+                WorkspaceChangesSheet(
+                    store: store,
+                    workspaceID: workspace.rpcWorkspaceID.rawValue,
+                    workspaceTitle: workspace.name
+                )
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
             }
             .workspaceRenameDialog(
                 isPresented: $isRenamePresented,
                 text: $renameText,
                 onSave: commitRenameFromDialog
             )
+            .sheet(
+                isPresented: customizationPresentation.isPresented,
+                onDismiss: customizationPresentation.didDismiss
+            ) {
+                WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
+                    await customizeWorkspace?(workspace.id, initialDraft, submittedDraft)
+                        ?? .failure()
+                }
+            }
             .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
         #else
         content
@@ -115,6 +282,12 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
+    private var altScreenNoticeIsVisible: Bool {
+        guard let selectedTerminalID else { return false }
+        return store.isAlternateScreen(surfaceID: selectedTerminalID)
+            && displaySettings.showAltScreenNotice
+    }
+
     @ToolbarContentBuilder
     private var workspaceDetailToolbar: some ToolbarContent {
         if backButtonConfiguration != nil {
@@ -128,157 +301,241 @@ struct WorkspaceDetailView: View {
         ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
             workspaceTitleToolbarMenu
         }
-        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
-            toolbarTrailingCluster
-        }
-    }
-
-    private var workspaceTitleToolbarMenu: some View {
-        WorkspaceTitleMenu(
-            contentWidth: contentWidth,
-            hasBackButton: backButtonConfiguration != nil,
-            hasTrailingCluster: true,
-            hasChatToggle: shouldShowChatToggle,
-            isEnabled: hasTitleMenuActions,
-            menuContent: { titleMenuContent }
-        ) {
-            toolbarTitleLabel
-        }
-    }
-
-    @ViewBuilder
-    private var toolbarTitleLabel: some View {
-        if isChatMode,
-           let session = chosenChatSession,
-           let conversation = chatConversationStores[session.id] {
-            ChatSessionHeaderView(
-                descriptor: conversation.descriptor,
-                agentState: conversation.agentState,
-                isConnected: conversation.isConnected,
-                titleOverride: workspace.name,
-                subtitle: tabName(for: session),
-                style: .toolbarCompact
-            )
-        } else if let browser = activeBrowser {
-            Text(browser.title ?? workspace.name)
-                .font(.headline)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .foregroundStyle(TerminalPalette.foreground)
+        // iOS 27's visibilityPriority(.high) natively keeps the trailing items
+        // out of the overflow More menu. The symbols are absent from SDK 26.x,
+        // so the branch is compiler-gated until an Xcode 27 toolchain builds
+        // this target; the measured title cap below stays the sizing mechanism
+        // on every OS (the native priority only decides who overflows, it does
+        // not grant the title the remaining space).
+        #if compiler(>=6.4)
+        if #available(iOS 27.0, *) {
+            highPriorityTrailingToolbarItems
         } else {
-            WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
-        }
-    }
-    #endif
-
-    @ViewBuilder
-    private var detailSurfaceContent: some View {
-        #if os(iOS)
-        if isChatMode, let session = chosenChatSession {
-            chatContent(session)
-                .transition(.opacity)
-        } else if let browser = activeBrowser {
-            browserContent(browser)
-        } else {
-            detailContent()
+            trailingToolbarItems
         }
         #else
-        detailContent()
+        trailingToolbarItems
         #endif
     }
 
-    #if os(iOS)
-    /// The browser pane shown when this workspace has an active browser surface.
-    /// It carries its own navigation chrome, so it does not get the terminal's
-    /// keyboard/safe-area handling. Closing returns to the terminal.
-    @ViewBuilder
-    private func browserContent(_ browser: BrowserSurfaceState) -> some View {
-        MobileBrowserPane(
-            state: browser,
-            onClose: { browserStore.closeBrowser(for: workspace.id.rawValue) }
-        )
-        // Key on the surface id so switching/reopening rebuilds the WKWebView.
-        .id(browser.id.rawValue)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    @ToolbarContentBuilder
+    private var trailingToolbarItems: some ToolbarContent {
+        if altScreenNoticeIsVisible {
+            ToolbarItem(id: "workspace-altscreen-notice", placement: .topBarTrailing) {
+                altScreenNoticeToolbarContent
+            }
+        }
+        if workspaceChangesAreAvailable {
+            ToolbarItem(id: "workspace-changes", placement: .topBarTrailing) {
+                workspaceChangesToolbarContent
+            }
+        }
+        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
+            trailingClusterToolbarContent
+        }
+    }
+
+    #if compiler(>=6.4)
+    @available(iOS 27.0, *)
+    @ToolbarContentBuilder
+    private var highPriorityTrailingToolbarItems: some ToolbarContent {
+        if altScreenNoticeIsVisible {
+            ToolbarItem(id: "workspace-altscreen-notice", placement: .topBarTrailing) {
+                altScreenNoticeToolbarContent
+            }
+            .visibilityPriority(.high)
+        }
+        if workspaceChangesAreAvailable {
+            ToolbarItem(id: "workspace-changes", placement: .topBarTrailing) {
+                workspaceChangesToolbarContent
+            }
+            .visibilityPriority(.high)
+        }
+        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
+            trailingClusterToolbarContent
+        }
+        .visibilityPriority(.high)
     }
     #endif
 
-    private func detailContent() -> some View {
+    private var altScreenNoticeToolbarContent: some View {
+        AltScreenNoticeButton {
+            displaySettings.showAltScreenNotice = false
+        }
+        .measureTrailingToolbarItem("altscreen-notice", into: $trailingToolbarItemWidths)
+    }
+
+    private var workspaceChangesToolbarContent: some View {
+        WorkspaceChangesToolbarButton(
+            chip: workspaceChangesChip,
+            workspaceID: workspace.rpcWorkspaceID.rawValue,
+            action: openWorkspaceChanges
+        )
+        // The chrome sits on the terminal theme's background, not the
+        // system scheme; resolve the counts' green/red for that.
+        .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
+        .measureTrailingToolbarItem("changes", into: $trailingToolbarItemWidths)
+    }
+
+    private var trailingClusterToolbarContent: some View {
+        terminalPickerToolbarButton
+            .frame(width: 44, height: 44)
+            // Only the always-structural cluster wires collapse detection: a
+            // conditional item's structural removal also detaches its probe
+            // and would be indistinguishable from a More-menu collapse.
+            .measureTrailingToolbarItem(
+                "trailing-cluster",
+                into: $trailingToolbarItemWidths,
+                onLeaveBar: {
+                    // A deeper push or a pop detaches the whole screen, this
+                    // content view included, before the bar items animate
+                    // out; only a cluster detach while the content is still
+                    // on a window is the More-menu collapse.
+                    if barPresence.detailContentAttached {
+                        trailingToolbarCollapseDetected = true
+                    }
+                }
+            )
+    }
+
+    // Which trailing toolbar items are structurally in the bar right now.
+    // Must mirror the conditions in trailingToolbarItems.
+    private var structuralTrailingItemKeys: [String] {
+        var keys = ["trailing-cluster"]
+        if altScreenNoticeIsVisible { keys.append("altscreen-notice") }
+        if workspaceChangesAreAvailable { keys.append("changes") }
+        return keys
+    }
+
+    private var workspaceTitleToolbarMenu: some View {
+        let measuredWidths = structuralTrailingItemKeys.compactMap { trailingToolbarItemWidths[$0] }
+        let value = WorkspaceTitleMenuValue(
+            contentWidth: contentWidth,
+            hasBackButton: backButtonConfiguration != nil,
+            hasTrailingCluster: true,
+            measuredTrailingItemsWidth: measuredWidths.reduce(0, +),
+            measuredTrailingItemCount: measuredWidths.count,
+            trailingItemCount: structuralTrailingItemKeys.count,
+            hadTrailingCollapse: trailingToolbarCollapseDetected,
+            isEnabled: hasTitleMenuActions,
+            workspaceName: workspace.name,
+            hasUnread: workspace.hasUnread,
+            canCustomizeWorkspace: customizeWorkspace != nil,
+            canRenameWorkspace: renameWorkspace != nil,
+            canToggleReadState: setWorkspaceUnread != nil,
+            canCloseWorkspace: closeWorkspace != nil,
+            labelToken: toolbarTitleLabelToken,
+            terminalTheme: store.activeTerminalTheme
+        )
+        return WorkspaceTitleMenu(
+            value: value,
+            menuContent: {
+                WorkspaceTitleMenuContent(
+                    workspaceName: value.workspaceName,
+                    hasUnread: value.hasUnread,
+                    canCustomizeWorkspace: value.canCustomizeWorkspace,
+                    canRenameWorkspace: value.canRenameWorkspace,
+                    canToggleReadState: value.canToggleReadState,
+                    canCloseWorkspace: value.canCloseWorkspace,
+                    presentCustomization: presentCustomizationFromMenu,
+                    presentRename: presentRenameFromMenu,
+                    toggleReadState: toggleWorkspaceReadStateFromMenu,
+                    requestClose: requestCloseWorkspaceFromMenu
+                )
+            },
+            label: {
+                switch value.labelToken {
+                case .standard(let title, let subtitle):
+                    WorkspaceToolbarTitleView(title: title, subtitle: subtitle)
+                }
+            }
+        )
+        .equatable()
+    }
+
+    private var toolbarTitleLabelToken: WorkspaceTitleMenuLabelToken {
+        if let browser = activeBrowser {
+            // Browser-style surfaces keep the workspace as the pill's title,
+            // like the terminal; the surface's own title (the page or tab)
+            // rides the subtitle line.
+            return .standard(title: workspace.name, subtitle: browser.title)
+        } else if let browser = activeBrowserStream {
+            return .standard(title: workspace.name, subtitle: browser.title)
+        } else if let simulator = activeSimulatorStream {
+            return .standard(
+                title: workspace.name,
+                subtitle: simulator.selectedDeviceName ?? simulator.title
+            )
+        } else {
+            return .standard(title: workspace.name, subtitle: selectedToolbarSubtitle)
+        }
+    }
+    #endif
+
+    func detailContent() -> some View {
         // `GhosttySurfaceView` owns the bottom accessory bar and reserves its
         // height in the terminal grid.
         Group {
             #if os(iOS)
             if let terminalID = selectedTerminal?.id.rawValue {
-                GhosttySurfaceRepresentable(
-                    surfaceID: terminalID,
-                    store: store,
-                    fontSize: MobileTerminalFontPreference.defaultSize,
-                    // Do not let a terminal reattach steal focus while the
-                    // composer owns or intentionally withholds the keyboard.
-                    autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID)
-                        && !store.isComposerPresented,
-                    isComposerActive: store.isComposerPresented,
-                    // Drives the live recolor: when the synced theme changes the
-                    // shell bumps this, and the representable rebuilds the runtime
-                    // config + recolors the mounted surface in place (background,
-                    // letterbox, default cell colors) without a remount, so
-                    // scrollback survives a theme change.
-                    themeGeneration: store.terminalThemeGeneration
-                )
-                // Identity must track the selected terminal. The representable's
-                // coordinator binds its byte sink to the surfaceID at make time and
-                // `updateUIView` is a no-op, so without a per-terminal id SwiftUI
-                // reuses the first terminal's surface and the dropdown never switches.
-                // Keying on terminalID tears down the old surface (unregistering its
-                // sink via dismantleUIView) and builds the newly-selected one.
-                //
-                // The theme is NOT folded into the identity: a theme change recolors
-                // the live surface in place (config rebuild + view recolor driven by
-                // `themeGeneration`), so remounting would only throw away scrollback
-                // for no visual benefit.
-                .id(terminalID)
-                .onAppear {
-                    store.consumeTerminalAutoFocusSuppression(for: terminalID)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(TerminalPalette.background)
-                // The surface positions its grid + docked toolbar from
-                // `keyboardHeight` directly, so opt out of SwiftUI keyboard
-                // avoidance; otherwise the view ALSO shrinks for the keyboard
-                // and the reservation double-counts (extra gap when open).
-                .ignoresSafeArea(.keyboard, edges: .bottom)
-                // Keep the grid clear of the Dynamic Island and nav bar.
-                .padding(.top, terminalTopPadding)
+                terminalArtifactSurface(terminalID: terminalID)
             } else {
-                TerminalPalette.background
+                store.activeTerminalTheme.terminalBackgroundColor
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             #else
-            TerminalPalette.background
+            store.activeTerminalTheme.terminalBackgroundColor
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             #endif
         }
+        // The disconnected terminal stays visible; block interaction so
+        // keystrokes aren't silently dropped by the disconnected drain path.
+        // The status pill attaches after this modifier and stays tappable.
+        .allowsHitTesting(!terminalInputIsBlocked)
+        #if os(iOS)
+        // Hit-testing only blocks new touches: a terminal focused before the
+        // drop (or autofocused on window attach) keeps its keyboard, and its
+        // keystrokes drain into the disconnected path silently. Release the
+        // input proxy on mount, on status changes, and on flag flips.
+        .onChange(of: terminalInputIsBlocked, initial: true) { _, isBlocked in
+            resignTerminalInputIfBlocked(isBlocked)
+        }
+        .onChange(of: store.selectedWorkspaceID) { _, _ in
+            // A retained detail can go unavailable while hidden (the
+            // selection guard skips it); when it becomes selected again the
+            // blocked predicate may not change, so re-check on selection.
+            resignTerminalInputIfBlocked(terminalInputIsBlocked)
+        }
+        #endif
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(alignment: .topLeading) {
-            MobileMacConnectionStatusPill(host: host, status: connectionStatus)
+            // The terminal's only connection chrome: last-known content stays
+            // visible and scrollable underneath while the pill shows the
+            // reconnect progress (or offers Reconnect once attempts stop).
+            MobileMacConnectionStatusPill(
+                host: host,
+                status: effectiveConnectionStatus,
+                reconnect: Self.reconnectAction(
+                    connectionRequiresReauth: store.connectionRequiresReauth,
+                    reconnect: { reconnectToWorkspaceMac() }
+                )
+            )
                 .padding(.top, 10)
                 .padding(.leading, 10)
         }
-        .overlay {
-            // Show a reconnecting/offline state instead of a black terminal.
-            if connectionStatus != .connected {
-                TerminalDisconnectedOverlay(status: connectionStatus, host: host) {
-                    Task {
-                        if let macDeviceID = workspace.macDeviceID,
-                           !macDeviceID.isEmpty,
-                           await store.switchToMac(macDeviceID: macDeviceID) {
-                            return
-                        }
-                        await store.reconnectOrRefresh()
-                    }
-                }
+        #if os(iOS)
+        .overlay(alignment: .topTrailing) {
+            if let terminalID = selectedTerminal?.id.rawValue,
+               !store.isComposerPresented {
+                TerminalSendStatusPill(
+                    status: store.terminalSendStatus(forTerminalID: terminalID)
+                )
+                .allowsHitTesting(false)
+                .padding(.top, 10)
+                .padding(.trailing, 10)
             }
         }
+        #endif
         #if os(iOS) && DEBUG
         // DEBUG/UI-test-only store-side composer probe.
         .overlay {
@@ -298,15 +555,32 @@ struct WorkspaceDetailView: View {
         )
         .background {
             // Fill under translucent chrome with the terminal's own color.
-            TerminalPalette.background
+            store.activeTerminalTheme.terminalBackgroundColor
                 .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
         }
+        .navigationDestination(isPresented: terminalArtifactIsPresented) {
+            if let selectedTerminalArtifact {
+                ChatArtifactViewerDestination(
+                    path: selectedTerminalArtifact.path,
+                    scope: .terminal
+                ) {
+                    self.selectedTerminalArtifact = nil
+                }
+                    .environment(
+                        \.chatArtifactLoader,
+                        terminalArtifactLoader(
+                            workspaceID: selectedTerminalArtifact.workspaceID,
+                            surfaceID: selectedTerminalArtifact.surfaceID
+                        )
+                    )
+            }
+        }
         #else
-        .background(TerminalPalette.background)
+        .background(store.activeTerminalTheme.terminalBackgroundColor)
         #endif
         #if !os(iOS)
         .navigationTitle(systemNavigationTitle)
-        .mobileTerminalNavigationChrome()
+        .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
         .toolbar {
             ToolbarItem {
                 terminalToolbarButtons
@@ -314,6 +588,134 @@ struct WorkspaceDetailView: View {
         }
         #endif
     }
+
+    func reconnectToWorkspaceMac() {
+        Task {
+            await store.reconnectToMac(
+                macDeviceID: workspace.macDeviceID,
+                instanceTag: workspace.macInstanceTag
+            )
+        }
+    }
+
+    /// Same-client foreground recovery flips the store's recovery flags while
+    /// `workspace.macConnectionStatus` stays `.connected`; the pill reflects
+    /// the recovery. Input gating deliberately does NOT use this (see
+    /// `terminalInputIsBlocked`): a probe's "Reconnecting" display coexists
+    /// with a working keyboard. Hidden retained details keep their raw
+    /// status: the guard only applies to the selected workspace on the
+    /// foreground connection.
+    var effectiveConnectionStatus: MobileMacConnectionStatus {
+        if store.selectedWorkspaceID == workspace.id,
+           store.selectedWorkspaceUsesForegroundConnection {
+            if store.connectionRecoveryFailed {
+                return .unavailable
+            }
+            if store.isRecoveringConnection {
+                return .reconnecting
+            }
+        }
+        return connectionStatus
+    }
+
+    /// Input viability is narrower than the displayed status: a same-client
+    /// probe reads "Reconnecting" while the transport is still connected and
+    /// the RPC client still carries keystrokes, so blocking or resigning
+    /// there would dismiss a working keyboard mid-typing. Block only when
+    /// the workspace status itself is disconnected or foreground recovery
+    /// actually failed. Internal so the +Surfaces chrome-return refocus can
+    /// share the same policy.
+    var terminalInputIsBlocked: Bool {
+        if connectionStatus != .connected {
+            return true
+        }
+        if store.selectedWorkspaceID == workspace.id,
+           store.selectedWorkspaceUsesForegroundConnection,
+           store.connectionRecoveryFailed {
+            return true
+        }
+        return false
+    }
+
+    #if os(iOS)
+    private func resignTerminalInputIfBlocked(_ isBlocked: Bool) {
+        // resignActiveInput() acts on the process-wide active surface, and
+        // hidden details retained by other tab stacks observe their own
+        // status; only the selected workspace may resign it, or background
+        // connection churn would steal the visible terminal's keyboard.
+        guard store.selectedWorkspaceID == workspace.id else { return }
+        if isBlocked {
+            GhosttySurfaceView.resignActiveInput()
+        }
+    }
+    #endif
+
+    #if os(iOS)
+    private var terminalArtifactIsPresented: Binding<Bool> {
+        Binding(
+            get: { selectedTerminalArtifact != nil },
+            set: { isPresented in
+                if !isPresented { selectedTerminalArtifact = nil }
+            }
+        )
+    }
+
+    func terminalArtifactLoader(workspaceID: String, surfaceID: String) -> ChatArtifactLoader {
+        guard let source = store.makeChatEventSource() else {
+            return .unsupported(
+                cache: terminalArtifactThumbnailCache,
+                diagnosticLog: store.diagnosticLog
+            )
+        }
+        return ChatArtifactLoader(
+            terminalWorkspaceID: workspaceID,
+            terminalSurfaceID: surfaceID,
+            supportsArtifacts: store.supportsTerminalArtifacts,
+            supportsDirectoryBrowsing: store.supportsTerminalArtifactList,
+            cache: terminalArtifactThumbnailCache,
+            diagnosticLog: store.diagnosticLog,
+            stat: { path in
+                try await source.terminalArtifactStat(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path
+                )
+            },
+            fetch: { path, progress in
+                try await source.terminalArtifactFetch(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path,
+                    progress: progress
+                )
+            },
+            stream: { path, onChunk in
+                try await source.terminalArtifactFetch(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path,
+                    onChunk: onChunk
+                )
+            },
+            thumbnail: { path, maxDimension in
+                try await source.terminalArtifactThumbnail(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path,
+                    maxDimension: maxDimension
+                )
+            },
+            list: { path in
+                try await source.terminalArtifactList(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path
+                )
+            }
+        )
+    }
+
+    #endif
 
     @ViewBuilder
     private var terminalToolbarButtons: some View {
@@ -334,16 +736,6 @@ struct WorkspaceDetailView: View {
         }
     }
 
-    var titleMenuContent: some View {
-        WorkspaceTitleMenuContent(
-            workspace: workspace,
-            canCloseWorkspace: closeWorkspace != nil,
-            presentRename: presentRenameFromMenu,
-            toggleReadState: toggleWorkspaceReadStateFromMenu,
-            requestClose: requestCloseWorkspaceFromMenu
-        )
-    }
-
     #endif
 
     private var newWorkspaceToolbarButton: some View {
@@ -351,7 +743,7 @@ struct WorkspaceDetailView: View {
             Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
                 .labelStyle(.iconOnly)
         }
-        .foregroundStyle(TerminalPalette.foreground)
+        .foregroundStyle(store.activeTerminalTheme.terminalChromeForegroundColor)
         .disabled(!canCreateWorkspace)
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
     }
@@ -359,99 +751,47 @@ struct WorkspaceDetailView: View {
     // Native menu keeps press-drag-release selection and routes through
     // `selectTerminalFromPicker`; keyboard-dismiss-on-open is unavailable.
     var terminalPickerToolbarButton: some View {
-        let rows = terminalPickerRows.isEmpty ? terminalPickerLiveRows : terminalPickerRows
-        let selection = terminalPickerLiveRows.resolvedTerminalPickerSelection(selectedID: store.selectedTerminalID)
-
-        return Menu {
-            terminalPickerMenuContent(rows: rows, selectedID: selection?.id)
-        } label: {
-            Label(
-                selection?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
-                systemImage: "rectangle.stack"
-            )
-            .labelStyle(.iconOnly)
-        }
-        .foregroundStyle(TerminalPalette.foreground)
-        .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
-        .accessibilityIdentifier("MobileTerminalDropdown")
-        .accessibilityValue(selection?.name ?? "")
+        TerminalPickerMenu(
+            value: TerminalPickerMenuValue(
+                liveTerminals: workspace.terminals,
+                liveSurfaces: workspace.surfaces,
+                snapshotRows: terminalPickerRows,
+                selectedID: store.selectedTerminalID,
+                // Resolved through the workspace so the auto-presented
+                // fallback surface (no terminals, no explicit selection)
+                // carries the picker checkmark like any picked surface.
+                selectedMacSurfaceID: workspace.selectedMacSurface(id: store.selectedMacSurfaceID)?.id,
+                canCreateWorkspace: canCreateWorkspace,
+                hasActiveBrowser: activeBrowser != nil,
+                browserStreamRows: browserStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(BrowserStreamPickerRow.init),
+                supportsBrowserStream: store.supportsBrowserStream,
+                activeBrowserStreamPanelID: activeBrowserStream?.id,
+                simulatorStreamRows: simulatorStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(SimulatorStreamPickerRow.init),
+                supportsSimulatorStream: store.supportsSimulatorStream,
+                activeSimulatorStreamPanelID: activeSimulatorStream?.id
+            ),
+            actions: TerminalPickerMenuActions(
+                selectTerminal: selectTerminalFromPicker,
+                selectMacSurface: selectMacSurfaceFromPicker,
+                createWorkspace: createWorkspaceFromToolbar,
+                createTerminal: createTerminalFromToolbar,
+                openBrowser: openBrowserFromToolbar,
+                selectBrowserStream: { selectBrowserStreamFromToolbar($0) },
+                selectSimulatorStream: selectSimulatorStreamFromToolbar,
+                openTextSheet: openTextSheetFromMenu,
+                copyDebugLogs: {
+                    #if DEBUG
+                    copyDebugLogsFromMenu()
+                    #endif
+                },
+                sendFeedback: openFeedbackComposerFromMenu
+            ),
+            terminalTheme: store.activeTerminalTheme
+        )
+        .equatable()
         .simultaneousGesture(TapGesture().onEnded { syncTerminalPickerRows(includeTitleChanges: true) })
         .onAppear { syncTerminalPickerRows(includeTitleChanges: true) }
         .onChange(of: terminalPickerLiveMembership) { _, _ in syncTerminalPickerRows() }
-    }
-
-    @ViewBuilder
-    private func terminalPickerMenuContent(
-        rows: [TerminalPickerMenuRow],
-        selectedID: MobileTerminalPreview.ID?
-    ) -> some View {
-        Section(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals")) {
-            ForEach(rows) { terminal in
-                Button {
-                    selectTerminalFromPicker(terminal.id)
-                } label: {
-                    Label(
-                        terminal.name,
-                        systemImage: terminal.id == selectedID && activeBrowser == nil
-                            ? "checkmark.circle.fill"
-                            : "terminal"
-                    )
-                }
-                .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
-            }
-        }
-
-        Section {
-            Button(action: createWorkspaceFromToolbar) {
-                Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
-            }
-            .disabled(!canCreateWorkspace)
-            .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
-
-            Button(action: createTerminalFromToolbar) {
-                Label(L10n.string("mobile.terminal.new", defaultValue: "New Terminal"), systemImage: "plus")
-            }
-            .accessibilityIdentifier("MobileNewTerminalMenuItem")
-
-            Button(action: openBrowserFromToolbar) {
-                Label(
-                    L10n.string("mobile.browser.new", defaultValue: "New Browser"),
-                    systemImage: activeBrowser == nil ? "globe" : "checkmark.circle.fill"
-                )
-            }
-            .accessibilityIdentifier("MobileNewBrowserMenuItem")
-        }
-
-        #if canImport(UIKit)
-        Section {
-            // Only while the terminal pane is showing: browser and chat modes
-            // do not mount a terminal surface for text capture.
-            if activeBrowser == nil && !isChatMode {
-                Button(action: openTextSheetFromMenu) {
-                    Label(
-                        L10n.string("mobile.terminal.viewAsText", defaultValue: "View as Text"),
-                        systemImage: "doc.plaintext"
-                    )
-                }
-                .accessibilityIdentifier("MobileViewAsTextMenuItem")
-            }
-
-            #if DEBUG
-            Button(action: copyDebugLogsFromMenu) {
-                Label(L10n.string("mobile.debug.copyLogs", defaultValue: "Copy Debug Logs"), systemImage: "doc.on.clipboard")
-            }
-            .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
-            #endif
-
-            Button(action: openFeedbackComposerFromMenu) {
-                Label(
-                    L10n.string("mobile.feedback.send", defaultValue: "Send Feedback"),
-                    systemImage: "paperplane"
-                )
-            }
-            .accessibilityIdentifier("MobileSendFeedbackMenuItem")
-        }
-        #endif
     }
 
     #if canImport(UIKit)
@@ -462,7 +802,7 @@ struct WorkspaceDetailView: View {
         Task { @MainActor in
             let terminalText = await GhosttySurfaceView.visibleTerminalSnapshot()
             let count = await MobileDebugLog.shared.copyToPasteboard(prepending: terminalText)
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            MobileHapticFeedback().notification(.success)
             NSLog("cmux.terminal copied %d debug log lines + visible terminal to pasteboard", count)
         }
     }
@@ -471,21 +811,27 @@ struct WorkspaceDetailView: View {
     /// Opens the "View as Text" sheet: the terminal's content as selectable
     /// plain text, because the render surface itself has no copy affordance.
     private func openTextSheetFromMenu() {
-        textSheetSurfaceID = selectedTerminal?.id.rawValue
-        isTextSheetPresented = true
+        store.recordAppEvent(
+            .terminalTextViewOpened,
+            correlationID: selectedTerminal?.id.rawValue
+        )
+        textSheetPresentation.present {
+            textSheetSurfaceID = selectedTerminal?.id.rawValue
+        }
     }
 
     private func openFeedbackComposerFromMenu() {
-        feedbackText = ""
-        feedbackErrorMessage = nil
-        // A prior submission may still be in flight if the user dismissed the
-        // sheet mid-send (Cancel stays enabled); reset so the reopened composer
-        // does not render Send permanently disabled until that task times out.
-        isSubmittingFeedback = false
-        // Prefill the reply-to address with the signed-in email on the email
-        // path; the privileged agent path never reads it.
-        feedbackEmail = store.signedInUserEmail ?? ""
-        isFeedbackComposerPresented = true
+        feedbackPresentation.present {
+            feedbackText = ""
+            feedbackErrorMessage = nil
+            // A prior submission may still be in flight if the user dismissed the
+            // sheet mid-send (Cancel stays enabled); reset so the reopened composer
+            // does not render Send permanently disabled until that task times out.
+            isSubmittingFeedback = false
+            // Prefill the reply-to address with the signed-in email on the email
+            // path; the privileged agent path never reads it.
+            feedbackEmail = store.signedInUserEmail ?? ""
+        }
     }
 
     /// Whether the current submission will go straight to the agent (privileged
@@ -537,7 +883,7 @@ struct WorkspaceDetailView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L10n.string("mobile.feedback.cancel", defaultValue: "Cancel")) {
-                        isFeedbackComposerPresented = false
+                        feedbackPresentation.dismiss()
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -600,10 +946,19 @@ struct WorkspaceDetailView: View {
             isSubmittingFeedback = false
             switch outcome {
             case .sentToAgent, .emailed:
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-                isFeedbackComposerPresented = false
+                feedbackPresentation.dismiss()
+                if toasts.isEnabled {
+                    // The toast supplies the success haptic; presenting after
+                    // the composer dismisses keeps it the single confirmation.
+                    toasts.present(.success(L10n.string(
+                        "mobile.feedback.sentToast",
+                        defaultValue: "Feedback sent"
+                    )))
+                } else {
+                    MobileHapticFeedback().notification(.success)
+                }
             case .failed:
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                MobileHapticFeedback().notification(.error)
                 feedbackErrorMessage = L10n.string(
                     "mobile.feedback.error",
                     defaultValue: "Could not send feedback. Check your connection and try again."
@@ -630,15 +985,11 @@ struct WorkspaceDetailView: View {
         closeWorkspace?(workspace.id)
     }
 
-    /// Toggle the current workspace's read state on the Mac from the picker menu.
-    /// Flips relative to the workspace's current `hasUnread`; the authoritative
-    /// list re-sync inside `setWorkspaceUnread` reconciles the row + back-button
-    /// count.
+    /// Toggle the current workspace's read state from the picker menu.
     private func toggleWorkspaceReadStateFromMenu() {
-        let store = store
         let id = workspace.id
         let markUnread = !workspace.hasUnread
-        Task { await store.setWorkspaceUnread(id: id, markUnread) }
+        setWorkspaceUnread?(id, markUnread)
     }
 
     #if canImport(UIKit)
@@ -649,39 +1000,140 @@ struct WorkspaceDetailView: View {
         isRenamePresented = true
     }
 
+    private func presentCustomizationFromMenu() {
+        customizationPresentation.present {
+            dismissTerminalKeyboardForChrome()
+        }
+    }
+
     /// Commit the rename dialog: forward the trimmed name to the Mac, which echoes
     /// it back via the authoritative list sync. Empty names are ignored.
     func commitRenameFromDialog() {
         let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let store = store
         let id = workspace.id
-        Task { await store.renameWorkspace(id: id, title: trimmed) }
+        renameWorkspace?(id, trimmed)
     }
     #endif
 
     private func createTerminalFromToolbar() {
         dismissTerminalKeyboardForChrome()
+        browserCreateRequest = nil
         // Creating a terminal from the (shared) chrome must surface it. If a
         // browser pane is up, close it so `body` leaves the browser branch and
         // shows the new terminal instead of staying on the browser.
         browserStore.closeBrowser(for: workspace.id.rawValue)
+        stopActiveBrowserStream()
+        stopActiveSimulatorStream()
+        store.selectedMacSurfaceID = nil
         createTerminal()
     }
 
     private func openBrowserFromToolbar() {
         dismissTerminalKeyboardForChrome()
-        // Opens (or reveals the existing) browser pane for this workspace. The
-        // detail view flips to the browser because `activeBrowser` becomes
-        // non-nil; the picker shows a check next to "New Browser" while it is up.
-        browserStore.openBrowser(for: workspace.id.rawValue)
+        // New Browser creates a real Mac browser pane and streams it, so it
+        // shows the same surface as the Mac Browsers rows. The phone-local
+        // WKWebView pane remains only as a fallback for Macs that cannot
+        // create panels (older builds, disconnected, or creation rejected).
+        guard store.supportsBrowserStreamCreate else {
+            openLocalBrowserFallback()
+            return
+        }
+        let workspaceID = workspace.rpcWorkspaceID.rawValue
+        let request = UUID()
+        browserCreateRequest = request
+        Task {
+            let descriptor = await store.createMobileBrowserPanel(workspaceID: workspaceID)
+            guard browserCreateRequest == request else { return }
+            browserCreateRequest = nil
+            guard let descriptor else {
+                openLocalBrowserFallback()
+                return
+            }
+            selectBrowserStreamFromToolbar(descriptor.panelID, dismissKeyboard: false)
+        }
+    }
+
+    /// Opens (or reveals) the phone-local browser pane for this workspace. The
+    /// detail view flips to the browser because `activeBrowser` becomes
+    /// non-nil; the picker shows a check next to "New Browser" while it is up.
+    private func openLocalBrowserFallback() {
+        let workspaceID = workspace.id.rawValue
+        store.recordAppEvent(.browserCreateStarted, correlationID: workspaceID)
+        _ = browserStore.openBrowser(for: workspaceID)
+        store.recordAppEvent(.browserCreateSucceeded, correlationID: workspaceID)
+        stopActiveBrowserStream()
+        stopActiveSimulatorStream()
+        store.selectedMacSurfaceID = nil
+    }
+
+    private func selectBrowserStreamFromToolbar(_ panelID: String, dismissKeyboard: Bool = true) {
+        if dismissKeyboard {
+            dismissTerminalKeyboardForChrome()
+        }
+        browserCreateRequest = nil
+        browserStore.closeBrowser(for: workspace.id.rawValue)
+        stopActiveSimulatorStream()
+        store.selectedMacSurfaceID = nil
+        if let previous = activeBrowserStream, previous.id != panelID {
+            Task { await store.stopMobileBrowserStream(panelID: previous.id) }
+        }
+        _ = browserStreamStore.activate(panelID: panelID, in: workspace.rpcWorkspaceID.rawValue)
+        Task { await store.startMobileBrowserStream(panelID: panelID) }
+    }
+
+    private func selectSimulatorStreamFromToolbar(_ panelID: String) {
+        dismissTerminalKeyboardForChrome()
+        browserStore.closeBrowser(for: workspace.id.rawValue)
+        stopActiveBrowserStream()
+        store.selectedMacSurfaceID = nil
+        let workspaceID = workspace.rpcWorkspaceID.rawValue
+        let previousPanelID: String? = activeSimulatorStream.flatMap {
+            $0.id == panelID ? nil : $0.id
+        }
+        // Settle the previous panel's local state before activating the new
+        // one, so switching A -> B leaves A idle instead of frozen on a stale
+        // `.streaming`/`.starting` status.
+        if let previousPanelID {
+            simulatorStreamStore.deactivate(panelID: previousPanelID, in: workspaceID)
+        }
+        _ = simulatorStreamStore.activate(panelID: panelID, in: workspaceID)
+        // One task, stop awaited before start: two independent tasks have no
+        // ordering guarantee, and the reversed order would tear down the new
+        // stream (or churn host sessions) right after it started.
+        Task {
+            if let previousPanelID {
+                await store.stopMobileSimulatorStream(
+                    panelID: previousPanelID,
+                    workspaceID: workspaceID
+                )
+            }
+            await store.startMobileSimulatorStream(
+                panelID: panelID,
+                workspaceID: workspaceID
+            )
+        }
+    }
+
+    private func stopActiveBrowserStream() {
+        guard let stream = activeBrowserStream else { return }
+        browserStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
+        Task { await store.stopMobileBrowserStream(panelID: stream.id) }
+    }
+
+    private func stopActiveSimulatorStream() {
+        store.stopActiveMobileSimulatorStream(in: workspace.rpcWorkspaceID.rawValue)
     }
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
+        browserCreateRequest = nil
         // Choosing a terminal returns from the browser pane (if up) to the
         // terminal. Closing the browser is enough to flip the detail view back.
         browserStore.closeBrowser(for: workspace.id.rawValue)
+        stopActiveBrowserStream()
+        stopActiveSimulatorStream()
+        store.selectedMacSurfaceID = nil
         // Switching from the picker is chrome, not a typing intent, so the
         // newly-selected surface must not grab the keyboard on attach. The
         // store suppresses the target's autofocus (and is a no-op when it is
@@ -690,11 +1142,30 @@ struct WorkspaceDetailView: View {
         store.selectTerminalFromChrome(terminalID)
     }
 
-    private func dismissTerminalKeyboardForChrome() {
+    private func selectMacSurfaceFromPicker(_ surfaceID: MobileSurfacePreview.ID) {
+        dismissTerminalKeyboardForChrome()
+        browserCreateRequest = nil
+        browserStore.closeBrowser(for: workspace.id.rawValue)
+        stopActiveBrowserStream()
+        // Streams outrank Mac surfaces in `WorkspaceActiveSurface.derive`, so
+        // a selected Simulator stream must be cleared before the Mac surface
+        // can become visible.
+        stopActiveSimulatorStream()
+        store.selectMacSurface(surfaceID)
+    }
+
+    func dismissTerminalKeyboardForChrome() {
         // Resign the terminal's hidden text input first so the surface clears
         // its keyboard geometry and recomputes full-height before chrome covers
         // it; then sweep any other responder across the scene.
         GhosttySurfaceView.resignActiveInput()
         UIApplication.shared.dismissMobileKeyboard()
+    }
+
+    private func syncSimulatorStreamPanels() {
+        simulatorStreamStore.replaceSimulatorPanels(
+            in: workspace.rpcWorkspaceID.rawValue,
+            with: workspace.simulators
+        )
     }
 }

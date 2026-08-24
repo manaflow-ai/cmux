@@ -17,19 +17,18 @@ public import Foundation
 /// concrete ``UpdateLogging`` and ``UpdateActionDelegate``.
 @MainActor
 public final class UpdateController {
-    private let updater: any UpdaterHandle
+    let updater: any UpdaterHandle
     // `driver` and `log` are internal (not private) so `UpdateController+InstallAttempt.swift`
     // can reach them; they stay module-internal.
     let driver: UpdateDriver
     let log: any UpdateLogging
-    private let clock: any UpdateClock
+    let clock: any UpdateClock
     private let defaults: UserDefaults
     private let fileManager: FileManager
     private let hostBundle: Bundle
-    private let backgroundProbeInterval: TimeInterval
     /// Whether the running build is a cmux DEV/staging build that must never be compared against
     /// the public release appcast. See ``isDevLikeBundleIdentifier(_:)``.
-    private let isDevLikeBundle: Bool
+    let isDevLikeBundle: Bool
 
     /// Host actions the updater delegates upward (retry, relaunch prep). Forwarded to the driver.
     public weak var actionDelegate: (any UpdateActionDelegate)? {
@@ -43,8 +42,8 @@ public final class UpdateController {
     var attemptCoordinator = AttemptUpdateCoordinator()
     private var stateReactionTask: Task<Void, Never>?
     private var noUpdateDismissTask: Task<Void, Never>?
-    private var backgroundProbeTask: Task<Void, Never>?
-    private var recheckTask: Task<Void, Never>?
+    var pendingCheckIntent: UpdateCheckIntent?
+    var activeCheckIntent: UpdateCheckIntent?
     /// Armed when the user asks to install; fires a visible "Update Didn't Start" error if the
     /// flow never reaches downloading/installing (or another visible outcome). See
     /// ``attemptUpdate`` in `UpdateController+InstallAttempt.swift` (internal for that file).
@@ -55,9 +54,9 @@ public final class UpdateController {
     // value into the change handler, and `addObserver(_:forKeyPath:)` is forbidden), so
     // readiness is awaited with a bounded retry on the injected clock — behavior-identical to
     // the original 0.25s x 20 poll, cancellable, and testable with a fake clock.
-    private var readyCheckTask: Task<Void, Never>?
-    private let readyRetryDelay: Duration = .milliseconds(250)
-    private let readyRetryCount = 20
+    var readyCheckTask: Task<Void, Never>?
+    let readyRetryDelay: Duration = .milliseconds(250)
+    let readyRetryCount = 20
 
     private var didStartUpdater = false
 
@@ -120,7 +119,6 @@ public final class UpdateController {
         self.defaults = defaults
         self.fileManager = fileManager
         self.hostBundle = hostBundle
-        self.backgroundProbeInterval = settings.scheduledCheckInterval
         let isDevLikeBundle = isDevLikeBundle ?? Self.isDevLikeBundleIdentifier(hostBundle.bundleIdentifier)
         self.isDevLikeBundle = isDevLikeBundle
         settings.apply(to: defaults)
@@ -129,9 +127,9 @@ public final class UpdateController {
             // builds are produced from local source and are not on the public release train, so
             // they must never query the public appcast. Turning off Sparkle's automatic checks
             // stops the passive vectors: Sparkle never schedules its own background checks, and
-            // cmux's launch/background probe is short-circuited by the `automaticallyChecksForUpdates`
-            // guard in `startLaunchUpdateProbeIfNeeded`. Manual "Check for Updates" is gated
-            // separately in `checkForUpdatesWhenReady`.
+            // cmux's immediate launch probe is short-circuited by the
+            // `automaticallyChecksForUpdates` guard. Foreground checks are gated separately by
+            // `requestUpdateCheck(_:)`.
             defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
         }
 
@@ -140,15 +138,14 @@ public final class UpdateController {
         let driver = UpdateDriver(model: model, log: log, clock: clock, isDevLikeBundle: isDevLikeBundle)
         self.driver = driver
         self.updater = updaterFactory(driver, hostBundle)
+        driver.eventDelegate = self
         startStateReactions()
     }
 
     deinit {
         stateReactionTask?.cancel()
         noUpdateDismissTask?.cancel()
-        backgroundProbeTask?.cancel()
         readyCheckTask?.cancel()
-        recheckTask?.cancel()
         // installWatchdog cancels its own pending timer in its deinit (it is released with self).
     }
 
@@ -158,15 +155,25 @@ public final class UpdateController {
         let changes = model.stateChanges()
         stateReactionTask = Task { @MainActor [weak self] in
             if let self {
-                self.handleStateChange(self.model.state, overrideState: self.model.overrideState)
+                let initialChanges = self.model.drainPendingChanges()
+                if initialChanges.isEmpty {
+                    self.handleStateChange(self.model.state, overrideState: self.model.overrideState)
+                } else {
+                    // Construction and the first external mutation may land in the same actor
+                    // turn. Replay the mailbox instead of also handling the latest state up front;
+                    // doing both processes that state twice and can make an accepted install look
+                    // like a later stale prompt (#8368).
+                    for change in initialChanges {
+                        self.handleStateChange(change.state, overrideState: change.overrideState)
+                    }
+                }
             }
             for await _ in changes {
                 guard let self else { return }
                 // Drain every recorded transition in order rather than re-reading the latest
                 // state: two transitions landing before this task runs would otherwise conflate,
                 // and a control-flow consumer (the attempt coordinator) could miss the
-                // `.checking` restart signal entirely — the same ambiguity family as the
-                // double-idle install loop.
+                // `.checking` restart signal or attribute a stale terminal to the new session.
                 for change in self.model.drainPendingChanges() {
                     self.handleStateChange(change.state, overrideState: change.overrideState)
                 }
@@ -229,119 +236,19 @@ public final class UpdateController {
         }
     }
 
-    // MARK: - Checking
-
-    /// Check for updates (used by the menu item).
-    public func checkForUpdates() {
-        log.append("checkForUpdates invoked (state=\(model.state.isIdle ? "idle" : "busy"))")
-        checkForUpdatesWhenReady()
-    }
-
-    /// Check for updates using the custom popover-based UI.
-    public func checkForUpdatesInCustomUI() {
-        checkForUpdatesWhenReady()
-    }
-
-    private func performCheckForUpdates() {
-        startUpdaterIfNeeded()
-        ensureSparkleInstallationCache()
-        // Cancel any pending deferred re-check on every path so a stale one can't fire a
-        // duplicate checkForUpdates() after this new check starts.
-        recheckTask?.cancel()
-        if model.state == .idle {
-            updater.checkForUpdates()
-            return
-        }
-
-        model.cancelActiveStateForNewCheck()
-
-        // Give Sparkle a beat to tear down the just-dismissed check session before starting a
-        // new one. Without this delay the re-check is coalesced/dropped by Sparkle and the pill
-        // simply hides until the user checks again (a real regression caught in dogfood). This
-        // is a bounded, cancellable delay via the injected clock (matches the prior 100ms).
-        recheckTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            try? await self.clock.sleep(for: .milliseconds(100))
-            guard !Task.isCancelled else { return }
-            self.updater.checkForUpdates()
-        }
-    }
-
-    /// Check for updates once the updater reports it can.
-    private func checkForUpdatesWhenReady() {
-        if isDevLikeBundle {
-            // DEV/staging builds are not on the public release train. A manual check (menu,
-            // custom UI, or attempt-and-install) must not query the public appcast or offer the
-            // public release for install over a locally-built app. Surface "No Updates Available"
-            // without contacting the appcast or starting Sparkle. This is the shared entrypoint
-            // for every manual check path (#6292).
-            log.append("manual update check suppressed (dev/staging build)")
-            cancelReadinessRetry()
-            model.setState(.notFound(.init(acknowledgement: {})))
-            return
-        }
-        cancelReadinessRetry()
-        startUpdaterIfNeeded()
-        ensureSparkleInstallationCache()
-        let canCheck = updater.canCheckForUpdates
-        log.append("checkForUpdatesWhenReady invoked (canCheck=\(canCheck))")
-        if canCheck {
-            performCheckForUpdates()
-            return
-        }
-        if model.state.isIdle, !attemptCoordinator.isMonitoring {
-            model.setState(.checking(.init(cancel: {})))
-        }
-        waitForReadinessThenCheck()
-    }
-
-    private func waitForReadinessThenCheck() {
-        readyCheckTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            var remaining = self.readyRetryCount
-            while remaining > 0 {
-                if self.updater.canCheckForUpdates {
-                    self.performCheckForUpdates()
-                    return
-                }
-                remaining -= 1
-                // Bounded readiness wait on the injected clock (see property comment).
-                try? await self.clock.sleep(for: self.readyRetryDelay)
-                if Task.isCancelled { return }
-            }
-            self.log.append("checkForUpdatesWhenReady timed out")
-            if self.attemptCoordinator.isMonitoring {
-                self.log.append("updater readiness timed out during install attempt")
-                self.attemptCoordinator.cancel()
-                self.installWatchdog.disarm()
-                self.setUpdaterNotReadyError(retry: { [weak self] in self?.attemptUpdate() })
-                return
-            }
-            if case .checking = self.model.state {
-                self.setUpdaterNotReadyError(retry: { [weak self] in self?.checkForUpdates() })
-            }
-        }
-    }
-
-    private func setUpdaterNotReadyError(retry: @escaping () -> Void) {
-        let error = NSError(
-            domain: UpdateStateModel.updateErrorDomain,
-            code: UpdateStateModel.updaterNotReadyCode,
-            userInfo: [NSLocalizedDescriptionKey: String(localized: "update.error.notReady", defaultValue: "Updater is still starting. Try again in a moment.")]
-        )
-        model.setState(.error(.init(error: error, retry: retry, dismiss: { [weak self] in self?.model.setState(.idle) })))
-    }
-
-    private func cancelReadinessRetry() {
-        readyCheckTask?.cancel()
-        readyCheckTask = nil
-    }
-
     // MARK: - Updater lifecycle
 
     /// Start the updater. If startup fails, the error is shown via the custom UI.
-    public func startUpdaterIfNeeded() {
-        guard !didStartUpdater else { return }
+    @discardableResult
+    public func startUpdaterIfNeeded() -> Bool {
+        startUpdaterIfNeeded(retryAfterFailure: { [weak self] in
+            self?.startUpdaterIfNeeded()
+        })
+    }
+
+    @discardableResult
+    func startUpdaterIfNeeded(retryAfterFailure: @escaping () -> Void) -> Bool {
+        guard !didStartUpdater else { return true }
         ensureSparkleInstallationCache()
 #if DEBUG
         // Keep the permission-related defaults resettable for UI tests even though the
@@ -371,18 +278,20 @@ public final class UpdateController {
                 "updater started (autoChecks=\(updater.automaticallyChecksForUpdates), interval=\(interval)s, autoDownloads=\(updater.automaticallyDownloadsUpdates))"
             )
             startLaunchUpdateProbeIfNeeded()
+            return true
         } catch {
             model.setState(.error(.init(
                 error: error,
                 retry: { [weak self] in
                     self?.model.setState(.idle)
                     self?.didStartUpdater = false
-                    self?.startUpdaterIfNeeded()
+                    retryAfterFailure()
                 },
                 dismiss: { [weak self] in
                     self?.model.setState(.idle)
                 }
             )))
+            return false
         }
     }
 
@@ -392,8 +301,6 @@ public final class UpdateController {
             // appcast (init also disables Sparkle's own scheduled checks). Tear down any probe a
             // prior path may have started. See `isDevLikeBundleIdentifier(_:)` (#6292).
             log.append("launch update probe skipped (dev/staging build)")
-            backgroundProbeTask?.cancel()
-            backgroundProbeTask = nil
             return
         }
         guard updater.automaticallyChecksForUpdates else {
@@ -405,20 +312,6 @@ public final class UpdateController {
         // without waiting for Sparkle's scheduled check or opening interactive update UI.
         log.append("starting launch update probe")
         updater.checkForUpdateInformation()
-
-        // Re-probe periodically so the banner appears even if the app has been running for a
-        // while when a new version is published. Genuine periodic schedule via the clock.
-        backgroundProbeTask?.cancel()
-        backgroundProbeTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                guard let interval = self?.backgroundProbeInterval else { return }
-                try? await self?.clock.sleep(for: .seconds(interval))
-                guard !Task.isCancelled, let self else { return }
-                guard self.updater.automaticallyChecksForUpdates else { continue }
-                self.log.append("periodic background update probe")
-                self.updater.checkForUpdateInformation()
-            }
-        }
     }
 
     private func recordUITestTimestamp(key: String) {
@@ -440,7 +333,7 @@ public final class UpdateController {
 #endif
     }
 
-    private func ensureSparkleInstallationCache() {
+    func ensureSparkleInstallationCache() {
         guard let bundleIdentifier = hostBundle.bundleIdentifier else { return }
         guard let cachesURL = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
 

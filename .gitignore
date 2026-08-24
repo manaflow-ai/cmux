@@ -18,6 +18,7 @@ ios/Config/AppStoreConnect.local.plist
 # Swift Package Manager
 .swiftpm/
 .ci-source-packages/
+.ci-reload-derived-data/
 
 # GhosttyKit binary (built from ghostty submodule via scripts/setup.sh)
 GhosttyKit.xcframework
@@ -49,6 +50,10 @@ tests/visual_output/
 tests/visual_report.html
 experiments/*/target/
 
+# Stale pre-rebrand Rust TUI dir (renamed to cmux-tui/; old checkouts may
+# still have an untracked mux/target that must never be committed again)
+/mux/
+
 # Generated docs search index
 web/.pagefind-site/
 web/public/pagefind/
@@ -62,6 +67,14 @@ tmp-*/
 
 # Local dogfood scratch (screenshots, recordings) — never commit
 artifacts/
+!Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/Artifacts/
+!Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/Artifacts/*.swift
+!Packages/iOS/CmuxAgentChatUI/Sources/CmuxAgentChatUI/Artifacts/
+!Packages/iOS/CmuxAgentChatUI/Sources/CmuxAgentChatUI/Artifacts/*.swift
 
 # tmux verbose debug logs (tmux -v) that land in the cwd
 tmux-*.log
+
+# Remote-only Blacksmith cmux-tui benchmark output
+/testbox-benchmark/
+/.cmux-scratch/

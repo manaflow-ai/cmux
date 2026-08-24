@@ -20,7 +20,8 @@ import Observation
 /// ``FocusedNotificationMarker``, owned by this coordinator and driven through
 /// the ``FocusedNotificationResolving`` seam; the coordinator exposes the two
 /// public focused-mark entry points and forwards to the marker, which delegates
-/// its jump step back to ``jumpToLatestUnread(excludingNotificationId:excludingWorkspaceId:)``.
+/// its jump step back to
+/// ``jumpToLatestUnread(excludingNotificationId:excludingWorkspaceId:excludingWindowDockTarget:)``.
 @MainActor
 @Observable
 public final class NotificationNavigationCoordinator: NotificationDeliveryTerminalNavigating {
@@ -30,7 +31,7 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     private let openRouting: any NotificationOpenRouting
     private let clickRouting: any NotificationClickRouting
     private let focusedResolving: any FocusedNotificationResolving
-    private let explicitFocusedJump: ((UUID?, UUID?) -> UUID?)?
+    private let explicitFocusedJump: ((UUID?, UUID?, WindowDockUnreadTarget?) -> UUID?)?
     /// The focused-mark state machine. Lazy so its default jump closure can
     /// capture `self` (allowed only after all stored properties are initialized);
     /// the closure is invoked later, on the main actor. `@ObservationIgnored`
@@ -40,10 +41,12 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     @ObservationIgnored
     private lazy var focusedMarker: FocusedNotificationMarker = FocusedNotificationMarker(
         resolver: focusedResolving,
-        jumpToLatestUnread: explicitFocusedJump ?? { [unowned self] excludedNotificationId, excludedWorkspaceId in
+        jumpToLatestUnread: explicitFocusedJump ?? {
+            [unowned self] excludedNotificationId, excludedWorkspaceId, excludedWindowDockTarget in
             self.jumpToLatestUnread(
                 excludingNotificationId: excludedNotificationId,
-                excludingWorkspaceId: excludedWorkspaceId
+                excludingWorkspaceId: excludedWorkspaceId,
+                excludingWindowDockTarget: excludedWindowDockTarget
             )
         }
     )
@@ -60,7 +63,7 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     ///   `jumpToLatestUnread` (which fires the `#if DEBUG` `jumpUnreadInvoked`
     ///   UI-test recorder and applies the nil-store guard), preserving byte-identical
     ///   recorder behavior. Defaults to this coordinator's plain
-    ///   ``jumpToLatestUnread(excludingNotificationId:excludingWorkspaceId:)``.
+    ///   ``jumpToLatestUnread(excludingNotificationId:excludingWorkspaceId:excludingWindowDockTarget:)``.
     public init(
         store: any NotificationNavigationStoreReading,
         windows: any MainWindowContextResolving,
@@ -68,7 +71,11 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         openRouting: any NotificationOpenRouting,
         clickRouting: any NotificationClickRouting,
         focusedResolving: any FocusedNotificationResolving,
-        focusedJump: ((_ excludingNotificationId: UUID?, _ excludingWorkspaceId: UUID?) -> UUID?)? = nil
+        focusedJump: ((
+            _ excludingNotificationId: UUID?,
+            _ excludingWorkspaceId: UUID?,
+            _ excludingWindowDockTarget: WindowDockUnreadTarget?
+        ) -> UUID?)? = nil
     ) {
         self.store = store
         self.windows = windows
@@ -109,7 +116,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     @discardableResult
     public func jumpToLatestUnread(
         excludingNotificationId excludedNotificationId: UUID? = nil,
-        excludingWorkspaceId excludedWorkspaceId: UUID? = nil
+        excludingWorkspaceId excludedWorkspaceId: UUID? = nil,
+        excludingWindowDockTarget excludedWindowDockTarget: WindowDockUnreadTarget? = nil
     ) -> UUID? {
         for notification in store.orderedNotifications
         where notification.isOpenableForJump(
@@ -120,8 +128,27 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
                 return notification.id
             }
         }
+        if openLatestWindowDockUnread(excludingTarget: excludedWindowDockTarget) {
+            return nil
+        }
         _ = openLatestWorkspaceUnread(excludingWorkspaceId: excludedWorkspaceId)
         return nil
+    }
+
+    private func openLatestWindowDockUnread(
+        excludingTarget excludedTarget: WindowDockUnreadTarget?
+    ) -> Bool {
+        for target in store.windowDockUnreadTargets
+        where target != excludedTarget {
+            guard openRouting.openWindowDockUnread(target) else { continue }
+            signalDidFocusForJumpUnread(
+                tabId: target.windowId,
+                surfaceId: target.surfaceId
+            )
+            store.clearWindowDockUnread(target)
+            return true
+        }
+        return false
     }
 
     private func openLatestWorkspaceUnread(excludingWorkspaceId excludedWorkspaceId: UUID? = nil) -> Bool {
@@ -153,7 +180,11 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         let didOpen = openRouting.openInActiveWindowFallback(
             tabId: workspaceId,
             surfaceId: panelId,
-            notificationId: nil
+            panelId: nil,
+            notificationId: nil,
+            scrollRow: nil,
+            scrollTotalRows: nil,
+            scrollRowSpaceRevision: nil
         )
         if didOpen {
             signalDidFocusForJumpUnread(tabId: workspaceId, surfaceId: panelId)
@@ -168,7 +199,11 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             windowId: target.windowId,
             tabId: workspaceId,
             surfaceId: panelId,
-            notificationId: nil
+            panelId: nil,
+            notificationId: nil,
+            scrollRow: nil,
+            scrollTotalRows: nil,
+            scrollRowSpaceRevision: nil
         )
         if didOpen {
             signalDidFocusForJumpUnread(tabId: workspaceId, surfaceId: panelId)
@@ -201,7 +236,43 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         return open(
             tabId: notification.tabId,
             surfaceId: notification.surfaceId,
-            notificationId: notification.id
+            panelId: notification.panelId,
+            retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
+            notificationId: notification.id,
+            scrollRow: notification.scrollRow,
+            scrollTotalRows: notification.scrollTotalRows,
+            scrollRowSpaceRevision: notification.scrollRowSpaceRevision
+        )
+    }
+
+    /// Opens a notification response from the OS notification center by first
+    /// resolving the stored notification snapshot. This preserves panel and
+    /// scroll context that is app-local and not serialized into `userInfo`.
+    ///
+    /// - Parameters:
+    ///   - id: Stable notification id used to find the stored snapshot.
+    ///   - fallbackTabId: Workspace id from the delivered OS notification.
+    ///   - fallbackSurfaceId: Surface id from the delivered OS notification.
+    ///   - fallbackRetargetsToLiveSurfaceOwner: Whether a missing stored
+    ///     notification may follow its surface into another workspace.
+    @discardableResult
+    public func openNotification(
+        id: UUID,
+        fallbackTabId: UUID,
+        fallbackSurfaceId: UUID?,
+        fallbackRetargetsToLiveSurfaceOwner: Bool = true
+    ) -> Bool {
+        if let notification = store.orderedNotifications.first(where: { $0.id == id }) {
+            return openNotification(notification)
+        }
+        return open(
+            tabId: fallbackTabId,
+            surfaceId: fallbackSurfaceId,
+            panelId: nil,
+            retargetsToLiveSurfaceOwner: fallbackRetargetsToLiveSurfaceOwner,
+            notificationId: id,
+            scrollRow: nil,
+            scrollTotalRows: nil
         )
     }
 
@@ -220,7 +291,54 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     /// (the routing decision and its `#if DEBUG` recorders live behind the seam).
     @discardableResult
     public func open(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        openRouting.openRouted(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+        open(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            panelId: nil,
+            notificationId: notificationId,
+            scrollRow: nil,
+            scrollTotalRows: nil,
+            scrollRowSpaceRevision: nil
+        )
+    }
+
+    /// Focuses `tabId`/`surfaceId`, marks `notificationId` read on success, and
+    /// optionally restores terminal scrollback context.
+    ///
+    /// - Parameters:
+    ///   - tabId: Workspace id that owns the notification.
+    ///   - surfaceId: Surface id to focus when the notification is surface-scoped.
+    ///   - panelId: App-target terminal panel id used only to restore scroll
+    ///     context when it differs from, or is more precise than, `surfaceId`.
+    ///   - retargetsToLiveSurfaceOwner: Whether the app-side route may follow a
+    ///     moved surface into its current owning workspace.
+    ///   - notificationId: Notification id to mark read after focus succeeds.
+    ///   - scrollRow: Bottom-relative terminal scrollback row captured when the
+    ///     notification was recorded.
+    ///   - scrollTotalRows: Total terminal scrollback rows at capture time. The
+    ///     app-side router uses this to adjust `scrollRow` for output appended
+    ///     after the notification was recorded.
+    @discardableResult
+    public func open(
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?,
+        retargetsToLiveSurfaceOwner: Bool = true,
+        notificationId: UUID?,
+        scrollRow: Int?,
+        scrollTotalRows: Int?,
+        scrollRowSpaceRevision: UInt64? = nil
+    ) -> Bool {
+        openRouting.openRouted(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            panelId: panelId,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            notificationId: notificationId,
+            scrollRow: scrollRow,
+            scrollTotalRows: scrollTotalRows,
+            scrollRowSpaceRevision: scrollRowSpaceRevision
+        )
     }
 
     /// Performs a terminal notification click action through the injected click

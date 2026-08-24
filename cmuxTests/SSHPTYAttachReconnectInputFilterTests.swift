@@ -3,86 +3,19 @@ import Foundation
 import Testing
 
 @Suite struct SSHPTYAttachReconnectInputFilterTests {
-    @Test func keepsFilteringAcrossProbeOnlyReadsUntilFirstNormalInput() {
-        let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
-        #expect(filter.filter(Data("\u{1B}[1;1R\u{1B}[?1;2c\u{1B}[?0u".utf8)) == Data())
-        #expect(filter.filter(Data("\u{1B}]11;rgb:e5e5/e9e9/f0f0\u{07}".utf8)) == Data())
-        #expect(filter.filter(Data("\u{1B}]12;rgb:ffff/ffff/ffff\u{07}".utf8)) == Data())
-
-        let normalInput = Data("printf keep\n".utf8)
-        #expect(filter.filter(normalInput) == normalInput)
-
-        let laterReply = Data("\u{1B}[2;2R".utf8)
-        #expect(filter.filter(laterReply) == laterReply)
-    }
-
-    @Test func keepsFilteringAtIdleProbeBoundaryUntilNormalInput() {
-        let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
-        #expect(filter.filter(Data("\u{1B}[1;1R".utf8)) == Data())
-        #expect(filter.isFilteringAtProbeBoundary)
-
-        let liveReply = Data("\u{1B}[2;2R".utf8)
-        #expect(filter.filter(liveReply) == Data())
-
-        let normalInput = Data("printf keep\n".utf8)
-        #expect(filter.filter(normalInput) == normalInput)
-        #expect(filter.filter(liveReply) == liveReply)
-    }
-
-    @Test func stopFilteringPreservesLaterProbeLikeInput() {
-        let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
-        #expect(filter.filter(Data("\u{1B}[1;1R".utf8)) == Data())
-        #expect(filter.stopFiltering() == Data())
-
-        let liveReply = Data("\u{1B}[2;2R".utf8)
-        #expect(filter.filter(liveReply) == liveReply)
-    }
-
-    @Test func buffersRecognizedSplitOSCColorReplyWithinInitialDrain() {
-        let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
-        #expect(filter.filter(Data("\u{1B}]11;rgb:e5e5/e9e9".utf8)) == Data())
-
-        let normalInput = Data("printf keep\n".utf8)
-        #expect(filter.filter(Data("/f0f0\u{1B}\\".utf8) + normalInput) == normalInput)
-    }
-
-    @Test func buffersOSCColorReplySplitBeforeCommandSeparator() {
-        let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
-        #expect(filter.filter(Data("\u{1B}]1".utf8)) == Data())
-        #expect(filter.filter(Data("2".utf8)) == Data())
-
-        let normalInput = Data("printf keep\n".utf8)
-        #expect(filter.filter(Data(";rgb:e5e5/e9e9/f0f0\u{07}".utf8) + normalInput) == normalInput)
-    }
-
-    @Test func buffersInitialEscapeUntilProbeContinuationArrives() {
-        let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
+    @Test func deadlineFlushesPendingAndStopsStripping() {
+        var expired = false
+        let filter = SSHPTYAttachReconnectInputFilter(
+            enabled: true,
+            deadlineReached: { expired }
+        )
         let escape = Data([0x1B])
         #expect(filter.filter(escape) == Data())
+        expired = true
 
-        let normalInput = Data("printf keep\n".utf8)
-        #expect(filter.filter(Data("]11;rgb:e5e5/e9e9/f0f0\u{07}".utf8) + normalInput) == normalInput)
-    }
-
-    @Test func passesThroughAmbiguousEscapeAfterNonProbeContinuation() {
-        let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
-        let escape = Data([0x1B])
-        #expect(filter.filter(escape) == Data())
-        #expect(filter.filter(Data("x".utf8)) == Data("\u{1B}x".utf8))
-
-        let keyInput = Data("\u{1B}[13;2u".utf8)
-        #expect(filter.filter(keyInput) == keyInput)
-    }
-
-    @Test func flushesPendingInputWhenNoContinuationArrives() {
-        let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
-        let escape = Data([0x1B])
-        #expect(filter.filter(escape) == Data())
-        #expect(filter.hasPendingInput)
-        #expect(filter.flushPendingInput() == escape)
-
-        let keyInput = Data("\u{1B}[13;2u".utf8)
-        #expect(filter.filter(keyInput) == keyInput)
+        let probeReply = Data("\u{1B}[1;1R".utf8)
+        #expect(filter.filter(probeReply) == escape + probeReply)
+        #expect(filter.filter(Data("\u{1B}]11;rgb:e5e5/e9e9/f0f0\u{07}".utf8)) == Data("\u{1B}]11;rgb:e5e5/e9e9/f0f0\u{07}".utf8))
     }
 
     @Test func stdinPumpKeepsFilteringLateProbeRepliesAfterInitialDrain() throws {
@@ -203,6 +136,36 @@ import Testing
         #expect(try readUntilEOF(fd: bridgePair[1]) == liveProbeReply)
     }
 
+    @Test func stdinPumpDoesNotPropagateReconnectInputEOFToBridge() throws {
+        var inputPipe = [Int32](repeating: -1, count: 2)
+        try makePipe(&inputPipe)
+        var bridgePair = [Int32](repeating: -1, count: 2)
+        try makeSocketPair(&bridgePair)
+        defer {
+            closeIfOpen(inputPipe[0])
+            closeIfOpen(inputPipe[1])
+            closeIfOpen(bridgePair[0])
+            closeIfOpen(bridgePair[1])
+        }
+
+        let control = try SSHPTYAttachReconnectInputFilter.startStdinPump(
+            fd: bridgePair[0],
+            inputFD: inputPipe[0],
+            filterEnabled: true
+        )
+        #expect(control != nil)
+        Darwin.close(inputPipe[1])
+        inputPipe[1] = -1
+
+        var bridgePoll = pollfd(
+            fd: bridgePair[1],
+            events: Int16(POLLIN | POLLHUP | POLLERR),
+            revents: 0
+        )
+        #expect(Darwin.poll(&bridgePoll, 1, 500) == 0, "stdin EOF must not half-close the persistent bridge")
+        _ = control
+    }
+
     private func makePipe(_ fds: inout [Int32]) throws {
         guard Darwin.pipe(&fds) == 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
@@ -272,4 +235,5 @@ import Testing
         }
         Darwin.close(fd)
     }
+
 }

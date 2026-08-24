@@ -21,17 +21,22 @@ import {
 } from "../../../services/vms/errors";
 import {
   isVmBillingTeamResolutionError,
+  isVmProGateBlocked,
   resolveVmEntitlements,
 } from "../../../services/vms/entitlements";
+import {
+  imageUsesBakedFreestyleSignedAdmin,
+  resolveVmImage,
+} from "../../../services/vms/images/resolver";
 import { reconcileProPlanMetadata } from "../../../services/billing/pro";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
-import { resolveVmImage } from "../../../services/vms/images/resolver";
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
   vmErrorResponse,
   vmWorkflowErrorResponse,
   withAuthedVmApiRoute,
+  vmRequiresProResponse,
 } from "../../../services/vms/routeHelpers";
 import {
   createVm,
@@ -44,8 +49,8 @@ import {
   measureVmSync,
   VmTimingRecorder,
 } from "../../../services/vms/timings";
+import { authProviderErrorResponse } from "../../../services/vms/authErrors";
 
-export const dynamic = "force-dynamic";
 
 export async function GET(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
@@ -161,7 +166,7 @@ export async function POST(request: Request): Promise<Response> {
               details: { field: "provider" },
             });
           }
-          if (candidate.provider !== "e2b" && candidate.provider !== "freestyle") {
+          if (candidate.provider !== "e2b" && candidate.provider !== "freestyle" && candidate.provider !== "daytona") {
             return vmErrorResponse({
               error: "vm_invalid_provider",
               status: 400,
@@ -233,14 +238,18 @@ export async function POST(request: Request): Promise<Response> {
 
         const requestedBillingTeamId = body.billingTeamId || requestedVmTeamIdFromRequest(request);
         if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
-          const refreshedUser = await measureVmAsync(timing, "auth", () =>
-            verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
-          );
+          let refreshedUser: AuthedUser | null;
+          try {
+            refreshedUser = await measureVmAsync(timing, "auth", () =>
+              verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
+            );
+          } catch (error) {
+            return authProviderErrorResponse(error, "/api/vm.create.team-auth");
+          }
           if (!refreshedUser) return unauthorized();
           user = refreshedUser;
         }
-        // Read-time reconcile: a Pro purchase that never hit
-        // /api/billing/confirm, or a lapsed subscription, is corrected here
+        // Read-time reconcile: a Stripe subscription change is corrected here
         // right before paid limits apply. Best-effort — billing reads must
         // not block VM creation, so the whole reconcile races a hard
         // deadline and VM create proceeds with current metadata on timeout.
@@ -284,6 +293,10 @@ export async function POST(request: Request): Promise<Response> {
           "cmux.vm.max_active": entitlements.maxActiveVms,
         });
 
+        if (isVmProGateBlocked(entitlements)) {
+          return vmRequiresProResponse();
+        }
+
         let created;
         try {
           created = await runVmWorkflow(createVm({
@@ -296,6 +309,7 @@ export async function POST(request: Request): Promise<Response> {
             imageVersion: imageSelection.imageVersion,
             provider,
             idempotencyKey,
+            bakedFreestyleSignedAdmin: imageUsesBakedFreestyleSignedAdmin(provider, image),
             timing,
           }));
         } catch (err) {
@@ -359,7 +373,7 @@ export async function POST(request: Request): Promise<Response> {
 }
 
 // Upper bound on how long VM creation waits for the best-effort billing
-// reconcile (Stack product pages + Stripe subscription lookup). On timeout
+// reconcile (Stripe subscription lookup). On timeout
 // the reconcile keeps running in the background (its result is logged, not
 // awaited) and VM create proceeds with the user's current plan metadata.
 const BILLING_RECONCILE_DEADLINE_MS = 5_000;

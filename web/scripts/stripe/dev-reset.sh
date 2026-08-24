@@ -368,8 +368,7 @@ list_and_clean_stack_products() {
       return
     fi
 
-    # Stack SDK listProducts maps to:
-    #   GET /api/v1/payments/products/user/<stackUserId>?limit=50&cursor=<cursor>
+    # Scan the Stack payments products endpoint for stale dev grants.
     if [[ -n "$cursor" ]]; then
       products_body="$(stack_request GET "/payments/products/user/${encoded_user}?limit=50&cursor=$(urlencode "$cursor")")"
     else
@@ -487,10 +486,10 @@ if [[ -n "$DB_PORT" ]]; then
   SUMMARY+=("Local DB cleanup on port ${DB_PORT}: $(printf '%s' "$db_output" | tr '\n' ';' | sed -E 's/[[:space:]]+/ /g; s/;+$//')")
 fi
 
-# Re-check after all cleanup: a Stack-era paid product survives cancellation
-# until its period ends (the API has no early-revoke), and a comped grant has
-# quantity > 0 with no subscription. Either keeps hasActiveProSubscription
-# true, so the checkout gate will still say "already active" for this account.
+# Re-check after all cleanup: a Stack-era paid product can survive cancellation
+# until its period ends (the API has no early-revoke), and a comped grant can
+# have quantity > 0 with no subscription. These no longer grant cmux Pro, but
+# they are still useful to report during dev cleanup.
 residual_body="$(stack_request GET "/payments/products/user/$(urlencode "$stack_user_id")?limit=50" || true)"
 residual="$(printf '%s' "$residual_body" | node -e '
 let raw = "";

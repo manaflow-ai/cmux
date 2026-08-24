@@ -17,6 +17,7 @@ public final class QRCodeCaptureController: UIViewController {
     private let stream: QRCodeScanStream
     private let receiver: QRCodeMetadataReceiver
     private let unavailableText: String
+    private let onUnavailable: @MainActor () -> Void
     private let captureSession = AVCaptureSession()
     // Apple guidance: configure/start/stop the session off the main thread to
     // avoid blocking UI; this queue serializes those session mutations.
@@ -29,14 +30,17 @@ public final class QRCodeCaptureController: UIViewController {
     ///   - stream: The scan stream that accepted codes are yielded into.
     ///   - accepts: Predicate deciding whether a decoded string is accepted.
     ///   - unavailableText: Localized copy shown when no camera is available.
+    ///   - onUnavailable: Called once when camera session setup cannot complete.
     public init(
         stream: QRCodeScanStream,
         accepts: @escaping @Sendable (String) -> Bool,
-        unavailableText: String
+        unavailableText: String,
+        onUnavailable: @escaping @MainActor () -> Void = {}
     ) {
         self.stream = stream
         self.receiver = QRCodeMetadataReceiver(stream: stream, accepts: accepts)
         self.unavailableText = unavailableText
+        self.onUnavailable = onUnavailable
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -123,6 +127,7 @@ public final class QRCodeCaptureController: UIViewController {
     }
 
     private func showUnavailable() {
+        onUnavailable()
         let label = UILabel()
         label.text = unavailableText
         label.textColor = .white

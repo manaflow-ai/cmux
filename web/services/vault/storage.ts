@@ -1,5 +1,6 @@
 import {
   S3Client,
+  CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
@@ -33,6 +34,10 @@ export function buildObjectKey(userId: string, agent: string, agentSessionId: st
     keyPart(agentSessionId),
     `${sha256}.jsonl.zst`,
   ].join("/");
+}
+
+export function buildUploadObjectKey(objectKey: string, reservationToken: string): string {
+  return ["vault", "uploads", keyPart(reservationToken), objectKey].join("/");
 }
 
 function s3Client(): S3Client {
@@ -104,6 +109,23 @@ export async function deleteObject(key: string): Promise<void> {
     await s3Client().send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }));
   } catch (error) {
     logVaultStorageError("delete_object", key, error);
+    throw error;
+  }
+}
+
+export async function copyObject(sourceKey: string, destinationKey: string): Promise<void> {
+  const config = vaultConfig();
+  if (!config.bucket) throw new Error("CMUX_VAULT_S3_BUCKET is required");
+  const copySourceKey = encodeURIComponent(sourceKey).replace(/%2F/g, "/");
+  try {
+    await s3Client().send(new CopyObjectCommand({
+      Bucket: config.bucket,
+      Key: destinationKey,
+      CopySource: `${config.bucket}/${copySourceKey}`,
+      ContentType: "application/zstd",
+    }));
+  } catch (error) {
+    logVaultStorageError("copy_object", destinationKey, error);
     throw error;
   }
 }

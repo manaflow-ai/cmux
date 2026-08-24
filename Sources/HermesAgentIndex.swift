@@ -26,7 +26,7 @@ extension SessionIndexStore {
                 agent: .hermesAgent,
                 sessionId: session.sessionId,
                 title: session.title,
-                cwd: nil,
+                cwd: session.cwd,
                 gitBranch: nil,
                 pullRequest: nil,
                 modified: session.modified,
@@ -40,14 +40,9 @@ extension SessionIndexStore {
         }
     }
 
-    private nonisolated static func hermesHomeForResume(stateDBPath: String) -> String? {
+    private nonisolated static func hermesHomeForResume(stateDBPath: String) -> String {
         let stateDBURL = URL(fileURLWithPath: stateDBPath).standardizedFileURL
-        let homeURL = stateDBURL.deletingLastPathComponent()
-        let defaultStateDBURL = URL(
-            fileURLWithPath: HermesAgentIndex.defaultStateDBPath(env: ["HOME": NSHomeDirectory()])
-        ).standardizedFileURL
-        let defaultHomeURL = defaultStateDBURL.deletingLastPathComponent()
-        return homeURL == defaultHomeURL ? nil : homeURL.path
+        return stateDBURL.deletingLastPathComponent().path
     }
 
     #if DEBUG
@@ -74,7 +69,19 @@ extension SessionIndexStore {
 
 extension SessionEntry {
     static func hermesResumeCommand(sessionId: String, source: String?, model: String?, hermesHome: String?) -> String {
-        var parts = ["hermes"]
+        // Route Vault resumes through the managed per-surface wrapper so the
+        // indexed Hermes profile and cmux hooks belong to the resumed process,
+        // even when another Hermes installation appears earlier on PATH. The
+        // wrapper token is POSIX-only, so keep it inside a portable /bin/sh
+        // command before the cwd guard is added by copyResumeCommand.
+        var parts = [AgentResumeArgv.hermesWrapperShellExecutableToken]
+        let profilePin = HermesAgentResumeProfilePin(
+            hermesHome: hermesHome,
+            homeDirectory: NSHomeDirectory()
+        )
+        if !profilePin.requiredProfileArguments.isEmpty {
+            parts.append(profilePin.requiredProfileArguments.joined(separator: " "))
+        }
         if source == "tui" {
             parts.append("--tui")
         }
@@ -83,9 +90,8 @@ extension SessionEntry {
             parts.append("--model \(Self.shellQuote(model))")
         }
         let command = parts.joined(separator: " ")
-        guard let hermesHome, !hermesHome.isEmpty else {
-            return command
-        }
-        return "env HERMES_HOME=\(Self.shellQuote(hermesHome)) \(command)"
+        return AgentResumeArgv.portableHermesResumeShellCommand(
+            posixCommand: "env HERMES_HOME=\(Self.shellQuote(profilePin.hermesHome)) \(command)"
+        )
     }
 }

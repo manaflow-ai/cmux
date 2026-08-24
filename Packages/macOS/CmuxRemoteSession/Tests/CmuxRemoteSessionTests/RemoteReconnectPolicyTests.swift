@@ -1,3 +1,6 @@
+import CmuxCore
+import CmuxRemoteDaemon
+import CmuxRemoteWorkspace
 import Foundation
 import Testing
 @testable import CmuxRemoteSession
@@ -101,13 +104,320 @@ struct RemoteReconnectPolicyTests {
             "Once the streak reaches the threshold again the loop must suspend."
         )
     }
+
+    @Test("Repeated identical bootstrap failures eventually park reconnect")
+    func repeatedBootstrapFailuresAreBounded() {
+        let policy = RemoteBootstrapRetryPolicy()
+        var previousFingerprint: String?
+        var consecutive = 0
+        var total = 0
+        var decisions: [RemoteBootstrapRetryPolicy.Decision] = []
+
+        for _ in 0..<policy.maxConsecutiveFailures {
+            let evaluation = policy.evaluate(
+                fingerprint: "cmux.remote.daemon:33",
+                previousFingerprint: previousFingerprint,
+                previousConsecutiveFailures: consecutive,
+                previousTotalFailures: total
+            )
+            previousFingerprint = evaluation.fingerprint
+            consecutive = evaluation.consecutiveFailures
+            total = evaluation.totalFailures
+            decisions.append(evaluation.decision)
+        }
+
+        #expect(decisions.dropLast().allSatisfy { $0 == .retry })
+        #expect(decisions.last == .suspend)
+        #expect(consecutive == policy.maxConsecutiveFailures)
+        #expect(total == policy.maxConsecutiveFailures)
+    }
+
+    @Test("A changed bootstrap failure fingerprint resets the consecutive budget")
+    func changedBootstrapFailureResetsConsecutiveBudget() {
+        let policy = RemoteBootstrapRetryPolicy()
+        let first = policy.evaluate(
+            fingerprint: "cmux.remote.daemon:33",
+            previousFingerprint: nil,
+            previousConsecutiveFailures: 0,
+            previousTotalFailures: 0
+        )
+        let changed = policy.evaluate(
+            fingerprint: "cmux.remote.daemon:31",
+            previousFingerprint: first.fingerprint,
+            previousConsecutiveFailures: first.consecutiveFailures,
+            previousTotalFailures: first.totalFailures
+        )
+
+        #expect(changed.decision == .retry)
+        #expect(changed.consecutiveFailures == 1)
+        #expect(changed.totalFailures == 2)
+    }
+
+    @Test("Bootstrap diagnostics do not change retry fingerprints")
+    func bootstrapDiagnosticsDoNotAffectFingerprint() {
+        let underlying = NSError(
+            domain: "cmux.remote.daemon",
+            code: 41,
+            userInfo: [
+                NSLocalizedDescriptionKey: "remote daemon hello returned invalid JSON",
+            ]
+        )
+        let first = RemoteSessionCoordinator.annotatedRemoteDaemonBootstrapError(
+            underlying,
+            remotePath: "/home/test/.cmux/bin/cmuxd-remote/1/linux-amd64/cmuxd-remote",
+            diagnostic: "daemon log tail: authentication failed"
+        )
+        let second = RemoteSessionCoordinator.annotatedRemoteDaemonBootstrapError(
+            underlying,
+            remotePath: "/home/test/.cmux/bin/cmuxd-remote/1/linux-amd64/cmuxd-remote",
+            diagnostic: "daemon log tail: checksum mismatch"
+        )
+
+        #expect(
+            RemoteBootstrapRetryPolicy.fingerprint(for: first) ==
+                "cmux.remote.daemon:41:hello"
+        )
+        #expect(
+            RemoteBootstrapRetryPolicy.fingerprint(for: second) ==
+                "cmux.remote.daemon:41:hello"
+        )
+    }
+
+    @Test("Blocked bootstrap failures park immediately")
+    func blockedBootstrapFailureDoesNotSpin() {
+        let policy = RemoteBootstrapRetryPolicy()
+        let evaluation = policy.evaluate(
+            fingerprint: "cmux.remote.daemon:31:blocked",
+            previousFingerprint: nil,
+            previousConsecutiveFailures: 0,
+            previousTotalFailures: 0
+        )
+
+        #expect(evaluation.decision == .suspend)
+        #expect(evaluation.consecutiveFailures == 1)
+    }
+
+    @Test("System wake re-arms a suspended coordinator with fresh backoff")
+    func systemWakeRearmsSuspendedCoordinator() {
+        let provider = IntentionalCleanupTestTunnelProvider()
+        let coordinator = makeCoordinator(
+            broker: RemoteProxyBroker(tunnelProvider: provider)
+        )
+        defer {
+            coordinator.stop()
+            coordinator.queue.sync {}
+            provider.tunnel.stop()
+        }
+        coordinator.queue.sync {
+            coordinator.isSystemSleeping = true
+            coordinator.reconnectRetryCount = 8
+            coordinator.consecutiveUnreachableProbeCount = policy.maxConsecutiveUnreachableProbes
+            coordinator.reconnectSuspended = true
+        }
+
+        coordinator.resetReconnectPolicyAndReconnect(reason: "test wake")
+        coordinator.queue.sync {}
+
+        let state = coordinator.queue.sync {
+            (
+                coordinator.isSystemSleeping,
+                coordinator.reconnectRetryCount,
+                coordinator.consecutiveUnreachableProbeCount,
+                coordinator.reconnectSuspended,
+                coordinator.reconnectToken
+            )
+        }
+        #expect(!state.0)
+        #expect(state.1 == 1)
+        #expect(state.2 == 0)
+        #expect(!state.3)
+        #expect(state.4 != nil)
+    }
+
+    @Test("A ready callback from the released pre-wake proxy lease is ignored")
+    func stalePreWakeProxyReadyIsIgnored() {
+        let provider = IntentionalCleanupTestTunnelProvider()
+        let coordinator = makeCoordinator(
+            broker: RemoteProxyBroker(tunnelProvider: provider)
+        )
+        defer {
+            coordinator.stop()
+            coordinator.queue.sync {}
+            provider.tunnel.stop()
+        }
+        let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 42_424)
+
+        coordinator.queue.sync {
+            coordinator.proxyLeaseGeneration = 2
+            coordinator.handleProxyBrokerUpdateLocked(.ready(endpoint), leaseGeneration: 1)
+        }
+
+        #expect(coordinator.queue.sync { coordinator.proxyEndpoint } == nil)
+    }
+
+    @Test("Wake reset cancels transport-dependent scan work")
+    func wakeResetCancelsTransportDependentWork() {
+        let provider = IntentionalCleanupTestTunnelProvider()
+        let coordinator = makeCoordinator(
+            broker: RemoteProxyBroker(tunnelProvider: provider)
+        )
+        defer {
+            coordinator.stop()
+            coordinator.queue.sync {}
+            provider.tunnel.stop()
+        }
+        let panelID = UUID()
+        coordinator.queue.sync {
+            coordinator.isSystemSleeping = true
+            coordinator.reconnectSuspended = true
+            coordinator.remotePortScanGeneration = 7
+            coordinator.remotePortScanBurstActive = true
+            coordinator.remotePortScanActiveReason = .command
+            coordinator.remotePortScanPendingReason = .refresh
+            coordinator.remotePortScanSnapshot.reconcile(
+                scannedPorts: [panelID: [22]],
+                scannedKeys: [panelID],
+                trackedKeys: [panelID],
+                completeness: .complete
+            )
+            coordinator.remotePortPollState.apply(
+                observedPorts: [3_000],
+                mode: .hostWideDelta,
+                completeness: .complete
+            )
+            coordinator.remotePortPollState.apply(
+                observedPorts: [3_000, 8_080],
+                mode: .hostWideDelta,
+                completeness: .complete
+            )
+            coordinator.bootstrapRemoteTTYResolved = true
+            coordinator.bootstrapRemoteTTYRetryCount = 4
+            coordinator.bootstrapRemoteTTYFetchInFlight = true
+        }
+
+        coordinator.resetReconnectPolicyAndReconnect(reason: "test wake")
+        coordinator.queue.sync {}
+
+        let state = coordinator.queue.sync {
+            (
+                scanGeneration: coordinator.remotePortScanGeneration,
+                scanBurstActive: coordinator.remotePortScanBurstActive,
+                scanActiveReason: coordinator.remotePortScanActiveReason,
+                scanPendingReason: coordinator.remotePortScanPendingReason,
+                scannedPorts: coordinator.remotePortScanSnapshot.snapshot,
+                polledPorts: coordinator.remotePortPollState.publishedPorts,
+                pollBaseline: coordinator.remotePortPollState.baselinePorts,
+                bootstrapTTYResolved: coordinator.bootstrapRemoteTTYResolved,
+                bootstrapTTYRetryCount: coordinator.bootstrapRemoteTTYRetryCount,
+                bootstrapTTYFetchInFlight: coordinator.bootstrapRemoteTTYFetchInFlight
+            )
+        }
+        #expect(state.scanGeneration == 8)
+        #expect(!state.scanBurstActive)
+        #expect(state.scanActiveReason == nil)
+        #expect(state.scanPendingReason == nil)
+        #expect(state.scannedPorts.isEmpty)
+        #expect(state.polledPorts.isEmpty)
+        #expect(state.pollBaseline == nil)
+        #expect(!state.bootstrapTTYResolved)
+        #expect(state.bootstrapTTYRetryCount == 0)
+        #expect(!state.bootstrapTTYFetchInFlight)
+    }
+
+    @Test("Wake leaves a healthy proxy-less Cloud fallback connected")
+    func wakeLeavesProxylessCloudFallbackConnected() {
+        let provider = IntentionalCleanupTestTunnelProvider()
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "vm+cmux@vm-ssh.freestyle.sh",
+            port: 22,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil,
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            skipDaemonBootstrap: true
+        )
+        let coordinator = makeCoordinator(
+            broker: RemoteProxyBroker(tunnelProvider: provider),
+            configuration: configuration
+        )
+        defer {
+            coordinator.stop()
+            coordinator.queue.sync {}
+            provider.tunnel.stop()
+        }
+        coordinator.queue.sync {
+            coordinator.isSystemSleeping = true
+            coordinator.daemonReady = true
+            coordinator.proxyEndpoint = nil
+        }
+
+        coordinator.resetReconnectPolicyAndReconnect(reason: "test wake")
+        coordinator.queue.sync {}
+
+        let state = coordinator.queue.sync {
+            (coordinator.reconnectRetryCount, coordinator.reconnectToken, coordinator.daemonReady)
+        }
+        #expect(state.0 == 0)
+        #expect(state.1 == nil)
+        #expect(state.2)
+    }
+
+    private func makeCoordinator(
+        broker: RemoteProxyBroker,
+        configuration: WorkspaceRemoteConfiguration? = nil
+    ) -> RemoteSessionCoordinator {
+        let configuration = configuration ?? WorkspaceRemoteConfiguration(
+            destination: "user@example.test",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil,
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-test"
+        )
+        return RemoteSessionCoordinator(
+            host: IntentionalCleanupTestHost(),
+            configuration: configuration,
+            proxyBroker: broker,
+            connectionBroker: NativeSSHConnectionBroker(),
+            manifestRepository: RemoteDaemonManifestRepository(
+                homeDirectory: FileManager.default.temporaryDirectory
+            ),
+            processRunner: IntentionalCleanupUnusedProcessRunner(),
+            reachabilityProbe: IntentionalCleanupNoopReachabilityProbe(),
+            relayCommandRewriter: IntentionalCleanupRelayCommandRewriter(),
+            buildInfo: IntentionalCleanupBuildInfo(),
+            daemonStrings: RemoteDaemonStrings(
+                missingPersistentPTYCapability: "",
+                missingRequiredFunctionality: ""
+            ),
+            strings: RemoteSessionStrings(
+                connectedVMNoProxyFormat: "%@",
+                suspendedDetailFormat: "%@",
+                reverseRelayUnavailableRetrying: "",
+                reverseRelayPortUnavailableRetrying: "",
+                controlMasterOwnershipUnavailable: ""
+            )
+        )
+    }
 }
 
-// `.serialized` for the same reason as the other real-subprocess suites: the
-// `resolveEndpoint` cases shell out to `/usr/bin/ssh -G` with `Process`/`Pipe`,
-// and the TCP-probe cases open real sockets, so they share the process-global
-// fd table. See ``remoteSubprocessTestLock``.
-@Suite("RemoteHostReachabilityProbe", .serialized)
+// The endpoint cases shell out to `/usr/bin/ssh -G` with `Process`/`Pipe`, and
+// the TCP-probe cases open real sockets, so this suite lives under the shared
+// serialized subprocess parent.
+extension RemoteSubprocessTests {
+@Suite("RemoteHostReachabilityProbe")
 struct RemoteHostReachabilityProbeTests {
     @Test("Parses hostname, port, and proxy fields from ssh -G output")
     func parsesSSHConfigOutput() {
@@ -161,14 +471,10 @@ struct RemoteHostReachabilityProbeTests {
     }
 
     @Test("ProxyCommand destinations cannot be probed directly")
-    func proxyCommandResolvesToNil() {
-        // Serialize the real `ssh -G` subprocess against the other fd-table
-        // suites; see ``remoteSubprocessTestLock``.
-        remoteSubprocessTestLock.lock()
-        defer { remoteSubprocessTestLock.unlock() }
+    func proxyCommandResolvesToNil() async {
         // sshConfigFile pins resolution to an empty config so the test stays
         // hermetic against the developer/CI user's ~/.ssh/config.
-        let endpoint = RemoteHostReachabilityProbe.resolveEndpoint(
+        let endpoint = await RemoteHostReachabilityProbe.resolveEndpoint(
             destination: "nobody@127.0.0.1",
             port: 22,
             identityFile: nil,
@@ -179,12 +485,8 @@ struct RemoteHostReachabilityProbeTests {
     }
 
     @Test("Resolves a direct destination's endpoint via ssh -G")
-    func resolvesDirectEndpoint() throws {
-        // Serialize the real `ssh -G` subprocess against the other fd-table
-        // suites; see ``remoteSubprocessTestLock``.
-        remoteSubprocessTestLock.lock()
-        defer { remoteSubprocessTestLock.unlock() }
-        let endpoint = RemoteHostReachabilityProbe.resolveEndpoint(
+    func resolvesDirectEndpoint() async throws {
+        let endpoint = await RemoteHostReachabilityProbe.resolveEndpoint(
             destination: "nobody@127.0.0.1",
             port: 2222,
             identityFile: nil,
@@ -229,6 +531,7 @@ struct RemoteHostReachabilityProbeTests {
             }
         }
     }
+}
 }
 
 /// Minimal loopback TCP listener for probe tests.

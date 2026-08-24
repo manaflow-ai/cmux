@@ -1,17 +1,16 @@
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "docs.ssh" });
-  return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/docs/ssh"),
-  };
+  return auditedDocsMetadata({
+    locale,
+    pageKey: "ssh",
+    path: "/docs/ssh",
+  });
 }
 
 export default async function SshPage({
@@ -39,8 +38,13 @@ export default async function SshPage({
       <DocsHeading level={2} id="usage">{t("usage")}</DocsHeading>
       <CodeBlock lang="bash">{`cmux ssh user@remote
 cmux ssh user@remote --name "dev server"
+cmux ssh user@remote --command 'omp "investigate auth"'
 cmux ssh user@remote -p 2222
-cmux ssh user@remote -i ~/.ssh/id_ed25519`}</CodeBlock>
+cmux ssh user@remote -i ~/.ssh/id_ed25519
+cmux ssh user@remote --transport mosh
+cmux mosh user@remote
+cmux mosh-tmux user@remote
+cmux mosh-tmux user@remote --session agent-main`}</CodeBlock>
       <p>{t("usageDesc")}</p>
 
       <DocsHeading level={2} id="flags-title">{t("flagsTitle")}</DocsHeading>
@@ -53,12 +57,19 @@ cmux ssh user@remote -i ~/.ssh/id_ed25519`}</CodeBlock>
         </thead>
         <tbody>
           <tr><td><code>--name</code></td><td>{t("flagNameVal")}</td></tr>
+          <tr><td><code>--command</code></td><td>{t("flagCommand")}</td></tr>
           <tr><td><code>-p, --port</code></td><td>{t("flagPort")}</td></tr>
           <tr><td><code>-i, --identity</code></td><td>{t("flagIdentity")}</td></tr>
           <tr><td><code>-o, --ssh-option</code></td><td>{t("flagSshOption")}</td></tr>
+          <tr><td><code>--transport</code></td><td>{t("flagTransport")}</td></tr>
           <tr><td><code>--no-focus</code></td><td>{t("flagNoFocus")}</td></tr>
         </tbody>
       </table>
+
+      <DocsHeading level={2} id="mosh-transport">{t("moshTitle")}</DocsHeading>
+      <p>{t("moshDesc")}</p>
+      <p>{t("moshFallback")}</p>
+      <p>{t("moshTmux")}</p>
 
       <DocsHeading level={2} id="ssh-deep-links">{t("deepLinksTitle")}</DocsHeading>
       <p>{t("deepLinksDesc")}</p>

@@ -34,8 +34,19 @@ extension cmuxApp {
                 #endif
             }
             #if DEBUG
+            Button(String(localized: "menu.help.showProWelcomeChecklist", defaultValue: "Show Pro Welcome Checklist…")) {
+                ProWelcomeChecklistPresenter.present()
+            }
             Button(String(localized: "menu.help.featureFlags", defaultValue: "Feature Flags…")) {
                 InternalFlagsPresenter.present()
+            }
+            Button(
+                String(
+                    localized: "debug.menu.sidebarFooterIconBalance",
+                    defaultValue: "Footer Icon Balance Lab…"
+                )
+            ) {
+                AppDelegate.shared?.debugWindowsCoordinator.showSidebarFooterIconBalanceWindow()
             }
             #endif
 

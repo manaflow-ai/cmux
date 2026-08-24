@@ -46,7 +46,12 @@ import Testing
     let route = try CmxAttachRoute(
         id: "iroh",
         kind: .iroh,
-        endpoint: .peer(id: "node-1", relayHint: nil, directAddrs: [], relayURL: nil)
+        endpoint: .peer(
+            id: String(repeating: "e", count: 64),
+            relayHint: nil,
+            directAddrs: [],
+            relayURL: nil
+        )
     )
 
     let result = await CmxNetworkRoutePinger().ping(route)

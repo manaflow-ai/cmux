@@ -1,5 +1,5 @@
 public import Foundation
-public import CmuxGit
+import CmuxGit
 
 // MARK: - Applying refresh results, poll-deadline math, and tracking bookkeeping.
 
@@ -11,9 +11,15 @@ extension PullRequestPollService {
         repoResults: [String: WorkspacePullRequestRepoFetchResult],
         requestedKeys: [WorkspaceGitProbeKey],
         now: Date,
-        reason: String
+        reason: String,
+        rateLimitRetryDate: Date? = nil
     ) {
         guard let host else { return }
+        let activity = sidebarPullRequestActivity
+        guard activity.performsActivePolling else {
+            stopWorkspacePullRequestPolling(activity: activity)
+            return
+        }
         guard !host.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) else {
             workspacePullRequestRefreshTask = nil
             for key in requestedKeys {
@@ -21,11 +27,6 @@ extension PullRequestPollService {
                 workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(mobileHostDeferral.quietInterval)
             }
             deferWorkspacePullRequestRefreshForMobileHost()
-            return
-        }
-        guard sidebarPullRequestPollingEnabled else {
-            resetWorkspacePullRequestRefreshState()
-            host.clearAllSidebarPullRequestMetadata()
             return
         }
 
@@ -46,7 +47,8 @@ extension PullRequestPollService {
         var needsFollowUpPass = false
 
         defer {
-            if needsFollowUpPass {
+            if rateLimitRetryDate == nil,
+               needsFollowUpPass || workspacePullRequestFollowUpShouldBypassRepoCache {
                 let shouldBypassRepoCache = workspacePullRequestFollowUpShouldBypassRepoCache
                 workspacePullRequestFollowUpShouldBypassRepoCache = false
                 refreshTrackedWorkspacePullRequestsIfNeeded(
@@ -110,6 +112,30 @@ extension PullRequestPollService {
                         isStale: false
                     )
                 )
+                let resolvedBranch = GitMetadataService.normalizedBranchName(resolvedPullRequest.branch)
+                let projectedBranch = GitMetadataService.normalizedBranchName(
+                    host.panelGitBranch(workspaceId: result.workspaceId, panelId: result.panelId)?.branch
+                )
+                // Nudge only while git metadata watching is on: with watching
+                // disabled the probe scheduler clears the panel's branch AND
+                // the badge this pass just applied (there is also no branch
+                // projection to heal).
+                if resolvedBranch != projectedBranch, host.gitMetadataActivity.performsActivePolling {
+                    host.schedulePanelGitMetadataProbe(
+                        workspaceId: result.workspaceId,
+                        panelId: result.panelId,
+                        reason: "pullRequestBranchMismatch"
+                    )
+#if DEBUG
+                    debugLog(
+                        "workspace.prRefresh.branchProjectionMismatch " +
+                        "workspace=\(result.workspaceId.uuidString.prefix(5)) " +
+                        "panel=\(result.panelId.uuidString.prefix(5)) " +
+                        "resolved=\(resolvedPullRequest.branch) " +
+                        "projected=\(projectedBranch ?? "nil")"
+                    )
+#endif
+                }
             case .notFound:
                 workspacePullRequestTransientFailureCountByKey[key] = 0
                 workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)
@@ -177,6 +203,15 @@ extension PullRequestPollService {
 #endif
         }
 
+        if let rateLimitRetryDate {
+            for key in requestedKeys {
+                guard workspacePullRequestProbeStateByKey[key] != nil,
+                      workspacePullRequestNextPollAtByKey[key, default: .distantPast] < rateLimitRetryDate else {
+                    continue
+                }
+                workspacePullRequestNextPollAtByKey[key] = rateLimitRetryDate
+            }
+        }
         updateWorkspacePullRequestPollTimer()
     }
 
@@ -261,6 +296,26 @@ extension PullRequestPollService {
             return
         }
         host.clearPanelPullRequest(workspaceId: key.workspaceId, panelId: key.panelId)
+    }
+
+    func stopWorkspacePullRequestPolling(
+        for key: WorkspaceGitProbeKey,
+        activity: SidebarGitMetadataActivity
+    ) {
+        clearWorkspacePullRequestTracking(for: key)
+        guard activity == .disabled,
+              let host,
+              host.workspaceExists(key.workspaceId) else {
+            return
+        }
+        host.clearPanelPullRequest(workspaceId: key.workspaceId, panelId: key.panelId)
+    }
+
+    func stopWorkspacePullRequestPolling(activity: SidebarGitMetadataActivity) {
+        resetWorkspacePullRequestRefreshState()
+        if activity == .disabled {
+            host?.clearAllSidebarPullRequestMetadata()
+        }
     }
 
     public func clearWorkspacePullRequestMetadata(workspaceId: UUID, panelId: UUID) {

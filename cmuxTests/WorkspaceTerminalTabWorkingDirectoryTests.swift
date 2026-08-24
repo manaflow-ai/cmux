@@ -9,7 +9,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("Workspace terminal tab working directory")
+@Suite("Workspace terminal tab working directory", .serialized)
 struct WorkspaceTerminalTabWorkingDirectoryTests {
     @MainActor
     @Test("Cmd+T after session restore uses workspace cwd when focused agent has no terminal cwd")

@@ -1,0 +1,577 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.dev/schemas/tui-sdk-schema.schema.json",
+  "title": "cmux-tui SDK protocol IR",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "protocol",
+    "profiles",
+    "types",
+    "commands",
+    "events"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 2
+    },
+    "protocol": {
+      "$ref": "#/$defs/protocol"
+    },
+    "profiles": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/profile"
+      }
+    },
+    "types": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/typeName"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/typeExpr"
+      }
+    },
+    "commands": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/command"
+      }
+    },
+    "events": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/event"
+      }
+    }
+  },
+  "$defs": {
+    "typeName": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9]*$"
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "id_type",
+        "javascript_id_policy"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "id_type": {
+          "const": "uint64"
+        },
+        "javascript_id_policy": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "description",
+        "inherits"
+      ],
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "inherits": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "transport": {
+          "type": "string"
+        },
+        "requires_authority": {
+          "type": "boolean"
+        }
+      }
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority",
+        "since",
+        "capability",
+        "request",
+        "result",
+        "stream",
+        "constraints"
+      ],
+      "properties": {
+        "authority": {
+          "type": "string"
+        },
+        "since": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "capability": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "request": {
+          "$ref": "#/$defs/objectType"
+        },
+        "result": {
+          "$ref": "#/$defs/typeExpr"
+        },
+        "stream": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/stream"
+            }
+          ]
+        },
+        "constraints": {
+          "$ref": "#/$defs/constraints"
+        }
+      }
+    },
+    "stream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "event_names",
+        "ordering",
+        "terminal_event"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "subscribe",
+            "attach"
+          ]
+        },
+        "event_names": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "mode_field": {
+          "type": "string"
+        },
+        "modes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          }
+        },
+        "ordering": {
+          "type": "string"
+        },
+        "terminal_event": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "since",
+        "capability",
+        "streams",
+        "emission",
+        "payload"
+      ],
+      "properties": {
+        "since": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "capability": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "streams": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "subscribe",
+              "subscribe-deltas",
+              "attach-byte",
+              "attach-render",
+              "attach-browser"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "emission": {
+          "enum": [
+            "emitted",
+            "serialized-never-emitted"
+          ]
+        },
+        "payload": {
+          "$ref": "#/$defs/objectType"
+        }
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object"
+          }
+        ]
+      }
+    },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "presence",
+        "nullable"
+      ],
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/typeExpr"
+        },
+        "presence": {
+          "enum": [
+            "required",
+            "optional"
+          ]
+        },
+        "nullable": {
+          "type": "boolean"
+        },
+        "since": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "capability": {
+          "type": "string"
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "default": true,
+        "constraints": {
+          "$ref": "#/$defs/constraints"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "typeExpr": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/scalarType"
+        },
+        {
+          "$ref": "#/$defs/literalType"
+        },
+        {
+          "$ref": "#/$defs/enumType"
+        },
+        {
+          "$ref": "#/$defs/objectType"
+        },
+        {
+          "$ref": "#/$defs/aliasType"
+        },
+        {
+          "$ref": "#/$defs/taggedUnionType"
+        },
+        {
+          "$ref": "#/$defs/untaggedUnionType"
+        },
+        {
+          "$ref": "#/$defs/arrayType"
+        },
+        {
+          "$ref": "#/$defs/mapType"
+        },
+        {
+          "$ref": "#/$defs/refType"
+        },
+        {
+          "$ref": "#/$defs/opaqueJsonType"
+        }
+      ]
+    },
+    "scalarType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "name"
+      ],
+      "properties": {
+        "kind": {
+          "const": "scalar"
+        },
+        "name": {
+          "enum": [
+            "string",
+            "boolean",
+            "int32",
+            "uint16",
+            "uint32",
+            "int64",
+            "uint64",
+            "float32",
+            "float64"
+          ]
+        }
+      }
+    },
+    "literalType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "value"
+      ],
+      "properties": {
+        "kind": {
+          "const": "literal"
+        },
+        "value": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "enumType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "values"
+      ],
+      "properties": {
+        "kind": {
+          "const": "enum"
+        },
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          }
+        }
+      }
+    },
+    "objectType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "fields",
+        "additional_properties"
+      ],
+      "properties": {
+        "kind": {
+          "const": "object"
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/field"
+          }
+        },
+        "additional_properties": {
+          "type": "boolean"
+        },
+        "constraints": {
+          "$ref": "#/$defs/constraints"
+        }
+      }
+    },
+    "aliasType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "target"
+      ],
+      "properties": {
+        "kind": {
+          "const": "alias"
+        },
+        "target": {
+          "$ref": "#/$defs/typeExpr"
+        }
+      }
+    },
+    "taggedUnionType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "tag",
+        "variants"
+      ],
+      "properties": {
+        "kind": {
+          "const": "tagged_union"
+        },
+        "tag": {
+          "type": "string"
+        },
+        "variants": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "$ref": "#/$defs/typeExpr"
+          }
+        }
+      }
+    },
+    "untaggedUnionType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "variants"
+      ],
+      "properties": {
+        "kind": {
+          "const": "untagged_union"
+        },
+        "variants": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "$ref": "#/$defs/typeExpr"
+          }
+        }
+      }
+    },
+    "arrayType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "items"
+      ],
+      "properties": {
+        "kind": {
+          "const": "array"
+        },
+        "items": {
+          "$ref": "#/$defs/typeExpr"
+        },
+        "min_items": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_items": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "mapType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "values"
+      ],
+      "properties": {
+        "kind": {
+          "const": "map"
+        },
+        "values": {
+          "$ref": "#/$defs/typeExpr"
+        }
+      }
+    },
+    "refType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "name"
+      ],
+      "properties": {
+        "kind": {
+          "const": "ref"
+        },
+        "name": {
+          "$ref": "#/$defs/typeName"
+        }
+      }
+    },
+    "opaqueJsonType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "reason"
+      ],
+      "properties": {
+        "kind": {
+          "const": "opaque_json"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

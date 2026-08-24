@@ -354,10 +354,10 @@ enum DragOverlayRoutingPolicy {
 
     static func shouldPassThroughPortalHitTesting(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
+        eventType: NSEvent.EventType?,
+        hasActiveDropDrag: Bool = false
     ) -> Bool {
         let routingContext = WindowInputRoutingContext(eventType: eventType)
-        guard routingContext.allowsBrowserPortalDragRouting else { return false }
         let hasTabTransfer = hasBonsplitTabTransfer(pasteboardTypes)
         let hasSidebarReorder = hasSidebarTabReorder(pasteboardTypes)
         switch routingContext.eventKind {
@@ -367,19 +367,38 @@ enum DragOverlayRoutingPolicy {
                 || hasSidebarReorder
         case .pointerHover:
             return hasTabTransfer || hasSidebarReorder
-        case .noEvent, .keyboard, .pointerDown, .pointerUp, .scroll, .appKitRouting, .other:
+        case .pointerUp:
+            guard hasActiveDropDrag else { return false }
+            return hasTabTransfer
+                || hasFilePreviewTransfer(pasteboardTypes)
+                || hasSidebarReorder
+        case .noEvent, .keyboard, .pointerDown, .scroll, .appKitRouting, .other:
             return false
         }
     }
 
     static func shouldPassThroughTerminalPortalHitTesting(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
+        eventType: NSEvent.EventType?,
+        hasActiveDropDrag: Bool = false
     ) -> Bool {
-        guard WindowInputRoutingContext.allowsTerminalPortalDragRouting(eventType: eventType) else { return false }
-        return shouldPassThroughPortalHitTesting(
-            pasteboardTypes: pasteboardTypes,
-            eventType: eventType
-        ) || hasFileURL(pasteboardTypes)
+        let routingContext = WindowInputRoutingContext(eventType: eventType)
+        guard routingContext.allowsTerminalPortalDragRouting else { return false }
+        switch routingContext.eventKind {
+        case .pointerDrag:
+            return shouldPassThroughPortalHitTesting(
+                pasteboardTypes: pasteboardTypes,
+                eventType: eventType,
+                hasActiveDropDrag: hasActiveDropDrag
+            ) || hasFileURL(pasteboardTypes)
+        case .pointerUp:
+            return shouldPassThroughPortalHitTesting(
+                pasteboardTypes: pasteboardTypes,
+                eventType: eventType,
+                hasActiveDropDrag: hasActiveDropDrag
+            )
+        case .noEvent, .keyboard, .pointerDown, .pointerHover, .scroll, .appKitRouting, .other:
+            return false
+        }
     }
 }

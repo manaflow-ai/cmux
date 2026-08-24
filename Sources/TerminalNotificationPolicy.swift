@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNotifications
 import Darwin
 import Foundation
 
@@ -16,6 +17,35 @@ struct TerminalNotificationPolicyContext: Codable, Sendable, Equatable {
     var hookId: String?
     var appFocused: Bool
     var focusedPanel: Bool
+}
+
+/// Agent-event context attached to notifications that originate from an agent
+/// completion signal (CLI agent hooks, PTY prompt-turn detection). Purely
+/// informational input for the user's notification-policy hooks — hooks can
+/// filter on it (e.g. silence subagent completions) but cannot patch it.
+/// Absent entirely for non-agent notifications (OSC 9/99/777, legacy senders).
+struct TerminalNotificationPolicyAgentContext: Codable, Sendable, Equatable {
+    /// Stable lowercase agent slug (`claude`, `codex`, `grok`, …).
+    var kind: String?
+    /// `AgentNotifyCategory` raw value (`turn-complete`, `needs-permission`,
+    /// `idle-reminder`).
+    var category: String?
+    /// Whether background work was still running when the turn ended.
+    var pending: Bool?
+    /// Whether the event came from a nested subagent session.
+    var isSubagent: Bool?
+
+    init(
+        kind: String? = nil,
+        category: String? = nil,
+        pending: Bool? = nil,
+        isSubagent: Bool? = nil
+    ) {
+        self.kind = kind
+        self.category = category
+        self.pending = pending
+        self.isSubagent = isSubagent
+    }
 }
 
 struct TerminalNotificationPolicyEffects: Codable, Sendable, Equatable {
@@ -181,44 +211,72 @@ struct TerminalNotificationPolicyEnvelope: Codable, Sendable, Equatable {
     var version: Int = 1
     var notification: TerminalNotificationPolicyPayload
     var context: TerminalNotificationPolicyContext
+    /// Present only for agent-originated notifications; omitted from the hook
+    /// stdin JSON otherwise. Additive to the version-1 envelope contract.
+    var agent: TerminalNotificationPolicyAgentContext?
     var effects: TerminalNotificationPolicyEffects = TerminalNotificationPolicyEffects()
     var stop: Bool?
-}
 
+    init(
+        version: Int = 1,
+        notification: TerminalNotificationPolicyPayload,
+        context: TerminalNotificationPolicyContext,
+        agent: TerminalNotificationPolicyAgentContext? = nil,
+        effects: TerminalNotificationPolicyEffects = TerminalNotificationPolicyEffects(),
+        stop: Bool? = nil
+    ) {
+        self.version = version
+        self.notification = notification
+        self.context = context
+        self.agent = agent
+        self.effects = effects
+        self.stop = stop
+    }
+}
 struct TerminalNotificationPolicyRequest: Sendable {
     let tabId: UUID
     let surfaceId: UUID?
     let panelId: UUID?
+    let retargetsToLiveSurfaceOwner: Bool
+    let correlationKey: String?
     let title: String
     let subtitle: String
     let body: String
+    let replyShape: TerminalNotificationReplyShape
     let cwd: String?
     let isAppFocused: Bool
     let isFocusedPanel: Bool
-
+    let agent: TerminalNotificationPolicyAgentContext?
     init(
         tabId: UUID,
         surfaceId: UUID?,
         panelId: UUID? = nil,
+        retargetsToLiveSurfaceOwner: Bool = false,
+        correlationKey: String? = nil,
         title: String,
         subtitle: String,
         body: String,
+        replyShape: TerminalNotificationReplyShape = .none,
         cwd: String?,
         isAppFocused: Bool,
-        isFocusedPanel: Bool
+        isFocusedPanel: Bool,
+        agent: TerminalNotificationPolicyAgentContext? = nil
     ) {
         self.tabId = tabId
         self.surfaceId = surfaceId
         self.panelId = panelId
+        self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
+        self.correlationKey = correlationKey
         self.title = title
         self.subtitle = subtitle
         self.body = body
+        self.replyShape = replyShape
         self.cwd = cwd
         self.isAppFocused = isAppFocused
         self.isFocusedPanel = isFocusedPanel
+        self.agent = agent
     }
 }
-
 struct TerminalNotificationPolicyFailure: Error, Sendable, Hashable {
     let hookId: String
     let sourcePath: String?
@@ -246,7 +304,8 @@ enum TerminalNotificationPolicyEngine {
                 hookId: nil,
                 appFocused: request.isAppFocused,
                 focusedPanel: request.isFocusedPanel
-            )
+            ),
+            agent: request.agent
         )
 
         return await evaluate(envelope: initialEnvelope, hooks: hooks)
@@ -442,8 +501,8 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
     private var killSource: DispatchSourceTimer?
     private var didComplete = false
     private var didRequestTermination = false
+    private var didRequestCancellation = false
     private var pendingFailure: TerminalNotificationPolicyFailure?
-
     init(
         hook: CmuxResolvedNotificationHook,
         envelope: TerminalNotificationPolicyEnvelope,
@@ -455,17 +514,23 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         self.inputData = inputData
         self.maxOutputBytes = maxOutputBytes
     }
-
     func run() async -> Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure> {
-        await withCheckedContinuation { continuation in
-            queue.async { [self] in
-                self.continuation = continuation
-                self.start()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                queue.async { [self] in
+                    self.continuation = continuation
+                    self.start()
+                }
             }
+        } onCancel: { [self] in
+            queue.async { [self] in requestCancellation() }
         }
     }
-
     private func start() {
+        guard !didRequestCancellation else {
+            complete(.failure(cancellationFailure()))
+            return
+        }
         do {
             try spawnHook()
             installReadSources()
@@ -480,7 +545,6 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
             )))
         }
     }
-
     private func spawnHook() throws {
         var stdinFDs = [Int32](repeating: -1, count: 2)
         var stdoutFDs = [Int32](repeating: -1, count: 2)
@@ -493,11 +557,9 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         try throwIfPOSIXError(pipe(&stdinFDs), operation: "create stdin pipe")
         try throwIfPOSIXError(pipe(&stdoutFDs), operation: "create stdout pipe")
         try throwIfPOSIXError(pipe(&stderrFDs), operation: "create stderr pipe")
-
         var fileActions: posix_spawn_file_actions_t?
         try throwIfPOSIXError(posix_spawn_file_actions_init(&fileActions), operation: "initialize spawn file actions")
         defer { posix_spawn_file_actions_destroy(&fileActions) }
-
         try hook.cwd.withCString { cwd in
             try throwIfPOSIXError(
                 posix_spawn_file_actions_addchdir_np(&fileActions, cwd),
@@ -513,14 +575,12 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
                 operation: "close inherited hook pipe"
             )
         }
-
         var attributes: posix_spawnattr_t?
         try throwIfPOSIXError(posix_spawnattr_init(&attributes), operation: "initialize spawn attributes")
         defer { posix_spawnattr_destroy(&attributes) }
         let flags = Int16(POSIX_SPAWN_SETPGROUP)
         try throwIfPOSIXError(posix_spawnattr_setflags(&attributes, flags), operation: "set spawn flags")
         try throwIfPOSIXError(posix_spawnattr_setpgroup(&attributes, 0), operation: "set process group")
-
         let arguments = ["/bin/sh", "-c", hook.command]
         let environment = environmentStrings()
         var spawnedPID: pid_t = 0
@@ -532,7 +592,6 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
             }
         }
         try throwIfPOSIXError(spawnResult, operation: "spawn notification hook")
-
         processId = spawnedPID
         stdinWriteFD = stdinFDs[1]
         stdoutReadFD = stdoutFDs[0]
@@ -549,18 +608,41 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         makeNonBlocking(stdoutReadFD)
         makeNonBlocking(stderrReadFD)
     }
-
     private func environmentStrings() -> [String] {
         var env = ProcessInfo.processInfo.environment
+        // The envelope is the sole source of hook agent context: clear any
+        // inherited values so an absent field reads as unset, never as a
+        // stale identity from the app's own environment.
+        for key in [
+            "CMUX_NOTIFICATION_AGENT_KIND",
+            "CMUX_NOTIFICATION_AGENT_CATEGORY",
+            "CMUX_NOTIFICATION_AGENT_PENDING",
+            "CMUX_NOTIFICATION_AGENT_IS_SUBAGENT",
+        ] {
+            env.removeValue(forKey: key)
+        }
         env["CMUX_NOTIFICATION_TITLE"] = envelope.notification.title
         env["CMUX_NOTIFICATION_SUBTITLE"] = envelope.notification.subtitle
         env["CMUX_NOTIFICATION_BODY"] = envelope.notification.body
         env["CMUX_NOTIFICATION_WORKSPACE_ID"] = envelope.notification.workspaceId
         env["CMUX_NOTIFICATION_SURFACE_ID"] = envelope.notification.surfaceId ?? ""
         env["CMUX_NOTIFICATION_POLICY_JSON"] = String(data: inputData, encoding: .utf8) ?? ""
+        if let agent = envelope.agent {
+            if let kind = agent.kind {
+                env["CMUX_NOTIFICATION_AGENT_KIND"] = kind
+            }
+            if let category = agent.category {
+                env["CMUX_NOTIFICATION_AGENT_CATEGORY"] = category
+            }
+            if let pending = agent.pending {
+                env["CMUX_NOTIFICATION_AGENT_PENDING"] = pending ? "1" : "0"
+            }
+            if let isSubagent = agent.isSubagent {
+                env["CMUX_NOTIFICATION_AGENT_IS_SUBAGENT"] = isSubagent ? "1" : "0"
+            }
+        }
         return env.map { "\($0.key)=\($0.value)" }
     }
-
     private func addDup2(
         _ fileActions: inout posix_spawn_file_actions_t?,
         from source: Int32,
@@ -571,12 +653,10 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
             operation: "configure hook pipe"
         )
     }
-
     private func throwIfPOSIXError(_ result: Int32, operation: String) throws {
         guard result != 0 else { return }
         throw POSIXError(.init(rawValue: result) ?? .EIO)
     }
-
     private func withCStringArray<T>(
         _ strings: [String],
         _ body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) throws -> T
@@ -592,18 +672,15 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
             try body(buffer.baseAddress!)
         }
     }
-
     private func makeNonBlocking(_ fileDescriptor: Int32) {
         let flags = fcntl(fileDescriptor, F_GETFL)
         guard flags >= 0 else { return }
         _ = fcntl(fileDescriptor, F_SETFL, flags | O_NONBLOCK)
     }
-
     private func installReadSources() {
         stdoutSource = makeReadSource(fileDescriptor: stdoutReadFD, stream: .stdout)
         stderrSource = makeReadSource(fileDescriptor: stderrReadFD, stream: .stderr)
     }
-
     private func makeReadSource(
         fileDescriptor: Int32,
         stream: NotificationHookOutputStream
@@ -627,7 +704,6 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         source.resume()
         return source
     }
-
     private func installWaitSource() {
         let source = DispatchSource.makeProcessSource(
             identifier: processId,
@@ -640,7 +716,6 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         waitSource = source
         source.resume()
     }
-
     private func installTimeoutSource() {
         let source = DispatchSource.makeTimerSource(queue: queue)
         source.schedule(deadline: .now() + hook.timeoutSeconds)
@@ -650,7 +725,6 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         timeoutSource = source
         source.resume()
     }
-
     private func writeInputAndCloseStdin() {
         guard stdinWriteFD >= 0 else { return }
         let fileDescriptor = stdinWriteFD
@@ -675,7 +749,6 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
             close(fileDescriptor)
         }
     }
-
     private func timeoutReached() {
         guard !didComplete else { return }
         if let status = reapProcessIfExited() {
@@ -686,6 +759,17 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
             hook: hook,
             message: "Notification hook timed out after \(Int(hook.timeoutSeconds))s"
         ))
+    }
+
+    private func requestCancellation() {
+        guard !didComplete else { return }
+        didRequestCancellation = true
+        guard continuation != nil else { return }
+        requestTermination(cancellationFailure())
+    }
+
+    private func cancellationFailure() -> TerminalNotificationPolicyFailure {
+        TerminalNotificationPolicyEngine.failure(hook: hook, message: "Notification hook cancelled")
     }
 
     private func requestTermination(_ failure: TerminalNotificationPolicyFailure) {
@@ -922,6 +1006,8 @@ private struct TerminalNotificationPolicyEnvelopePatch: Decodable {
             version: version ?? envelope.version,
             notification: notification?.merged(into: envelope.notification) ?? envelope.notification,
             context: context?.merged(into: envelope.context) ?? envelope.context,
+            // Agent context is informational input, not hook-patchable state.
+            agent: envelope.agent,
             effects: effects?.merged(into: envelope.effects) ?? envelope.effects,
             stop: stop ?? envelope.stop
         )

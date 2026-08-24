@@ -9,33 +9,40 @@ import { locales, routing } from "../../../../i18n/routing";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
   PRO_PLAN_ID,
+  TEAM_PLAN_ID,
 } from "../../../../services/billing/pro";
 import {
   isStripeBillingConfigured,
   stripe,
 } from "../../../../services/billing/stripe";
+import {
+  resolveBillingTeam,
+  type BillingTeamUserLike,
+} from "../../../../services/billing/teamResolution";
 import { captureBillingError } from "../../../../services/errors";
 import { browserMutationOriginAllowed } from "../../../../services/vms/routeHelpers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 type SubscriptionAction = "cancel" | "resume";
+type BillingScope = "user" | "team";
 
 export async function POST(request: NextRequest) {
   let stackUserId: string | undefined;
   let action: SubscriptionAction | null = null;
+  let scope: BillingScope = "user";
 
   if (!browserMutationOriginAllowed(request)) {
     return billingRedirect(request, "error");
   }
 
   try {
-    action = subscriptionAction(await request.formData());
+    const formData = await request.formData();
+    action = subscriptionAction(formData);
     if (!action) {
       return billingRedirect(request, "error");
     }
+    scope = billingScope(formData);
 
     if (!isStackConfigured()) {
       throw new Error("Billing subscription management is not configured");
@@ -54,7 +61,9 @@ export async function POST(request: NextRequest) {
       throw new Error("Billing subscription management is not configured");
     }
 
-    const subscription = await activeStripeSubscriptionForStackUser(user.id);
+    const subscription = scope === "team"
+      ? await activeStripeSubscriptionForStackTeam(await verifiedBillingTeamId(user, formData))
+      : await activeStripeSubscriptionForStackUser(user.id);
     if (!subscription) {
       return billingRedirect(request, "nosub");
     }
@@ -70,6 +79,7 @@ export async function POST(request: NextRequest) {
       route: "/api/billing/subscription",
       stackUserId,
       action,
+      scope,
     });
     return billingRedirect(request, "error");
   }
@@ -88,6 +98,26 @@ function subscriptionAction(formData: FormData): SubscriptionAction | null {
   return action === "cancel" || action === "resume" ? action : null;
 }
 
+function billingScope(formData: FormData): BillingScope {
+  return formData.get("scope") === "team" ? "team" : "user";
+}
+
+async function verifiedBillingTeamId(user: unknown, formData: FormData): Promise<string> {
+  const team = await resolveBillingTeam(user as BillingTeamUserLike);
+  const clientTeamId = formData.get("teamId");
+  if (
+    typeof clientTeamId === "string" &&
+    clientTeamId.trim() &&
+    clientTeamId.trim() !== team?.id
+  ) {
+    throw new Error("Billing team does not belong to the current user");
+  }
+  if (!team?.id) {
+    throw new Error("No billing team is available for the current user");
+  }
+  return team.id;
+}
+
 async function activeStripeSubscriptionForStackUser(stackUserId: string) {
   const rows = await cloudDb()
     .select({ id: stripeSubscriptions.id })
@@ -95,7 +125,25 @@ async function activeStripeSubscriptionForStackUser(stackUserId: string) {
     .where(
       and(
         eq(stripeSubscriptions.stackUserId, stackUserId),
+        eq(stripeSubscriptions.scope, "user"),
         eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+        inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
+      ),
+    )
+    .orderBy(desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+async function activeStripeSubscriptionForStackTeam(stackTeamId: string) {
+  const rows = await cloudDb()
+    .select({ id: stripeSubscriptions.id })
+    .from(stripeSubscriptions)
+    .where(
+      and(
+        eq(stripeSubscriptions.stackTeamId, stackTeamId),
+        eq(stripeSubscriptions.scope, "team"),
+        eq(stripeSubscriptions.plan, TEAM_PLAN_ID),
         inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
       ),
     )

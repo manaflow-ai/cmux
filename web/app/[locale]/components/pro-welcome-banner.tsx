@@ -1,13 +1,16 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
+import { fallbackContentLocales } from "../../../i18n/locale-availability";
+import { ContentLocaleLink } from "./content-locale-link";
 
-// Reads the ?welcome= / ?billing= states set by /api/billing/checkout and
-// /api/billing/confirm so the /pro page itself can stay static.
+// Reads the ?welcome= / ?billing= states set by /api/billing/checkout so the
+// /pro page itself can stay static.
 // Render inside <Suspense> (useSearchParams requirement).
 export function ProWelcomeBanner() {
   const t = useTranslations("pricing");
+  const locale = useLocale();
   const params = useSearchParams();
   const welcome = params.get("welcome");
   const billing = params.get("billing");
@@ -25,12 +28,12 @@ export function ProWelcomeBanner() {
               ? t("billingError")
               : billing === "unavailable"
                 ? t("billingUnavailable")
-                : billing === "external"
-                  ? t("billingExternal")
-                  : billing === "cancelled"
-                    ? t("billingCancelled")
-                    : billing === "invalid_plan"
-                      ? t("billingInvalidPlan")
+                : billing === "cancelled"
+                  ? t("billingCancelled")
+                  : billing === "invalid_plan"
+                    ? t("billingInvalidPlan")
+                    : billing === "invalid_relay"
+                      ? t("billingInvalidRelay")
                       : null;
   if (!message) return null;
 
@@ -43,12 +46,14 @@ export function ProWelcomeBanner() {
       {welcome === "pending" && (
         <>
           {" "}
-          <a
-            href="/api/billing/confirm"
+          <ContentLocaleLink
+            href="/pricing"
+            currentLocale={locale}
+            contentLocales={fallbackContentLocales}
             className="underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors"
           >
             {t("welcomePendingAction")}
-          </a>
+          </ContentLocaleLink>
         </>
       )}
     </div>

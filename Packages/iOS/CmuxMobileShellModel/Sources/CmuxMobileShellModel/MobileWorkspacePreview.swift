@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// A lightweight, `Sendable` snapshot of a remote workspace shown in the mobile shell.
@@ -50,6 +51,19 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     public var windowID: String?
     /// The workspace's user-facing display name.
     public var name: String
+    /// The workspace's custom description, when one was set on the Mac.
+    /// Kept separate from ``previewText`` so durable workspace context and live
+    /// terminal activity can render together instead of replacing each other.
+    public var customDescription: String?
+    /// True when ``customDescription`` is only the mobile-safe prefix of a
+    /// longer Mac-authored durable description.
+    public var customDescriptionIsTruncated: Bool
+    /// The workspace's custom `#RRGGBB` accent color, when one was set on the Mac.
+    /// This is workspace identity and must not be confused with
+    /// ``machineCustomColor``, which colors the owning Mac's avatar.
+    public var customColorHex: String?
+    /// The workspace's last reported current directory on its owning Mac.
+    public var currentDirectory: String?
     /// Whether the workspace is pinned on the Mac. Pinned workspaces sort to the
     /// top of the mobile list.
     public var isPinned: Bool
@@ -75,6 +89,10 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     public var hasUnread: Bool
     /// The terminals contained in the workspace, in display order.
     public var terminals: [MobileTerminalPreview]
+    /// Every Mac-rendered surface, in the Mac workspace's spatial order.
+    public var surfaces: [MobileSurfacePreview]
+    /// The Simulator panes contained in the workspace, in display order.
+    public var simulators: [MobileSimulatorPanelDescriptor]
     /// The owning Mac's DISTINCT color index in the aggregated list, stamped by
     /// ``MobileWorkspaceAggregation/derivedWorkspaces`` so same-Mac workspaces
     /// share one avatar color and different Macs are guaranteed distinct. `nil`
@@ -82,6 +100,11 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// id). Not part of the Mac's reported data, so it has a default and is set by
     /// derivation, not the decoders.
     public var machineColorIndex: Int? = nil
+    /// The app-instance tag of the Mac pairing that reported this row
+    /// ("default", "nightly", a dev tag), stamped from the connection's pairing
+    /// during ingest/derivation, never decoded from the wire. `nil` for rows
+    /// from a legacy untagged pairing or outside a per-Mac derivation.
+    public var macInstanceTag: String? = nil
     /// The owning Mac's user color override ("palette:<n>" or "#RRGGBB"), stamped
     /// during aggregation so the workspace avatar matches the computer's color.
     /// `nil` = use ``machineColorIndex`` (the automatic color).
@@ -113,19 +136,26 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     ///   - lastActivityAt: When the workspace last had activity. Defaults to `nil`.
     ///   - hasUnread: Whether the workspace has unread activity. Defaults to `false`.
     ///   - terminals: The terminals contained in the workspace, in display order.
+    ///   - surfaces: Every Mac-rendered surface, in spatial order.
     public init(
         id: ID,
         macDeviceID: String? = nil,
         macDisplayName: String? = nil,
         windowID: String? = nil,
         name: String,
+        customDescription: String? = nil,
+        customDescriptionIsTruncated: Bool = false,
+        customColorHex: String? = nil,
+        currentDirectory: String? = nil,
         isPinned: Bool = false,
         groupID: MobileWorkspaceGroupPreview.ID? = nil,
         previewText: String? = nil,
         previewAt: Date? = nil,
         lastActivityAt: Date? = nil,
         hasUnread: Bool = false,
-        terminals: [MobileTerminalPreview]
+        terminals: [MobileTerminalPreview],
+        surfaces: [MobileSurfacePreview] = [],
+        simulators: [MobileSimulatorPanelDescriptor] = []
     ) {
         self.id = id
         self.remoteWorkspaceID = nil
@@ -133,6 +163,10 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.macDisplayName = macDisplayName
         self.windowID = windowID
         self.name = name
+        self.customDescription = customDescription
+        self.customDescriptionIsTruncated = customDescriptionIsTruncated
+        self.customColorHex = customColorHex
+        self.currentDirectory = currentDirectory
         self.isPinned = isPinned
         self.groupID = groupID
         self.previewText = previewText
@@ -140,5 +174,38 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.lastActivityAt = lastActivityAt
         self.hasUnread = hasUnread
         self.terminals = terminals
+        self.surfaces = surfaces
+        self.simulators = simulators
+    }
+}
+
+extension MobileWorkspacePreview {
+    /// The non-terminal surface the owning Mac currently has focused, when it
+    /// reports one. This is separate from the terminal fallback because an
+    /// explicitly selected terminal on iOS must remain authoritative.
+    public var focusedNonTerminalSurface: MobileSurfacePreview? {
+        surfaces.first { !$0.kind.isTerminal && $0.isFocused }
+    }
+
+    /// The non-terminal Mac surface to present, honoring the picker selection.
+    ///
+    /// Terminal-kinded rows are never a Mac-surface selection (terminals have
+    /// their own selection axis), so this is the one lookup every call site
+    /// must share rather than re-filtering `surfaces` inline.
+    ///
+    /// With no explicit selection (or a stale one whose surface no longer
+    /// exists) and no terminals to stream (for example a workspace whose only
+    /// pane is a todo panel), this falls back to the first non-terminal
+    /// surface: the detail view would otherwise render an empty terminal
+    /// background.
+    public func selectedMacSurface(id: MobileSurfacePreview.ID?) -> MobileSurfacePreview? {
+        guard let id else { return defaultMacSurface }
+        return surfaces.first { $0.id == id && !$0.kind.isTerminal } ?? defaultMacSurface
+    }
+
+    private var defaultMacSurface: MobileSurfacePreview? {
+        guard terminals.isEmpty else { return nil }
+        return surfaces.first { !$0.kind.isTerminal && $0.isFocused }
+            ?? surfaces.first { !$0.kind.isTerminal }
     }
 }

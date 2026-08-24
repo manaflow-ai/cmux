@@ -3,31 +3,7 @@ import Foundation
 
 nonisolated let cmuxTopMemoryDiagnosticDefaultGroupLimit = 12
 
-nonisolated struct CmuxTopProcessAttribution: Hashable, Sendable {
-    let workspaceID: UUID?
-    let workspaceRef: String?
-    let paneID: UUID?
-    let paneRef: String?
-    let surfaceID: UUID?
-    let surfaceRef: String?
-    let surfaceType: String?
-    let reason: String
-
-    func payload() -> [String: Any] {
-        [
-            "workspace_id": workspaceID?.uuidString as Any? ?? NSNull(),
-            "workspace_ref": workspaceRef as Any? ?? NSNull(),
-            "pane_id": paneID?.uuidString as Any? ?? NSNull(),
-            "pane_ref": paneRef as Any? ?? NSNull(),
-            "surface_id": surfaceID?.uuidString as Any? ?? NSNull(),
-            "surface_ref": surfaceRef as Any? ?? NSNull(),
-            "surface_type": surfaceType as Any? ?? NSNull(),
-            "reason": reason
-        ]
-    }
-}
-
-nonisolated extension CmuxTopProcessSnapshot {
+extension CmuxTopProcessSnapshot {
     func memoryDiagnosticPayload(
         appPID: Int = Int(Darwin.getpid()),
         topGroupLimit: Int = cmuxTopMemoryDiagnosticDefaultGroupLimit,
@@ -72,97 +48,19 @@ nonisolated extension CmuxTopProcessSnapshot {
         ]
     }
 
-    private struct MemoryDiagnosticGroupAccumulator {
-        let id: String
-        let name: String
-        var rssBytes: Int64 = 0
-        var processIDs: [Int] = []
-        var attributions: [CmuxTopProcessAttribution: MemoryDiagnosticAttributionAccumulator] = [:]
-
-        mutating func append(
-            process: CmuxTopProcessInfo,
-            attribution: CmuxTopProcessAttribution?
-        ) {
-            rssBytes = CmuxTopProcessSnapshot.clampedAdd(rssBytes, process.residentBytes)
-            processIDs.append(process.pid)
-            guard let attribution else { return }
-            if attributions[attribution] == nil {
-                attributions[attribution] = MemoryDiagnosticAttributionAccumulator(attribution: attribution)
-            }
-            attributions[attribution]?.append(process: process)
-        }
-
-        func payload() -> [String: Any] {
-            let sortedProcessIDs = processIDs.sorted()
-            let attributionPayloads = attributions.values
-                .sorted {
-                    if $0.rssBytes != $1.rssBytes {
-                        return $0.rssBytes > $1.rssBytes
-                    }
-                    return $0.displayKey < $1.displayKey
-                }
-                .map { $0.payload() }
-            let topAttribution: Any = attributionPayloads.first.map { $0 as Any } ?? NSNull()
-            return [
-                "id": id,
-                "name": name,
-                "rss_bytes": rssBytes,
-                "resident_bytes": rssBytes,
-                "process_count": sortedProcessIDs.count,
-                "pids": sortedProcessIDs,
-                "top_attribution": topAttribution,
-                "attributions": attributionPayloads
-            ]
-        }
-    }
-
-    private struct MemoryDiagnosticAttributionAccumulator {
-        let attribution: CmuxTopProcessAttribution
-        var rssBytes: Int64 = 0
-        var processIDs: [Int] = []
-
-        var displayKey: String {
-            [
-                attribution.workspaceRef,
-                attribution.paneRef,
-                attribution.surfaceRef,
-                attribution.workspaceID?.uuidString,
-                attribution.paneID?.uuidString,
-                attribution.surfaceID?.uuidString
-            ]
-                .compactMap { $0 }
-                .joined(separator: "/")
-        }
-
-        mutating func append(process: CmuxTopProcessInfo) {
-            rssBytes = CmuxTopProcessSnapshot.clampedAdd(rssBytes, process.residentBytes)
-            processIDs.append(process.pid)
-        }
-
-        func payload() -> [String: Any] {
-            var payload = attribution.payload()
-            let sortedProcessIDs = processIDs.sorted()
-            payload["rss_bytes"] = rssBytes
-            payload["resident_bytes"] = rssBytes
-            payload["process_count"] = sortedProcessIDs.count
-            payload["pids"] = sortedProcessIDs
-            return payload
-        }
-    }
-
     private func memoryDiagnosticGroups(
         for pids: Set<Int>,
         topGroupLimit: Int,
         attributionByPID: [Int: CmuxTopProcessAttribution]
     ) -> [[String: Any]] {
-        var groups: [String: MemoryDiagnosticGroupAccumulator] = [:]
+        var groups: [String: CmuxTopMemoryDiagnosticGroupAccumulator] = [:]
         for pid in pids.sorted() {
             guard let process = processesByPID[pid] else { continue }
             let name = process.name.trimmingCharacters(in: .whitespacesAndNewlines)
             let displayName = name.isEmpty ? "pid-\(pid)" : name
             let key = displayName.lowercased()
             if groups[key] == nil {
-                groups[key] = MemoryDiagnosticGroupAccumulator(id: key, name: displayName)
+                groups[key] = CmuxTopMemoryDiagnosticGroupAccumulator(id: key, name: displayName)
             }
             groups[key]?.append(
                 process: process,
@@ -234,7 +132,9 @@ nonisolated extension CmuxTopProcessSnapshot {
             name,
             Self.formatDiagnosticBytes(rssBytes)
         )
-        if let attribution = topGroup["top_attribution"] as? [String: Any],
+        if let groupAttribution = topGroup["group_attribution"] as? [String: Any],
+           groupAttribution["kind"] as? String == "common",
+           let attribution = groupAttribution["owner"] as? [String: Any],
            let workspace = attribution["workspace_ref"] as? String ?? attribution["workspace_id"] as? String,
            !workspace.isEmpty {
             summary += String.localizedStringWithFormat(

@@ -67,6 +67,44 @@ private func waitForCondition(
     return true
 }
 
+/// Awaits `condition` by suspending instead of blocking the main actor.
+///
+/// An `async` test body runs as a main-actor job, i.e. inside a main-queue
+/// drain, and libdispatch does not re-enter that drain: a nested run loop spun
+/// from there runs no main-queue work. `waitForCondition` above therefore
+/// starves both its own poll hops and any product code that applies through
+/// `MainActor.run`, so in an `async` test it can only time out. Async tests
+/// must use this form; the budget is identical.
+@MainActor
+@discardableResult
+private func waitForConditionSuspending(
+    timeout: TimeInterval = 3.0,
+    pollInterval: TimeInterval = 0.05,
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    _ condition: @MainActor () -> Bool
+) async -> Bool {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(timeout))
+    while true {
+        if condition() {
+            return true
+        }
+        guard clock.now < deadline else {
+            XCTFail("Timed out waiting for condition", file: file, line: line)
+            return false
+        }
+        do {
+            try await clock.sleep(for: .seconds(pollInterval))
+        } catch {
+            // Cancellation, not a timeout. Swallowing it would spin the condition at
+            // full speed until the deadline instead of unwinding, and this helper's
+            // doc comment tells future async tests to copy it.
+            return condition()
+        }
+    }
+}
+
 private func restoreUserDefaultForTabManagerTests(_ value: Any?, key: String) {
     let defaults = UserDefaults.standard
     if let value {
@@ -270,10 +308,11 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         )
     }
 
-    func testChildExitOnLastRemotePanelKeepsWorkspaceDisconnected() throws {
+    func testFastChildExitOnLastRemotePanelKeepsWorkspaceDisconnected() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
-              let remotePanelId = workspace.focusedPanelId else {
+              let remotePanelId = workspace.focusedPanelId,
+              let remotePanel = workspace.terminalPanel(for: remotePanelId) else {
             XCTFail("Expected selected workspace with focused panel")
             return
         }
@@ -297,18 +336,15 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
 
-        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
-        drainMainQueue()
-        drainMainQueue()
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId, keepSurfaceVisible: true)
 
         XCTAssertEqual(manager.tabs.count, 1)
-        XCTAssertEqual(manager.selectedTabId, workspace.id)
-        XCTAssertEqual(manager.tabs.first?.id, workspace.id)
-        XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
-        XCTAssertNil(workspace.panels[remotePanelId])
-        XCTAssertEqual(workspace.panels.count, 1)
-        XCTAssertNotEqual(workspace.focusedPanelId, remotePanelId)
+        XCTAssertNotNil(workspace.panels[remotePanelId])
+        XCTAssertEqual(workspace.focusedPanelId, remotePanelId)
+        XCTAssertTrue(workspace.terminalPanel(for: remotePanelId)?.surface === remotePanel.surface)
+        XCTAssertTrue(workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(remotePanelId))
+        XCTAssertFalse(workspace.remoteDisconnectPlaceholderPanelIds.contains(remotePanelId))
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
     }
 
@@ -368,13 +404,14 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertNotNil(secondReplacement.surface.initialCommand)
     }
 
-    func testChildExitOnLastPersistentRemotePanelKeepsExitedSurfaceVisibleAndClearsPTYState() throws {
+    func testChildExitOnLastPersistentRemotePanelReconnectRespawnsRemoteAttach() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
             return
         }
+        let startupCommand = SSHPTYAttachStartupCommandBuilder.command()
 
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
@@ -387,7 +424,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
                 relayID: String(repeating: "a", count: 16),
                 relayToken: String(repeating: "b", count: 64),
                 localSocketPath: "/tmp/cmux-debug-test.sock",
-                terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+                terminalStartupCommand: startupCommand,
                 preserveAfterTerminalExit: true,
                 persistentDaemonSlot: "ssh-child-exit-test"
             ),
@@ -408,12 +445,92 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertNotNil(workspace.panels[remotePanelId])
         XCTAssertEqual(workspace.panels.count, 1)
         XCTAssertEqual(workspace.focusedPanelId, remotePanelId)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
         XCTAssertFalse(workspace.isRemoteTerminalSurface(remotePanelId))
         XCTAssertNil(
             workspace.sessionSnapshot(includeScrollback: false)
                 .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID
         )
+
+        XCTAssertTrue(workspace.reconnectRemoteConnection(surfaceId: remotePanelId))
+        let reattachedPanel = try XCTUnwrap(workspace.terminalPanel(for: remotePanelId))
+        XCTAssertEqual(reattachedPanel.surface.initialCommand, startupCommand)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+    }
+
+    func testDefaultFreestyleCloudSplitRepairsRawSSHStartupCommand() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let remotePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "71smiccrg35sw9pydt8k+cmux@vm-ssh.freestyle.sh",
+                port: 22,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: nil,
+                relayID: nil,
+                relayToken: nil,
+                localSocketPath: nil,
+                managedCloudVMID: "71smiccrg35sw9pydt8k",
+                terminalStartupCommand: "ssh -p 22 -tt 71smiccrg35sw9pydt8k+cmux@vm-ssh.freestyle.sh",
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+                skipDaemonBootstrap: true
+            ),
+            autoConnect: false
+        )
+
+        let splitPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: remotePanelId, orientation: .horizontal, focus: false)
+        )
+        let splitCommand = try XCTUnwrap(splitPanel.surface.debugInitialCommand())
+        XCTAssertTrue(splitCommand.contains("vm-pty-attach"), splitCommand)
+        XCTAssertTrue(splitCommand.contains("--default-freestyle-sshd"), splitCommand)
+        XCTAssertFalse(splitCommand.contains("ssh -p 22"), splitCommand)
+    }
+
+    func testDefaultFreestyleCloudReconnectRepairsRawSSHStartupCommand() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let remotePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "71smiccrg35sw9pydt8k+cmux@vm-ssh.freestyle.sh",
+                port: 22,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: nil,
+                relayID: nil,
+                relayToken: nil,
+                localSocketPath: nil,
+                managedCloudVMID: "71smiccrg35sw9pydt8k",
+                terminalStartupCommand: "ssh -p 22 -tt 71smiccrg35sw9pydt8k+cmux@vm-ssh.freestyle.sh",
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+                skipDaemonBootstrap: true
+            ),
+            autoConnect: false
+        )
+
+        XCTAssertTrue(workspace.reconnectRemoteConnection(surfaceId: remotePanelId))
+        let replacement = try XCTUnwrap(workspace.terminalPanel(for: remotePanelId))
+        let reconnectCommand = try XCTUnwrap(replacement.surface.debugInitialCommand())
+        XCTAssertTrue(reconnectCommand.contains("vm-pty-attach"), reconnectCommand)
+        XCTAssertTrue(reconnectCommand.contains("--default-freestyle-sshd"), reconnectCommand)
+        XCTAssertFalse(reconnectCommand.contains("ssh -p 22"), reconnectCommand)
     }
 
     func testPaneCloseOnLastRemotePanelKeepsWorkspaceDisconnected() throws {
@@ -573,10 +690,11 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         )
     }
 
-    func testFocusedRemoteChildExitWithMultipleTerminalsDisconnectsWorkspace() throws {
+    func testFocusedRemoteChildExitWithMultipleTerminalsDisconnectsWorkspace() async throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
-              let initialPanelId = workspace.focusedPanelId else {
+              let initialPanelId = workspace.focusedPanelId,
+              let initialPanel = workspace.terminalPanel(for: initialPanelId) else {
             XCTFail("Expected selected workspace with focused panel")
             return
         }
@@ -589,8 +707,6 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             XCTFail("Expected split terminal panel")
             return
         }
-        XCTAssertEqual(workspace.focusedPanelId, initialPanelId)
-
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 transport: .websocket,
@@ -608,26 +724,29 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             autoConnect: false
         )
 
-        XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertTrue(workspace.isRemoteTerminalSurface(initialPanelId))
-        XCTAssertFalse(workspace.isRemoteTerminalSurface(splitPanel.id))
-        XCTAssertEqual(workspace.remoteConnectionState, .connected)
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: initialPanelId)
-        drainMainQueue()
-        drainMainQueue()
+        await workspace.waitForRemoteDisconnectTransition(surfaceId: initialPanelId)
 
-        XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
-        XCTAssertNil(workspace.panels[initialPanelId])
         XCTAssertNotNil(workspace.panels[splitPanel.id])
-        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(splitPanel.id))
+        XCTAssertFalse(workspace.terminalPanel(for: initialPanelId)?.surface === initialPanel.surface)
+        XCTAssertTrue(workspace.remoteDisconnectPlaceholderPanelIds.contains(initialPanelId))
+
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: splitPanel.id)
+
+        XCTAssertNil(workspace.panels[splitPanel.id])
+        XCTAssertNotNil(workspace.panels[initialPanelId])
+        XCTAssertFalse(workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(splitPanel.id))
     }
 
-    func testChildExitAfterRemoteSessionEndKeepsWorkspaceDisconnected() throws {
+    func testChildExitAfterRemoteSessionEndKeepsWorkspaceDisconnected() async throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
-              let remotePanelId = workspace.focusedPanelId else {
+              let remotePanelId = workspace.focusedPanelId,
+              let remotePanel = workspace.terminalPanel(for: remotePanelId) else {
             XCTFail("Expected selected workspace with focused panel")
             return
         }
@@ -654,17 +773,14 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
-        drainMainQueue()
-        drainMainQueue()
+        await workspace.waitForRemoteDisconnectTransition(surfaceId: remotePanelId)
 
         XCTAssertEqual(manager.tabs.count, 1)
-        XCTAssertEqual(manager.selectedTabId, workspace.id)
-        XCTAssertEqual(manager.tabs.first?.id, workspace.id)
-        XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
-        XCTAssertNil(workspace.panels[remotePanelId])
-        XCTAssertEqual(workspace.panels.count, 1)
-        XCTAssertNotEqual(workspace.focusedPanelId, remotePanelId)
+        XCTAssertNotNil(workspace.panels[remotePanelId])
+        XCTAssertEqual(workspace.focusedPanelId, remotePanelId)
+        XCTAssertFalse(workspace.terminalPanel(for: remotePanelId)?.surface === remotePanel.surface)
+        XCTAssertTrue(workspace.remoteDisconnectPlaceholderPanelIds.contains(remotePanelId))
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
     }
 
@@ -816,6 +932,9 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let focusedSurface = try XCTUnwrap(
+            workspace.terminalPanel(for: focusedPanelId)?.surface
+        )
 
         XCTAssertTrue(workspace.updatePanelTitle(panelId: focusedPanelId, title: "Waiting - grok"))
         XCTAssertEqual(workspace.title, "Waiting - grok")
@@ -828,7 +947,7 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
 
         NotificationCenter.default.post(
             name: .ghosttyDidSetTitle,
-            object: nil,
+            object: focusedSurface,
             userInfo: [
                 GhosttyNotificationKey.tabId: workspace.id,
                 GhosttyNotificationKey.surfaceId: focusedPanelId,
@@ -988,10 +1107,14 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertEqual(observedMaxActiveCallCount, 1)
 
         await reader.releaseAll()
+        // Suspending, not blocking: this test body is a main-actor job, so a
+        // blocking wait would starve the snapshot's `MainActor.run` apply hop and
+        // could only expire. See waitForConditionSuspending.
+        let didApplyToEveryPanel = await waitForConditionSuspending {
+            panelIds.allSatisfy { workspace.panelGitBranches[$0]?.branch == "main" }
+        }
         XCTAssertTrue(
-            waitForCondition {
-                panelIds.allSatisfy { workspace.panelGitBranches[$0]?.branch == "main" }
-            },
+            didApplyToEveryPanel,
             "One same-directory snapshot should update every queued panel."
         )
         let finalObservedCallCount = await reader.observedCallCount
@@ -2580,7 +2703,7 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
             url: url,
             focus: false,
             selectWhenNotFocused: true,
-            omnibarVisible: false
+            chromeVisibility: .hidden
         ), let browserSurfaceId = workspace.surfaceIdFromPanelId(browserPanel.id) else {
             XCTFail("Expected background browser surface to be created")
             return
@@ -2601,7 +2724,7 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
                 inPane: paneId,
                 url: url,
                 focus: true,
-                omnibarVisible: false,
+                chromeVisibility: .hidden,
                 bypassRemoteProxy: true
             )
         )
@@ -3301,6 +3424,21 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
         XCTAssertEqual(workspace.tmuxWorkspaceFlashToken, 0)
 
         workspace.focusPanel(leftPanelId)
+        // Focus itself is synchronous, but the notification dismissal it triggers rides the
+        // `.ghosttyDidFocusSurface` broadcast, which `FocusSurfaceBroadcaster` never delivers
+        // synchronously. Settle before asserting the dismissal side effects.
+        drainMainQueue()
+
+        // Focus lands synchronously, but the dismissal it triggers rides the
+        // `.ghosttyDidFocusSurface` broadcast: `FocusSurfaceBroadcaster` defers the post to a
+        // later main-queue turn (issue #5100) and `TabManager` observes it on
+        // `OperationQueue.main`, one hop further out. Wait for the dismissal itself, then assert
+        // what it produced.
+        guard waitForCondition({
+            !store.hasUnreadNotification(forTabId: workspace.id, surfaceId: leftPanelId)
+        }) else {
+            return
+        }
 
         XCTAssertEqual(workspace.focusedPanelId, leftPanelId)
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: leftPanelId))

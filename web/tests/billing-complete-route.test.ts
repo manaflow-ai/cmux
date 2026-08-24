@@ -6,7 +6,11 @@ import { makeBillingCompleteHandler } from "../app/api/billing/complete/route";
 let stripeConfigured = true;
 let retrievedSession: Record<string, unknown>;
 const retrieveSession = mock(async () => retrievedSession);
-const recordCheckoutCompletion = mock(async () => ({ stackUserId: "user-1", subscriptionId: "sub_1" }));
+let recordCheckoutCompletionResult: unknown = {
+  stackUserId: "user-1",
+  subscriptionId: "sub_1",
+};
+const recordCheckoutCompletion = mock(async () => recordCheckoutCompletionResult);
 
 const GET = makeBillingCompleteHandler({
   isConfigured: () => stripeConfigured,
@@ -34,6 +38,10 @@ describe("billing complete route", () => {
     };
     retrieveSession.mockClear();
     recordCheckoutCompletion.mockClear();
+    recordCheckoutCompletionResult = {
+      stackUserId: "user-1",
+      subscriptionId: "sub_1",
+    };
   });
 
   test("records paid sessions and redirects to success with the validated scheme", async () => {
@@ -58,6 +66,30 @@ describe("billing complete route", () => {
     );
   });
 
+  test("uses the callback scheme trusted at checkout on a deployed completion host", async () => {
+    retrievedSession = {
+      id: "cs_123",
+      payment_status: "paid",
+      client_reference_id: "user-1",
+      metadata: {
+        app: "cmux",
+        plan: "pro",
+        nativeCallbackScheme: "cmux-dev-local",
+      },
+      subscription: { id: "sub_1" },
+      customer: { id: "cus_1" },
+    };
+    const response = await GET(
+      new NextRequest(
+        "https://cmux.test/api/billing/complete?session_id=cs_123&cmux_scheme=cmux-dev-local",
+      ),
+    );
+
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/billing/success?session_id=cs_123&cmux_scheme=cmux-dev-local",
+    );
+  });
+
   test("redirects unpaid sessions to pending pricing state", async () => {
     retrievedSession = {
       id: "cs_123",
@@ -72,6 +104,45 @@ describe("billing complete route", () => {
 
     expect(recordCheckoutCompletion).not.toHaveBeenCalled();
     expect(response.headers.get("location")).toBe("https://cmux.test/pricing?welcome=pending");
+  });
+
+  test("redirects paid Team sessions to dashboard billing after recording", async () => {
+    retrievedSession = {
+      id: "cs_team",
+      payment_status: "paid",
+      client_reference_id: "team-1",
+      metadata: { app: "cmux", plan: "team", stackTeamId: "team-1" },
+      subscription: { id: "sub_team" },
+      customer: { id: "cus_team" },
+    };
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/complete?session_id=cs_team"),
+    );
+
+    expect(recordCheckoutCompletion).toHaveBeenCalled();
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/dashboard/billing?welcome=team",
+    );
+  });
+
+  test("does not redirect to success when checkout is cancelled for account deletion", async () => {
+    recordCheckoutCompletionResult = {
+      skipped: "account_deletion_in_progress",
+      stackUserId: "user-1",
+      subscriptionId: "sub_1",
+    };
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/complete?session_id=cs_123"),
+    );
+
+    expect(recordCheckoutCompletion).toHaveBeenCalled();
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/pricing?billing=account_deletion",
+    );
   });
 
   test("rejects foreign paid sessions without recording them", async () => {

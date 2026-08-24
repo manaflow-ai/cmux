@@ -198,6 +198,9 @@ struct WindowTitleTemplateTests {
             backing: .buffered,
             defer: false
         )
+        // AppKit defaults to isReleasedWhenClosed, so the close() below would release a
+        // window ARC still owns and the over-release lands in a later autorelease pool drain.
+        window.isReleasedWhenClosed = false
         manager.window = window
         defer {
             manager.window = nil
@@ -244,6 +247,9 @@ struct WindowTitleTemplateTests {
             backing: .buffered,
             defer: false
         )
+        // AppKit defaults to isReleasedWhenClosed, so the close() below would release a
+        // window ARC still owns and the over-release lands in a later autorelease pool drain.
+        window.isReleasedWhenClosed = false
         manager.window = window
         defer {
             manager.window = nil
@@ -323,6 +329,9 @@ struct WindowTitleTemplateTests {
             backing: .buffered,
             defer: false
         )
+        // AppKit defaults to isReleasedWhenClosed, so the close() below would release a
+        // window ARC still owns and the over-release lands in a later autorelease pool drain.
+        window.isReleasedWhenClosed = false
         manager.window = window
         defer {
             manager.window = nil

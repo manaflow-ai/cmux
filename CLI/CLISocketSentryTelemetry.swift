@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSentryReporting
 import Darwin
 import Foundation
 
@@ -47,6 +48,7 @@ final class CLISocketSentryTelemetry {
     private let surfaceId: String?
     private let disabledByEnv: Bool
     private let noiseFilter: SentryNoiseFilter
+    private let sentryPolicy: CLISocketSentryPolicy
     private var pendingBreadcrumbs: [PendingBreadcrumb] = []
 
 #if canImport(Sentry)
@@ -117,6 +119,7 @@ final class CLISocketSentryTelemetry {
             processEnv["CMUX_CLI_SENTRY_DISABLED"] == "1" ||
             processEnv["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] == "1"
         self.noiseFilter = SentryNoiseFilter()
+        self.sentryPolicy = CLISocketSentryPolicy(environment: processEnv)
     }
 
     func breadcrumb(_ message: String, data: [String: Any] = [:]) {
@@ -132,7 +135,8 @@ final class CLISocketSentryTelemetry {
         guard !noiseFilter.isExpectedCLISocketTransportFailure(
             stage: stage,
             message: errorDescription,
-            dataKeys: Set(data.keys)
+            dataKeys: Set(data.keys),
+            allowSandboxPolicyDenial: sentryPolicy.allowsSandboxPolicyDenial
         ) else {
             return
         }
@@ -170,9 +174,10 @@ final class CLISocketSentryTelemetry {
         let envelopeItem = SentryEnvelopeItem(event: scrubbedEvent)
         let envelope = SentryEnvelope(id: scrubbedEvent.eventId, singleItem: envelopeItem)
         PrivateSentrySDKOnly.store(envelope)
-        // `store` is the durable step. A zero-timeout flush only schedules the
-        // SDK's cached-envelope sender without waiting for network completion.
-        SentrySDK.flush(timeout: 0)
+        // `store` is the durable handoff. Calling SentrySDK.flush here—even
+        // with a zero timeout—still enters SentryHttpTransport's synchronous
+        // coordination path. The app's Sentry client will pick up the cached
+        // envelope on its next transport pass.
 #if DEBUG
         recordStoreProbe(eventId: scrubbedEvent.eventId.sentryIdString)
 #endif
@@ -388,6 +393,7 @@ final class CLISocketSentryTelemetry {
         defer { startupLock.unlock() }
         guard !started else { return }
         SentrySDK.start { options in
+            CLISentryRuntimePolicy().configure(options)
             options.dsn = dsn
             options.releaseName = currentSentryReleaseName()
 #if DEBUG
@@ -401,11 +407,7 @@ final class CLISocketSentryTelemetry {
             options.sendDefaultPii = false
             options.attachStacktrace = true
             options.tracesSampleRate = 0.0
-            options.enableAppHangTracking = false
-            options.enableWatchdogTerminationTracking = false
-            options.enableAutoSessionTracking = false
             options.enableCaptureFailedRequests = false
-            options.enableMetricKit = false
             // Redact file paths, emails, and secrets from every outgoing event
             // and breadcrumb before it leaves the device.
             let scrubber = SentryEventScrubber()

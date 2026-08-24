@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
 
-import { validatedNativeCallbackScheme } from "../../../lib/native-callback";
+import {
+  trustedNativeCallbackScheme,
+  validatedNativeCallbackScheme,
+} from "../../../lib/native-callback";
 import { captureBillingError } from "../../../../services/errors";
 import {
   isCmuxCheckoutSession,
@@ -13,7 +16,6 @@ import {
   withApiRouteSpan,
 } from "../../../../services/telemetry";
 
-export const dynamic = "force-dynamic";
 
 type BillingCompleteDependencies = {
   isConfigured: () => boolean;
@@ -47,7 +49,7 @@ export function makeBillingCompleteHandler(
         return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
       }
 
-      const scheme = validatedNativeCallbackScheme(
+      const requestedScheme = validatedNativeCallbackScheme(
         request.nextUrl.searchParams.get("cmux_scheme"),
         request,
       );
@@ -58,15 +60,26 @@ export function makeBillingCompleteHandler(
         if (!isCmuxCheckoutSession(session)) {
           return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
         }
+        const scheme =
+          trustedNativeCallbackScheme(session.metadata?.nativeCallbackScheme) ??
+          requestedScheme;
         if (
           session.payment_status === "paid" ||
           session.payment_status === "no_payment_required"
         ) {
-          await dependencies.recordCheckoutCompletion({
+          const completion = await dependencies.recordCheckoutCompletion({
             session,
             subscription: expandedSubscription(session),
             customer: expandedCustomer(session),
           });
+          if ("skipped" in completion) {
+            return NextResponse.redirect(new URL("/pricing?billing=account_deletion", request.url));
+          }
+          if (session.metadata?.plan === "team") {
+            return NextResponse.redirect(
+              new URL("/dashboard/billing?welcome=team", request.nextUrl.origin),
+            );
+          }
           const success = new URL("/billing/success", request.nextUrl.origin);
           success.searchParams.set("session_id", session.id);
           success.searchParams.set("cmux_scheme", scheme);

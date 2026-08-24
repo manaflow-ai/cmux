@@ -10,39 +10,69 @@ import SwiftUI
 #elseif os(macOS)
 import AppKit
 #endif
+
 struct SignInView: View {
+    private enum EmailEntryMode {
+        case methods
+        case emailVerification
+        case code
+    }
+
+    private let usesStandaloneChrome: Bool
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.analytics) private var analytics
+    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     @State private var email = ""
     @State private var code = ""
-    @State private var showCodeEntry = false
+    @State private var emailEntryMode = EmailEntryMode.methods
     @State private var error: String?
-    @State private var isAppleSigningIn = false
-    @State private var isGoogleSigningIn = false
+    @State private var signingInProviders: Set<OAuthSignInProvider> = []
+    @State private var isRequestingEmailVerification = false
     @State private var shouldAutofocusCode = false
     @State private var shouldAutofocusEmail = false
     private let errorPresentation = SignInErrorPresentation()
+    private let emailCodeFailurePolicy = SignInEmailCodeFailurePolicy()
     @FocusState private var isEmailFocused: Bool
     @FocusState private var isCodeFocused: Bool
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                GameOfLifeHeader()
-                    .ignoresSafeArea()
 
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        UIApplication.shared.dismissMobileKeyboard()
+    init(usesStandaloneChrome: Bool = true) {
+        self.usesStandaloneChrome = usesStandaloneChrome
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if usesStandaloneChrome {
+            NavigationStack {
+                ZStack {
+                    GameOfLifeHeader()
+                        .ignoresSafeArea()
+
+                    keyboardDismissSurface
+                        .ignoresSafeArea()
+
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        signInEntrySwitcher
                     }
-                    .ignoresSafeArea()
-                VStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    signInEntrySwitcher
                 }
+                .mobileInlineNavigationTitle()
             }
-            .mobileInlineNavigationTitle()
+        } else {
+            ScrollView {
+                signInEntrySwitcher
+                    .padding(.vertical, 8)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .background(keyboardDismissSurface)
         }
+    }
+
+    private var keyboardDismissSurface: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .onTapGesture {
+                UIApplication.shared.dismissMobileKeyboard()
+            }
     }
 
     @ViewBuilder
@@ -62,9 +92,12 @@ struct SignInView: View {
 
     @ViewBuilder
     private var signInEntryContent: some View {
-        if showCodeEntry {
+        switch emailEntryMode {
+        case .code:
             codeEntryView
-        } else {
+        case .emailVerification:
+            emailVerificationView
+        case .methods:
             emailEntryView
         }
     }
@@ -75,46 +108,11 @@ struct SignInView: View {
                 brandHeader
                 SignInAuthRestoreStatusView()
 
-                Button {
-                    Task {
-                        await signInWithApple()
+                VStack(spacing: 12) {
+                    ForEach(OAuthSignInProvider.allCases, id: \.self) { provider in
+                        oauthButton(for: provider)
                     }
-                } label: {
-                    Group {
-                        Label(L10n.string("mobile.signIn.apple", defaultValue: "Sign in with Apple"), systemImage: "apple.logo")
-                            .fontWeight(.semibold)
-                            .mobileButtonLoading(isAppleSigningIn)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .contentShape(.capsule)
                 }
-                .disabled(isAuthInProgress)
-                .mobileGlassButton()
-                .accessibilityIdentifier("signin.apple")
-
-                Button {
-                    Task {
-                        await signInWithGoogle()
-                    }
-                } label: {
-                    Group {
-                        HStack(spacing: 6) {
-                            Image("GoogleLogo")
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 16, height: 16)
-                                .accessibilityHidden(true)
-                            Text(L10n.string("mobile.signIn.google", defaultValue: "Sign in with Google"))
-                                .fontWeight(.semibold)
-                        }
-                        .mobileButtonLoading(isGoogleSigningIn)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .contentShape(.capsule)
-                }
-                .disabled(isAuthInProgress)
-                .mobileGlassButton()
-                .accessibilityIdentifier("signin.google")
 
                 DividerLabel(text: L10n.string("mobile.signIn.emailDivider", defaultValue: "or continue with email"))
 
@@ -143,6 +141,7 @@ struct SignInView: View {
                     .disabled(email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAuthInProgress)
                     .mobileGlassProminentButton()
                     .accessibilityIdentifier("signin.emailCode")
+
                 }
 
                 if let error {
@@ -156,6 +155,80 @@ struct SignInView: View {
             isEmailFocused = true
             shouldAutofocusEmail = false
         }
+    }
+
+    private var emailVerificationView: some View {
+        authCard {
+            VStack(spacing: 18) {
+                brandHeader
+                SignInAuthRestoreStatusView()
+
+                VStack(spacing: 6) {
+                    Text(L10n.string("mobile.signIn.verificationTitle", defaultValue: "Verify your email"))
+                        .font(.headline)
+                    Text(
+                        String(
+                            format: L10n.string(
+                                "mobile.signIn.verificationBodyFormat",
+                                defaultValue: "We sent a verification link to %@. Open it, then return here."
+                            ),
+                            normalizedEmail
+                        )
+                    )
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if let error {
+                    errorText(error)
+                }
+
+                Button {
+                    Task {
+                        await sendCode(
+                            autofocusCodeOnSuccess: false,
+                            requestVerificationOnUnverifiedEmail: false
+                        )
+                    }
+                } label: {
+                    Text(L10n.string("mobile.signIn.verificationContinue", defaultValue: "I verified my email"))
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .contentShape(.capsule)
+                        .mobileButtonLoading(authManager.isLoading, tint: .primary)
+                }
+                .disabled(isAuthInProgress)
+                .mobileGlassProminentButton()
+                .accessibilityIdentifier("signin.emailVerificationContinue")
+
+                Button {
+                    Task {
+                        await requestEmailVerification()
+                    }
+                } label: {
+                    Text(L10n.string("mobile.signIn.verificationResend", defaultValue: "Resend verification email"))
+                        .mobileButtonLoading(isRequestingEmailVerification, tint: .secondary)
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .disabled(isAuthInProgress)
+                .accessibilityIdentifier("signin.emailVerificationResend")
+
+                Button {
+                    returnToSignInMethods()
+                } label: {
+                    Text(L10n.string("mobile.signIn.useDifferentEmail", defaultValue: "Use a different email"))
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .disabled(isAuthInProgress)
+                .accessibilityIdentifier("signin.useDifferentEmail")
+            }
+        }
+        .opacity(isAuthInProgress ? 0.6 : 1.0)
+        .accessibilityIdentifier("signin.emailVerification")
     }
 
     private var codeEntryView: some View {
@@ -216,16 +289,18 @@ struct SignInView: View {
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
                         .contentShape(.capsule)
+                        .mobileButtonLoading(authManager.isLoading, tint: .primary)
                 }
                 .disabled(code.count != 6 || isAuthInProgress)
                 .mobileGlassProminentButton()
                 .accessibilityIdentifier("signin.verifyCode")
+                .accessibilityLabel(L10n.string("mobile.signIn.verifyCode", defaultValue: "Verify code"))
 
                 Button {
                     let autofocusEmailOnReturn = isCodeFocused
                     withAnimation(.snappy(duration: 0.18)) {
                         shouldAutofocusEmail = autofocusEmailOnReturn
-                        showCodeEntry = false
+                        emailEntryMode = .methods
                         code = ""
                         error = nil
                     }
@@ -240,39 +315,79 @@ struct SignInView: View {
 
     // While this is true the card dims (opacity 0.6) and inputs disable. There
     // is intentionally no in-app "cancel sign-in" affordance: during the only
-    // long phase (the Apple/Google system sheet, generous on purpose for
-    // password + 2FA) the system sheet sits above this view and carries its own
+    // long phase (the Apple/Google/GitHub system sheet, generous on purpose for
+    // provider credentials + 2FA) the system sheet sits above this view and carries its own
     // Cancel, and every coordinator phase is raced against a deadline
     // (AuthTimeouts), so a wedged flow always ends in a localized, retryable
     // AuthError and re-enables the card for retry. Do not reintroduce a manual
     // cancel button here; it was occluded during the system sheet anyway.
     private var isInteractiveAuthInProgress: Bool {
-        authManager.isLoading || isAppleSigningIn || isGoogleSigningIn
+        authManager.isLoading || isRequestingEmailVerification || !signingInProviders.isEmpty
     }
 
     private var isAuthInProgress: Bool {
         isInteractiveAuthInProgress || authManager.isRestoringSession
     }
 
-    private func sendCode(autofocusCodeOnSuccess: Bool) async {
+    private func oauthButton(for provider: OAuthSignInProvider) -> some View {
+        Button {
+            Task {
+                await signIn(with: provider)
+            }
+        } label: {
+            provider.label(isLoading: signingInProviders.contains(provider))
+                .frame(maxWidth: .infinity)
+                .contentShape(.capsule)
+        }
+        .disabled(isAuthInProgress)
+        .mobileGlassButton()
+        .accessibilityIdentifier(provider.accessibilityIdentifier)
+    }
+
+    private func sendCode(
+        autofocusCodeOnSuccess: Bool,
+        requestVerificationOnUnverifiedEmail: Bool = true
+    ) async {
         error = nil
+        diagnosticLog?.recordAppEvent(.authSignInStarted)
         analytics.capture("ios_sign_in_started", ["method": .string("email_code")])
         do {
             try await authManager.sendCode(to: email)
+            diagnosticLog?.recordAppEvent(.authCodeRequested)
             guard !authManager.isAuthenticated else {
+                diagnosticLog?.recordAppEvent(.authSignInSucceeded)
                 return
             }
             shouldAutofocusCode = autofocusCodeOnSuccess
             withAnimation(.snappy(duration: 0.18)) {
-                showCodeEntry = true
+                emailEntryMode = .code
             }
         } catch {
             if case AuthError.cancelled = error {
+                diagnosticLog?.recordAppEvent(.authSignInCancelled)
                 analytics.capture("ios_sign_in_cancelled", ["method": .string("email_code")])
                 return
             }
             shouldAutofocusCode = false
-            self.error = detailedErrorMessage(error)
+            diagnosticLog?.recordAppEvent(
+                .authCodeRequestFailed,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+            if emailCodeFailurePolicy.action(for: error) == .requestEmailVerification {
+                if requestVerificationOnUnverifiedEmail {
+                    await requestEmailVerification()
+                } else {
+                    withAnimation(.snappy(duration: 0.18)) {
+                        emailEntryMode = .emailVerification
+                        self.error = L10n.string(
+                            "mobile.signIn.verificationPending",
+                            defaultValue: "That email is not verified yet. Open the verification link, then try again."
+                        )
+                    }
+                }
+            } else {
+                self.error = detailedErrorMessage(error)
+            }
             analytics.capture("ios_sign_in_failed", [
                 "method": .string("email_code"),
                 "failure_reason": .string(signInFailureReason(error)),
@@ -280,17 +395,59 @@ struct SignInView: View {
         }
     }
 
-    private func verifyCode() async {
+    private func requestEmailVerification() async {
+        guard !isRequestingEmailVerification else { return }
         error = nil
+        isEmailFocused = false
+        isRequestingEmailVerification = true
+        defer { isRequestingEmailVerification = false }
+        analytics.capture("ios_email_verification_requested", [:])
         do {
-            try await authManager.verifyCode(code)
+            try await authManager.requestEmailVerification(for: normalizedEmail)
+            withAnimation(.snappy(duration: 0.18)) {
+                emailEntryMode = .emailVerification
+            }
         } catch {
             if case AuthError.cancelled = error {
+                return
+            }
+            self.error = detailedErrorMessage(error)
+            analytics.capture("ios_email_verification_request_failed", [
+                "failure_reason": .string(signInFailureReason(error)),
+            ])
+        }
+    }
+
+    private func returnToSignInMethods() {
+        withAnimation(.snappy(duration: 0.18)) {
+            shouldAutofocusEmail = false
+            emailEntryMode = .methods
+            error = nil
+        }
+    }
+
+    private var normalizedEmail: String {
+        email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func verifyCode() async {
+        error = nil
+        diagnosticLog?.recordAppEvent(.authVerificationStarted)
+        do {
+            try await authManager.verifyCode(code)
+            diagnosticLog?.recordAppEvent(.authSignInSucceeded)
+        } catch {
+            if case AuthError.cancelled = error {
+                diagnosticLog?.recordAppEvent(.authSignInCancelled)
                 analytics.capture("ios_sign_in_cancelled", ["method": .string("email_code")])
                 return
             }
             self.error = detailedErrorMessage(error)
             code = ""
+            diagnosticLog?.recordAppEvent(
+                .authSignInFailed,
+                failure: DiagnosticFailureKind.classify(error)
+            )
             analytics.capture("ios_sign_in_failed", [
                 "method": .string("email_code"),
                 "failure_reason": .string(signInFailureReason(error)),
@@ -298,49 +455,33 @@ struct SignInView: View {
         }
     }
 
-    private func signInWithApple() async {
+    private func signIn(with provider: OAuthSignInProvider) async {
         error = nil
-        isAppleSigningIn = true
-        defer { isAppleSigningIn = false }
-        analytics.capture("ios_sign_in_started", ["method": .string("apple")])
+        signingInProviders.insert(provider)
+        defer { signingInProviders.remove(provider) }
+        diagnosticLog?.recordAppEvent(.authSignInStarted)
+        analytics.capture("ios_sign_in_started", ["method": .string(provider.analyticsMethod)])
         do {
-            try await authManager.signInWithApple()
+            try await provider.signIn(using: authManager)
+            diagnosticLog?.recordAppEvent(.authSignInSucceeded)
         } catch {
             if case AuthError.cancelled = error {
-                analytics.capture("ios_sign_in_cancelled", ["method": .string("apple")])
+                diagnosticLog?.recordAppEvent(.authSignInCancelled)
+                analytics.capture("ios_sign_in_cancelled", ["method": .string(provider.analyticsMethod)])
                 return
             }
             if let stackError = error as? StackAuthErrorProtocol, stackError.code == "oauth_cancelled" {
-                analytics.capture("ios_sign_in_cancelled", ["method": .string("apple")])
+                diagnosticLog?.recordAppEvent(.authSignInCancelled)
+                analytics.capture("ios_sign_in_cancelled", ["method": .string(provider.analyticsMethod)])
                 return
             }
             self.error = detailedErrorMessage(error)
+            diagnosticLog?.recordAppEvent(
+                .authSignInFailed,
+                failure: DiagnosticFailureKind.classify(error)
+            )
             analytics.capture("ios_sign_in_failed", [
-                "method": .string("apple"),
-                "failure_reason": .string(signInFailureReason(error)),
-            ])
-        }
-    }
-
-    private func signInWithGoogle() async {
-        error = nil
-        isGoogleSigningIn = true
-        defer { isGoogleSigningIn = false }
-        analytics.capture("ios_sign_in_started", ["method": .string("google")])
-        do {
-            try await authManager.signInWithGoogle()
-        } catch {
-            if case AuthError.cancelled = error {
-                analytics.capture("ios_sign_in_cancelled", ["method": .string("google")])
-                return
-            }
-            if let stackError = error as? StackAuthErrorProtocol, stackError.code == "oauth_cancelled" {
-                analytics.capture("ios_sign_in_cancelled", ["method": .string("google")])
-                return
-            }
-            self.error = detailedErrorMessage(error)
-            analytics.capture("ios_sign_in_failed", [
-                "method": .string("google"),
+                "method": .string(provider.analyticsMethod),
                 "failure_reason": .string(signInFailureReason(error)),
             ])
         }

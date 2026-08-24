@@ -1,6 +1,38 @@
 import Foundation
 
 extension CMUXCLI {
+    /// Returns the hook event explicitly reported by an agent payload.
+    ///
+    /// Claude's hook command is selected by the installed settings, but the
+    /// payload also carries its lifecycle discriminator. Keeping that
+    /// discriminator available lets a stale or duplicated hook entry fail
+    /// closed instead of turning a child-agent event into a parent mutation.
+    func reportedHookEventName(from input: ClaudeHookParsedInput) -> String? {
+        let object = input.rawObject ?? input.object
+        return object.flatMap {
+            firstString(
+                in: $0,
+                keys: ["hook_event_name", "hookEventName", "event", "event_name"]
+            )
+        }
+    }
+
+    /// Whether a Claude `stop` invocation is allowed to settle the parent.
+    ///
+    /// Payloads from current Claude Code versions identify their hook event;
+    /// only an explicit top-level `Stop` may run the visible completion path.
+    /// Older payloads omitted the discriminator, so those retain the legacy
+    /// command-driven behavior.
+    func shouldApplyClaudeStopVisibleMutation(_ input: ClaudeHookParsedInput) -> Bool {
+        guard let rawEvent = reportedHookEventName(from: input) else { return true }
+        let normalized = rawEvent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
+        return normalized == "stop"
+    }
+
     func parseClaudeHookInput(rawInput: String) -> ClaudeHookParsedInput {
         let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
@@ -47,6 +79,7 @@ extension CMUXCLI {
             "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "terminationReason",
             "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
             "additional_details", "additionalDetails", "description",
+            "campfire_event_type", "campfireEventType", "display_name", "displayName", "capability",
         ] {
             if let value = compactClaudeHookValue(object[key], key: key) {
                 compact[key] = value
@@ -124,6 +157,7 @@ extension CMUXCLI {
                 "assistantPreamble", "assistant_preamble", "user_message", "userMessage",
                 "title", "command", "description", "pattern_key", "patternKey",
                 "surface", "choice", "message", "body", "text", "prompt", "summary", "error",
+                "campfire_event_type", "campfireEventType", "display_name", "displayName", "capability",
             ] {
                 if let value = compactClaudeHookValue(extra[extraKey], key: extraKey) {
                     compactExtra[extraKey] = value
@@ -139,12 +173,14 @@ extension CMUXCLI {
 
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
         switch key {
-        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source":
+        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "campfire_event_type", "campfireEventType", "capability":
             return 80
         case "transcript_path", "transcriptPath":
             return 240
         case "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse", "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description", "terminationReason", "user_message", "userMessage", "command":
             return 240
+        case "display_name", "displayName":
+            return 120
         default:
             return 160
         }

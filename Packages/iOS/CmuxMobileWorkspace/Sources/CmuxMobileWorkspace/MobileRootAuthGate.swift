@@ -45,7 +45,7 @@ public struct MobileRootAuthGate {
     /// - Parameter url: The URL to classify.
     /// - Returns: `true` when the URL is an attach deep link.
     public static func isAttachURL(_ url: URL) -> Bool {
-        guard CmxPairingURLScheme.isPairingScheme(url.scheme) else {
+        guard CmxPairingURLScheme(rawValue: url.scheme) != nil else {
             return false
         }
         return url.host?.caseInsensitiveCompare("attach") == .orderedSame
@@ -78,14 +78,22 @@ public struct MobileRootAuthGate {
     /// - Parameters:
     ///   - stackAuthenticated: Whether Stack auth is established.
     ///   - attachTicketAuthenticated: Whether a temporary attach ticket grants access.
+    ///   - didFinishAuthBootstrap: Whether launch auth, including team resolution, completed.
+    ///   - isRestoringSession: Whether cached auth is still being validated or recreated.
     ///   - connectionState: The current connection state.
-    /// - Returns: `true` when Stack-authenticated without a temporary ticket and not yet connected.
+    /// - Returns: `true` when Stack-authenticated, auth restore is complete, no temporary ticket is active, and the Mac is not yet connected.
     public static func shouldReconnectStoredMac(
         stackAuthenticated: Bool,
         attachTicketAuthenticated: Bool,
+        didFinishAuthBootstrap: Bool,
+        isRestoringSession: Bool,
         connectionState: MobileConnectionState
     ) -> Bool {
-        stackAuthenticated && !attachTicketAuthenticated && connectionState != .connected
+        stackAuthenticated
+            && didFinishAuthBootstrap
+            && !isRestoringSession
+            && !attachTicketAuthenticated
+            && connectionState != .connected
     }
 
     /// Whether the restoring-session UI should be shown while reconnecting a known
@@ -109,9 +117,9 @@ public struct MobileRootAuthGate {
     ///   - hasKnownPairedMac: The persisted hint that this device has paired a Mac before.
     ///   - pairedMacHintUndetermined: Whether the hint has never been written on this install (key absent).
     ///   - didFinishStoredMacReconnectAttempt: Whether the first launch reconnect attempt has resolved.
-    /// - Returns: `true` while authenticated, not yet connected, and either actively
-    ///   reconnecting a stored Mac or — before the first attempt resolves — holding
-    ///   the paired-Mac hint or an undetermined hint.
+    /// - Returns: `true` while authenticated and the first stored-Mac reconnect
+    ///   attempt has not resolved, provided a reconnect is active or a paired-Mac
+    ///   hint indicates that restoration may be possible.
     public static func shouldShowRestoringStoredMac(
         authenticated: Bool,
         connectionState: MobileConnectionState,
@@ -121,8 +129,51 @@ public struct MobileRootAuthGate {
         didFinishStoredMacReconnectAttempt: Bool
     ) -> Bool {
         guard authenticated, connectionState != .connected else { return false }
-        if isReconnectingStoredMac { return true }
         guard !didFinishStoredMacReconnectAttempt else { return false }
+        if isReconnectingStoredMac { return true }
         return hasKnownPairedMac || pairedMacHintUndetermined
+    }
+
+    /// Which shell surface the authenticated root scene mounts.
+    ///
+    /// The restoring window is data on the one workspace-shell surface, not a
+    /// separate surface: mounting a different view while the stored-Mac
+    /// reconnect resolved destroyed the shell's presentation state (a Settings
+    /// sheet opened during the reconnect window dismissed itself the moment the
+    /// reconnection finished, failed, or the startup gate expired).
+    public enum MobileRootShellSurface: Equatable {
+        /// The workspace shell (list + detail). `isRestoringStoredMac` marks
+        /// the startup stored-Mac reconnect window and varies only the shell's
+        /// loading inputs.
+        case workspaceShell(isRestoringStoredMac: Bool)
+        /// The terminal no-devices state: signed in with no saved Macs at all
+        /// and no restoring window that could still produce one.
+        case disconnectedNoKnownPairedMac
+    }
+
+    /// Selects the authenticated root scene's shell surface.
+    /// - Parameters:
+    ///   - connectionState: The current connection state.
+    ///   - showRestoringStoredMac: Whether the startup reconnect window is
+    ///     active (``shouldShowRestoringStoredMac(authenticated:connectionState:isReconnectingStoredMac:hasKnownPairedMac:pairedMacHintUndetermined:didFinishStoredMacReconnectAttempt:)``
+    ///     combined with the caller's startup gates).
+    ///   - showDisconnectedNoPairedMacShell: Whether the no-devices screen is
+    ///     warranted at all. The caller resolves this from the shell
+    ///     presentation policy (no saved Macs AND no hidden computers), so
+    ///     hidden-computer semantics live in one place.
+    /// - Returns: The surface to mount. Restoring, connected, and
+    ///   offline-with-saved-Macs all return ``MobileRootShellSurface/workspaceShell(isRestoringStoredMac:)``
+    ///   so the mounted shell view never changes identity across those
+    ///   transitions.
+    public static func shellSurface(
+        connectionState: MobileConnectionState,
+        showRestoringStoredMac: Bool,
+        showDisconnectedNoPairedMacShell: Bool
+    ) -> MobileRootShellSurface {
+        let isRestoringStoredMac = connectionState != .connected && showRestoringStoredMac
+        if connectionState != .connected, showDisconnectedNoPairedMacShell, !isRestoringStoredMac {
+            return .disconnectedNoKnownPairedMac
+        }
+        return .workspaceShell(isRestoringStoredMac: isRestoringStoredMac)
     }
 }

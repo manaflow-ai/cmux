@@ -53,8 +53,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
 
     /// The shell token that resolves cmux's `codex` wrapper at exec time.
     ///
-    /// The codex resume argv emits a bare `codex` executable, but the captured
-    /// auto-resume command (`codex resume <id>`) resolves to the *real* codex
+    /// When the codex resume argv emits a bare `codex` executable, the captured
+    /// auto-resume command (`codex resume <id>`) can resolve to the *real* codex
     /// binary inside the `$SHELL -lic` restore launcher, bypassing
     /// `cmux-codex-wrapper` and dropping every cmux hook (no `SessionStart`, the
     /// session registry never marks the resumed session live, so the iOS GUI
@@ -77,6 +77,15 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// wrapped via ``portableCodexResumeShellCommand(posixCommand:)``.
     public static let codexWrapperShellExecutableToken =
         "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf codex)\""
+
+    /// The shell token that resolves cmux's Hermes wrapper at restore time.
+    ///
+    /// Restored Hermes sessions must pass through the per-surface wrapper so its
+    /// native hooks are reinstalled for every later turn. The executable guard
+    /// preserves the same graceful fallback used by Claude and Codex when a
+    /// temporary shim has disappeared.
+    public static let hermesWrapperShellExecutableToken =
+        "\"$([ -x \"${CMUX_HERMES_AGENT_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_HERMES_AGENT_WRAPPER_SHIM\" || printf hermes)\""
 
     /// Per-invocation config override appended to every cmux-generated codex resume argv.
     ///
@@ -121,13 +130,11 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// Wraps a rendered claude resume/fork command so it parses in any login shell.
     ///
     /// ``claudeWrapperShellExecutableToken`` is POSIX-only syntax, but the rendered
-    /// command is not always parsed by a POSIX shell: the restore launcher dispatches it
-    /// through the user's `$SHELL` (`TerminalStartupReturnShellScript` runs
-    /// `"$_cmux_resume_shell" -c <command>` for its `csh|tcsh` and `*` branches), and the
-    /// session-index resume command is typed into — and copy-pasted into — the user's
-    /// interactive shell. fish rejects `${…}` outright and csh/tcsh have no `:-` modifier,
-    /// so the raw token turns claude resume into a hard parse error there, even though the
-    /// pre-token command was valid in those shells.
+    /// command is not always parsed by a POSIX shell: the session-index resume command is
+    /// typed into — and copy-pasted into — the user's interactive shell. fish rejects `${…}`
+    /// outright and csh/tcsh have no `:-` modifier, so the raw token turns claude resume
+    /// into a hard parse error there, even though the pre-token command was valid in those
+    /// shells.
     ///
     /// `/bin/sh -c '<command>'` is the one spelling every dispatching shell parses
     /// identically (plain words plus single-quote escaping, which zsh, bash, fish, csh,
@@ -198,6 +205,11 @@ public struct AgentResumeArgv: Sendable, Equatable {
         "/bin/sh -c " + posixSingleQuoted(posixCommand)
     }
 
+    /// Wraps a rendered Hermes restore command so it parses in any login shell.
+    public static func portableHermesResumeShellCommand(posixCommand: String) -> String {
+        "/bin/sh -c " + posixSingleQuoted(posixCommand)
+    }
+
     /// Renders codex command `parts` through ``renderingCodexWrapperExecutable(parts:quote:)``
     /// and joins them, wrapping via ``portableCodexResumeShellCommand(posixCommand:)`` only
     /// when the wrapper token was actually substituted.
@@ -219,8 +231,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// ``codexWrapperShellExecutableToken`` for the first bare `codex` executable token.
     ///
     /// Mirror of ``renderingClaudeWrapperExecutable(parts:quote:)`` for codex: only
-    /// the first element equal to `codex` — the wrapper executable emitted by the
-    /// codex resume builder — is replaced; every other token is quoted normally.
+    /// the first element equal to `codex` — a logical wrapper executable emitted
+    /// by the codex resume builder — is replaced; every other token is quoted normally.
     /// Call only for the codex kind. https://github.com/manaflow-ai/cmux/issues/5639
     public static func renderingCodexWrapperExecutable(
         parts: [String],
@@ -303,19 +315,39 @@ public struct AgentResumeArgv: Sendable, Equatable {
     ///   - sessionId: the session/thread id to resume.
     ///   - executablePath: the captured executable path, if any.
     ///   - arguments: the captured launch arguments (argv, including the executable as element 0).
+    ///   - observedPermissionMode: the hook-observed Claude permission mode the session last ran
+    ///     in, re-applied via ``claudeArgvApplyingObservedPermissionMode(_:observedPermissionMode:)``
+    ///     for user-owned claude restore; ignored for every other kind.
     public func builtInKind(
         kind: String,
         sessionId: String,
         executablePath: String?,
-        arguments: [String]
+        arguments: [String],
+        observedPermissionMode: String? = nil
     ) -> [String]? {
         switch kind {
         case "claude":
-            return claudeResumeArgv(sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+            guard let argv = claudeResumeArgv(
+                sessionId: sessionId,
+                executablePath: executablePath,
+                arguments: arguments
+            ) else { return nil }
+            return Self.claudeArgvApplyingObservedPermissionMode(
+                argv,
+                observedPermissionMode: observedPermissionMode
+            )
         case "codex":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "codex")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex-fork-restore", args: parts.tail) else { return nil }
-            return [parts.executable, "resume", sessionId]
+            guard let preserved = preservedCodexForkArguments(
+                args: parts.tail,
+                preservePromptTags: false,
+                stripCmuxHooks: parts.executable == "codex"
+            ) else { return nil }
+            let replayExecutable = codexReplayExecutable(
+                capturedExecutable: parts.executable,
+                launchTail: parts.tail
+            )
+            return [replayExecutable, "resume", sessionId]
                 + codexResumeConfigOverrides(preserved: preserved) + preserved
         case "grok":
             return withOption("grok", executable: "grok", option: "-r", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
@@ -323,6 +355,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return withOption("pi", executable: "pi", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "omp":
             return withOption("omp", executable: "omp", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+        case "campfire":
+            return withOption("campfire", executable: "campfire", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "amp":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "amp")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "amp", args: parts.tail) else { return nil }
@@ -357,6 +391,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return withOption("factory", executable: "droid", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "qoder":
             return withOption("qoder", executable: "qodercli", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+        case "kimi":
+            return withOption("kimi", executable: "kimi", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         default:
             return nil
         }

@@ -53,6 +53,10 @@ final class NotificationNavSeamAdapter:
         owner?.workspaceUnreadIndicatorIdsForNav ?? []
     }
 
+    var windowDockUnreadTargets: [WindowDockUnreadTarget] {
+        owner?.windowDockUnreadTargetsForNav ?? []
+    }
+
     func hasManualUnread(forTabId tabId: UUID) -> Bool {
         owner?.navStoreHasManualUnread(forTabId: tabId) ?? false
     }
@@ -63,6 +67,10 @@ final class NotificationNavSeamAdapter:
 
     func markRead(id: UUID) {
         owner?.navMarkRead(id: id)
+    }
+
+    func clearWindowDockUnread(_ target: WindowDockUnreadTarget) {
+        owner?.navClearWindowDockUnread(target)
     }
 
     // MARK: MainWindowContextResolving
@@ -95,25 +103,72 @@ final class NotificationNavSeamAdapter:
 
     // MARK: NotificationOpenRouting
 
-    func openRouted(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        owner?.openRouted(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId) ?? false
+    func openRouted(
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?,
+        retargetsToLiveSurfaceOwner: Bool,
+        notificationId: UUID?,
+        scrollRow: Int?,
+        scrollTotalRows: Int?,
+        scrollRowSpaceRevision: UInt64?
+    ) -> Bool {
+        owner?.openRouted(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            panelId: panelId,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            notificationId: notificationId,
+            scrollRow: scrollRow,
+            scrollTotalRows: scrollTotalRows,
+            scrollRowSpaceRevision: scrollRowSpaceRevision
+        ) ?? false
     }
 
-    func openInWindow(windowId: UUID, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+    func openInWindow(
+        windowId: UUID,
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?,
+        notificationId: UUID?,
+        scrollRow: Int?,
+        scrollTotalRows: Int?,
+        scrollRowSpaceRevision: UInt64?
+    ) -> Bool {
         owner?.openInWindow(
             windowId: windowId,
             tabId: tabId,
             surfaceId: surfaceId,
-            notificationId: notificationId
+            panelId: panelId,
+            notificationId: notificationId,
+            scrollRow: scrollRow,
+            scrollTotalRows: scrollTotalRows,
+            scrollRowSpaceRevision: scrollRowSpaceRevision
         ) ?? false
     }
 
-    func openInActiveWindowFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+    func openInActiveWindowFallback(
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?,
+        notificationId: UUID?,
+        scrollRow: Int?,
+        scrollTotalRows: Int?,
+        scrollRowSpaceRevision: UInt64?
+    ) -> Bool {
         owner?.openInActiveWindowFallback(
             tabId: tabId,
             surfaceId: surfaceId,
-            notificationId: notificationId
+            panelId: panelId,
+            notificationId: notificationId,
+            scrollRow: scrollRow,
+            scrollTotalRows: scrollTotalRows,
+            scrollRowSpaceRevision: scrollRowSpaceRevision
         ) ?? false
+    }
+
+    func openWindowDockUnread(_ target: WindowDockUnreadTarget) -> Bool {
+        owner?.openWindowDockUnread(target) ?? false
     }
 
     func tabTitle(forTabId tabId: UUID) -> String? {
@@ -142,6 +197,24 @@ final class NotificationNavSeamAdapter:
 
     func focusedTarget(preferredWindowToken: AnyObject?) -> FocusedNotificationTarget? {
         owner?.focusedTarget(preferredWindowToken: preferredWindowToken) ?? nil
+    }
+
+    func windowDockSurfaceIsUnread(_ target: WindowDockUnreadTarget) -> Bool {
+        owner?.windowDockSurfaceIsUnread(target) ?? false
+    }
+
+    func markWindowDockSurfaceUnread(_ target: WindowDockUnreadTarget) {
+        owner?.markWindowDockSurfaceUnread(target)
+    }
+
+    func clearWindowDockSurfaceUnread(_ target: WindowDockUnreadTarget) {
+        owner?.clearWindowDockSurfaceUnread(target)
+    }
+
+    func markLatestWindowDockNotificationAsOldestUnread(
+        _ target: WindowDockUnreadTarget
+    ) -> UUID? {
+        owner?.markLatestWindowDockNotificationAsOldestUnread(target)
     }
 
     func focusedPanel(forTabId tabId: UUID, surfaceId: UUID?) -> FocusedPanel? {
@@ -216,18 +289,16 @@ extension AppDelegate {
     var orderedNotificationsForNav: [NotificationNavSnapshot] {
         guard let notificationStore else { return [] }
         return notificationStore.notifications.map { notification in
-            NotificationNavSnapshot(
-                id: notification.id,
-                tabId: notification.tabId,
-                surfaceId: notification.surfaceId,
-                isRead: notification.isRead,
-                clickAction: notification.clickAction.map(Self.navClickAction)
-            )
+            notification.notificationNavigationSnapshot
         }
     }
 
     var workspaceUnreadIndicatorIdsForNav: Set<UUID> {
         notificationStore?.workspaceUnreadIndicatorIds ?? []
+    }
+
+    var windowDockUnreadTargetsForNav: [WindowDockUnreadTarget] {
+        notificationStore?.windowDockUnreadTargets ?? []
     }
 
     func navStoreHasManualUnread(forTabId tabId: UUID) -> Bool {
@@ -242,14 +313,11 @@ extension AppDelegate {
         notificationStore?.markRead(id: id)
     }
 
-    /// Maps the app-target click action onto the package's value-typed action.
-    static func navClickAction(
-        _ action: TerminalNotificationClickAction
-    ) -> NotificationNavClickAction {
-        switch action {
-        case .revealInFinder(let path):
-            return .revealInFinder(path: path)
-        }
+    func navClearWindowDockUnread(_ target: WindowDockUnreadTarget) {
+        notificationStore?.clearWindowDockSurfaceUnread(
+            windowId: target.windowId,
+            surfaceId: target.surfaceId
+        )
     }
 
     /// Whether `notification` is openable by the jump-to-latest scan. A thin
@@ -262,13 +330,7 @@ extension AppDelegate {
         excludingNotificationId excludedNotificationId: UUID? = nil,
         excludingWorkspaceId excludedWorkspaceId: UUID? = nil
     ) -> Bool {
-        NotificationNavSnapshot(
-            id: notification.id,
-            tabId: notification.tabId,
-            surfaceId: notification.surfaceId,
-            isRead: notification.isRead,
-            clickAction: notification.clickAction.map(navClickAction)
-        )
+        notification.notificationNavigationSnapshot
         .isOpenableForJump(
             excludingNotificationId: excludedNotificationId,
             excludingWorkspaceId: excludedWorkspaceId
@@ -330,7 +392,15 @@ extension AppDelegate {
     }
 
     func triggerUnreadIndicatorDismissFlash(workspaceId: UUID, panelId: UUID) {
-        unreadJumpWorkspace(forTabId: workspaceId)?.triggerUnreadIndicatorDismissFlash(panelId: panelId)
+        if routeNotificationAttentionFlash(
+            workspaceID: workspaceId,
+            panelID: panelId,
+            reason: .unreadIndicatorDismiss
+        ) {
+            return
+        }
+        unreadJumpWorkspace(forTabId: workspaceId)?
+            .triggerUnreadIndicatorDismissFlash(panelId: panelId)
     }
 
     func clearUnreadAfterJump(workspaceId: UUID, panelId: UUID?) {
@@ -339,11 +409,40 @@ extension AppDelegate {
 
     // MARK: NotificationOpenRouting helpers
 
-    func openRouted(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        openNotification(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+    func openRouted(
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?,
+        retargetsToLiveSurfaceOwner: Bool,
+        notificationId: UUID?,
+        scrollRow: Int?,
+        scrollTotalRows: Int?,
+        scrollRowSpaceRevision: UInt64?
+    ) -> Bool {
+        openNotification(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            panelId: panelId,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            notificationId: notificationId,
+            scrollPosition: navScrollPosition(
+                row: scrollRow,
+                totalRows: scrollTotalRows,
+                rowSpaceRevision: scrollRowSpaceRevision
+            )
+        )
     }
 
-    func openInWindow(windowId: UUID, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+    func openInWindow(
+        windowId: UUID,
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?,
+        notificationId: UUID?,
+        scrollRow: Int?,
+        scrollTotalRows: Int?,
+        scrollRowSpaceRevision: UInt64?
+    ) -> Bool {
         guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) else {
             return false
         }
@@ -352,16 +451,69 @@ extension AppDelegate {
             context,
             tabId: tabId,
             surfaceId: surfaceId,
-            notificationId: notificationId
+            panelId: panelId,
+            notificationId: notificationId,
+            scrollPosition: navScrollPosition(
+                row: scrollRow,
+                totalRows: scrollTotalRows,
+                rowSpaceRevision: scrollRowSpaceRevision
+            )
         )
     }
 
-    func openInActiveWindowFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        openNotificationFallback(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+    func openInActiveWindowFallback(
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?,
+        notificationId: UUID?,
+        scrollRow: Int?,
+        scrollTotalRows: Int?,
+        scrollRowSpaceRevision: UInt64?
+    ) -> Bool {
+        openNotificationFallback(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            panelId: panelId,
+            notificationId: notificationId,
+            scrollPosition: navScrollPosition(
+                row: scrollRow,
+                totalRows: scrollTotalRows,
+                rowSpaceRevision: scrollRowSpaceRevision
+            )
+        )
+    }
+
+    func openWindowDockUnread(_ target: WindowDockUnreadTarget) -> Bool {
+        guard let dock = windowDockForRegisteredOwner(target.windowId),
+              dock.containsPanel(target.surfaceId),
+              let manager = tabManagerForWindowDockOwner(target.windowId) else {
+            return false
+        }
+        guard TerminalController.shared.focusAndRevealWindowDock(
+            for: dock,
+            fallback: manager
+        ) else {
+            return false
+        }
+        dock.focusPanel(target.surfaceId)
+        return dock.focusedPanelId == target.surfaceId
     }
 
     func tabTitle(forTabId tabId: UUID) -> String? {
         tabTitle(for: tabId)
+    }
+
+    private func navScrollPosition(
+        row: Int?,
+        totalRows: Int?,
+        rowSpaceRevision: UInt64?
+    ) -> TerminalNotificationScrollPosition? {
+        guard let row else { return nil }
+        return TerminalNotificationScrollPosition(
+            row: row,
+            totalRows: totalRows,
+            rowSpaceRevision: rowSpaceRevision
+        )
     }
 
     // MARK: FinderRevealing helpers
@@ -388,87 +540,25 @@ extension AppDelegate {
     }
 
     func focusedTarget(preferredWindowToken: AnyObject?) -> FocusedNotificationTarget? {
+        let preferredWindow = preferredWindowToken as? NSWindow
+        if let dock = focusedDockStoreForShortcut(preferredWindow: preferredWindow),
+           let surfaceId = dock.focusedPanelId,
+           dock.containsPanel(surfaceId) {
+            return .windowDock(
+                WindowDockUnreadTarget(
+                    windowId: dock.workspaceId,
+                    surfaceId: surfaceId
+                )
+            )
+        }
+
         // The opaque resolver token is the preferred `NSWindow` the legacy
-        // `focusedNotificationTarget(preferredWindow:)` took. The resolution
-        // itself stays in `AppDelegate.swift` (it reaches the private
-        // first-responder/`FocusedTerminalShortcutContext` resolver).
-        guard let target = resolveFocusedNotificationTarget(preferredWindow: preferredWindowToken as? NSWindow) else {
+        // workspace resolver took. It reaches the private first-responder /
+        // `FocusedTerminalShortcutContext` resolver in `AppDelegate.swift`.
+        guard let target = resolveFocusedNotificationTarget(preferredWindow: preferredWindow) else {
             return nil
         }
-        return FocusedNotificationTarget(tabId: target.tabId, surfaceId: target.surfaceId)
+        return .workspace(tabId: target.tabId, surfaceId: target.surfaceId)
     }
 
-    func focusedPanel(forTabId tabId: UUID, surfaceId: UUID?) -> FocusedPanel? {
-        guard let surfaceId,
-              let workspace = workspaceFor(tabId: tabId) else {
-            return nil
-        }
-        let panelId: UUID?
-        if workspace.panels[surfaceId] != nil {
-            panelId = surfaceId
-        } else {
-            panelId = workspace.panelIdFromSurfaceId(TabID(uuid: surfaceId))
-        }
-        guard let panelId,
-              workspace.panels[panelId] != nil else {
-            return nil
-        }
-        return FocusedPanel(tabId: tabId, panelId: panelId)
-    }
-
-    func panelHasRestoredUnread(_ panel: FocusedPanel) -> Bool {
-        workspaceFor(tabId: panel.tabId)?.hasRestoredUnreadIndicator(panelId: panel.panelId) ?? false
-    }
-
-    func workspaceHasContributingRestoredUnread(_ panel: FocusedPanel) -> Bool {
-        workspaceFor(tabId: panel.tabId)?.hasWorkspaceContributingRestoredUnreadIndicator ?? false
-    }
-
-    func panelIsManualUnread(_ panel: FocusedPanel) -> Bool {
-        workspaceFor(tabId: panel.tabId)?.manualUnreadPanelIds.contains(panel.panelId) ?? false
-    }
-
-    func panelIsRepresentativeForWorkspaceManualUnread(_ panel: FocusedPanel) -> Bool {
-        workspaceFor(tabId: panel.tabId)?.representativePanelIdForWorkspaceManualUnread() == panel.panelId
-    }
-
-    func hasVisibleNotificationIndicator(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
-        notificationStore?.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: surfaceId) ?? false
-    }
-
-    func storeHasManualUnread(forTabId tabId: UUID) -> Bool {
-        notificationStore?.hasManualUnread(forTabId: tabId) ?? false
-    }
-
-    func storeHasRestoredUnread(forTabId tabId: UUID) -> Bool {
-        notificationStore?.hasRestoredUnreadIndicator(forTabId: tabId) ?? false
-    }
-
-    func workspaceIsUnread(forTabId tabId: UUID) -> Bool {
-        notificationStore?.workspaceIsUnread(forTabId: tabId) ?? false
-    }
-
-    func storeMarkRead(forTabId tabId: UUID) {
-        notificationStore?.markRead(forTabId: tabId)
-    }
-
-    func storeMarkUnread(forTabId tabId: UUID) {
-        notificationStore?.markUnread(forTabId: tabId)
-    }
-
-    func storeClearManualUnread(forTabId tabId: UUID) {
-        _ = notificationStore?.clearManualUnread(forTabId: tabId)
-    }
-
-    func markPanelRead(_ panel: FocusedPanel) {
-        workspaceFor(tabId: panel.tabId)?.markPanelRead(panel.panelId)
-    }
-
-    func markPanelUnread(_ panel: FocusedPanel) {
-        workspaceFor(tabId: panel.tabId)?.markPanelUnread(panel.panelId)
-    }
-
-    func markLatestNotificationAsOldestUnread(forTabId tabId: UUID, surfaceId: UUID?) -> UUID? {
-        notificationStore?.markLatestNotificationAsOldestUnread(forTabId: tabId, surfaceId: surfaceId)
-    }
 }

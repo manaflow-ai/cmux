@@ -180,6 +180,7 @@ extension TerminalSurface {
     @MainActor
     public func releaseSurfaceForTesting() {
         let callbackContext = surfaceCallbackContext
+        invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surface != nil)
         surfaceCallbackContext = nil
 
         guard let surfaceToFree = surface else {
@@ -187,8 +188,10 @@ extension TerminalSurface {
             return
         }
 
+        let retiredRemoteOutputLane = retireRemoteOutputLane()
         registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         surface = nil
+        retiredRemoteOutputLane.drainSynchronouslyForTesting()
         ghostty_surface_free(surfaceToFree)
         callbackContext?.release()
     }
@@ -200,6 +203,7 @@ extension TerminalSurface {
         guard !runtimeSurfaceFreedOutOfBandForTesting else { return }
 
         let callbackContext = surfaceCallbackContext
+        invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surface != nil)
         surfaceCallbackContext = nil
 
         guard let surfaceToFree = surface else {
@@ -207,7 +211,9 @@ extension TerminalSurface {
             return
         }
 
+        let retiredRemoteOutputLane = retireRemoteOutputLane()
         registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
+        retiredRemoteOutputLane.drainSynchronouslyForTesting()
         ghostty_surface_free(surfaceToFree)
         runtimeSurfaceFreedOutOfBandForTesting = true
         callbackContext?.release()
@@ -216,9 +222,36 @@ extension TerminalSurface {
     /// Test-only helper to install a runtime surface pointer directly.
     @MainActor
     public func installRuntimeSurfaceForTesting(_ runtimeSurface: ghostty_surface_t) {
+        let callbackContext: Unmanaged<
+            GhosttySurfaceCallbackContext
+        >
+        if let existingContext =
+                surfaceCallbackContext {
+            callbackContext = existingContext
+        } else {
+            callbackContext =
+                Unmanaged.passRetained(
+                    GhosttySurfaceCallbackContext(
+                        surfaceHost: surfaceView,
+                        surfaceController: self,
+                        terminalLifecycleID: terminalLifecycleId
+                    )
+                )
+            surfaceCallbackContext = callbackContext
+        }
         surface = runtimeSurface
+        _ = callbackContext.takeUnretainedValue()
+            .bindRuntimeClipboardSurface(
+                runtimeSurface,
+                generation: runtimeSurfaceGeneration
+            )
         portalLifecycleState = .live
         runtimeSurfaceFreedOutOfBandForTesting = false
+        cacheControllingTTYIdentity(for: runtimeSurface)
+        installFontSizeActionObservation(
+            on: runtimeSurface,
+            callbackContext: callbackContext
+        )
     }
 #endif
 }

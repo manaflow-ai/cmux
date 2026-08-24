@@ -79,6 +79,9 @@ public protocol SidebarGitHosting: AnyObject {
     func updatePanelPullRequest(workspaceId: UUID, panelId: UUID, badge: SidebarPullRequestBadge)
     /// Clears the panel's pull-request badge.
     func clearPanelPullRequest(workspaceId: UUID, panelId: UUID)
+    /// Asks the host to re-probe the panel's local git metadata because the
+    /// pull-request branch disagrees with the current sidebar branch projection.
+    func schedulePanelGitMetadataProbe(workspaceId: UUID, panelId: UUID, reason: String)
     /// Clears every workspace's sidebar git metadata (branches and badges).
     func clearAllSidebarGitMetadata()
     /// Clears every workspace's sidebar pull-request badges.
@@ -86,10 +89,10 @@ public protocol SidebarGitHosting: AnyObject {
 
     // MARK: Environment
 
-    /// Whether the sidebar git status watch setting is enabled.
-    var isGitMetadataWatchEnabled: Bool { get }
-    /// Whether sidebar pull-request polling is enabled.
-    var isPullRequestPollingEnabled: Bool { get }
+    /// The active/passive/disabled work level for sidebar git metadata.
+    var gitMetadataActivity: SidebarGitMetadataActivity { get }
+    /// The active/passive/disabled work level for sidebar pull-request metadata.
+    var pullRequestActivity: SidebarGitMetadataActivity { get }
     /// Whether the paired mobile host served a request within `interval`
     /// seconds (background git/PR work defers while true).
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool

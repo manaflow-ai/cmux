@@ -1,4 +1,5 @@
 import Foundation
+import zlib
 
 /// Loads the bundled markdown web renderer assets from Resources/markdown-viewer.
 /// The heavy diagram libraries are still read lazily so ordinary markdown files
@@ -12,6 +13,7 @@ final class MarkdownViewerAssets {
     private let highlightLightCSS: String
     private let highlightDarkCSS: String
     private let githubMarkdownCSS: String
+    private let viewerNavigationJS: String
     private let shellTemplate: String
     private let localizedStringsJSON: String
 
@@ -23,6 +25,7 @@ final class MarkdownViewerAssets {
         highlightLightCSS = MarkdownViewerAssets.loadAsset(name: "highlight-github", ext: "css")
         highlightDarkCSS = MarkdownViewerAssets.loadAsset(name: "highlight-github-dark", ext: "css")
         githubMarkdownCSS = MarkdownViewerAssets.loadAsset(name: "github-markdown", ext: "css")
+        viewerNavigationJS = MarkdownViewerAssets.loadAsset(name: "viewer-navigation", ext: "js")
         shellTemplate = MarkdownViewerAssets.loadAsset(name: "shell", ext: "html")
         localizedStringsJSON = MarkdownViewerAssets.localizedStringsJSON()
     }
@@ -35,6 +38,7 @@ final class MarkdownViewerAssets {
             .replacingOccurrences(of: "{{highlightDarkCSS}}", with: highlightDarkCSS)
             .replacingOccurrences(of: "{{markedJS}}", with: markedJS)
             .replacingOccurrences(of: "{{highlightJS}}", with: highlightJS)
+            .replacingOccurrences(of: "{{viewerNavigationJS}}", with: viewerNavigationJS)
             .replacingOccurrences(of: "{{localizedStringsJSON}}", with: localizedStringsJSON)
     }
 
@@ -132,9 +136,61 @@ final class MarkdownViewerAssets {
 
     private static func loadDeflatedTextAsset(url: URL) -> String? {
         guard let compressed = try? Data(contentsOf: url),
-              let decompressed = try? (compressed as NSData).decompressed(using: .zlib) as Data else {
+              let decompressed = inflateZlib(compressed) else {
             return nil
         }
         return String(data: decompressed, encoding: .utf8)
+    }
+
+    private static func inflateZlib(_ data: Data) -> Data? {
+        guard !data.isEmpty else {
+            return Data()
+        }
+
+        var stream = z_stream()
+        let initResult = inflateInit_(
+            &stream,
+            ZLIB_VERSION,
+            Int32(MemoryLayout<z_stream>.size)
+        )
+        guard initResult == Z_OK else {
+            return nil
+        }
+        defer { inflateEnd(&stream) }
+
+        return data.withUnsafeBytes { inputBuffer in
+            guard let inputBase = inputBuffer.bindMemory(to: Bytef.self).baseAddress else {
+                return nil
+            }
+            stream.next_in = UnsafeMutablePointer<Bytef>(mutating: inputBase)
+            stream.avail_in = uInt(data.count)
+
+            var output = Data()
+            let chunkSize = 64 * 1024
+            var chunk = [UInt8](repeating: 0, count: chunkSize)
+
+            while true {
+                let result = chunk.withUnsafeMutableBytes { outputBuffer -> Int32 in
+                    stream.next_out = outputBuffer.bindMemory(to: Bytef.self).baseAddress
+                    stream.avail_out = uInt(chunkSize)
+                    return inflate(&stream, Z_NO_FLUSH)
+                }
+
+                let produced = chunkSize - Int(stream.avail_out)
+                if produced > 0 {
+                    output.append(chunk, count: produced)
+                }
+
+                if result == Z_STREAM_END {
+                    return output
+                }
+                if result != Z_OK {
+                    return nil
+                }
+                if stream.avail_in == 0 && produced == 0 {
+                    return nil
+                }
+            }
+        }
     }
 }

@@ -15,6 +15,7 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
     var pairingRequestTimeoutNanoseconds: UInt64
     var now: @Sendable () -> Date
     var supportsServerPushEvents: Bool
+    var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider?
 
     init(
         transportFactory: any CmxByteTransportFactory,
@@ -26,7 +27,8 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
         rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
         pairingRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
         now: @escaping @Sendable () -> Date = Date.init,
-        supportsServerPushEvents: Bool = true
+        supportsServerPushEvents: Bool = true,
+        independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? = nil
     ) {
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
@@ -45,6 +47,7 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
         self.pairingRequestTimeoutNanoseconds = pairingRequestTimeoutNanoseconds
         self.now = now
         self.supportsServerPushEvents = supportsServerPushEvents
+        self.independentEventByteStreamProvider = independentEventByteStreamProvider
     }
 }
 
@@ -178,5 +181,38 @@ struct QueuedCancellationProbeTransportFactory: CmxByteTransportFactory {
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
         transport
+    }
+}
+
+final class TransportRequestCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: CmxByteTransportRequest?
+
+    func record(_ request: CmxByteTransportRequest) {
+        lock.lock()
+        value = request
+        lock.unlock()
+    }
+
+    func request() -> CmxByteTransportRequest? {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
+
+struct IntentRecordingTransportFactory: CmxByteTransportFactory {
+    let transport: QueuedCancellationProbeTransport
+    let capture: TransportRequestCapture
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        transport
+    }
+
+    func makeTransport(
+        for request: CmxByteTransportRequest
+    ) throws -> any CmxByteTransport {
+        capture.record(request)
+        return transport
     }
 }

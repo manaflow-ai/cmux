@@ -27,7 +27,7 @@ Current rules:
 - `swift-concurrency-modernization.md`
 - `swift-concurrent-annotation.md`
 - `swift-expensive-sync-load.md`
-- `swift-file-package-boundaries.md`
+- `swift-package-boundaries.md`
 - `swift-logging.md`
 - `swiftui-state-layout.md`
 - `user-facing-errors.md`

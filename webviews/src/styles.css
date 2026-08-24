@@ -168,7 +168,8 @@ body {
 #source-select,
 #repo-select,
 #base-select,
-#jump-select {
+#jump-select,
+#jump-search-button {
   appearance: none;
   height: 24px;
   min-width: 0;
@@ -213,6 +214,10 @@ body {
   border-color: color-mix(in lab, var(--cmux-diff-fg) 24%, transparent);
   background-color: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
 }
+#jump-search-button:hover {
+  border-color: color-mix(in lab, var(--cmux-diff-fg) 24%, transparent);
+  background-color: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+}
 #source-select[hidden],
 #repo-select[hidden],
 #base-select[hidden],
@@ -228,6 +233,12 @@ body {
   field-sizing: content;
   min-width: 64px;
 }
+#jump-search-button {
+  min-width: 64px;
+  padding-right: 9px;
+  background-image: none;
+  cursor: pointer;
+}
 #repo-select {
   /* Sized to its selected value like #source-select, with the HIGHEST shrink so
      it is the first to ellipsize when the toolbar runs out of room. */
@@ -242,6 +253,7 @@ body {
 #repo-select:focus,
 #base-select:focus,
 #jump-select:focus,
+#jump-search-button:focus-visible,
 .base-picker-button:focus-visible,
 .base-picker-input:focus-visible,
 .toolbar-icon:focus-visible,
@@ -756,6 +768,9 @@ body[data-files-hidden="true"] #files-sidebar {
 body[data-status-only="true"] #files-sidebar {
   display: none;
 }
+#files-sidebar-backdrop {
+  display: none;
+}
 #files-header {
   position: relative;
   z-index: 1;
@@ -935,6 +950,44 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     grid-template-areas: "viewer";
   }
   #files-sidebar {
+    display: none;
+  }
+  #app[data-file-search-open="true"] #files-sidebar-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 44;
+    display: block;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: color-mix(in srgb, #000 38%, transparent);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+    cursor: default;
+  }
+  #app[data-file-search-open="true"] #files-sidebar-backdrop:focus-visible {
+    outline: 2px solid var(--cmux-diff-accent);
+    outline-offset: -2px;
+  }
+  #app[data-file-search-open="true"] #files-sidebar {
+    display: flex;
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: min(88vw, 360px);
+    max-width: calc(100% - 32px);
+    z-index: 45;
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+    border-left: 1px solid var(--cmux-diff-border);
+    background: var(--cmux-diff-bg);
+    box-shadow: -18px 0 42px color-mix(in srgb, #000 34%, transparent);
+    isolation: isolate;
+    --cmux-diff-sidebar-bg: var(--cmux-diff-bg);
+  }
+  #app[data-file-search-open="true"] #files-resize-handle {
     display: none;
   }
 }

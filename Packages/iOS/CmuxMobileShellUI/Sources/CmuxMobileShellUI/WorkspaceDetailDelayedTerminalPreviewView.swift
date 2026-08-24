@@ -1,5 +1,6 @@
-import CmuxAgentChat
+import CMUXMobileCore
 import CmuxMobileBrowser
+import CmuxMobileBrowserStream
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -20,7 +21,10 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
         workspaces: initialWorkspaces
     )
     @State private var browserStore = BrowserSurfaceStore()
+    @State private var browserStreamStore = BrowserStreamStore()
+    @State private var simulatorStreamStore = MobileSimulatorStreamStore()
     @State private var didStartFixture = false
+    @State private var themeStage = "loading"
 
     var body: some View {
         WorkspaceShellView(
@@ -29,6 +33,16 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             showAddDevice: nil
         )
         .environment(browserStore)
+        .environment(browserStreamStore)
+        .environment(simulatorStreamStore)
+        .overlay(alignment: .topLeading) {
+            if Self.showsThemeParitySequence {
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .accessibilityElement()
+                    .accessibilityIdentifier("TerminalThemeStage-\(themeStage)")
+            }
+        }
         .task {
             guard !didStartFixture else { return }
             didStartFixture = true
@@ -56,21 +70,8 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             store.replaceForegroundWorkspaceState([workspace])
             store.selectedWorkspaceID = Self.workspaceID
             store.selectedTerminalID = Self.terminalID
-            if Self.showsChatToggle {
-                store.rememberChatSessions(
-                    [
-                        ChatSessionDescriptor(
-                            id: "preview-chat-session",
-                            agentKind: .claude,
-                            title: "Preview Agent",
-                            workspaceID: Self.workspaceID.rawValue,
-                            terminalID: Self.terminalID.rawValue,
-                            state: .working(since: Date()),
-                            lastActivityAt: Date()
-                        ),
-                    ],
-                    workspaceID: Self.workspaceID.rawValue
-                )
+            if Self.showsThemeParitySequence {
+                await runThemeParitySequence()
             }
         }
     }
@@ -79,8 +80,60 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
         ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE"] == "1"
     }
 
-    private static var showsChatToggle: Bool {
-        ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_CHAT_TOGGLE"] == "1"
+    private static var showsThemeParitySequence: Bool {
+        ProcessInfo.processInfo.environment["CMUX_UITEST_THEME_PARITY_PREVIEW"] == "1"
+    }
+
+    private func runThemeParitySequence() async {
+        let themes = [
+            (stage: "dark", background: "#101522", foreground: "#e6edf3"),
+            (stage: "light", background: "#f4f0df", foreground: "#17212b"),
+            (stage: "custom", background: "#063f46", foreground: "#fff2a8"),
+        ]
+        for (index, fixture) in themes.enumerated() {
+            guard !Task.isCancelled,
+                  let frame = try? themeParityFrame(
+                    background: fixture.background,
+                    foreground: fixture.foreground,
+                    revision: UInt64(index + 1)
+                  ) else { return }
+            while !store.deliverThemeParityPreviewFrame(frame) {
+                guard !Task.isCancelled else { return }
+                await Task.yield()
+            }
+            themeStage = fixture.stage
+            if fixture.stage != themes.last?.stage {
+                try? await ContinuousClock().sleep(for: .seconds(5))
+            }
+        }
+    }
+
+    private func themeParityFrame(
+        background: String,
+        foreground: String,
+        revision: UInt64
+    ) throws -> MobileTerminalRenderGridFrame {
+        let theme = themeParityTheme(background: background, foreground: foreground)
+        return try MobileTerminalRenderGridFrame(
+            surfaceID: Self.terminalID.rawValue,
+            stateSeq: 1,
+            columns: 40,
+            rows: 12,
+            cursor: .init(row: 2, column: 2, blinking: true),
+            styles: [
+                .init(id: 0, foreground: foreground, background: background),
+            ],
+            rowSpans: [
+                .init(row: 0, column: 0, text: "cmux theme parity renderer"),
+                .init(row: 1, column: 0, text: "Mac full-frame theme reload"),
+            ],
+            terminalForeground: foreground,
+            terminalBackground: background,
+            terminalCursorColor: foreground,
+            terminalTheme: theme,
+            terminalConfigTheme: theme,
+            terminalThemeRevision: revision
+        )
     }
 
     private static var usesRefreshingTerminalMenu: Bool {
@@ -125,5 +178,14 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
     private static func refreshingTerminalID(_ index: Int) -> MobileTerminalPreview.ID {
         index == 0 ? "terminal-build" : MobileTerminalPreview.ID(rawValue: "terminal-extra-\(index)")
     }
+
+}
+
+// lint:allow free-function — pure DEBUG fixture factory with no production dependencies.
+private func themeParityTheme(background: String, foreground: String) -> TerminalTheme {
+    var theme = TerminalTheme.monokai
+    theme.background = background
+    theme.foreground = foreground
+    return theme
 }
 #endif

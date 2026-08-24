@@ -219,9 +219,6 @@ struct UserDefaultsSettingsStoreNotificationTests {
             let stream = await store.valueEvents(for: key)
             for await event in stream {
                 await recorder.append(event)
-                if await recorder.count() >= 3 {
-                    break
-                }
             }
         }
         defer {
@@ -292,6 +289,68 @@ struct UserDefaultsSettingsStoreNotificationTests {
         let storedValue = await store.value(for: key)
         #expect(acceptedSource == nil)
         #expect(storedValue == key.defaultValue)
+    }
+
+    @Test func sameValueBackingNotificationSurvivesUnrelatedDefaultsNoise() async {
+        let suiteName = "cmux.tests.\(UUID().uuidString)"
+        let noiseSuiteName = "cmux.tests.noise.\(UUID().uuidString)"
+        nonisolated(unsafe) let backingDefaults = UserDefaults(suiteName: suiteName)!
+        nonisolated(unsafe) let noiseDefaults = UserDefaults(suiteName: noiseSuiteName)!
+        let store = UserDefaultsSettingsStore(defaults: backingDefaults)
+        let key = SettingCatalog().workspaceColors.selectionColorHex
+        let recorder = UserDefaultsSettingsEventRecorder<String>()
+        let source = UserDefaultsSettingsMutationSource(
+            ownerID: UUID(),
+            sequence: 1,
+            logicalOrder: 1
+        )
+        let task = Task {
+            let stream = await store.valueEvents(for: key)
+            for await event in stream {
+                await recorder.append(event)
+            }
+        }
+        defer {
+            task.cancel()
+            backingDefaults.removePersistentDomain(forName: suiteName)
+            noiseDefaults.removePersistentDomain(forName: noiseSuiteName)
+        }
+
+        await waitForEventCount(1, in: recorder)
+
+        await store.set("#SAME", for: key, source: source)
+        let localEvent = await waitForEvent(in: recorder) { event in
+            event.value == "#SAME" && event.mutationSource == source
+        }
+        #expect(localEvent?.mutationSource == source)
+
+        NotificationCenter.default.post(
+            name: UserDefaults.didChangeNotification,
+            object: backingDefaults
+        )
+        for _ in 0..<16 {
+            NotificationCenter.default.post(
+                name: UserDefaults.didChangeNotification,
+                object: noiseDefaults
+            )
+        }
+
+        let externalEvent = await waitForEvent(in: recorder) { event in
+            event.value == "#SAME"
+                && event.mutationSource == nil
+                && event.supersededMutationSource == source
+        }
+        #expect(externalEvent?.supersededMutationSource == source)
+
+        let staleSource = UserDefaultsSettingsMutationSource(
+            ownerID: UUID(),
+            sequence: 1,
+            logicalOrder: 1
+        )
+        let acceptedSource = await store.set("#STALE", for: key, source: staleSource)
+        let storedValue = await store.value(for: key)
+        #expect(acceptedSource == nil)
+        #expect(storedValue == "#SAME")
     }
 
     @Test func valueEventsDrainSupersededSourceAfterBackingSameValueNotification() async {
@@ -374,13 +433,17 @@ struct UserDefaultsSettingsStoreNotificationTests {
         #expect(matchingEvents.count == 1)
     }
 
+    // Wall-clock-bounded waits: pure Task.yield() spins can exhaust their
+    // budget in well under 100ms without ever servicing the queues the store
+    // hops through, which made these tests flake on loaded CI machines.
     private func waitForEventCount<Value: SettingCodable>(
         _ expectedCount: Int,
         in recorder: UserDefaultsSettingsEventRecorder<Value>
     ) async {
         var spins = 0
-        while await recorder.count() < expectedCount, spins < 100_000 {
+        while await recorder.count() < expectedCount, spins < 5_000 {
             await Task.yield()
+            try? await Task.sleep(nanoseconds: 1_000_000)
             spins += 1
         }
     }
@@ -390,11 +453,12 @@ struct UserDefaultsSettingsStoreNotificationTests {
         matching predicate: (UserDefaultsSettingsValueEvent<Value>) -> Bool
     ) async -> UserDefaultsSettingsValueEvent<Value>? {
         var spins = 0
-        while spins < 100_000 {
+        while spins < 5_000 {
             if let event = await recorder.snapshot().first(where: predicate) {
                 return event
             }
             await Task.yield()
+            try? await Task.sleep(nanoseconds: 1_000_000)
             spins += 1
         }
         return nil
