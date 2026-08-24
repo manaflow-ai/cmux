@@ -94,6 +94,14 @@ function webURL(input: string | undefined, path: string): void {
   } catch {
     throw new Error(`${path} must be an absolute URL`);
   }
+  // Dev servers preview entries against their own localhost web app; the
+  // client only renders such URLs when the host matches its configured API
+  // host, so this never widens what production devices load.
+  const isLocalDev =
+    process.env.NODE_ENV !== "production" &&
+    url.protocol === "http:" &&
+    (url.hostname === "localhost" || url.hostname === "127.0.0.1");
+  if (isLocalDev) return;
   if (url.protocol !== "https:") {
     throw new Error(`${path} must use https`);
   }
