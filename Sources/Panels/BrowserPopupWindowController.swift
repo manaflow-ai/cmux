@@ -452,12 +452,11 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         if let url = navigationAction.request.url,
-           BrowserLinkOpenSettings.shouldOpenExternally(
+           BrowserLinkOpenSettings.openConfiguredExternallyIfNeeded(
                url,
                navigationType: navigationAction.navigationType,
                targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
-           ),
-           NSWorkspace.shared.open(url) {
+           ) {
             return nil
         }
 
@@ -719,13 +718,14 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
             return
         }
 
-        if BrowserLinkOpenSettings.shouldOpenExternally(
+        if BrowserLinkOpenSettings.openConfiguredExternallyIfNeeded(
             url,
             navigationType: navigationAction.navigationType,
-            targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
-        ),
-        NSWorkspace.shared.open(url) {
-            clearAttemptedRequest(discardPendingBypasses: true)
+            targetFrameIsMain: navigationAction.targetFrame?.isMainFrame,
+            onOpened: { [self] in
+                clearAttemptedRequest(discardPendingBypasses: true)
+            }
+        ) {
             decisionHandler(.cancel)
             return
         }

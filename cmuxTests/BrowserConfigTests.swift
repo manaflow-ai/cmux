@@ -5597,6 +5597,34 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
             )
         )
     }
+
+    func testConfiguredExternalOpenUsesOneInjectedActionPath() throws {
+        defaults.set(
+            ["example.com"],
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        let url = try XCTUnwrap(URL(string: "https://example.com/"))
+        var openedURL: URL?
+        var didRunAfterOpen = false
+
+        let opened = BrowserLinkOpenSettings.openConfiguredExternallyIfNeeded(
+            url,
+            navigationType: .linkActivated,
+            targetFrameIsMain: true,
+            defaults: defaults,
+            openURL: {
+                openedURL = $0
+                return true
+            },
+            onOpened: {
+                didRunAfterOpen = true
+            }
+        )
+
+        XCTAssertTrue(opened)
+        XCTAssertEqual(openedURL, url)
+        XCTAssertTrue(didRunAfterOpen)
+    }
 }
 
 

@@ -561,6 +561,33 @@ enum BrowserLinkOpenSettings {
         return shouldOpenExternally(url, defaults: defaults)
     }
 
+    /// Opens a matching user-activated navigation through the system opener.
+    ///
+    /// All WebKit delegates use this synchronous action so matching and
+    /// opener-failure behavior cannot drift between main-frame and popup
+    /// navigation. onOpened lets a delegate clear its own pending navigation
+    /// state after the system accepted the URL.
+    @discardableResult
+    static func openConfiguredExternallyIfNeeded(
+        _ url: URL,
+        navigationType: WKNavigationType,
+        targetFrameIsMain: Bool?,
+        defaults: UserDefaults = .standard,
+        openURL: (URL) -> Bool = { NSWorkspace.shared.open($0) },
+        onOpened: () -> Void = {}
+    ) -> Bool {
+        guard shouldOpenExternally(
+            url,
+            navigationType: navigationType,
+            targetFrameIsMain: targetFrameIsMain,
+            defaults: defaults
+        ), openURL(url) else {
+            return false
+        }
+        onOpened()
+        return true
+    }
+
     /// Check whether a hostname matches the configured whitelist.
     /// Empty whitelist means "allow all" (no filtering).
     /// Supports exact match and wildcard prefix (`*.example.com`).
@@ -8305,12 +8332,11 @@ private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         )
 #endif
         if let url = navigationAction.request.url,
-           BrowserLinkOpenSettings.shouldOpenExternally(
+           BrowserLinkOpenSettings.openConfiguredExternallyIfNeeded(
                url,
                navigationType: navigationAction.navigationType,
                targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
-           ),
-           NSWorkspace.shared.open(url) {
+           ) {
             return nil
         }
 

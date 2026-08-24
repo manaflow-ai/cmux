@@ -55,12 +55,15 @@ public struct BrowserExternalURLPolicy: Equatable, Sendable {
 
         // Keep the documented plain-text substring behavior, while accepting
         // the regex-shaped rules users historically supplied to this setting.
-        if isRegexShaped(pattern) {
-            return regexMatches(pattern, target: target)
+        // A plain `*`/`?` rule is a glob unless it contains an explicit regex
+        // marker such as an escape, anchor, character class, or `.*`.
+        if pattern.contains("*") || pattern.contains("?"),
+           !isRegexShaped(pattern) {
+            return regexMatches(wildcardRegex(for: pattern), target: target)
         }
 
-        if pattern.contains("*") || pattern.contains("?") {
-            return regexMatches(wildcardRegex(for: pattern), target: target)
+        if isRegexShaped(pattern) {
+            return regexMatches(pattern, target: target)
         }
 
         return target.range(of: pattern, options: [.caseInsensitive]) != nil
@@ -83,7 +86,7 @@ public struct BrowserExternalURLPolicy: Equatable, Sendable {
             return true
         }
         return pattern.contains(where: { character in
-            "\\^$+?()[]{}|".contains(character)
+            "\\^$+()[]{}|".contains(character)
         })
     }
 

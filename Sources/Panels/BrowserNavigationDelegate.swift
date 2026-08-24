@@ -297,18 +297,19 @@ import WebKit
         }
 
         if let url = navigationAction.request.url,
-           BrowserLinkOpenSettings.shouldOpenExternally(
+           BrowserLinkOpenSettings.openConfiguredExternallyIfNeeded(
                url,
                navigationType: navigationAction.navigationType,
-               targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
-           ),
-           NSWorkspace.shared.open(url) {
-            clearAttemptedRequest(discardPendingBypasses: true)
-            let reportTerminalCancellation = terminalPolicyCancellationReporter?(
-                navigationAction,
-                webView
-            ) ?? {}
-            reportTerminalCancellation()
+               targetFrameIsMain: navigationAction.targetFrame?.isMainFrame,
+               onOpened: { [self] in
+                   clearAttemptedRequest(discardPendingBypasses: true)
+                   let reportTerminalCancellation = terminalPolicyCancellationReporter?(
+                       navigationAction,
+                       webView
+                   ) ?? {}
+                   reportTerminalCancellation()
+               }
+           ) {
 #if DEBUG
             cmuxDebugLog(
                 "browser.nav.decidePolicy.action kind=openConfiguredExternalURL " +
