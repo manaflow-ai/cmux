@@ -2063,7 +2063,7 @@ mod tests {
                 command: Some(vec![
                     "/bin/sh".into(),
                     "-c".into(),
-                    "stty -echo; printf input-ready; read ready; /bin/sh -c 'exec 3<\"$1\"; : > \"$2\"; read release <&3' cmux-descendant \"$2\" \"$3\" & echo $! > \"$1\"; printf detached-ready; exit 0".into(),
+                    "stty -echo; printf input-ready; read ready; /bin/sh -c 'exec 3<\"$1\"; : > \"$2\"; read release <&3' cmux-descendant \"$2\" \"$3\" & echo $! > \"$1\"; i=0; while [ ! -e \"$3\" ] && [ \"$i\" -lt 500 ]; do i=$((i + 1)); sleep 0.01; done; printf detached-ready; exit 0".into(),
                     "cmux-shutdown-test".into(),
                     descendant_pid_path.to_string_lossy().into_owned(),
                     release_gate_path.to_string_lossy().into_owned(),
