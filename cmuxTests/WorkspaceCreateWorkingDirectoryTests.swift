@@ -170,12 +170,28 @@ import Testing
         #expect(!initialWorkspaceIDs.contains(created.id))
         #expect(manager.selectedWorkspace?.id == created.id)
         let panel = try #require(created.panels.values.compactMap { $0 as? TerminalPanel }.first)
-        for await notification in readyNotifications {
-            guard notification.userInfo?["workspaceId"] as? UUID == created.id else {
-                continue
+        let didBecomeReady = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await notification in readyNotifications {
+                    guard notification.userInfo?["workspaceId"] as? UUID == created.id else {
+                        continue
+                    }
+                    return true
+                }
+                return false
             }
-            break
+            group.addTask {
+                try? await Task.sleep(for: .seconds(10))
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
         }
+        #expect(
+            didBecomeReady,
+            "Timed out waiting for terminal readiness for workspace \(created.id)"
+        )
 
         #expect(panel.surface.debugInitialInputForTesting() == initialInput)
         #expect(defaults.object(forKey: welcomeShownKey) == nil)
