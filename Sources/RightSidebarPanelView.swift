@@ -151,12 +151,15 @@ struct RightSidebarPanelView: View {
     }
 
     private var availableModes: [RightSidebarMode] {
+        let runtimeEnabled = SubrouterAppRuntime.shared.store.configuration.isEnabled
         RightSidebarMode.availableModes(
             feedEnabled: feedEnabled,
             dockEnabled: dockEnabled,
             // Observable read: the mode bar updates live when the feature
             // flag flips (Internal Flags window or a PostHog payload).
-            agentsEnabled: CmuxFeatureFlags.shared.isSubrouterUIEnabled && subrouterEnabled
+            agentsEnabled: CmuxFeatureFlags.shared.isSubrouterUIEnabled
+                && subrouterEnabled
+                && runtimeEnabled
         )
     }
 

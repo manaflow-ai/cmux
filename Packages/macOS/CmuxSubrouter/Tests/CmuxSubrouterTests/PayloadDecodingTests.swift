@@ -77,6 +77,37 @@ import Testing
         #expect(claude.displayName == "work")
     }
 
+    @Test func decodesSnakeCaseWorkerUsageWindowsAndCredits() throws {
+        let json = """
+        [{
+          "id": "remote@example.com",
+          "provider": "codex",
+          "auth_mode": "oauth",
+          "windows": [{
+            "name": "7d",
+            "used_percent": 88.5,
+            "limit_window_seconds": 604800,
+            "reset_after_seconds": 7200,
+            "feature": ""
+          }],
+          "credits": {
+            "has_credits": true,
+            "unlimited": false,
+            "balance": "$4.25"
+          }
+        }]
+        """
+        let row = try #require(
+            makeDecoder().decode([SubrouterAccountUsageStatus].self, from: Data(json.utf8)).first
+        )
+        #expect(row.windows.count == 1)
+        #expect(row.windows[0].name == "7d")
+        #expect(row.windows[0].usedPercent == 88.5)
+        #expect(row.windows[0].limitWindowSeconds == 604800)
+        #expect(row.windows[0].resetAfterSeconds == 7200)
+        #expect(row.credits == SubrouterCredits(hasCredits: true, unlimited: false, balance: "$4.25"))
+    }
+
     @Test func decodesAccountsRow() throws {
         let json = """
         [{"id": "dev@example.com", "provider": "codex", "auth_mode": "apikey", "source": ""}]

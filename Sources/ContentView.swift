@@ -15021,7 +15021,10 @@ struct SidebarFooterButtons: View {
             if shows(.upgrade) {
                 SidebarProBadge()
             }
-            if CmuxFeatureFlags.shared.isSubrouterUIEnabled && subrouterEnabled && showAccountSwitcher {
+            if CmuxFeatureFlags.shared.isSubrouterUIEnabled
+                && subrouterEnabled
+                && SubrouterAppRuntime.shared.store.configuration.isEnabled
+                && showAccountSwitcher {
                 SidebarAccountSwitcherButton()
             }
             // The puzzle button opens the extensions browser; it only shows

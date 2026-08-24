@@ -38,6 +38,16 @@ struct SubrouterIntegrationSettings {
         return defaults.bool(forKey: Self.enabledKey)
     }
 
+    /// Whether an explicit endpoint setting is syntactically valid. This
+    /// cheap check lets sidebar availability fail closed before the runtime's
+    /// off-main registry read completes, avoiding an indefinite spinner for a
+    /// malformed endpoint.
+    var hasValidEndpointSetting: Bool {
+        let raw = (defaults.string(forKey: Self.endpointKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return raw.isEmpty || SubrouterEndpoint(configurationString: raw) != nil
+    }
+
     /// Whether the left-sidebar footer switcher should render: the master
     /// gate plus its own toggle.
     var showsAccountSwitcher: Bool {

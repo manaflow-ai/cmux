@@ -1,10 +1,10 @@
 /// One rate-limit window reported by `GET /_subrouter/usage-status`.
 ///
-/// **Wire format warning.** The daemon's Go struct has no JSON tags, so the
-/// keys are the raw PascalCase Go field names (`Name`, `UsedPercent`, …) —
-/// unlike every other subrouter payload, which uses snake_case. The explicit
-/// `CodingKeys` here are load-bearing; never decode this type with a global
-/// key-conversion strategy.
+/// **Wire format warning.** Released daemons have emitted both the raw
+/// PascalCase Go field names (`Name`, `UsedPercent`, …) and the newer
+/// snake_case worker shape (`name`, `used_percent`, …). The explicit decoder
+/// accepts both dialects; never decode this type with a global key-conversion
+/// strategy.
 ///
 /// Codex windows carry `LimitWindowSeconds`; Claude windows leave it `0` and
 /// are classified by name (`"5h"`, `"7d"`, `"opus-weekly"`, …).
@@ -25,10 +25,15 @@ public struct SubrouterUsageWindow: Sendable, Hashable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case name = "Name"
+        case snakeName = "name"
         case usedPercent = "UsedPercent"
+        case snakeUsedPercent = "used_percent"
         case limitWindowSeconds = "LimitWindowSeconds"
+        case snakeLimitWindowSeconds = "limit_window_seconds"
         case resetAfterSeconds = "ResetAfterSeconds"
+        case snakeResetAfterSeconds = "reset_after_seconds"
         case feature = "Feature"
+        case snakeFeature = "feature"
     }
 
     /// Creates a usage window.
@@ -54,11 +59,32 @@ public struct SubrouterUsageWindow: Sendable, Hashable, Codable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
-        self.usedPercent = try container.decodeIfPresent(Double.self, forKey: .usedPercent) ?? 0
-        self.limitWindowSeconds = try container.decodeIfPresent(Int64.self, forKey: .limitWindowSeconds) ?? 0
-        self.resetAfterSeconds = try container.decodeIfPresent(Int64.self, forKey: .resetAfterSeconds) ?? 0
-        self.feature = try container.decodeIfPresent(String.self, forKey: .feature) ?? ""
+        self.name = try container.decodeIfPresent(String.self, forKey: .name)
+            ?? container.decodeIfPresent(String.self, forKey: .snakeName)
+            ?? ""
+        self.usedPercent = try container.decodeIfPresent(Double.self, forKey: .usedPercent)
+            ?? container.decodeIfPresent(Double.self, forKey: .snakeUsedPercent)
+            ?? 0
+        self.limitWindowSeconds = try container.decodeIfPresent(Int64.self, forKey: .limitWindowSeconds)
+            ?? container.decodeIfPresent(Int64.self, forKey: .snakeLimitWindowSeconds)
+            ?? 0
+        self.resetAfterSeconds = try container.decodeIfPresent(Int64.self, forKey: .resetAfterSeconds)
+            ?? container.decodeIfPresent(Int64.self, forKey: .snakeResetAfterSeconds)
+            ?? 0
+        self.feature = try container.decodeIfPresent(String.self, forKey: .feature)
+            ?? container.decodeIfPresent(String.self, forKey: .snakeFeature)
+            ?? ""
+    }
+
+    /// Encodes the canonical PascalCase daemon shape; decoding remains
+    /// permissive for hosted workers that send snake_case.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encode(usedPercent, forKey: .usedPercent)
+        try container.encode(limitWindowSeconds, forKey: .limitWindowSeconds)
+        try container.encode(resetAfterSeconds, forKey: .resetAfterSeconds)
+        try container.encode(feature, forKey: .feature)
     }
 }
 

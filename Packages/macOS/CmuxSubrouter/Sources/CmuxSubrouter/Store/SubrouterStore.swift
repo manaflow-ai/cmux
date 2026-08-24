@@ -180,7 +180,12 @@ public final class SubrouterStore {
             // endpoint must not land after the reset, and a live refreshTask
             // would make the refresh below no-op.
             goIdle()
-            snapshot.daemonState = .unknown
+            // Account ids, active markers, sessions, and timestamps are
+            // identity-bearing data from the old daemon. Do not render them
+            // under a newly selected endpoint while its first refresh is
+            // pending or unreachable.
+            snapshot = .empty
+            lastSwitchError = nil
             if !visibleSurfaces.isEmpty {
                 refresh(reason: "configuration")
             }
