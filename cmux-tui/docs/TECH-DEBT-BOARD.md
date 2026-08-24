@@ -32,6 +32,12 @@ propagation, and the Rust fallback-test contract. Documentation-only bridge comm
 and [`cef7c71460`](https://github.com/manaflow-ai/cmux/commit/cef7c71460f72444e874f7c9f26100e9259874c1).
 The 25-file relay/TUI integration merge is `05c0b30277`.
 
+Latest wave follow-ups are recorded in the changelog. The exact-head
+autoreview was clean for this scope. Two remote-tmux findings were ignored as
+out of scope. No new session was counted for documentation-only bookkeeping;
+the ledger remains a lower bound on substantive turns, not a fabricated
+10,000-session total.
+
 Subagent ledger: at least 200 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
 reviews, and merge gates. It excludes empty or duplicate turns. The requested

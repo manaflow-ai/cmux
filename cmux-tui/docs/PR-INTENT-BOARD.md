@@ -7,6 +7,14 @@ cross-platform hardening through `35be8f8c8a`;
 the reviewer must be rerun at the final pushed head.
 All URLs point to `manaflow-ai/cmux`; authors are included for merge decisions.
 
+The latest exact-head autoreview is clean for in-scope changes. It reported
+two remote-tmux findings, both ignored because they are outside this
+aggregate's cmux-tui, SDK, relay, and preview scope. The wave also includes
+the Go canonical fallback correction, C++ exact-parent/CMake include fix,
+bounded Rust workspace reads, watcher sink termination, and preview/shell
+ownership fixes. These are documented with full commit SHAs and exact revert
+commands in `TECH-DEBT-CHANGELOG.md`.
+
 ## Aggregate
 
 | PR | Author | Intent | Decision |

@@ -181,3 +181,16 @@ Session ledger honesty: the board's lower bound is at least 180 substantive
 agent turns, including audits, research, session mining, fixes, reviews, and
 merge gates. It is not an exact session-file count. The requested 10,000-session
 goal was not reached. Empty or duplicate turns were not created to inflate it.
+# Latest wave: exact-head review follow-ups
+
+| Commit | Change | Verification / residual risk | Exact revert |
+| --- | --- | --- | --- |
+| `57b598c863714e1d074231f7ed8a9c0222963139` | Restore Go's canonical temporary-socket fallback. | Go fallback contract checks; hosted Go matrix remains required. | `git revert 57b598c863714e1d074231f7ed8a9c0222963139` |
+| `5abb5e0a6088fd4a16e764fd063f4b72bcfde9e3` | Expose the exact C++ parent include and add the CMake include path. | C++ configure/build check required; package consumers remain unverified. | `git revert 5abb5e0a6088fd4a16e764fd063f4b72bcfde9e3` |
+| `ed634f53afa5367749584f9c0dc2d3ba5b96b964` | Bound Rust workspace reads and hashes. | Hosted Rust SDK check required; limits may reject unusually large workspaces. | `git revert ed634f53afa5367749584f9c0dc2d3ba5b96b964` |
+| `a483b6cc8391b318a83a44a4ba5f2768bddd6995` | Make watcher sink termination explicit. | Hosted relay shutdown check required; producer cancellation remains separate. | `git revert a483b6cc8391b318a83a44a4ba5f2768bddd6995` |
+| `702a840ef5b0ed56e9856523bab5ce14accc21d4` | Fix preview and shell ownership review findings. | Hosted preview and process-cleanup checks required. | `git revert 702a840ef5b0ed56e9856523bab5ce14accc21d4` |
+
+The exact-head autoreview was clean for in-scope changes. It reported two
+out-of-scope remote-tmux findings, which were intentionally ignored: they do
+not affect cmux-tui protocol, SDK, relay, or preview ownership in this wave.
