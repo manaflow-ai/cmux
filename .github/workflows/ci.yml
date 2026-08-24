@@ -80,12 +80,21 @@ jobs:
             # suites.
             ghosttykit_guard_only=true
             has_ghosttykit_guard_file=false
+            ci_router_changed=false
             while IFS= read -r changed_file; do
               case "$changed_file" in
-                ghostty|scripts/download-prebuilt-ghosttykit.sh|scripts/validate-xcframework-archive.py|scripts/ghosttykit-checksums.txt|tests/test_ci_ghosttykit_release_check.sh|tests/test_ci_change_areas.py)
+                ghostty|scripts/download-prebuilt-ghosttykit.sh|scripts/validate-xcframework-archive.py|scripts/ghosttykit-checksums.txt|tests/test_ci_ghosttykit_release_check.sh)
                   has_ghosttykit_guard_file=true
                   ;;
+                tests/test_ci_change_areas.py)
+                  ci_router_changed=true
+                  ;;
                 .github/workflows/ci.yml)
+                  ci_router_changed=true
+                  ;;
+                scripts/ci/*)
+                  ci_router_changed=true
+                  ghosttykit_guard_only=false
                   ;;
                 *)
                   ghosttykit_guard_only=false
@@ -106,7 +115,7 @@ jobs:
             # This guard lives in workflow YAML, before the PR-editable detector
             # runs. Router/workflow edits must fail open even if a PR breaks the
             # detector's own self-change classification.
-            if grep -Eq '^(\.github/workflows/ci\.yml|scripts/ci/[^/]+\.py|tests/test_ci_change_areas\.py)$' /tmp/cmux-ci-changed-files.txt; then
+            if [ "$ci_router_changed" = true ]; then
               echo "CI router changed; running all CI areas."
               emit_all_areas
               exit 0
