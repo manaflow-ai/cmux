@@ -65,18 +65,24 @@ struct TaskComposerSheet: View {
 
     let sessionGeneration: Int
     /// Stable identity of this session's saved-draft entry. Every leave,
-    /// retry, and submit updates or removes exactly this entry.
-    let draftID: UUID
+    /// retry, and submit updates or removes exactly this entry. State, not a
+    /// stored `let`: the host re-evaluates this view's init on unrelated
+    /// re-renders (connection churn), and a fresh session must not mint a
+    /// new identity per evaluation or consecutive saves split into
+    /// duplicate draft entries.
+    @State var draftID: UUID
     /// Replaces this editing session with another draft's. `nil` hides the
     /// drafts affordance for hosts without a session presenter (previews and
     /// accessibility harnesses).
     private let onSwitchDraft: ((TaskComposerLaunchIntent) -> Void)?
     /// Attachment references preserved with the resumed draft; re-staged
-    /// into session-owned temporary copies on appear.
-    let restoredDraftAttachments: [MobileTaskComposerDraftAttachment]
+    /// into session-owned temporary copies on appear. State for the same
+    /// re-evaluation stability as `draftID`.
+    @State var restoredDraftAttachments: [MobileTaskComposerDraftAttachment]
     /// Leave-relevant state as this session opened; leaving with anything
-    /// different (except model/effort picks) asks before discarding.
-    let initialSessionFingerprint: TaskComposerSessionFingerprint
+    /// different (except model/effort picks) asks before discarding. State
+    /// so a mid-session save cannot move the baseline on re-evaluation.
+    @State var initialSessionFingerprint: TaskComposerSessionFingerprint
     private let restoredDraftAtInitialization: Bool
     private let availableMachines: [MobilePairedMac]?
     private let availableWorkspaceGroups: [MobileWorkspaceGroupPreview]?
@@ -153,7 +159,7 @@ struct TaskComposerSheet: View {
         let savedDrafts = store.taskTemplateStore?.composerDrafts() ?? []
         let resumedDraft = launchIntent.resolveDraft(in: savedDrafts)
         let draft = resumedDraft?.content
-        self.draftID = resumedDraft?.id ?? UUID()
+        _draftID = State(initialValue: resumedDraft?.id ?? UUID())
         self.restoredDraftAtInitialization = draft != nil
         let foregroundMacID = store.connectedMacDeviceID
         let foregroundMacInstanceTag = store.connectedMacInstanceTag
@@ -312,9 +318,9 @@ struct TaskComposerSheet: View {
                 operationID: initialOperationID
             )
         }
-        self.restoredDraftAttachments = restoredAttachments
+        _restoredDraftAttachments = State(initialValue: restoredAttachments)
         _isDraftAttachmentRestorePending = State(initialValue: !restoredAttachments.isEmpty)
-        self.initialSessionFingerprint = TaskComposerSessionFingerprint(
+        _initialSessionFingerprint = State(initialValue: TaskComposerSessionFingerprint(
             prompt: initialPrompt,
             workspaceName: initialWorkspaceName,
             templateID: selectedTemplateID,
@@ -327,7 +333,7 @@ struct TaskComposerSheet: View {
             workspaceGroupID: initialWorkspaceGroupID,
             attachmentIDs: Set(initialAttachments.map(\.id))
                 .union(restoredAttachments.map(\.id))
-        )
+        ))
         let canRestoreCompletedOperation = draft?.templateID == selectedTemplateID
             && draftMatchesSelectedMac
             && draft?.workspaceGroupID == initialWorkspaceGroupID

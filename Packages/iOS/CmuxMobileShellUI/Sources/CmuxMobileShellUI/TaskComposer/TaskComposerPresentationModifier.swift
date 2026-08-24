@@ -35,8 +35,12 @@ private struct TaskComposerPresentationModifier<PresentedContent: View>: ViewMod
             isPresented: $isPresented,
             onDismiss: {
                 // The next presentation starts a new session that resumes the
-                // newest draft, exactly as before drafts had a switcher.
-                launch = TaskComposerLaunch()
+                // newest draft, and it must get a brand-new view identity:
+                // reusing the token would let @State (draft identity, persist
+                // flags, dirty baseline) leak from the closed session, and
+                // the fresh view must be built after this session's final
+                // save landed.
+                launch = TaskComposerLaunch(token: launch.token + 1)
                 onDismiss()
             },
             content: {
