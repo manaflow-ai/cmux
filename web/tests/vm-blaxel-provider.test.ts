@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 import {
   BlaxelProvider,
+  hostnameSetupCommand,
   parseMachineStats,
   resolveBlaxelMemoryMb,
   resolveDaemonSource,
@@ -419,5 +420,25 @@ describe("BlaxelProvider machine stats parsing", () => {
     expect(stats.memoryTotalMb).toBe(2048);
     expect(stats.cpuPercent).toBeUndefined();
     expect(stats.diskTotalMb).toBeUndefined();
+  });
+});
+
+describe("BlaxelProvider desktop VNC bootstrap", () => {
+  // Regression: renaming the host without an /etc/hosts entry made `hostname -f` fail, which
+  // aborts TigerVNC's `vncserver` wrapper — so 5901 never bound and noVNC showed "Failed to
+  // connect to server" on every desktop machine. The bootstrap must make the name resolvable.
+  test("hostnameSetupCommand maps the machine name to loopback in /etc/hosts", () => {
+    const cmd = hostnameSetupCommand("warm-jay");
+    expect(cmd).toContain("hostname 'warm-jay'");
+    expect(cmd).toContain("/etc/hosts");
+    expect(cmd).toContain("127.0.0.1");
+    // The whole point: a fresh boot must not append a duplicate on resurrection.
+    expect(cmd).toContain("grep -qF 'warm-jay' /etc/hosts ||");
+  });
+
+  test("hostnameSetupCommand single-quotes the name so it cannot inject shell", () => {
+    const cmd = hostnameSetupCommand("a; rm -rf /");
+    expect(cmd).toContain("'a; rm -rf /'");
+    expect(cmd).not.toMatch(/;\s*rm -rf \/\s*(;|$)/);
   });
 });

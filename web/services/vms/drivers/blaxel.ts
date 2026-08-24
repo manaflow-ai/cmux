@@ -98,6 +98,13 @@ const CMUX_PROVISION_COMMAND = [
   "} >/tmp/cmux/provision.log 2>&1 || true",
 ].join(" ");
 
+// The machine knows its own name: the prompt reads noble-wren:~#, not (none):~#. Runtime
+// state, so it re-applies on resurrection too (this method runs on both paths).
+export function hostnameSetupCommand(name: string): string {
+  const q = shellQuote(name);
+  return `hostname ${q} 2>/dev/null; echo ${q} > /etc/hostname || true`;
+}
+
 const CMUXD_PREVIEW_NAME = "cmuxd";
 const PREVIEW_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const EXEC_DEFAULT_TIMEOUT_MS = 30_000;
@@ -360,12 +367,8 @@ export class BlaxelProvider implements VMProvider {
     }
     await this.startDaemonProcess(sandboxUrl);
     await this.startWatcherProcess(sandboxUrl);
-    // The machine knows its own name: the prompt reads noble-wren:~#, not (none):~#. Runtime
-    // state, so it re-applies on resurrection too (this method runs on both paths).
-    await this.sandboxExec(
-      sandboxUrl,
-      `hostname ${shellQuote(name)} 2>/dev/null; echo ${shellQuote(name)} > /etc/hostname || true`,
-    ).catch(() => undefined);
+    // Runtime state, so it re-applies on resurrection too (this method runs on both paths).
+    await this.sandboxExec(sandboxUrl, hostnameSetupCommand(name)).catch(() => undefined);
     // Agents and dev essentials come with the machine, installed in the background so attach
     // is never delayed. The .bashrc seed is write-once: /root persists, and a user's edits win.
     await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
