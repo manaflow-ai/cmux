@@ -18203,6 +18203,9 @@ private extension NSWindow {
             guard let textView = self.firstResponder as? NSTextView else { return false }
             return textView.isEditable && !textView.isFieldEditor
         }()
+        if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(event, preferredWindow: self) {
+            return true
+        }
         if let firstResponderWebView,
            AppDelegate.shared?.shouldCaptureBrowserKeyboardShortcuts(for: firstResponderWebView) == true {
             if cmuxBrowserWebKitKeyDownDispatchIsActive() {
@@ -18228,9 +18231,6 @@ private extension NSWindow {
                 to: firstResponderWebView,
                 reason: "browser capture setting keyDown fallback"
             )
-            return true
-        }
-        if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(event, preferredWindow: self) {
             return true
         }
         let browserWebKitKeyDownReentry = firstResponderWebView != nil && cmuxBrowserWebKitKeyDownDispatchIsActive()
