@@ -60,6 +60,7 @@ struct TaskComposerDirectoryPickerView: View {
         NavigationStack(path: $path) {
             TaskComposerDirectoryLocationsScreen(
                 suggested: suggested,
+                recents: recents,
                 suggestionIndex: suggestionIndex,
                 selectedPath: selectedPath,
                 selectedPathID: selectedPathID,
@@ -91,6 +92,7 @@ struct TaskComposerDirectoryPickerView: View {
 /// The picker's root: suggested folders and the browse entry points.
 private struct TaskComposerDirectoryLocationsScreen: View {
     let suggested: [MobileTaskDirectoryCandidate]
+    let recents: [MobileTaskDirectoryCandidate]
     let suggestionIndex: MobileTaskDirectorySuggestionIndex
     let selectedPath: String
     let selectedPathID: MobileTaskDirectoryPathID
@@ -115,6 +117,7 @@ private struct TaskComposerDirectoryLocationsScreen: View {
                     choose: choose
                 )
             } else {
+                recentChipsSection
                 suggestedSection
                 locationsSection
             }
@@ -150,6 +153,17 @@ private struct TaskComposerDirectoryLocationsScreen: View {
             }
         }
         .taskComposerDirectorySearch($search, query: query, searchMac: searchMac)
+    }
+
+    @ViewBuilder
+    private var recentChipsSection: some View {
+        if !recents.isEmpty {
+            Section {
+                TaskComposerDirectoryRecentChipsRow(recents: recents)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+            }
+        }
     }
 
     @ViewBuilder
