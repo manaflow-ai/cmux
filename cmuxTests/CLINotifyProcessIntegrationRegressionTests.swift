@@ -177,11 +177,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             surfaceIds: [context.surfaceId],
             arguments: ["hooks", "claude", "session-start"],
             standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
-            extraEnvironment: ["CMUX_SURFACE_ID": "", "CMUX_CLAUDE_PID": ""]
+            extraEnvironment: ["CMUX_SURFACE_ID": "", "CMUX_CLAUDE_PID": "12345"]
         )
         XCTAssertFalse(compact.timedOut, compact.stderr)
         XCTAssertEqual(compact.status, 0, compact.stderr)
         XCTAssertTrue(autoNamingApplyRequests(in: context).isEmpty)
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("set_agent_pid claude_code ") },
+            "A compact SessionStart resolved through a focused fallback must not register Claude's PID on that borrowed pane, saw \(context.state.commands)"
+        )
         var record = try readClaudeHookSession(sessionId, context: context)
         XCTAssertNotNil(record["autoNameTitleReconciliationGeneration"] as? String)
         XCTAssertEqual(record["surfaceId"] as? String, recordedSurfaceId)
