@@ -2900,7 +2900,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                       instanceTag: mac.instanceTag,
                       scope: scope
                   ) else { break }
-            let irohReconnectIsBlocked = connectionMethod(for: mac) == .tailscale
+            // Tailscale Only blocks the Iroh lane only for legacy pairings
+            // without an Iroh identity; an identified pairing rides Iroh
+            // pinned to its Tailscale addresses (same lane the terminal
+            // lanes ride, same admission authority).
+            let irohReconnectIsBlocked = (connectionMethod(for: mac) == .tailscale
+                && !mac.routes.contains { $0.kind == .iroh })
                 || automaticIrohReconnectIsBlocked(accountID: scope.userID)
             let localRoutes = storedReconnectRoutes(mac).filter {
                 !irohReconnectIsBlocked || $0.kind != .iroh
@@ -4734,9 +4739,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async -> SecondaryClientAttempt {
         guard let runtime else { return .permanentFailure }
         let supportedKinds = runtime.supportedRouteKinds
-        // Background control obeys the per-Computer Direct allowlist exactly
-        // like the foreground dial: enabled addresses only, fail closed.
-        let directOnlyCandidates = irohDirectOnlyDialCandidates(
+        // Background control obeys the per-Computer method allowlist exactly
+        // like the foreground dial: pinned addresses only, fail closed.
+        let directOnlyCandidates = irohMethodPinnedDialCandidates(
             forMacDeviceID: mac.macDeviceID,
             instanceTag: mac.instanceTag,
             knownPairing: mac
@@ -8889,16 +8894,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Per-Computer Direct enforcement: stored-Mac reconnects resolve the
         // allowlist from their freshly loaded row and pass it in; ticket
         // dials resolve it here from the published pairing list. `nil` means
-        // the target's method is not Direct.
+        // the target's method pins no addresses (automatic, or a legacy
+        // pairing without an Iroh identity).
         let directOnlyDialCandidates = directOnlyDialCandidates
-            ?? irohDirectOnlyDialCandidates(
+            ?? irohMethodPinnedDialCandidates(
                 forMacDeviceID: ticket.macDeviceID,
                 instanceTag: nil
             )
         if let directOnlyDialCandidates {
             // Temporary Direct-lane diagnostics for dogfood; remove before merge.
             MobileDebugLog.anchormux(
-                "direct.dial connect mac=\(ticket.macDeviceID) allowlist=["
+                "methodPinned.dial connect mac=\(ticket.macDeviceID) allowlist=["
                     + directOnlyDialCandidates
                         .map { "\($0.address):\($0.port.map(String.init) ?? "broker-udp")" }
                         .joined(separator: ",")

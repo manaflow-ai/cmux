@@ -897,7 +897,8 @@ struct WorkspaceListView: View {
             connectionStatus: connectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
-            initialConnectionTimedOut: initialConnectionTimedOut
+            initialConnectionTimedOut: initialConnectionTimedOut,
+            hasLiveTransportPath: store?.workspaceListHasLiveTransportPath ?? false
         )
     }
 

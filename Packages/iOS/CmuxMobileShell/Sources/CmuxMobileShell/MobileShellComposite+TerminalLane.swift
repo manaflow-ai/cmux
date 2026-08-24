@@ -14,14 +14,15 @@ extension MobileShellComposite {
             return
         }
         // A lane request can redial the peer session, so it must carry the
-        // same Direct allowlist as the control dial or a Direct Computer's
-        // lane reconnect could ride relay or discovered paths.
+        // same method-pinned allowlist as the control dial or a Direct or
+        // Tailscale Only Computer's lane reconnect could ride relay or
+        // discovered paths the method forbids.
         let request = CmxByteTransportRequest(
             route: activeRoute,
             expectedPeerDeviceID: activeTicket.macDeviceID,
             authorizationMode: .transportAdmission,
             sessionPurpose: .featureLane,
-            irohDirectOnlyDialCandidates: irohDirectOnlyDialCandidates(
+            irohDirectOnlyDialCandidates: irohMethodPinnedDialCandidates(
                 forMacDeviceID: activeTicket.macDeviceID,
                 instanceTag: activeMacInstanceTag
             )

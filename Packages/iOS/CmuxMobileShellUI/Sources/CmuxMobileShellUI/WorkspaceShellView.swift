@@ -729,7 +729,8 @@ struct WorkspaceShellView: View {
             connectionStatus: listConnectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
-            initialConnectionTimedOut: initialConnectionTimedOut
+            initialConnectionTimedOut: initialConnectionTimedOut,
+            hasLiveTransportPath: store.workspaceListHasLiveTransportPath
         ).statusLine
     }
 

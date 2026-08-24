@@ -750,24 +750,25 @@ extension MobileShellComposite {
         MobileDebugLog.anchormux(
             "storedMac.dial mac=\(pairedMacDeviceID) expectedTag=\(instanceTagExpectation.expectedTag ?? "nil") method=\(resolvedMethod.rawValue) knownPairing=\(knownPairing != nil) routes=\(routes.count)"
         )
-        // The Direct method rides the Iroh lane below: identity-checked and
-        // encrypted. Its user-enabled addresses are the COMPLETE per-dial
+        // Direct and Tailscale Only ride the Iroh lane below: identity-checked
+        // and encrypted, with transport admission as the single auth
+        // authority. The method's addresses (user-enabled Direct entries, or
+        // the pairing's numeric Tailscale addresses) are the COMPLETE per-dial
         // path allowlist (no relay, no advertised or discovered paths), so
         // resolve them from the caller's fresh row first for the same
         // startup-restore reason as the method above, and fail closed when
-        // nothing is enabled. Raw host/port dialing cannot carry the account
-        // credential (plaintext TCP), so no separate lane exists.
-        let directOnlyCandidates = resolvedMethod == .direct
-            ? irohDirectOnlyDialCandidates(
-                forMacDeviceID: pairedMacDeviceID,
-                instanceTag: instanceTagExpectation.expectedTag,
-                knownPairing: knownPairing
-            ) ?? []
-            : nil
-        if let directOnlyCandidates, directOnlyCandidates.isEmpty {
+        // nothing is dialable. Raw host/port dialing cannot carry the account
+        // credential (plaintext TCP), so it stays reserved for legacy
+        // pairings without an Iroh identity (nil candidates below).
+        let methodPinnedCandidates = irohMethodPinnedDialCandidates(
+            forMacDeviceID: pairedMacDeviceID,
+            instanceTag: instanceTagExpectation.expectedTag,
+            knownPairing: knownPairing
+        ) ?? (resolvedMethod == .direct ? [] : nil)
+        if let methodPinnedCandidates, methodPinnedCandidates.isEmpty {
             // Temporary Direct-lane diagnostics for dogfood; remove before merge.
             MobileDebugLog.anchormux(
-                "direct.dial fail-closed mac=\(pairedMacDeviceID) reason=no-enabled-addresses"
+                "methodPinned.dial fail-closed mac=\(pairedMacDeviceID) method=\(resolvedMethod.rawValue) reason=no-dialable-addresses"
             )
             return .failed(.unsupportedRoute)
         }
@@ -777,15 +778,16 @@ extension MobileShellComposite {
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
             tailscaleRequirement: resolvedMethod == .tailscale
+                && methodPinnedCandidates == nil
                 ? Self.TailscaleRouteRequirement(
                     macDeviceID: pairedMacDeviceID,
                     grantRoutes: legacyTailscaleRoutes
                 )
                 : nil
         )
-        if directOnlyCandidates != nil {
-            // Direct never rides the dev loopback or any host/port lane: the
-            // allowlist constrains the Iroh dial exclusively.
+        if methodPinnedCandidates != nil {
+            // A pinned method never rides the dev loopback or any host/port
+            // lane: the allowlist constrains the Iroh dial exclusively.
             pinnedRoutes = pinnedRoutes.filter { $0.kind == .iroh }
         }
         guard let firstRoute = pinnedRoutes.first else { return .failed(.unsupportedRoute) }
@@ -809,7 +811,7 @@ extension MobileShellComposite {
                 let noThrowFailure = try await connect(
                     ticket: ticket,
                     legacyTailscaleRoutes: legacyTailscaleRoutes,
-                    directOnlyDialCandidates: directOnlyCandidates,
+                    directOnlyDialCandidates: methodPinnedCandidates,
                     pairedMacDeviceID: pairedMacDeviceID,
                     instanceTagExpectation: instanceTagExpectation,
                     ifStillCurrent: ifStillCurrent

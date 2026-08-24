@@ -151,6 +151,14 @@ extension MobileShellComposite {
     public nonisolated static func hasUsableTailscaleAuthorization(
         in macs: [MobilePairedMac]
     ) -> Bool {
+        // An Iroh-identified pairing with a numeric Tailscale address dials
+        // the Iroh lane pinned to that address: admission authenticates it,
+        // so no device-local legacy grant is required.
+        for mac in macs where mac.routes.contains(where: { $0.kind == .iroh }) {
+            if !irohTailscaleDialCandidates(for: mac).isEmpty {
+                return true
+            }
+        }
         var authorizedEndpoints: Set<MobileTailscaleAuthorizationEndpoint> = []
         for mac in macs {
             for route in mac.legacyTailscaleRoutes ?? [] {
@@ -281,21 +289,27 @@ extension MobileShellComposite {
         supportedKinds: [CmxAttachTransportKind]
     ) -> [CmxAttachRoute] {
         let method = connectionMethod(for: mac)
+        // Tailscale Only on an Iroh-identified pairing rides the Iroh lane
+        // pinned to the pairing's numeric Tailscale addresses; the raw
+        // grant-gated host lane remains only for legacy pairings without an
+        // Iroh identity, so admission stays the single auth authority.
+        let tailscaleRidesPinnedIroh = method == .tailscale
+            && mac.routes.contains { $0.kind == .iroh }
         let routes = Self.storedReconnectRoutes(
             mac.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
-            tailscaleRequirement: method == .tailscale
+            tailscaleRequirement: method == .tailscale && !tailscaleRidesPinnedIroh
                 ? TailscaleRouteRequirement(
                     macDeviceID: mac.macDeviceID,
                     grantRoutes: mac.legacyTailscaleRoutes ?? []
                 )
                 : nil
         )
-        // Direct rides the Iroh lane EXCLUSIVELY: the transport dials only
-        // the Computer's user-enabled addresses, and no dev-loopback or
-        // host/port lane may substitute when they are unreachable.
-        return method == .direct
+        // A pinned method rides the Iroh lane EXCLUSIVELY: the transport
+        // dials only the method's allowlisted addresses, and no dev-loopback
+        // or host/port lane may substitute when they are unreachable.
+        return method == .direct || tailscaleRidesPinnedIroh
             ? routes.filter { $0.kind == .iroh }
             : routes
     }
