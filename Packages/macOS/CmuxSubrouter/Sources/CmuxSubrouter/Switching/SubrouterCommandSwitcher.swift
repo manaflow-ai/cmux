@@ -1,5 +1,6 @@
 public import Foundation
 public import CmuxFoundation
+import os
 
 /// The production ``SubrouterAccountSwitching``: runs the `sr` CLI through
 /// the shared ``CmuxFoundation/CommandRunning`` seam.
@@ -9,6 +10,11 @@ public import CmuxFoundation
 /// install locations (`~/bin`, Homebrew paths). Only the account id crosses
 /// the process boundary — never any credential material.
 public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
+    private nonisolated static let logger = Logger(
+        subsystem: "com.cmuxterm.app",
+        category: "SubrouterCommandSwitcher"
+    )
+
     /// Deadline for one `sr` invocation (it may refresh a token upstream).
     public static let commandTimeout: TimeInterval = 30
 
@@ -75,9 +81,8 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
             if result.exitStatus == 0 {
                 return
             }
-            throw SubrouterSwitchError.commandFailed(
-                description: Self.failureDescription(result)
-            )
+            Self.logFailure(result)
+            throw SubrouterSwitchError.commandFailed
         }
         if sawLaunchFailure {
             throw SubrouterSwitchError.commandNotFound
@@ -102,11 +107,12 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
         }
     }
 
-    private static func failureDescription(_ result: CommandResult) -> String {
+    private static func logFailure(_ result: CommandResult) {
         let stderr = result.stderr?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !stderr.isEmpty { return String(stderr.prefix(300)) }
         let stdout = result.stdout?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !stdout.isEmpty { return String(stdout.prefix(300)) }
-        return "sr exited with status \(result.exitStatus.map(String.init) ?? "unknown")"
+        let status = result.exitStatus.map(String.init) ?? "unknown"
+        Self.logger.error(
+            "sr command failed: status=\(status, privacy: .public) stderr=\(stderr, privacy: .private(mask: .hash)) stdout=\(stdout, privacy: .private(mask: .hash))"
+        )
     }
 }

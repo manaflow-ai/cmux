@@ -160,7 +160,7 @@ extension CMUXCLI {
         guard let executable else {
             throw CLIError(message: """
                 subrouter is not installed and this cmux build does not bundle it.
-                Install it with: curl -fsSL https://github.com/manaflow-ai/subrouter/releases/latest/download/install.sh | sh
+                Install it explicitly from github.com/manaflow-ai/subrouter, then retry.
                 """)
         }
         var argv: [UnsafeMutablePointer<CChar>?] = [strdup(persona)]

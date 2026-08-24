@@ -90,7 +90,7 @@ public struct SubrouterAccountSwitcherPopoverView: View {
         // daemon endpoint stays reachable via `cmux subrouter switch`).
         guard !store.configuration.isRemoteEndpoint,
               !account.isActive,
-              account.provider.supportsSwitching,
+              account.isSwitchableCandidate,
               store.pendingSwitch == nil else {
             return nil
         }

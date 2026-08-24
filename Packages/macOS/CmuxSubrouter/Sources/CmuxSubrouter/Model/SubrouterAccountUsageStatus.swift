@@ -153,6 +153,17 @@ extension SubrouterAccountUsageStatus {
         return false
     }
 
+    /// Whether this row is a valid target for an interactive account switch.
+    ///
+    /// The daemon's `sr switch` path rejects quota-blocked accounts, so both
+    /// UI entry points use this shared predicate instead of offering a button
+    /// that can only end in a command failure.
+    public var isSwitchableCandidate: Bool {
+        provider.supportsSwitching
+            && (!authChecked || authValid)
+            && quotaAssessment == .ok
+    }
+
     /// The most consumed quota window — the one that will limit the account
     /// first — or `nil` when no usage data is available.
     public var constrainingWindow: SubrouterUsageWindow? {

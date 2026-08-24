@@ -4,7 +4,13 @@ import CmuxSubrouter
 /// Reads the subrouter integration settings from `UserDefaults` (the keys
 /// declared in `CmuxSettings`' `SubrouterCatalogSection` and the sidebar
 /// catalog) and assembles the store's ``SubrouterConfiguration``.
-enum SubrouterIntegrationSettings {
+struct SubrouterIntegrationSettings {
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
     static let enabledKey = "subrouterEnabled"
     static let endpointKey = "subrouterEndpoint"
     static let commandPathKey = "subrouterCommandPath"
@@ -18,30 +24,28 @@ enum SubrouterIntegrationSettings {
     /// `subrouter.enabled` setting (default on) is the user's opt-out
     /// inside the flag.
     ///
-    /// Reads the flag via `assumeIsolated`: every caller (mode availability,
-    /// panel/footer views, the app runtime) is main-actor, and the socket
-    /// lane reads the store's captured configuration instead of calling this.
-    nonisolated static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        let flagEnabled = MainActor.assumeIsolated {
-            CmuxFeatureFlags.shared.isSubrouterUIEnabled
-        }
-        return flagEnabled && userOptIn(defaults: defaults)
+    /// Reads the feature flag from ``CmuxFeatureFlags``' synchronized
+    /// off-main snapshot, so mode-availability callers do not need a runtime
+    /// `MainActor.assumeIsolated` precondition.
+    var isEnabled: Bool {
+        let flagEnabled = CmuxFeatureFlags.offMainEffectiveValue(for: CmuxFeatureFlags.subrouterUIFlag)
+        return flagEnabled && userOptIn
     }
 
     /// The raw `subrouter.enabled` setting, without the feature flag.
-    nonisolated static func userOptIn(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: enabledKey) != nil else { return defaultEnabled }
-        return defaults.bool(forKey: enabledKey)
+    var userOptIn: Bool {
+        guard defaults.object(forKey: Self.enabledKey) != nil else { return Self.defaultEnabled }
+        return defaults.bool(forKey: Self.enabledKey)
     }
 
     /// Whether the left-sidebar footer switcher should render: the master
     /// gate plus its own toggle.
-    nonisolated static func showsAccountSwitcher(defaults: UserDefaults = .standard) -> Bool {
-        guard isEnabled(defaults: defaults) else { return false }
-        guard defaults.object(forKey: showAccountSwitcherKey) != nil else {
-            return defaultShowAccountSwitcher
+    var showsAccountSwitcher: Bool {
+        guard isEnabled else { return false }
+        guard defaults.object(forKey: Self.showAccountSwitcherKey) != nil else {
+            return Self.defaultShowAccountSwitcher
         }
-        return defaults.bool(forKey: showAccountSwitcherKey)
+        return defaults.bool(forKey: Self.showAccountSwitcherKey)
     }
 
     /// The store configuration derived from current defaults.
@@ -55,8 +59,7 @@ enum SubrouterIntegrationSettings {
     /// resolve `sr` from `PATH`. Taking the selection as a parameter keeps
     /// this callable from hot notification paths (`UserDefaults` did-change
     /// fires on every defaults write) without any main-thread disk I/O.
-    nonisolated static func currentConfiguration(
-        defaults: UserDefaults = .standard,
+    func currentConfiguration(
         serverSelection: SubrouterServerSelection.Server?,
         serverRegistryIsUnreadable: Bool = false
     ) -> SubrouterConfiguration {
@@ -83,7 +86,7 @@ enum SubrouterIntegrationSettings {
         let commandPath = (defaults.string(forKey: commandPathKey) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return SubrouterConfiguration(
-            isEnabled: isEnabled(defaults: defaults)
+            isEnabled: isEnabled
                 && !endpointSettingIsInvalid
                 && !registryBlocksConfiguration,
             endpoint: endpoint ?? .standard,

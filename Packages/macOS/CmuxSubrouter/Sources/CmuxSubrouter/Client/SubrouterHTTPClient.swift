@@ -1,4 +1,5 @@
 public import Foundation
+import os
 
 /// The production ``SubrouterClienting``: a thin `URLSession` client for the
 /// daemon's loopback HTTP API.
@@ -6,10 +7,15 @@ public import Foundation
 /// Uses an ephemeral session (no cookies, no cache) with short per-request
 /// timeouts so an unreachable daemon fails fast instead of stalling callers.
 public struct SubrouterHTTPClient: SubrouterClienting {
+    private nonisolated static let logger = Logger(
+        subsystem: "com.cmuxterm.app",
+        category: "SubrouterHTTPClient"
+    )
+
     /// The per-request timeout for reads; connection-refused fails sooner.
     /// Generous because `/usage-status` fans out to provider APIs on the
-    /// daemon side — a cold refresh of a large remote pool (57 accounts on
-    /// cmux-mac-mini) has been measured at 32s, and a too-tight timeout
+    /// daemon side — a cold refresh of a large remote pool can exceed 30s,
+    /// and a too-tight timeout
     /// reads as "refresh failing" with an empty panel. A genuinely dead
     /// daemon still fails fast at the connection layer, so the long read
     /// timeout only applies while the server is actually working.
@@ -103,9 +109,16 @@ public struct SubrouterHTTPClient: SubrouterClienting {
         do {
             (data, response) = try await session.data(for: request)
         } catch {
-            throw SubrouterClientError.unreachable(description: error.localizedDescription)
+            Self.logger.error(
+                "Subrouter request failed: \(error.localizedDescription, privacy: .private(mask: .hash))"
+            )
+            throw SubrouterClientError.unreachable(description: "transport failure")
         }
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            let body = String(data: data.prefix(512), encoding: .utf8) ?? "<non-UTF8>"
+            Self.logger.error(
+                "Subrouter HTTP status \(http.statusCode): body=\(body, privacy: .private(mask: .hash))"
+            )
             // The raw body never crosses this boundary: `shortDescription`
             // feeds UI and CLI surfaces, so only the status code is safe.
             throw SubrouterClientError.httpStatus(code: http.statusCode, description: "")
@@ -113,8 +126,14 @@ public struct SubrouterHTTPClient: SubrouterClienting {
         do {
             return try decoder.decode(Payload.self, from: data)
         } catch let error as DecodingError {
+            Self.logger.error(
+                "Subrouter response decode failed: \(String(describing: error), privacy: .private(mask: .hash))"
+            )
             throw SubrouterClientError.decoding(description: Self.decodingSummary(error))
         } catch {
+            Self.logger.error(
+                "Subrouter response decode failed: \(error.localizedDescription, privacy: .private(mask: .hash))"
+            )
             throw SubrouterClientError.decoding(description: "unexpected daemon response")
         }
     }

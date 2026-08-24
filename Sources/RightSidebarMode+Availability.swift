@@ -25,7 +25,7 @@ extension RightSidebarMode {
         availableModes(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
-            agentsEnabled: SubrouterIntegrationSettings.isEnabled(defaults: defaults)
+            agentsEnabled: SubrouterIntegrationSettings(defaults: defaults).isEnabled
         )
     }
 
@@ -43,7 +43,7 @@ extension RightSidebarMode {
         isAvailable(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
-            agentsEnabled: SubrouterIntegrationSettings.isEnabled(defaults: defaults)
+            agentsEnabled: SubrouterIntegrationSettings(defaults: defaults).isEnabled
         )
     }
 

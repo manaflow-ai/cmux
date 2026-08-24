@@ -38,9 +38,10 @@ public enum SubrouterMaintenanceCommand {
         )
     }
 
-    /// The command that re-runs the provider's login for an existing
-    /// account (Codex OAuth infers the account from the login; Claude
-    /// re-auths the named profile), or `nil` when unsupported.
+    /// The command that re-runs the provider's login for an existing account,
+    /// or `nil` when the provider has no safe profile-reuse verb. Codex OAuth
+    /// can infer the account; the pinned Claude CLI's `add <name>` creates a
+    /// profile and therefore is intentionally not exposed as re-auth.
     public static func signIn(
         provider: SubrouterProvider,
         accountID: String,
@@ -50,7 +51,7 @@ public enum SubrouterMaintenanceCommand {
         case .codex:
             return scoped("cmux sr add", target: target)
         case .claude:
-            return scoped("cmux sr claude add \(shellQuoted(accountID))", target: target)
+            return nil
         default:
             return nil
         }

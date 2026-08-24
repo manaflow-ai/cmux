@@ -1010,8 +1010,15 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "showAccountSwitcher": "Show the AI-agent account switcher in the sidebar footer. Only takes effect while subrouter.enabled is on.",
           "notificationMessageLineLimit": "각 작업 공간 제목 아래에 표시되는 최신 알림의 최대 줄 수입니다.",
           "rightMaxWidth": "오른쪽 사이드바의 최대 너비(포인트). 생략하면 내장 동적 상한이 적용됩니다."
+        },
+        "subrouter": {
+          "description": "Local subrouter daemon integration (AI-agent account switching and usage) from Settings > Agent Accounts.",
+          "enabled": "User opt-out for the subrouter integration (availability itself is controlled by the subrouter-ui-enabled-release feature flag). When false, cmux never contacts the daemon or runs the sr CLI.",
+          "endpoint": "Daemon address as host:port or a full http(s) URL. Empty means http://127.0.0.1:31415.",
+          "commandPath": "Explicit path to the sr/subrouter CLI used for account switches. Empty resolves from PATH and ~/bin."
         },
         "fileExplorer": {
           "description": "오른쪽 사이드바 파일 탐색기(파일 트리) 설정입니다.",

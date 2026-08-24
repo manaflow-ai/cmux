@@ -26,7 +26,7 @@ import Testing
         )
         #expect(
             SubrouterMaintenanceCommand.signIn(provider: .claude, accountID: "work")
-                == "SUBROUTER_CODEX_SERVER=local cmux sr claude add 'work'"
+                == nil
         )
     }
 

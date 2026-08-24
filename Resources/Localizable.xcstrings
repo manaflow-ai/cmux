@@ -266504,13 +266504,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The subrouter integration is disabled. Enable it in Settings or set subrouter.enabled in ~/.config/cmux/cmux.json."
+            "value": "The subrouter integration is disabled. Enable it in Settings before using Subrouter commands."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "subrouter 連携は無効です。設定で有効にするか、~/.config/cmux/cmux.json の subrouter.enabled を設定してください。"
+            "value": "subrouter 連携は無効です。Subrouter コマンドを使う前に設定で有効にしてください。"
           }
         }
       }
@@ -266528,6 +266528,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "subrouter デーモンがアカウントのリロードに失敗したと報告しました。"
+          }
+        }
+      }
+    },
+    "socket.subrouter.switchFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The account switch failed unexpectedly."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントの切り替えに予期しない失敗が発生しました。"
+          }
+        }
+      }
+    },
+    "socket.subrouter.unexpectedError": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The subrouter daemon could not be reached."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "subrouter デーモンに接続できませんでした。"
+          }
+        }
+      }
+    },
+    "cli.subrouter.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The subrouter integration is disabled. Enable it in Settings before running this command."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "subrouter 連携は無効です。このコマンドを実行する前に設定で有効にしてください。"
+          }
+        }
+      }
+    },
+    "cli.subrouter.install.manual": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "subrouter is not installed. Install it explicitly from github.com/manaflow-ai/subrouter, then run cmux subrouter again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "subrouter がインストールされていません。github.com/manaflow-ai/subrouter から明示的にインストールして、cmux subrouter をもう一度実行してください。"
+          }
+        }
+      }
+    },
+    "cli.subrouter.remoteUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The configured remote subrouter is unavailable. Check the server connection and retry; cmux will not install a local daemon."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定したリモート subrouter を利用できません。サーバー接続を確認して再試行してください。cmux はローカルデーモンをインストールしません。"
           }
         }
       }
@@ -266902,6 +266987,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "デーモンの再読み込みが失敗を報告しました"
+          }
+        }
+      }
+    },
+    "subrouter.error.unreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The subrouter daemon could not be reached."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "subrouter デーモンに接続できませんでした。"
+          }
+        }
+      }
+    },
+    "subrouter.error.httpStatus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The subrouter daemon returned HTTP %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "subrouter デーモンが HTTP %@ を返しました。"
+          }
+        }
+      }
+    },
+    "subrouter.error.decoding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The subrouter daemon returned an invalid response."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "subrouter デーモンが無効な応答を返しました。"
+          }
+        }
+      }
+    },
+    "subrouter.error.unexpected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The subrouter daemon returned an unexpected error."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "subrouter デーモンで予期しないエラーが発生しました。"
+          }
+        }
+      }
+    },
+    "subrouter.error.unexpectedReload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The daemon reload could not be confirmed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デーモンの再読み込みを確認できませんでした。"
           }
         }
       }

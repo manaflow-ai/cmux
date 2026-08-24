@@ -21,10 +21,10 @@ extension SubrouterSwitchError {
                 localized: "subrouter.switchError.notInstalled",
                 defaultValue: "The sr CLI was not found. Install subrouter, or set its path in Settings."
             )
-        case .commandFailed(let description):
+        case .commandFailed:
             return String(
                 localized: "subrouter.switchError.failed",
-                defaultValue: "Switch failed: \(description)"
+                defaultValue: "The account switch failed. Check the subrouter status and try again."
             )
         case .commandTimedOut:
             return String(

@@ -55,9 +55,8 @@ extension SubrouterStore {
                 // does, so a 2xx body reporting failure never reads as a
                 // successful switch.
                 guard result.ok else {
-                    throw SubrouterSwitchError.commandFailed(
-                        description: "daemon reported switch failure"
-                    )
+                    Self.logger.error("Remote subrouter switch returned ok=false")
+                    throw SubrouterSwitchError.commandFailed
                 }
             } else {
                 try await switcher.switchAccount(
@@ -79,15 +78,19 @@ extension SubrouterStore {
                         ?? endpointAtSwitch.baseURL.host() ?? "remote"
                 )
             } else {
-                mapped = .commandFailed(description: error.shortDescription)
+                Self.logger.error(
+                    "Remote subrouter switch failed: \(error.shortDescription, privacy: .private(mask: .hash))"
+                )
+                mapped = .commandFailed
             }
             lastSwitchError = mapped
             throw mapped
         } catch {
             // Unknown errors never carry raw dumps into user-facing state.
-            let wrapped = SubrouterSwitchError.commandFailed(
-                description: "unexpected error (\(type(of: error)))"
+            Self.logger.error(
+                "Unexpected subrouter switch error: \(String(describing: error), privacy: .private(mask: .hash))"
             )
+            let wrapped = SubrouterSwitchError.commandFailed
             lastSwitchError = wrapped
             throw wrapped
         }
@@ -114,9 +117,18 @@ extension SubrouterStore {
                     )
                 }
             } catch let error as SubrouterClientError {
+                Self.logger.error(
+                    "Subrouter reload warning: \(error.shortDescription, privacy: .private(mask: .hash))"
+                )
                 reloadWarning = error.shortDescription
             } catch {
-                reloadWarning = "unexpected error (\(type(of: error)))"
+                Self.logger.error(
+                    "Unexpected subrouter reload warning: \(String(describing: error), privacy: .private(mask: .hash))"
+                )
+                reloadWarning = String(
+                    localized: "subrouter.error.unexpectedReload",
+                    defaultValue: "The daemon reload could not be confirmed."
+                )
             }
         }
         // Sessions stay out of the post-switch refresh: nothing that runs
@@ -138,6 +150,16 @@ extension SubrouterStore {
     /// - Throws: ``SubrouterClientError`` when the daemon is unreachable.
     @discardableResult
     public func reloadDaemonAccounts() async throws -> SubrouterReloadResult {
+        guard configuration.isEnabled else {
+            throw SubrouterClientError.unsupported(
+                description: "The subrouter integration is disabled."
+            )
+        }
+        guard !configuration.isRemoteEndpoint else {
+            throw SubrouterClientError.unsupported(
+                description: "Account reload is only available for the local subrouter daemon."
+            )
+        }
         let result = try await client.reloadAccounts(endpoint: configuration.endpoint)
         // The reload verb's payload never reads sessions; skip the
         // whole-history transfer here too.

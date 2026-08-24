@@ -1,5 +1,6 @@
 public import Foundation
 public import Observation
+import os
 
 /// The single owner of cmux's subrouter state: it polls the daemon while a
 /// subrouter UI surface is visible, projects results into an immutable
@@ -25,6 +26,11 @@ public import Observation
 @MainActor
 @Observable
 public final class SubrouterStore {
+    nonisolated static let logger = Logger(
+        subsystem: "com.cmuxterm.app",
+        category: "SubrouterStore"
+    )
+
     // MARK: Observable state
 
     /// The current projection of daemon state, accounts, and sessions.
@@ -315,14 +321,20 @@ public final class SubrouterStore {
         case failure(description: String, daemonReachable: Bool)
     }
 
-    /// A user-safe description for a refresh error. Unknown errors never
-    /// carry raw dumps into user-facing state; the type name alone is safe
-    /// and still diagnostic.
+    /// A user-safe description for a refresh error. Unknown errors are
+    /// logged internally and reduced to a stable product message before they
+    /// reach the observable snapshot.
     private static func shortDescription(for error: any Error) -> String {
         if let clientError = error as? SubrouterClientError {
             return clientError.shortDescription
         }
-        return "unexpected error (\(type(of: error)))"
+        Self.logger.error(
+            "Unexpected subrouter refresh error: \(String(describing: error), privacy: .private(mask: .hash))"
+        )
+        return String(
+            localized: "subrouter.error.unexpected",
+            defaultValue: "The subrouter daemon returned an unexpected error."
+        )
     }
 
     /// Shapes a refresh failure. The data endpoints can fail while the

@@ -7,8 +7,10 @@ public enum SubrouterSwitchError: Error, Sendable, Equatable {
     /// Neither the configured command path nor `sr`/`subrouter` on `PATH`
     /// (or the standard install locations) could be launched.
     case commandNotFound
-    /// The `sr` invocation ran but failed; carries trimmed stderr/stdout.
-    case commandFailed(description: String)
+    /// The `sr` invocation ran but failed. Detailed subprocess output is
+    /// logged internally by ``SubrouterCommandSwitcher`` and never crosses
+    /// the public error boundary.
+    case commandFailed
     /// The `sr` invocation exceeded its deadline and was terminated.
     case commandTimedOut
     /// A switch for the same provider is already in flight.

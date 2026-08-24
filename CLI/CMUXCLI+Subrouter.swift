@@ -6,15 +6,19 @@ import Foundation
 // single daemon-interaction path), so the Agents panel and footer switcher
 // update immediately after a CLI switch or reload.
 extension CMUXCLI {
+    /// Leaves headroom for the app's socket deadline and a cold remote usage
+    /// fan-out before the CLI gives up on a read-only subrouter verb.
+    private static let subrouterDataResponseTimeout: TimeInterval = 120
+
     static let subrouterUsage = """
         Usage: cmux subrouter [setup|status|accounts|usage|switch|sessions|reload] [--json]
 
           cmux subrouter
               First-run welcome: installs the sr CLI if missing, starts the
-              local daemon, and shows how to add accounts. Safe to re-run.
+              configured daemon, and shows how to add accounts. Safe to re-run.
 
-        Inspect and switch the AI-agent accounts managed by the local subrouter
-        daemon (http://127.0.0.1:31415). Requires the subrouter integration to
+        Inspect and switch the AI-agent accounts managed by the configured
+        subrouter daemon (local or remote). Requires the subrouter integration to
         be enabled (Settings, or subrouter.enabled in ~/.config/cmux/cmux.json).
 
           cmux subrouter status [--json]
@@ -59,7 +63,7 @@ extension CMUXCLI {
             try runSubrouterWelcome(client: client)
 
         case "status":
-            let response = try client.sendV2(method: "subrouter.status", responseTimeout: 45)
+            let response = try client.sendV2(method: "subrouter.status", responseTimeout: Self.subrouterDataResponseTimeout)
             if jsonOutput {
                 print(jsonString(response))
                 return
@@ -67,7 +71,7 @@ extension CMUXCLI {
             printSubrouterStatus(response)
 
         case "accounts":
-            let response = try client.sendV2(method: "subrouter.accounts", responseTimeout: 45)
+            let response = try client.sendV2(method: "subrouter.accounts", responseTimeout: Self.subrouterDataResponseTimeout)
             if jsonOutput {
                 print(jsonString(response))
                 return
@@ -75,7 +79,7 @@ extension CMUXCLI {
             printSubrouterAccounts(response, includeWindows: false)
 
         case "usage":
-            let response = try client.sendV2(method: "subrouter.usage", responseTimeout: 45)
+            let response = try client.sendV2(method: "subrouter.usage", responseTimeout: Self.subrouterDataResponseTimeout)
             if jsonOutput {
                 print(jsonString(response))
                 return
@@ -110,7 +114,7 @@ extension CMUXCLI {
             }
 
         case "sessions":
-            let response = try client.sendV2(method: "subrouter.sessions", responseTimeout: 45)
+            let response = try client.sendV2(method: "subrouter.sessions", responseTimeout: Self.subrouterDataResponseTimeout)
             if jsonOutput {
                 print(jsonString(response))
                 return
@@ -129,7 +133,7 @@ extension CMUXCLI {
             }
 
         case "reload":
-            let response = try client.sendV2(method: "subrouter.reload", responseTimeout: 45)
+            let response = try client.sendV2(method: "subrouter.reload", responseTimeout: Self.subrouterDataResponseTimeout)
             if jsonOutput {
                 print(jsonString(response))
                 return
@@ -142,15 +146,55 @@ extension CMUXCLI {
             // Anything else is an sr verb (add, list, pick, server, claude,
             // …): hand the whole invocation to the subrouter binary — the
             // user's PATH install when present, else the bundled one.
+            try requireSubrouterIntegrationEnabled(client: client)
             try execSubrouter(persona: "sr", arguments: [sub] + rest)
         }
     }
 
+    /// Prevents passthrough commands from bypassing the feature gate and
+    /// mutating account state while the integration is disabled.
+    func requireSubrouterIntegrationEnabled(client: SocketClient) throws {
+        do {
+            // Ask the running app for its effective remote feature-flag plus
+            // user-setting gate without triggering a network refresh. This
+            // keeps `cmux sr …` on the same control plane as the panel.
+            _ = try client.sendV2(
+                method: "subrouter.status",
+                params: ["refresh": false],
+                responseTimeout: 5
+            )
+            return
+        } catch let error as CLIError where error.v2Code == "subrouter_disabled" {
+            throw CLIError(message: String(
+                localized: "cli.subrouter.disabled",
+                defaultValue: "The subrouter integration is disabled. Enable it in Settings before running sr commands."
+            ))
+        } catch {
+            // The standalone CLI can still be used when no cmux app is
+            // running, but honor an explicit local opt-out in that case.
+            if UserDefaults.standard.object(forKey: "subrouterEnabled") != nil,
+               !UserDefaults.standard.bool(forKey: "subrouterEnabled") {
+                throw CLIError(message: String(
+                    localized: "cli.subrouter.disabled",
+                    defaultValue: "The subrouter integration is disabled. Enable it in Settings before running sr commands."
+                ))
+            }
+        }
+    }
+
     /// The bare `cmux subrouter` onboarding flow: install the sr CLI when
-    /// missing (official checksummed installer), start the local daemon when
-    /// unreachable, then show status plus how to add accounts. Idempotent —
+    /// missing from the bundled binary or an explicit user install, start the
+    /// local daemon only when the configured endpoint is loopback, then show
+    /// status plus how to add
+    /// accounts. Idempotent —
     /// re-running on a healthy setup just prints status and next steps.
     private func runSubrouterWelcome(client: SocketClient) throws {
+        do {
+            try requireSubrouterIntegrationEnabled(client: client)
+        } catch {
+            print(error)
+            return
+        }
         print("cmux ⨯ subrouter — route agents across subscription accounts")
         print("")
 
@@ -165,32 +209,30 @@ extension CMUXCLI {
             print("✓ Installed the bundled sr CLI (\(installed))")
         }
         if srPath == nil {
-            print("subrouter is not installed. Installing from github.com/manaflow-ai/subrouter…")
-            let install = CLIProcessRunner.runProcess(
-                executablePath: "/bin/sh",
-                arguments: ["-c", "curl -fsSL https://github.com/manaflow-ai/subrouter/releases/latest/download/install.sh | sh"],
-                timeout: 120
-            )
-            if install.status == 0 {
-                srPath = resolveSubrouterBinary()
-                print("  ✓ Installed \(srPath ?? "~/bin/subrouter")")
-            } else {
-                let detail = install.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-                print("  ✗ Install failed\(detail.isEmpty ? "" : ": \(detail.prefix(200))")")
-                print("    Run it manually: curl -fsSL https://github.com/manaflow-ai/subrouter/releases/latest/download/install.sh | sh")
-            }
+            print(String(
+                localized: "cli.subrouter.install.manual",
+                defaultValue: "subrouter is not installed. Install it explicitly from github.com/manaflow-ai/subrouter, then run cmux subrouter again."
+            ))
         } else {
             print("✓ sr CLI installed (\(srPath ?? ""))")
         }
 
         // 2. The daemon, through the app (which follows sr's server selection).
-        var statusResponse = try? client.sendV2(method: "subrouter.status", responseTimeout: 45)
+        var statusResponse = try? client.sendV2(method: "subrouter.status", responseTimeout: Self.subrouterDataResponseTimeout)
         if statusResponse == nil {
             print("✗ The cmux subrouter integration is disabled.")
             print("  Enable it in Settings → Agent Accounts, or set {\"subrouter\": {\"enabled\": true}} in ~/.config/cmux/cmux.json.")
         } else if let daemon = statusResponse?["daemon"] as? [String: Any],
                   (daemon["state"] as? String) != "healthy",
                   let srPath {
+            let endpoint = (statusResponse?["endpoint"] as? String) ?? ""
+            guard Self.isLoopbackSubrouterEndpoint(endpoint) else {
+                print(String(
+                    localized: "cli.subrouter.remoteUnavailable",
+                    defaultValue: "The configured remote subrouter is unavailable. Check the server connection and retry; cmux will not install a local daemon."
+                ))
+                return
+            }
             print("Starting the local subrouter daemon…")
             let daemonSetup = CLIProcessRunner.runProcess(executablePath: srPath, arguments: ["install-daemon"], timeout: 60)
             if daemonSetup.status == 0 {
@@ -198,7 +240,7 @@ extension CMUXCLI {
                 // as the daemon reports healthy, give up after ~5s.
                 for _ in 0..<10 {
                     Thread.sleep(forTimeInterval: 0.5)
-                    statusResponse = try? client.sendV2(method: "subrouter.status", responseTimeout: 45)
+                    statusResponse = try? client.sendV2(method: "subrouter.status", responseTimeout: Self.subrouterDataResponseTimeout)
                     if let daemon = statusResponse?["daemon"] as? [String: Any],
                        (daemon["state"] as? String) == "healthy" {
                         break
@@ -233,6 +275,11 @@ extension CMUXCLI {
         print("Team server? `sr server add <name> --url <url> --default` — cmux follows sr's selection automatically.")
     }
 
+    private static func isLoopbackSubrouterEndpoint(_ raw: String) -> Bool {
+        guard let url = URL(string: raw), let host = url.host?.lowercased() else { return false }
+        return host == "127.0.0.1" || host == "localhost" || host == "::1"
+    }
+
     /// Mirrors the app's sr resolution order: explicit places first.
     func resolveSubrouterBinary() -> String? {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -259,7 +306,11 @@ extension CMUXCLI {
             if let lastError = response["last_error"] as? String {
                 print("  error:  \(lastError)")
             }
-            print("  hint:   install or start it with: ~/bin/subrouter install-daemon")
+            if Self.isLoopbackSubrouterEndpoint(endpoint) {
+                print("  hint:   install or start it with: ~/bin/subrouter install-daemon")
+            } else {
+                print("  hint:   check the configured remote server and retry")
+            }
         default:
             print("Daemon:   \(state) (\(endpoint))")
         }

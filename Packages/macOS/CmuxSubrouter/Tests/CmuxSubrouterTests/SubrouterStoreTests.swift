@@ -103,7 +103,7 @@ import Testing
         store.setSurfaceVisible(.agentsPanel, true)
         await clock.waitForSleeper()
         #expect(store.snapshot.daemonState == .unreachable(consecutiveFailures: 1))
-        #expect(store.snapshot.lastErrorDescription == "connection refused")
+        #expect(store.snapshot.lastErrorDescription == "The subrouter daemon could not be reached.")
         #expect(await clock.lastRecordedDuration == 5)
 
         await clock.resumeNext()
@@ -163,7 +163,7 @@ import Testing
             await clock.resumeNext()
             await clock.waitForSleeper()
             #expect(store.snapshot.daemonState == .healthy, "failure \(failure)")
-            #expect(store.snapshot.lastErrorDescription == "timed out")
+            #expect(store.snapshot.lastErrorDescription == "The subrouter daemon could not be reached.")
             #expect(!store.snapshot.usageStatuses.isEmpty)
         }
 
@@ -254,7 +254,7 @@ import Testing
         #expect(store.snapshot.daemonState == .healthy)
         #expect(store.snapshot.usageStatuses.count == 1)
         #expect(store.snapshot.lastUpdatedAt != nil)
-        #expect(store.snapshot.lastErrorDescription == "HTTP 500")
+        #expect(store.snapshot.lastErrorDescription == "The subrouter daemon returned HTTP 500.")
         // The usage response already proves reachability: no health probe,
         // no failure backoff.
         #expect(await client.healthCallCount == 0)
@@ -274,7 +274,7 @@ import Testing
         store.setSurfaceVisible(.agentsPanel, true)
         await clock.waitForSleeper()
         #expect(store.snapshot.daemonState == .healthy)
-        #expect(store.snapshot.lastErrorDescription == "timed out")
+        #expect(store.snapshot.lastErrorDescription == "The subrouter daemon could not be reached.")
         #expect(await client.healthCallCount == 1)
         // Backoff still applies so a struggling daemon is not hammered.
         #expect(await clock.lastRecordedDuration == 5)

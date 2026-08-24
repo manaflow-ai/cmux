@@ -143,7 +143,7 @@ final class CmuxFeatureFlags {
     // flag is enabled; DEBUG keeps it on for dogfood. The
     // subrouter.enabled cmux.json setting remains a user opt-out
     // inside the flag.
-    static let subrouterUIFlag = CmuxFeatureFlagDefinition(
+    nonisolated static let subrouterUIFlag = CmuxFeatureFlagDefinition(
         key: "subrouter-ui-enabled-release",
         title: String(localized: "featureFlags.subrouter.title", defaultValue: "Subrouter integration"),
         flagDescription: String(

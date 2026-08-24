@@ -11,7 +11,7 @@ public import Foundation
 public struct SubrouterServerSelection: Sendable, Equatable {
     /// One named server entry.
     public struct Server: Sendable, Equatable {
-        /// The `sr server` name, e.g. `cmux-mac-mini`.
+        /// The user-chosen `sr server` name, such as `team-server`.
         public let name: String
         /// The daemon endpoint parsed from the registry URL.
         public let endpoint: SubrouterEndpoint

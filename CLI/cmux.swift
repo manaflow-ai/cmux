@@ -4498,6 +4498,7 @@ struct CMUXCLI {
             // Pure passthrough to the subrouter CLI (PATH install first,
             // else the binary bundled with the app), replacing this process
             // so interactive logins own the TTY.
+            try requireSubrouterIntegrationEnabled(client: client)
             try execSubrouter(persona: "sr", arguments: commandArgs)
 
         case "mobile":

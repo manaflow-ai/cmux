@@ -135,13 +135,13 @@ import Testing
     @Test func srFailureSurfacesAndSkipsReload() async {
         let client = FakeSubrouterClient()
         let switcher = FakeAccountSwitcher()
-        await switcher.setError(.commandFailed(description: "no account found matching \"x\""))
+        await switcher.setError(.commandFailed)
         let store = makeStore(client: client, switcher: switcher)
 
-        await #expect(throws: SubrouterSwitchError.commandFailed(description: "no account found matching \"x\"")) {
+        await #expect(throws: SubrouterSwitchError.commandFailed) {
             try await store.switchAccount(provider: .codex, accountID: "x")
         }
-        #expect(store.lastSwitchError == .commandFailed(description: "no account found matching \"x\""))
+        #expect(store.lastSwitchError == .commandFailed)
         #expect(store.pendingSwitch == nil)
         #expect(await client.reloadCallCount == 0)
     }
@@ -171,7 +171,7 @@ import Testing
         // The on-disk switch landed, so no error is thrown.
         try await store.switchAccount(provider: .codex, accountID: "dev@example.com")
         #expect(store.lastSwitchError == nil)
-        #expect(store.snapshot.lastErrorDescription == "daemon down")
+        #expect(store.snapshot.lastErrorDescription == "The subrouter daemon could not be reached.")
         #expect(store.snapshot.daemonState == .unreachable(consecutiveFailures: 1))
     }
 
@@ -307,6 +307,29 @@ import Testing
         #expect(await client.sessionsCallCount == 0)
         #expect(store.snapshot.daemonState == .healthy)
     }
+
+    @Test func remoteReloadIsRejectedBeforeNetworkCall() async throws {
+        let client = FakeSubrouterClient()
+        let remote = SubrouterEndpoint(configurationString: "http://team.example:31415")!
+        let store = SubrouterStore(
+            client: client,
+            switcher: FakeAccountSwitcher(),
+            clock: ManualSubrouterPollClock(),
+            configuration: SubrouterConfiguration(
+                isEnabled: true,
+                endpoint: remote,
+                serverName: "team",
+                tuning: SubrouterPollTuning(jitterFraction: 0)
+            )
+        )
+
+        await #expect(throws: SubrouterClientError.unsupported(
+            description: "Account reload is only available for the local subrouter daemon."
+        )) {
+            try await store.reloadDaemonAccounts()
+        }
+        #expect(await client.reloadCallCount == 0)
+    }
 }
 
 /// The production switcher's binary resolution and argument shapes, driven
@@ -385,12 +408,12 @@ import Testing
         }
     }
 
-    @Test func nonZeroExitCarriesStderr() async {
+    @Test func nonZeroExitUsesSanitizedError() async {
         let runner = FakeCommandRunner()
         runner.resultsByExecutable["sr"] = FakeCommandRunner.failure(stderr: "no account found matching \"x\"")
         let switcher = SubrouterCommandSwitcher(commandRunner: runner, workingDirectory: "/tmp")
 
-        await #expect(throws: SubrouterSwitchError.commandFailed(description: "no account found matching \"x\"")) {
+        await #expect(throws: SubrouterSwitchError.commandFailed) {
             try await switcher.switchAccount(provider: .codex, accountID: "x", commandPath: nil)
         }
     }

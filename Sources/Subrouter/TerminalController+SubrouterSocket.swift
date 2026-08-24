@@ -10,6 +10,12 @@ import CmuxSubrouter
 /// subprocess) and hop to the main actor only for store access. Only
 /// token-free metadata crosses the socket.
 extension TerminalController {
+    /// The daemon may fan out usage requests across a large remote pool;
+    /// leave headroom beyond the client's 60-second read deadline so the
+    /// socket worker does not report a timeout while the request is still
+    /// legitimately in flight.
+    private nonisolated static let subrouterDataResponseTimeoutSeconds: TimeInterval = 90
+
     private nonisolated static var subrouterDisabledError: TerminalController.V2CallResult {
         .err(
             code: "subrouter_disabled",
@@ -28,7 +34,12 @@ extension TerminalController {
     ) -> String {
         switch method {
         case "subrouter.status":
-            return v2AsyncResultCall(id: id, timeoutSeconds: 30) {
+            if params["refresh"] as? Bool == false {
+                return v2AsyncResultCall(id: id, timeoutSeconds: 5) {
+                    await Self.subrouterGateResult()
+                }
+            }
+            return v2AsyncResultCall(id: id, timeoutSeconds: Self.subrouterDataResponseTimeoutSeconds) {
                 await Self.subrouterRefreshResult(requiresHealthyDaemon: false) { snapshot, configuration in
                     var payload = Self.subrouterStatusPayload(snapshot: snapshot)
                     payload["endpoint"] = configuration.endpoint.baseURL.absoluteString
@@ -39,19 +50,19 @@ extension TerminalController {
                 }
             }
         case "subrouter.accounts":
-            return v2AsyncResultCall(id: id, timeoutSeconds: 30) {
+            return v2AsyncResultCall(id: id, timeoutSeconds: Self.subrouterDataResponseTimeoutSeconds) {
                 await Self.subrouterRefreshResult(requiresHealthyDaemon: true, includeSessions: false) { snapshot, _ in
                     ["accounts": snapshot.usageStatuses.map { Self.subrouterAccountPayload($0, includeWindows: false) }]
                 }
             }
         case "subrouter.usage":
-            return v2AsyncResultCall(id: id, timeoutSeconds: 30) {
+            return v2AsyncResultCall(id: id, timeoutSeconds: Self.subrouterDataResponseTimeoutSeconds) {
                 await Self.subrouterRefreshResult(requiresHealthyDaemon: true, includeSessions: false) { snapshot, _ in
                     ["accounts": snapshot.usageStatuses.map { Self.subrouterAccountPayload($0, includeWindows: true) }]
                 }
             }
         case "subrouter.sessions":
-            return v2AsyncResultCall(id: id, timeoutSeconds: 30) {
+            return v2AsyncResultCall(id: id, timeoutSeconds: Self.subrouterDataResponseTimeoutSeconds) {
                 await Self.subrouterRefreshResult(requiresHealthyDaemon: true) { snapshot, _ in
                     ["sessions": snapshot.sessions.map(Self.subrouterSessionPayload)]
                 }
@@ -69,7 +80,7 @@ extension TerminalController {
                 await Self.subrouterSwitchResult(providerRaw: providerRaw, accountID: accountID)
             }
         case "subrouter.reload":
-            return v2AsyncResultCall(id: id, timeoutSeconds: 30) {
+            return v2AsyncResultCall(id: id, timeoutSeconds: Self.subrouterDataResponseTimeoutSeconds) {
                 await Self.subrouterReloadResult()
             }
         default:
@@ -78,6 +89,21 @@ extension TerminalController {
     }
 
     // MARK: - Store access
+
+    /// Returns the effective integration gate without contacting the daemon.
+    /// The CLI uses this lightweight form before executing a passthrough `sr`
+    /// command, so feature-flag and user opt-out decisions cannot be bypassed
+    /// while a cold remote usage refresh is in flight.
+    private nonisolated static func subrouterGateResult() async -> TerminalController.V2CallResult {
+        let runtime = await MainActor.run { SubrouterAppRuntime.shared }
+        await runtime.refreshServerSelectionAndApply()
+        let configuration = await MainActor.run { runtime.store.configuration }
+        guard configuration.isEnabled else { return Self.subrouterDisabledError }
+        return .ok([
+            "enabled": true,
+            "endpoint": configuration.endpoint.baseURL.absoluteString,
+        ])
+    }
 
     /// Refreshes through the shared store (single-flight with UI polling)
     /// and shapes a success payload from the fresh snapshot. Returns the
@@ -150,7 +176,10 @@ extension TerminalController {
             // socket/CLI boundary (typed errors are mapped above).
             return .err(
                 code: "sr_failed",
-                message: "The account switch failed unexpectedly (\(type(of: error))).",
+                message: String(
+                    localized: "socket.subrouter.switchFailed",
+                    defaultValue: "The account switch failed unexpectedly."
+                ),
                 data: nil
             )
         }
@@ -195,11 +224,17 @@ extension TerminalController {
                 "usage_refreshed": result.usageRefreshed,
             ])
         } catch let error as SubrouterClientError {
+            if case .unsupported = error {
+                return .err(code: "unsupported_operation", message: error.shortDescription, data: nil)
+            }
             return .err(code: "daemon_unreachable", message: error.shortDescription, data: nil)
         } catch {
             return .err(
                 code: "daemon_unreachable",
-                message: "Could not reach the subrouter daemon (\(type(of: error))).",
+                message: String(
+                    localized: "socket.subrouter.unexpectedError",
+                    defaultValue: "The subrouter daemon could not be reached."
+                ),
                 data: nil
             )
         }
@@ -221,8 +256,15 @@ extension TerminalController {
                 message: "The sr CLI was not found on PATH or in ~/bin. Install subrouter or set subrouter.commandPath.",
                 data: nil
             )
-        case .commandFailed(let description):
-            return .err(code: "sr_failed", message: description, data: nil)
+        case .commandFailed:
+            return .err(
+                code: "sr_failed",
+                message: String(
+                    localized: "socket.subrouter.switchFailed",
+                    defaultValue: "The account switch failed unexpectedly."
+                ),
+                data: nil
+            )
         case .commandTimedOut:
             return .err(code: "sr_timeout", message: "The sr CLI timed out.", data: nil)
         case .switchAlreadyInFlight:
@@ -240,7 +282,11 @@ extension TerminalController {
 
     // ISO8601DateFormatter is Apple-documented thread-safe; shared so the
     // per-session payload mapping does not allocate one per element.
-    private nonisolated(unsafe) static let subrouterTimestampFormatter = ISO8601DateFormatter()
+    private nonisolated(unsafe) static let subrouterTimestampFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 
     private nonisolated static func subrouterStatusPayload(snapshot: SubrouterSnapshot) -> [String: Any] {
         var daemon: [String: Any] = [:]

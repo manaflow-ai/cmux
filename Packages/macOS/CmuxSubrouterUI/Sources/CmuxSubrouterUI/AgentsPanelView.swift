@@ -143,8 +143,7 @@ public struct AgentsPanelView: View {
         // sign-in candidate, not a switch target — activating it would
         // replace working credentials with an expired account.
         let canSwitch = !account.isActive
-            && account.provider.supportsSwitching
-            && (!account.authChecked || account.authValid)
+            && account.isSwitchableCandidate
             && store.pendingSwitch == nil
         return SubrouterAccountRowActions(
             onSwitch: canSwitch ? { switchAccount(account) } : nil,

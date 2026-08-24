@@ -14,6 +14,7 @@ final class SubrouterAppRuntime {
     static let shared = SubrouterAppRuntime()
 
     let store: SubrouterStore
+    private let settings = SubrouterIntegrationSettings()
 
     private var footerVisibleCount = 0
     private var agentsPanelVisibleCount = 0
@@ -110,7 +111,7 @@ final class SubrouterAppRuntime {
 
     private func applyCurrentConfiguration() {
         store.updateConfiguration(
-            SubrouterIntegrationSettings.currentConfiguration(
+            settings.currentConfiguration(
                 serverSelection: serverSelection,
                 serverRegistryIsUnreadable: serverRegistryIsUnreadable
             )

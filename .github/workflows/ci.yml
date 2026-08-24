@@ -1463,6 +1463,7 @@ jobs:
             CmuxSettings
             CmuxSettingsUI
             CmuxSubrouter
+            CmuxSubrouterUI
             CmuxTerminal
             CmuxTerminalCore
             CmuxUpdater
