@@ -3926,8 +3926,9 @@ fn load_raw_config() -> RawConfig {
         Err(e) => {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring invalid config {}: {e}",
-                path.display()
+                "{} ({})",
+                config_diagnostic(&e),
+                path.display(),
             );
             return RawConfig::default();
         }
@@ -3996,6 +3997,17 @@ fn load_raw_config() -> RawConfig {
     section!(server, "server");
     section!(keys, "keys");
     raw
+}
+
+fn config_diagnostic(error: &serde_json::Error) -> String {
+    let text = error.to_string();
+    if text.contains("unknown field") {
+        return catalog().config.unknown_field("(see config file)");
+    }
+    if text.contains("invalid type") && text.contains("map") {
+        return catalog().config.invalid_root().to_string();
+    }
+    catalog().config.invalid_section("(see config file)")
 }
 
 pub fn config_path() -> anyhow::Result<PathBuf> {
@@ -5341,6 +5353,14 @@ fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn config_diagnostics_do_not_echo_parser_details() {
+        let error = serde_json::from_str::<RawConfig>(r#"{"typo":true}"#).unwrap_err();
+        let diagnostic = config_diagnostic(&error);
+        assert!(diagnostic.contains("unknown config field"));
+        assert!(!diagnostic.contains("typo"));
+    }
     use std::ffi::OsString;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicU64, Ordering};
