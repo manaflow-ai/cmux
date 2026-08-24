@@ -107,6 +107,7 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
         let command = try #require(configuration.terminalStartupCommand)
 
         #expect(configuration.sshOptions == ["RequestTTY=force"])
+        #expect(command.contains("RequestTTY=no"), "Mosh management SSH must force no PTY: \(command)")
         #expect(
             command.components(separatedBy: "RequestTTY=force").count - 1 == 1,
             "Only the embedded direct-SSH fallback should receive RequestTTY: \(command)"

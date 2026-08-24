@@ -30,4 +30,18 @@ struct SSHAgentSocketResolverTests {
             in: [emptyOption, "ForwardAgent=yes"]
         ) == "yes")
     }
+
+    @Test("forces Mosh management connections to stay non-PTY")
+    func moshManagementOptionsDisableTTY() {
+        let resolver = SSHAgentSocketResolver(environment: [:])
+
+        #expect(resolver.moshManagementOptions(from: [
+            "RequestTTY=yes",
+            "ProxyJump=bastion",
+            "RequestTTY=force",
+        ]) == [
+            "ProxyJump=bastion",
+            "RequestTTY=no",
+        ])
+    }
 }

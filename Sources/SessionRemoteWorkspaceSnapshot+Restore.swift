@@ -374,10 +374,9 @@ extension SessionRemoteWorkspaceSnapshot {
         remoteRelayPort: Int?,
         sshFallbackCommand: String
     ) -> String {
-        // Mosh owns terminal allocation. The separately built SSH fallback
+        // Mosh owns terminal allocation; the separately built SSH fallback
         // still receives the durable RequestTTY option.
-        let invocationSSHOptions = SSHAgentSocketResolver().removingOptions(
-            named: "RequestTTY",
+        let invocationSSHOptions = SSHAgentSocketResolver().moshManagementOptions(
             from: Self.removingRemoteCommand(from: reconnectSSHOptions)
         )
         let sshArguments = sshBootstrapArguments(

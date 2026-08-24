@@ -112,6 +112,20 @@ public struct SSHAgentSocketResolver: Sendable {
         }
     }
 
+    /// Returns SSH options for Mosh's non-PTY management connections.
+    ///
+    /// Mosh allocates the interactive terminal itself. Removing caller and
+    /// host-provided ``RequestTTY`` values and appending a command-line `no`
+    /// override prevents OpenSSH configuration from re-enabling a PTY for the
+    /// Mosh bootstrap. The separately built SSH fallback keeps the original
+    /// options and therefore retains the caller's terminal intent.
+    ///
+    /// - Parameter options: OpenSSH-style options used by a management lane.
+    /// - Returns: The options with one effective `RequestTTY=no` override.
+    public func moshManagementOptions(from options: [String]) -> [String] {
+        removingOptions(named: "RequestTTY", from: options) + ["RequestTTY=no"]
+    }
+
     /// Normalizes a candidate SSH agent socket path and expands `~`.
     ///
     /// - Parameter value: A raw socket path value.
