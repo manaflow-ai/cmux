@@ -101,6 +101,8 @@ public struct PortScanSnapshotReconciler<Key: Hashable & Sendable>: Sendable {
             let portCompleteness = completenessByPort[key] ?? [:]
             var retained = observed
             var nextCounts = missingObservationCounts[key] ?? [:]
+            var incompletePorts = incompletePortsByKey[key] ?? []
+            var observationSequences = incompletePortObservationSequenceByKey[key] ?? [:]
             for port in observed {
                 nextCounts.removeValue(forKey: port)
             }
@@ -109,6 +111,11 @@ public struct PortScanSnapshotReconciler<Key: Hashable & Sendable>: Sendable {
                 case .incomplete:
                     retained.insert(port)
                 case .complete:
+                    // A trusted owner-specific miss upgrades a port that was
+                    // learned during an incomplete scan, allowing the normal
+                    // bounded removal window to apply to it as well.
+                    incompletePorts.remove(port)
+                    observationSequences.removeValue(forKey: port)
                     let missCount = (missingObservationCounts[key]?[port] ?? 0) + 1
                     if missCount <= missingPortRetentionLimit {
                         retained.insert(port)
@@ -119,14 +126,12 @@ public struct PortScanSnapshotReconciler<Key: Hashable & Sendable>: Sendable {
                 }
             }
 
-            var incompletePorts = incompletePortsByKey[key] ?? []
             if defaultCompleteness == .incomplete {
                 incompletePorts.formUnion(observed.subtracting(previous))
             } else {
                 incompletePorts.subtract(observed)
             }
             incompletePorts.formIntersection(retained)
-            var observationSequences = incompletePortObservationSequenceByKey[key] ?? [:]
             for port in observed.intersection(incompletePorts).sorted() {
                 observationSequence &+= 1
                 observationSequences[port] = observationSequence

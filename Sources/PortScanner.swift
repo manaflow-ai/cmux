@@ -385,11 +385,14 @@ final class PortScanner: @unchecked Sendable {
         // 3. Join: PID→TTY + PID→ports → TTY→ports
         var portsByTTY: [String: Set<Int>] = [:]
         var panelPortOwnersByKey: [PanelKey: [Int: Set<AgentPIDProcessIdentity>]] = [:]
+        let panelKeysByTTY = panelSnapshot.reduce(into: [String: [PanelKey]]()) { result, entry in
+            result[entry.value, default: []].append(entry.key)
+        }
         for (pid, ports) in pidToPorts {
             guard let tty = validPIDToTTY[pid] else { continue }
             portsByTTY[tty, default: []].formUnion(ports)
             guard let identity = capturedPanelPIDs.identitiesByPID[pid] else { continue }
-            for key in panelSnapshot.keys where panelSnapshot[key] == tty {
+            for key in panelKeysByTTY[tty] ?? [] {
                 for port in ports {
                     panelPortOwnersByKey[key, default: [:]][port, default: []].insert(identity)
                 }
