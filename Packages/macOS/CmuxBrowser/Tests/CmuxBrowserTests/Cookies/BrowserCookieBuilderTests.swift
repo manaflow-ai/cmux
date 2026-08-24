@@ -42,4 +42,42 @@ struct BrowserCookieBuilderTests {
 
         #expect(!cookie.isHTTPOnly)
     }
+
+    @Test("keeps HttpOnly secure cookies valid when the source URL is HTTP")
+    func secureCookieUsesSecureParsingOrigin() throws {
+        let originURL = try #require(URL(string: "http://example.test/"))
+        let cookie = try #require(builder.makeCookie(
+            name: "secure_session",
+            value: "secret",
+            originURL: originURL,
+            domain: "example.test",
+            path: "/",
+            secure: true,
+            expires: nil,
+            httpOnly: true
+        ))
+
+        #expect(cookie.isSecure)
+        #expect(cookie.isHTTPOnly)
+    }
+
+    @Test("preserves an expiration while synthesizing the response header")
+    func preservesExpiration() throws {
+        let originURL = try #require(URL(string: "https://example.test/"))
+        let expiration = Date.now.addingTimeInterval(60 * 60)
+        let cookie = try #require(builder.makeCookie(
+            name: "expiring_session",
+            value: "secret",
+            originURL: originURL,
+            domain: "example.test",
+            path: "/",
+            secure: false,
+            expires: expiration,
+            httpOnly: true
+        ))
+
+        let actualExpiration = try #require(cookie.expiresDate)
+        #expect(abs(actualExpiration.timeIntervalSince(expiration)) < 2)
+        #expect(cookie.isHTTPOnly)
+    }
 }

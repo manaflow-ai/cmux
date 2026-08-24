@@ -10224,6 +10224,7 @@ class TerminalController {
             "domain": cookie.domain,
             "path": cookie.path,
             "secure": cookie.isSecure,
+            "httpOnly": cookie.isHTTPOnly,
             "session_only": cookie.isSessionOnly
         ]
         if let expiresDate = cookie.expiresDate {
@@ -10278,7 +10279,7 @@ class TerminalController {
         }
         let domain = (raw["domain"] as? String) ?? originURL?.host
         let path = (raw["path"] as? String) ?? "/"
-        let secure = (raw["secure"] as? Bool) ?? false
+        let secure = v2Bool(raw, "secure") ?? false
         let expires: Date?
         if let expires = raw["expires"] as? TimeInterval {
             expires = Date(timeIntervalSince1970: expires)
@@ -10296,7 +10297,7 @@ class TerminalController {
             path: path,
             secure: secure,
             expires: expires,
-            httpOnly: (raw["httpOnly"] as? Bool) ?? false
+            httpOnly: v2Bool(raw, "httpOnly") ?? false
         )
     }
 
@@ -10343,6 +10344,7 @@ class TerminalController {
                 if let domain = v2String(params, "domain") { single["domain"] = domain }
                 if let path = v2String(params, "path") { single["path"] = path }
                 if let secure = v2Bool(params, "secure") { single["secure"] = secure }
+                if let httpOnly = v2Bool(params, "httpOnly") { single["httpOnly"] = httpOnly }
                 if let expires = v2Int(params, "expires") { single["expires"] = expires }
                 if !single.isEmpty {
                     cookieObjects = [single]
