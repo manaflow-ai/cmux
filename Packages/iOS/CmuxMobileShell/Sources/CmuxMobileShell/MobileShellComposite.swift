@@ -1224,6 +1224,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// panel refresh; bursts coalesce onto one in-flight RPC plus at most one
     /// trailing rerun instead of stacking a task per `workspace.updated`.
     @ObservationIgnored var visibleBrowserPanelsRefreshTask: Task<Void, Never>?
+    /// Identifies the loop that owns ``visibleBrowserPanelsRefreshTask``, so a
+    /// cancelled predecessor's deferred cleanup cannot clear a successor.
+    @ObservationIgnored var visibleBrowserPanelsRefreshID: UUID?
     /// The workspace the trailing browser-panel rerun should target (the
     /// newest requested one wins), or `nil` when no rerun is pending.
     @ObservationIgnored var visibleBrowserPanelsRefreshFollowUpWorkspaceID: String?
@@ -1855,6 +1858,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceChangesSummaryTrailingTask?.cancel()
         pullToRefreshTask?.cancel()
         foregroundWorkspaceMutationRefreshTask?.cancel()
+        visibleBrowserPanelsRefreshTask?.cancel()
+        stateSyncProjectionFlushTask?.cancel()
         for task in computerVisibilityMutationTasksByID.values {
             task.cancel()
         }
@@ -10527,6 +10532,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         foregroundWorkspaceMutationRefreshTask = nil
         foregroundWorkspaceMutationRefreshPending = false
         foregroundWorkspaceMutationRefreshGeneration = UUID()
+        // A refresh in flight on the outgoing client must not occupy the
+        // single-flight slot into the replacement connection's lifetime, or
+        // post-swap `workspace.updated` events would only queue follow-ups
+        // behind a dead RPC.
+        visibleBrowserPanelsRefreshTask?.cancel()
+        visibleBrowserPanelsRefreshTask = nil
+        visibleBrowserPanelsRefreshID = nil
+        visibleBrowserPanelsRefreshFollowUpWorkspaceID = nil
         cancelAllTerminalReplayTasks()
     }
 

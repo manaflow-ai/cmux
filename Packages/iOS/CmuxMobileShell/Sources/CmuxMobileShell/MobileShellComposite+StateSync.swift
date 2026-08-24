@@ -54,7 +54,7 @@ extension MobileShellComposite {
         // client mid-decode; this old stream's delta must then be dropped
         // (the new authority snapshot-fetched its own state).
         let entryAuthorityClientID = stateSyncAuthorityClientID
-        guard let header = try? await mobileShellDecodeOffMain(
+        guard let header = try? await Self.decodeOffMain(
             MobileSyncDeltaEventHeader.self, from: payload
         ) else {
             scheduleStateSyncRepairIfActive()
@@ -66,7 +66,7 @@ extension MobileShellComposite {
         let removedWorkspaceIDs: [String]
         switch header.collection {
         case .workspaces:
-            guard let delta = try? await mobileShellDecodeOffMain(
+            guard let delta = try? await Self.decodeOffMain(
                 MobileSyncDeltaEvent<WorkspaceSyncRecord>.self, from: payload
             ) else {
                 // A delta we KNOW is for a mirrored collection but cannot
@@ -81,7 +81,7 @@ extension MobileShellComposite {
             changesSummaryRefreshScope = .workspaceDelta(delta.records.map(\.id))
             removedWorkspaceIDs = delta.removedIDs
         case .groups:
-            guard let delta = try? await mobileShellDecodeOffMain(
+            guard let delta = try? await Self.decodeOffMain(
                 MobileSyncDeltaEvent<GroupSyncRecord>.self, from: payload
             ) else {
                 scheduleStateSyncRepairIfActive()
@@ -260,7 +260,7 @@ extension MobileShellComposite {
                 timeoutNanoseconds: timeoutNanoseconds ?? runtime?.rpcRequestTimeoutNanoseconds
             )
             guard remoteClient === client, connectionState == .connected, !Task.isCancelled else { return false }
-            let response = try await mobileShellDecodeOffMain(
+            let response = try await Self.decodeOffMain(
                 MobileSyncFetchResponse.self, from: data
             )
             // The decode suspended off-main; nothing below may run for a

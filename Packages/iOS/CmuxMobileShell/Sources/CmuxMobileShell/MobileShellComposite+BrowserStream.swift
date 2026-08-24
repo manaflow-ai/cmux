@@ -483,11 +483,22 @@ extension MobileShellComposite {
             visibleBrowserPanelsRefreshFollowUpWorkspaceID = workspaceID
             return
         }
+        let refreshID = UUID()
+        visibleBrowserPanelsRefreshID = refreshID
         visibleBrowserPanelsRefreshTask = Task { @MainActor [weak self] in
-            defer { self?.visibleBrowserPanelsRefreshTask = nil }
+            defer {
+                if let self, self.visibleBrowserPanelsRefreshID == refreshID {
+                    self.visibleBrowserPanelsRefreshTask = nil
+                    self.visibleBrowserPanelsRefreshID = nil
+                }
+            }
             var nextWorkspaceID: String? = workspaceID
             while let currentWorkspaceID = nextWorkspaceID, let self {
                 await self.refreshMobileBrowserPanels(workspaceID: currentWorkspaceID)
+                // A teardown/client-swap cancellation already cleared the
+                // follow-up state for its successor; consuming it here would
+                // issue an RPC on the replacement connection.
+                guard !Task.isCancelled else { return }
                 nextWorkspaceID = self.visibleBrowserPanelsRefreshFollowUpWorkspaceID
                 self.visibleBrowserPanelsRefreshFollowUpWorkspaceID = nil
             }
