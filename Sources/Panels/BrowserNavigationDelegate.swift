@@ -59,7 +59,7 @@ import WebKit
     private var activeMainFrameNavigation: WKNavigation?
 
     init(
-        externalNavigationHandler: BrowserExternalNavigationHandler = BrowserExternalNavigationHandler()
+        externalNavigationHandler: BrowserExternalNavigationHandler
     ) {
         self.externalNavigationHandler = externalNavigationHandler
         super.init()

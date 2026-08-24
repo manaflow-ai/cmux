@@ -3454,7 +3454,9 @@ final class BrowserPanel: Panel, ObservableObject {
         BrowserProfileStore.shared.noteUsed(resolvedProfileID)
 
         // Set up navigation delegate
-        let navDelegate = BrowserNavigationDelegate()
+        let navDelegate = BrowserNavigationDelegate(
+            externalNavigationHandler: BrowserExternalNavigationHandler()
+        )
         navDelegate.owner = self
         navDelegate.openInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
