@@ -157,14 +157,32 @@ final class VerifiedTerminalReplayStateMachine {
         phase = .recovering
     }
 
+    /// Starts a new mounted-output ownership generation.
+    ///
+    /// Unmount invalidation must reject completions from the retired consumer,
+    /// while a later mount must be able to verify its cold full replay. Keep the
+    /// transaction counter monotonic across both edges so an old async
+    /// completion can never match a transaction created by the new mount.
+    func prepareForMount() {
+        nextTransactionID &+= 1
+        clearPresentationState()
+        phase = .ready
+    }
+
     func invalidate() {
         nextTransactionID &+= 1
+        clearPresentationState()
+        phase = .invalidated
+    }
+
+    private func clearPresentationState() {
         activeTransaction = nil
         visibleSnapshot = nil
         activeRenderEpoch = nil
         retiredRenderEpochs.removeAll()
         viewportRenderRevisionFloors.removeAll()
-        phase = .invalidated
+        lastVerifiedRenderRevision = 0
+        lastVerifiedStateSeq = 0
     }
 
     private func isNewerThanPresentationFloor(

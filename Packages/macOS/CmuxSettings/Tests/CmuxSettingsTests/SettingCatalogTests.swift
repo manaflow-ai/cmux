@@ -107,6 +107,10 @@ struct SettingCatalogTests {
         #expect(!SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue)
     }
 
+    @Test func adaptiveDefaultTerminalThemeDefaultsOnForUntouchedConfigs() {
+        #expect(SettingCatalog().terminal.adaptiveDefaultTheme.defaultValue)
+    }
+
     @Test func keyIdsMatchTheirSectionPrefix() {
         // Each key's dotted id must start with its section's prefix; this is
         // the convention that lets the JSON store use `id` as the JSON path.

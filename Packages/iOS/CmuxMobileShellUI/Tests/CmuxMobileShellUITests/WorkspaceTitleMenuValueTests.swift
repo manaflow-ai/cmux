@@ -1,5 +1,4 @@
 import CMUXMobileCore
-import CmuxAgentChat
 import Testing
 @testable import CmuxMobileShellUI
 
@@ -11,25 +10,8 @@ import Testing
         let browser = menuValue(
             labelToken: .browser(title: "Workspace")
         )
-        let chat = menuValue(
-            labelToken: .chat(
-                descriptor: ChatSessionDescriptor(
-                    id: "session-1",
-                    agentKind: .codex,
-                    title: "Build",
-                    state: .idle
-                ),
-                agentState: .idle,
-                isConnected: true,
-                titleOverride: "Workspace",
-                subtitle: "Terminal"
-            )
-        )
-
         #expect(menuValue(labelToken: standard.labelToken) == standard)
         #expect(browser != standard)
-        #expect(chat != standard)
-        #expect(chat != browser)
     }
 
     @Test func customizationCapabilityInvalidatesTheMenuValue() {
@@ -53,7 +35,9 @@ import Testing
             contentWidth: 390,
             hasBackButton: true,
             hasTrailingCluster: true,
-            hasChatToggle: true,
+            measuredTrailingItemsWidth: 0,
+            measuredTrailingItemCount: 0,
+            trailingItemCount: 0,
             isEnabled: true,
             workspaceName: "Workspace",
             hasUnread: false,
