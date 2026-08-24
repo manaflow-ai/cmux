@@ -218,6 +218,7 @@ public struct DiagnosticEventPresentation: Sendable {
         switch method {
         case .automatic: localized("diagnostics.connectionMethod.automatic", defaultValue: "Auto-Connect (Iroh)")
         case .tailscale: localized("diagnostics.connectionMethod.tailscale", defaultValue: "Tailscale Only")
+        case .direct: localized("diagnostics.connectionMethod.direct", defaultValue: "Direct")
         }
     }
 
