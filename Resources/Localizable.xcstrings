@@ -57165,6 +57165,23 @@
         }
       }
     },
+    "cli.vm.desktop.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ has no desktop to show. Machines created with `cmux vm new --desktop` boot a screen; this one is shell-only."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ には表示できるデスクトップがありません。`cmux vm new --desktop` で作成したマシンには画面がありますが、このマシンはシェル専用です。"
+          }
+        }
+      }
+    },
     "cli.vm.list.planMeter": {
       "extractionState": "manual",
       "localizations": {
@@ -123002,6 +123019,23 @@
         }
       }
     },
+    "machines.operation.openDesktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening %@’s desktop…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のデスクトップを開いています…"
+          }
+        }
+      }
+    },
     "machines.operation.openShell": {
       "extractionState": "manual",
       "localizations": {
@@ -123138,19 +123172,36 @@
         }
       }
     },
-    "machines.row.openShell": {
+    "machines.row.delete": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Shell"
+            "value": "Delete Machine"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "シェルを開く"
+            "value": "マシンを削除"
+          }
+        }
+      }
+    },
+    "machines.row.openDesktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Desktop"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップを開く"
           }
         }
       }

@@ -199,6 +199,7 @@ private struct MachinesChromeIconButton: View {
 /// the ＋ menu, the palette, and the CLI share one mutation path.
 struct MachineRowActions {
     let openShell: @MainActor (String) -> Void
+    let openDesktop: @MainActor (String) -> Void
     let runCommand: @MainActor (String, [String]) -> Void
     let confirmDelete: @MainActor (String) -> Void
     let promptRename: @MainActor (String, String?) -> Void
@@ -211,6 +212,10 @@ struct MachineRowActions {
             openShell: { id in
                 onWillMutate(String(format: String(localized: "machines.operation.openShell", defaultValue: "Opening %@\u{2026}"), id))
                 launch(arguments: ["vm", "shell", id], onDidMutate: onDidMutate)
+            },
+            openDesktop: { id in
+                onWillMutate(String(format: String(localized: "machines.operation.openDesktop", defaultValue: "Opening %@\u{2019}s desktop\u{2026}"), id))
+                launch(arguments: ["vm", "desktop", id], onDidMutate: onDidMutate)
             },
             runCommand: { id, verb in
                 onWillMutate(operationLabel(verb: verb, id: id))
@@ -404,12 +409,23 @@ private struct MachineRow: View, Equatable {
             }
             Spacer(minLength: 8)
             if isHovered {
+                // Hover verbs: the screen (desktop machines only) and delete. The shell is
+                // the row itself — double-click, or Open Shell in the menu.
+                if machine.isDesktop {
+                    MachinesChromeIconButton(
+                        symbolName: "display",
+                        accessibilityLabel: String(localized: "machines.row.openDesktop", defaultValue: "Open Desktop"),
+                        isBusy: false
+                    ) {
+                        actions.openDesktop(machine.id)
+                    }
+                }
                 MachinesChromeIconButton(
-                    symbolName: "terminal",
-                    accessibilityLabel: String(localized: "machines.row.openShell", defaultValue: "Open Shell"),
+                    symbolName: "trash",
+                    accessibilityLabel: String(localized: "machines.row.delete", defaultValue: "Delete Machine"),
                     isBusy: false
                 ) {
-                    actions.openShell(machine.id)
+                    actions.confirmDelete(machine.id)
                 }
             }
         }
@@ -472,8 +488,7 @@ private struct MachineRow: View, Equatable {
         }
         if machine.isDesktop {
             Button(String(localized: "machines.menu.openDesktop", defaultValue: "Open Desktop")) {
-                // `vm shell` opens the desktop split automatically for desktop images.
-                actions.openShell(machine.id)
+                actions.openDesktop(machine.id)
             }
         }
         Divider()

@@ -3185,16 +3185,18 @@ struct CMUXCLI {
 
     /// Streams the VM's desktop (noVNC) into a browser split beside the shell. Best effort:
     /// a machine without a desktop, or a backend without open-port, just skips the split.
-    private func openVMDesktopSplit(vmId: String, client: SocketClient) {
+    @discardableResult
+    private func openVMDesktopSplit(vmId: String, client: SocketClient) -> Bool {
         guard let payload = try? client.sendV2(
             method: "vm.open_port",
             params: ["id": vmId, "port": Self.cloudVMDesktopPort],
             responseTimeout: 90
-        ), let openUrl = payload["open_url"] as? String, !openUrl.isEmpty else { return }
-        _ = try? client.sendV2(
+        ), let openUrl = payload["open_url"] as? String, !openUrl.isEmpty else { return false }
+        let opened = try? client.sendV2(
             method: "browser.open_split",
             params: ["url": openUrl + "&autoconnect=1&resize=remote"]
         )
+        return opened != nil
     }
     private static let claudeCodeStatusKey = "claude_code"
 
@@ -4599,6 +4601,36 @@ struct CMUXCLI {
                     openVMDesktopSplit(vmId: id, client: client)
                 }
                 Self.clearVMCreateIdempotency(idempotency)
+
+            case "desktop", "vnc":
+                // The machine's screen, on demand: a `vm:<id>` workspace with the shell and
+                // the noVNC desktop streamed into a browser split beside it — the same layout
+                // `vm new --desktop` opens at create time.
+                let (windowOpt, vmArgs) = parseOption(rest, name: "--window")
+                guard let vmId = vmArgs.first else {
+                    throw CLIError(message: """
+                        Usage: cmux vm desktop <id>
+
+                        Find an id:
+                          cmux vm ls
+                        """)
+                }
+                try vmOpenShell(
+                    id: vmId,
+                    workspaceName: "vm:\(vmId)",
+                    windowRaw: windowOpt ?? windowId,
+                    forceSSH: false,
+                    shouldPinWorkspaceToTop: false,
+                    client: client,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat
+                )
+                guard openVMDesktopSplit(vmId: vmId, client: client) else {
+                    throw CLIError(message: String(
+                        localized: "cli.vm.desktop.unavailable",
+                        defaultValue: "\(vmId) has no desktop to show. Machines created with `cmux vm new --desktop` boot a screen; this one is shell-only."
+                    ))
+                }
 
             case "snapshot", "checkpoint":
                 let (nameOpt, snapshotArgs) = parseOption(rest, name: "--name")
@@ -16474,7 +16506,7 @@ struct CMUXCLI {
             """
         case "vm", "cloud":
             return """
-            Usage: cmux \(command) <base|new|ls|status|snapshot|fork|restore|rm|exec|shell|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <base|new|ls|status|rename|snapshot|fork|restore|rm|exec|shell|desktop|attach|ssh|ssh-info> [args...]
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
 
@@ -16502,6 +16534,7 @@ struct CMUXCLI {
               restore <snapshot-id> [--provider <provider>] [--window <id|ref|index>] [--detach|-d]
                                         Restore a snapshot as a tracked Cloud VM.
               shell <id> [--window <id|ref|index>]
+              desktop <id> [--window <id|ref|index>]   Shell plus the machine's noVNC desktop in a split
                                         Drop into an interactive shell on an existing VM.
                                         Alias: `attach <id>`. Machines with a desktop image
                                         also stream their screen into a browser split.
@@ -36861,7 +36894,7 @@ export default CMUXSessionRestore;
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           \(localizedCoderouterAliases())
-          vm <base|new|ls|status|rename|snapshot|fork|restore|rm|exec|shell|ssh> [args...]    (alias: cloud)
+          vm <base|new|ls|status|rename|snapshot|fork|restore|rm|exec|shell|desktop|ssh> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]
           rpc <method> [json-params]

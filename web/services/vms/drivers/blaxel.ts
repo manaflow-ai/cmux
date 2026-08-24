@@ -306,15 +306,10 @@ export class BlaxelProvider implements VMProvider {
             throw new Error("create response is missing metadata.url for the sandbox API");
           }
           await this.bootstrapDaemon(name, sandboxUrl);
-          const preview = await blaxelFetch<BlaxelPreview>(
-            "POST",
-            `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(name)}/previews`,
-            { metadata: { name: CMUXD_PREVIEW_NAME }, spec: { port: CMUXD_WS_PORT, public: false } },
-          );
-          const previewUrl = usablePrivatePreviewUrl(preview);
-          if (!previewUrl) {
-            throw new Error("preview create response is missing spec.url or came back public");
-          }
+          // The daemon preview is minted through the same branded path attach uses, so a
+          // machine is born at https://<name>.vm.cmux.sh (or <name>-cmux.preview.bl.run)
+          // rather than an opaque hash it would then keep for life.
+          const previewUrl = await this.ensurePreview(name);
           span.setAttribute("cmux.vm.id", name);
           return {
             provider: "blaxel",
