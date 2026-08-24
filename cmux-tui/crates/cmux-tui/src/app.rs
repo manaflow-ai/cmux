@@ -3712,10 +3712,9 @@ enum MachineRailCommand {
     Rename(MachineKey),
     Delete(MachineKey),
     Purge(MachineKey),
-    OpenScopes,
-    OpenActions,
     Create,
     Connect,
+    ProviderMenu,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -3785,8 +3784,6 @@ pub enum Hit {
     },
     NewVm,
     ConnectMachine,
-    ProviderScope,
-    ProviderActions,
     /// Sidebar workspace entry.
     Workspace {
         index: usize,
@@ -3810,8 +3807,6 @@ pub enum Hit {
         view: usize,
         branch: ProjectionBranch,
     },
-    /// A rail header, the explicit pointer entrypoint for sidebar focus.
-    RailHeader(RailKind),
     SidebarAction {
         view: usize,
         action: SidebarActionTarget,
@@ -3865,6 +3860,9 @@ pub enum Hit {
         total_rows: usize,
         visible_rows: usize,
     },
+    /// The one-row top pad of a rail: the pointer entrypoint for focusing
+    /// the rail without activating one of its rows.
+    RailPad(RailKind),
     /// A rail's right border.
     RailResize(RailKind),
     /// Pane border resize handle.
@@ -4364,6 +4362,7 @@ pub struct MenuLevel {
     pub items: Arc<[MenuItem]>,
     all_items: Arc<[MenuItem]>,
     pub selected: usize,
+    pub selection_active: bool,
     pub scroll_offset: usize,
     visible_rows: usize,
     fitted_rows: Option<usize>,
@@ -4393,6 +4392,7 @@ impl MenuLevel {
             all_items: items.clone(),
             items,
             selected,
+            selection_active: true,
             scroll_offset: 0,
             visible_rows,
             fitted_rows: None,
@@ -4435,7 +4435,7 @@ impl MenuLevel {
     }
 
     fn ensure_selection_visible(&mut self) {
-        if self.visible_rows == 0 || self.items.is_empty() {
+        if !self.selection_active || self.visible_rows == 0 || self.items.is_empty() {
             self.scroll_offset = 0;
             return;
         }
@@ -4487,6 +4487,7 @@ impl MenuLevel {
         self.all_items = items.clone();
         self.items = items;
         self.selected = self.items.iter().position(MenuItem::selectable).unwrap_or(0);
+        self.selection_active = true;
         self.scroll_offset = 0;
         self.visible_rows = self.items.len();
         self.fitted_rows = None;
@@ -4774,6 +4775,9 @@ impl ContextMenu {
 
     fn selected_action(&self) -> Option<MenuAction> {
         let level = self.levels.last()?;
+        if !level.selection_active {
+            return None;
+        }
         level.items.get(level.selected).and_then(MenuItem::action)
     }
 
@@ -4861,8 +4865,9 @@ impl ContextMenu {
         if !level.items.get(item).is_some_and(MenuItem::selectable) {
             return false;
         }
-        let changed = level.selected != item || had_deeper_level;
+        let changed = !level.selection_active || level.selected != item || had_deeper_level;
         level.selected = item;
+        level.selection_active = true;
         level.ensure_selection_visible();
         self.levels.truncate(depth + 1);
         self.open_selected_submenu();
@@ -4880,6 +4885,14 @@ impl ContextMenu {
 
     fn select_previous(&mut self) {
         let Some(level) = self.levels.last_mut() else { return };
+        if !level.selection_active {
+            if let Some(index) = level.items.iter().rposition(MenuItem::selectable) {
+                level.selected = index;
+                level.selection_active = true;
+                level.ensure_selection_visible();
+            }
+            return;
+        }
         if let Some(index) = level
             .items
             .get(..level.selected)
@@ -4894,6 +4907,14 @@ impl ContextMenu {
 
     fn select_next(&mut self) {
         let Some(level) = self.levels.last_mut() else { return };
+        if !level.selection_active {
+            if let Some(index) = level.items.iter().position(MenuItem::selectable) {
+                level.selected = index;
+                level.selection_active = true;
+                level.ensure_selection_visible();
+            }
+            return;
+        }
         let start = level.selected.saturating_add(1);
         if let Some(offset) =
             level.items.get(start..).and_then(|items| items.iter().position(MenuItem::selectable))
@@ -5074,6 +5095,13 @@ impl ShortcutHelp {
             .filter(|(definition, _)| action_available_in_mode(definition.action, surface_only))
             .map(|(definition, shortcuts)| (definition.action, shortcuts.join(", ")))
             .collect();
+        // The default provider-menu chord is contextual to the machine rail,
+        // so it is not part of the generic resolved shortcut map.
+        if !config.keys.provider_menu_overridden
+            && action_available_in_mode(Action::ProviderMenu, surface_only)
+        {
+            rows.push((Action::ProviderMenu, "m".to_string()));
+        }
         for index in 0..config.commands.len() {
             let Some(action) = Action::user_command(index) else { break };
             if !action_available_in_mode(action, surface_only) {
@@ -6648,6 +6676,7 @@ pub struct App {
     machine_selection_intent: Option<MachineKey>,
     machine_selection_generation: u64,
     machine_presented: Option<MachineKey>,
+    machine_deleted_rail_index: Option<usize>,
     machine_provider_reconnect_attempts: u8,
     machine_provider_reconnect_retry_at: Option<Instant>,
     pending_machine_replacement: Option<PendingMachineReplacement>,
@@ -8865,6 +8894,7 @@ fn run_with_machine_updates_inner(
         machine_selection_intent,
         machine_selection_generation: 0,
         machine_presented,
+        machine_deleted_rail_index: None,
         machine_provider_reconnect_attempts: 0,
         machine_provider_reconnect_retry_at: None,
         pending_machine_replacement: None,
@@ -10363,6 +10393,10 @@ impl App {
         let Some(request) = self.machine_ui.as_mut().and_then(|ui| ui.request.take()) else {
             return RenderAction::None;
         };
+        crate::client_log::info(
+            "machine",
+            &format!("dispatching machine request: {}", request.kind()),
+        );
         if let MachineRequest::Switch(machine) = &request {
             self.select_machine_intent(*machine);
         }
@@ -10529,6 +10563,13 @@ impl App {
     }
 
     fn fail_machine_action(&mut self, request: Option<&MachineRequest>) {
+        crate::client_log::info(
+            "machine",
+            &format!(
+                "machine request failed: {}",
+                request.map(MachineRequest::kind).unwrap_or("none")
+            ),
+        );
         if let Some(MachineRequest::Switch(machine)) = request
             && let Some(ui) = self.machine_ui.as_mut()
         {
@@ -10692,6 +10733,12 @@ impl App {
                             .is_none_or(|machine| self.machine_selection_intent == Some(machine)),
                         _ => true,
                     };
+                crate::client_log::info(
+                    "machine",
+                    &format!(
+                        "replacement prepared: present={present} canceled={connection_canceled}"
+                    ),
+                );
                 self.pending_machine_replacement =
                     Some(PendingMachineReplacement { action_id, present, action: *action });
                 if self
@@ -10756,8 +10803,24 @@ impl App {
                         let PreparedMachineAction { ui, session_mutation, session_label, session } =
                             prepared;
                         let target = session.machine;
+                        crate::client_log::info(
+                            "machine",
+                            &format!(
+                                "replacement settled: present={present} target={:?} ui_active={:?}",
+                                target.map(|k| k.0),
+                                ui.snapshot.active.map(|k| k.0),
+                            ),
+                        );
                         if present {
                             self.machine_presented = target.or(ui.snapshot.active);
+                            // A runtime-driven replacement (deleting the open
+                            // machine) presents without a Switch dispatch, so
+                            // the aim never moved; align it, or every later
+                            // keystroke fails the intent==presented gate and
+                            // input goes nowhere.
+                            if let Some(machine) = self.machine_presented {
+                                self.select_machine_intent(machine);
+                            }
                             if let Some(machine) = self.machine_presented
                                 && let Some(machine_ui) = self.machine_ui.as_mut()
                             {
@@ -10768,6 +10831,14 @@ impl App {
                                 self.session_label = label;
                             }
                             action = action.merge(self.apply_machine_ui_update(ui));
+                            // The rail follows the machine that now presents,
+                            // not whatever row reconciliation kept (the
+                            // deleted machine's recoverable ghost, usually).
+                            if let Some(machine) = self.machine_presented
+                                && let Some(machine_ui) = self.machine_ui.as_mut()
+                            {
+                                machine_ui.select_rail_target(MachineRailTarget::Machine(machine));
+                            }
                             // Provider notices apply before local mirror errors so they cannot mask them.
                             if let Some(mutation) = session_mutation {
                                 self.apply_managed_workspace_session_mutation(mutation);
@@ -10787,6 +10858,7 @@ impl App {
                         self.complete_connection_transaction(request.as_ref(), connection_attempt);
                     }
                     Ok(false) => {
+                        crate::client_log::info("machine", "replacement settled: not committed");
                         drop(pending);
                         if reconnecting {
                             self.schedule_machine_provider_reconnect();
@@ -10872,9 +10944,163 @@ impl App {
             self.machine_selection_intent = update.snapshot.active;
             self.machine_presented = update.snapshot.active;
         }
-        update.snapshot.active = self.machine_presented.filter(|presented| {
-            update.snapshot.machines.iter().any(|machine| machine.key == *presented)
-        });
+        // A machine is "usable" while it is in the catalog and not soft
+        // deleted: providers with recovery keep deleted machines listed as
+        // Recoverable rows, which can be restored or purged but never
+        // presented.
+        let machine_usable = |update: &MachineUiState, key: MachineKey| {
+            update.snapshot.machines.iter().any(|machine| machine.key == key)
+                && update
+                    .managed_machine(key)
+                    .is_none_or(|managed| managed.status != ManagedMachineStatus::Recoverable)
+        };
+        update.snapshot.active =
+            self.machine_presented.filter(|presented| machine_usable(&update, *presented));
+        // A queued switch aimed at a machine that just became unusable (the
+        // wake that raced its own deletion) must not survive: it would both
+        // fail pointlessly and block the failover below.
+        let doomed_request = match &update.request {
+            // The wake that raced its own deletion.
+            Some(MachineRequest::Switch(target)) => !machine_usable(&update, *target),
+            // The stream-loss recovery for the machine being deleted: the
+            // provider link is demonstrably alive (this update just arrived
+            // over it), and reconnecting would only reopen the deleted
+            // machine. Let the failover below aim somewhere usable instead.
+            Some(MachineRequest::ReconnectProvider) => {
+                self.machine_presented.is_some_and(|presented| !machine_usable(&update, presented))
+            }
+            _ => false,
+        };
+        if doomed_request {
+            crate::client_log::info(
+                "machine",
+                "dropped a queued request aimed at a deleted machine",
+            );
+            update.request = None;
+            // An intent left aiming at the deleted machine would fail the
+            // input-routing gate forever (intent != presented with nothing
+            // queued to repair it): fall back to the still-usable presented
+            // machine, or clear it so the failover below takes over.
+            if self.machine_selection_intent.is_some_and(|intent| !machine_usable(&update, intent))
+            {
+                self.machine_selection_intent =
+                    self.machine_presented.filter(|presented| machine_usable(&update, *presented));
+            }
+        }
+        // The presented machine was deleted (gone from the catalog, or left
+        // behind as a Recoverable row): its session is dead, so input must
+        // never route into it, whatever else is queued or in flight.
+        let presented_deleted =
+            self.machine_presented.is_some_and(|presented| !machine_usable(&update, presented));
+        if !presented_deleted {
+            // A deferred deletion can recover before failover runs. Do not
+            // carry its old slot into a later, unrelated deletion.
+            self.machine_deleted_rail_index = None;
+        }
+        if presented_deleted {
+            if self.machine_deleted_rail_index.is_none()
+                && let Some(presented) = self.machine_presented
+            {
+                self.machine_deleted_rail_index = self.machine_ui.as_ref().and_then(|previous| {
+                    previous.snapshot.machines.iter().position(|machine| machine.key == presented)
+                });
+            }
+            update.session_available = false;
+        }
+        // Switch to the next available machine instead of leaving the dead
+        // session on screen. "Next" is the usable machine at or after its
+        // old list slot, else the last usable one. Deferred (input stays
+        // gated above) while another request occupies the queue slot or the
+        // user is already aiming somewhere else usable; the next update
+        // with a free slot re-enters this path.
+        let mut failover_rail_target = None;
+        let failed_intent_is_stale = self
+            .machine_selection_intent
+            .filter(|intent| Some(*intent) != self.machine_presented)
+            .is_some_and(|intent| {
+                !self.machine_action_in_flight
+                    && update.connection_phase(intent) == MachineConnectionPhase::Failed
+            });
+        if presented_deleted
+            && let Some(presented) = self.machine_presented
+            && update.request.is_none()
+            && !self.machine_action_in_flight
+            && self.machine_selection_intent.is_none_or(|intent| {
+                intent == presented || !machine_usable(&update, intent) || failed_intent_is_stale
+            })
+        {
+            let previous_index = self
+                .machine_deleted_rail_index
+                .or_else(|| {
+                    self.machine_ui
+                        .as_ref()
+                        .and_then(|previous| {
+                            previous
+                                .snapshot
+                                .machines
+                                .iter()
+                                .position(|machine| machine.key == presented)
+                        })
+                        .or_else(|| {
+                            update
+                                .snapshot
+                                .machines
+                                .iter()
+                                .position(|machine| machine.key == presented)
+                        })
+                })
+                .unwrap_or(0);
+            let next_key = update
+                .snapshot
+                .machines
+                .iter()
+                .enumerate()
+                .filter(|(_, machine)| machine_usable(&update, machine.key))
+                .map(|(index, machine)| (index, machine.key))
+                .fold(None, |best: Option<(usize, MachineKey)>, (index, key)| match best {
+                    // Prefer the first usable machine at or after the old
+                    // slot; otherwise keep the last usable one before it.
+                    Some((chosen, _)) if chosen >= previous_index => best,
+                    _ if index >= previous_index => Some((index, key)),
+                    _ => Some((index, key)),
+                })
+                .map(|(_, key)| key);
+            match next_key {
+                Some(next_key) => {
+                    crate::client_log::info(
+                        "machine",
+                        &format!(
+                            "presented machine {} was deleted; switching to {}",
+                            presented.0, next_key.0
+                        ),
+                    );
+                    update.request = Some(MachineRequest::Switch(next_key));
+                    failover_rail_target = Some(next_key);
+                    self.machine_deleted_rail_index = None;
+                    // The presented session belongs to a deleted machine:
+                    // gate input away from it while the failover switch runs
+                    // (a failed switch leaves the rail on the replacement,
+                    // where Enter retries).
+                    update.session_available = false;
+                }
+                None => {
+                    crate::client_log::info(
+                        "machine",
+                        &format!(
+                            "presented machine {} was deleted; no usable machine remains",
+                            presented.0
+                        ),
+                    );
+                    // Nothing usable remains: drop the presentation instead
+                    // of routing input into the deleted machine's dead
+                    // session. The rail keeps its create and connect rows.
+                    self.machine_presented = None;
+                    self.machine_selection_intent = None;
+                    self.machine_deleted_rail_index = None;
+                    update.session_available = false;
+                }
+            }
+        }
         let guard_error = (uses_provider_managed_workspaces(Some(&update))
             && !self.session.workspaces_are_provider_managed())
         .then(|| self.session.mark_workspaces_provider_managed().err())
@@ -10915,11 +11141,22 @@ impl App {
         if let Some(previous) = self.machine_ui.as_ref() {
             if let Some(MachineRequest::Switch(machine)) = previous.request.as_ref()
                 && self.machine_selection_intent == Some(*machine)
+                && machine_usable(&update, *machine)
+                && update.request.is_none()
             {
+                crate::client_log::info(
+                    "machine",
+                    &format!("preserving the pending switch to {}", machine.0),
+                );
                 update.request = Some(MachineRequest::Switch(*machine));
             }
             update.extend_connection_phases_from(previous);
             update.reconcile_navigation_from(previous);
+        }
+        if let Some(next_key) = failover_rail_target {
+            // After reconciliation, which would otherwise keep the still
+            // listed (recoverable) row selected.
+            update.select_rail_target(MachineRailTarget::Machine(next_key));
         }
         let notice = update.notice.clone();
         self.machine_ui = Some(update);
@@ -11215,6 +11452,10 @@ impl App {
                     )
             })
         {
+            crate::client_log::info(
+                "machine",
+                &format!("stream lost for sleeping machine {}; presenting as asleep", active.0),
+            );
             machine.session_available = false;
             machine.set_connection_phase(active, MachineConnectionPhase::Disconnected);
             // The previous open's narration is stale now; a later wake
@@ -11224,12 +11465,15 @@ impl App {
             return true;
         }
         if machine.request.is_none() {
-            machine.request = Some(
-                machine
-                    .snapshot
-                    .active
-                    .map_or(MachineRequest::ReconnectProvider, MachineRequest::Switch),
+            let request = machine
+                .snapshot
+                .active
+                .map_or(MachineRequest::ReconnectProvider, MachineRequest::Switch);
+            crate::client_log::info(
+                "machine",
+                &format!("stream lost; queueing {request:?} to reconnect"),
             );
+            machine.request = Some(request);
         }
         true
     }
@@ -11476,8 +11720,6 @@ impl App {
         match hit {
             Hit::NewVm
             | Hit::ConnectMachine
-            | Hit::ProviderScope
-            | Hit::ProviderActions
             | Hit::CreateWorkspace { .. }
             | Hit::SidebarAction { action: SidebarActionTarget::CreateWorkspace(_), .. } => {
                 machine_context.cloned().map(PointerHitIdentity::MachineContext)
@@ -11521,7 +11763,7 @@ impl App {
             Hit::Workspace { .. }
             | Hit::ProjectionRow { .. }
             | Hit::ProjectionToggle { .. }
-            | Hit::RailHeader(_)
+            | Hit::RailPad(_)
             | Hit::SidebarAction { .. }
             | Hit::ScreenEntry { .. }
             | Hit::StatusMessage
@@ -13177,7 +13419,10 @@ impl App {
             ) {
                 Ok(handle) => self.status_command_workers.push(handle),
                 Err(error) => {
-                    eprintln!("cmux-tui: could not start a status segment worker: {error}");
+                    crate::client_log::stderr_log!(
+                        "status-segment",
+                        "cmux-tui: could not start a status segment worker: {error}"
+                    );
                 }
             }
         }
@@ -14671,7 +14916,10 @@ impl App {
                         self.session.refresh_clients_background();
                     }
                     SessionMutationOutcome::CreationResponseAmbiguous(error) => {
-                        eprintln!("cmux-tui: session creation response was ambiguous: {error}");
+                        crate::client_log::stderr_log!(
+                            "session",
+                            "cmux-tui: session creation response was ambiguous: {error}"
+                        );
                         self.status_message =
                             Some(localization::catalog().session.creation_reconciling.to_string());
                         self.layout_refresh_retries_remaining = LAYOUT_REFRESH_RETRIES;
@@ -14680,7 +14928,10 @@ impl App {
                         return Ok(RenderAction::Draw);
                     }
                     SessionMutationOutcome::MutationTimedOut(error) => {
-                        eprintln!("cmux-tui: session operation timed out: {error}");
+                        crate::client_log::stderr_log!(
+                            "session",
+                            "cmux-tui: session operation timed out: {error}"
+                        );
                         if let Some(intent) = semantic_intent {
                             // A peer without creation receipts cannot identify
                             // which surface, if any, a timed-out creation made.
@@ -14696,7 +14947,10 @@ impl App {
                         return Ok(RenderAction::Draw);
                     }
                     SessionMutationOutcome::Failed(error) => {
-                        eprintln!("cmux-tui: session operation failed: {error}");
+                        crate::client_log::stderr_log!(
+                            "session",
+                            "cmux-tui: session operation failed: {error}"
+                        );
                         if let Some(intent) = semantic_intent {
                             self.mark_semantic_destination_failed(intent);
                             self.status_message =
@@ -16727,7 +16981,9 @@ impl App {
                 return KeyboardIngress::Handled(RenderAction::Draw);
             };
             let was_sidebar_focused = self.workspace_sidebar_focused();
-            if !(was_sidebar_focused && action == Action::SendPrefix) {
+            let keep_machine_rail_focus =
+                self.machine_sidebar_focused() && action == Action::ProviderMenu;
+            if !(was_sidebar_focused && action == Action::SendPrefix) && !keep_machine_rail_focus {
                 self.focus = FocusTarget::Pane;
             }
             if was_sidebar_focused && action == Action::FocusSidebar {
@@ -16881,6 +17137,14 @@ impl App {
     }
 
     fn handle_machine_sidebar_key(&mut self, key: &KeyEvent) -> RenderAction {
+        if self.config.keys.action_for(key) == Some(Action::ProviderMenu)
+            || (!self.config.keys.provider_menu_overridden
+                && key.modifiers == KeyModifiers::NONE
+                && key.code == KeyCode::Char('m'))
+        {
+            let _ = self.open_provider_rail_menu(1, 2);
+            return RenderAction::Draw;
+        }
         if matches!(key.code, KeyCode::Left | KeyCode::Char('h')) {
             self.focus_adjacent_rail(RailKind::Machine, -1);
             return RenderAction::Draw;
@@ -16932,7 +17196,16 @@ impl App {
                 .rail_target()
                 .and_then(|selected| targets.iter().position(|target| *target == selected))
                 .unwrap_or_default();
-            if let Some(next) = rail_navigation_index(key, current, targets.len(), page) {
+            let provider_menu = self.config.keys.action_for(key) == Some(Action::ProviderMenu)
+                || (!self.config.keys.provider_menu_overridden
+                    && key.modifiers == KeyModifiers::NONE
+                    && key.code == KeyCode::Char('m'));
+            if provider_menu {
+                // Resolve the configured action before the built-in movement
+                // keys. A valid provider-menu binding may intentionally use
+                // j, k, h, l, or an arrow key.
+                Some(MachineRailCommand::ProviderMenu)
+            } else if let Some(next) = rail_navigation_index(key, current, targets.len(), page) {
                 if let Some(target) = targets.get(next).copied() {
                     machine.select_rail_target(target);
                 }
@@ -16981,8 +17254,6 @@ impl App {
                 }
             } else if key.code == KeyCode::Enter {
                 match targets.get(current).copied() {
-                    Some(MachineRailTarget::Scope) => Some(MachineRailCommand::OpenScopes),
-                    Some(MachineRailTarget::Actions) => Some(MachineRailCommand::OpenActions),
                     Some(MachineRailTarget::NewVm) => Some(MachineRailCommand::Create),
                     Some(MachineRailTarget::ConnectMachine) => Some(MachineRailCommand::Connect),
                     Some(MachineRailTarget::Machine(_)) | None => None,
@@ -17005,8 +17276,9 @@ impl App {
             Some(MachineRailCommand::Purge(machine)) => {
                 self.open_purge_managed_machine_prompt(machine);
             }
-            Some(MachineRailCommand::OpenScopes) => self.open_provider_scope_menu(1, 2),
-            Some(MachineRailCommand::OpenActions) => self.open_provider_actions_menu(1, 3),
+            Some(MachineRailCommand::ProviderMenu) => {
+                self.open_provider_rail_menu(1, 2);
+            }
             Some(MachineRailCommand::Create) => {
                 self.open_machine_creation_menu(1, 3);
             }
@@ -17231,14 +17503,60 @@ impl App {
         self.show_toast("Copied".to_string());
     }
 
-    fn open_provider_scope_menu(&mut self, x: u16, y: u16) {
+    /// Open the provider scope/actions menu near (x, y). The active scope
+    /// starts selected, exactly like the removed dedicated scope row, so a
+    /// plain Enter never switches scope by accident. False when the provider
+    /// offers nothing to show.
+    fn open_provider_rail_menu(&mut self, x: u16, y: u16) -> bool {
+        let scopes = self.provider_scope_menu_items();
+        let selected_scope = if scopes.is_empty() {
+            None
+        } else {
+            self.machine_ui.as_ref().and_then(|ui| ui.provider.as_ref()).and_then(|provider| {
+                provider.scopes.iter().position(|scope| scope.id == provider.selected_scope_id)
+            })
+        };
+        let actions = self.provider_actions_menu_items();
+        if scopes.is_empty() && actions.is_empty() {
+            return false;
+        }
+        let has_scopes = !scopes.is_empty();
+        let mut groups = Vec::new();
+        if !scopes.is_empty() {
+            groups.push(scopes);
+        }
+        if !actions.is_empty() {
+            groups.push(actions);
+        }
+        groups.push(self.global_menu_items());
+        let mut menu = ContextMenu::with_groups(x, y, groups);
+        if let (Some(level), Some(selected)) = (menu.levels.first_mut(), selected_scope) {
+            level.selected = selected;
+            level.ensure_selection_visible();
+        } else if !has_scopes {
+            // One scope is not a switch choice. Keep the combined menu inert
+            // until the user moves or clicks, so Enter cannot invoke its
+            // first provider action as a side effect of opening the menu.
+            if let Some(level) = menu.levels.first_mut() {
+                level.selection_active = false;
+            }
+        }
+        self.menu = Some(menu);
+        self.capture_menu_resources();
+        true
+    }
+
+    /// Scope-switch entries for the provider rail menu. Empty when only one
+    /// scope exists (nothing to switch to).
+    fn provider_scope_menu_items(&self) -> Vec<MenuItem> {
         let messages = &localization::catalog().sidebar;
         let Some(provider) = self.machine_ui.as_ref().and_then(|ui| ui.provider.as_ref()) else {
-            return;
+            return Vec::new();
         };
-        let selected_index =
-            provider.scopes.iter().position(|scope| scope.id == provider.selected_scope_id);
-        let items = provider
+        if provider.scopes.len() < 2 {
+            return Vec::new();
+        }
+        provider
             .scopes
             .iter()
             .enumerate()
@@ -17254,23 +17572,14 @@ impl App {
                     action: MenuAction::SelectProviderScope(index),
                 }
             })
-            .collect::<Vec<_>>();
-        if !items.is_empty() {
-            let mut menu = ContextMenu::with_groups(x, y, vec![items]);
-            if let (Some(level), Some(selected)) = (menu.levels.first_mut(), selected_index) {
-                level.selected = selected;
-                level.ensure_selection_visible();
-            }
-            self.menu = Some(menu);
-            self.capture_menu_resources();
-        }
+            .collect()
     }
 
-    fn open_provider_actions_menu(&mut self, x: u16, y: u16) {
+    fn provider_actions_menu_items(&self) -> Vec<MenuItem> {
         let Some(provider) = self.machine_ui.as_ref().and_then(|ui| ui.provider.as_ref()) else {
-            return;
+            return Vec::new();
         };
-        let items = provider
+        provider
             .actions
             .iter()
             .enumerate()
@@ -17282,11 +17591,7 @@ impl App {
                 },
                 action: MenuAction::InvokeProviderAction(index),
             })
-            .collect::<Vec<_>>();
-        if !items.is_empty() {
-            self.menu = Some(ContextMenu::with_groups(x, y, vec![items]));
-            self.capture_menu_resources();
-        }
+            .collect()
     }
 
     fn begin_provider_action(&mut self, index: usize) {
@@ -18238,6 +18543,11 @@ impl App {
             }
             Action::ToggleSidebarView => self.toggle_sidebar_view(),
             Action::FocusSidebar => self.toggle_sidebar_focus(),
+            Action::ProviderMenu => {
+                if self.focus == FocusTarget::MachineRail {
+                    self.open_provider_rail_menu(1, 2);
+                }
+            }
             Action::NewPaneRight => self.new_pane_right(pane, fallback_pane, semantic_intent)?,
             Action::UndoLayout => {
                 if let Some(pane) = pane {
@@ -20772,20 +21082,6 @@ impl App {
                     }
                     self.open_machine_connection_menu(x, y);
                 }
-                Hit::ProviderScope => {
-                    self.machine_rail_follow_selection = true;
-                    if let Some(machine) = self.machine_ui.as_mut() {
-                        machine.rail_selection = MachineRailSelection::Scope;
-                    }
-                    self.open_provider_scope_menu(x, y);
-                }
-                Hit::ProviderActions => {
-                    self.machine_rail_follow_selection = true;
-                    if let Some(machine) = self.machine_ui.as_mut() {
-                        machine.rail_selection = MachineRailSelection::Actions;
-                    }
-                    self.open_provider_actions_menu(x, y);
-                }
                 Hit::Workspace { index, id } => {
                     self.workspace_rail_follow_selection = true;
                     self.focus = FocusTarget::Pane;
@@ -20817,7 +21113,7 @@ impl App {
                     self.activate_projection_target(target)?;
                     self.focus = FocusTarget::Pane;
                 }
-                Hit::RailHeader(kind) => {
+                Hit::RailPad(kind) => {
                     self.focus_rail(kind);
                 }
                 Hit::SidebarAction { view, action } => {
@@ -21974,6 +22270,14 @@ impl App {
                 return;
             }
         }
+        // "+ new vm" and the machine rail's top pad carry the provider
+        // scope switcher and provider actions since their dedicated rail
+        // rows were removed (`m` is the keyboard twin).
+        if matches!(hit, Some(Hit::NewVm) | Some(Hit::RailPad(RailKind::Machine)))
+            && self.open_provider_rail_menu(x, y)
+        {
+            return;
+        }
         if matches!(hit, Some(Hit::NewScreen)) {
             let items =
                 self.plus_menu_items(&self.config.status_bar.screens_plus, self.active_pane());
@@ -22100,6 +22404,10 @@ impl App {
             groups.push(vec![self.sidebar_presentation_menu_item()]);
             groups.push(self.menu_group([MenuAction::ShowShortcuts]));
             self.menu = Some(ContextMenu::with_groups(x, y, groups));
+            // Provider scope/action entries dispatch by displayed index;
+            // capture the stable resources behind them (see the identity
+            // tests) exactly like the dedicated menus used to.
+            self.capture_menu_resources();
             return;
         }
         match hit {
@@ -22634,6 +22942,7 @@ fn action_is_frontend_local(action: Action) -> bool {
             | Action::ToggleSidebarCompact
             | Action::ToggleSidebarView
             | Action::FocusSidebar
+            | Action::ProviderMenu
             | Action::FocusLeft
             | Action::FocusRight
             | Action::FocusUp
@@ -22641,6 +22950,7 @@ fn action_is_frontend_local(action: Action) -> bool {
             | Action::FocusNextPane
             | Action::ScrollUp
             | Action::ScrollDown
+            | Action::ProviderMenu
             | Action::BrowserEditUrl
             | Action::ShowShortcuts
     )
@@ -25142,7 +25452,7 @@ mod tests {
     }
 
     #[test]
-    fn focused_sidebar_uses_an_accent_header_and_divider() {
+    fn focused_sidebar_uses_an_accent_divider() {
         let (mux, _) = test_mux("focused-sidebar-style-test", None);
         let mut app = test_app(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
@@ -25160,9 +25470,6 @@ mod tests {
         assert_eq!(divider.symbol(), "┃");
         assert_eq!(divider.fg, app.config.theme.border_active);
         assert!(divider.modifier.contains(Modifier::BOLD));
-        let header = &terminal.backend().buffer()[(1, 0)];
-        assert_eq!(header.bg, app.chrome.status_active_bg);
-        assert_eq!(header.fg, app.config.theme.border_active);
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
@@ -36228,8 +36535,8 @@ mod tests {
         assert_eq!(buffer[(12, 2)].symbol(), "│");
         assert_eq!(buffer[(12, 2)].style().fg, Some(app.config.theme.notification_warning));
         assert!(row_contains(buffer, 1, "•"), "tab bar should contain unread dot");
-        assert_eq!(buffer[(0, 2)].symbol(), "▎", "sidebar should retain the active rail");
-        assert_eq!(buffer[(1, 2)].symbol(), "•", "sidebar should contain unread dot");
+        assert_eq!(buffer[(0, 1)].symbol(), "▎", "sidebar should retain the active rail");
+        assert_eq!(buffer[(1, 1)].symbol(), "•", "sidebar should contain unread dot");
 
         app.replace_tree(notify_tree(surface.id, false));
         let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
@@ -36241,7 +36548,7 @@ mod tests {
         let buffer = terminal.backend().buffer();
         assert_eq!(buffer[(12, 2)].style().fg, Some(app.config.theme.border_active));
         assert!(!row_contains(buffer, 1, "•"), "tab bar dot should clear");
-        assert_ne!(buffer[(1, 2)].symbol(), "•", "sidebar dot should clear");
+        assert_ne!(buffer[(1, 1)].symbol(), "•", "sidebar dot should clear");
 
         mux.close_surface(surface.id).unwrap();
     }
@@ -36507,7 +36814,7 @@ mod tests {
         assert_eq!(app.sidebar_view, SidebarView::Workspaces);
         let mut terminal = Terminal::new(TestBackend::new(50, 12)).unwrap();
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
-        assert!(buffer_text(terminal.backend().buffer()).contains("workspaces"));
+        assert!(buffer_text(terminal.backend().buffer()).contains("+ new workspace"));
 
         app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.sidebar_view, SidebarView::Files);
@@ -37023,6 +37330,359 @@ mod tests {
         let view = app.machine_transition().expect("reconnect must surface");
         assert_eq!(view.phase, MachineConnectionPhase::Connecting);
         assert_eq!(view.progress, Some("waiting for sshd"));
+    }
+
+    #[test]
+    fn deleting_the_presented_machine_switches_to_the_next_available_one() {
+        let mux = Mux::new("machine-delete-focus-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let descriptor = |key: u64, name: &str| MachineDescriptor {
+            key: MachineKey(key),
+            id: format!("vm-{key}"),
+            name: name.into(),
+            subtitle: String::new(),
+            status: MachineStatus::Running,
+        };
+        app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash"), descriptor(2, "birch"), descriptor(3, "cedar")],
+            active: Some(MachineKey(2)),
+            capabilities: MachineCapabilities::default(),
+        }));
+        app.machine_presented = Some(MachineKey(2));
+        app.machine_selection_intent = Some(MachineKey(2));
+
+        // The presented middle machine is deleted: the update must aim at the
+        // machine that took its slot (cedar), not leave a dead session up.
+        let update = MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash"), descriptor(3, "cedar")],
+            active: None,
+            capabilities: MachineCapabilities::default(),
+        });
+        app.apply_machine_ui_update(update);
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(3))));
+        assert!(!ui.session_available, "input must not reach the deleted machine's session");
+        assert_eq!(
+            ui.rail_target(),
+            Some(crate::machine::MachineRailTarget::Machine(MachineKey(3)))
+        );
+
+        // Deleting the LAST machine clamps to the new last one.
+        app.machine_presented = Some(MachineKey(3));
+        app.machine_selection_intent = Some(MachineKey(3));
+        app.machine_ui.as_mut().unwrap().request = None;
+        let update = MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash")],
+            active: None,
+            capabilities: MachineCapabilities::default(),
+        });
+        app.apply_machine_ui_update(update);
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(1))));
+
+        // Deleting the only remaining machine drops the presentation and
+        // lands the rail on the first action row, not the SSH footer that
+        // happens to share the old index.
+        app.machine_presented = Some(MachineKey(1));
+        app.machine_selection_intent = Some(MachineKey(1));
+        app.machine_ui.as_mut().unwrap().request = None;
+        let update = MachineUiState::new(MachineSnapshot {
+            machines: Vec::new(),
+            active: None,
+            capabilities: MachineCapabilities { create: true, connect: true },
+        });
+        app.apply_machine_ui_update(update);
+        assert_eq!(app.machine_presented, None);
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, None);
+        assert!(!ui.session_available);
+        assert_eq!(ui.rail_target(), Some(crate::machine::MachineRailTarget::NewVm));
+    }
+
+    #[test]
+    fn m_on_the_machine_rail_opens_the_provider_menu_with_active_scope_selected() {
+        let mux = Mux::new("provider-menu-keyboard-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 16));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.menu.as_ref().and_then(ContextMenu::selected_action),
+            Some(MenuAction::SelectProviderScope(1)),
+            "the ACTIVE scope starts selected"
+        );
+        app.handle_menu_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)).unwrap();
+        app.handle_menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::SelectProviderScope("personal".into()))
+        );
+    }
+
+    #[test]
+    fn modified_m_on_the_machine_rail_does_not_open_the_provider_menu() {
+        let mux = Mux::new("provider-menu-modified-key-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 16));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::ALT)).unwrap();
+        assert!(app.menu.is_none(), "Alt-m must not open the provider menu");
+        app.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::CONTROL)).unwrap();
+        assert!(app.menu.is_none(), "Ctrl-m must not open the provider menu");
+    }
+
+    #[test]
+    fn configured_provider_menu_binding_opens_from_the_machine_rail() {
+        let mux = Mux::new("provider-menu-configured-key-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.config.keys.apply_for_test(&HashMap::from([(
+            "provider-menu".to_string(),
+            Value::String("x".to_string()),
+        )]));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)).unwrap();
+        assert!(app.menu.is_some(), "configured provider-menu chord must open on the rail");
+    }
+
+    #[test]
+    fn configured_provider_menu_navigation_chord_wins_over_rail_navigation() {
+        let mux = Mux::new("provider-menu-navigation-key-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 16));
+        app.config.keys.apply_for_test(&HashMap::from([(
+            "provider-menu".to_string(),
+            Value::String("j".to_string()),
+        )]));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)).unwrap();
+        assert!(app.menu.is_some(), "configured navigation chord must open the provider menu");
+    }
+
+    #[test]
+    fn single_provider_scope_menu_starts_inert() {
+        let mux = Mux::new("provider-menu-single-scope-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = provider_controls_ui();
+        ui.provider.as_mut().unwrap().scopes.truncate(1);
+        app.machine_ui = Some(ui);
+
+        assert!(app.open_provider_rail_menu(1, 2));
+        let menu = app.menu.as_ref().unwrap();
+        assert!(!menu.levels[0].selection_active);
+        assert_eq!(menu.selected_action(), None);
+    }
+
+    #[test]
+    fn soft_deleting_the_presented_machine_switches_to_the_next_usable_one() {
+        // Recovery-capable providers (Freestyle) keep a deleted machine in
+        // the catalog as a Recoverable row; failover must treat that exactly
+        // like a hard delete and must skip other recoverable rows.
+        let mux = Mux::new("machine-soft-delete-focus-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let descriptor = |key: u64, name: &str| MachineDescriptor {
+            key: MachineKey(key),
+            id: format!("vm-{key}"),
+            name: name.into(),
+            subtitle: String::new(),
+            status: MachineStatus::Running,
+        };
+        let managed = |key: u64, status: ManagedMachineStatus| ManagedMachineDescriptor {
+            key: MachineKey(key),
+            id: format!("vm-{key}"),
+            name: format!("vm-{key}"),
+            status,
+            version: 1,
+            recoverable_until: None,
+            capabilities: ManagedMachineCapabilities {
+                rename: false,
+                delete: false,
+                restore: true,
+                purge: true,
+            },
+        };
+        app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash"), descriptor(2, "cedar"), descriptor(3, "oak")],
+            active: Some(MachineKey(2)),
+            capabilities: MachineCapabilities::default(),
+        }));
+        app.machine_presented = Some(MachineKey(2));
+        app.machine_selection_intent = Some(MachineKey(2));
+
+        // cedar is soft deleted; oak (the next slot) is ALSO a recoverable
+        // leftover, so the failover must land on ash.
+        let mut update = MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash"), descriptor(2, "cedar"), descriptor(3, "oak")],
+            active: None,
+            capabilities: MachineCapabilities::default(),
+        });
+        update.set_managed_machines(vec![
+            managed(2, ManagedMachineStatus::Recoverable),
+            managed(3, ManagedMachineStatus::Recoverable),
+        ]);
+        // The deletion races its own stream death: live Freestyle dogfood
+        // queued a provider RECONNECT for the dying machine (snapshot.active
+        // was already gone), which is not a Switch and must equally not
+        // block the failover.
+        app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::ReconnectProvider);
+        app.apply_machine_ui_update(update);
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(1))));
+        assert!(!ui.session_available);
+        assert_eq!(
+            ui.rail_target(),
+            Some(crate::machine::MachineRailTarget::Machine(MachineKey(1)))
+        );
+    }
+
+    #[test]
+    fn deleting_a_switch_target_falls_back_to_the_still_usable_presented_machine() {
+        // A queued switch whose target is deleted before it dispatches must
+        // not strand the selection intent on the dead machine: input would
+        // stay gated forever (intent != presented, nothing queued).
+        let mux = Mux::new("machine-doomed-switch-intent-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let descriptor = |key: u64, name: &str| MachineDescriptor {
+            key: MachineKey(key),
+            id: format!("vm-{key}"),
+            name: name.into(),
+            subtitle: String::new(),
+            status: MachineStatus::Running,
+        };
+        app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash"), descriptor(2, "cedar")],
+            active: Some(MachineKey(1)),
+            capabilities: MachineCapabilities::default(),
+        }));
+        app.machine_presented = Some(MachineKey(1));
+        app.machine_selection_intent = Some(MachineKey(2));
+
+        // cedar vanishes while its switch is still queued; ash stays healthy.
+        let mut update = MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash")],
+            active: Some(MachineKey(1)),
+            capabilities: MachineCapabilities::default(),
+        });
+        update.request = Some(MachineRequest::Switch(MachineKey(2)));
+        update.session_available = true;
+        app.apply_machine_ui_update(update);
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, None);
+        assert_eq!(app.machine_selection_intent, Some(MachineKey(1)));
+        assert_eq!(app.machine_presented, Some(MachineKey(1)));
+        assert!(ui.session_available, "input keeps flowing to the presented machine");
+    }
+
+    #[test]
+    fn deleting_the_presented_machine_behind_a_queued_request_gates_input_then_fails_over() {
+        // The failover cannot use the request slot while an unrelated
+        // request occupies it, but input must be gated away from the deleted
+        // machine's dead session immediately, and the switch must happen on
+        // the next free-slot update.
+        let mux = Mux::new("machine-delete-queued-request-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let descriptor = |key: u64, name: &str| MachineDescriptor {
+            key: MachineKey(key),
+            id: format!("vm-{key}"),
+            name: name.into(),
+            subtitle: String::new(),
+            status: MachineStatus::Running,
+        };
+        let snapshot = || MachineSnapshot {
+            machines: vec![descriptor(1, "ash"), descriptor(2, "cedar")],
+            active: None,
+            capabilities: MachineCapabilities::default(),
+        };
+        let recoverable_cedar = || ManagedMachineDescriptor {
+            key: MachineKey(2),
+            id: "vm-2".into(),
+            name: "vm-2".into(),
+            status: ManagedMachineStatus::Recoverable,
+            version: 1,
+            recoverable_until: None,
+            capabilities: ManagedMachineCapabilities {
+                rename: false,
+                delete: false,
+                restore: true,
+                purge: true,
+            },
+        };
+        app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash"), descriptor(2, "cedar")],
+            active: Some(MachineKey(2)),
+            capabilities: MachineCapabilities::default(),
+        }));
+        app.machine_presented = Some(MachineKey(2));
+        app.machine_selection_intent = Some(MachineKey(2));
+
+        // cedar is soft deleted while a scope selection is still queued.
+        let mut update = MachineUiState::new(snapshot());
+        update.set_managed_machines(vec![recoverable_cedar()]);
+        update.request = Some(MachineRequest::SelectProviderScope("personal".into()));
+        update.session_available = true;
+        app.apply_machine_ui_update(update);
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(
+            ui.request,
+            Some(MachineRequest::SelectProviderScope("personal".into())),
+            "the queued request keeps the slot"
+        );
+        assert!(!ui.session_available, "input must not reach the deleted machine's session");
+        assert_eq!(app.machine_presented, Some(MachineKey(2)));
+
+        // The queued request settles; the next update has a free slot and
+        // the deferred failover fires.
+        let mut update = MachineUiState::new(snapshot());
+        update.set_managed_machines(vec![recoverable_cedar()]);
+        update.session_available = true;
+        app.apply_machine_ui_update(update);
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(1))));
+        assert!(!ui.session_available);
+        assert_eq!(
+            ui.rail_target(),
+            Some(crate::machine::MachineRailTarget::Machine(MachineKey(1)))
+        );
+    }
+
+    #[test]
+    fn deleting_presented_machine_retries_failover_after_failed_switch() {
+        let mux = Mux::new("machine-failed-switch-failover-test", SurfaceOptions::default());
+        let descriptor = |key: u64| MachineDescriptor {
+            key: MachineKey(key),
+            id: format!("vm-{key}"),
+            name: format!("vm-{key}"),
+            subtitle: String::new(),
+            status: MachineStatus::Running,
+        };
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1), descriptor(2)],
+            active: Some(MachineKey(1)),
+            capabilities: MachineCapabilities::default(),
+        });
+        previous.set_connection_phase(MachineKey(2), MachineConnectionPhase::Failed);
+        app.machine_ui = Some(previous);
+        app.machine_presented = Some(MachineKey(1));
+        app.machine_selection_intent = Some(MachineKey(2));
+
+        let update = MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(2)],
+            active: None,
+            capabilities: MachineCapabilities::default(),
+        });
+        app.apply_machine_ui_update(update);
+
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(2))));
+        assert!(!ui.session_available);
     }
 
     #[test]
@@ -37921,14 +38581,14 @@ mod tests {
         );
 
         app.machine_ui.as_mut().unwrap().request = None;
-        let header = app
+        let pad = app
             .hits
             .iter()
             .find_map(|(rect, hit)| {
-                matches!(hit, super::Hit::RailHeader(RailKind::Workspace)).then_some(*rect)
+                matches!(hit, super::Hit::RailPad(RailKind::Workspace)).then_some(*rect)
             })
             .unwrap();
-        app.handle_left_down(header.x, header.y, KeyModifiers::NONE).unwrap();
+        app.handle_left_down(pad.x, pad.y, KeyModifiers::NONE).unwrap();
         assert_eq!(app.focus, FocusTarget::WorkspaceRail);
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
         assert_eq!(
@@ -38028,27 +38688,43 @@ mod tests {
         ui
     }
 
+    /// Draw the app and open the context menu on the "+ new vm" row - the
+    /// home of the provider scope and action entries now that their rail
+    /// rows are gone.
+    fn open_new_vm_context_menu(app: &mut App) {
+        app.sync_layout((100, 16));
+        let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(app, frame)).unwrap();
+        let rect = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| matches!(hit, super::Hit::NewVm).then_some(*rect))
+            .expect("new vm row");
+        app.open_context_menu(rect.x, rect.y);
+    }
+
     #[test]
-    fn provider_scope_row_switches_team_with_keyboard_menu() {
+    fn provider_scope_switches_from_the_new_vm_context_menu() {
         let mux = Mux::new("provider-scope-keyboard-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_controls_ui());
-        app.focus = FocusTarget::MachineRail;
-        app.sync_layout((100, 16));
+        open_new_vm_context_menu(&mut app);
 
-        app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE)).unwrap();
+        let menu = app.menu.as_ref().expect("new vm context menu");
         assert_eq!(
-            app.machine_ui.as_ref().map(|ui| ui.rail_selection),
-            Some(MachineRailSelection::Scope)
+            menu.levels[0].items.first(),
+            Some(&MenuItem::LabeledAction {
+                label: "  Personal (personal)".into(),
+                action: MenuAction::SelectProviderScope(0),
+            })
         );
-        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        // The ACTIVE scope starts selected, so Enter alone changes nothing.
         assert_eq!(
             app.menu.as_ref().and_then(ContextMenu::selected_action),
             Some(MenuAction::SelectProviderScope(1))
         );
-
-        app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)).unwrap();
-        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        app.handle_menu_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)).unwrap();
+        app.handle_menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
         assert_eq!(
             app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
             Some(&MachineRequest::SelectProviderScope("personal".into()))
@@ -38057,35 +38733,24 @@ mod tests {
     }
 
     #[test]
-    fn provider_rows_and_action_prompt_are_mouse_accessible() {
+    fn provider_actions_and_prompt_are_reachable_from_the_new_vm_menu() {
         let mux = Mux::new("provider-actions-mouse-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_controls_ui());
-        app.sync_layout((100, 16));
-        let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
-        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        open_new_vm_context_menu(&mut app);
 
-        let text = buffer_text(terminal.backend().buffer());
-        assert!(text.contains("team · Acme"), "{text}");
-        assert!(text.contains("actions"), "{text}");
-        assert!(app.hits.iter().any(|(_, hit)| matches!(hit, super::Hit::ProviderScope)));
-        let actions = app
-            .hits
+        let menu = app.menu.as_ref().expect("new vm context menu");
+        let invite = MenuItem::LabeledAction {
+            label: "Invite member".into(),
+            action: MenuAction::InvokeProviderAction(0),
+        };
+        let index = menu.levels[0]
+            .items
             .iter()
-            .find_map(|(rect, hit)| matches!(hit, super::Hit::ProviderActions).then_some(*rect))
-            .expect("provider actions hit");
-
-        app.handle_left_down(actions.x, actions.y, KeyModifiers::NONE).unwrap();
-        let menu = app.menu.as_ref().expect("action menu opened by mouse");
-        assert_eq!(
-            menu.levels[0].items[0],
-            MenuItem::LabeledAction {
-                label: "Invite member".into(),
-                action: MenuAction::InvokeProviderAction(0),
-            }
-        );
+            .position(|item| *item == invite)
+            .expect("provider action in the new vm menu");
         let item_x = menu.levels[0].rect.x + 2;
-        let item_y = menu.levels[0].rect.y + 1;
+        let item_y = menu.levels[0].rect.y + 1 + index as u16;
         app.handle_left_down(item_x, item_y, KeyModifiers::NONE).unwrap();
         assert_eq!(app.prompt.as_ref().map(|prompt| prompt.label.as_str()), Some("Member email"));
 
@@ -38243,29 +38908,11 @@ mod tests {
     }
 
     #[test]
-    fn personal_scope_row_does_not_repeat_the_same_label() {
-        let mux = Mux::new("provider-personal-scope-style-test", SurfaceOptions::default());
-        let mut app = test_app(Session::Local(mux));
-        let mut ui = provider_controls_ui();
-        let mut provider = ui.provider.clone().unwrap();
-        provider.selected_scope_id = "personal".into();
-        ui.set_provider_presentation(provider);
-        app.machine_ui = Some(ui);
-        app.sync_layout((100, 16));
-        let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
-        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
-
-        let text = buffer_text(terminal.backend().buffer());
-        assert!(text.contains(" Personal ▾"), "{text}");
-        assert!(!text.contains("personal · Personal"), "{text}");
-    }
-
-    #[test]
     fn provider_snapshot_update_invalidates_stale_menu_and_prompt() {
         let mux = Mux::new("provider-overlay-invalidation-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_controls_ui());
-        app.open_provider_actions_menu(1, 3);
+        open_new_vm_context_menu(&mut app);
         assert!(app.menu.as_ref().is_some_and(ContextMenu::targets_provider_state));
 
         let mut update = provider_controls_ui();
@@ -38291,7 +38938,7 @@ mod tests {
         let mux = Mux::new("provider-action-menu-identity-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_controls_ui());
-        app.open_provider_actions_menu(1, 3);
+        open_new_vm_context_menu(&mut app);
 
         let action = MenuAction::InvokeProviderAction(0);
         assert!(
@@ -38301,6 +38948,15 @@ mod tests {
             ),
             "provider actions must capture the stable action behind their displayed index"
         );
+        // The combined menu leads with scope entries; move the selection onto
+        // the displayed action before the provider array changes.
+        for _ in 0..16 {
+            if app.menu.as_ref().and_then(ContextMenu::selected_action) == Some(action) {
+                break;
+            }
+            app.handle_menu_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).unwrap();
+        }
+        assert_eq!(app.menu.as_ref().and_then(ContextMenu::selected_action), Some(action));
 
         app.machine_ui.as_mut().unwrap().provider.as_mut().unwrap().actions.swap(0, 1);
         app.handle_menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
@@ -38316,7 +38972,7 @@ mod tests {
         let mux = Mux::new("provider-scope-menu-identity-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_controls_ui());
-        app.open_provider_scope_menu(1, 2);
+        open_new_vm_context_menu(&mut app);
 
         let action = MenuAction::SelectProviderScope(1);
         assert!(
@@ -38416,12 +39072,10 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         let text = buffer_text(terminal.backend().buffer());
-        assert!(text.contains("machines"), "{text}");
         assert!(text.contains("no machines"), "{text}");
-        assert!(text.contains("new machine"), "{text}");
-        assert!(!text.contains("new VM"), "{text}");
-        assert!(text.contains("connect machine"), "{text}");
-        assert!(text.contains("workspaces"), "{text}");
+        assert!(text.contains("+ new vm"), "{text}");
+        assert!(text.contains("+ ssh host"), "{text}");
+        assert!(!text.contains("+ +"), "the renderer owns the plus prefix: {text}");
         assert!(
             !app.hits.iter().any(|(_, hit)| { matches!(hit, super::Hit::CreateWorkspace { .. }) })
         );
@@ -38778,16 +39432,11 @@ mod tests {
         app.sync_layout((100, 9));
 
         app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE)).unwrap();
-        assert_eq!(
+        assert!(matches!(
             app.machine_ui.as_ref().and_then(MachineUiState::rail_target),
-            Some(crate::machine::MachineRailTarget::Scope)
-        );
+            Some(crate::machine::MachineRailTarget::Machine(_))
+        ));
         app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).unwrap();
-        assert_eq!(
-            app.machine_ui.as_ref().and_then(MachineUiState::rail_target),
-            Some(crate::machine::MachineRailTarget::Actions)
-        );
-        app.handle_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE)).unwrap();
         assert_eq!(
             app.machine_ui.as_ref().and_then(MachineUiState::rail_target),
             Some(crate::machine::MachineRailTarget::NewVm)
@@ -38940,7 +39589,7 @@ mod tests {
     }
 
     #[test]
-    fn sidebar_headers_are_the_only_pointer_entrypoint_for_rail_focus() {
+    fn sidebar_top_pads_are_the_only_pointer_entrypoint_for_rail_focus() {
         let (mux, surface) = test_mux("sidebar-pointer-focus-test", None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         let mut machine_ui = provider_machine_ui();
@@ -39591,10 +40240,9 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         let rendered = buffer_text(terminal.backend().buffer());
-        assert!(rendered.contains("workspaces › agents"), "{rendered}");
         assert!(rendered.contains("working · agent-session"), "{rendered}");
         assert!(
-            rendered.contains("new workspace"),
+            rendered.contains("+ new workspace"),
             "a configured workspace representation must preserve its native creation action: {rendered}"
         );
         assert!(app.hits.iter().any(|(_, hit)| matches!(
@@ -41474,6 +42122,7 @@ mod tests {
             machine_selection_intent: None,
             machine_selection_generation: 0,
             machine_presented: None,
+            machine_deleted_rail_index: None,
             machine_provider_reconnect_attempts: 0,
             machine_provider_reconnect_retry_at: None,
             pending_machine_replacement: None,
