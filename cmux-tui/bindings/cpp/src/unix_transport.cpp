@@ -114,6 +114,9 @@ struct UnixTransport::Impl {
     std::mutex send_mutex;
     std::mutex receive_mutex;
     std::string receive_buffer;
+#if defined(CMUX_CPP_TESTING)
+    std::function<void()> before_receive_wait;
+#endif
 };
 
 UnixTransport::UnixTransport(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
@@ -269,6 +272,11 @@ Result<std::string> UnixTransport::receive(Timeout timeout) {
         if (impl_->closed.load(std::memory_order_acquire)) {
             return make_error(ErrorCode::closed, "transport is closed");
         }
+#if defined(CMUX_CPP_TESTING)
+        if (impl_->before_receive_wait) {
+            impl_->before_receive_wait();
+        }
+#endif
         auto ready = wait_for_fd(impl_->fd, POLLIN, deadline);
         if (!ready) {
             if (impl_->closed.load(std::memory_order_acquire)) {
@@ -297,6 +305,12 @@ Result<std::string> UnixTransport::receive(Timeout timeout) {
         return system_error(ErrorCode::connection, "socket read failed");
     }
 }
+
+#if defined(CMUX_CPP_TESTING)
+void UnixTransport::set_before_receive_wait_for_testing(std::function<void()> hook) {
+    impl_->before_receive_wait = std::move(hook);
+}
+#endif
 
 void UnixTransport::close() noexcept {
     if (!impl_) {

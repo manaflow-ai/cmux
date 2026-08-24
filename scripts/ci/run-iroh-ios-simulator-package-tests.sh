@@ -156,8 +156,11 @@ cleanup() {
 trap cleanup EXIT
 
 xcrun simctl boot "$simulator_id"
+# Intel CoreSimulator can spend several minutes in "Waiting on System App"
+# on a freshly created device. Keep the wait bounded, but allow the same clean
+# boot to finish instead of misclassifying runner startup as a transport failure.
 python3 "$repo_root/scripts/ci/run_with_timeout.py" \
-  --timeout-seconds 180 \
+  --timeout-seconds 600 \
   -- xcrun simctl bootstatus "$simulator_id" -b
 
 test_root="${RUNNER_TEMP:-/tmp}/cmux-iroh-ios-simulator-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
@@ -171,6 +174,13 @@ run_package_tests() {
   local derived_data="$test_root/$scheme-derived"
   local result_bundle="$test_root/$scheme.xcresult"
 
+  # Xcode can launch the entire Swift Testing target concurrently inside one
+  # simulator clone. Across Intel and newer CoreSimulator runtimes that has
+  # starved actor callbacks and even stalled diagnostics collection while the
+  # same focused suites pass natively. Serialize simulator execution without
+  # weakening any behavioral deadline in the tests themselves.
+  local parallel_testing="NO"
+
   (
     cd "$repo_root/$package_path"
     xcodebuild \
@@ -180,6 +190,7 @@ run_package_tests() {
       -resultBundlePath "$result_bundle" \
       ONLY_ACTIVE_ARCH=YES \
       ARCHS="$expected_arch" \
+      -parallel-testing-enabled "$parallel_testing" \
       -only-testing:"$test_target" \
       test
   )

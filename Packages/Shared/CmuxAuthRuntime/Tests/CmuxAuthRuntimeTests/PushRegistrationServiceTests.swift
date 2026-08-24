@@ -159,6 +159,20 @@ actor RetryDelayRecorder {
 // append to the same singleton between this test's reset and its assertion,
 // failing nondeterministically. `.serialized` removes that interleaving.
 @Suite(.serialized) struct PushRegistrationServiceTests {
+    private func testPendingUnregisterStoreURL(for suite: String) -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("push-cleanup-\(suite).sqlite3")
+    }
+
+    private func pendingUnregisters(
+        suite: String,
+        accountID: String
+    ) -> [PendingUnregister] {
+        (try? PendingUnregisterStore(
+            databaseURL: testPendingUnregisterStoreURL(for: suite)
+        ).batch(accountID: accountID, limit: 100)) ?? []
+    }
+
     private func makeService(
         tokenProvider: any TokenProviding = FakeTokenProvider()
     ) -> (PushRegistrationService, UserDefaults) {
@@ -172,6 +186,9 @@ actor RetryDelayRecorder {
             bundleID: "dev.cmux.ios",
             apnsEnvironment: "sandbox",
             suiteName: suite,
+            pendingUnregisterStoreURL: testPendingUnregisterStoreURL(
+                for: suite
+            ),
             session: URLSession(configuration: configuration)
         )
         return (service, defaults)
@@ -185,7 +202,10 @@ actor RetryDelayRecorder {
         seedDefaults: (UserDefaults) -> Void = { _ in },
         retrySleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await ContinuousClock().sleep(for: $0)
-        }
+        },
+        sessionSnapshotTimeout: Duration = .seconds(15),
+        sessionSnapshotClock: any Clock<Duration> = ContinuousClock(),
+        pendingUnregisterStoreURL: URL? = nil
     ) -> (PushRegistrationService, UserDefaults) {
         let defaults = UserDefaults(suiteName: suite)!
         seedDefaults(defaults)
@@ -209,10 +229,14 @@ actor RetryDelayRecorder {
             bundleID: "dev.cmux.ios.push1",
             apnsEnvironment: "sandbox",
             suiteName: suite,
+            pendingUnregisterStoreURL: pendingUnregisterStoreURL
+                ?? testPendingUnregisterStoreURL(for: suite),
             session: URLSession(configuration: configuration),
             retryDelays: retryDelays,
             retryJitter: { _ in 1 },
-            retrySleep: retrySleep
+            retrySleep: retrySleep,
+            sessionSnapshotTimeout: sessionSnapshotTimeout,
+            sessionSnapshotClock: sessionSnapshotClock
         )
         return (service, defaults)
     }
@@ -288,6 +312,10 @@ actor RetryDelayRecorder {
         }
         #expect(request?.httpMethod == "DELETE")
         #expect(request?.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "captured-refresh")
+        #expect(
+            request?.value(forHTTPHeaderField: "X-Cmux-App-Namespace")
+                == "dev.cmux.ios"
+        )
     }
 
     @Test func signOutUnregisterNeverFallsBackToLiveProvider() async {
@@ -328,14 +356,10 @@ actor RetryDelayRecorder {
             refreshToken: "captured-refresh"
         )
 
-        let queueData = defaults.data(
-            forKey: "cmux.notifications.pendingUnregisters.v2"
-        )
-        let queue = queueData.flatMap {
-            try? JSONSerialization.jsonObject(with: $0)
-                as? [[String: String]]
-        }
-        #expect(queue == [["tokenHex": "ab", "accountID": "old-user"]])
+        #expect(pendingUnregisters(
+            suite: suite,
+            accountID: "old-user"
+        ) == [PendingUnregister(tokenHex: "ab", accountID: "old-user")])
         #expect(
             defaults.string(forKey: "cmux.notifications.pendingUnregisterToken")
                 == nil
@@ -392,11 +416,14 @@ actor RetryDelayRecorder {
                 forKey: "cmux.notifications.registeredAccountID"
             ) == "account-a"
         )
-        let queueText = defaults.data(
-            forKey: "cmux.notifications.pendingUnregisters.v2"
-        ).flatMap { String(data: $0, encoding: .utf8) }
-        #expect(queueText?.contains("account-a") == true)
-        #expect(queueText?.contains("account-b") == false)
+        #expect(pendingUnregisters(
+            suite: suite,
+            accountID: "account-a"
+        ) == [PendingUnregister(tokenHex: "aa", accountID: "account-a")])
+        #expect(pendingUnregisters(
+            suite: suite,
+            accountID: "account-b"
+        ).isEmpty)
     }
 
     @Test func legacySignOutCannotProveRegisteredOwnerMatchesCredentials() async {
@@ -418,10 +445,10 @@ actor RetryDelayRecorder {
         )
 
         #expect(await PushRegistrationURLProtocol.script.requests.isEmpty)
-        let queueText = defaults.data(
-            forKey: "cmux.notifications.pendingUnregisters.v2"
-        ).flatMap { String(data: $0, encoding: .utf8) }
-        #expect(queueText?.contains("account-a") == true)
+        #expect(pendingUnregisters(
+            suite: suite,
+            accountID: "account-a"
+        ) == [PendingUnregister(tokenHex: "aa", accountID: "account-a")])
     }
 
     @Test func enabledWithoutAPNsTokenReportsAwaitingTokenInsteadOfReady() async {
@@ -443,6 +470,31 @@ actor RetryDelayRecorder {
         await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
         await service.setEnabled(true)
 
+        #expect(await service.snapshot.backendState == .registered)
+    }
+
+    @Test func concurrentSameTokenSyncsShareOnePost() async {
+        let started = TestPhaseSignal()
+        let blocker = TestContinuationBlocker()
+        await PushRegistrationURLProtocol.script.reset([
+            .gatedResponse(200, started: started, blocker: blocker),
+        ])
+        let (service, defaults) = makeScriptedService()
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
+
+        let first = Task { await service.syncTokenIfPossible() }
+        await started.waitUntilStarted()
+        let second = Task { await service.syncTokenIfPossible() }
+        for _ in 0..<10 { await Task.yield() }
+        await blocker.release()
+        await first.value
+        await second.value
+
+        #expect(
+            await PushRegistrationURLProtocol.script.requests
+                .map(\.httpMethod) == ["POST"]
+        )
         #expect(await service.snapshot.backendState == .registered)
     }
 
@@ -712,13 +764,10 @@ actor RetryDelayRecorder {
 
         await service.setEnabled(false)
 
-        let persisted = try? JSONDecoder().decode(
-            [[String: String]].self,
-            from: defaults.data(
-                forKey: "cmux.notifications.pendingUnregisters.v2"
-            ) ?? Data()
-        )
-        #expect(persisted == [["tokenHex": "ab", "accountID": "account-a"]])
+        #expect(pendingUnregisters(
+            suite: suite,
+            accountID: "account-a"
+        ) == [PendingUnregister(tokenHex: "ab", accountID: "account-a")])
         #expect(await PushRegistrationURLProtocol.script.requests.isEmpty)
 
         let (returned, _) = makeScriptedService(
@@ -742,6 +791,28 @@ actor RetryDelayRecorder {
         )
     }
 
+    @Test func relaunchRecoversOptOutCommittedBeforeServiceHandoff() async {
+        await PushRegistrationURLProtocol.script.reset([.response(200)])
+        let (service, _) = makeScriptedService(
+            seedDefaults: { defaults in
+                defaults.set(false, forKey: "cmux.notifications.pushEnabled")
+                defaults.set("ab", forKey: "cmux.notifications.deviceTokenHex")
+                defaults.set(
+                    "push-user-1",
+                    forKey: "cmux.notifications.registeredAccountID"
+                )
+            }
+        )
+
+        _ = await service.snapshots()
+        await PushRegistrationURLProtocol.script.waitForRequestCount(1)
+
+        #expect(
+            await PushRegistrationURLProtocol.script.requests.map(\.httpMethod)
+                == ["DELETE"]
+        )
+    }
+
     @Test func accountBOwnedOptOutNeverDeletesAccountATokenWithBCredentials() async {
         await PushRegistrationURLProtocol.script.reset([.response(200)])
         let suite = "push-optout-owner-mismatch-\(UUID().uuidString)"
@@ -760,11 +831,14 @@ actor RetryDelayRecorder {
         await service.setEnabled(false)
 
         #expect(await PushRegistrationURLProtocol.script.requests.isEmpty)
-        let queueText = defaults.data(
-            forKey: "cmux.notifications.pendingUnregisters.v2"
-        ).flatMap { String(data: $0, encoding: .utf8) }
-        #expect(queueText?.contains("account-a") == true)
-        #expect(queueText?.contains("account-b") == false)
+        #expect(pendingUnregisters(
+            suite: suite,
+            accountID: "account-a"
+        ) == [PendingUnregister(tokenHex: "aa", accountID: "account-a")])
+        #expect(pendingUnregisters(
+            suite: suite,
+            accountID: "account-b"
+        ).isEmpty)
     }
 
     @Test func malformedDeleteAcknowledgementKeepsDurableTombstone() async {
@@ -782,10 +856,10 @@ actor RetryDelayRecorder {
 
         await service.setEnabled(false)
 
-        #expect(
-            defaults.data(forKey: "cmux.notifications.pendingUnregisters.v2")
-                != nil
-        )
+        #expect(pendingUnregisters(
+            suite: suite,
+            accountID: "account-a"
+        ) == [PendingUnregister(tokenHex: "ab", accountID: "account-a")])
         #expect(
             defaults.string(forKey: "cmux.notifications.registeredAccountID")
                 == "account-a"
@@ -846,6 +920,177 @@ actor RetryDelayRecorder {
                 forKey: "cmux.notifications.pendingUnregisters.v2"
             ) == nil
         )
+    }
+
+    @Test func enablingDuringInFlightDisableRepostsAfterLateDelete() async {
+        let started = TestPhaseSignal()
+        let blocker = TestContinuationBlocker()
+        await PushRegistrationURLProtocol.script.reset([
+            .response(200),
+            .gatedResponse(200, started: started, blocker: blocker),
+            .response(200),
+            .response(200),
+        ])
+        let (service, _) = makeScriptedService()
+        await service.register(deviceToken: Data([0xAA]))
+        await service.setEnabled(true)
+
+        let disabling = Task {
+            await service.setEnabled(false)
+        }
+        await started.waitUntilStarted()
+        await service.setEnabled(true)
+        await blocker.release()
+        await disabling.value
+
+        #expect(
+            await PushRegistrationURLProtocol.script.requests.map(\.httpMethod)
+                == ["POST", "DELETE", "POST", "POST"]
+        )
+        #expect(await service.snapshot.backendState == .registered)
+    }
+
+    @Test func coordinatorIntentWorkerDrainsLatestOptOutAfterLatePost() async {
+        let started = TestPhaseSignal()
+        let blocker = TestContinuationBlocker()
+        await PushRegistrationURLProtocol.script.reset([
+            .gatedResponse(200, started: started, blocker: blocker),
+            .response(200),
+            .response(200),
+        ])
+        let suite = "push-ambiguous-post-\(UUID().uuidString)"
+        let (service, _) = makeScriptedService(suite: suite)
+        await service.register(deviceToken: Data([0xAA]))
+
+        await service.applyEnabledIntent(true, generation: 1)
+        await service.reconcileEnabledIntent(generation: 1)
+        await started.waitUntilStarted()
+        #expect(pendingUnregisters(
+            suite: suite,
+            accountID: "push-user-1"
+        ) == [PendingUnregister(
+            tokenHex: "aa",
+            accountID: "push-user-1"
+        )])
+        await service.applyEnabledIntent(false, generation: 2)
+
+        // Opt-out cleanup must start while the superseded POST is still
+        // parked. Waiting for that POST could leave the backend token active
+        // indefinitely even though the UI already reports notifications off.
+        #expect(
+            await PushRegistrationURLProtocol.script.waitForRequestCount(2)
+        )
+        #expect(
+            await PushRegistrationURLProtocol.script.requests.map(\.httpMethod)
+                == ["POST", "DELETE"]
+        )
+        #expect(await service.snapshot == .disabled)
+
+        await blocker.release()
+        await PushRegistrationURLProtocol.script.waitForRequestCount(3)
+
+        #expect(
+            await PushRegistrationURLProtocol.script.requests.map(\.httpMethod)
+                == ["POST", "DELETE", "DELETE"]
+        )
+        #expect(await service.snapshot == .disabled)
+    }
+
+    @Test func coordinatorIntentAuthenticationHasBoundedSingleAttempt() async {
+        let started = TestPhaseSignal()
+        let blocker = TestContinuationBlocker()
+        let provider = CancellationIgnoringPushTokenProvider(
+            started: started,
+            blocker: blocker
+        )
+        let clock = ManualTestClock()
+        let timeout = Duration.seconds(2)
+        let (service, _) = makeScriptedService(
+            tokenProvider: provider,
+            accountID: nil,
+            sessionSnapshotTimeout: timeout,
+            sessionSnapshotClock: clock
+        )
+        await service.register(deviceToken: Data([0xAA]))
+
+        await service.applyEnabledIntent(true, generation: 1)
+        await service.reconcileEnabledIntent(generation: 1)
+        await started.waitUntilStarted()
+        await clock.waitUntilSleepers()
+        clock.advance(by: timeout)
+
+        #expect(
+            await wait(
+                for: .failed(.authenticationRequired),
+                from: service
+            )
+        )
+
+        // The timed-out provider deliberately ignores cancellation. A newer
+        // enable intent fails against the active phase instead of accumulating
+        // another unowned task behind it.
+        await service.applyEnabledIntent(true, generation: 2)
+        await service.reconcileEnabledIntent(generation: 2)
+        #expect(
+            await wait(
+                for: .failed(.authenticationRequired),
+                from: service
+            )
+        )
+        await provider.waitUntilCancellationObserved()
+        #expect(await provider.snapshotRequestCount == 1)
+
+        await blocker.release()
+        await provider.waitUntilCompleted()
+    }
+
+    @Test func coordinatorOptOutAuthenticationHasBoundedSingleAttempt() async {
+        let started = TestPhaseSignal()
+        let blocker = TestContinuationBlocker()
+        let provider = CancellationIgnoringPushTokenProvider(
+            started: started,
+            blocker: blocker
+        )
+        let clock = ManualTestClock()
+        let timeout = Duration.seconds(2)
+        let (service, _) = makeScriptedService(
+            tokenProvider: provider,
+            accountID: nil,
+            seedDefaults: { defaults in
+                defaults.set(
+                    true,
+                    forKey: "cmux.notifications.pushEnabled"
+                )
+                defaults.set(
+                    "aa",
+                    forKey: "cmux.notifications.deviceTokenHex"
+                )
+                defaults.set(
+                    "push-user-1",
+                    forKey: "cmux.notifications.registeredAccountID"
+                )
+            },
+            sessionSnapshotTimeout: timeout,
+            sessionSnapshotClock: clock
+        )
+
+        let disabling = Task {
+            await service.applyEnabledIntent(false, generation: 1)
+        }
+        await started.waitUntilStarted()
+        await clock.waitUntilSleepers()
+        clock.advance(by: timeout)
+        await provider.waitUntilCancellationObserved()
+        await disabling.value
+
+        // A direct cleanup retry must fail against the still-active timed-out
+        // phase instead of starting a second authentication operation.
+        await service.unregisterFromServer()
+        #expect(await provider.snapshotRequestCount == 1)
+        #expect(await service.snapshot == .disabled)
+
+        await blocker.release()
+        await provider.waitUntilCompleted()
     }
 
     @Test func signOutDuringInFlightRegistrationDeletesAfterLatePost() async {
@@ -931,21 +1176,23 @@ actor RetryDelayRecorder {
             accessToken: "b-access",
             refreshToken: "b-refresh"
         )
-        await service.syncTokenIfPossible()
+        let currentSync = Task {
+            await service.syncTokenIfPossible()
+        }
         await blocker.release()
         await oldUpload.value
+        await currentSync.value
 
         let requests = await PushRegistrationURLProtocol.script.requests
         #expect(
             requests.map(\.httpMethod)
-                == ["POST", "POST", "DELETE", "POST"]
+                == ["POST", "DELETE", "POST"]
         )
         #expect(
             requests.map {
                 $0.value(forHTTPHeaderField: "Authorization")
             } == [
                 "Bearer a-access",
-                "Bearer b-access",
                 "Bearer a-access",
                 "Bearer b-access",
             ]
@@ -1126,10 +1373,10 @@ actor RetryDelayRecorder {
         let firstRequests = await PushRegistrationURLProtocol.script.requests
         #expect(firstRequests.map(\.httpMethod) == ["POST", "DELETE"])
         #expect(await service.snapshot.backendState == .registered)
-        let pendingText = defaults.data(
-            forKey: "cmux.notifications.pendingUnregisters.v2"
-        ).flatMap { String(data: $0, encoding: .utf8) }
-        #expect(pendingText?.contains("aa") == true)
+        #expect(pendingUnregisters(
+            suite: suite,
+            accountID: "account-a"
+        ) == [PendingUnregister(tokenHex: "aa", accountID: "account-a")])
 
         await PushRegistrationURLProtocol.script.reset([
             .response(200),
@@ -1280,9 +1527,115 @@ actor RetryDelayRecorder {
         #expect(deletedTokens == ["aa", "bb", "aa", "bb"])
     }
 
-    @Test func successfulReassignmentClearsOldTombstoneWithoutLosingNewOwner() async {
+    @Test func pendingCleanupMigrationMovesEveryEntryToIndexedStore() async throws {
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("push-overflow-\(UUID().uuidString).sqlite3")
+        defer { try? FileManager.default.removeItem(at: storeURL) }
+        let existing = (0..<200).map { index in
+            [
+                "tokenHex": String(format: "%064x", index),
+                "accountID": "historical-account-\(index)",
+            ]
+        }
+        let (service, defaults) = makeScriptedService(
+            accountID: nil,
+            seedDefaults: { defaults in
+                defaults.set(
+                    try? JSONSerialization.data(withJSONObject: existing),
+                    forKey: "cmux.notifications.pendingUnregisters.v2"
+                )
+                defaults.set(
+                    true,
+                    forKey: "cmux.notifications.pushEnabled"
+                )
+                defaults.set(
+                    String(repeating: "f", count: 64),
+                    forKey: "cmux.notifications.deviceTokenHex"
+                )
+                defaults.set(
+                    "current-account",
+                    forKey: "cmux.notifications.registeredAccountID"
+                )
+            },
+            pendingUnregisterStoreURL: storeURL
+        )
+
+        await service.applyEnabledIntent(false, generation: 1)
+
+        #expect(defaults.data(
+            forKey: "cmux.notifications.pendingUnregisters.v2"
+        ) == nil)
+        let store = try PendingUnregisterStore(databaseURL: storeURL)
+        let oldest = store.batch(
+            accountID: "historical-account-0",
+            limit: 2
+        )
+        let newest = store.batch(accountID: "current-account", limit: 2)
+        #expect(oldest.map(\.accountID) == ["historical-account-0"])
+        #expect(newest.map(\.accountID) == ["current-account"])
+    }
+
+    @Test func durableCleanupStoreReopensAfterLaunchFailure() async throws {
+        await PushRegistrationURLProtocol.script.reset([.response(200)])
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "push-store-reopen-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let parkedRoot = root.appendingPathExtension("parked")
+        let storeURL = root.appendingPathComponent("cleanup.sqlite3")
+        defer {
+            try? fileManager.removeItem(at: root)
+            try? fileManager.removeItem(at: parkedRoot)
+        }
+        do {
+            let store = try PendingUnregisterStore(databaseURL: storeURL)
+            #expect(store.insert(PendingUnregister(
+                tokenHex: "aa",
+                accountID: "account-a"
+            )))
+        }
+        try fileManager.moveItem(at: root, to: parkedRoot)
+        #expect(fileManager.createFile(atPath: root.path, contents: Data()))
+
+        let (service, _) = makeScriptedService(
+            accountID: "account-a",
+            pendingUnregisterStoreURL: storeURL
+        )
+
+        try fileManager.removeItem(at: root)
+        try fileManager.moveItem(at: parkedRoot, to: root)
+        _ = await service.snapshots()
+        #expect(
+            await PushRegistrationURLProtocol.script.waitForRequestCount(1)
+        )
+        #expect(
+            await PushRegistrationURLProtocol.script.requests.map(\.httpMethod)
+                == ["DELETE"]
+        )
+        let reopenedStore = try PendingUnregisterStore(databaseURL: storeURL)
+        var cleanupFinished = false
+        for _ in 0..<1_000 {
+            if reopenedStore.batch(accountID: "account-a", limit: 2).isEmpty {
+                cleanupFinished = true
+                break
+            }
+            await Task.yield()
+        }
+        #expect(cleanupFinished)
+    }
+
+    @Test func successfulReassignmentClearsOldTombstoneWithoutLosingNewOwner() async throws {
         await PushRegistrationURLProtocol.script.reset([.response(200)])
         let suite = "push-owner-reassignment-\(UUID().uuidString)"
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("push-owner-\(UUID().uuidString).sqlite3")
+        defer { try? FileManager.default.removeItem(at: storeURL) }
+        let overflowStore = try PendingUnregisterStore(databaseURL: storeURL)
+        #expect(overflowStore.insert(PendingUnregister(
+            tokenHex: "ab",
+            accountID: "old-user"
+        )))
         let (service, defaults) = makeScriptedService(
             tokenProvider: FakeTokenProvider(
                 access: "new-access",
@@ -1304,7 +1657,8 @@ actor RetryDelayRecorder {
                     "old-user",
                     forKey: "cmux.notifications.pendingUnregisterAccountID"
                 )
-            }
+            },
+            pendingUnregisterStoreURL: storeURL
         )
 
         await service.setEnabled(true)
@@ -1321,6 +1675,7 @@ actor RetryDelayRecorder {
             defaults.string(forKey: "cmux.notifications.pendingUnregisterAccountID")
                 == nil
         )
+        #expect(!overflowStore.hasEntries)
     }
 
     @Test func legacySingleTombstoneMigratesOnceAndIsRemovedAfterSuccess() async {

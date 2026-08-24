@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
 import Testing
@@ -25,16 +26,19 @@ import Testing
         ]
         #expect(!store.supportsChatArtifactFolders)
         #expect(!store.supportsTerminalArtifactList)
+        #expect(!store.supportsPanelArtifacts)
         #expect(!store.supportsIrohArtifactLane)
 
         store.supportedHostCapabilities.formUnion([
             "chat.artifact.folders.v1",
             "terminal.artifact.list.v1",
             "iroh.artifact_lane.v1",
+            "panel.artifact.v1",
         ])
         #expect(store.supportsChatArtifactFolders)
         #expect(store.supportsTerminalArtifactList)
         #expect(store.supportsIrohArtifactLane)
+        #expect(store.supportsPanelArtifacts)
     }
 
     @Test func workspaceMutationCapabilitiesAreVersionAndTicketGated() async throws {
@@ -226,6 +230,102 @@ import Testing
         #expect(authorization.count == 1)
         #expect(authorization.first?.attachToken == nil)
         #expect(authorization.first?.stackAccessToken == "test-stack-token")
+    }
+
+    @Test func taskComposerEntrypointStaysAvailableWithNoConnectedMac() {
+        let store = MobileShellComposite.preview()
+        // With no Mac connected there is no capability snapshot to consult, so
+        // the New Task entrypoint must stay visible; the composer itself warns
+        // that no Mac is connected. Hiding here made the button vanish whenever
+        // the phone was offline or between reconnects.
+        #expect(store.supportsTaskComposer)
+    }
+
+    @Test func taskComposerEntrypointFollowsConnectedMacCapability() async throws {
+        let capable = try await connectedStore(capabilities: [
+            "events.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+            "workspace.task_create.v1",
+        ])
+        #expect(capable.store.supportsTaskComposer)
+
+        // A connected Mac that does not advertise task creation (remote flag
+        // off or an older build) is authoritative: the entrypoint hides.
+        let incapable = try await connectedStore(capabilities: [
+            "events.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+        ])
+        #expect(!incapable.store.supportsTaskComposer)
+    }
+
+    @Test func taskComposerEntrypointFollowsSecondaryMacCapability() throws {
+        let clock = TestClock()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: LivenessHostRouter(),
+                box: TransportBox()
+            ),
+            now: { clock.now }
+        )
+        let store = MobileShellComposite.preview(runtime: runtime)
+        let ticket = try ticket(
+            clock: clock,
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal"
+        )
+        let route = try #require(ticket.routes.first)
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let key = MacPairingKey(macDeviceID: "test-mac", instanceTag: nil)
+
+        // A connected control secondary without task creation is the only
+        // live Mac, and its snapshot is authoritative: the entrypoint hides.
+        let incapable = SecondaryMacSubscription(
+            macDeviceID: "test-mac",
+            client: client,
+            route: route,
+            ticket: ticket,
+            supportedHostCapabilities: ["terminal.render_grid.v1"],
+            actionCapabilities: .none
+        )
+        store.secondaryMacSubscriptions[key] = incapable
+        #expect(store.hasAnyConnectedMac)
+        #expect(!store.supportsTaskComposer)
+        store.secondaryMacSubscriptions[key] = nil
+        incapable.cancel()
+
+        // A capable secondary shows the entrypoint even though the
+        // foreground connection is down.
+        let capable = SecondaryMacSubscription(
+            macDeviceID: "test-mac",
+            client: client,
+            route: route,
+            ticket: ticket,
+            supportedHostCapabilities: ["workspace.task_create.v1"],
+            actionCapabilities: .none
+        )
+        store.secondaryMacSubscriptions[key] = capable
+        #expect(store.supportsTaskComposer)
+        store.secondaryMacSubscriptions[key] = nil
+        capable.cancel()
+    }
+
+    @Test func hasAnyConnectedMacTracksForegroundSession() async throws {
+        let offline = MobileShellComposite.preview()
+        #expect(!offline.hasAnyConnectedMac)
+
+        let connected = try await connectedStore(capabilities: [
+            "events.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+        ])
+        #expect(connected.store.hasAnyConnectedMac)
     }
 
     @Test func macScopedMutationsSurviveTicketExpiryOnAccountAuthHosts() async throws {

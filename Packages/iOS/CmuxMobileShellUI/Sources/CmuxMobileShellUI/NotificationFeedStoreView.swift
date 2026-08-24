@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileShell
 import CmuxMobileShellModel
 import SwiftUI
@@ -20,8 +21,12 @@ struct NotificationFeedStoreView: View {
             refreshesOnAppear: !isSearchDestination,
             actions: actions
         )
+        .onAppear {
+            store.recordAppEvent(.notificationFeedOpened, count: items.count)
+        }
         .onDisappear {
             store.cancelPendingNotificationFeedOpen()
+            store.recordAppEvent(.notificationFeedClosed)
         }
     }
 
@@ -29,6 +34,13 @@ struct NotificationFeedStoreView: View {
         let store = store
         return NotificationFeedActions(
             open: { item in
+                if isSearchDestination {
+                    store.recordAppEvent(
+                        .searchResultSelected,
+                        correlationID: item.notificationID,
+                        detail: .searchScope(.notifications)
+                    )
+                }
                 store.requestOpenNotificationFeedItem(item)
             },
             markRead: { item in
@@ -42,6 +54,16 @@ struct NotificationFeedStoreView: View {
             },
             refresh: {
                 await store.refreshNotificationFeed()
+            },
+            loadMore: {
+                store.recordAppEvent(.notificationFeedLoadMoreStarted)
+                store.recordAppEvent(.notificationFeedLoadMoreSucceeded)
+            },
+            filterChanged: { filter in
+                store.recordAppEvent(
+                    .notificationFeedFilterChanged,
+                    count: filter == .unread ? 1 : 0
+                )
             }
         )
     }

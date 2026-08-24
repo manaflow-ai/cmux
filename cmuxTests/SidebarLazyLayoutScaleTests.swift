@@ -156,6 +156,7 @@ final class SidebarLazyLayoutScaleTests {
                 onNewTab: {},
                 observedWindowReference: WeakWindowReference(),
                 tableEnvironment: tableEnvironment,
+                chromeBackgroundColor: .black,
                 selection: .constant(.tabs),
                 selectedTabIds: .constant([]),
                 lastSidebarSelectionIndex: .constant(nil),

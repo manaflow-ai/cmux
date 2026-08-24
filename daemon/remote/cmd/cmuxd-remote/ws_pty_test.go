@@ -99,8 +99,8 @@ func newTestWebSocketPTYServer(t *testing.T, leasePath string) (*httptest.Server
 // allocation failure (e.g. a hardened devpts mounted ptmxmode=000 where
 // /dev/ptmx cannot be opened) is reported loudly: the error returned to the
 // client names the failing device and explains the devpts cause, and the daemon
-// records the failure instead of leaving a 0-byte log. This is the regression
-// for https://github.com/manaflow-ai/cmux/issues/5185, where the failure
+// records a safe failure category instead of leaving a 0-byte log. This is the
+// regression for https://github.com/manaflow-ai/cmux/issues/5185, where the failure
 // collapsed into a generic "remote PTY attach failed" with an empty daemon log.
 func TestAttachRPCSurfacesPTYAllocationFailure(t *testing.T) {
 	stderr := &bytes.Buffer{}
@@ -140,8 +140,12 @@ func TestAttachRPCSurfacesPTYAllocationFailure(t *testing.T) {
 	if stderr.Len() == 0 {
 		t.Fatalf("PTY allocation failure must be logged to the daemon log, not swallowed")
 	}
-	if !strings.Contains(stderr.String(), "/dev/ptmx") {
-		t.Fatalf("daemon log should include the allocation failure detail: %q", stderr.String())
+	if !strings.Contains(stderr.String(), "event=pty_start_fault") ||
+		!strings.Contains(stderr.String(), `error_category="permission_denied"`) {
+		t.Fatalf("daemon log should classify the allocation failure: %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), denied.Error()) {
+		t.Fatalf("daemon log should not persist the raw allocation failure: %q", stderr.String())
 	}
 }
 
@@ -2804,6 +2808,64 @@ func TestWebSocketPTYReapsDetachedIdleSession(t *testing.T) {
 	_ = conn.Close(websocket.StatusNormalClosure, "detach")
 
 	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
+func TestWebSocketPTYCountsIdleSessionUntilTeardownCompletes(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard)
+	sessionKey := persistentPTYSessionKey("teardown-in-flight")
+	session := &wsPTYSession{
+		id:          "teardown-in-flight",
+		key:         sessionKey,
+		attachments: map[string]*wsPTYAttachment{},
+		done:        make(chan struct{}),
+	}
+	hub.mu.Lock()
+	hub.sessions[sessionKey] = session
+	hub.mu.Unlock()
+
+	// Hold the PTY-file mutex so the idle reaper can remove the session from
+	// the map but cannot finish terminateProcesses or closePTYFiles.
+	session.ptyFileMu.Lock()
+	ptyFileLocked := true
+	teardownDone := make(chan struct{})
+	go func() {
+		hub.reapIdleSession(session)
+		close(teardownDone)
+	}()
+	defer func() {
+		if ptyFileLocked {
+			session.ptyFileMu.Unlock()
+			<-teardownDone
+		}
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		hub.mu.Lock()
+		_, retained := hub.sessions[sessionKey]
+		hub.mu.Unlock()
+		if !retained {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("idle reaper did not begin session teardown")
+		}
+		runtime.Gosched()
+	}
+
+	if got := hub.activeSessionCount(); got != 1 {
+		t.Fatalf("hub activity during session teardown = %d, want 1", got)
+	}
+	session.ptyFileMu.Unlock()
+	ptyFileLocked = false
+	select {
+	case <-teardownDone:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("idle session teardown did not finish")
+	}
+	if got := hub.activeSessionCount(); got != 0 {
+		t.Fatalf("hub activity after session teardown = %d, want 0", got)
+	}
 }
 
 func TestWebSocketPTYScrollbackDoesNotRetainOversizedChunks(t *testing.T) {
