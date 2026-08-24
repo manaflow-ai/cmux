@@ -355,7 +355,7 @@ extension ControlCommandCoordinator {
     /// main and runs the registry disk IO on the calling thread.
     nonisolated func sidebarSetAgentLifecycle(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
-        let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>]"
+        let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput|error> [--tab=<id>] [--panel=<id>]"
         guard parsed.positional.count >= 2 else {
             return "ERROR: Usage: \(usage)"
         }

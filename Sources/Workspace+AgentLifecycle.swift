@@ -516,6 +516,9 @@ extension Workspace {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
+        if lifecycle == .running {
+            sidebarAgentRuntimeObservation.noteAgentRunningReport(panelId: targetPanelId, key: key)
+        }
         if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
             recordAgentLifecycleChange(panelId: targetPanelId)
         }

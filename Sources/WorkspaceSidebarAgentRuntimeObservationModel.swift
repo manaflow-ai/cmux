@@ -27,6 +27,9 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let id = UUID()
             changeObservers[id] = continuation
+            // Replay once so a subscriber that attached after the last mutation
+            // still re-resolves against the current maps.
+            continuation.yield(())
             continuation.onTermination = { [weak self] _ in
                 Task { @MainActor in self?.changeObservers[id] = nil }
             }
@@ -108,6 +111,16 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
         }
         runningSinceByPanelId = updated
         updated.isEmpty ? cancelStaleRunningSweep() : startStaleRunningSweepIfNeeded()
+    }
+
+    /// Re-stamps one `.running` key on an explicit lifecycle report, so a long
+    /// turn that keeps re-reporting `.running` is not mistaken for a stale one
+    /// by the sweep. Only the socket-driven report path calls this; internal
+    /// reconciliation that rewrites the same map must not mask a dead agent.
+    func noteAgentRunningReport(panelId: UUID, key: String, now: TimeInterval = Date().timeIntervalSince1970) {
+        guard agentLifecycleStatesByPanelId[panelId]?[key] == .running else { return }
+        runningSinceByPanelId[panelId, default: [:]][key] = now
+        startStaleRunningSweepIfNeeded()
     }
 
     private func startStaleRunningSweepIfNeeded() {

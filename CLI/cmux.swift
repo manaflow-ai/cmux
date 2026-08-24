@@ -31808,7 +31808,7 @@ export default CMUXSessionRestore;
                     setAgentLifecycle(
                         client: client,
                         key: def.statusKey,
-                        lifecycle: .needsInput,
+                        lifecycle: .error,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId
                     )
@@ -32347,7 +32347,7 @@ export default CMUXSessionRestore;
                     setAgentLifecycle(
                         client: client,
                         key: def.statusKey,
-                        lifecycle: .needsInput,
+                        lifecycle: .error,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId
                     )
@@ -32359,7 +32359,7 @@ export default CMUXSessionRestore;
                     setAgentLifecycle(
                         client: client,
                         key: def.statusKey,
-                        lifecycle: .needsInput,
+                        lifecycle: .error,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId
                     )

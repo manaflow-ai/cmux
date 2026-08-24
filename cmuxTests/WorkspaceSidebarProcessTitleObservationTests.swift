@@ -76,6 +76,50 @@ struct WorkspaceSidebarProcessTitleObservationTests {
         #expect(model.agentLifecycleStatesByPanelId[panelId]?["grok"] == .running)
     }
 
+    @Test func runningReportHeartbeatRestartsTheStaleClock() {
+        let model = WorkspaceSidebarAgentRuntimeObservationModel()
+        let panelId = UUID()
+        let timeout = WorkspaceSidebarAgentRuntimeObservationModel.staleRunningTimeout
+
+        model.setAgentLifecycleStatesByPanelId([panelId: ["grok": .running]])
+        let start = Date().timeIntervalSince1970
+
+        // A long turn re-reports `.running` as a heartbeat: the pane must not be
+        // retired on the original stamp while the agent is still working.
+        let heartbeat = start + timeout - 1
+        model.noteAgentRunningReport(panelId: panelId, key: "grok", now: heartbeat)
+
+        #expect(model.downgradeStaleRunning(now: start + timeout + 1).isEmpty)
+        #expect(model.agentLifecycleStatesByPanelId[panelId]?["grok"] == .running)
+
+        // Once reports stop, the sweep still retires the stale running.
+        let retired = model.downgradeStaleRunning(now: heartbeat + timeout + 1)
+        #expect(retired.count == 1)
+        #expect(model.agentLifecycleStatesByPanelId[panelId]?["grok"] == .unknown)
+    }
+
+    @Test func runningReportHeartbeatIgnoresNonRunningKeys() {
+        let model = WorkspaceSidebarAgentRuntimeObservationModel()
+        let panelId = UUID()
+        model.setAgentLifecycleStatesByPanelId([panelId: ["grok": .idle]])
+
+        model.noteAgentRunningReport(panelId: panelId, key: "grok")
+        model.noteAgentRunningReport(panelId: panelId, key: "unregistered")
+
+        #expect(model.agentLifecycleStatesByPanelId[panelId]?["grok"] == .idle)
+    }
+
+    @Test func changesReplaysOnceOnSubscription() async {
+        let model = WorkspaceSidebarAgentRuntimeObservationModel()
+        model.setAgentLifecycleStatesByPanelId([UUID(): ["grok": .running]])
+
+        // A subscriber that attaches after the last mutation must still observe
+        // one event, or it renders stale state until the next report arrives.
+        var iterator = model.changes().makeAsyncIterator()
+        let first = await iterator.next()
+        #expect(first != nil)
+    }
+
     @Test func processTitlePublicationPrunesTerminatedObservationBurst() {
         let scheduler = ManualProcessTitleSettleScheduler()
         let model = WorkspaceSidebarProcessTitleObservationModel(
