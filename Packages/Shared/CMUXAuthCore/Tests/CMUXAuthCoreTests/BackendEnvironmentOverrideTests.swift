@@ -2,7 +2,7 @@ import CMUXAuthCore
 import Foundation
 import Testing
 
-@Suite("Backend environment override")
+@Suite("Backend environment explicit choice (tri-state persistence)")
 struct BackendEnvironmentOverrideTests {
     private func makeDefaults() -> UserDefaults {
         let suiteName = "BackendEnvironmentOverrideTests-\(UUID().uuidString)"
@@ -11,39 +11,111 @@ struct BackendEnvironmentOverrideTests {
         return defaults
     }
 
-    @Test("Absent key loads as production")
-    func absentKeyLoadsAsProduction() {
+    @Test("An absent key is no explicit choice (the build lane)")
+    func absentKeyIsNoExplicitChoice() {
         let defaults = makeDefaults()
-        #expect(CMUXBackendEnvironmentOverride.load(from: defaults) == .production)
+        #expect(CMUXBackendEnvironmentOverride.explicitChoice(from: defaults) == nil)
     }
 
     @Test("Staging round-trips through defaults")
     func stagingRoundTrips() {
         let defaults = makeDefaults()
-        CMUXBackendEnvironmentOverride.staging.store(in: defaults)
-        #expect(CMUXBackendEnvironmentOverride.load(from: defaults) == .staging)
+        CMUXBackendEnvironmentOverride.staging.storeChoice(in: defaults)
+        #expect(CMUXBackendEnvironmentOverride.explicitChoice(from: defaults) == .staging)
     }
 
-    @Test("Storing production removes the key")
-    func storingProductionRemovesKey() {
+    @Test("Storing production WRITES the key: explicit, not absent")
+    func storingProductionWritesTheKey() {
         let defaults = makeDefaults()
-        CMUXBackendEnvironmentOverride.staging.store(in: defaults)
-        CMUXBackendEnvironmentOverride.production.store(in: defaults)
-        #expect(defaults.string(forKey: CMUXBackendEnvironmentOverride.defaultsKey) == nil)
-        #expect(CMUXBackendEnvironmentOverride.load(from: defaults) == .production)
+        CMUXBackendEnvironmentOverride.staging.storeChoice(in: defaults)
+        CMUXBackendEnvironmentOverride.production.storeChoice(in: defaults)
+        #expect(
+            defaults.string(forKey: CMUXBackendEnvironmentOverride.defaultsKey) == "production"
+        )
+        #expect(CMUXBackendEnvironmentOverride.explicitChoice(from: defaults) == .production)
     }
 
-    @Test("Unknown raw value loads as production")
-    func unknownRawValueLoadsAsProduction() {
+    @Test("clearChoice removes the key, returning to the build lane")
+    func clearChoiceRemovesTheKey() {
+        let defaults = makeDefaults()
+        CMUXBackendEnvironmentOverride.staging.storeChoice(in: defaults)
+        CMUXBackendEnvironmentOverride.clearChoice(in: defaults)
+        #expect(defaults.string(forKey: CMUXBackendEnvironmentOverride.defaultsKey) == nil)
+        #expect(CMUXBackendEnvironmentOverride.explicitChoice(from: defaults) == nil)
+    }
+
+    @Test("An unknown raw value is no explicit choice (fail-safe toward the bake)")
+    func unknownRawValueIsNoExplicitChoice() {
         let defaults = makeDefaults()
         defaults.set("nightly", forKey: CMUXBackendEnvironmentOverride.defaultsKey)
-        #expect(CMUXBackendEnvironmentOverride.load(from: defaults) == .production)
+        #expect(CMUXBackendEnvironmentOverride.explicitChoice(from: defaults) == nil)
     }
 
     @Test("Staging maps to the development Stack environment")
     func stagingMapsToDevelopmentStack() {
         #expect(CMUXBackendEnvironmentOverride.staging.authEnvironment == .development)
         #expect(CMUXBackendEnvironmentOverride.production.authEnvironment == .production)
+    }
+}
+
+@Suite("Backend environment selection model")
+struct BackendEnvironmentSelectionTests {
+    @Test("Selections resolve their environment")
+    func selectionsResolveTheirEnvironment() {
+        #expect(
+            CMUXBackendEnvironmentSelection.lane(resolves: .staging).resolvedEnvironment == .staging
+        )
+        #expect(
+            CMUXBackendEnvironmentSelection.lane(resolves: .production).resolvedEnvironment
+                == .production
+        )
+        #expect(
+            CMUXBackendEnvironmentSelection.explicit(.staging).resolvedEnvironment == .staging
+        )
+        #expect(
+            CMUXBackendEnvironmentSelection.explicit(.production).resolvedEnvironment
+                == .production
+        )
+    }
+
+    @Test("isExplicit distinguishes a persisted choice from the lane")
+    func isExplicitDistinguishesChoiceFromLane() {
+        #expect(CMUXBackendEnvironmentSelection.explicit(.production).isExplicit)
+        #expect(CMUXBackendEnvironmentSelection.explicit(.staging).isExplicit)
+        #expect(!CMUXBackendEnvironmentSelection.lane(resolves: .production).isExplicit)
+        #expect(!CMUXBackendEnvironmentSelection.lane(resolves: .staging).isExplicit)
+    }
+
+    @Test("PIN: ONLY explicit staging gates — the lane and explicit production never do")
+    func onlyExplicitStagingGates() {
+        #expect(CMUXBackendEnvironmentSelection.explicit(.staging).requiresGatedSession)
+        #expect(!CMUXBackendEnvironmentSelection.explicit(.production).requiresGatedSession)
+        // A staging LANE never gates: dev rigs baked to staging keep plain
+        // sign-in/sign-out, and the transaction's revert-to-lane can't loop.
+        #expect(!CMUXBackendEnvironmentSelection.lane(resolves: .staging).requiresGatedSession)
+        #expect(!CMUXBackendEnvironmentSelection.lane(resolves: .production).requiresGatedSession)
+    }
+
+    @Test("Selection identity: a lane and an explicit choice resolving the same environment differ")
+    func laneAndExplicitAreDistinctIdentities() {
+        #expect(
+            CMUXBackendEnvironmentSelection.lane(resolves: .staging)
+                != CMUXBackendEnvironmentSelection.explicit(.staging)
+        )
+        #expect(
+            CMUXBackendEnvironmentSelection.lane(resolves: .production)
+                != CMUXBackendEnvironmentSelection.explicit(.production)
+        )
+    }
+
+    @Test("Build lanes resolve staging only for the staging lane")
+    func buildLanesResolve() {
+        #expect(CMUXBackendEnvironmentBuildLane.production.resolvedEnvironment == .production)
+        #expect(CMUXBackendEnvironmentBuildLane.staging.resolvedEnvironment == .staging)
+        #expect(
+            CMUXBackendEnvironmentBuildLane.custom(label: "localhost:4123").resolvedEnvironment
+                == .production
+        )
     }
 }
 

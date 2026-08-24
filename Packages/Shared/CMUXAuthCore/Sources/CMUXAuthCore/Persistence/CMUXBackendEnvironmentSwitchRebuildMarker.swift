@@ -8,8 +8,9 @@ import Foundation
 /// which is exactly right for organic flips (a tagged Debug bundle rebuilt
 /// with different baked auth) but would destroy the session the switch
 /// transaction just PARKED for the target environment. The transaction arms
-/// this marker inside every `storeOverride` step (both directions, including
-/// a revert's), and the composition consumes it where `clearStaleAuthOnLaunch`
+/// this marker inside every `storeSelection` step (both directions —
+/// explicit stores and lane clears alike, including a revert's), and the
+/// composition consumes it where `clearStaleAuthOnLaunch`
 /// is computed: `detectAuthProjectSwitch` still RUNS (it must update the
 /// stored project id), but its verdict is suppressed exactly once, so the
 /// rebuilt graph restores the target's parked slot instead of clearing it.
@@ -24,8 +25,8 @@ public enum CMUXBackendEnvironmentSwitchRebuildMarker {
     public static let defaultsKey = "cmux.backendEnvironmentSwitch.suppressAuthClearOnce"
 
     /// Arm the marker: the next composition pass suppresses the launch clear
-    /// once. Called inside the switch transaction's `storeOverride` step, so
-    /// the marker is set iff an override commit happened.
+    /// once. Called inside the switch transaction's `storeSelection` step, so
+    /// the marker is set iff a selection commit happened.
     public static func arm(in defaults: UserDefaults) {
         defaults.set(true, forKey: defaultsKey)
     }
