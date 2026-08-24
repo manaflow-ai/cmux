@@ -105,17 +105,16 @@ fn connect_with_budget(
     if let Err(Error::ConnectionIo { kind, .. }) = &result
         && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
         && allow_legacy_fallback
+        && let Some(legacy) = crate::client::hashed_socket_legacy_path(&config.socket_path)
     {
-        if let Some(legacy) = crate::client::hashed_socket_legacy_path(&config.socket_path) {
-            return JsonLineConnection::connect_with_poll_checks(
-                &legacy,
-                timeout,
-                config.timeout,
-                config.max_response_bytes,
-                poll_interval,
-                || budget.check(operation),
-            );
-        }
+        return JsonLineConnection::connect_with_poll_checks(
+            &legacy,
+            timeout,
+            config.timeout,
+            config.max_response_bytes,
+            poll_interval,
+            || budget.check(operation),
+        );
     }
     result
 }
