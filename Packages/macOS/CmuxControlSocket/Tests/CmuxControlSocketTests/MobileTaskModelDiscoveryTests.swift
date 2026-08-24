@@ -8,7 +8,10 @@ private actor MobileTaskModelDiscoveryProbe {
 
     func run(_ command: String, timeout: Duration) -> String? {
         commandCount += 1
-        return "opencode/dynamic-\(commandCount)"
+        return """
+        opencode/dynamic-\(commandCount)
+        {"name":"Dynamic \(commandCount)","variants":{}}
+        """
     }
 
     func currentDate() -> Date {
