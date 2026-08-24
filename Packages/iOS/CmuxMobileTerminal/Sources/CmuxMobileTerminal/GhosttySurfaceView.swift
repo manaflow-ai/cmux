@@ -2153,6 +2153,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// A verified replay completed mid-gesture: run one zero-delta pixel
     /// batch to re-assert the held position over the replay's bottom reset.
     var pendingLocalPixelScrollReassert = false
+    /// When line-path (alt/TUI) deceleration began; the flush kills the
+    /// momentum tail after ``linePathDecelerationBudget`` so a flick cannot
+    /// keep scrolling a full-screen app for seconds.
+    private var linePathDecelerationStartedAt: CFTimeInterval?
+    private static let linePathDecelerationBudget: CFTimeInterval = 0.45
     var pendingLocalScrollDrains: [(generation: UInt64, continuation: CheckedContinuation<Bool, Never>)] = []
 
     /// Drops scroll work tied to a surface generation that will no longer run.
@@ -2205,6 +2210,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pendingScrollPixels = 0
         pendingScrollInteractionGeneration = nil
         let appliedLocally = scrollPresentationAuthority.appliesLocally
+        var dispatchLines = lines
         if appliedLocally {
             // Pixel-precise local scroll only where the phone owns
             // primary-screen scrolling (the confirmed-primary condition that
@@ -2226,15 +2232,43 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     $0.remainderPx = 0
                     $0.lastApplied = nil
                 }
-                applyLocalScrollbackScroll(
-                    lines: lines,
-                    col: cell.col,
-                    row: cell.row,
-                    interactionGeneration: generation
-                )
+                // TUI scroll feel: dispatch whole lines only, carrying the
+                // fraction, so the app sees clean steps instead of a 120Hz
+                // fragment stream; and cap the momentum tail so a flick
+                // cannot keep scrolling a full-screen app for seconds.
+                let wholeLines = lines < 0 ? lines.rounded(.up) : lines.rounded(.down)
+                pendingScrollLines += lines - wholeLines
+                dispatchLines = wholeLines
+                if scrollMechanicsView.isDecelerating {
+                    let now = CACurrentMediaTime()
+                    if let startedAt = linePathDecelerationStartedAt {
+                        if now - startedAt > Self.linePathDecelerationBudget {
+                            scrollMechanicsView.setContentOffset(
+                                scrollMechanicsView.contentOffset,
+                                animated: false
+                            )
+                            pendingScrollLines = 0
+                            dispatchLines = 0
+                        }
+                    } else {
+                        linePathDecelerationStartedAt = now
+                    }
+                } else {
+                    linePathDecelerationStartedAt = nil
+                }
+                if dispatchLines != 0 {
+                    applyLocalScrollbackScroll(
+                        lines: dispatchLines,
+                        col: cell.col,
+                        row: cell.row,
+                        interactionGeneration: generation
+                    )
+                }
             }
         }
-        delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
+        if dispatchLines != 0 {
+            delegate?.ghosttySurfaceView(self, didScrollLines: dispatchLines, atCol: cell.col, row: cell.row)
+        }
         return (generation, appliedLocally)
     }
 
