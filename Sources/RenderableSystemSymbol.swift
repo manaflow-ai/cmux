@@ -231,7 +231,26 @@ enum RenderableSystemSymbol {
     /// intrinsic-size and layout queries constant-time.
     @MainActor
     private static func materializedImage(_ source: NSImage, size: NSSize) -> NSImage? {
-        let pixelScale: CGFloat = 2
+        let image = NSImage(size: size)
+        // Keep native reps for both common display scales. AppKit can then
+        // select a fully materialized bitmap instead of resampling a 2x rep
+        // on a 1x display (or vice versa).
+        for pixelScale in [CGFloat(2), CGFloat(1)] {
+            guard let bitmap = materializedBitmap(source, size: size, pixelScale: pixelScale) else {
+                return nil
+            }
+            image.addRepresentation(bitmap)
+        }
+        image.cacheMode = .never
+        return image
+    }
+
+    @MainActor
+    private static func materializedBitmap(
+        _ source: NSImage,
+        size: NSSize,
+        pixelScale: CGFloat
+    ) -> NSBitmapImageRep? {
         guard let bitmap = NSBitmapImageRep(
             bitmapDataPlanes: nil,
             pixelsWide: max(1, Int(ceil(size.width * pixelScale))),
@@ -243,12 +262,19 @@ enum RenderableSystemSymbol {
             colorSpaceName: .deviceRGB,
             bytesPerRow: 0,
             bitsPerPixel: 0
-        ),
-        let graphicsContext = NSGraphicsContext(bitmapImageRep: bitmap) else {
+        ) else {
             return nil
         }
 
+        // NSGraphicsContext derives its point-to-pixel CTM from the bitmap's
+        // point-space size. Set it before creating the context so the backing
+        // pixels are used for the symbol draw, rather than only when the
+        // representation is later displayed.
         bitmap.size = size
+        guard let graphicsContext = NSGraphicsContext(bitmapImageRep: bitmap) else {
+            return nil
+        }
+
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = graphicsContext
         defer { NSGraphicsContext.restoreGraphicsState() }
@@ -264,11 +290,7 @@ enum RenderableSystemSymbol {
             respectFlipped: true,
             hints: nil
         )
-
-        let image = NSImage(size: size)
-        image.addRepresentation(bitmap)
-        image.cacheMode = .never
-        return image
+        return bitmap
     }
 
     static func symbolImageSize(_ naturalSize: NSSize, fallbackDimension: CGFloat) -> NSSize {

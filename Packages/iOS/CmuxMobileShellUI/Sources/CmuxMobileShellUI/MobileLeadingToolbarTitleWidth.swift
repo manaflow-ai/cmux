@@ -20,7 +20,6 @@ struct MobileLeadingToolbarTitleWidth {
     let contentWidth: CGFloat
     let hasBackButton: Bool
     let hasTrailingCluster: Bool
-    let hasChatToggle: Bool
     /// Sum of the measured content widths of the structurally visible trailing
     /// toolbar items, 0 until the first layout pass reports them.
     let measuredTrailingItemsWidth: CGFloat
@@ -39,7 +38,6 @@ struct MobileLeadingToolbarTitleWidth {
 
     static let backButtonReserve: CGFloat = 44
     static let trailingReserveBase: CGFloat = 64
-    static let chatToggleReserve: CGFloat = 60
     /// Dogfood on a 402pt iPhone 17 measured ~22pt of dead gap between the
     /// title pill and the trailing capsule under the original 84pt margin +
     /// 24pt/item chrome reserves. Only part of that slack is returned to the
@@ -64,7 +62,6 @@ struct MobileLeadingToolbarTitleWidth {
         contentWidth: CGFloat,
         hasBackButton: Bool,
         hasTrailingCluster: Bool,
-        hasChatToggle: Bool,
         measuredTrailingItemsWidth: CGFloat = 0,
         measuredTrailingItemCount: Int = 0,
         trailingItemCount: Int = 0,
@@ -73,7 +70,6 @@ struct MobileLeadingToolbarTitleWidth {
         self.contentWidth = contentWidth
         self.hasBackButton = hasBackButton
         self.hasTrailingCluster = hasTrailingCluster
-        self.hasChatToggle = hasChatToggle
         self.measuredTrailingItemsWidth = measuredTrailingItemsWidth
         self.measuredTrailingItemCount = measuredTrailingItemCount
         self.trailingItemCount = trailingItemCount
@@ -95,6 +91,6 @@ struct MobileLeadingToolbarTitleWidth {
                 + unmeasured * Self.unmeasuredTrailingItemReserve
         }
         guard hasTrailingCluster else { return 0 }
-        return Self.trailingReserveBase + (hasChatToggle ? Self.chatToggleReserve : 0)
+        return Self.trailingReserveBase
     }
 }

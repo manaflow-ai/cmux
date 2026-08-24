@@ -96,7 +96,12 @@ extension RemoteSessionCoordinator {
         pid_path=\(quotedRemoteTempPIDPath)
         printf '%s\\n' "$$" > "$pid_path"
         trap 'if [ -n "$cat_pid" ]; then kill "$cat_pid" 2>/dev/null || true; fi; if [ -n "$watchdog_pid" ]; then kill "$watchdog_pid" 2>/dev/null || true; fi; rm -f -- "$temp_path" "$pid_path"; exit 1' HUP INT TERM
-        cat > "$temp_path" &
+        # POSIX shells give an asynchronous command /dev/null for stdin unless
+        # the parent explicitly preserves the descriptor first. Without this
+        # dup, cat exits 0 after writing an empty payload even though ssh had
+        # a file-backed stdin stream to forward.
+        exec 3<&0
+        cat <&3 > "$temp_path" &
         cat_pid=$!
         printf '%s\\n' "$cat_pid" > "$pid_path"
         (
@@ -126,6 +131,7 @@ extension RemoteSessionCoordinator {
         wait "$cat_pid"
         cat_status=$?
         cat_pid=
+        exec 3<&-
         if [ -n "$watchdog_pid" ]; then kill "$watchdog_pid" 2>/dev/null || true; wait "$watchdog_pid" 2>/dev/null || true; fi
         watchdog_pid=
         rm -f -- "$pid_path"
