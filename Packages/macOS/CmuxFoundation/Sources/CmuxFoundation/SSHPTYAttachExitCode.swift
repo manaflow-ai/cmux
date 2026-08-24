@@ -172,7 +172,11 @@ public enum SSHPTYAttachExitCode: Int32 {
     ///   - command: Shell command that performs one attach attempt.
     ///   - reauthenticates: Whether foreground authentication is available.
     /// - Returns: Shell lines implementing the shared retry state machine.
-    @available(*, deprecated, message: "Use SSHPTYAttachRetryScriptBuilder.lines(command:reauthenticates:)")
+    @available(
+        *,
+        deprecated,
+        message: "Use SSHPTYAttachRetryScriptBuilder.lines(command:reauthenticates:initialAuthentication:) with initialAuthentication: false"
+    )
     public static func retryLoopLines(command: String, reauthenticates: Bool) -> [String] {
         SSHPTYAttachRetryScriptBuilder().lines(
             command: command,

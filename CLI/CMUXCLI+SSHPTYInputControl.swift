@@ -13,7 +13,8 @@ extension CMUXCLI {
             throw CLIError(
                 message: String(
                     localized: "cli.sshPtyAttach.terminalInputFlushFailed",
-                    defaultValue: "SSH terminal input could not be reset; reconnecting."
+                    defaultValue: "SSH terminal input could not be reset; reconnecting.",
+                    bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
                 ),
                 exitCode: SSHPTYAttachExitCode.retryableTransient
             )
