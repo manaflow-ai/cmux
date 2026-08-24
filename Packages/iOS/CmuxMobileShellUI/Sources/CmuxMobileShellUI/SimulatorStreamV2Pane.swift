@@ -21,6 +21,8 @@ struct SimulatorStreamV2Pane: View {
     let supportsDeviceSwitching: Bool
     let listDevices: @MainActor () async -> [MobileSimulatorDeviceDescriptor]
     let selectDevice: @MainActor (String) async -> Bool
+    let supportsRecover: Bool
+    let recover: @MainActor () async -> Bool
 
     @State private var store: SimulatorStreamV2Store?
     @State private var pendingText = ""
@@ -42,7 +44,11 @@ struct SimulatorStreamV2Pane: View {
                 if let store {
                     SimStreamDisplayRepresentable(store: store)
                         .accessibilityIdentifier("SimulatorStreamV2Video")
-                    overlay(for: store.phase)
+                    if store.hostStatus == .workerCrashed || store.hostStatus == .failed {
+                        recoveryOverlay
+                    } else {
+                        overlay(for: store.phase)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -124,6 +130,51 @@ struct SimulatorStreamV2Pane: View {
             .accessibilityIdentifier("SimulatorStreamV2UnavailableOverlay")
         case .streaming, .stopped:
             EmptyView()
+        }
+    }
+
+    /// The Mac's simulator worker crashed and fused (or failed): the frame
+    /// on screen is frozen and no lane retry can revive it. Mirror the Mac
+    /// pane's Reconnect affordance so the fix is one tap away on the phone.
+    private var recoveryOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.72)
+            VStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 36))
+                Text(
+                    L10n.string(
+                        "mobile.simulatorStream.needsRecovery",
+                        defaultValue: "Simulator Needs Recovery")
+                )
+                .font(.headline)
+                Text(
+                    L10n.string(
+                        "mobile.simulatorStream.needsRecoveryDetail",
+                        defaultValue:
+                            "The Simulator session on the Mac stopped and is showing its last frame.")
+                )
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+                if supportsRecover {
+                    Button {
+                        Task { _ = await recover() }
+                    } label: {
+                        Text(
+                            L10n.string(
+                                "mobile.simulatorStream.recover", defaultValue: "Recover")
+                        )
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.white)
+                    .accessibilityIdentifier("SimulatorStreamV2RecoverButton")
+                }
+            }
+            .foregroundStyle(.white)
+            .padding(28)
         }
     }
 
