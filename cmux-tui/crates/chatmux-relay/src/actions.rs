@@ -528,6 +528,7 @@ pub fn resolve_scoped_host_path(
 // Bounded file I/O (O_NOFOLLOW where the host supports it)
 // ---------------------------------------------------------------------------
 
+#[cfg(not(unix))]
 fn open_options_no_follow(read: bool) -> std::fs::OpenOptions {
     let mut options = std::fs::OpenOptions::new();
     if read {
@@ -602,6 +603,7 @@ fn write_utf8_no_follow(path: &HostScopedPath, content: &str) -> Result<(), Host
     Ok(())
 }
 
+#[cfg(not(unix))]
 fn create_parent_dirs_no_symlink(path: &Path) -> Result<(), HostError> {
     // Preserve Windows drive prefixes while walking absolute paths. A path
     // such as `C:\\work\\out` starts with Prefix and RootDir components.
@@ -640,20 +642,60 @@ fn create_parent_dirs_no_symlink(path: &Path) -> Result<(), HostError> {
     Ok(())
 }
 
-fn read_dir_scoped(path: &HostScopedPath) -> Result<std::fs::ReadDir, HostError> {
+struct ScopedDirEntry {
+    name: std::ffi::OsString,
+    is_dir: bool,
+}
+
+fn read_dir_scoped(path: &HostScopedPath) -> Result<Vec<ScopedDirEntry>, HostError> {
     #[cfg(unix)]
     {
+        use std::ffi::CStr;
         use std::os::fd::AsRawFd as _;
+        use std::os::unix::ffi::OsStringExt as _;
+
         let directory =
             open_beneath(&path.anchor, &path.relative, libc::O_RDONLY | libc::O_DIRECTORY, false)?;
-        let fd_path = PathBuf::from(format!("/dev/fd/{}", directory.as_raw_fd()));
-        let entries = std::fs::read_dir(fd_path)?;
-        // ReadDir owns its own descriptor after opening /dev/fd/N.
+        let fd = unsafe { libc::dup(directory.as_raw_fd()) };
+        if fd < 0 {
+            return Err(HostError::Io(std::io::Error::last_os_error()));
+        }
+        let stream = unsafe { libc::fdopendir(fd) };
+        if stream.is_null() {
+            unsafe { libc::close(fd) };
+            return Err(HostError::Io(std::io::Error::last_os_error()));
+        }
+        let mut entries = Vec::new();
+        loop {
+            let entry = unsafe { libc::readdir(stream) };
+            if entry.is_null() {
+                break;
+            }
+            let entry = unsafe { &*entry };
+            let name = unsafe { CStr::from_ptr(entry.d_name.as_ptr()) }.to_bytes();
+            if name == b"." || name == b".." {
+                continue;
+            }
+            entries.push(ScopedDirEntry {
+                name: std::ffi::OsString::from_vec(name.to_vec()),
+                is_dir: entry.d_type == libc::DT_DIR,
+            });
+        }
+        if unsafe { libc::closedir(stream) } != 0 {
+            return Err(HostError::Io(std::io::Error::last_os_error()));
+        }
         Ok(entries)
     }
     #[cfg(not(unix))]
     {
-        std::fs::read_dir(&path.path).map_err(HostError::Io)
+        let entries = std::fs::read_dir(&path.path).map_err(HostError::Io)?;
+        Ok(entries
+            .flatten()
+            .map(|entry| ScopedDirEntry {
+                name: entry.file_name(),
+                is_dir: entry.file_type().map(|file_type| file_type.is_dir()).unwrap_or(false),
+            })
+            .collect())
     }
 }
 
@@ -876,16 +918,23 @@ struct ProcessGroupGuard {
 impl Drop for ProcessGroupGuard {
     fn drop(&mut self) {
         if self.armed {
-            // Task cancellation drops Child without waiting. Kill the entire
-            // group so descendants cannot retain the inherited output pipes.
+            // Cancellation drops Child without waiting. Kill the whole group
+            // so descendants cannot retain inherited output pipes or continue
+            // running after the relay has released its action permit.
             signal_process_tree(self.pid, true);
         }
     }
 }
 
+#[cfg(unix)]
+type ScopedCwdFd = std::os::fd::RawFd;
+#[cfg(not(unix))]
+type ScopedCwdFd = ();
+
 async fn run_spec(
     spec: RunSpec<'_>,
     cwd: &Path,
+    cwd_fd: Option<ScopedCwdFd>,
     timeout_ms: u64,
     env: &HashMap<String, String>,
 ) -> RunOutcome {
@@ -912,7 +961,27 @@ async fn run_spec(
             argv
         }
     };
-    command.current_dir(cwd).env_clear().envs(env);
+    #[cfg(unix)]
+    if let Some(cwd_fd) = cwd_fd {
+        use std::os::unix::process::CommandExt as _;
+
+        // SAFETY: fchdir is async-signal-safe, and the descriptor remains
+        // open through spawn because the caller owns its guard.
+        unsafe {
+            command.as_std_mut().pre_exec(move || {
+                if libc::fchdir(cwd_fd) == 0 {
+                    Ok(())
+                } else {
+                    Err(std::io::Error::last_os_error())
+                }
+            });
+        }
+    } else {
+        command.current_dir(cwd);
+    }
+    #[cfg(not(unix))]
+    command.current_dir(cwd);
+    command.env_clear().envs(env);
     command.stdin(std::process::Stdio::null());
     command.stdout(std::process::Stdio::piped());
     command.stderr(std::process::Stdio::piped());
@@ -1356,14 +1425,13 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
             };
             let mut names: Vec<String> = Vec::new();
             let mut truncated = false;
-            for entry in entries.flatten().take(MAX_LISTING_ENTRIES + 1) {
+            for entry in entries.into_iter().take(MAX_LISTING_ENTRIES + 1) {
                 if names.len() == MAX_LISTING_ENTRIES {
                     truncated = true;
                     break;
                 }
-                let name = entry.file_name().to_string_lossy().into_owned();
-                let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-                names.push(if is_dir { format!("{name}/") } else { name });
+                let name = entry.name.to_string_lossy().into_owned();
+                names.push(if entry.is_dir { format!("{name}/") } else { name });
             }
             names.sort();
             let more = if truncated { "\n…[more entries]".to_owned() } else { String::new() };
@@ -1409,6 +1477,13 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
             };
             #[cfg(not(unix))]
             let command_cwd_path = command_cwd.path.display().to_string();
+            #[cfg(unix)]
+            let command_cwd_fd = {
+                use std::os::fd::AsRawFd as _;
+                Some(_cwd_guard.as_raw_fd())
+            };
+            #[cfg(not(unix))]
+            let command_cwd_fd = None;
             let outcome = run_spec(
                 RunSpec::Argv {
                     file: "grep",
@@ -1423,6 +1498,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                     ],
                 },
                 Path::new(&command_cwd_path),
+                command_cwd_fd,
                 timeout_ms,
                 &env,
             )
@@ -1461,6 +1537,13 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
             };
             #[cfg(not(unix))]
             let command_cwd_path = command_cwd.path.display().to_string();
+            #[cfg(unix)]
+            let command_cwd_fd = {
+                use std::os::fd::AsRawFd as _;
+                Some(_cwd_guard.as_raw_fd())
+            };
+            #[cfg(not(unix))]
+            let command_cwd_fd = None;
             let mut find_args = vec![process_path];
             if let Some(pattern) =
                 args.get("pattern").and_then(Value::as_str).filter(|p| !p.is_empty())
@@ -1471,6 +1554,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
             let outcome = run_spec(
                 RunSpec::Argv { file: "find", args: find_args },
                 Path::new(&command_cwd_path),
+                command_cwd_fd,
                 timeout_ms,
                 &env,
             )
@@ -1500,10 +1584,18 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
             };
             #[cfg(not(unix))]
             let scoped_cwd_path = scoped_cwd.path.display().to_string();
+            #[cfg(unix)]
+            let scoped_cwd_fd = {
+                use std::os::fd::AsRawFd as _;
+                Some(_cwd_guard.as_raw_fd())
+            };
+            #[cfg(not(unix))]
+            let scoped_cwd_fd = None;
             let prepared = command_with_process_files(command, &runtime.files);
             let outcome = run_spec(
                 RunSpec::Shell { command: &prepared },
                 Path::new(&scoped_cwd_path),
+                scoped_cwd_fd,
                 timeout_ms,
                 &env,
             )
