@@ -22,7 +22,8 @@ use sha2::{Digest as _, Sha256};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::actions::{
-    RootLists, ensure_scoped_file_roots_available, validate_request_path as validate_action_path,
+    RootLists, ensure_scoped_file_roots_available, process_env_snapshot, scrubbed_env,
+    validate_request_path as validate_action_path,
 };
 use crate::preview_proxy::PreviewRegistry;
 use crate::relay_wire as wire;
@@ -456,6 +457,7 @@ fn read_bounded_no_follow(path: &Path, max_bytes: usize) -> std::io::Result<(Vec
     Ok((bytes, truncated, size))
 }
 
+#[cfg(not(unix))]
 fn write_bytes_no_follow(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write as _;
     let mut options = std::fs::OpenOptions::new();
@@ -474,6 +476,7 @@ fn write_bytes_no_follow(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// existing component. `resolve` checks this chain before the operation, but
 /// `create_dir_all` otherwise follows a swapped-in symlink and can write
 /// outside the scoped roots.
+#[cfg(not(unix))]
 fn create_parent_dirs_no_symlink(path: &Path) -> Result<(), Refusal> {
     let Some(parent) = path.parent() else { return Ok(()) };
     let mut missing = Vec::new();
@@ -537,6 +540,515 @@ fn create_parent_dirs_no_symlink(path: &Path) -> Result<(), Refusal> {
         }
     }
     Ok(())
+}
+
+// The lexical/canonical checks above are necessary, but a path can still be
+// redirected between that check and a later filesystem call. Unix mutations
+// use directory descriptors for every lookup so a swapped-in parent symlink
+// cannot redirect the operation outside the scoped root. The non-Unix path
+// keeps the existing fail-closed checks; execute() refuses configured roots on
+// platforms that cannot provide this descriptor guarantee.
+#[cfg(unix)]
+struct DescriptorPath {
+    anchor: std::fs::File,
+    relative: PathBuf,
+}
+
+#[cfg(unix)]
+fn descriptor_io_refusal(path: &Path, error: std::io::Error) -> Refusal {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        Refusal::not_found(format!("{} does not exist", path.display()))
+    } else if error.raw_os_error() == Some(libc::ELOOP) {
+        Refusal::path_forbidden(format!("path {} changed to a symlink", path.display()))
+    } else {
+        Refusal::failed(format!("could not access {}: {error}", path.display()))
+    }
+}
+
+#[cfg(unix)]
+fn open_descriptor_dir(path: &Path, create_missing: bool) -> Result<std::fs::File, Refusal> {
+    use std::os::fd::{AsRawFd as _, FromRawFd as _};
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let root = std::ffi::CString::new("/").expect("root has no NUL");
+    let root_fd = unsafe {
+        libc::open(root.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC)
+    };
+    if root_fd < 0 {
+        return Err(Refusal::failed(format!(
+            "could not open descriptor root: {}",
+            std::io::Error::last_os_error()
+        )));
+    }
+    let mut current = unsafe { std::fs::File::from_raw_fd(root_fd) };
+    for component in path.components() {
+        let Component::Normal(name) = component else { continue };
+        let name = std::ffi::CString::new(name.as_bytes())
+            .map_err(|_| Refusal::path_forbidden("path contains an embedded NUL byte"))?;
+        let mut fd = unsafe {
+            libc::openat(
+                current.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if fd < 0 && create_missing {
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::NotFound {
+                let made = unsafe { libc::mkdirat(current.as_raw_fd(), name.as_ptr(), 0o777) };
+                if made < 0 {
+                    let create_error = std::io::Error::last_os_error();
+                    if create_error.raw_os_error() != Some(libc::EEXIST) {
+                        return Err(Refusal::failed(format!(
+                            "could not create descriptor parent: {create_error}"
+                        )));
+                    }
+                }
+                fd = unsafe {
+                    libc::openat(
+                        current.as_raw_fd(),
+                        name.as_ptr(),
+                        libc::O_RDONLY
+                            | libc::O_DIRECTORY
+                            | libc::O_NOFOLLOW
+                            | libc::O_CLOEXEC,
+                    )
+                };
+            }
+        }
+        if fd < 0 {
+            return Err(descriptor_io_refusal(path, std::io::Error::last_os_error()));
+        }
+        current = unsafe { std::fs::File::from_raw_fd(fd) };
+    }
+    Ok(current)
+}
+
+#[cfg(unix)]
+fn descriptor_anchor(
+    scope: &Scope,
+    path: &Path,
+    create_missing: bool,
+) -> Result<DescriptorPath, Refusal> {
+    let mut anchor_path = scope
+        .canonical_roots
+        .iter()
+        .flatten()
+        .filter(|root| path.starts_with(root))
+        .max_by_key(|root| root.components().count())
+        .cloned();
+    if anchor_path.is_none() && path.starts_with(&scope.workdir) {
+        anchor_path = Some(scope.workdir.clone());
+    }
+    let anchor_path = anchor_path.unwrap_or_else(|| PathBuf::from("/"));
+    let relative = path.strip_prefix(&anchor_path).map_err(|_| {
+        Refusal::path_forbidden("path is outside its descriptor-relative anchor")
+    })?;
+    let anchor = open_descriptor_dir(&anchor_path, create_missing)?;
+    Ok(DescriptorPath { anchor, relative: relative.to_path_buf() })
+}
+
+#[cfg(unix)]
+fn descriptor_parent(
+    target: &DescriptorPath,
+    create_missing: bool,
+) -> Result<(std::fs::File, std::ffi::CString), Refusal> {
+    use std::os::fd::{AsRawFd as _, FromRawFd as _};
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let parts = target
+        .relative
+        .components()
+        .map(|component| match component {
+            Component::Normal(name) => Ok(name),
+            _ => Err(Refusal::path_forbidden("invalid descriptor-relative path")),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let Some(last) = parts.last() else {
+        return Err(Refusal::path_forbidden("operation cannot target a directory root"));
+    };
+    let mut current = target.anchor.try_clone().map_err(|error| {
+        Refusal::failed(format!("could not clone descriptor anchor: {error}"))
+    })?;
+    for name in &parts[..parts.len() - 1] {
+        let name = std::ffi::CString::new(name.as_bytes())
+            .map_err(|_| Refusal::path_forbidden("path contains an embedded NUL byte"))?;
+        let mut fd = unsafe {
+            libc::openat(
+                current.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if fd < 0 && create_missing {
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::NotFound {
+                let made = unsafe { libc::mkdirat(current.as_raw_fd(), name.as_ptr(), 0o777) };
+                if made < 0 {
+                    let create_error = std::io::Error::last_os_error();
+                    if create_error.raw_os_error() != Some(libc::EEXIST) {
+                        return Err(Refusal::failed(format!(
+                            "could not create descriptor parent: {create_error}"
+                        )));
+                    }
+                }
+                fd = unsafe {
+                    libc::openat(
+                        current.as_raw_fd(),
+                        name.as_ptr(),
+                        libc::O_RDONLY
+                            | libc::O_DIRECTORY
+                            | libc::O_NOFOLLOW
+                            | libc::O_CLOEXEC,
+                    )
+                };
+            }
+        }
+        if fd < 0 {
+            return Err(descriptor_io_refusal(
+                &target.relative,
+                std::io::Error::last_os_error(),
+            ));
+        }
+        current = unsafe { std::fs::File::from_raw_fd(fd) };
+    }
+    let name = std::ffi::CString::new(last.as_bytes())
+        .map_err(|_| Refusal::path_forbidden("path contains an embedded NUL byte"))?;
+    Ok((current, name))
+}
+
+#[cfg(unix)]
+fn open_descriptor_file(
+    scope: &Scope,
+    path: &Path,
+    flags: libc::c_int,
+    create_parents: bool,
+) -> Result<std::fs::File, Refusal> {
+    use std::os::fd::AsRawFd as _;
+    let target = descriptor_anchor(scope, path, create_parents)?;
+    let (parent, name) = descriptor_parent(&target, create_parents)?;
+    let fd = unsafe {
+        libc::openat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            flags | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            0o666,
+        )
+    };
+    if fd < 0 {
+        return Err(descriptor_io_refusal(path, std::io::Error::last_os_error()));
+    }
+    use std::os::fd::FromRawFd as _;
+    Ok(unsafe { std::fs::File::from_raw_fd(fd) })
+}
+
+#[cfg(unix)]
+fn write_descriptor_bytes(
+    scope: &Scope,
+    path: &Path,
+    bytes: &[u8],
+) -> Result<(), Refusal> {
+    use std::io::Write as _;
+    let mut file = open_descriptor_file(
+        scope,
+        path,
+        libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC,
+        true,
+    )?;
+    file.write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .map_err(|error| descriptor_io_refusal(path, error))
+}
+
+
+#[cfg(unix)]
+fn descriptor_stat(
+    parent: &std::fs::File,
+    name: &std::ffi::CString,
+) -> Result<Option<libc::stat>, Refusal> {
+    use std::os::fd::AsRawFd as _;
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    let result = unsafe {
+        libc::fstatat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            stat.as_mut_ptr(),
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    };
+    if result == 0 {
+        return Ok(Some(unsafe { stat.assume_init() }));
+    }
+    let error = std::io::Error::last_os_error();
+    if error.kind() == std::io::ErrorKind::NotFound {
+        Ok(None)
+    } else {
+        Err(Refusal::failed(format!("could not inspect directory entry: {error}")))
+    }
+}
+
+#[cfg(unix)]
+fn descriptor_is_directory(stat: &libc::stat) -> bool {
+    (stat.st_mode & libc::S_IFMT) == libc::S_IFDIR
+}
+
+#[cfg(unix)]
+fn descriptor_unlink(
+    parent: &std::fs::File,
+    name: &std::ffi::CString,
+    flags: libc::c_int,
+) -> Result<(), Refusal> {
+    use std::os::fd::AsRawFd as _;
+    let result = unsafe { libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), flags) };
+    if result == 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    if error.kind() == std::io::ErrorKind::NotFound {
+        Err(Refusal::not_found("path does not exist"))
+    } else {
+        Err(Refusal::failed(format!("could not remove directory entry: {error}")))
+    }
+}
+
+#[cfg(unix)]
+fn read_directory_names(directory: &std::fs::File) -> Result<Vec<std::ffi::CString>, Refusal> {
+    use std::ffi::CStr;
+    use std::os::fd::AsRawFd as _;
+    let fd = unsafe { libc::dup(directory.as_raw_fd()) };
+    if fd < 0 {
+        return Err(Refusal::failed(format!(
+            "could not duplicate directory descriptor: {}",
+            std::io::Error::last_os_error()
+        )));
+    }
+    let stream = unsafe { libc::fdopendir(fd) };
+    if stream.is_null() {
+        unsafe { libc::close(fd) };
+        return Err(Refusal::failed(format!(
+            "could not read directory: {}",
+            std::io::Error::last_os_error()
+        )));
+    }
+    let mut names = Vec::new();
+    loop {
+        let entry = unsafe { libc::readdir(stream) };
+        if entry.is_null() {
+            break;
+        }
+        let entry = unsafe { &*entry };
+        let name = unsafe { CStr::from_ptr(entry.d_name.as_ptr()) }.to_bytes();
+        if name == b"." || name == b".." {
+            continue;
+        }
+        let name = std::ffi::CString::new(name)
+            .map_err(|_| Refusal::failed("directory entry contained an embedded NUL byte"))?;
+        names.push(name);
+    }
+    if unsafe { libc::closedir(stream) } != 0 {
+        return Err(Refusal::failed(format!(
+            "could not close directory: {}",
+            std::io::Error::last_os_error()
+        )));
+    }
+    Ok(names)
+}
+
+#[cfg(unix)]
+fn remove_descriptor_tree(directory: &std::fs::File) -> Result<(), Refusal> {
+    use std::os::fd::{AsRawFd as _, FromRawFd as _};
+    let names = read_directory_names(directory)?;
+    for name in names {
+        let Some(stat) = descriptor_stat(directory, &name)? else { continue };
+        if descriptor_is_directory(&stat) {
+            let child_fd = unsafe {
+                libc::openat(
+                    directory.as_raw_fd(),
+                    name.as_ptr(),
+                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                )
+            };
+            if child_fd < 0 {
+                let error = std::io::Error::last_os_error();
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    continue;
+                }
+                return Err(if error.raw_os_error() == Some(libc::ELOOP) {
+                    Refusal::path_forbidden("refusing a directory that changed to a symlink")
+                } else {
+                    Refusal::failed(format!("could not open directory for deletion: {error}"))
+                });
+            }
+            let child = unsafe { std::fs::File::from_raw_fd(child_fd) };
+            remove_descriptor_tree(&child)?;
+            descriptor_unlink(directory, &name, libc::AT_REMOVEDIR)?;
+        } else {
+            descriptor_unlink(directory, &name, 0)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn rename_descriptor_noreplace(
+    source_parent: std::os::fd::RawFd,
+    source_name: &std::ffi::CString,
+    destination_parent: std::os::fd::RawFd,
+    destination_name: &std::ffi::CString,
+) -> std::io::Result<()> {
+    let result = unsafe {
+        libc::syscall(
+            libc::SYS_renameat2,
+            source_parent,
+            source_name.as_ptr(),
+            destination_parent,
+            destination_name.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(target_vendor = "apple")]
+fn rename_descriptor_noreplace(
+    source_parent: std::os::fd::RawFd,
+    source_name: &std::ffi::CString,
+    destination_parent: std::os::fd::RawFd,
+    destination_name: &std::ffi::CString,
+) -> std::io::Result<()> {
+    let result = unsafe {
+        libc::renameatx_np(
+            source_parent,
+            source_name.as_ptr(),
+            destination_parent,
+            destination_name.as_ptr(),
+            libc::RENAME_EXCL,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(all(
+    unix,
+    not(any(target_os = "linux", target_os = "android", target_vendor = "apple"))
+))]
+fn rename_descriptor_noreplace(
+    _source_parent: std::os::fd::RawFd,
+    _source_name: &std::ffi::CString,
+    _destination_parent: std::os::fd::RawFd,
+    _destination_name: &std::ffi::CString,
+) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "atomic no-replace rename is unavailable on this platform",
+    ))
+}
+
+#[cfg(unix)]
+fn rename_descriptor(
+    scope: &Scope,
+    from: &Path,
+    to: &Path,
+    overwrite: bool,
+) -> Result<(), Refusal> {
+    use std::os::fd::AsRawFd as _;
+    let source = descriptor_anchor(scope, from, false)?;
+    let destination = descriptor_anchor(scope, to, true)?;
+    let (source_parent, source_name) = descriptor_parent(&source, false)?;
+    let (destination_parent, destination_name) = descriptor_parent(&destination, true)?;
+    if descriptor_stat(&source_parent, &source_name)?.is_none() {
+        return Err(Refusal::not_found(format!("{} does not exist", from.display())));
+    }
+    if descriptor_stat(&destination_parent, &destination_name)?.is_some() && !overwrite {
+        return Err(Refusal::new(
+            wire::WorkspaceErrorCode::DestinationExists,
+            format!("{} already exists", to.display()),
+        ));
+    }
+    let rename_result = if overwrite {
+        let result = unsafe {
+            libc::renameat(
+                source_parent.as_raw_fd(),
+                source_name.as_ptr(),
+                destination_parent.as_raw_fd(),
+                destination_name.as_ptr(),
+            )
+        };
+        if result == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+    } else {
+        rename_descriptor_noreplace(
+            source_parent.as_raw_fd(),
+            &source_name,
+            destination_parent.as_raw_fd(),
+            &destination_name,
+        )
+    };
+    rename_result.map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            Refusal::not_found(format!("{} does not exist", from.display()))
+        } else if !overwrite && error.kind() == std::io::ErrorKind::AlreadyExists {
+            Refusal::new(
+                wire::WorkspaceErrorCode::DestinationExists,
+                format!("{} already exists", to.display()),
+            )
+        } else {
+            Refusal::failed(format!(
+                "could not rename {} -> {}: {error}",
+                from.display(),
+                to.display()
+            ))
+        }
+    })
+}
+
+#[cfg(unix)]
+fn delete_descriptor(
+    scope: &Scope,
+    path: &Path,
+    recursive: bool,
+) -> Result<(), Refusal> {
+    use std::os::fd::{AsRawFd as _, FromRawFd as _};
+    let target = descriptor_anchor(scope, path, false)?;
+    let (parent, name) = descriptor_parent(&target, false)?;
+    let Some(stat) = descriptor_stat(&parent, &name)? else {
+        return Err(Refusal::not_found(format!("{} does not exist", path.display())));
+    };
+    if descriptor_is_directory(&stat) {
+        if recursive {
+            let fd = unsafe {
+                libc::openat(
+                    parent.as_raw_fd(),
+                    name.as_ptr(),
+                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                )
+            };
+            if fd < 0 {
+                return Err(descriptor_io_refusal(path, std::io::Error::last_os_error()));
+            }
+            let directory = unsafe { std::fs::File::from_raw_fd(fd) };
+            remove_descriptor_tree(&directory)?;
+        }
+        descriptor_unlink(&parent, &name, libc::AT_REMOVEDIR).map_err(|refusal| {
+            if refusal.message.to_ascii_lowercase().contains("directory not empty") {
+                Refusal::new(
+                    wire::WorkspaceErrorCode::DirectoryNotEmpty,
+                    format!("{} is a non-empty directory (pass recursive)", path.display()),
+                )
+            } else {
+                refusal
+            }
+        })
+    } else {
+        descriptor_unlink(&parent, &name, 0)
+    }
 }
 
 /// Gitignore-aware walker shared by fs_tree and fs_search (`rg --files`
@@ -648,6 +1160,42 @@ fn run_write(scope: &Scope, op: &wire::FsWriteOp) -> Result<wire::WorkspaceResul
         ));
     }
     let path = scope.resolve(&op.path, true)?;
+    #[cfg(unix)]
+    if let Some(base) = &op.base_sha256 {
+        use std::io::{Read as _, Seek as _, Write as _};
+        let mut file = match open_descriptor_file(scope, &path, libc::O_RDWR, false) {
+            Ok(file) => file,
+            Err(refusal) if refusal.code == wire::WorkspaceErrorCode::NotFound => {
+                return Err(Refusal {
+                    code: wire::WorkspaceErrorCode::WriteConflict,
+                    message: format!("{} changed on disk", op.path),
+                    current_sha256: None,
+                });
+            }
+            Err(refusal) => return Err(refusal),
+        };
+        let mut existing = Vec::with_capacity(WRITE_MAX_BYTES.saturating_add(1));
+        file.by_ref()
+            .take(WRITE_MAX_BYTES.saturating_add(1) as u64)
+            .read_to_end(&mut existing)
+            .map_err(|error| descriptor_io_refusal(&path, error))?;
+        let current = Some(sha256_hex(&existing));
+        if current.as_deref() != Some(base.as_str()) {
+            return Err(Refusal {
+                code: wire::WorkspaceErrorCode::WriteConflict,
+                message: format!("{} changed on disk", op.path),
+                current_sha256: current,
+            });
+        }
+        file.set_len(0)
+            .and_then(|()| file.rewind())
+            .and_then(|()| file.write_all(op.content.as_bytes()))
+            .and_then(|()| file.sync_all())
+            .map_err(|error| descriptor_io_refusal(&path, error))?;
+    } else {
+        write_descriptor_bytes(scope, &path, op.content.as_bytes())?;
+    }
+    #[cfg(not(unix))]
     let existing = match read_bytes_no_follow(&path, WRITE_MAX_BYTES) {
         Ok(bytes) => Some(bytes),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
@@ -655,6 +1203,7 @@ fn run_write(scope: &Scope, op: &wire::FsWriteOp) -> Result<wire::WorkspaceResul
             return Err(Refusal::failed(format!("could not read {}: {error}", op.path)));
         }
     };
+    #[cfg(not(unix))]
     if let Some(base) = &op.base_sha256 {
         // Compare-and-swap (HD6 explicit save): a stale base refuses with
         // the CURRENT hash so the editor can offer a quiet refresh. A
@@ -668,7 +1217,9 @@ fn run_write(scope: &Scope, op: &wire::FsWriteOp) -> Result<wire::WorkspaceResul
             });
         }
     }
+    #[cfg(not(unix))]
     create_parent_dirs_no_symlink(&path)?;
+    #[cfg(not(unix))]
     write_bytes_no_follow(&path, op.content.as_bytes())
         .map_err(|error| Refusal::failed(format!("could not write {}: {error}", op.path)))?;
     Ok(wire::WorkspaceResultBody::FsWrite(wire::FsWriteResult {
@@ -687,6 +1238,12 @@ fn run_rename(scope: &Scope, op: &wire::FsRenameOp) -> Result<wire::WorkspaceRes
         }
     })?;
     let to = scope.resolve(&op.to_path, true)?;
+    #[cfg(unix)]
+    {
+        rename_descriptor(scope, &from, &to, op.overwrite == Some(true))?;
+    }
+    #[cfg(not(unix))]
+    {
     let destination_exists = std::fs::symlink_metadata(&to).is_ok();
     if destination_exists && op.overwrite != Some(true) {
         return Err(Refusal::new(
@@ -698,6 +1255,7 @@ fn run_rename(scope: &Scope, op: &wire::FsRenameOp) -> Result<wire::WorkspaceRes
     std::fs::rename(&from, &to).map_err(|error| {
         Refusal::failed(format!("could not rename {} -> {}: {error}", op.from_path, op.to_path))
     })?;
+    }
     Ok(wire::WorkspaceResultBody::FsRename(wire::FsRenameResult {
         op: wire::TagFsRename::FsRename,
     }))
@@ -714,6 +1272,12 @@ pub(crate) fn run_delete(
             refusal
         }
     })?;
+    #[cfg(unix)]
+    {
+        delete_descriptor(scope, &path, op.recursive == Some(true))?;
+    }
+    #[cfg(not(unix))]
+    {
     let meta = std::fs::symlink_metadata(&path)
         .map_err(|_| Refusal::not_found(format!("{} does not exist", op.path)))?;
     if meta.is_dir() {
@@ -734,6 +1298,7 @@ pub(crate) fn run_delete(
         // resolve(), like every other workspace op).
         std::fs::remove_file(&path)
             .map_err(|error| Refusal::failed(format!("could not delete {}: {error}", op.path)))?;
+    }
     }
     Ok(wire::WorkspaceResultBody::FsDelete(wire::FsDeleteResult {
         op: wire::TagFsDelete::FsDelete,
@@ -821,12 +1386,36 @@ fn run_search(scope: &Scope, op: &wire::FsSearchOp) -> Result<wire::WorkspaceRes
 // timeout)
 // ---------------------------------------------------------------------------
 
+/// Environment for the read-only git helpers.
+///
+/// Git can load configuration and invoke helper programs from its inherited
+/// environment. A relay process also carries credentials for the control
+/// plane, so passing that environment to git would expose those credentials to
+/// a repository-controlled helper. Keep the same small baseline used by the
+/// action and PTY runners, then disable system configuration and interactive
+/// prompts explicitly.
+fn git_environment_from(
+    base: &std::collections::HashMap<String, String>,
+) -> std::collections::HashMap<String, String> {
+    let mut environment = scrubbed_env(base);
+    environment.insert("GIT_CONFIG_NOSYSTEM".to_owned(), "1".to_owned());
+    environment.insert("GIT_TERMINAL_PROMPT".to_owned(), "0".to_owned());
+    environment.insert("GIT_PAGER".to_owned(), "cat".to_owned());
+    environment
+}
+
+fn git_environment() -> std::collections::HashMap<String, String> {
+    git_environment_from(&process_env_snapshot())
+}
+
 fn git_command(root: &Path, args: &[&str]) -> tokio::process::Command {
     let mut command = tokio::process::Command::new("git");
     command
         .arg("-C")
         .arg(root)
         .args(args)
+        .env_clear()
+        .envs(git_environment())
         .env("GIT_OPTIONAL_LOCKS", "0")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
@@ -854,9 +1443,12 @@ fn porcelain_v1_xy(xy: &str) -> String {
 
 async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refusal> {
     let root = scope.existing_workdir()?;
-    let mut child = git_command(&root, &["status", "--porcelain=v2", "--branch", "-z"])
-        .spawn()
-        .map_err(|error| Refusal::failed(format!("could not run git: {error}")))?;
+    let mut child = git_command(
+        &root,
+        &["-c", "core.fsmonitor=false", "status", "--porcelain=v2", "--branch", "-z"],
+    )
+    .spawn()
+    .map_err(|error| Refusal::failed(format!("could not run git: {error}")))?;
     let Some(stdout) = child.stdout.take() else {
         return Err(Refusal::failed("git status produced no stdout pipe"));
     };
@@ -976,7 +1568,14 @@ async fn run_git_diff(
         return Err(Refusal::failed("invalid diff base"));
     }
     let context = op.context_lines.map(|lines| format!("-U{}", lines.clamp(0, 100)));
-    let mut args: Vec<&str> = vec!["diff", base];
+    let mut args: Vec<&str> = vec![
+        "-c",
+        "core.fsmonitor=false",
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        base,
+    ];
     if let Some(context) = context.as_deref() {
         args.push(context);
     }
@@ -1789,6 +2388,28 @@ mod tests {
 
     // --- git ops ---------------------------------------------------------
 
+    #[test]
+    fn git_environment_drops_credentials_and_helper_overrides() {
+        let base = std::collections::HashMap::from([
+            ("PATH".to_owned(), "/usr/bin".to_owned()),
+            ("HOME".to_owned(), "/home/test".to_owned()),
+            ("LC_ALL".to_owned(), "C".to_owned()),
+            ("OPENAI_API_KEY".to_owned(), "secret".to_owned()),
+            ("GIT_CONFIG".to_owned(), "/tmp/attacker-config".to_owned()),
+            ("GIT_EXTERNAL_DIFF".to_owned(), "/tmp/attacker-diff".to_owned()),
+        ]);
+        let env = git_environment_from(&base);
+        assert_eq!(env.get("PATH").map(String::as_str), Some("/usr/bin"));
+        assert_eq!(env.get("HOME").map(String::as_str), Some("/home/test"));
+        assert_eq!(env.get("LC_ALL").map(String::as_str), Some("C"));
+        assert_eq!(env.get("GIT_CONFIG_NOSYSTEM").map(String::as_str), Some("1"));
+        assert_eq!(env.get("GIT_TERMINAL_PROMPT").map(String::as_str), Some("0"));
+        assert_eq!(env.get("GIT_PAGER").map(String::as_str), Some("cat"));
+        assert!(!env.contains_key("OPENAI_API_KEY"));
+        assert!(!env.contains_key("GIT_CONFIG"));
+        assert!(!env.contains_key("GIT_EXTERNAL_DIFF"));
+    }
+
     fn seeded_repo(name: &str) -> (PathBuf, Scope) {
         let root = scratch(name);
         write(&root, "README.md", "# seed\n");
@@ -1846,6 +2467,43 @@ mod tests {
         assert_eq!(result.stat, wire::GitDiffStat { files: 1, additions: 1, deletions: 1 });
         assert!(!result.truncated);
         let _ = root;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn git_diff_does_not_run_repository_external_helpers() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let (root, scope) = seeded_repo("git-diff-helper");
+        write(&root, "src/app.ts", "export const NEEDLE = 43\n");
+        let marker = root.join("external-diff-ran");
+        let helper = root.join("external-diff.sh");
+        write(
+            &root,
+            "external-diff.sh",
+            &format!("#!/bin/sh\nprintf ran > {}\n", marker.display()),
+        );
+        let mut permissions = std::fs::metadata(&helper).expect("helper metadata").permissions();
+        permissions.set_mode(0o700);
+        std::fs::set_permissions(&helper, permissions).expect("helper executable");
+        git(&root, &["config", "diff.external", helper.to_str().expect("helper path")]);
+
+        let result = run_git_diff(
+            &scope,
+            &wire::GitDiffOp {
+                op: wire::TagGitDiff::GitDiff,
+                base: None,
+                paths: None,
+                context_lines: None,
+            },
+        )
+        .await
+        .expect("diff");
+        assert!(!marker.exists(), "repository external diff helper ran");
+        let wire::WorkspaceResultBody::GitDiff(result) = result else {
+            panic!("wrong body");
+        };
+        assert!(result.patch.contains("+export const NEEDLE = 43"));
     }
 
     #[tokio::test]
