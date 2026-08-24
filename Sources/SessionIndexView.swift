@@ -311,6 +311,10 @@ struct SessionIndexView: View {
             trailingPadding: 6,
             height: RightSidebarChromeMetrics.secondaryBarHeight
         )
+        // The right sidebar is trailing-aligned by its parent. Expand this
+        // intrinsic-width selector to the column so the category controls
+        // land on that same trailing edge instead of appearing centered.
+        .frame(maxWidth: .infinity, alignment: .trailing)
         .reportRightSidebarChromeGeometryForBonsplitUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
     }
 
