@@ -2390,7 +2390,6 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("cmux-pty-cwd-default-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
-        let home = root.to_string_lossy().into_owned();
         assert_eq!(
             scoped_cwd(Some("relative"), &root, None, None).unwrap_err(),
             "cwd must be absolute or home-relative"
