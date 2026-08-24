@@ -18214,7 +18214,23 @@ private extension NSWindow {
                 "  → browser capture setting routed before cmux/menu fallback handled=\(result ? 1 : 0)"
             )
 #endif
-            return result
+            if result {
+                return true
+            }
+            let normalizedFlags = event.modifierFlags
+                .intersection(.deviceIndependentFlagsMask)
+                .subtracting([.numericPad, .function, .capsLock])
+            guard normalizedFlags.contains(.command) else {
+                return false
+            }
+            if cmuxForceDispatchKeyDownOnce(
+                event,
+                to: firstResponderWebView,
+                reason: "browser capture setting keyDown fallback"
+            ) {
+                return true
+            }
+            return true
         }
         if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(event, preferredWindow: self) {
             return true
