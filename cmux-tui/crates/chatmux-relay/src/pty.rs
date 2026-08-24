@@ -2234,14 +2234,8 @@ mod tests {
             read_dir: None,
             ensure_socket_path: None,
         });
-        let manager = PtyManager::with_limits(
-            deps,
-            home_path.clone(),
-            env,
-            MAX_PTYS,
-            32,
-            OUTPUT_BUFFER_CAP,
-        );
+        let manager =
+            PtyManager::with_limits(deps, home_path.clone(), env, MAX_PTYS, 32, OUTPUT_BUFFER_CAP);
         let h = Harness {
             manager,
             recorded,
