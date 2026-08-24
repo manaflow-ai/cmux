@@ -68,12 +68,12 @@ public struct CommandRunner: EnvironmentCommandRunning, Sendable {
         arguments: [String],
         timeout: TimeInterval?
     ) async -> CommandResult {
-        await run(
+        await runInternal(
             directory: directory,
             executable: executable,
             arguments: arguments,
             timeout: timeout,
-            environmentOverrides: [:]
+            environment: nil
         )
     }
 
@@ -89,6 +89,22 @@ public struct CommandRunner: EnvironmentCommandRunning, Sendable {
         for (key, value) in environmentOverrides {
             effectiveEnvironment[key] = value
         }
+        return await runInternal(
+            directory: directory,
+            executable: executable,
+            arguments: arguments,
+            timeout: timeout,
+            environment: effectiveEnvironment
+        )
+    }
+
+    private func runInternal(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?,
+        environment: [String: String]?
+    ) async -> CommandResult {
         let executableURL: URL
         let resolvedArguments: [String]
         if let resolved = resolvedCommandPath(executable: executable) {
@@ -103,7 +119,7 @@ public struct CommandRunner: EnvironmentCommandRunning, Sendable {
                 executableURL: executableURL,
                 arguments: resolvedArguments,
                 currentDirectoryURL: URL(fileURLWithPath: directory),
-                environment: effectiveEnvironment
+                environment: environment
             )
             return await execution.run(timeout: timeout)
         } catch {

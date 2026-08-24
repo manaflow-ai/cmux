@@ -53,14 +53,14 @@ import Testing
         #expect(store.lastSwitchError == nil)
     }
 
-    @Test func preflightRefreshGuardsAgainstStaleRegistry() async throws {
+    @Test func preflightRefreshRejectsRemoteGlobalSwitch() async throws {
         let client = FakeSubrouterClient()
         let switcher = FakeAccountSwitcher()
         let store = makeStore(client: client, switcher: switcher)
         // Simulates `sr server use <remote>` landing after the store's
         // cached configuration was composed: the preflight re-applies the
-        // registry, and the switch must route to the remote endpoint —
-        // never the local sr CLI — based on the current selection.
+        // registry, and the remote pool rejects a global switch before any
+        // mutation endpoint is attempted.
         store.configurationPreflight = { @MainActor in
             store.updateConfiguration(
                 SubrouterConfiguration(
@@ -72,10 +72,11 @@ import Testing
             )
         }
 
-        try await store.switchAccount(provider: .codex, accountID: "dev@example.com")
+        await #expect(throws: SubrouterSwitchError.remoteServerManagesSelection(serverName: "cmux-mac-mini")) {
+            try await store.switchAccount(provider: .codex, accountID: "dev@example.com")
+        }
         #expect(await switcher.invocations.isEmpty)
-        #expect(await client.switchCallCount == 1)
-        #expect(await client.lastEndpoint?.baseURL.host() == "cmux-mac-mini")
+        #expect(await client.usageCallCount == 0)
     }
 
     @Test func disablingMidSwitchSkipsDaemonFollowUp() async throws {
@@ -192,37 +193,8 @@ import Testing
         )
     }
 
-    @Test func remoteSwitchCallsEndpointThenRefreshesWithoutReload() async throws {
+    @Test func remoteSwitchIsRejectedBeforeAnyMutationEndpoint() async {
         let client = FakeSubrouterClient()
-        await client.setUsageResult(.success([
-            SubrouterAccountUsageStatus(id: "other@example.com", provider: .codex, isActive: true),
-        ]))
-        let switcher = FakeAccountSwitcher()
-        let store = makeRemoteStore(client: client, switcher: switcher)
-
-        try await store.switchAccount(provider: .codex, accountID: "other@example.com")
-
-        // The sr CLI never runs against a remote server; the daemon's
-        // switch-account endpoint is the whole mutation.
-        #expect(await switcher.invocations.isEmpty)
-        #expect(await client.switchCallCount == 1)
-        let request = await client.lastSwitchRequest
-        #expect(request?.provider == .codex)
-        #expect(request?.accountID == "other@example.com")
-        // reload-accounts is loopback-only and the endpoint invalidates the
-        // server's usage cache itself — only the fresh refresh follows.
-        #expect(await client.reloadCallCount == 0)
-        #expect(await client.usageCallCount == 1)
-        #expect(await client.sessionsCallCount == 0)
-        #expect(store.snapshot.activeAccount(for: .codex)?.id == "other@example.com")
-        #expect(store.pendingSwitch == nil)
-        #expect(store.lastSwitchError == nil)
-    }
-
-    @Test func remoteServerWithoutSwitchEndpointSurfacesUpgradeError() async {
-        let client = FakeSubrouterClient()
-        // Older daemons route unknown /_subrouter/ paths to a 404 catch-all.
-        await client.setSwitchResult(.failure(.httpStatus(code: 404, description: "")))
         let switcher = FakeAccountSwitcher()
         let store = makeRemoteStore(client: client, switcher: switcher)
 
@@ -231,47 +203,9 @@ import Testing
         }
         #expect(store.lastSwitchError == .remoteServerManagesSelection(serverName: "cmux-mac-mini"))
         #expect(await switcher.invocations.isEmpty)
-        #expect(store.pendingSwitch == nil)
-    }
-
-    @Test func remoteSwitchRejectionSurfacesAsCommandFailed() async {
-        let client = FakeSubrouterClient()
-        // 422: the daemon is healthy but rejected the switch (unknown
-        // account, refresh failure). Only the status code crosses the
-        // client boundary.
-        await client.setSwitchResult(.failure(.httpStatus(code: 422, description: "")))
-        let switcher = FakeAccountSwitcher()
-        let store = makeRemoteStore(client: client, switcher: switcher)
-
-        await #expect(throws: SubrouterSwitchError.self) {
-            try await store.switchAccount(provider: .codex, accountID: "nope@example.com")
-        }
-        guard case .commandFailed = store.lastSwitchError else {
-            Issue.record("lastSwitchError = \(String(describing: store.lastSwitchError))")
-            return
-        }
-        // No follow-up refresh after a failed switch.
+        #expect(await client.reloadCallCount == 0)
         #expect(await client.usageCallCount == 0)
-    }
-
-    @Test func remoteSwitchOkFalseBodySurfacesAsCommandFailed() async {
-        let client = FakeSubrouterClient()
-        // A 2xx response whose body reports ok=false must not read as a
-        // successful switch: no refresh, and the failure surfaces.
-        await client.setSwitchResult(.success(SubrouterRemoteSwitchResult(ok: false)))
-        let switcher = FakeAccountSwitcher()
-        let store = makeRemoteStore(client: client, switcher: switcher)
-
-        await #expect(throws: SubrouterSwitchError.self) {
-            try await store.switchAccount(provider: .codex, accountID: "dev@example.com")
-        }
-        guard case .commandFailed = store.lastSwitchError else {
-            Issue.record("lastSwitchError = \(String(describing: store.lastSwitchError))")
-            return
-        }
-        #expect(await switcher.invocations.isEmpty)
         #expect(store.pendingSwitch == nil)
-        #expect(await client.usageCallCount == 0)
     }
 
     @Test func loopbackEndpointsAreNotRemote() {

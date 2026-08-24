@@ -125,10 +125,9 @@ public struct AgentsPanelView: View {
 
     /// The action bundle for one account row. Remote pools get no row
     /// actions: the daemon load-balances accounts per session, so the UI
-    /// never presents one as selected or switchable (the daemon's
-    /// switch-account endpoint stays reachable via `cmux subrouter switch`
-    /// for whoever explicitly wants to move the server host's active
-    /// credentials). Sign-in and remove manage the local `sr` store, so
+    /// never presents one as selected or switchable (hosted pools choose an
+    /// account per session, so global switching is unavailable). Sign-in and
+    /// remove manage the local `sr` store, so
     /// they are local-only too — and all terminal-backed verbs also
     /// require a terminal-capable host.
     private func rowActions(

@@ -69,7 +69,7 @@ public final class SubrouterStore {
     /// memory and the per-render aggregation work downstream.
     public nonisolated static let maxRetainedSessions = 512
 
-    @ObservationIgnored private var configurationStorage: SubrouterConfiguration
+    private var configurationStorage: SubrouterConfiguration
     @ObservationIgnored private(set) var visibleSurfaces: Set<SubrouterVisibleSurface> = []
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?

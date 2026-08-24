@@ -15,9 +15,7 @@ public enum SubrouterSwitchError: Error, Sendable, Equatable {
     case commandTimedOut
     /// A switch for the same provider is already in flight.
     case switchAlreadyInFlight
-    /// The configured remote subrouter server predates the
-    /// `/_subrouter/switch-account` endpoint (it answered 404/501), so it
-    /// can only assign accounts per session; upgrading the server enables
-    /// remote switching.
+    /// The configured remote subrouter server assigns accounts per agent
+    /// session, so a global account switch is not available.
     case remoteServerManagesSelection(serverName: String)
 }

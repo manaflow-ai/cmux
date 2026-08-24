@@ -128,10 +128,10 @@ extension CMUXCLI {
                 return
             }
             for session in sessions {
-                let agent = (session["agent_type"] as? String) ?? "?"
-                let sessionID = (session["session_id"] as? String) ?? "?"
-                let account = (session["account_id"] as? String) ?? "?"
-                let updated = (session["updated_at"] as? String) ?? ""
+                let agent = Self.sanitizeForTerminal((session["agent_type"] as? String) ?? "?")
+                let sessionID = Self.sanitizeForTerminal((session["session_id"] as? String) ?? "?")
+                let account = Self.sanitizeForTerminal((session["account_id"] as? String) ?? "?")
+                let updated = Self.sanitizeForTerminal((session["updated_at"] as? String) ?? "")
                 print("\(agent)  \(sessionID.prefix(16))  → \(account)  \(updated)")
             }
 
@@ -309,8 +309,8 @@ extension CMUXCLI {
 
     private func printSubrouterStatus(_ response: [String: Any]) {
         let daemon = (response["daemon"] as? [String: Any]) ?? [:]
-        let state = (daemon["state"] as? String) ?? "unknown"
-        let endpoint = (response["endpoint"] as? String) ?? ""
+        let state = Self.sanitizeForTerminal((daemon["state"] as? String) ?? "unknown")
+        let endpoint = Self.sanitizeForTerminal((response["endpoint"] as? String) ?? "")
         switch state {
         case "healthy":
             print("Daemon:   healthy (\(endpoint))")
@@ -318,7 +318,7 @@ extension CMUXCLI {
             let failures = (daemon["consecutive_failures"] as? Int) ?? 0
             print("Daemon:   unreachable (\(endpoint), \(failures) consecutive failure(s))")
             if let lastError = response["last_error"] as? String {
-                print("  error:  \(lastError)")
+                print("  error:  \(Self.sanitizeForTerminal(lastError))")
             }
             if Self.isLoopbackSubrouterEndpoint(endpoint) {
                 print("  hint:   install or start it with: ~/bin/subrouter install-daemon")
@@ -338,7 +338,7 @@ extension CMUXCLI {
         }
         print("Sessions: \(sessionCount)")
         if let updated = response["last_updated"] as? String {
-            print("Updated:  \(updated)")
+            print("Updated:  \(Self.sanitizeForTerminal(updated))")
         }
     }
 
@@ -350,13 +350,13 @@ extension CMUXCLI {
         }
         var lastProvider = ""
         for account in accounts {
-            let provider = (account["provider"] as? String) ?? "?"
+            let provider = Self.sanitizeForTerminal((account["provider"] as? String) ?? "?")
             if provider != lastProvider {
                 print("\(provider):")
                 lastProvider = provider
             }
-            let id = (account["id"] as? String) ?? "?"
-            let plan = (account["plan_type"] as? String) ?? ""
+            let id = Self.sanitizeForTerminal((account["id"] as? String) ?? "?")
+            let plan = Self.sanitizeForTerminal((account["plan_type"] as? String) ?? "")
             let active = (account["active"] as? Bool) == true
             let quota = (account["quota"] as? String) ?? "ok"
             let authChecked = (account["auth_checked"] as? Bool) == true
@@ -370,12 +370,12 @@ extension CMUXCLI {
             let planText = plan.isEmpty ? "" : "  (\(plan))"
             print("  \(id)\(planText)\(flagText)")
             if let error = account["error"] as? String, !error.isEmpty {
-                print("      error: \(error)")
+                print("      error: \(Self.sanitizeForTerminal(error))")
             }
             guard includeWindows else { continue }
             let windows = (account["windows"] as? [[String: Any]]) ?? []
             for window in windows {
-                let name = (window["name"] as? String) ?? "?"
+                let name = Self.sanitizeForTerminal((window["name"] as? String) ?? "?")
                 let used = (window["used_percent"] as? Double) ?? 0
                 let reset = (window["reset_after_seconds"] as? Int) ?? 0
                 var line = "      \(name): \(Int(min(max(used, 0), 100).rounded()))% used"
@@ -387,7 +387,7 @@ extension CMUXCLI {
             if let credits = account["credits"] as? [String: Any],
                (credits["has_credits"] as? Bool) == true,
                let balance = credits["balance"] as? String, !balance.isEmpty {
-                print("      credits: \(balance)")
+                print("      credits: \(Self.sanitizeForTerminal(balance))")
             }
         }
     }

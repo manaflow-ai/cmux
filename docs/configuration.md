@@ -275,7 +275,7 @@ Default: `false`. Manual renames (sidebar, command palette, CLI, or `/rename`) a
 
 ## `subrouter.*`
 
-Opt-in integration with the local [subrouter](https://github.com/manaflow-ai/subrouter) daemon: AI-agent (Codex/Claude) account switching and live quota usage in the right-sidebar **Agents** panel, the sidebar-footer account switcher, and the `cmux subrouter` CLI.
+Opt-in integration with a local or hosted [subrouter](https://github.com/manaflow-ai/subrouter) daemon: AI-agent (Codex/Claude) account management and live quota usage in the right-sidebar **Agents** panel, the sidebar-footer account switcher, and the `cmux subrouter` CLI. Hosted pools choose accounts per session; global switching is available only for the local daemon.
 
 ```json
 {

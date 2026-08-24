@@ -100,10 +100,9 @@ public enum SubrouterMaintenanceCommand {
         case .server(let name):
             value = shellQuoted(name)
         }
-        let environmentKey = provider == .claude
-            ? "SUBROUTER_SERVER"
-            : "SUBROUTER_CODEX_SERVER"
-        return "\(environmentKey)=\(value) \(command)"
+        // Set both names so an ambient provider-neutral override cannot take
+        // precedence over this explicit, user-selected destination.
+        return "SUBROUTER_SERVER=\(value) SUBROUTER_CODEX_SERVER=\(value) \(command)"
     }
 
     /// Wraps a value in single quotes for POSIX shells, escaping any

@@ -73,7 +73,7 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
         }
 
         var sawLaunchFailure = false
-        let environmentOverrides = Self.serverEnvironment(for: provider, target: target)
+        let environmentOverrides = Self.serverEnvironment(target: target)
         for executable in executables {
             let result: CommandResult
             if let environmentRunner = commandRunner as? any EnvironmentCommandRunning {
@@ -137,11 +137,7 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
         )
     }
 
-    private static func serverEnvironment(
-        for provider: SubrouterProvider,
-        target: SubrouterAccountTarget
-    ) -> [String: String] {
-        let key = provider == .claude ? "SUBROUTER_SERVER" : "SUBROUTER_CODEX_SERVER"
+    private static func serverEnvironment(target: SubrouterAccountTarget) -> [String: String] {
         let value: String
         switch target {
         case .local:
@@ -149,7 +145,12 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
         case .server(let name):
             value = name
         }
-        return [key: value]
+        // Set both names so a shell-provided provider-neutral value cannot
+        // override an explicit target selected by cmux.
+        return [
+            "SUBROUTER_SERVER": value,
+            "SUBROUTER_CODEX_SERVER": value,
+        ]
     }
 
     private static func scrubbedEnvironment() -> [String: String] {

@@ -39,21 +39,4 @@ public protocol SubrouterClienting: Sendable {
     /// - Throws: ``SubrouterClientError`` when unreachable or malformed.
     func reloadAccounts(endpoint: SubrouterEndpoint) async throws -> SubrouterReloadResult
 
-    /// `POST /_subrouter/switch-account`: ask the daemon to move its active
-    /// account for one provider — the remote analogue of `sr switch`,
-    /// executed on the server host. Servers predating the endpoint answer
-    /// 404 (or 501 when unwired); callers surface that as "no remote
-    /// switch" rather than a transport failure.
-    /// - Parameters:
-    ///   - endpoint: The daemon address.
-    ///   - provider: The provider to switch (Codex or Claude).
-    ///   - accountID: The daemon account id (Codex email / Claude profile).
-    /// - Returns: The switch outcome.
-    /// - Throws: ``SubrouterClientError`` when unreachable, rejected, or
-    ///   malformed.
-    func switchAccount(
-        endpoint: SubrouterEndpoint,
-        provider: SubrouterProvider,
-        accountID: String
-    ) async throws -> SubrouterRemoteSwitchResult
 }

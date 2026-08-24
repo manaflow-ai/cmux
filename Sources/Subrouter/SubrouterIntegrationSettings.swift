@@ -123,15 +123,16 @@ struct SubrouterIntegrationSettings {
     /// I/O: call off the main actor and cache the result (see
     /// ``SubrouterAppRuntime``).
     nonisolated static func loadServerRegistryState() -> ServerRegistryState {
-        let registry = serverRegistryURL()
-        guard FileManager.default.fileExists(atPath: registry.path) else {
-            return .selection(nil)
+        let fileManager = FileManager.default
+        let candidates = serverRegistryCandidates()
+        for registry in candidates where fileManager.fileExists(atPath: registry.path) {
+            guard let data = try? Data(contentsOf: registry),
+                  let parsed = SubrouterServerSelection(serversJSON: data) else {
+                return .unreadable
+            }
+            return .selection(parsed.defaultServer)
         }
-        guard let data = try? Data(contentsOf: registry),
-              let parsed = SubrouterServerSelection(serversJSON: data) else {
-            return .unreadable
-        }
-        return .selection(parsed.defaultServer)
+        return .selection(nil)
     }
 
     /// Resolves the registry path using the same `SUBROUTER_STATE_DIR`
@@ -148,5 +149,22 @@ struct SubrouterIntegrationSettings {
                 .appendingPathComponent(".subrouter", isDirectory: true)
         }
         return base.appendingPathComponent("codex/servers.json")
+    }
+
+    /// Candidate locations in newest-first order. Older `sr` releases stored
+    /// the registry directly under the state directory (and some installs
+    /// under the legacy Codex accounts directory); never assume loopback until
+    /// all existing legacy candidates have been checked.
+    nonisolated static func serverRegistryCandidates(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [URL] {
+        let primary = serverRegistryURL(environment: environment)
+        let stateDirectory = primary.deletingLastPathComponent()
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let legacy = [
+            stateDirectory.deletingLastPathComponent().appendingPathComponent("servers.json"),
+            home.appendingPathComponent(".codex-accounts/servers.json"),
+        ]
+        return [primary] + legacy.filter { $0 != primary }
     }
 }

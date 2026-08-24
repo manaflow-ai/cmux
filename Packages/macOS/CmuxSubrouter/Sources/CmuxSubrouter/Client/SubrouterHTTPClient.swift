@@ -61,29 +61,6 @@ public struct SubrouterHTTPClient: SubrouterClienting {
         return try await perform(request)
     }
 
-    public func switchAccount(
-        endpoint: SubrouterEndpoint,
-        provider: SubrouterProvider,
-        accountID: String
-    ) async throws -> SubrouterRemoteSwitchResult {
-        struct Payload: Encodable {
-            var provider: String
-            var accountID: String
-
-            enum CodingKeys: String, CodingKey {
-                case provider
-                case accountID = "account_id"
-            }
-        }
-        var request = Self.request(endpoint: endpoint, path: "/_subrouter/switch-account")
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(
-            Payload(provider: provider.rawValue, accountID: accountID)
-        )
-        return try await perform(request)
-    }
-
     // MARK: - Transport
 
     /// Builds a request for a daemon path, attaching the endpoint's admin

@@ -39,7 +39,7 @@ extension SubrouterSwitchError {
         case .remoteServerManagesSelection(let serverName):
             return String(
                 localized: "subrouter.switchError.remoteServer",
-                defaultValue: "Server \(serverName) does not support remote switching yet; update subrouter on the server."
+                defaultValue: "Server \(serverName) assigns accounts per session; global switching is unavailable."
             )
         }
     }

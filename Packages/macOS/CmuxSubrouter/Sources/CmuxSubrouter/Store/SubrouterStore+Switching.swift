@@ -9,11 +9,9 @@ extension SubrouterStore {
     /// successful `sr` run is surfaced as a snapshot warning, not a thrown
     /// error, because the on-disk switch already landed.
     ///
-    /// Remote server: `POST /_subrouter/switch-account` performs the same
-    /// rewrite on the server host and invalidates its usage cache itself
-    /// (reload-accounts is loopback-only), so only the fresh refresh follows.
-    /// Servers predating the endpoint (404/501) surface as
-    /// ``SubrouterSwitchError/remoteServerManagesSelection(serverName:)``.
+    /// Remote server: account selection is per agent session on the hosted
+    /// pool, so a global switch is intentionally rejected. The UI hides row
+    /// actions for remote pools and the CLI receives the same typed error.
     ///
     /// - Parameters:
     ///   - provider: The provider to switch (Codex or Claude).
@@ -29,6 +27,15 @@ extension SubrouterStore {
         guard configuration.isEnabled else {
             throw SubrouterSwitchError.integrationDisabled
         }
+        if configuration.isRemoteEndpoint {
+            let error = SubrouterSwitchError.remoteServerManagesSelection(
+                serverName: configuration.serverName
+                    ?? configuration.endpoint.baseURL.host()
+                    ?? "remote"
+            )
+            lastSwitchError = error
+            throw error
+        }
         guard pendingSwitch == nil else {
             throw SubrouterSwitchError.switchAlreadyInFlight
         }
@@ -41,49 +48,21 @@ extension SubrouterStore {
         // (integration disabled, endpoint repointed), the post-switch
         // reload/refresh must not hit a daemon the guards above never saw.
         let endpointAtSwitch = configuration.endpoint
-        let isRemote = configuration.isRemoteEndpoint
-
         do {
-            if isRemote {
-                let result = try await client.switchAccount(
-                    endpoint: endpointAtSwitch,
-                    provider: provider,
-                    accountID: accountID
-                )
-                // Today's daemon signals failure by status code, but the
-                // contract carries `ok` — honor it like reloadAccounts
-                // does, so a 2xx body reporting failure never reads as a
-                // successful switch.
-                guard result.ok else {
-                    Self.logger.error("Remote subrouter switch returned ok=false")
-                    throw SubrouterSwitchError.commandFailed
-                }
-            } else {
-                try await switcher.switchAccount(
-                    provider: provider,
-                    accountID: accountID,
-                    commandPath: configuration.commandPath,
-                    target: configuration.accountTarget ?? .local
-                )
-            }
+            try await switcher.switchAccount(
+                provider: provider,
+                accountID: accountID,
+                commandPath: configuration.commandPath,
+                target: configuration.accountTarget ?? .local
+            )
         } catch let error as SubrouterSwitchError {
             lastSwitchError = error
             throw error
         } catch let error as SubrouterClientError {
-            let mapped: SubrouterSwitchError
-            if case .httpStatus(let code, _) = error, code == 404 || code == 501 {
-                // The server predates /_subrouter/switch-account (404 falls
-                // through to the daemon's catch-all; 501 means unwired).
-                mapped = .remoteServerManagesSelection(
-                    serverName: configuration.serverName
-                        ?? endpointAtSwitch.baseURL.host() ?? "remote"
-                )
-            } else {
-                Self.logger.error(
-                    "Remote subrouter switch failed: \(error.shortDescription, privacy: .private(mask: .hash))"
-                )
-                mapped = .commandFailed
-            }
+            Self.logger.error(
+                "Subrouter switch failed: \(error.shortDescription, privacy: .private(mask: .hash))"
+            )
+            let mapped = SubrouterSwitchError.commandFailed
             lastSwitchError = mapped
             throw mapped
         } catch {
@@ -105,32 +84,27 @@ extension SubrouterStore {
         }
 
         var reloadWarning: String?
-        // The hot reload only applies to the local daemon: reload-accounts
-        // is loopback-only, and the remote switch endpoint already
-        // invalidated the server's usage cache.
-        if !isRemote {
-            do {
-                let reload = try await client.reloadAccounts(endpoint: endpointAtSwitch)
-                if !reload.ok {
-                    reloadWarning = String(
-                        localized: "subrouter.error.reloadFailed",
-                        defaultValue: "Daemon reload reported failure"
-                    )
-                }
-            } catch let error as SubrouterClientError {
-                Self.logger.error(
-                    "Subrouter reload warning: \(error.shortDescription, privacy: .private(mask: .hash))"
-                )
-                reloadWarning = error.shortDescription
-            } catch {
-                Self.logger.error(
-                    "Unexpected subrouter reload warning: \(String(describing: error), privacy: .private(mask: .hash))"
-                )
+        do {
+            let reload = try await client.reloadAccounts(endpoint: endpointAtSwitch)
+            if !reload.ok {
                 reloadWarning = String(
-                    localized: "subrouter.error.unexpectedReload",
-                    defaultValue: "The daemon reload could not be confirmed."
+                    localized: "subrouter.error.reloadFailed",
+                    defaultValue: "Daemon reload reported failure"
                 )
             }
+        } catch let error as SubrouterClientError {
+            Self.logger.error(
+                "Subrouter reload warning: \(error.shortDescription, privacy: .private(mask: .hash))"
+            )
+            reloadWarning = error.shortDescription
+        } catch {
+            Self.logger.error(
+                "Unexpected subrouter reload warning: \(String(describing: error), privacy: .private(mask: .hash))"
+            )
+            reloadWarning = String(
+                localized: "subrouter.error.unexpectedReload",
+                defaultValue: "The daemon reload could not be confirmed."
+            )
         }
         // Sessions stay out of the post-switch refresh: nothing that runs
         // after a switch reads them (the switch payload and UI are
