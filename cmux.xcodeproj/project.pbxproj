@@ -1704,6 +1704,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		0D17C0DE0D17C0DE0D17C002 /* RemoteTmuxConnectionObservers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D17C0DE0D17C0DE0D17C001 /* RemoteTmuxConnectionObservers.swift */; };
 		6A9D9021221BF8B429986368 /* RemoteTmuxConnectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A18D24AB9D3168ABACBCF8FE /* RemoteTmuxConnectionState.swift */; };
 		D4A72DFB57B2B6043CF2C6DC /* RemoteTmuxConnectionWindowSizingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C7032605BF360630E6E207A /* RemoteTmuxConnectionWindowSizingTests.swift */; };
+		94A9782A9AA0C554D2CCAA9A /* RemoteTmuxMirrorEnvironmentPushTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 180099E8D881C58A4546527D /* RemoteTmuxMirrorEnvironmentPushTests.swift */; };
+		3ABD5AD438AF5EDB33109C3A /* RemoteTmuxNotificationOSCFilterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13FF2DD7517912EADFBE40C8 /* RemoteTmuxNotificationOSCFilterTests.swift */; };
 		477796B44AAC7290AA9EFB6C /* RemoteTmuxControlCommandKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAD58EFBF501E599E6D9E9A /* RemoteTmuxControlCommandKind.swift */; };
 		7B577C74BB011F20214F880E /* RemoteTmuxControlConnection+CommandResults.swift in Sources */ = {isa = PBXBuildFile; fileRef = 919E2D0DAC80E2DAB13BD782 /* RemoteTmuxControlConnection+CommandResults.swift */; };
 		D77330020000000000000002 /* RemoteTmuxControlConnection+Commands.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77330020000000000000001 /* RemoteTmuxControlConnection+Commands.swift */; };
@@ -2242,6 +2244,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		842300000000000000000001 /* SurfaceResumeExitedAgentLivenessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842300000000000000000002 /* SurfaceResumeExitedAgentLivenessTests.swift */; };
 		7989B0027989B0027989B002 /* SurfaceResumeLaunchFlavor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7989B1027989B1027989B102 /* SurfaceResumeLaunchFlavor.swift */; };
 		7989B0037989B0037989B003 /* SurfaceResumeRemoteContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7989B1037989B1037989B103 /* SurfaceResumeRemoteContext.swift */; };
+		03AB2324CB0E78800289A8EE /* RemoteTmuxNotificationOSCFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18CA7060A6D642DB5ED9DCF9 /* RemoteTmuxNotificationOSCFilter.swift */; };
 		F27B00000000000000000001 /* SurfaceResumeRunPromptBatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = F27B00000000000000000002 /* SurfaceResumeRunPromptBatch.swift */; };
 		A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
 		C51A73B40000000000000002 /* SurfaceTabBarButtonConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73B40000000000000001 /* SurfaceTabBarButtonConfiguration.swift */; };
@@ -4531,6 +4534,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		0D17C0DE0D17C0DE0D17C001 /* RemoteTmuxConnectionObservers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxConnectionObservers.swift; sourceTree = "<group>"; };
 		A18D24AB9D3168ABACBCF8FE /* RemoteTmuxConnectionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxConnectionState.swift; sourceTree = "<group>"; };
 		5C7032605BF360630E6E207A /* RemoteTmuxConnectionWindowSizingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxConnectionWindowSizingTests.swift; sourceTree = "<group>"; };
+		180099E8D881C58A4546527D /* RemoteTmuxMirrorEnvironmentPushTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorEnvironmentPushTests.swift; sourceTree = "<group>"; };
+		13FF2DD7517912EADFBE40C8 /* RemoteTmuxNotificationOSCFilterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxNotificationOSCFilterTests.swift; sourceTree = "<group>"; };
 		AAAD58EFBF501E599E6D9E9A /* RemoteTmuxControlCommandKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxControlCommandKind.swift; sourceTree = "<group>"; };
 		919E2D0DAC80E2DAB13BD782 /* RemoteTmuxControlConnection+CommandResults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxControlConnection+CommandResults.swift"; sourceTree = "<group>"; };
 		D77330020000000000000001 /* RemoteTmuxControlConnection+Commands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxControlConnection+Commands.swift"; sourceTree = "<group>"; };
@@ -5059,6 +5064,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		842300000000000000000002 /* SurfaceResumeExitedAgentLivenessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeExitedAgentLivenessTests.swift; sourceTree = "<group>"; };
 		7989B1027989B1027989B102 /* SurfaceResumeLaunchFlavor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeLaunchFlavor.swift; sourceTree = "<group>"; };
 		7989B1037989B1037989B103 /* SurfaceResumeRemoteContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeRemoteContext.swift; sourceTree = "<group>"; };
+		18CA7060A6D642DB5ED9DCF9 /* RemoteTmuxNotificationOSCFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxNotificationOSCFilter.swift; sourceTree = "<group>"; };
 		F27B00000000000000000002 /* SurfaceResumeRunPromptBatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeRunPromptBatch.swift; sourceTree = "<group>"; };
 		A5001301 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
 		C51A73B40000000000000001 /* SurfaceTabBarButtonConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceTabBarButtonConfiguration.swift; sourceTree = "<group>"; };
@@ -7457,6 +7463,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7989B1017989B1017989B101 /* SurfaceResumeBindingSnapshot+Remote.swift */,
 				7989B1027989B1027989B102 /* SurfaceResumeLaunchFlavor.swift */,
 				7989B1037989B1037989B103 /* SurfaceResumeRemoteContext.swift */,
+				18CA7060A6D642DB5ED9DCF9 /* RemoteTmuxNotificationOSCFilter.swift */,
 				A74770010000000000000006 /* SessionConfigFrameEntry.swift */,
 				A74770010000000000000008 /* SessionConfigFrameRing.swift */,
 				A74770010000000000000004 /* SessionDisplaySnapshot.swift */,
@@ -8403,6 +8410,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				74060000000000000000000D /* RemoteTmuxWindowMirrorFocusSeedTests.swift */,
 				783300000000000000000001 /* RemoteTmuxMirrorLayoutIdentityTests.swift */,
 				5C7032605BF360630E6E207A /* RemoteTmuxConnectionWindowSizingTests.swift */,
+				180099E8D881C58A4546527D /* RemoteTmuxMirrorEnvironmentPushTests.swift */,
+				13FF2DD7517912EADFBE40C8 /* RemoteTmuxNotificationOSCFilterTests.swift */,
 				7990B0017990B0017990B001 /* RemoteTmuxPaneSeedTransportTests.swift */,
 				B1B1B1B1B1B1B1B1B1B10001 /* RemoteTmuxMirrorNewPaneKeyFocusTests.swift */,
 				B2B2B2B2B2B2B2B2B2B20002 /* RemoteTmuxMirrorPaneInputMappingTests.swift */,
@@ -10485,6 +10494,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F6572000A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift in Sources */,
 				7989B0027989B0027989B002 /* SurfaceResumeLaunchFlavor.swift in Sources */,
 				7989B0037989B0037989B003 /* SurfaceResumeRemoteContext.swift in Sources */,
+				03AB2324CB0E78800289A8EE /* RemoteTmuxNotificationOSCFilter.swift in Sources */,
 				F27B00000000000000000001 /* SurfaceResumeRunPromptBatch.swift in Sources */,
 				A5001303 /* SurfaceSearchOverlay.swift in Sources */,
 				C51A73B40000000000000002 /* SurfaceTabBarButtonConfiguration.swift in Sources */,
@@ -11610,6 +11620,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B8E2A4C1D5F3096871A2B4A1 /* RemoteTmuxBonsplitImpositionRenderTests.swift in Sources */,
 				5F5553CA5553CA5553CA0001 /* RemoteTmuxCapabilitiesTests.swift in Sources */,
 				D4A72DFB57B2B6043CF2C6DC /* RemoteTmuxConnectionWindowSizingTests.swift in Sources */,
+				94A9782A9AA0C554D2CCAA9A /* RemoteTmuxMirrorEnvironmentPushTests.swift in Sources */,
+				3ABD5AD438AF5EDB33109C3A /* RemoteTmuxNotificationOSCFilterTests.swift in Sources */,
 				A02D147033ACB35CF35A5F35 /* RemoteTmuxControlParserBlankLineTests.swift in Sources */,
 				B87A510D6D6000FCCBFEA02C /* RemoteTmuxControlParserLayoutTests.swift in Sources */,
 				B2FDE62450514C4C27FBD8F1 /* RemoteTmuxControlParserTests.swift in Sources */,
