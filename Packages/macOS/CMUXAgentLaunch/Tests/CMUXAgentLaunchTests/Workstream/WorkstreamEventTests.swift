@@ -162,4 +162,21 @@ struct WorkstreamEventTests {
         )
         #expect(object["tool_input"] as? String == "plain text")
     }
+
+    @Test("PostToolUse preserves a structured task response")
+    func taskToolResponseRoundTrips() throws {
+        let event = WorkstreamEvent(
+            sessionId: "claude-session",
+            hookEventName: .postToolUse,
+            source: "claude",
+            toolName: "TaskCreate",
+            toolInputJSON: #"{"subject":"ship it"}"#,
+            extraFieldsJSON: #"{"tool_response":{"task":{"id":"7"}}}"#
+        )
+        let response = try #require(event.toolResponseJSON)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any]
+        )
+        #expect(object["task"] as? [String: Any] != nil)
+    }
 }

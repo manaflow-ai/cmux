@@ -13,6 +13,13 @@ import Foundation
 /// text normalization, and override anti-rot apply identically everywhere.
 @MainActor
 final class WorkspaceTodoState: ObservableObject {
+    /// The owning workspace identity used for queue refresh notifications.
+    let ownerWorkspaceID: UUID?
+
+    init(ownerWorkspaceID: UUID? = nil) {
+        self.ownerWorkspaceID = ownerWorkspaceID
+    }
+
     /// The manual status override, or `nil` when the status is automatic.
     /// Carries the inference recorded at override time so a stale override
     /// auto-expires (see `WorkspaceTaskStatusOverride.effectiveStatus`).
@@ -32,9 +39,4 @@ final class WorkspaceTodoState: ObservableObject {
         }
     }
 
-    /// Workspace id is injected by ``Workspace`` after construction so queue
-    /// refresh notifications can identify the changed owner without owning a
-    /// second checklist store.
-    weak var ownerWorkspace: Workspace?
-    private var ownerWorkspaceID: UUID? { ownerWorkspace?.id }
 }

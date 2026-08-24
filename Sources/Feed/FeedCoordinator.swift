@@ -32,6 +32,8 @@ final class FeedCoordinator: @unchecked Sendable {
     /// Last workspace that each workstream updated. This is a fast path for
     /// task re-homing; persisted row ownership remains the correctness source.
     @MainActor var lastTodoWorkspaceByWorkstream: [String: UUID] = [:]
+    @MainActor private var todoWorkspaceRecency: [String] = []
+    @MainActor private let maxTrackedTodoWorkstreams = 128
     @MainActor private var userNotificationCenter: (any UserNotificationCenterServing)?
 
     /// The bounded notification-center boundary. `install(store:)` injects it;
@@ -151,10 +153,32 @@ final class FeedCoordinator: @unchecked Sendable {
         if let item = store.items.last {
             applyAgentTodos(from: item, event: event)
         }
+        if event.hookEventName == .sessionEnd {
+            forgetTodoWorkspace(for: event.sessionId)
+        }
         if let ppid = event.ppid, ppid > 0 {
             armPidWatcher(ppid: ppid)
         }
         return store.items.last?.id
+    }
+
+    @MainActor
+    func recordTodoWorkspace(workstreamId: String, workspaceID: UUID) {
+        lastTodoWorkspaceByWorkstream[workstreamId] = workspaceID
+        todoWorkspaceRecency.removeAll { $0 == workstreamId }
+        todoWorkspaceRecency.append(workstreamId)
+        guard todoWorkspaceRecency.count > maxTrackedTodoWorkstreams else { return }
+        let overflow = todoWorkspaceRecency.count - maxTrackedTodoWorkstreams
+        for old in todoWorkspaceRecency.prefix(overflow) {
+            lastTodoWorkspaceByWorkstream.removeValue(forKey: old)
+        }
+        todoWorkspaceRecency.removeFirst(overflow)
+    }
+
+    @MainActor
+    private func forgetTodoWorkspace(for workstreamId: String) {
+        lastTodoWorkspaceByWorkstream.removeValue(forKey: workstreamId)
+        todoWorkspaceRecency.removeAll { $0 == workstreamId }
     }
 
     /// Runs synchronous acknowledged ingress on the same ordered lane as zero-wait telemetry.

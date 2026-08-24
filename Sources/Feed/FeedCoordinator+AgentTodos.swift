@@ -67,7 +67,7 @@ extension FeedCoordinator {
     @MainActor
     private func retireAgentTodos(for workstreamId: String, excluding workspaceID: UUID) {
         if lastTodoWorkspaceByWorkstream[workstreamId] == workspaceID { return }
-        defer { lastTodoWorkspaceByWorkstream[workstreamId] = workspaceID }
+        defer { recordTodoWorkspace(workstreamId: workstreamId, workspaceID: workspaceID) }
         for workspace in AppDelegate.shared?.allWorkspacesForAgentTodoRetirement ?? [] where workspace.id != workspaceID {
             guard workspace.todoState.checklist.contains(where: {
                 $0.agentTaskRef?.workstreamId == workstreamId
@@ -100,8 +100,7 @@ extension FeedCoordinator {
                 $0.boundWorkspaceID == agentWorkspace.id
             }
             for checklistItem in boundItems where
-                completedText.contains(WorkspaceChecklistItem.normalizedText(checklistItem.text) ?? checklistItem.text)
-                || (boundItems.count == 1 && tasks.count == 1) {
+                completedText.contains(WorkspaceChecklistItem.normalizedText(checklistItem.text) ?? checklistItem.text) {
                 _ = workspace.setChecklistItemState(id: checklistItem.id, state: .completed)
             }
         }

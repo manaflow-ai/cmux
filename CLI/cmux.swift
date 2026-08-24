@@ -35490,6 +35490,16 @@ export default CMUXSessionRestore;
                 eventDict["tool_input"] = feedToolInput
             }
         }
+        // Task-tool reconciliation needs the completed tool response: Claude
+        // assigns TaskCreate ids only after execution. Keep this small
+        // structured result in the dynamic event fields so WorkstreamStore
+        // can adopt the authoritative id without persisting arbitrary tool
+        // output for unrelated PostToolUse events.
+        if hookEventName == "PostToolUse",
+           ["TaskCreate", "TaskUpdate", "TaskGet", "TaskList"].contains(toolName),
+           let postToolUseResponseInput {
+            eventDict["tool_response"] = postToolUseResponseInput
+        }
         if let context = feedContextForEvent(
             source: source,
             hookEventName: hookEventName,

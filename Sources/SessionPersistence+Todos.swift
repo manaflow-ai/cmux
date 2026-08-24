@@ -29,6 +29,11 @@ struct SessionChecklistItemSnapshot: Codable, Equatable, Sendable {
     var state: String
     var origin: String
     var attachments: [WorkspaceChecklistAttachment] = []
+    var agentTaskRef: WorkspaceAgentTaskRef? = nil
+    var dispatchTarget: WorkspaceTaskDispatchTarget? = nil
+    var boundWorkspaceID: UUID? = nil
+    var boundAgent: String? = nil
+    var lastActivityAt: Date? = nil
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -36,6 +41,11 @@ struct SessionChecklistItemSnapshot: Codable, Equatable, Sendable {
         case state
         case origin
         case attachments
+        case agentTaskRef
+        case dispatchTarget
+        case boundWorkspaceID
+        case boundAgent
+        case lastActivityAt
     }
 
     init(
@@ -43,13 +53,23 @@ struct SessionChecklistItemSnapshot: Codable, Equatable, Sendable {
         text: String,
         state: String,
         origin: String,
-        attachments: [WorkspaceChecklistAttachment] = []
+        attachments: [WorkspaceChecklistAttachment] = [],
+        agentTaskRef: WorkspaceAgentTaskRef? = nil,
+        dispatchTarget: WorkspaceTaskDispatchTarget? = nil,
+        boundWorkspaceID: UUID? = nil,
+        boundAgent: String? = nil,
+        lastActivityAt: Date? = nil
     ) {
         self.id = id
         self.text = text
         self.state = state
         self.origin = origin
         self.attachments = attachments
+        self.agentTaskRef = agentTaskRef
+        self.dispatchTarget = dispatchTarget
+        self.boundWorkspaceID = boundWorkspaceID
+        self.boundAgent = boundAgent
+        self.lastActivityAt = lastActivityAt
     }
 
     init(from decoder: any Decoder) throws {
@@ -59,6 +79,11 @@ struct SessionChecklistItemSnapshot: Codable, Equatable, Sendable {
         self.state = try container.decode(String.self, forKey: .state)
         self.origin = try container.decode(String.self, forKey: .origin)
         self.attachments = (try? container.decode(LossySessionChecklistAttachments.self, forKey: .attachments))?.attachments ?? []
+        self.agentTaskRef = try container.decodeIfPresent(WorkspaceAgentTaskRef.self, forKey: .agentTaskRef)
+        self.dispatchTarget = try container.decodeIfPresent(WorkspaceTaskDispatchTarget.self, forKey: .dispatchTarget)
+        self.boundWorkspaceID = try container.decodeIfPresent(UUID.self, forKey: .boundWorkspaceID)
+        self.boundAgent = try container.decodeIfPresent(String.self, forKey: .boundAgent)
+        self.lastActivityAt = try container.decodeIfPresent(Date.self, forKey: .lastActivityAt)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -67,6 +92,11 @@ struct SessionChecklistItemSnapshot: Codable, Equatable, Sendable {
         try container.encode(text, forKey: .text)
         try container.encode(state, forKey: .state)
         try container.encode(origin, forKey: .origin)
+        try container.encodeIfPresent(agentTaskRef, forKey: .agentTaskRef)
+        try container.encodeIfPresent(dispatchTarget, forKey: .dispatchTarget)
+        try container.encodeIfPresent(boundWorkspaceID, forKey: .boundWorkspaceID)
+        try container.encodeIfPresent(boundAgent, forKey: .boundAgent)
+        try container.encodeIfPresent(lastActivityAt, forKey: .lastActivityAt)
         if !attachments.isEmpty {
             try container.encode(attachments, forKey: .attachments)
         }
@@ -81,7 +111,12 @@ extension SessionChecklistItemSnapshot {
             text: item.text,
             state: item.state.rawValue,
             origin: item.origin.rawValue,
-            attachments: item.attachments
+            attachments: item.attachments,
+            agentTaskRef: item.agentTaskRef,
+            dispatchTarget: item.dispatchTarget,
+            boundWorkspaceID: item.boundWorkspaceID,
+            boundAgent: item.boundAgent,
+            lastActivityAt: item.lastActivityAt
         )
     }
 
@@ -95,7 +130,12 @@ extension SessionChecklistItemSnapshot {
             text: normalizedText,
             state: WorkspaceChecklistItem.State(rawValue: state) ?? .pending,
             origin: WorkspaceChecklistItem.Origin(rawValue: origin) ?? .user,
-            attachments: attachments
+            attachments: attachments,
+            agentTaskRef: agentTaskRef,
+            dispatchTarget: dispatchTarget,
+            boundWorkspaceID: boundWorkspaceID,
+            boundAgent: boundAgent,
+            lastActivityAt: lastActivityAt
         )
     }
 }

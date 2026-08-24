@@ -12,7 +12,8 @@ extension CMUXCLI {
     private func workspaceTodoTarget(
         _ commandArgs: [String],
         client: SocketClient,
-        windowOverride: String?
+        windowOverride: String?,
+        allowAmbientWorkspace: Bool = true
     ) throws -> (params: [String: Any], rest: [String]) {
         let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
         let (windowArg, rem1) = parseOption(rem0, name: "--window")
@@ -23,7 +24,7 @@ extension CMUXCLI {
             workspaceArg,
             client: client,
             windowHandle: winId,
-            allowCurrent: true
+            allowCurrent: allowAmbientWorkspace
         ) {
             params["workspace_id"] = wsId
         }
@@ -120,8 +121,12 @@ extension CMUXCLI {
         guard let sub = commandArgs.first?.lowercased() else {
             throw CLIError(message: "todo requires a subcommand. Try: add, list, queue, dispatch, reveal, target, check, uncheck, start, edit, rm, move, clear, set, open")
         }
+        let aggregateSubcommands: Set<String> = ["queue", "all", "refresh"]
         let (params, rest) = try workspaceTodoTarget(
-            Array(commandArgs.dropFirst()), client: client, windowOverride: windowOverride
+            Array(commandArgs.dropFirst()),
+            client: client,
+            windowOverride: windowOverride,
+            allowAmbientWorkspace: !aggregateSubcommands.contains(sub)
         )
         switch sub {
         case "list", "ls":

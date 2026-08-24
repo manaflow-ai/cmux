@@ -69,9 +69,13 @@ struct WorkstreamTaskToolTodos: Sendable {
         let response = object(from: responseJSON)
         let result = (response?["task"] as? [String: Any]) ?? response
         if isError || response?["success"] as? Bool == false {
-            if tool == .taskCreate, let subject = content(in: input), let provisional = popProvisionalID(for: subject) {
+            if tool == .taskCreate,
+               let subject = content(in: input),
+               let provisional = popProvisionalID(for: subject) {
                 todos.removeAll { $0.id == provisional }
+                unclaim(provisional)
                 provisionalIDsInOrder.removeAll { $0 == provisional }
+                return .list(todos)
             }
             return .ignored
         }
@@ -204,6 +208,7 @@ struct WorkstreamTaskToolTodos: Sendable {
         } else {
             provisionalIDsBySubject[subject] = ids
         }
+        provisionalIDsInOrder.removeAll { $0 == id }
         return id
     }
 
@@ -215,6 +220,11 @@ struct WorkstreamTaskToolTodos: Sendable {
             provisionalIDsBySubject[subject] = ids
             return
         }
+    }
+
+    private mutating func unclaim(_ id: String) {
+        ownedIdSet.remove(id)
+        ownedIDsInOrder.removeAll { $0 == id }
     }
 
     private mutating func adoptProvisionalIDIfNeeded(_ id: String) -> String {

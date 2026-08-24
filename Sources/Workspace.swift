@@ -2679,7 +2679,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Agent runtime maps that affect sidebar status visibility.
     let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
     /// Todo lifecycle state: manual status override + persisted checklist (all logic lives in `Workspace+Todos.swift`).
-    let todoState = WorkspaceTodoState()
+    let todoState: WorkspaceTodoState
     let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
@@ -3406,6 +3406,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let resolvedID = id ?? UUID()
         let restoredAgentLifecycle = RestoredAgentLifecycleCoordinator()
         self.id = resolvedID
+        self.todoState = WorkspaceTodoState(ownerWorkspaceID: resolvedID)
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
@@ -3671,7 +3672,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
         scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
-        todoState.ownerWorkspace = self
 
         // Forward shared agent-index refreshes so the bonsplit tab-bar re-evaluates
         // Fork Conversation availability when a background refresh lands.

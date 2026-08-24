@@ -32,7 +32,7 @@ struct WorkspaceTaskQueueView: View {
         }
         .frame(minWidth: 860, minHeight: 480)
         .onReceive(NotificationCenter.default.publisher(for: .workspaceTaskQueueDidChange)) { _ in
-            model.refresh()
+            model.scheduleRefresh()
         }
     }
 
