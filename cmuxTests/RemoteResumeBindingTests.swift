@@ -128,6 +128,71 @@ private enum RemoteResumeHookSocketServer {
     }
 }
 
+/// Holds an ephemeral loopback port open for the lifetime of one relay fixture.
+/// Keeping the descriptor alive makes the allocation collision-safe across test
+/// suites that may be running in parallel.
+private final class RemoteResumeRelayPortReservation {
+    let port: Int
+    private let fileDescriptor: Int32
+
+    init() throws {
+        let fileDescriptor = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        guard fileDescriptor >= 0 else {
+            throw POSIXError(.init(rawValue: errno) ?? .EIO)
+        }
+
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(0)
+        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+                Darwin.bind(
+                    fileDescriptor,
+                    socketAddress,
+                    socklen_t(MemoryLayout<sockaddr_in>.size)
+                )
+            }
+        }
+        guard bindResult == 0 else {
+            let error = POSIXError(.init(rawValue: errno) ?? .EIO)
+            Darwin.close(fileDescriptor)
+            throw error
+        }
+        guard Darwin.listen(fileDescriptor, 1) == 0 else {
+            let error = POSIXError(.init(rawValue: errno) ?? .EIO)
+            Darwin.close(fileDescriptor)
+            throw error
+        }
+
+        var boundAddress = sockaddr_in()
+        var boundAddressLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let nameResult = withUnsafeMutablePointer(to: &boundAddress) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+                Darwin.getsockname(fileDescriptor, socketAddress, &boundAddressLength)
+            }
+        }
+        guard nameResult == 0 else {
+            let error = POSIXError(.init(rawValue: errno) ?? .EIO)
+            Darwin.close(fileDescriptor)
+            throw error
+        }
+
+        let port = Int(UInt16(bigEndian: boundAddress.sin_port))
+        guard (1...65_535).contains(port) else {
+            Darwin.close(fileDescriptor)
+            throw POSIXError(.EINVAL)
+        }
+        self.fileDescriptor = fileDescriptor
+        self.port = port
+    }
+
+    deinit {
+        Darwin.close(fileDescriptor)
+    }
+}
+
 @Suite(.serialized)
 @MainActor
 struct RemoteResumeBindingTests {
@@ -1004,6 +1069,7 @@ struct RemoteResumeBindingTests {
         workspaceID: UUID,
         surfaceID: UUID,
         remotePTYSessionID: String,
+        relayPortReservation: RemoteResumeRelayPortReservation,
         relayPort: Int,
         localBinding: [String: Any],
         spoofedRelayRegistrationRejected: Bool,
@@ -1037,7 +1103,8 @@ struct RemoteResumeBindingTests {
         let fixtureIdentity = UUID()
         let fixtureIdentitySlug = fixtureIdentity.uuidString.lowercased()
         let fixtureIdentityHex = fixtureIdentitySlug.replacingOccurrences(of: "-", with: "")
-        let fixtureRelayPort = uniqueRelayPort(for: fixtureIdentity)
+        let relayPortReservation = try RemoteResumeRelayPortReservation()
+        let fixtureRelayPort = relayPortReservation.port
         workspace.configureRemoteConnection(
             remoteConfiguration(
                 persistentDaemonSlot: "ssh-\(fixtureIdentitySlug)",
@@ -1128,6 +1195,7 @@ struct RemoteResumeBindingTests {
             workspace.id,
             surfaceID,
             remotePTYSessionID,
+            relayPortReservation,
             fixtureRelayPort,
             localBinding,
             spoofedRelayRegistrationRejected,
@@ -1303,10 +1371,6 @@ struct RemoteResumeBindingTests {
         #expect(initialCommand.contains("REMOTE_FLAG=value with spaces"), "\(initialCommand)")
         #expect(initialCommand.contains("session-remote-7989"), "\(initialCommand)")
         #expect(!initialCommand.contains("ANTHROPIC_API_KEY"), "\(initialCommand)")
-    }
-
-    private func uniqueRelayPort(for identity: UUID) -> Int {
-        49_152 + (Int(String(identity.uuidString.prefix(4)), radix: 16) ?? 0) % 16_384
     }
 
     private func decodedInitialCommand(from bootstrap: String) throws -> String {
