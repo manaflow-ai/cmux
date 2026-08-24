@@ -194,7 +194,7 @@ VM subcommands:
 | Command | Contract |
 | --- | --- |
 | `vm ls`, `vm list` | List VMs. |
-| `vm new`, `vm create` | Create a VM. Supports `--image`, `--provider`, `--detach`, and `-d`. |
+| `vm new`, `vm create` | Create a VM with a desktop (xfce + noVNC) by default; `--base` makes a shell-only machine. Supports `--image`, `--provider`, `--detach`, and `-d`. |
 | `vm shell`, `vm attach` | Open an interactive shell for an existing VM. |
 | `vm stats <id>`, `vm top <id>` | Print CPU, memory, and disk for the machine right now; a sleeping machine reports `asleep` and is not woken. |
 | `vm desktop <id>`, `vm vnc <id>` | Open the VM's noVNC desktop as a browser pane in the workspace you are in (or `--workspace <id|ref|index>`); desktop-image machines only. |

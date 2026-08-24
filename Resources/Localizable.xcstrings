@@ -57171,13 +57171,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ has no desktop to show. Machines created with `cmux vm new --desktop` boot a screen; this one is shell-only."
+            "value": "%@ has no desktop to show. New machines boot a screen; this one was created shell-only (`--base`)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ には表示できるデスクトップがありません。`cmux vm new --desktop` で作成したマシンには画面がありますが、このマシンはシェル専用です。"
+            "value": "%@ には表示できるデスクトップがありません。新しいマシンには画面がありますが、このマシンはシェル専用（`--base`）で作成されました。"
           }
         }
       }

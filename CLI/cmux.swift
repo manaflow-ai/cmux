@@ -4518,10 +4518,14 @@ struct CMUXCLI {
                 let (targetWorkspaceOpt, rem1a) = parseOption(rem1, name: "--workspace")
                 let (windowOpt, rem2) = parseOption(rem1a, name: "--window")
                 let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
-                let desktop = hasFlag(rem2, name: "--desktop")
-                let remaining = rem2.filter { $0 != "--detach" && $0 != "-d" && $0 != "--desktop" }
-                // --desktop provisions the VNC desktop image so the machine has a screen; the
-                // attach flow streams it into a browser split beside the shell.
+                // A machine comes with its screen: new machines boot the desktop image
+                // (xfce + noVNC) unless the person asks for a shell-only box with --base.
+                // --desktop stays accepted for scripts written against the old default.
+                let base = hasFlag(rem2, name: "--base") || hasFlag(rem2, name: "--no-desktop")
+                let desktop = !base
+                let remaining = rem2.filter { !["--detach", "-d", "--desktop", "--base", "--no-desktop"].contains($0) }
+                // The desktop image gives the machine a screen; the attach flow streams it
+                // into a browser split beside the shell. --base keeps the backend default image.
                 let imageOpt = imageOptRaw ?? (desktop ? Self.cloudVMDesktopImage : nil)
                 if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
                     throw CLIError(message: """
@@ -4531,7 +4535,7 @@ struct CMUXCLI {
                           --image <image-id>
                           --provider <provider>
                           --workspace <workspace-id>
-                          --desktop
+                          --base            shell-only machine (no desktop)
                           --detach, -d
 
                         Try:
@@ -4670,7 +4674,7 @@ struct CMUXCLI {
                 guard openVMDesktopSplit(vmId: vmId, client: client, workspaceId: workspaceOpt) else {
                     throw CLIError(message: String(
                         localized: "cli.vm.desktop.unavailable",
-                        defaultValue: "\(vmId) has no desktop to show. Machines created with `cmux vm new --desktop` boot a screen; this one is shell-only."
+                        defaultValue: "\(vmId) has no desktop to show. New machines boot a screen; this one was created shell-only (`--base`)."
                     ))
                 }
 
@@ -16566,7 +16570,7 @@ struct CMUXCLI {
                                         Create a new Base generation. The previous
                                         VM is retained so accidental resets are
                                         recoverable.
-              new [--image <template>] [--provider <provider>] [--desktop] [--window <id|ref|index>] [--detach|-d]
+              new [--image <template>] [--provider <provider>] [--base] [--window <id|ref|index>] [--detach|-d]
                                         Create a new VM. By default, with no image or
                                         provider override, this is kept compatible with
                                         Base. Pass --image or --provider to create a
