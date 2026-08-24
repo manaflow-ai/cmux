@@ -218,6 +218,7 @@ extension PortScanner {
     ) -> (
         ownershipByPID: [Int: Set<UUID>],
         identitiesByPID: [Int: AgentPIDProcessIdentity],
+        incompletePIDs: Set<Int>,
         completenessByWorkspace: [UUID: PortScanCompleteness]
     ) {
         let capture = capturePIDIdentities(Set(ownershipByPID.keys))
@@ -234,7 +235,12 @@ extension PortScanner {
             }
             retainedOwnership[pid] = workspaceOwnership
         }
-        return (retainedOwnership, capture.identitiesByPID, completenessByWorkspace)
+        return (
+            retainedOwnership,
+            capture.identitiesByPID,
+            capture.incompletePIDs,
+            completenessByWorkspace
+        )
     }
 
     func revalidateAgentPIDIdentities(
