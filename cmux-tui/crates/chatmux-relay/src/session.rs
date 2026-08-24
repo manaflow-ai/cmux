@@ -271,9 +271,7 @@ async fn shutdown_connection_tasks(
     cancellation: &CancellationToken,
 ) -> bool {
     cancellation.cancel();
-    timeout(CONNECTION_TASK_SHUTDOWN_TIMEOUT, connection_tasks.shutdown())
-        .await
-        .is_ok()
+    timeout(CONNECTION_TASK_SHUTDOWN_TIMEOUT, connection_tasks.shutdown()).await.is_ok()
 }
 
 /// Keep the machine online until the process cancellation token is raised.
@@ -578,12 +576,8 @@ async fn relay_session(
                 let text = match message {
                     Message::Text(text) => text,
                     Message::Ping(payload) => {
-                        let _ = send_socket_message(
-                            &socket,
-                            Message::Pong(payload),
-                            cancellation,
-                        )
-                        .await;
+                        let _ = send_socket_message(&socket, Message::Pong(payload), cancellation)
+                            .await;
                         continue;
                     }
                     Message::Close(_) => break Ok(connected),

@@ -571,9 +571,8 @@ fn open_descriptor_dir(path: &Path, create_missing: bool) -> Result<std::fs::Fil
     use std::os::unix::ffi::OsStrExt as _;
 
     let root = std::ffi::CString::new("/").expect("root has no NUL");
-    let root_fd = unsafe {
-        libc::open(root.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC)
-    };
+    let root_fd =
+        unsafe { libc::open(root.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC) };
     if root_fd < 0 {
         return Err(Refusal::failed(format!(
             "could not open descriptor root: {}",
@@ -608,10 +607,7 @@ fn open_descriptor_dir(path: &Path, create_missing: bool) -> Result<std::fs::Fil
                     libc::openat(
                         current.as_raw_fd(),
                         name.as_ptr(),
-                        libc::O_RDONLY
-                            | libc::O_DIRECTORY
-                            | libc::O_NOFOLLOW
-                            | libc::O_CLOEXEC,
+                        libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
                     )
                 };
             }
@@ -641,9 +637,9 @@ fn descriptor_anchor(
         anchor_path = Some(scope.workdir.clone());
     }
     let anchor_path = anchor_path.unwrap_or_else(|| PathBuf::from("/"));
-    let relative = path.strip_prefix(&anchor_path).map_err(|_| {
-        Refusal::path_forbidden("path is outside its descriptor-relative anchor")
-    })?;
+    let relative = path
+        .strip_prefix(&anchor_path)
+        .map_err(|_| Refusal::path_forbidden("path is outside its descriptor-relative anchor"))?;
     let anchor = open_descriptor_dir(&anchor_path, create_missing)?;
     Ok(DescriptorPath { anchor, relative: relative.to_path_buf() })
 }
@@ -667,9 +663,10 @@ fn descriptor_parent(
     let Some(last) = parts.last() else {
         return Err(Refusal::path_forbidden("operation cannot target a directory root"));
     };
-    let mut current = target.anchor.try_clone().map_err(|error| {
-        Refusal::failed(format!("could not clone descriptor anchor: {error}"))
-    })?;
+    let mut current = target
+        .anchor
+        .try_clone()
+        .map_err(|error| Refusal::failed(format!("could not clone descriptor anchor: {error}")))?;
     for name in &parts[..parts.len() - 1] {
         let name = std::ffi::CString::new(name.as_bytes())
             .map_err(|_| Refusal::path_forbidden("path contains an embedded NUL byte"))?;
@@ -696,19 +693,13 @@ fn descriptor_parent(
                     libc::openat(
                         current.as_raw_fd(),
                         name.as_ptr(),
-                        libc::O_RDONLY
-                            | libc::O_DIRECTORY
-                            | libc::O_NOFOLLOW
-                            | libc::O_CLOEXEC,
+                        libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
                     )
                 };
             }
         }
         if fd < 0 {
-            return Err(descriptor_io_refusal(
-                &target.relative,
-                std::io::Error::last_os_error(),
-            ));
+            return Err(descriptor_io_refusal(&target.relative, std::io::Error::last_os_error()));
         }
         current = unsafe { std::fs::File::from_raw_fd(fd) };
     }
@@ -743,23 +734,14 @@ fn open_descriptor_file(
 }
 
 #[cfg(unix)]
-fn write_descriptor_bytes(
-    scope: &Scope,
-    path: &Path,
-    bytes: &[u8],
-) -> Result<(), Refusal> {
+fn write_descriptor_bytes(scope: &Scope, path: &Path, bytes: &[u8]) -> Result<(), Refusal> {
     use std::io::Write as _;
-    let mut file = open_descriptor_file(
-        scope,
-        path,
-        libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC,
-        true,
-    )?;
+    let mut file =
+        open_descriptor_file(scope, path, libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC, true)?;
     file.write_all(bytes)
         .and_then(|()| file.sync_all())
         .map_err(|error| descriptor_io_refusal(path, error))
 }
-
 
 #[cfg(unix)]
 fn descriptor_stat(
@@ -906,11 +888,7 @@ fn rename_descriptor_noreplace(
             libc::RENAME_NOREPLACE,
         )
     };
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(std::io::Error::last_os_error())
-    }
+    if result == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
 }
 
 #[cfg(target_vendor = "apple")]
@@ -929,17 +907,10 @@ fn rename_descriptor_noreplace(
             libc::RENAME_EXCL,
         )
     };
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(std::io::Error::last_os_error())
-    }
+    if result == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
 }
 
-#[cfg(all(
-    unix,
-    not(any(target_os = "linux", target_os = "android", target_vendor = "apple"))
-))]
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android", target_vendor = "apple"))))]
 fn rename_descriptor_noreplace(
     _source_parent: std::os::fd::RawFd,
     _source_name: &std::ffi::CString,
@@ -1010,11 +981,7 @@ fn rename_descriptor(
 }
 
 #[cfg(unix)]
-fn delete_descriptor(
-    scope: &Scope,
-    path: &Path,
-    recursive: bool,
-) -> Result<(), Refusal> {
+fn delete_descriptor(scope: &Scope, path: &Path, recursive: bool) -> Result<(), Refusal> {
     use std::os::fd::{AsRawFd as _, FromRawFd as _};
     let target = descriptor_anchor(scope, path, false)?;
     let (parent, name) = descriptor_parent(&target, false)?;
@@ -1244,17 +1211,17 @@ fn run_rename(scope: &Scope, op: &wire::FsRenameOp) -> Result<wire::WorkspaceRes
     }
     #[cfg(not(unix))]
     {
-    let destination_exists = std::fs::symlink_metadata(&to).is_ok();
-    if destination_exists && op.overwrite != Some(true) {
-        return Err(Refusal::new(
-            wire::WorkspaceErrorCode::DestinationExists,
-            format!("{} already exists", op.to_path),
-        ));
-    }
-    create_parent_dirs_no_symlink(&to)?;
-    std::fs::rename(&from, &to).map_err(|error| {
-        Refusal::failed(format!("could not rename {} -> {}: {error}", op.from_path, op.to_path))
-    })?;
+        let destination_exists = std::fs::symlink_metadata(&to).is_ok();
+        if destination_exists && op.overwrite != Some(true) {
+            return Err(Refusal::new(
+                wire::WorkspaceErrorCode::DestinationExists,
+                format!("{} already exists", op.to_path),
+            ));
+        }
+        create_parent_dirs_no_symlink(&to)?;
+        std::fs::rename(&from, &to).map_err(|error| {
+            Refusal::failed(format!("could not rename {} -> {}: {error}", op.from_path, op.to_path))
+        })?;
     }
     Ok(wire::WorkspaceResultBody::FsRename(wire::FsRenameResult {
         op: wire::TagFsRename::FsRename,
@@ -1278,27 +1245,29 @@ pub(crate) fn run_delete(
     }
     #[cfg(not(unix))]
     {
-    let meta = std::fs::symlink_metadata(&path)
-        .map_err(|_| Refusal::not_found(format!("{} does not exist", op.path)))?;
-    if meta.is_dir() {
-        let populated = std::fs::read_dir(&path)
-            .map_err(|error| Refusal::failed(format!("could not read {}: {error}", op.path)))?
-            .next()
-            .is_some();
-        if populated && op.recursive != Some(true) {
-            return Err(Refusal::new(
-                wire::WorkspaceErrorCode::DirectoryNotEmpty,
-                format!("{} is a non-empty directory (pass recursive)", op.path),
-            ));
+        let meta = std::fs::symlink_metadata(&path)
+            .map_err(|_| Refusal::not_found(format!("{} does not exist", op.path)))?;
+        if meta.is_dir() {
+            let populated = std::fs::read_dir(&path)
+                .map_err(|error| Refusal::failed(format!("could not read {}: {error}", op.path)))?
+                .next()
+                .is_some();
+            if populated && op.recursive != Some(true) {
+                return Err(Refusal::new(
+                    wire::WorkspaceErrorCode::DirectoryNotEmpty,
+                    format!("{} is a non-empty directory (pass recursive)", op.path),
+                ));
+            }
+            std::fs::remove_dir_all(&path).map_err(|error| {
+                Refusal::failed(format!("could not delete {}: {error}", op.path))
+            })?;
+        } else {
+            // The canonical path (symlinks were resolved and re-scoped by
+            // resolve(), like every other workspace op).
+            std::fs::remove_file(&path).map_err(|error| {
+                Refusal::failed(format!("could not delete {}: {error}", op.path))
+            })?;
         }
-        std::fs::remove_dir_all(&path)
-            .map_err(|error| Refusal::failed(format!("could not delete {}: {error}", op.path)))?;
-    } else {
-        // The canonical path (symlinks were resolved and re-scoped by
-        // resolve(), like every other workspace op).
-        std::fs::remove_file(&path)
-            .map_err(|error| Refusal::failed(format!("could not delete {}: {error}", op.path)))?;
-    }
     }
     Ok(wire::WorkspaceResultBody::FsDelete(wire::FsDeleteResult {
         op: wire::TagFsDelete::FsDelete,
@@ -1568,14 +1537,8 @@ async fn run_git_diff(
         return Err(Refusal::failed("invalid diff base"));
     }
     let context = op.context_lines.map(|lines| format!("-U{}", lines.clamp(0, 100)));
-    let mut args: Vec<&str> = vec![
-        "-c",
-        "core.fsmonitor=false",
-        "diff",
-        "--no-ext-diff",
-        "--no-textconv",
-        base,
-    ];
+    let mut args: Vec<&str> =
+        vec!["-c", "core.fsmonitor=false", "diff", "--no-ext-diff", "--no-textconv", base];
     if let Some(context) = context.as_deref() {
         args.push(context);
     }

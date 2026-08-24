@@ -727,10 +727,7 @@ fn read_dir_scoped(path: &HostScopedPath) -> Result<ScopedDirEntries, HostError>
             if entries.len() < MAX_LISTING_ENTRIES {
                 entries.push(ScopedDirEntry {
                     name: entry.file_name(),
-                    is_dir: entry
-                        .file_type()
-                        .map_err(HostError::Io)?
-                        .is_dir(),
+                    is_dir: entry.file_type().map_err(HostError::Io)?.is_dir(),
                 });
             }
         }
@@ -741,21 +738,15 @@ fn read_dir_scoped(path: &HostScopedPath) -> Result<ScopedDirEntries, HostError>
 #[cfg(unix)]
 fn inherited_path(path: &HostScopedPath) -> Result<(std::fs::File, String), HostError> {
     use std::os::fd::AsRawFd as _;
-    let target = open_beneath(
-        &path.anchor,
-        &path.relative,
-        libc::O_RDONLY | libc::O_NONBLOCK,
-        false,
-    )?;
+    let target =
+        open_beneath(&path.anchor, &path.relative, libc::O_RDONLY | libc::O_NONBLOCK, false)?;
     let metadata = target.metadata()?;
     let suffix = if metadata.is_dir() {
         "/."
     } else if metadata.is_file() {
         ""
     } else {
-        return Err(HostError::Refusal(
-            "path must be a regular file or directory".to_owned(),
-        ));
+        return Err(HostError::Refusal("path must be a regular file or directory".to_owned()));
     };
     let fd = target.as_raw_fd();
     if unsafe { libc::fcntl(fd, libc::F_SETFD, 0) } < 0 {
@@ -1846,10 +1837,8 @@ mod tests {
         std::fs::write(&file, "needle\n").unwrap();
         let roots = vec![root.display().to_string()];
         let mut context = ctx("supervised", Some(roots.clone()), root.clone());
-        context.env = scrubbed_env(&HashMap::from([(
-            "PATH".to_owned(),
-            "/usr/bin:/bin".to_owned(),
-        )]));
+        context.env =
+            scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
         let grep = perform_action(
             &json!({ "verb": "grep", "actionId": "a1", "allowedRoots": roots,
                      "args": { "path": file, "pattern": "needle" }, "timeoutMs": 10000 }),
@@ -2006,19 +1995,10 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn timeout_escalates_after_shell_exits_with_open_descendant_pipe() {
-        let env = scrubbed_env(&HashMap::from([(
-            "PATH".to_owned(),
-            "/usr/bin:/bin".to_owned(),
-        )]));
+        let env = scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
         let outcome = tokio::time::timeout(
             std::time::Duration::from_secs(2),
-            run_spec(
-                RunSpec::Shell { command: "sleep 5 &" },
-                Path::new("/"),
-                None,
-                20,
-                &env,
-            ),
+            run_spec(RunSpec::Shell { command: "sleep 5 &" }, Path::new("/"), None, 20, &env),
         )
         .await
         .expect("timeout cleanup must not wait for a descendant pipe");
