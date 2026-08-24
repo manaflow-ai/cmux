@@ -123,8 +123,7 @@ struct SubrouterIntegrationSettings {
     /// I/O: call off the main actor and cache the result (see
     /// ``SubrouterAppRuntime``).
     nonisolated static func loadServerRegistryState() -> ServerRegistryState {
-        let registry = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".subrouter/codex/servers.json")
+        let registry = serverRegistryURL()
         guard FileManager.default.fileExists(atPath: registry.path) else {
             return .selection(nil)
         }
@@ -133,5 +132,21 @@ struct SubrouterIntegrationSettings {
             return .unreadable
         }
         return .selection(parsed.defaultServer)
+    }
+
+    /// Resolves the registry path using the same `SUBROUTER_STATE_DIR`
+    /// override honored by the `sr` CLI, falling back to `~/.subrouter`.
+    nonisolated static func serverRegistryURL(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
+        let stateDirectory = environment["SUBROUTER_STATE_DIR"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = if let stateDirectory, !stateDirectory.isEmpty {
+            URL(fileURLWithPath: stateDirectory, isDirectory: true)
+        } else {
+            FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".subrouter", isDirectory: true)
+        }
+        return base.appendingPathComponent("codex/servers.json")
     }
 }

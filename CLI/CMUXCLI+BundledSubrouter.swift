@@ -176,12 +176,30 @@ extension CMUXCLI {
         argv.append(nil)
         let execErrno: Int32 = argv.withUnsafeMutableBufferPointer { buffer in
             guard let baseAddress = buffer.baseAddress else { return EINVAL }
-            execv(executable, baseAddress)
-            return errno
+            return withEnvironmentCStringArray(Self.scrubbedSubrouterEnvironment()) { environment in
+                execve(executable, baseAddress, environment)
+                return errno
+            }
         }
         for pointer in argv.compactMap({ $0 }) {
             free(pointer)
         }
         throw CLIError(message: "failed to exec \(executable): \(String(cString: strerror(execErrno)))")
+    }
+
+    /// Provider CLIs inherit this process environment after `execve`; keep
+    /// ordinary shell/provider settings but strip cmux's socket credentials,
+    /// routing identifiers, and debug control variables.
+    private static func scrubbedSubrouterEnvironment() -> [String: String] {
+        let allowedPrefixes = [
+            "PATH", "HOME", "USER", "LOGNAME", "SHELL", "PWD", "OLDPWD",
+            "TMPDIR", "TERM", "LANG", "LC_", "SUBROUTER_", "CODEX_",
+            "CLAUDE_", "ANTHROPIC_", "OPENAI_", "XDG_"
+        ]
+        return ProcessInfo.processInfo.environment.filter { key, _ in
+            allowedPrefixes.contains { prefix in
+                prefix.hasSuffix("_") ? key.hasPrefix(prefix) : key == prefix
+            }
+        }
     }
 }

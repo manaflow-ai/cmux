@@ -32,11 +32,8 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
         commandRunner: (any CommandRunning)? = nil,
         workingDirectory: String = NSHomeDirectory()
     ) {
-        // The app bundle carries a pinned `subrouter.gz` even when the user
-        // has never run `cmux subrouter`. Extract it before constructing the
-        // default runner so panel/footer switches work on a fresh install.
-        _ = Self.ensureBundledSubrouter()
         self.commandRunner = commandRunner ?? CommandRunner(
+            environment: Self.scrubbedEnvironment(),
             fallbackSearchDirectories: CommandRunner.defaultFallbackSearchDirectories
                 + [
                     (NSHomeDirectory() as NSString).appendingPathComponent("bin"),
@@ -56,6 +53,13 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
         commandPath: String?,
         target: SubrouterAccountTarget = .local
     ) async throws {
+        // Extraction is lazy and off the main actor: settings/runtime startup
+        // must not synchronously gunzip an app resource when the panel is only
+        // being constructed. Cancellation of the awaiting switch abandons the
+        // result; the next switch retries the fingerprinted extraction.
+        _ = await Task.detached(priority: .utility) {
+            Self.ensureBundledSubrouter()
+        }.value
         let arguments = try Self.switchArguments(provider: provider, accountID: accountID)
         let executables: [String]
         let trimmedCommandPath = commandPath?.trimmingCharacters(in: .whitespaces) ?? ""
@@ -146,6 +150,19 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
             value = name
         }
         return [key: value]
+    }
+
+    private static func scrubbedEnvironment() -> [String: String] {
+        let allowedPrefixes = [
+            "PATH", "HOME", "USER", "LOGNAME", "SHELL", "PWD", "OLDPWD",
+            "TMPDIR", "TERM", "LANG", "LC_", "SUBROUTER_", "CODEX_",
+            "CLAUDE_", "ANTHROPIC_", "OPENAI_", "XDG_"
+        ]
+        return ProcessInfo.processInfo.environment.filter { key, _ in
+            allowedPrefixes.contains { prefix in
+                prefix.hasSuffix("_") ? key.hasPrefix(prefix) : key == prefix
+            }
+        }
     }
 
     /// Extracts the app-bundled binary into the same Application Support

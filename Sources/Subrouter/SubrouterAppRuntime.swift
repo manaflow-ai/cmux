@@ -155,11 +155,10 @@ final class SubrouterAppRuntime {
 
     private func startServerRegistryWatchIfNeeded() {
         guard serverRegistryWatch == nil else { return }
+        let registryURL = SubrouterIntegrationSettings.serverRegistryURL()
+        let codexDirectory = registryURL.deletingLastPathComponent()
+        let subrouterDirectory = codexDirectory.deletingLastPathComponent()
         let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
-        let subrouterDirectory = homeDirectory
-            .appendingPathComponent(".subrouter", isDirectory: true)
-        let codexDirectory = subrouterDirectory
-            .appendingPathComponent("codex", isDirectory: true)
         // Watch the nearest existing parent on first run. Setup may create
         // `.subrouter/codex` after the panel is already visible; the parent
         // event then triggers a refresh and this method re-arms on codex.
