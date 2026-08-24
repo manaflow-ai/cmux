@@ -285,6 +285,8 @@ final class CmuxWebView: WKWebView {
     private static let pasteAsPlainTextKeyCode: UInt16 = 9 // V key (hardware position, layout-independent)
     var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
     var onSessionDownloadEvent: (([String: Any]) -> Void)?
+    /// Called after a page or section screenshot is written to the pasteboard.
+    var onScreenshotCopied: (() -> Void)?
     private lazy var sessionDownloadSaver = BrowserSessionDownloadSaver(
         parentWindow: { [weak self] in self?.window },
         notifyDownloadState: { [weak self] in self?.notifyContextMenuDownloadState($0) },
