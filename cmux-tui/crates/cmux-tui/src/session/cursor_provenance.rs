@@ -26,7 +26,9 @@ enum State {
     Ground,
     Escape,
     Csi(CsiState),
-    /// Inside an OSC/DCS/APC/PM/SOS string body.
+    /// Inside an OSC string body. BEL is an OSC terminator.
+    OscBody,
+    /// Inside a DCS/APC/PM/SOS string body. Only ST terminates these.
     StringBody,
     /// Saw ESC inside a string body (possible ST).
     StringBodyEscape,
@@ -73,13 +75,22 @@ impl CursorStyleProvenance {
             },
             State::Escape => self.dispatch_escape(byte),
             State::Csi(csi) => self.step_csi(csi, byte),
-            State::StringBody => match byte {
+            State::OscBody => match byte {
                 0x07 | 0x9c => self.state = State::Ground,
+                0x1b => self.state = State::StringBodyEscape,
+                0x18 | 0x1a => self.state = State::Ground,
+                _ => {}
+            },
+            State::StringBody => match byte {
+                0x9c => self.state = State::Ground,
+                0x18 | 0x1a => self.state = State::Ground,
                 0x1b => self.state = State::StringBodyEscape,
                 _ => {}
             },
             State::StringBodyEscape => {
-                if byte == b'\\' {
+                if byte == 0x18 || byte == 0x1a {
+                    self.state = State::Ground;
+                } else if byte == b'\\' {
                     // ST terminates the string.
                     self.state = State::Ground;
                 } else {
@@ -94,7 +105,8 @@ impl CursorStyleProvenance {
     fn dispatch_escape(&mut self, byte: u8) {
         match byte {
             b'[' => self.state = State::Csi(CsiState::default()),
-            b']' | b'P' | b'_' | b'^' | b'X' => self.state = State::StringBody,
+            b']' => self.state = State::OscBody,
+            b'P' | b'_' | b'^' | b'X' => self.state = State::StringBody,
             b'c' => {
                 // RIS resets DECSCUSR to the terminal default.
                 self.authored = false;
@@ -114,7 +126,8 @@ impl CursorStyleProvenance {
     fn dispatch_c1(&mut self, byte: u8) {
         match byte {
             0x9b => self.state = State::Csi(CsiState::default()),
-            0x90 | 0x98 | 0x9d | 0x9e | 0x9f => self.state = State::StringBody,
+            0x90 | 0x98 | 0x9e | 0x9f => self.state = State::StringBody,
+            0x9d => self.state = State::OscBody,
             _ => self.state = State::Ground,
         }
     }
@@ -308,5 +321,32 @@ mod tests {
         assert!(!p.authored(), "stale partial CSI must not leak across a replay");
         p.scan(b"\x1b[6 q");
         assert!(p.authored());
+        }
     }
-}
+
+    #[test]
+    fn bell_only_terminates_osc_strings() {
+        let mut p = CursorStyleProvenance::default();
+        p.scan(b"\x1b]payload\x07\x1b[5 q");
+        assert!(p.authored());
+        for opener in [b'P', b'_', b'^', b'X'] {
+            let mut p = CursorStyleProvenance::default();
+            p.scan(&[0x1b, opener]);
+            p.scan(b"payload\x07\x1b[5 q");
+            assert!(!p.authored(), "BEL must not close non-OSC string");
+            p.scan(b"\x1b\\\x1b[5 q");
+            assert!(p.authored(), "ST must close non-OSC string");
+        }
+    }
+
+    #[test]
+    fn can_and_sub_abort_string_bodies() {
+        for opener in [b']', b'P', b'_', b'^', b'X'] {
+            for abort in [0x18, 0x1a] {
+                let mut p = CursorStyleProvenance::default();
+                p.scan(&[0x1b, opener, abort]);
+                p.scan(b"\x1b[5 q");
+                assert!(p.authored(), "CAN/SUB must abort the string");
+            }
+        }
+    }
