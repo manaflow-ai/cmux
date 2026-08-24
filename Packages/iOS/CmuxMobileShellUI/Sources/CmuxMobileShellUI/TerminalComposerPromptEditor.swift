@@ -112,7 +112,11 @@ struct TerminalComposerPromptEditor: UIViewRepresentable {
         uiView textView: TerminalComposerPromptTextView,
         context: Context
     ) -> CGSize? {
-        guard let width = proposal.width, width > 0 else { return nil }
+        // An unbounded proposal would measure (and report) an infinite width;
+        // fall back to system sizing until a concrete width arrives.
+        guard let width = proposal.width, width > 0, width.isFinite else {
+            return nil
+        }
         let lineHeight = (textView.font ?? UIFont.preferredFont(forTextStyle: .body)).lineHeight
         let fitted = textView.sizeThatFits(
             CGSize(width: width, height: .greatestFiniteMagnitude)

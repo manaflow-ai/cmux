@@ -994,7 +994,14 @@ struct TerminalComposerView: View {
                 )
                 return
             }
-            for item in items {
+            // The store re-enforces the caps atomically; bounding the batch
+            // here just avoids materialize/encode work for items that cannot
+            // land once the count cap binds.
+            let remaining = max(
+                0,
+                Self.maxAttachmentCount - pendingAttachments.count
+            )
+            for item in items.prefix(remaining) {
                 guard !Task.isCancelled else { break }
                 switch item.kind {
                 case .image:
@@ -1002,6 +1009,9 @@ struct TerminalComposerView: View {
                 case .file:
                     await stagePastedFile(item, sessionGeneration: sessionGeneration)
                 }
+            }
+            if items.count > remaining {
+                attachmentAlertMessage = Self.attachmentLimitMessage
             }
             // New chips grow the band; ask the host to re-measure.
             requestHeightRemeasure()

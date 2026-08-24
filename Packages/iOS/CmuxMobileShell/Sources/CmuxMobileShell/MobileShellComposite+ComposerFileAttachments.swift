@@ -16,9 +16,11 @@ extension MobileShellComposite {
     /// The pending attachment's bytes live in memory (like staged images), while
     /// the shared task-attachment uploader reads from a file, so the bytes are
     /// written to an app-owned temp file for the duration of the upload and
-    /// always removed afterwards. The attachment's own id is reused as the
-    /// upload id so a retry after a failed text send stays idempotent per
-    /// operation.
+    /// always removed afterwards. The attachment's own id serves as BOTH the
+    /// operation id and the upload id: the Mac store answers a re-upload of a
+    /// completed (operation, upload) pair with the existing path, so retrying
+    /// after a failed text send reuses the already-uploaded file instead of
+    /// orphaning one copy per attempt.
     func uploadPendingFileAttachment(
         _ attachment: MobilePendingAttachment
     ) async -> Result<String, MobileWorkspaceMutationFailure> {
@@ -45,7 +47,7 @@ extension MobileShellComposite {
         )
         return await uploadTaskAttachment(
             staged,
-            operationID: UUID(),
+            operationID: attachment.id,
             macDeviceID: macDeviceID,
             instanceTag: activeMacInstanceTag
         )
