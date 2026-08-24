@@ -40,12 +40,12 @@ extension MobileShellComposite {
 
         guard deviceStatus == .connected else {
             // Reconnecting/unavailable with a known same-device foreground
-            // pairing of a different build belongs to that pairing only; with
-            // no known target the device status passes through so a redial
-            // never renders as silently Not Connected.
+            // pairing of a different build (tagged or legacy untagged)
+            // belongs to that pairing only; with no known target the device
+            // status passes through so a redial never renders as silently
+            // Not Connected.
             if canonicalConnectedDeviceID == canonicalRowDeviceID,
                let normalizedConnectedTag,
-               let normalizedRowTag,
                normalizedConnectedTag != normalizedRowTag {
                 return nil
             }

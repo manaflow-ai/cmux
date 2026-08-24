@@ -20,7 +20,10 @@ extension MobileShellComposite {
 
     /// The effective connection method for a pairing identified by device and
     /// optional tag. With a nil tag this resolves the device's first stored
-    /// pairing, matching the legacy device-level call sites.
+    /// pairing, matching the legacy device-level call sites. An explicit tag
+    /// never falls back to a sibling build's row: methods are chosen per
+    /// build, so an unstored tagged pairing uses the app default instead of
+    /// inheriting whichever sibling happens to be stored first.
     public func connectionMethod(
         forMacDeviceID macDeviceID: String,
         instanceTag: String?
@@ -29,7 +32,7 @@ extension MobileShellComposite {
         let match = pairedMacs.first {
             $0.macDeviceID == canonical
                 && (instanceTag == nil || $0.instanceTag == instanceTag)
-        } ?? pairedMacs.first { $0.macDeviceID == canonical }
+        } ?? (instanceTag == nil ? pairedMacs.first { $0.macDeviceID == canonical } : nil)
         return match.map(connectionMethod(for:))
             ?? connectionMethodStore?.method
             ?? .automatic
@@ -108,10 +111,12 @@ extension MobileShellComposite {
         knownPairing: MobilePairedMac? = nil
     ) -> [CmxIrohDirectDialCandidate]? {
         let canonical = cmxCanonicalDeviceID(macDeviceID)
+        // Same sibling rule as `connectionMethod(forMacDeviceID:instanceTag:)`:
+        // an explicit tag must not pin another build's address allowlist.
         let pairing = knownPairing ?? pairedMacs.first {
             $0.macDeviceID == canonical
                 && (instanceTag == nil || $0.instanceTag == instanceTag)
-        } ?? pairedMacs.first { $0.macDeviceID == canonical }
+        } ?? (instanceTag == nil ? pairedMacs.first { $0.macDeviceID == canonical } : nil)
         guard let pairing else { return nil }
         switch connectionMethod(for: pairing) {
         case .direct:
