@@ -103,7 +103,7 @@ impl CreationReceipt {
 #[derive(Clone)]
 pub(crate) struct AmbiguousCreation {
     remote: Arc<RemoteSession>,
-    request: serde_json::Value,
+    request: Value,
     created: &'static str,
 }
 
@@ -132,7 +132,7 @@ impl AmbiguousCreation {
 
 fn request_receipted_creation(
     remote: &Arc<RemoteSession>,
-    request: serde_json::Value,
+    request: Value,
     created: &'static str,
 ) -> anyhow::Result<SurfaceId> {
     match remote.request(request.clone()) {
@@ -369,7 +369,7 @@ fn initial_bootstrap(tree: &TreeView) -> InitialBootstrap {
 }
 
 /// Attach optional cols/rows fields to a remote command.
-fn with_size(mut cmd: serde_json::Value, size: Option<(u16, u16)>) -> serde_json::Value {
+fn with_size(mut cmd: Value, size: Option<(u16, u16)>) -> Value {
     if let Some((cols, rows)) = size {
         cmd["cols"] = json!(cols);
         cmd["rows"] = json!(rows);
@@ -377,7 +377,7 @@ fn with_size(mut cmd: serde_json::Value, size: Option<(u16, u16)>) -> serde_json
     cmd
 }
 
-fn creation_fields(size: Option<(u16, u16)>) -> Map<String, serde_json::Value> {
+fn creation_fields(size: Option<(u16, u16)>) -> Map<String, Value> {
     let mut fields = Map::new();
     if let Some((cols, rows)) = size {
         fields.insert("cols".to_string(), json!(cols));
@@ -401,10 +401,10 @@ fn creation_selector_fallbacks(
     }
 }
 
-fn response_surface(result: &serde_json::Value, created: &str) -> anyhow::Result<SurfaceId> {
+fn response_surface(result: &Value, created: &str) -> anyhow::Result<SurfaceId> {
     result
         .get("surface")
-        .and_then(serde_json::Value::as_u64)
+        .and_then(Value::as_u64)
         .ok_or_else(|| anyhow::anyhow!("remote {created} creation omitted its surface"))
 }
 
@@ -870,10 +870,10 @@ impl Session {
                 };
                 let requested_surface_id = data
                     .get("surface")
-                    .and_then(serde_json::Value::as_u64)
+                    .and_then(Value::as_u64)
                     .map(|id| id as SurfaceId);
                 let mut error =
-                    data.get("error").and_then(serde_json::Value::as_str).map(str::to_string);
+                    data.get("error").and_then(Value::as_str).map(str::to_string);
                 let surface_id = match requested_surface_id {
                     Some(id) => {
                         match remote.try_ensure_surface_with_kind(id, SurfaceKind::Pty, Some(size))
@@ -903,7 +903,7 @@ impl Session {
                 SidebarPluginSurface {
                     surface_id,
                     error,
-                    retry_after_ms: data.get("retry_after_ms").and_then(serde_json::Value::as_u64),
+                    retry_after_ms: data.get("retry_after_ms").and_then(Value::as_u64),
                 }
             }
         }
@@ -1230,7 +1230,7 @@ impl Session {
             Session::Local(mux) => mux.surface(surface).and_then(|surface| surface.local_cwd()),
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "process-info", "surface": surface})).ok().and_then(
-                    |data| data.get("cwd").and_then(serde_json::Value::as_str).map(str::to_owned),
+                    |data| data.get("cwd").and_then(Value::as_str).map(str::to_owned),
                 )
             }
         }
@@ -1302,7 +1302,7 @@ impl Session {
                 ))?;
                 result
                     .get("surface")
-                    .and_then(serde_json::Value::as_u64)
+                    .and_then(Value::as_u64)
                     .ok_or_else(|| anyhow::anyhow!("remote browser creation omitted its surface"))
             }
         }
@@ -2147,7 +2147,7 @@ impl SurfaceHandle {
                         return Err(error);
                     }
                 };
-                match response.get("outcome").and_then(serde_json::Value::as_str) {
+                match response.get("outcome").and_then(Value::as_str) {
                     Some("superseded") => {
                         report(None);
                         return Ok(false);
@@ -2164,13 +2164,13 @@ impl SurfaceHandle {
                     }
                 }
                 let accepted =
-                    response.get("accepted").and_then(serde_json::Value::as_bool).unwrap_or(true);
+                    response.get("accepted").and_then(Value::as_bool).unwrap_or(true);
                 surface.set_reported_size(desired);
                 if !accepted {
                     report(None);
                     return Ok(false);
                 }
-                response.get("reservation_id").and_then(serde_json::Value::as_u64).or(Some(0))
+                response.get("reservation_id").and_then(Value::as_u64).or(Some(0))
             }
             SurfaceHandle::RemoteBrowserUnsupported => {
                 report(None);
