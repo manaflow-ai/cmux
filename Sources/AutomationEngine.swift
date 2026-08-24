@@ -41,6 +41,9 @@ final class AutomationEngine {
     private let workspaceTagsResolver: WorkspaceTagsResolver
 
     private var rules: [AutomationRule] = []
+    private var rulesByEventName: [String: [AutomationRule]] = [:]
+    private var rulesByCategory: [String: [AutomationRule]] = [:]
+    private var unindexedRules: [AutomationRule] = []
     private var fireDatesByRuleID: [String: [Date]] = [:]
     private var firingRecords: [AutomationFiringRecord] = []
     private var concurrentFirings = 0
@@ -49,6 +52,10 @@ final class AutomationEngine {
     private var firingTasks: [UUID: Task<Void, Never>] = [:]
     private var shouldRun = false
     private var workspaceTagsCache: [UUID: [String]] = [:]
+    private var pendingTagResolutions = Set<UUID>()
+    private var lastSequence: Int64?
+    private var restartTask: Task<Void, Never>?
+    private var restartAttempt = 0
 
     init(
         configStore: AutomationConfigStore = AutomationConfigStore(),
@@ -78,6 +85,7 @@ final class AutomationEngine {
     deinit {
         subscription?.close()
         eventTask?.cancel()
+        restartTask?.cancel()
         firingTasks.values.forEach { $0.cancel() }
     }
 
@@ -86,13 +94,26 @@ final class AutomationEngine {
         shouldRun = true
         guard eventTask == nil else { return }
         _ = reload()
-        installSubscription()
+        if eventTask == nil {
+            installSubscription(afterSequence: nil)
+        }
     }
 
-    private func installSubscription() {
-        let snapshot = eventBus.subscribe(afterSequence: nil, names: [], categories: [])
+    private func installSubscription(afterSequence: Int64?) {
+        guard shouldRun, rules.contains(where: \.enabled) else { return }
+        let filters = subscriptionFilters()
+        let snapshot = eventBus.subscribe(
+            afterSequence: afterSequence,
+            names: filters.names,
+            categories: filters.categories
+        )
         subscription = snapshot.subscription
         let subscription = snapshot.subscription
+        restartTask?.cancel()
+        restartTask = nil
+        for event in snapshot.replay {
+            receive(event)
+        }
         eventTask = Task.detached(priority: .utility) { [weak self] in
             while !Task.isCancelled {
                 guard let event = subscription.next(timeout: CmuxEventBus.defaultHeartbeatIntervalSeconds),
@@ -117,13 +138,29 @@ final class AutomationEngine {
         eventTask = nil
         guard shouldRun else { return }
         // A slow consumer closes its bounded queue. Re-arm from the current
-        // tail rather than leaving automations disabled until the next launch.
-        installSubscription()
+        // tail with bounded exponential backoff; an event flood must not turn
+        // recovery into an allocation loop.
+        guard restartTask == nil else { return }
+        let delay = min(5.0, 0.25 * pow(2.0, Double(min(restartAttempt, 5))))
+        restartAttempt = min(restartAttempt + 1, 5)
+        let cursor = lastSequence
+        restartTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            } catch {
+                return
+            }
+            guard let self, self.shouldRun else { return }
+            self.restartTask = nil
+            self.installSubscription(afterSequence: cursor)
+        }
     }
 
     /// Stops the live subscription and wakes a blocked event read.
     func stop() {
         shouldRun = false
+        restartTask?.cancel()
+        restartTask = nil
         subscription?.close()
         if let subscription {
             eventBus.unsubscribe(subscription)
@@ -134,6 +171,7 @@ final class AutomationEngine {
         firingTasks.values.forEach { $0.cancel() }
         firingTasks.removeAll(keepingCapacity: true)
         workspaceTagsCache.removeAll(keepingCapacity: true)
+        pendingTagResolutions.removeAll(keepingCapacity: true)
     }
 
     /// Reloads the file and returns a compact command response.
@@ -142,13 +180,36 @@ final class AutomationEngine {
         do {
             let configuration = try configStore.load()
             rules = configuration.rules
+            rebuildRuleIndexes()
             fireDatesByRuleID.removeAll(keepingCapacity: true)
             workspaceTagsCache.removeAll(keepingCapacity: true)
+            pendingTagResolutions.removeAll(keepingCapacity: true)
+            if shouldRun {
+                if let subscription {
+                    eventBus.unsubscribe(subscription)
+                    subscription.close()
+                    self.subscription = nil
+                }
+                eventTask?.cancel()
+                eventTask = nil
+                installSubscription(afterSequence: lastSequence)
+            }
             return .success(rules.count)
         } catch {
             rules.removeAll(keepingCapacity: true)
+            rulesByEventName.removeAll(keepingCapacity: true)
+            rulesByCategory.removeAll(keepingCapacity: true)
+            unindexedRules.removeAll(keepingCapacity: true)
             fireDatesByRuleID.removeAll(keepingCapacity: true)
             workspaceTagsCache.removeAll(keepingCapacity: true)
+            pendingTagResolutions.removeAll(keepingCapacity: true)
+            if let subscription {
+                eventBus.unsubscribe(subscription)
+                subscription.close()
+                self.subscription = nil
+            }
+            eventTask?.cancel()
+            eventTask = nil
             record(
                 ruleID: "",
                 eventName: "config.reload",
@@ -158,6 +219,53 @@ final class AutomationEngine {
             )
             return .failure(error)
         }
+    }
+
+    private func rebuildRuleIndexes() {
+        rulesByEventName.removeAll(keepingCapacity: true)
+        rulesByCategory.removeAll(keepingCapacity: true)
+        unindexedRules.removeAll(keepingCapacity: true)
+        for rule in rules {
+            let exactEvent = rule.when.event.flatMap { value in
+                value.isEmpty || value.contains("*") ? nil : value
+            }
+            let exactCategory = rule.when.category.flatMap { value in
+                value.isEmpty || value.contains("*") ? nil : value
+            }
+            if let exactEvent, rule.when.category == nil {
+                rulesByEventName[exactEvent, default: []].append(rule)
+            } else if let exactCategory, rule.when.event == nil {
+                rulesByCategory[exactCategory, default: []].append(rule)
+            } else {
+                unindexedRules.append(rule)
+            }
+        }
+    }
+
+    private func subscriptionFilters() -> (names: Set<String>, categories: Set<String>) {
+        let enabledRules = rules.filter(\.enabled)
+        guard !enabledRules.isEmpty else { return ([], []) }
+        let exactEvents = enabledRules.compactMap { rule -> String? in
+            guard let event = rule.when.event,
+                  !event.isEmpty,
+                  !event.contains("*"),
+                  rule.when.category == nil else { return nil }
+            return event
+        }
+        if exactEvents.count == enabledRules.count {
+            return (Set(exactEvents), [])
+        }
+        let exactCategories = enabledRules.compactMap { rule -> String? in
+            guard let category = rule.when.category,
+                  !category.isEmpty,
+                  !category.contains("*"),
+                  rule.when.event == nil else { return nil }
+            return category
+        }
+        if exactCategories.count == enabledRules.count {
+            return ([], Set(exactCategories))
+        }
+        return ([], [])
     }
 
     func listPayload() -> [[String: Any]] {
@@ -194,6 +302,17 @@ final class AutomationEngine {
             if let index = rules.firstIndex(where: { $0.id == id }) {
                 rules[index] = rule
             }
+            rebuildRuleIndexes()
+            if shouldRun {
+                if let subscription {
+                    eventBus.unsubscribe(subscription)
+                    subscription.close()
+                    self.subscription = nil
+                }
+                eventTask?.cancel()
+                eventTask = nil
+                installSubscription(afterSequence: lastSequence)
+            }
             return .success(rule)
         } catch {
             return .failure(error)
@@ -205,7 +324,9 @@ final class AutomationEngine {
     func testPayload(id: String, event: [String: Any]) -> [String: Any]? {
         guard let rule = rule(withID: id) else { return nil }
         let normalized = Self.normalizedEvent(event)
-        let tags = rule.usesWorkspaceTagPredicate ? workspaceTags(for: normalized) : []
+        let tags = rule.usesWorkspaceTagPredicate
+            ? workspaceTags(for: normalized, allowOwnerResolution: true)
+            : []
         let matches = rule.matches(event: normalized, workspaceTags: tags)
         return [
             "id": rule.id,
@@ -232,7 +353,7 @@ final class AutomationEngine {
             _ = reload()
         }
         let invalidatesWorkspaceTags =
-            event["category"] as? String == "sidebar"
+            ["sidebar.metadata.updated", "sidebar.metadata.cleared", "sidebar.reset"].contains(eventName)
                 || ["workspace.created", "workspace.closed", "workspace.renamed"].contains(eventName)
         if invalidatesWorkspaceTags {
             if let workspaceID = Self.uuid(event["workspace_id"] as? String) {
@@ -243,10 +364,18 @@ final class AutomationEngine {
         }
         let normalized = Self.normalizedEvent(event)
         let origin = Self.origin(from: normalized)
-        let tags = rules.contains(where: { $0.enabled && $0.usesWorkspaceTagPredicate })
-            ? workspaceTags(for: normalized)
+        if let sequence = CmuxEventBus.int64(normalized["seq"]) {
+            lastSequence = max(lastSequence ?? sequence, sequence)
+        }
+        let candidateRules = candidateRules(
+            eventName: eventName,
+            category: normalized["category"] as? String
+        )
+        let resolvesTagsFromOwner = invalidatesWorkspaceTags
+        let tags = candidateRules.contains(where: { $0.enabled && $0.usesWorkspaceTagPredicate })
+            ? workspaceTags(for: normalized, allowOwnerResolution: resolvesTagsFromOwner)
             : []
-        for rule in rules where rule.enabled {
+        for rule in candidateRules where rule.enabled {
             guard rule.matches(event: normalized, workspaceTags: tags) else { continue }
             if let origin, origin.chain.contains(rule.id) {
                 record(
@@ -268,22 +397,22 @@ final class AutomationEngine {
                 )
                 continue
             }
-            guard admit(rule: rule) else {
-                record(
-                    ruleID: rule.id,
-                    eventName: eventName,
-                    status: "skipped_rate_limit",
-                    detail: "per-rule rate limit exceeded",
-                    chain: origin?.chain ?? []
-                )
-                continue
-            }
             guard concurrentFirings < Self.maximumConcurrentFirings else {
                 record(
                     ruleID: rule.id,
                     eventName: eventName,
                     status: "skipped_backpressure",
                     detail: "automation firing concurrency limit exceeded",
+                    chain: origin?.chain ?? []
+                )
+                continue
+            }
+            guard admit(rule: rule) else {
+                record(
+                    ruleID: rule.id,
+                    eventName: eventName,
+                    status: "skipped_rate_limit",
+                    detail: "per-rule rate limit exceeded",
                     chain: origin?.chain ?? []
                 )
                 continue
@@ -312,6 +441,16 @@ final class AutomationEngine {
             return
         }
         receive(event)
+    }
+
+    private func candidateRules(eventName: String, category: String?) -> [AutomationRule] {
+        var candidates = unindexedRules
+        candidates.append(contentsOf: rulesByEventName[eventName] ?? [])
+        if let category {
+            candidates.append(contentsOf: rulesByCategory[category] ?? [])
+        }
+        var seen = Set<String>()
+        return candidates.filter { seen.insert($0.id).inserted }
     }
 
     private func admit(rule: AutomationRule) -> Bool {
@@ -378,7 +517,7 @@ final class AutomationEngine {
             action.string(for: "workspace_id")
                 ?? action.string(for: "workspace")
                 ?? event["workspace_id"] as? String
-        ) ?? AppDelegate.shared?.tabManager?.selectedTabId
+        )
         guard let workspaceID else {
             return .failure("notify action could not resolve a workspace")
         }
@@ -571,11 +710,17 @@ final class AutomationEngine {
         }
     }
 
-    private func workspaceTags(for event: [String: Any]) -> [String] {
+    private func workspaceTags(
+        for event: [String: Any],
+        allowOwnerResolution: Bool = false
+    ) -> [String] {
         guard let workspaceID = Self.uuid(event["workspace_id"] as? String) else { return [] }
         if let cached = workspaceTagsCache[workspaceID] {
             return cached
         }
+        guard allowOwnerResolution else { return [] }
+        guard pendingTagResolutions.insert(workspaceID).inserted else { return [] }
+        defer { pendingTagResolutions.remove(workspaceID) }
         let resolved = workspaceTagsResolver(workspaceID)
         workspaceTagsCache[workspaceID] = resolved
         return resolved

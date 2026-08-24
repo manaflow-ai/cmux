@@ -301,6 +301,7 @@ nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
     /// The schema spelling of the ordered action list.
     var `then`: [AutomationAction] { actions }
 
+    /// Whether matching may need a live workspace status-tag snapshot.
     var usesWorkspaceTagPredicate: Bool {
         predicates.keys.contains { $0 == "workspace.tag" || $0 == "workspace_tag" }
     }
