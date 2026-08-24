@@ -93,7 +93,7 @@ extension MobileTaskDirectoryListFailure {
         case .permissionDenied:
             L10n.string(
                 "mobile.taskComposer.directoryPicker.browse.failure.permission",
-                defaultValue: "Allow cmux to access this location on the Mac, then retry."
+                defaultValue: "cmux does not have permission to read this folder on the Mac. Allow access in Mac System Settings › Privacy & Security › Files & Folders, or grant cmux Full Disk Access, then retry."
             )
         case .unreadable:
             L10n.string(
@@ -103,7 +103,7 @@ extension MobileTaskDirectoryListFailure {
         case .rejected, .cancelled:
             L10n.string(
                 "mobile.taskComposer.directoryPicker.browse.failure.generic",
-                defaultValue: "The Mac could not list this folder. If this is a protected folder such as Downloads, allow cmux access in Mac System Settings › Privacy & Security › Files & Folders, then retry."
+                defaultValue: "The Mac could not list this folder. cmux may not have permission to read it yet. Allow access in Mac System Settings › Privacy & Security › Files & Folders, or grant cmux Full Disk Access, then retry."
             )
         }
     }

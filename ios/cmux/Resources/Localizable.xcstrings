@@ -11147,13 +11147,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Mac could not list this folder. If this is a protected folder such as Downloads, allow cmux access in Mac System Settings › Privacy & Security › Files & Folders, then retry."
+            "value": "The Mac could not list this folder. cmux may not have permission to read it yet. Allow access in Mac System Settings › Privacy & Security › Files & Folders, or grant cmux Full Disk Access, then retry."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macでこのフォルダの一覧を取得できませんでした。Downloadsなどの保護されたフォルダの場合は、Macの「システム設定」＞「プライバシーとセキュリティ」＞「ファイルとフォルダ」でcmuxのアクセスを許可してから、もう一度お試しください。"
+            "value": "Macでこのフォルダの一覧を取得できませんでした。cmuxにこのフォルダへのアクセスがまだ許可されていない可能性があります。Macの「システム設定」＞「プライバシーとセキュリティ」＞「ファイルとフォルダ」でアクセスを許可するか、cmuxに「フルディスクアクセス」を付与してから、もう一度お試しください。"
           }
         }
       }
@@ -11198,13 +11198,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow cmux to access this location on the Mac, then retry."
+            "value": "cmux does not have permission to read this folder on the Mac. Allow access in Mac System Settings › Privacy & Security › Files & Folders, or grant cmux Full Disk Access, then retry."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macでcmuxにこの場所へのアクセスを許可してから、もう一度お試しください。"
+            "value": "cmuxにはMac上のこのフォルダを読み取る許可がありません。Macの「システム設定」＞「プライバシーとセキュリティ」＞「ファイルとフォルダ」でアクセスを許可するか、cmuxに「フルディスクアクセス」を付与してから、もう一度お試しください。"
           }
         }
       }
