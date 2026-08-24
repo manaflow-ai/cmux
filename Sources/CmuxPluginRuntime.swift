@@ -301,10 +301,11 @@ final class CmuxPluginRuntime: @unchecked Sendable {
             }.value
             guard !Task.isCancelled else { return }
             guard processReconciliationIsAllowed(generation: generation) else { return }
-            processSupervisor.reconcile(
+            await processSupervisor.reconcile(
                 snapshot: next,
                 sessionTokens: tokens,
                 socketPath: resolvedSocketPath,
+                generation: generation,
                 allowLaunch: listenerReady,
                 runtime: self,
                 reportError: { [weak self] pluginID, error in
@@ -315,7 +316,7 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         lock.unlock()
     }
 
-    private func processReconciliationIsAllowed(generation: UInt64) -> Bool {
+    func processReconciliationIsAllowed(generation: UInt64) -> Bool {
         lock.lock()
         defer { lock.unlock() }
         return !isStopping && snapshotGeneration == generation

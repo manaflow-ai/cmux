@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 /// A validated plugin discovered in a plugin directory.
@@ -9,7 +8,7 @@ public struct CmuxLoadedPlugin: Equatable, Sendable {
     public let directoryURL: URL
     /// The validated executable URL, when the manifest declares one.
     public let entrypointURL: URL?
-    /// Stable fingerprint of the manifest and validated entrypoint bytes.
+    /// Stable fingerprint of every regular file in the validated plugin bundle.
     ///
     /// Permission approvals are bound to this value so replacing executable
     /// contents cannot inherit a prior grant or session token.
@@ -113,6 +112,7 @@ public actor CmuxPluginDirectoryLoader {
     /// API version used for plugin compatibility checks.
     public let supportedAPIVersion: CmuxExtensionAPIVersion
     private let fileManager: FileManager
+    private let artifactFingerprinter: CmuxPluginArtifactFingerprinter
 
     /// Creates a loader for `directoryURL`.
     public init(
@@ -123,6 +123,7 @@ public actor CmuxPluginDirectoryLoader {
         self.directoryURL = directoryURL.standardizedFileURL
         self.supportedAPIVersion = supportedAPIVersion
         self.fileManager = fileManager
+        self.artifactFingerprinter = CmuxPluginArtifactFingerprinter(fileManager: fileManager)
     }
 
     /// Scans the directory and returns both valid plugins and load failures.
@@ -293,16 +294,16 @@ public actor CmuxPluginDirectoryLoader {
 
             let fingerprint: String
             do {
-                fingerprint = try Self.fingerprint(
+                fingerprint = try artifactFingerprinter.fingerprint(
                     manifestData: data,
-                    entrypointDeclaration: entrypoint,
-                    entrypointURL: entrypointURL
+                    pluginDirectoryURL: resolvedDirectory,
+                    entrypointDeclaration: entrypoint
                 )
             } catch {
                 failures.append(CmuxPluginLoadFailure(
                     directoryURL: directory,
-                    code: .missingEntrypoint,
-                    detail: "entrypoint could not be fingerprinted"
+                    code: .invalidManifest,
+                    detail: "plugin artifact could not be fingerprinted"
                 ))
                 continue
             }
@@ -319,47 +320,6 @@ public actor CmuxPluginDirectoryLoader {
             plugins: plugins.sorted { $0.manifest.id < $1.manifest.id },
             failures: failures.sorted { $0.directoryURL.path < $1.directoryURL.path }
         )
-    }
-
-    private static let lowercaseHexDigits = Array("0123456789abcdef".utf8)
-
-    private static let fingerprintChunkSize = 64 * 1024
-
-    private static func fingerprint(
-        manifestData: Data,
-        entrypointDeclaration: String,
-        entrypointURL: URL
-    ) throws -> String {
-        var hasher = SHA256()
-        updateLengthPrefixed(manifestData, into: &hasher)
-        updateLengthPrefixed(Data(entrypointDeclaration.utf8), into: &hasher)
-
-        let handle = try FileHandle(forReadingFrom: entrypointURL)
-        defer { try? handle.close() }
-        while let chunk = try handle.read(upToCount: fingerprintChunkSize), !chunk.isEmpty {
-            hasher.update(data: chunk)
-        }
-        return hexadecimalString(for: hasher.finalize())
-    }
-
-    private static func updateLengthPrefixed(
-        _ data: Data,
-        into hasher: inout SHA256
-    ) {
-        let length = UInt64(data.count).bigEndian
-        let lengthData = withUnsafeBytes(of: length) { Data($0) }
-        hasher.update(data: lengthData)
-        hasher.update(data: data)
-    }
-
-    private static func hexadecimalString(for digest: SHA256.Digest) -> String {
-        var bytes: [UInt8] = []
-        bytes.reserveCapacity(SHA256.Digest.byteCount * 2)
-        for byte in digest {
-            bytes.append(lowercaseHexDigits[Int(byte >> 4)])
-            bytes.append(lowercaseHexDigits[Int(byte & 0x0F)])
-        }
-        return String(decoding: bytes, as: UTF8.self)
     }
 
     private static func failureCode(for error: CmuxExtensionValidationError) -> CmuxPluginLoadFailure.Code {

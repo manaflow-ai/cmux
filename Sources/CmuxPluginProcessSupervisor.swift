@@ -28,6 +28,7 @@ nonisolated private let pluginProcessLogger = Logger(
 @MainActor
 final class CmuxPluginProcessSupervisor {
     private let environmentKeys = CmuxPluginEnvironment()
+    private let snapshotter: CmuxPluginExecutionSnapshotter
 
     private struct RunningProcess {
         let process: Process
@@ -35,11 +36,14 @@ final class CmuxPluginProcessSupervisor {
         let sessionToken: String
         let socketPath: String
         let processID: pid_t
+        let snapshot: CmuxPluginExecutionSnapshot
     }
 
     private var processes: [String: RunningProcess] = [:]
 
-    init() {}
+    init(snapshotter: CmuxPluginExecutionSnapshotter? = nil) {
+        self.snapshotter = snapshotter ?? CmuxPluginExecutionSnapshotter()
+    }
 
     /// Reconciles child processes with the registry's authoritative snapshot.
     ///
@@ -50,10 +54,11 @@ final class CmuxPluginProcessSupervisor {
         snapshot: CmuxPluginRegistrySnapshot,
         sessionTokens: [String: String],
         socketPath: String,
+        generation: UInt64,
         allowLaunch: Bool = true,
         runtime: CmuxPluginRuntime,
         reportError: @escaping @Sendable (String, String?) -> Void
-    ) {
+    ) async {
         let desired = Dictionary(snapshot.plugins.map {
             ($0.plugin.manifest.id, $0)
         }, uniquingKeysWith: { _, replacement in replacement })
@@ -78,6 +83,10 @@ final class CmuxPluginProcessSupervisor {
         guard allowLaunch else { return }
 
         for descriptor in snapshot.plugins where descriptor.isEnabled {
+            guard !Task.isCancelled,
+                  runtime.processReconciliationIsAllowed(generation: generation) else {
+                return
+            }
             let pluginID = descriptor.plugin.manifest.id
             guard processes[pluginID] == nil else { continue }
             guard let sessionToken = sessionTokens[pluginID] else {
@@ -90,19 +99,38 @@ final class CmuxPluginProcessSupervisor {
                 )
                 continue
             }
-            guard let entrypointURL = descriptor.plugin.entrypointURL else {
+            let executionSnapshot: CmuxPluginExecutionSnapshot
+            do {
+                executionSnapshot = try await snapshotter.makeSnapshot(for: descriptor.plugin)
+            } catch {
                 reportError(
                     pluginID,
                     String(
-                        localized: "settings.plugins.error.missingEntrypoint",
-                        defaultValue: "The plugin does not provide a usable executable."
+                        localized: "settings.plugins.error.launch",
+                        defaultValue: "The plugin could not be launched."
                     )
                 )
                 continue
             }
+            guard executionSnapshot.fingerprint == descriptor.plugin.manifestFingerprint else {
+                await snapshotter.remove(executionSnapshot)
+                reportError(
+                    pluginID,
+                    String(
+                        localized: "settings.plugins.error.launch",
+                        defaultValue: "The plugin could not be launched."
+                    )
+                )
+                continue
+            }
+            guard !Task.isCancelled,
+                  runtime.processReconciliationIsAllowed(generation: generation) else {
+                await snapshotter.remove(executionSnapshot)
+                return
+            }
             launch(
                 descriptor: descriptor,
-                entrypointURL: entrypointURL,
+                executionSnapshot: executionSnapshot,
                 sessionToken: sessionToken,
                 socketPath: socketPath,
                 runtime: runtime,
@@ -121,7 +149,7 @@ final class CmuxPluginProcessSupervisor {
 
     private func launch(
         descriptor: CmuxPluginDescriptor,
-        entrypointURL: URL,
+        executionSnapshot: CmuxPluginExecutionSnapshot,
         sessionToken: String,
         socketPath: String,
         runtime: CmuxPluginRuntime,
@@ -132,7 +160,7 @@ final class CmuxPluginProcessSupervisor {
         let process = Process()
         let launchGate = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/sh", isDirectory: false)
-        process.currentDirectoryURL = descriptor.plugin.directoryURL
+        process.currentDirectoryURL = executionSnapshot.directoryURL
         // The shell blocks on stdin until the parent has registered its PID.
         // `exec "$@"` then replaces the shell with the validated entrypoint,
         // preserving that PID and making an unauthenticated launch window
@@ -141,7 +169,7 @@ final class CmuxPluginProcessSupervisor {
             "-c",
             "IFS= read -r _ || exit 126; exec \"$@\" </dev/null",
             "cmux-plugin-launch-gate",
-            entrypointURL.path,
+            executionSnapshot.entrypointURL.path,
         ]
         var environment = Self.inheritedPluginEnvironment(
             from: ProcessInfo.processInfo.environment
@@ -149,9 +177,7 @@ final class CmuxPluginProcessSupervisor {
         environment[environmentKeys.pluginIDKey] = pluginID
         environment[environmentKeys.pluginTokenKey] = sessionToken
         environment[environmentKeys.pluginSocketPathKey] = socketPath
-        environment[environmentKeys.manifestPathKey] = descriptor.plugin.directoryURL
-            .appendingPathComponent("manifest.json", isDirectory: false)
-            .path
+        environment[environmentKeys.manifestPathKey] = executionSnapshot.manifestURL.path
         environment[environmentKeys.apiVersionKey] = "\(descriptor.plugin.manifest.minimumAPIVersion.major).\(descriptor.plugin.manifest.minimumAPIVersion.minor)"
         // Existing cmux SDKs and the bundled CLI both discover the socket via
         // this conventional variable. Keep it alongside the plugin-specific
@@ -184,6 +210,7 @@ final class CmuxPluginProcessSupervisor {
         } catch {
             try? launchGate.fileHandleForReading.close()
             try? launchGate.fileHandleForWriting.close()
+            Task { await snapshotter.remove(executionSnapshot) }
             pluginProcessLogger.error(
                 "Plugin \(pluginID, privacy: .public) launch failed: \(String(describing: error), privacy: .private)"
             )
@@ -203,7 +230,8 @@ final class CmuxPluginProcessSupervisor {
             fingerprint: descriptor.plugin.manifestFingerprint,
             sessionToken: sessionToken,
             socketPath: socketPath,
-            processID: processID
+            processID: processID,
+            snapshot: executionSnapshot
         )
         runtime.registerProcess(processID, for: pluginID)
         try? launchGate.fileHandleForReading.close()
@@ -214,6 +242,7 @@ final class CmuxPluginProcessSupervisor {
             try? launchGate.fileHandleForWriting.close()
             processes.removeValue(forKey: pluginID)
             runtime.revokeProcess(processID)
+            Task { await snapshotter.remove(executionSnapshot) }
             if process.isRunning {
                 process.terminate()
             }
@@ -261,6 +290,7 @@ final class CmuxPluginProcessSupervisor {
         }
         processes.removeValue(forKey: pluginID)
         runtime.processDidExit(processID)
+        Task { await snapshotter.remove(running.snapshot) }
         if status == 0 {
             reportError(
                 pluginID,
@@ -291,6 +321,7 @@ final class CmuxPluginProcessSupervisor {
         // delayed termination callback must never tear down the replacement's
         // streams merely because both generations share a plugin id.
         runtime.revokeProcess(running.processID)
+        Task { await snapshotter.remove(running.snapshot) }
         if running.process.isRunning {
             running.process.terminate()
         }
