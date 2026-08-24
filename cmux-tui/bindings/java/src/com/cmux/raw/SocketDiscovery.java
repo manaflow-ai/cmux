@@ -64,7 +64,7 @@ public final class SocketDiscovery {
     }
 
     /** Compatibility path for servers that still publish a raw short-session socket. */
-    static Path legacyRawFallback(Path resolved, String session) {
+    public static Path legacyRawFallback(Path resolved, String session) {
         if (nonBlank(System.getenv("CMUX_TUI_SOCKET")) != null
                 || nonBlank(System.getenv("CMUX_MUX_SOCKET")) != null) return null;
         validateSession(session);
