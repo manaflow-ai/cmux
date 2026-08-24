@@ -161,7 +161,7 @@ struct TaskComposerDirectorySearchResultsSections: View {
                     Text(
                         L10n.string(
                             "mobile.taskComposer.directoryPicker.search.coverage",
-                            defaultValue: "Search checks indexed folders across mounted volumes. Browse to reach unindexed or restricted locations."
+                            defaultValue: "Search checks the Mac’s indexed folders and scans its home folder live. Browse to reach restricted locations."
                         )
                     )
                     if let statusMessage {
@@ -251,7 +251,7 @@ struct TaskComposerDirectorySearchStatusOverlay: View {
                     Label(
                         L10n.string(
                             "mobile.taskComposer.directoryPicker.search.empty.title",
-                            defaultValue: "No Indexed Matches"
+                            defaultValue: "No Matching Folders"
                         ),
                         systemImage: "folder.badge.questionmark"
                     )
@@ -259,7 +259,7 @@ struct TaskComposerDirectorySearchStatusOverlay: View {
                     Text(
                         L10n.string(
                             "mobile.taskComposer.directoryPicker.search.empty.message",
-                            defaultValue: "Browse the Mac to reach folders outside its search index."
+                            defaultValue: "Nothing matched in the Mac’s index or home folder. Browse to look elsewhere, and check that cmux on the Mac can access its files."
                         )
                     )
                 }

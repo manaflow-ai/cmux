@@ -5658,7 +5658,7 @@ final class cmuxUITests: XCTestCase {
         try typeText("mobile-root", into: search, in: app)
         XCTAssertTrue(
             app.staticTexts[
-                "Search checks indexed folders across mounted volumes. Browse to reach unindexed or restricted locations."
+                "Search checks the Mac’s indexed folders and scans its home folder live. Browse to reach restricted locations."
             ].waitForExistence(timeout: 3)
         )
         let root = app.buttons["mobile-root"]
@@ -5692,6 +5692,11 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(hidden.waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["Projects.app"].exists)
         XCTAssertTrue(app.buttons["mobile-link"].exists)
+
+        // Recently used directories surface as quick chips under the search bar.
+        let recentChip = app.buttons["MobileTaskDirectoryRecent0"]
+        XCTAssertTrue(recentChip.exists)
+        XCTAssertTrue((recentChip.value as? String)?.contains("/Users/ui/recent-alpha") == true)
 
         tap(app.buttons["mobile-root"], in: app)
         XCTAssertTrue(app.buttons["Sources"].waitForExistence(timeout: 4))

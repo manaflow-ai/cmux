@@ -11419,13 +11419,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search checks indexed folders across mounted volumes. Browse to reach unindexed or restricted locations."
+            "value": "Search checks the Mac’s indexed folders and scans its home folder live. Browse to reach restricted locations."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "検索では、マウントされたボリューム内のインデックス登録済みフォルダを確認します。インデックス未登録またはアクセス制限のある場所は、参照して探してください。"
+            "value": "検索はMacのインデックス済みフォルダを確認し、ホームフォルダを直接スキャンします。制限された場所にはブラウズで移動してください。"
           }
         }
       }
@@ -11436,13 +11436,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Browse the Mac to reach folders outside its search index."
+            "value": "Nothing matched in the Mac’s index or home folder. Browse to look elsewhere, and check that cmux on the Mac can access its files."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macを参照すると、検索インデックス外のフォルダに移動できます。"
+            "value": "Macのインデックスにもホームフォルダにも一致するものはありませんでした。他の場所はブラウズで探し、Mac上のcmuxにファイルへのアクセス権があるか確認してください。"
           }
         }
       }
@@ -11453,13 +11453,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No Indexed Matches"
+            "value": "No Matching Folders"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インデックス内に一致する項目はありません"
+            "value": "一致するフォルダなし"
           }
         }
       }
