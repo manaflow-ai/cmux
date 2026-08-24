@@ -59,11 +59,11 @@ public struct CmuxPluginPermissions: Codable, Equatable, Sendable {
 public struct CmuxPluginGrant: Codable, Equatable, Sendable {
     /// Plugin identity this grant belongs to.
     public var pluginID: String
-    /// Manifest fingerprint at the time of approval.
+    /// Plugin artifact fingerprint at the time of approval.
     public var manifestFingerprint: String
     /// Whether the plugin is enabled.
     public var enabled: Bool
-    /// Whether the user has explicitly approved this manifest fingerprint.
+    /// Whether the user has explicitly approved this plugin artifact fingerprint.
     ///
     /// Approval is intentionally separate from enablement so a user can turn
     /// off an already-reviewed plugin without being shown the first-run
@@ -168,7 +168,7 @@ public struct CmuxPluginGrant: Codable, Equatable, Sendable {
 
 /// Actor-backed persistence for plugin enablement and permission approvals.
 ///
-/// A missing record, an unapproved/disabled record, or a manifest fingerprint
+/// A missing record, an unapproved/disabled record, or an artifact fingerprint
 /// mismatch all resolve to ``CmuxPluginPermissions/none``. This makes
 /// permission handling fail closed even if a plugin directory is copied over
 /// an existing one.

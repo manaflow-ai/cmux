@@ -9,7 +9,10 @@ public struct CmuxLoadedPlugin: Equatable, Sendable {
     public let directoryURL: URL
     /// The validated executable URL, when the manifest declares one.
     public let entrypointURL: URL?
-    /// Stable fingerprint used to invalidate stale permission grants.
+    /// Stable fingerprint of the manifest and validated entrypoint bytes.
+    ///
+    /// Permission approvals are bound to this value so replacing executable
+    /// contents cannot inherit a prior grant or session token.
     public let manifestFingerprint: String
 
     /// Creates a loaded plugin value.
@@ -274,11 +277,41 @@ public actor CmuxPluginDirectoryLoader {
                 entrypointURL = nil
             }
 
+            guard let entrypoint = manifest.entrypoint,
+                  let entrypointURL else {
+                // ``validatePluginManifest`` requires an entrypoint for every
+                // process-backed plugin. Keep this guard as a defense against
+                // a future schema path that could otherwise receive a
+                // manifest-only approval fingerprint.
+                failures.append(CmuxPluginLoadFailure(
+                    directoryURL: directory,
+                    code: .missingEntrypoint,
+                    detail: "entrypoint is missing or could not be resolved"
+                ))
+                continue
+            }
+
+            let fingerprint: String
+            do {
+                fingerprint = try Self.fingerprint(
+                    manifestData: data,
+                    entrypointDeclaration: entrypoint,
+                    entrypointURL: entrypointURL
+                )
+            } catch {
+                failures.append(CmuxPluginLoadFailure(
+                    directoryURL: directory,
+                    code: .missingEntrypoint,
+                    detail: "entrypoint could not be fingerprinted"
+                ))
+                continue
+            }
+
             plugins.append(CmuxLoadedPlugin(
                 manifest: manifest,
                 directoryURL: directory,
                 entrypointURL: entrypointURL,
-                manifestFingerprint: Self.fingerprint(data)
+                manifestFingerprint: fingerprint
             ))
         }
 
@@ -290,8 +323,36 @@ public actor CmuxPluginDirectoryLoader {
 
     private static let lowercaseHexDigits = Array("0123456789abcdef".utf8)
 
-    private static func fingerprint(_ data: Data) -> String {
-        let digest = SHA256.hash(data: data)
+    private static let fingerprintChunkSize = 64 * 1024
+
+    private static func fingerprint(
+        manifestData: Data,
+        entrypointDeclaration: String,
+        entrypointURL: URL
+    ) throws -> String {
+        var hasher = SHA256()
+        updateLengthPrefixed(manifestData, into: &hasher)
+        updateLengthPrefixed(Data(entrypointDeclaration.utf8), into: &hasher)
+
+        let handle = try FileHandle(forReadingFrom: entrypointURL)
+        defer { try? handle.close() }
+        while let chunk = try handle.read(upToCount: fingerprintChunkSize), !chunk.isEmpty {
+            hasher.update(data: chunk)
+        }
+        return hexadecimalString(for: hasher.finalize())
+    }
+
+    private static func updateLengthPrefixed(
+        _ data: Data,
+        into hasher: inout SHA256
+    ) {
+        let length = UInt64(data.count).bigEndian
+        let lengthData = withUnsafeBytes(of: length) { Data($0) }
+        hasher.update(data: lengthData)
+        hasher.update(data: data)
+    }
+
+    private static func hexadecimalString(for digest: SHA256.Digest) -> String {
         var bytes: [UInt8] = []
         bytes.reserveCapacity(SHA256.Digest.byteCount * 2)
         for byte in digest {

@@ -45,8 +45,9 @@ directory after symlink resolution.
 `eventHooks` and `paletteActions` are explicit capability families. Declaring
 an event or action without its family is rejected. Every plugin is disabled
 until the user reviews its requested scopes in Settings → Automation. A
-manifest fingerprint change invalidates the previous approval; disabling a
-plugin preserves the reviewed grant but stops its process and event stream.
+Any manifest or entrypoint-content fingerprint change invalidates the previous
+approval; disabling a plugin preserves the reviewed grant but stops its process
+and event stream.
 The process-backed core slice keeps the original sidebar `readScopes` and
 `actionScopes` separate; declaring those sidebar-only scopes in a process
 plugin is rejected until a future host combines the two transports.

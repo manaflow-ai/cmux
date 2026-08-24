@@ -7,7 +7,7 @@ public struct CmuxPluginDescriptor: Equatable, Sendable {
     public let plugin: CmuxLoadedPlugin
     /// The current user-approved capability intersection.
     public let permissions: CmuxPluginPermissions
-    /// Whether the current manifest fingerprint has an explicit stored grant.
+    /// Whether the current plugin artifact fingerprint has an explicit stored grant.
     public let isApproved: Bool
     /// The load-time error is kept outside descriptors in the report.
     public var isEnabled: Bool {
@@ -47,7 +47,7 @@ public struct CmuxPluginRegistrySnapshot: Equatable, Sendable {
 public enum CmuxPluginAuthorizationError: Error, Equatable, Sendable {
     /// No currently loaded plugin has the requested identifier.
     case unknownPlugin
-    /// The current manifest fingerprint has not been approved.
+    /// The current plugin artifact fingerprint has not been approved.
     case notApproved
     /// The plugin is disabled or has no active session.
     case disabled
