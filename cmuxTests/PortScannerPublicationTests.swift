@@ -494,6 +494,9 @@ struct PortScannerAgentPortRetirementTests {
         scanner.refreshAgentPorts(workspaceId: workspaceID, agentRoots: [root])
         let initialPorts = try #require(await iterator.next())
         #expect(initialPorts == [4321])
+        let requestedPIDsAfterInitialScan = await runner.lsofRequestedPIDs
+        let initialRequestedPIDs = requestedPIDsAfterInitialScan.first
+        #expect(initialRequestedPIDs == [100, 101, 102])
         scanner.setTrackedAgentScanningPaused(true)
         await runner.stopListening()
 
@@ -505,6 +508,8 @@ struct PortScannerAgentPortRetirementTests {
 
         let retiredPorts = try #require(await iterator.next())
         #expect(retiredPorts.isEmpty)
+        let postExitRequestedPIDs = (await runner.lsofRequestedPIDs).dropFirst()
+        #expect(postExitRequestedPIDs.allSatisfy { $0 == [100] })
 
         scanner.unregisterAgentWorkspace(workspaceId: workspaceID)
         scanner.queue.sync {}
@@ -550,6 +555,7 @@ private actor AgentPortChurnCommandRunner: CommandRunning {
     private let state: OSAllocatedUnfairLock<AgentPortChurnState>
     private let port: Int
     private(set) var lsofInvocationCount = 0
+    private(set) var lsofRequestedPIDs: [[Int]] = []
 
     init(state: OSAllocatedUnfairLock<AgentPortChurnState>, port: Int) {
         self.state = state
@@ -583,9 +589,20 @@ private actor AgentPortChurnCommandRunner: CommandRunning {
         }
 
         lsofInvocationCount += 1
+        let requestedPIDs = Self.selectedPIDs(for: "-p", in: arguments)
+        lsofRequestedPIDs.append(requestedPIDs)
         let listening = state.withLock { $0.listenerIsRunning }
-        guard listening else { return Self.noSelectedFiles() }
+        guard listening, requestedPIDs.contains(101) else { return Self.noSelectedFiles() }
         return Self.result(stdout: "p101\nf3\nn*:\(port)\n")
+    }
+
+    private static func selectedPIDs(for flag: String, in arguments: [String]) -> [Int] {
+        guard let flagIndex = arguments.firstIndex(of: flag) else { return [] }
+        let valueIndex = arguments.index(after: flagIndex)
+        guard valueIndex < arguments.endIndex else { return [] }
+        return arguments[valueIndex]
+            .split(separator: ",")
+            .compactMap { Int($0) }
     }
 
     private static func result(stdout: String) -> CommandResult {

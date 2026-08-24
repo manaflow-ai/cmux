@@ -18,6 +18,70 @@ extension PortScanner {
         lhs == .complete && rhs == .complete ? .complete : .incomplete
     }
 
+    /// Computes missing-port evidence from the identities that owned each
+    /// previously published port. A process-tree scan may be incomplete for an
+    /// unrelated child, but a listener PID that is gone or whose own lsof
+    /// result is complete still provides authoritative negative evidence.
+    func missingPortCompletenessByKey<Key: Hashable & Sendable>(
+        previousOwnersByKey: [Key: [Int: Set<AgentPIDProcessIdentity>]],
+        observedOwnersByKey: [Key: [Int: Set<AgentPIDProcessIdentity>]],
+        scannedKeys: Set<Key>,
+        lsofScan: PortLsofScanResult,
+        inspectedPIDs: Set<Int>
+    ) -> [Key: [Int: PortScanCompleteness]] {
+        var result: [Key: [Int: PortScanCompleteness]] = [:]
+        for key in scannedKeys {
+            guard let previousOwners = previousOwnersByKey[key] else { continue }
+            let observedOwners = observedOwnersByKey[key] ?? [:]
+            for (port, owners) in previousOwners where observedOwners[port] == nil {
+                guard !owners.isEmpty else { continue }
+                let isAuthoritative = owners.allSatisfy { owner in
+                    let pid = Int(owner.pid)
+                    guard let currentIdentity = processIdentityProvider(pid_t(pid)) else {
+                        return processPresenceProvider(pid_t(pid)) == .absent
+                    }
+                    guard currentIdentity == owner else {
+                        // A PID that now represents another process no longer
+                        // owns this port, even if that replacement is not part
+                        // of this scan's ownership graph.
+                        return true
+                    }
+                    guard inspectedPIDs.contains(pid) else { return false }
+                    return lsofScan.completeness(for: [pid]) == .complete
+                }
+                result[key, default: [:]][port] = isAuthoritative
+                    ? .complete
+                    : .incomplete
+            }
+        }
+        return result
+    }
+
+    /// Merges trusted listener identities from a scan and discards identities
+    /// for ports that the reconciler no longer publishes.
+    static func updatePortOwners<Key: Hashable & Sendable>(
+        _ ownersByKey: inout [Key: [Int: Set<AgentPIDProcessIdentity>]],
+        observedOwnersByKey: [Key: [Int: Set<AgentPIDProcessIdentity>]],
+        scannedKeys: Set<Key>,
+        trackedKeys: Set<Key>,
+        publishedSnapshot: [Key: [Int]]
+    ) {
+        ownersByKey = ownersByKey.filter { trackedKeys.contains($0.key) }
+        for key in scannedKeys.intersection(trackedKeys) {
+            var owners = ownersByKey[key] ?? [:]
+            for (port, identities) in observedOwnersByKey[key] ?? [:] where !identities.isEmpty {
+                owners[port] = identities
+            }
+            let publishedPorts = Set(publishedSnapshot[key] ?? [])
+            owners = owners.filter { publishedPorts.contains($0.key) }
+            if owners.isEmpty {
+                ownersByKey.removeValue(forKey: key)
+            } else {
+                ownersByKey[key] = owners
+            }
+        }
+    }
+
     /// Computes panel completeness from the process snapshot and only the PIDs owned by each TTY.
     static func panelCompletenessByKey(
         panelTTYs: [PanelKey: String],

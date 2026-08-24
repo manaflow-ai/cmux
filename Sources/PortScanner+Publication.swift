@@ -70,15 +70,21 @@ extension PortScanner {
     func deliverAgentResults(
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
+        observedOwnersByWorkspace: [UUID: [Int: Set<AgentPIDProcessIdentity>]],
         agentRevisions: [UUID: UInt64],
         completenessByWorkspace: [UUID: PortScanCompleteness],
+        lsofScan: PortLsofScanResult?,
+        inspectedPIDs: Set<Int>,
         requestID: UInt64
     ) {
         let validatedResults = validatedAgentResults(
             workspaceIds: workspaceIds,
             agentPortsByWorkspace: agentPortsByWorkspace,
+            observedOwnersByWorkspace: observedOwnersByWorkspace,
             agentRevisions: agentRevisions,
             completenessByWorkspace: completenessByWorkspace,
+            lsofScan: lsofScan,
+            inspectedPIDs: inspectedPIDs,
             requestID: requestID
         )
         guard !validatedResults.isEmpty else { return }
@@ -148,8 +154,11 @@ extension PortScanner {
     private func validatedAgentResults(
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
+        observedOwnersByWorkspace: [UUID: [Int: Set<AgentPIDProcessIdentity>]],
         agentRevisions: [UUID: UInt64],
         completenessByWorkspace: [UUID: PortScanCompleteness],
+        lsofScan: PortLsofScanResult?,
+        inspectedPIDs: Set<Int>,
         requestID: UInt64
     ) -> [AgentPortScanPublication] {
         var results: [AgentPortScanPublication] = []
@@ -164,6 +173,7 @@ extension PortScanner {
         guard !validWorkspaceIds.isEmpty else { return [] }
         var replacementWorkspaces: Set<UUID> = []
         var scannedPorts: [UUID: [Int]] = [:]
+        var observedOwners: [UUID: [Int: Set<AgentPIDProcessIdentity>]] = [:]
         var validCompletenessByWorkspace: [UUID: PortScanCompleteness] = [:]
         for workspaceId in validWorkspaceIds {
             let completeness = completenessByWorkspace[workspaceId, default: .incomplete]
@@ -175,15 +185,39 @@ extension PortScanner {
             if let ports = agentPortsByWorkspace[workspaceId] {
                 scannedPorts[workspaceId] = Array(ports)
             }
+            if let owners = observedOwnersByWorkspace[workspaceId] {
+                observedOwners[workspaceId] = owners
+            }
         }
         agentPortSnapshot.remove(keys: replacementWorkspaces)
+        for workspaceId in replacementWorkspaces {
+            agentPortOwnersByWorkspace.removeValue(forKey: workspaceId)
+        }
+        let completenessByPort: [UUID: [Int: PortScanCompleteness]] = {
+            guard let lsofScan else { return [:] }
+            return missingPortCompletenessByKey(
+                previousOwnersByKey: agentPortOwnersByWorkspace,
+                observedOwnersByKey: observedOwners,
+                scannedKeys: validWorkspaceIds,
+                lsofScan: lsofScan,
+                inspectedPIDs: inspectedPIDs
+            )
+        }()
         agentPortSnapshot.reconcile(
             scannedPorts: scannedPorts,
             scannedKeys: validWorkspaceIds,
             trackedKeys: trackedAgentWorkspaces,
-            completenessByKey: validCompletenessByWorkspace
+            completenessByKey: validCompletenessByWorkspace,
+            completenessByPort: completenessByPort
         )
         let stableSnapshot = agentPortSnapshot.snapshot
+        Self.updatePortOwners(
+            &agentPortOwnersByWorkspace,
+            observedOwnersByKey: observedOwners,
+            scannedKeys: validWorkspaceIds,
+            trackedKeys: trackedAgentWorkspaces,
+            publishedSnapshot: stableSnapshot
+        )
         for workspaceId in validWorkspaceIds {
             let expectedRevision = agentRevisions[workspaceId, default: 0]
             let ports = stableSnapshot[workspaceId] ?? []

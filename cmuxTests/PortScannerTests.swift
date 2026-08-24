@@ -11,6 +11,62 @@ import Testing
 @testable import cmux
 #endif
 
+@Suite("Port scanner owner-scoped completeness")
+struct PortScannerOwnerScopedCompletenessTests {
+    @Test("An unrelated incomplete PID does not pin a known listener port")
+    func unrelatedIncompletePIDDoesNotPinListener() {
+        let workspaceID = UUID()
+        let listener = AgentPIDProcessIdentity(pid: 101, startSeconds: 10, startMicroseconds: 0)
+        let unrelated = AgentPIDProcessIdentity(pid: 102, startSeconds: 11, startMicroseconds: 0)
+        let scanner = PortScanner(
+            processIdentityProvider: { pid in
+                pid == listener.pid ? listener : nil
+            },
+            processPresenceProvider: { _ in .present }
+        )
+        let lsofScan = PortLsofScanResult(
+            values: [:],
+            globallyComplete: true,
+            incompletePIDs: [Int(unrelated.pid)]
+        )
+
+        let completeness = scanner.missingPortCompletenessByKey(
+            previousOwnersByKey: [workspaceID: [4200: [listener]]],
+            observedOwnersByKey: [:],
+            scannedKeys: [workspaceID],
+            lsofScan: lsofScan,
+            inspectedPIDs: [Int(listener.pid)]
+        )
+
+        #expect(completeness[workspaceID]?[4200] == .complete)
+    }
+
+    @Test("An unreadable live owner keeps its missing port incomplete")
+    func unreadableLiveOwnerRemainsIncomplete() {
+        let workspaceID = UUID()
+        let listener = AgentPIDProcessIdentity(pid: 101, startSeconds: 10, startMicroseconds: 0)
+        let scanner = PortScanner(
+            processIdentityProvider: { _ in nil },
+            processPresenceProvider: { _ in .present }
+        )
+        let lsofScan = PortLsofScanResult(
+            values: [:],
+            globallyComplete: true,
+            incompletePIDs: []
+        )
+
+        let completeness = scanner.missingPortCompletenessByKey(
+            previousOwnersByKey: [workspaceID: [4200: [listener]]],
+            observedOwnersByKey: [:],
+            scannedKeys: [workspaceID],
+            lsofScan: lsofScan,
+            inspectedPIDs: [Int(listener.pid)]
+        )
+
+        #expect(completeness[workspaceID]?[4200] == .incomplete)
+    }
+}
+
 @Suite("Port scanner process capture")
 struct PortScannerProcessCaptureTests {
     @Test("Malformed ps rows preserve valid mappings but make the scan incomplete")
