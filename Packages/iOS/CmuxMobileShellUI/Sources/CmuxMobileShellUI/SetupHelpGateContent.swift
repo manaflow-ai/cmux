@@ -44,7 +44,13 @@ struct SetupHelpGateContent {
                     On newer versions, open Tailscale Pairing and scan its code here.
                     """
                 ),
-                link: nil,
+                link: SetupHelpGateLink(
+                    title: L10n.string(
+                        "mobile.setupHelp.macAppLink",
+                        defaultValue: "Download cmux"
+                    ),
+                    url: CmuxMarketingLink.download
+                ),
                 identifierSuffix: "signedInNeverPaired",
                 linkAccessibilityIdentifier: "MobileSetupHelpMacAppLink"
             )

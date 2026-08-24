@@ -16,6 +16,13 @@ public final class MobileAutoConnectMigrationStore {
     static let legacyResolutionKey = "dev.cmux.mobile.autoConnectIntroduction.v1"
     /// The versioned resolution key for the Mac compatibility introduction.
     public static let resolutionKey = "dev.cmux.mobile.autoConnectIntroduction.v2"
+    /// Progress keys of retired onboarding designs. Each redesign gets a fresh
+    /// key so an old completion cannot suppress the new tour, but for one-time
+    /// migration eligibility a completed older tour is still exactly the
+    /// "existing install" signal this snapshot needs.
+    static let priorOnboardingProgressKeys = [
+        "dev.cmux.mobile.onboarding.redesign.progress.v1"
+    ]
 
     // UserDefaults is Apple-documented thread-safe; OK to hold nonisolated.
     private nonisolated(unsafe) let defaults: UserDefaults
@@ -44,8 +51,10 @@ public final class MobileAutoConnectMigrationStore {
             return
         }
 
-        let isEligible = defaults.string(forKey: MobileOnboardingStore.progressKey)
-            == MobileOnboardingProgress.complete.rawValue
+        let completedValue = MobileOnboardingProgress.complete.rawValue
+        let isEligible = ([MobileOnboardingStore.progressKey]
+            + Self.priorOnboardingProgressKeys)
+            .contains { defaults.string(forKey: $0) == completedValue }
         let snapshot: MobileAutoConnectMigrationResolution = isEligible ? .pending : .ineligible
         self.resolution = snapshot
         defaults.set(snapshot.rawValue, forKey: Self.resolutionKey)
