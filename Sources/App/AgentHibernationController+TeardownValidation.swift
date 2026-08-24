@@ -25,15 +25,14 @@ extension AgentHibernationController {
         let currentTerminationProcessIDs = currentProcessEntry?.terminationProcessIDs ?? []
         let currentTerminationProcessIdentities =
             currentProcessEntry?.terminationProcessIdentities ?? [:]
+        // Routine reclaim may terminate a live agent only when the fresh index
+        // still proves the same exclusive, identity-complete process scope.
         return (shouldProceed?() ?? true) &&
             AgentHibernationTrackingGate.isEnabled() &&
             record.isStillOwnedByOriginalWorkspace &&
             (
                 request.trigger == .systemMemoryPressure ||
-                    !index.hasLiveProcess(
-                        workspaceId: record.key.workspaceId,
-                        panelId: record.key.panelId
-                    )
+                    currentProcessEntry?.processSafetyAllowsScheduledHibernation ?? true
             ) &&
             (
                 request.trigger != .systemMemoryPressure ||

@@ -4,6 +4,7 @@ struct AgentHibernationPlannerInput: Sendable {
     let key: AgentHibernationPanelKey
     let hasRestorableAgent: Bool
     let isLive: Bool
+    /// Live processes contribute to the cap; the controller owns termination safety.
     let hasLiveProcess: Bool
     let isProtected: Bool
     let lifecycle: AgentHibernationLifecycleState

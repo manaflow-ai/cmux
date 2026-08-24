@@ -1,11 +1,35 @@
 import Foundation
 
 extension AgentHibernationRecord {
+    /// Whether the indexed process set is complete enough to terminate safely.
     var hasPressureSafeProcessEvidence: Bool {
         hasLiveProcess &&
             !containsUnrelatedProcess &&
             !processIDs.isEmpty &&
             processIdentities.count == processIDs.count
+    }
+
+    /// Scheduled reclaim may terminate a live process only with the same
+    /// complete scope evidence required by the critical-pressure path.
+    func processSafetyAllowsHibernation(for trigger: AgentHibernationReclaimTrigger) -> Bool {
+        switch trigger {
+        case .scheduled:
+            return !hasLiveProcess || hasPressureSafeProcessEvidence
+        case .systemMemoryPressure:
+            return hasPressureSafeProcessEvidence
+        }
+    }
+}
+
+extension RestorableAgentSessionIndex.Entry {
+    /// Whether a fresh index still proves a safe scheduled process scope.
+    var processSafetyAllowsScheduledHibernation: Bool {
+        processIDs.isEmpty ||
+            (
+                !containsUnrelatedProcess &&
+                    !terminationProcessIDs.isEmpty &&
+                    terminationProcessIdentities.count == terminationProcessIDs.count
+            )
     }
 }
 

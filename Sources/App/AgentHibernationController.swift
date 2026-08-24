@@ -191,21 +191,28 @@ final class AgentHibernationController {
             let isLive = isLiveByKey[record.key] ?? false
             var effectiveLastActivityAt = record.lastActivityAt
             if record.hasLiveProcess {
-                tailFingerprintSamples.removeValue(forKey: record.key)
-                if confirmations[record.key]?.trigger == .scheduled {
-                    confirmations.removeValue(forKey: record.key)
+                let scheduledProcessIsUnsafe =
+                    !record.processSafetyAllowsHibernation(for: .scheduled)
+                if trigger == .systemMemoryPressure || scheduledProcessIsUnsafe {
+                    tailFingerprintSamples.removeValue(forKey: record.key)
                 }
-                if teardownInFlightByPanel[record.key]?.trigger == .scheduled {
-                    bumpTeardownValidationEpoch(record.key)
-                }
-                if trigger == .scheduled {
+                if trigger == .scheduled && scheduledProcessIsUnsafe {
+                    if confirmations[record.key]?.trigger == .scheduled {
+                        confirmations.removeValue(forKey: record.key)
+                    }
+                    if teardownInFlightByPanel[record.key]?.trigger == .scheduled {
+                        bumpTeardownValidationEpoch(record.key)
+                    }
                     unableToProtectByPanel.removeValue(forKey: record.key)
                 }
             }
+            let canSampleTail = trigger == .scheduled
+                ? record.processSafetyAllowsHibernation(for: .scheduled)
+                : !record.hasLiveProcess
             if shouldMaintainTailSamples,
                isLive,
                !record.isProtected,
-               !record.hasLiveProcess,
+               canSampleTail,
                record.lifecycle.allowsHibernation,
                !record.hasUnconfirmedTerminalInput,
                let tailActivityAt = updateTailFingerprintSample(record: record, now: nowTime) {
@@ -272,8 +279,7 @@ final class AgentHibernationController {
         guard record.lifecycle.allowsHibernation,
               !record.hasUnconfirmedTerminalInput,
               !record.isProtected,
-              (trigger == .systemMemoryPressure || !record.hasLiveProcess),
-              trigger != .systemMemoryPressure || record.hasPressureSafeProcessEvidence,
+              record.processSafetyAllowsHibernation(for: trigger),
               record.terminalPanel.surface.hasLiveSurface,
               !record.terminalPanel.isAgentHibernated else {
             confirmations.removeValue(forKey: record.key)
