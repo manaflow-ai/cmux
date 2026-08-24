@@ -239,7 +239,7 @@ extension CMUXCLI {
                 // Poll readiness instead of one fixed sleep: stop as soon
                 // as the daemon reports healthy, give up after ~5s.
                 for _ in 0..<10 {
-                    Thread.sleep(forTimeInterval: 0.5)
+                    waitForSubrouterReadinessInterval()
                     statusResponse = try? client.sendV2(method: "subrouter.status", responseTimeout: Self.subrouterDataResponseTimeout)
                     if let daemon = statusResponse?["daemon"] as? [String: Any],
                        (daemon["state"] as? String) == "healthy" {
@@ -273,6 +273,14 @@ extension CMUXCLI {
         print("  cmux subrouter switch codex <email>     switch the active account")
         print("")
         print("Team server? `sr server add <name> --url <url> --default` — cmux follows sr's selection automatically.")
+    }
+
+    /// Gives the just-launched daemon a bounded half-second interval between
+    /// readiness probes while keeping this synchronous CLI command responsive
+    /// to the run-loop. The probe itself remains authoritative; the interval
+    /// is only backoff, never the readiness signal.
+    private func waitForSubrouterReadinessInterval() {
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.5))
     }
 
     private static func isLoopbackSubrouterEndpoint(_ raw: String) -> Bool {
