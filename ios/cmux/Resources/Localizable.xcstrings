@@ -5362,6 +5362,227 @@
         }
       }
     },
+    "mobile.settings.pushFilters.addPattern": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加"
+          }
+        }
+      }
+    },
+    "mobile.settings.pushFilters.error.duplicate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This pattern is already muted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このパターンはすでにミュートされています。"
+          }
+        }
+      }
+    },
+    "mobile.settings.pushFilters.error.invalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This pattern is not a valid regular expression."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正規表現として無効なパターンです。"
+          }
+        }
+      }
+    },
+    "mobile.settings.pushFilters.error.limitFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can keep up to %lld filters."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィルタは最大%lld件まで保存できます。"
+          }
+        }
+      }
+    },
+    "mobile.settings.pushFilters.error.tooLongFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Patterns are limited to %lld characters."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パターンは%lld文字までに制限されています。"
+          }
+        }
+      }
+    },
+    "mobile.settings.pushFilters.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muted notifications are not pushed to this phone. They still appear on the Mac and in this phone's notification feed, and the app icon badge still updates."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ミュートした通知はこの端末にプッシュ配信されません。Macとこの端末の通知フィードには引き続き表示され、アプリアイコンのバッジも更新されます。"
+          }
+        }
+      }
+    },
+    "mobile.settings.pushFilters.groupsHeader": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muted Workspace Groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ミュート中のワークスペースグループ"
+          }
+        }
+      }
+    },
+    "mobile.settings.pushFilters.noGroups": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No workspace groups are available from connected computers."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中のコンピュータにワークスペースグループがありません。"
+          }
+        }
+      }
+    },
+    "mobile.settings.pushFilters.notConnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未接続"
+          }
+        }
+      }
+    },
+    "mobile.settings.pushFilters.patternPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Title pattern (regex)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルの正規表現"
+          }
+        }
+      }
+    },
+    "mobile.settings.pushFilters.patternsHeader": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muted Title Patterns"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ミュート中のタイトルパターン"
+          }
+        }
+      }
+    },
+    "mobile.settings.pushFilters.row": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification Filters"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知フィルタ"
+          }
+        }
+      }
+    },
+    "mobile.settings.pushFilters.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification Filters"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知フィルタ"
+          }
+        }
+      }
+    },
     "mobile.tabs.notifications": {
       "extractionState": "manual",
       "localizations": {

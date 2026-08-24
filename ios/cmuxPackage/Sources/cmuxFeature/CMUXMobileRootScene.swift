@@ -44,6 +44,10 @@ public struct CMUXMobileRootScene: View {
     private let buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
+    /// The app-root push mute-rule store, injected into the environment so
+    /// Settings can author rules. Optional so package-owned Debug hosts and
+    /// tests keep compiling without one (the filters row hides itself).
+    private let pushFilterSettings: MobilePushFilterSettings?
     private let displaySettings: MobileDisplaySettings
     private let featureFlags: MobileFeatureFlags
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
@@ -90,6 +94,8 @@ public struct CMUXMobileRootScene: View {
     ///   - analytics: The app-root analytics emitter, injected into the store.
     ///   - pushCoordinator: The app-root push coordinator (shared with the app
     ///     delegate) injected into the environment.
+    ///   - pushFilterSettings: The app-root push mute-rule store injected into
+    ///     the environment (drives the Settings Notification Filters screen).
     ///   - displaySettings: The app-root mobile display settings injected into
     ///     the environment (drives workspace-title wrapping).
     ///   - featureFlags: The live PostHog-backed mobile feature flags.
@@ -117,6 +123,7 @@ public struct CMUXMobileRootScene: View {
         reachability: any ReachabilityProviding,
         analytics: any AnalyticsEmitting,
         pushCoordinator: MobilePushCoordinator,
+        pushFilterSettings: MobilePushFilterSettings? = nil,
         displaySettings: MobileDisplaySettings,
         featureFlags: MobileFeatureFlags,
         connectionMethodStore: MobileConnectionMethodStore,
@@ -135,6 +142,7 @@ public struct CMUXMobileRootScene: View {
         self.reachability = reachability
         self.analytics = analytics
         self.pushCoordinator = pushCoordinator
+        self.pushFilterSettings = pushFilterSettings
         self.displaySettings = displaySettings
         self.featureFlags = featureFlags
         self.connectionMethodStore = connectionMethodStore
@@ -372,6 +380,7 @@ public struct CMUXMobileRootScene: View {
             .tailscaleStatusMonitor(tailscaleStatusMonitor)
             #if os(iOS)
             .environment(pushCoordinator)
+            .environment(pushFilterSettings)
             .environment(displaySettings)
             .terminalFilesChipEnabled(featureFlags.terminalFilesChipEnabled)
             .environment(connectionMethodStore)

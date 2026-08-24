@@ -52,6 +52,18 @@ private actor MobilePushSingleFlight<Value: Sendable> {
     }
 }
 
+/// How a push that arrived while the app is foreground should present.
+public enum MobilePushForegroundDecision: Equatable, Sendable {
+    /// Show the banner with sound and badge.
+    case present
+    /// A user mute rule matched: no banner or sound, but the badge still
+    /// applies (matching the server's badge-only muted lane).
+    case suppressedByFilter
+    /// The user is already viewing the notification's terminal: drop
+    /// everything; the live lane keeps the badge current.
+    case suppressedByContext
+}
+
 /// Bridges APNs push between the app-target `AppDelegate` and the mobile shell
 /// store: drives opt-in registration, hands device tokens to the injected
 /// ``CmuxAuthRuntime/PushRegistrationService``, and routes foreground
@@ -68,6 +80,12 @@ public final class MobilePushCoordinator {
     private let registration: any PushRegistering
     private let analytics: any AnalyticsEmitting
     private let diagnosticLog: DiagnosticLog?
+    /// User-authored mute rules mirrored locally so foreground presentation
+    /// matches the server's send-time filtering even before the sync lands.
+    /// `nil` (previews, tests without filters) disables local filtering.
+    private let filterSettings: MobilePushFilterSettings?
+    /// Stateless matcher shared by every foreground evaluation.
+    private let filterEvaluator = MobilePushFilterEvaluator()
     /// The system-notification surface used by the cold dismiss lane. Owned here
     /// (not via the store) because a silent dismiss push can wake the app in the
     /// background before any scene — and therefore any store — exists.
@@ -200,11 +218,14 @@ public final class MobilePushCoordinator {
     ///     any store exists. Defaults to the standard-defaults-backed queue.
     ///   - now: Clock seam for pending deep-link and inline-reply expiry. Defaults
     ///     to `Date.init`.
+    ///   - filterSettings: The app-root mute-rule store consulted before any
+    ///     foreground banner is shown. Defaults to `nil` (no local filtering).
     public init(
         registration: any PushRegistering,
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         diagnosticLog: DiagnosticLog? = nil,
         phoneAPIOrigin: String = "https://cmux.com",
+        filterSettings: MobilePushFilterSettings? = nil,
         defaults: UserDefaults = .standard,
         deliveredNotificationClearer: any DeliveredNotificationClearing = SystemDeliveredNotificationClearer(),
         pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(),
@@ -242,6 +263,7 @@ public final class MobilePushCoordinator {
         self.analytics = analytics
         self.diagnosticLog = diagnosticLog
         self.phoneAPIOrigin = phoneAPIOrigin
+        self.filterSettings = filterSettings
         self.defaults = defaults
         self.enabledMirror = defaults.bool(forKey: Self.enabledKey)
         self.deliveredNotificationClearer = deliveredNotificationClearer
@@ -954,13 +976,62 @@ public final class MobilePushCoordinator {
 
     /// Whether to show a banner while the app is foreground, scoped to the Mac
     /// that sent the notification when the payload includes it.
+    ///
+    /// Compatibility wrapper over ``foregroundDecision(workspaceId:surfaceId:macDeviceId:macInstanceTag:title:workspaceGroupId:workspaceGroupName:)``;
+    /// callers that must distinguish a mute from same-context suppression (to
+    /// keep the badge accurate) use the decision directly.
     public func shouldPresentInForeground(
         workspaceId: String?,
         surfaceId: String?,
         macDeviceId: String?,
-        macInstanceTag: String? = nil
+        macInstanceTag: String? = nil,
+        title: String? = nil,
+        workspaceGroupId: String? = nil,
+        workspaceGroupName: String? = nil
     ) -> Bool {
+        foregroundDecision(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            macDeviceId: macDeviceId,
+            macInstanceTag: macInstanceTag,
+            title: title,
+            workspaceGroupId: workspaceGroupId,
+            workspaceGroupName: workspaceGroupName
+        ) == .present
+    }
+
+    /// How a foreground push should present.
+    ///
+    /// User mute rules run FIRST, mirroring the server's send-time filtering
+    /// (the server degrades or drops muted pushes once the filters document
+    /// syncs; this keeps the foreground path consistent before that). Only
+    /// then does the same-workspace suppression apply. A mute is reported
+    /// distinctly because the caller must still apply the push's badge (the
+    /// server's muted lane is a badge-only push; the local mirror keeps that
+    /// property), while same-context suppression drops everything as before.
+    public func foregroundDecision(
+        workspaceId: String?,
+        surfaceId: String?,
+        macDeviceId: String?,
+        macInstanceTag: String? = nil,
+        title: String? = nil,
+        workspaceGroupId: String? = nil,
+        workspaceGroupName: String? = nil
+    ) -> MobilePushForegroundDecision {
         diagnosticLog?.recordAppEvent(.pushReceivedInForeground)
+        if let filterSettings,
+           filterEvaluator.isMuted(
+               candidate: MobilePushFilterCandidate(
+                   title: title,
+                   workspaceGroupId: workspaceGroupId,
+                   workspaceGroupName: workspaceGroupName,
+                   macDeviceId: macDeviceId
+               ),
+               rules: filterSettings.rules
+           ) {
+            diagnosticLog?.recordAppEvent(.pushSuppressedInForeground)
+            return .suppressedByFilter
+        }
         let shouldPresent: Bool
         if let store, let workspaceId,
            store.selectedWorkspaceMatches(
@@ -979,7 +1050,7 @@ public final class MobilePushCoordinator {
         diagnosticLog?.recordAppEvent(
             shouldPresent ? .pushPresentedInForeground : .pushSuppressedInForeground
         )
-        return shouldPresent
+        return shouldPresent ? .present : .suppressedByContext
     }
 
     /// Deep-link to the workspace/terminal a tapped notification refers to.
