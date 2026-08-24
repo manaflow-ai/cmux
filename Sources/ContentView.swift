@@ -1764,17 +1764,7 @@ struct ContentView: View {
             // The environment reader owns the Equatable boundary for both
             // renderers, so its broad environment projection cannot rebuild
             // this O(workspaces) subtree for unrelated key changes.
-            Group {
-                if featureFlags.isAppKitSidebarListEnabled {
-                    // FLAG(sidebar-appkit-list-experiment): parent-driven
-                    // re-evaluations (divider width ticks, unrelated ContentView
-                    // state churn) skip the sidebar subtree; all sidebar content
-                    // flows through tracked dependencies that bypass the gate.
-                    sidebar.equatable()
-                } else {
-                    sidebar
-                }
-            }
+            sidebar
         }
         .modifier(SidebarWidthFrameModifier(layout: sidebarLayout))
         .frame(maxHeight: .infinity, alignment: .topLeading)

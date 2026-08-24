@@ -451,7 +451,7 @@ struct SidebarWorkspaceTableTests {
         var pumpModel = baseModel
         pumpModel.latestNotificationText = "metadata refresh"
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: .dark,
+            environment: .sidebarTableTestValues(colorScheme: .dark),
             globalFontMagnificationPercent: 100,
             lazyContractProbe: SidebarLazyContractProbe()
         )
@@ -807,7 +807,7 @@ struct SidebarWorkspaceTableResizeLifecycleTests {
     private func makeRowConfiguration() -> SidebarWorkspaceTableRowConfiguration {
         let workspaceId = UUID()
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: .light,
+            environment: .sidebarTableTestValues(colorScheme: .light),
             globalFontMagnificationPercent: 100,
             lazyContractProbe: SidebarLazyContractProbe()
         )

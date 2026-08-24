@@ -35,6 +35,7 @@ struct SidebarWorkspaceRowInlineRenameTests {
             window.orderFront(nil)
             cell.configure(
                 model: model,
+                environment: SidebarWorkspaceRowSuspensionTests.tableEnvironment,
                 actions: SidebarWorkspaceRowSuspensionTests.makeActions(
                     model: model,
                     onCommitRename: { [weak self] title in
