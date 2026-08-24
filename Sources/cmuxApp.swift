@@ -55,6 +55,8 @@ struct cmuxApp: App {
     /// hosted-browser sign-in flow). Constructed once at app launch and
     /// injected into AppDelegate and the auth-consuming services.
     private let authComposition: MacAuthComposition
+    /// Composition-root owner for the config-backed automation bridge.
+    private let automationEngine: AutomationEngine
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore: TerminalNotificationStore
     @StateObject var closedItemHistoryStore: ClosedItemHistoryStore
@@ -204,6 +206,17 @@ struct cmuxApp: App {
         _closedItemHistoryStore = StateObject(wrappedValue: closedItemHistoryStore)
         _sidebarState = StateObject(wrappedValue: sidebarState)
         _focusHistoryMenuInvalidator = StateObject(wrappedValue: focusHistoryMenuInvalidator)
+        let automationEngine = AutomationEngine(
+            workspaceTagsResolver: { [weak tabManager] workspaceID in
+                guard let workspace = tabManager?.tabs.first(where: { $0.id == workspaceID }) else {
+                    return []
+                }
+                return workspace.sidebarStatusEntriesInDisplayOrder().flatMap { entry in
+                    [entry.key, entry.value]
+                }
+            }
+        )
+        self.automationEngine = automationEngine
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
         // Migrate legacy and old-format socket mode values to the new enum.
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
@@ -237,7 +250,8 @@ struct cmuxApp: App {
             notificationStore: notificationStore,
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
-            auth: authComposition
+            auth: authComposition,
+            automationEngine: automationEngine
         )
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }

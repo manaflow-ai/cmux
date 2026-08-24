@@ -57,6 +57,7 @@ extension CMUXCLI {
         "__tmux-compat",
         "agent-hibernation",
         "ai-accounts",
+        "automation",
         "auth",
         "bind-key",
         "break-pane",

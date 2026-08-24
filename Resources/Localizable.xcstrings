@@ -22,6 +22,76 @@
         "ja": { "stringUnit": { "state": "translated", "value": "--reply                自由入力のインライン返信を許可" } }
       }
     },
+    "cli.automation.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux automation <list|show|test|enable|disable|logs|reload> [args]\n\nRules live in ~/.cmuxterm/automations.json.\nExamples:\n  cmux automation list\n  cmux automation show surface-needs-input\n  cmux automation test surface-needs-input --event '{\"name\":\"agent.needs_input\"}'\n  cmux automation enable surface-needs-input\n  cmux automation disable surface-needs-input\n  cmux automation logs [--limit <n>]\n  cmux automation reload" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux automation <list|show|test|enable|disable|logs|reload> [引数]\n\nルールは ~/.cmuxterm/automations.json に保存されます。\n例:\n  cmux automation list\n  cmux automation show surface-needs-input\n  cmux automation test surface-needs-input --event '{\"name\":\"agent.needs_input\"}'\n  cmux automation enable surface-needs-input\n  cmux automation disable surface-needs-input\n  cmux automation logs [--limit <n>]\n  cmux automation reload" } }
+      }
+    },
+    "automation.error.encodeRPC": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Failed to encode automation RPC request" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動化 RPC リクエストをエンコードできませんでした" } }
+      }
+    },
+    "automation.error.engineUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Automation engine is not available" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動化エンジンを利用できません" } }
+      }
+    },
+    "automation.error.focusSuppressed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Automation RPC requires allow_focus=true for %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動化 RPC で %@ を実行するには allow_focus=true が必要です" } }
+      }
+    },
+    "automation.error.missingRuleID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Missing automation rule id" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動化ルール ID がありません" } }
+      }
+    },
+    "automation.error.ruleNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Automation rule not found" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動化ルールが見つかりません" } }
+      }
+    },
+    "automation.error.testEventObject": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "automation.test requires event object" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "automation.test にはイベントオブジェクトが必要です" } }
+      }
+    },
+    "cli.automation.error.eventFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "automation test requires --event <json>" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "automation test には --event <json> が必要です" } }
+      }
+    },
+    "cli.automation.error.eventObject": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "automation test event must be a JSON object" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "automation test のイベントは JSON オブジェクトである必要があります" } }
+      }
+    },
+    "cli.automation.output.noRules": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No automation rules" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動化ルールはありません" } }
+      }
+    },
     "debug.menu.notification.all": {
       "extractionState": "manual",
       "localizations": {

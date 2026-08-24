@@ -139,6 +139,9 @@ class TerminalController {
     @MainActor private(set) var accountFlow: HostAccountFlow?
     @MainActor private(set) var caffeineController: CaffeineController?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
+    /// App-lifetime automation engine, attached by the composition root after
+    /// the initial TabManager and notification store are ready.
+    @MainActor private var automationEngine: AutomationEngine?
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
     /// Main-actor grants for the file currently displayed by each mobile panel.
     /// The live panel inventory and artifact reads share this owner so a closed
@@ -325,6 +328,18 @@ class TerminalController {
         "debug.right_sidebar.focus",
         "feed.jump"
     ]
+
+    nonisolated static func commandHasFocusIntent(
+        commandKey: String,
+        isV2: Bool,
+        params: [String: Any]
+    ) -> Bool {
+        if isV2 {
+            return focusIntentV2Methods.contains(commandKey)
+                || explicitFocusParamAllowsFocus(commandKey: commandKey, params: params)
+        }
+        return focusIntentV1Commands.contains(commandKey)
+    }
 
     /// The main-actor RPC dispatch coordinator (CmuxControlSocket). Owns the
     /// `kind:N` handle registry and the moved command domains (window so far,
@@ -582,9 +597,15 @@ class TerminalController {
     }
 
     nonisolated static func socketCommandAllowsInAppFocusMutations(commandKey: String, isV2: Bool, params: [String: Any] = [:]) -> Bool {
+        // Automation actions run through the same dispatcher as socket/CLI
+        // calls, but their default is deliberately focus-neutral. A task-local
+        // override lets an action opt into focus without weakening the normal
+        // command policy for user and external CLI traffic.
+        if let automationOverride = CmuxAutomationInvocationContext.focusAllowed {
+            return automationOverride
+        }
         if isV2 {
-            return focusIntentV2Methods.contains(commandKey)
-                || explicitFocusParamAllowsFocus(commandKey: commandKey, params: params)
+            return commandHasFocusIntent(commandKey: commandKey, isV2: true, params: params)
         }
         if commandKey == "right_sidebar" {
             return rightSidebarCommandAllowsInAppFocusMutations(args: params["args"] as? String ?? "")
@@ -2128,6 +2149,25 @@ class TerminalController {
                 return errorResponse
             }
             let request = relayAuthorization.request
+            let automationOrigin = Self.automationOrigin(from: trimmed)
+                ?? CmuxAutomationInvocationContext.eventOrigin
+
+            if CmuxAutomationInvocationContext.focusAllowed == false,
+               Self.commandHasFocusIntent(
+                   commandKey: request.method,
+                   isV2: true,
+                   params: request.params.mapValues(\.foundationObject)
+               ) {
+                return v2Error(
+                    id: request.id.map(\.foundationObject),
+                    code: "focus_suppressed",
+                    message: String(
+                        localized: "automation.error.focusSuppressed",
+                        defaultValue: "Automation RPC requires allow_focus=true for \(request.method)"
+                    ).replacingOccurrences(of: "%@", with: request.method),
+                    data: nil
+                )
+            }
 
             let policy = Self.executionPolicy(forV2Method: request.method)
             if Thread.isMainThread, policy == .socketWorker(mainThreadCallable: false) {
@@ -2138,9 +2178,13 @@ class TerminalController {
                 )
             }
             if policy.runsOnSocketWorker {
-                return socketWorkerV2Response(handling: request)
+                return CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
+                    socketWorkerV2Response(handling: request)
+                }
             }
-            return processParsedV2Command(request)
+            return CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
+                processParsedV2Command(request)
+            }
         }
 
         let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
@@ -2405,7 +2449,12 @@ class TerminalController {
         case .failure(let parseError):
             return Self.v2Encoder.response(for: parseError)
         case .success(let request):
-            return processParsedV2Command(request)
+            return CmuxAutomationInvocationContext.$eventOrigin.withValue(
+                Self.automationOrigin(from: jsonLine)
+                    ?? CmuxAutomationInvocationContext.eventOrigin
+            ) {
+                processParsedV2Command(request)
+            }
         }
     }
 
@@ -2424,6 +2473,22 @@ class TerminalController {
     /// the calling thread; only the command body crosses to the main actor,
     /// via a single `v2MainSync` hop.
     private nonisolated func processParsedV2Command(_ request: ControlRequest) -> String {
+        if CmuxAutomationInvocationContext.focusAllowed == false,
+           Self.commandHasFocusIntent(
+               commandKey: request.method,
+               isV2: true,
+               params: request.params.mapValues(\.foundationObject)
+           ) {
+            return v2Error(
+                id: request.id.map(\.foundationObject),
+                code: "focus_suppressed",
+                message: String(
+                    localized: "automation.error.focusSuppressed",
+                    defaultValue: "Automation RPC requires allow_focus=true for \(request.method)"
+                ).replacingOccurrences(of: "%@", with: request.method),
+                data: nil
+            )
+        }
         let bridged = V2SocketRequest(bridging: request)
         let id: Any? = bridged.id
         let method = bridged.method
@@ -2523,6 +2588,20 @@ class TerminalController {
             return v2Ok(id: id, result: ["pong": true])
         case "system.capabilities":
             return v2Ok(id: id, result: v2CapabilitiesWithBrowserDesignMode())
+        case "automation.list":
+            return v2Result(id: id, v2AutomationList())
+        case "automation.show":
+            return v2Result(id: id, v2AutomationShow(params: params))
+        case "automation.test":
+            return v2Result(id: id, v2AutomationTest(params: params))
+        case "automation.enable":
+            return v2Result(id: id, v2AutomationSetEnabled(params: params, enabled: true))
+        case "automation.disable":
+            return v2Result(id: id, v2AutomationSetEnabled(params: params, enabled: false))
+        case "automation.logs":
+            return v2Result(id: id, v2AutomationLogs(params: params))
+        case "automation.reload":
+            return v2Result(id: id, v2AutomationReload())
         case "caffeine.status":
             return v2Result(id: id, v2CaffeineStatus())
         case "caffeine.set":
@@ -2746,6 +2825,13 @@ class TerminalController {
             "sidebar.custom.open",
             "system.top",
             "system.memory",
+            "automation.list",
+            "automation.show",
+            "automation.test",
+            "automation.enable",
+            "automation.disable",
+            "automation.logs",
+            "automation.reload",
             "caffeine.status",
             "caffeine.set",
             "comments.list",

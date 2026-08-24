@@ -139,6 +139,7 @@ Event fields:
 | `surface_id` | Surface UUID when known. |
 | `pane_id` | Pane UUID when known. |
 | `window_id` | Window UUID when known. |
+| `automation_origin` | Optional rule id and ordered rule chain when an in-process automation action produced the event. |
 | `payload` | Event-specific JSON object. |
 
 ### Heartbeat
@@ -381,3 +382,21 @@ can correlate events without receiving prompt/tool payloads by default.
 
 Consumers should treat the stream as local-sensitive data and avoid forwarding
 it to third-party services without an explicit user opt-in.
+
+## Automation origin
+
+Events emitted while an automation action is executing carry an envelope field
+such as:
+
+~~~json
+{
+  "automation_origin": {
+    "rule_id": "surface-needs-input",
+    "chain": ["surface-needs-input"],
+    "depth": 1
+  }
+}
+~~~
+
+The automation engine uses this bounded chain to stop a rule from triggering
+itself or participating in a cycle. Other event consumers may ignore the field.

@@ -195,6 +195,9 @@ final class CmuxEventBus: @unchecked Sendable {
             "window_id": windowId ?? NSNull(),
             "payload": cleanPayload
         ]
+        if let automationOrigin = CmuxAutomationInvocationContext.eventOrigin {
+            event["automation_origin"] = automationOrigin.foundationObject
+        }
 
         event = Self.eventByApplyingEncodedByteLimit(event, maxBytes: maxEventLineBytes)
         retained.append(event)

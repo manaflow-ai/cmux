@@ -57,16 +57,36 @@ extension TerminalController {
                 return errorResponse
             }
             let authorizedRequest = relayAuthorization.request
+            let automationOrigin = Self.automationOrigin(from: trimmed)
+                ?? CmuxAutomationInvocationContext.eventOrigin
+            if CmuxAutomationInvocationContext.focusAllowed == false,
+               Self.commandHasFocusIntent(
+                   commandKey: authorizedRequest.method,
+                   isV2: true,
+                   params: authorizedRequest.params.mapValues(\.foundationObject)
+               ) {
+                return v2Error(
+                    id: authorizedRequest.id.map(\.foundationObject),
+                    code: "focus_suppressed",
+                    message: String(
+                        localized: "automation.error.focusSuppressed",
+                        defaultValue: "Automation RPC requires allow_focus=true for \(authorizedRequest.method)"
+                    ).replacingOccurrences(of: "%@", with: authorizedRequest.method),
+                    data: nil
+                )
+            }
             let policy = Self.executionPolicy(forV2Method: authorizedRequest.method)
-            return await withSocketCommandPolicyAsync(
-                commandKey: authorizedRequest.method,
-                isV2: true,
-                params: authorizedRequest.params
-            ) {
-                if policy.runsOnSocketWorker {
-                    return await self.socketWorkerV2ResponseAsync(authorizedRequest)
+            return await CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
+                await withSocketCommandPolicyAsync(
+                    commandKey: authorizedRequest.method,
+                    isV2: true,
+                    params: authorizedRequest.params
+                ) {
+                    if policy.runsOnSocketWorker {
+                        return await self.socketWorkerV2ResponseAsync(authorizedRequest)
+                    }
+                    return await self.processParsedV2CommandAsync(authorizedRequest)
                 }
-                return await self.processParsedV2CommandAsync(authorizedRequest)
             }
         }
 
@@ -254,6 +274,22 @@ extension TerminalController {
     private nonisolated func processParsedV2CommandAsync(
         _ request: ControlRequest
     ) async -> String {
+        if CmuxAutomationInvocationContext.focusAllowed == false,
+           Self.commandHasFocusIntent(
+               commandKey: request.method,
+               isV2: true,
+               params: request.params.mapValues(\.foundationObject)
+           ) {
+            return v2Error(
+                id: request.id.map(\.foundationObject),
+                code: "focus_suppressed",
+                message: String(
+                    localized: "automation.error.focusSuppressed",
+                    defaultValue: "Automation RPC requires allow_focus=true for \(request.method)"
+                ).replacingOccurrences(of: "%@", with: request.method),
+                data: nil
+            )
+        }
         let bridgedParams = request.params.mapValues(\.foundationObject)
         let method = request.method
         let id = request.id?.foundationObject
