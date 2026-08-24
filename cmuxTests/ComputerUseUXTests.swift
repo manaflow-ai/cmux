@@ -1657,8 +1657,8 @@ struct ComputerUseUXTests {
                 as? Int == 42
         )
         #expect(
-            (reassertRequest?["args"] as? [String: Any])?["enabled"]
-                as? Bool == true
+            (reassertRequest?["args"] as? [String: Any])?["enabled"] == nil,
+            "A focus reassertion may only repair z-order; lifecycle visibility belongs to the serialized show/hide path"
         )
         #expect(
             ComputerUseRuntimeService.reassertDriverCursorRequest(
