@@ -329,11 +329,23 @@ struct TerminalLinkOpenCoordinatorTests {
             forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
         )
 
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let terminalPanelId = try #require(
+            store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
+        )
         let url = try #require(URL(string: "https://example.com/"))
         var externallyOpened: [URL] = []
         let coordinator = TerminalLinkOpenCoordinator(
             defaults: defaults,
-            containerResolver: { _, _ in nil },
+            containerResolver: { _, panelId in
+                panelId == terminalPanelId ? store : nil
+            },
             externalOpen: { openedURL in
                 externallyOpened.append(openedURL)
                 return true
@@ -344,10 +356,13 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(coordinator.open(TerminalLinkOpenRequest(
             rawValue: url.absoluteString,
             sourceWorkspaceId: nil,
-            sourcePanelId: UUID(),
+            sourcePanelId: terminalPanelId,
             workingDirectory: nil
         )))
         #expect(externallyOpened == [url])
+        #expect(
+            store.bonsplitController.allTabIds.compactMap { store.panel(for: $0) as? BrowserPanel }.isEmpty
+        )
     }
 
     private func makeHTMLFixture(pathExtension: String) throws -> URL {

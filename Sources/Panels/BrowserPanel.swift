@@ -555,7 +555,8 @@ enum BrowserLinkOpenSettings {
         defaults: UserDefaults = .standard
     ) -> Bool {
         guard navigationType == .linkActivated,
-              targetFrameIsMain != false else {
+              targetFrameIsMain != false,
+              url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased() else {
             return false
         }
         return shouldOpenExternally(url, defaults: defaults)

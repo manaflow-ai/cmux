@@ -5596,6 +5596,17 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
                 defaults: defaults
             )
         )
+        let callbackURL = try XCTUnwrap(
+            URL(string: "\(AuthEnvironment.callbackScheme)://callback?code=1")
+        )
+        XCTAssertFalse(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                callbackURL,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true,
+                defaults: defaults
+            )
+        )
     }
 
     func testConfiguredExternalOpenUsesOneInjectedActionPath() throws {

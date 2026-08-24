@@ -12,6 +12,8 @@ struct BrowserExternalURLPolicyTests {
         ("http*://example.com/*", "https://example.com/path", true),
         ("http*://example.com/*", "http://example.com/path", true),
         ("https://example.com/?ath", "https://example.com/path", true),
+        ("foo?bar", "https://example.com/fooxbar", true),
+        ("re:https?://example\\.com/.*", "https://example.com/path", true),
         ("example.com", "https://other.test/", false),
     ])
     func matchesSupportedRuleForms(rule: String, urlString: String, expected: Bool) throws {
