@@ -771,10 +771,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         guard rows.indices.contains(row) else { return tableView.rowHeight }
         let configuration = rows[row]
-        let columnWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : currentColumnWidth()
-        if let override = pumpHeightOverride(for: configuration.id, columnWidth: columnWidth) {
+        let liveWidth = currentColumnWidth()
+        if liveWidth > 0,
+           let override = pumpHeightOverride(for: configuration.id, columnWidth: liveWidth) {
             return override
         }
+        let columnWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : liveWidth
         return rowHeightCache.height(
             for: configuration,
             columnWidth: columnWidth
@@ -1417,11 +1419,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         )
         hasLiveMeasuredRows = true
         var rowsToNote = changed
-        for index in measuredRows where rows.indices.contains(index) {
-            if pumpHeightOverrides.removeValue(forKey: rows[index].id) != nil {
-                rowsToNote.insert(index)
-            }
-        }
+        refreshVisiblePumpHeightOverrides(
+            in: table,
+            at: measuredRows,
+            columnWidth: width,
+            addingTo: &rowsToNote
+        )
         if !rowsToNote.isEmpty {
             noteHeightOfRowsWithoutAnimation(table, rowsToNote)
         }
@@ -1465,12 +1468,20 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         lastMeasuredWidth = width
         hasLiveMeasuredRows = false
         lastLiveMeasuredWidth = 0
-        // Same rule as apply(): released pump overrides change what
-        // heightOfRow answers, so those rows re-note even when the cache
-        // entry itself didn't move.
-        releasePumpHeightOverrides(for: rows, addingTo: &changed)
-        if !changed.isEmpty {
-            if let table = containerView?.tableView { noteHeightOfRowsWithoutAnimation(table, changed) }
+        // A width settle is not an authoritative row apply: a pump may have
+        // painted a newer model into a visible cell without changing `rows`.
+        // Re-measure those cells at the settled width before noting the cache
+        // pass so the newer pump height is not replaced by an older snapshot.
+        if let table = containerView?.tableView {
+            refreshVisiblePumpHeightOverrides(
+                in: table,
+                at: IndexSet(rows.indices),
+                columnWidth: width,
+                addingTo: &changed
+            )
+            if !changed.isEmpty {
+                noteHeightOfRowsWithoutAnimation(table, changed)
+            }
         }
         if hasPendingContentRefresh {
             mutationScheduler.stageContentRefresh()
@@ -1683,9 +1694,35 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         return override.height
     }
 
-    /// Drops pump heights that have been superseded by a cache pass and
-    /// re-notes every affected row, including overrides measured at a width
-    /// different from the settled lookup width.
+    /// Re-measures visible pump-painted cells during a non-authoritative width
+    /// pass so their newer model remains the source of truth for row geometry.
+    private func refreshVisiblePumpHeightOverrides(
+        in table: NSTableView,
+        at indexes: IndexSet,
+        columnWidth: CGFloat,
+        addingTo heightRows: inout IndexSet
+    ) {
+        guard columnWidth > 0 else { return }
+        for index in indexes where rows.indices.contains(index) {
+            let row = rows[index]
+            guard pumpHeightOverrides[row.id] != nil,
+                  let cell = table.view(atColumn: 0, row: index, makeIfNecessary: false)
+                    as? SidebarWorkspaceRowTableCellView,
+                  let model = cell.currentModelForMeasurement else {
+                continue
+            }
+            let height = ceil(cell.layoutContent(model: model, width: columnWidth, apply: false))
+            pumpHeightOverrides[row.id] = PumpHeightOverride(
+                height: height,
+                columnWidth: columnWidth
+            )
+            heightRows.insert(index)
+        }
+    }
+
+    /// Drops pump heights only when an authoritative row snapshot supersedes
+    /// the cell model, and re-notes every affected row even when the released
+    /// override was measured at a different width from the settled lookup.
     private func releasePumpHeightOverrides(
         for rows: [SidebarWorkspaceTableRowConfiguration],
         addingTo heightRows: inout IndexSet
@@ -1710,10 +1747,24 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let width = currentColumnWidth()
         guard width > 0 else { return }
         let height = ceil(cell.layoutContent(model: model, width: width, apply: false))
+        let hadMismatchedOverride = pumpHeightOverrides[rowId].map {
+            $0.columnWidth != width
+        } ?? false
+        if hadMismatchedOverride {
+            pumpHeightOverrides.removeValue(forKey: rowId)
+        }
         let current = pumpHeightOverride(for: rowId, columnWidth: width)
             ?? rowHeightCache.height(for: row, columnWidth: width)
             ?? row.estimatedHeight
-        guard abs(height - current) >= 0.5 else { return }
+        guard abs(height - current) >= 0.5 else {
+            guard hadMismatchedOverride else { return }
+            if isApplyingTableGeometryUpdate {
+                deferredPumpHeightRowIds.insert(rowId)
+            } else {
+                noteHeightOfRowsWithoutAnimation(table, IndexSet(integer: index))
+            }
+            return
+        }
         pumpHeightOverrides[rowId] = PumpHeightOverride(
             height: height,
             columnWidth: width
