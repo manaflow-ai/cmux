@@ -5,11 +5,6 @@
 //! feature-detect); torn lines never kill the attachment; `pause` stops
 //! reading so PTY backpressure applies naturally.
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-
 use serde_json::Value;
 
 /// Per-request budget on a cmux-tui control connection.
@@ -47,6 +42,11 @@ pub use unix::connect_control;
 #[cfg(unix)]
 mod unix {
     use super::*;
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use tokio::net::UnixStream;
     use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};

@@ -31,7 +31,9 @@ use crate::actions::{ActionContext, perform_action, process_env_snapshot, scrubb
 use crate::config::{Config, save_config};
 use crate::error::RelayError;
 use crate::pairing::websocket_url;
-use crate::pty::{FrameContext, PtyManager};
+use crate::pty::FrameContext;
+#[cfg(unix)]
+use crate::pty::PtyManager;
 use crate::trust::{
     DEFAULT_RELAY_TRUST, Trust, clear_invalid_yolo_confirmation, effective_local_trust,
     has_yolo_confirmation, relay_trust,
