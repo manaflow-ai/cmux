@@ -30,8 +30,8 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
         let initialReauthentication = reauthenticates ? 1 : 0
         let noProgressPolicy = SSHPTYAttachExitCode.noProgressShellPolicy()
         let reattachingFormat = String(
-            localized: "cli.sshPtyAttach.bridgeClosedReattaching",
-            defaultValue: "[cmux] remote PTY bridge closed; reattaching (attempt %s/%s)."
+            localized: "cli.sshPtyAttach.bridgeClosedReattachingInputDiscard",
+            defaultValue: "[cmux] remote PTY bridge closed; reattaching (attempt %s/%s). Input typed while disconnected is discarded."
         ).remoteCommandShellQuoted
         let reconnectedFormat = String(
             localized: "cli.sshPtyAttach.reconnected",
@@ -44,6 +44,7 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
         let transientStatus = SSHPTYAttachExitCode.retryableTransient.rawValue
         let terminalModeReset = SSHTerminalModeResetSequence().shellPrintfFormat.remoteCommandShellQuoted
         var lines = [
+            "cmux_ssh_attach_restore_terminal() { if [ \"${cmux_ssh_attach_input_paused:-0}\" = 1 ] && [ -n \"${cmux_ssh_attach_cli:-}\" ]; then \"$cmux_ssh_attach_cli\" __ssh-pty-flush-input <&0 >/dev/null 2>&1 || true; fi; if [ -n \"${cmux_ssh_attach_terminal_state:-}\" ]; then /bin/stty \"$cmux_ssh_attach_terminal_state\" <&0 2>/dev/null || true; fi; cmux_ssh_attach_input_paused=0; }",
             // Persisted launchers may predate the retry policy.  A missing or
             // malformed limit must fail closed to the same finite supervisor
             // used by newly generated SSH startup scripts.

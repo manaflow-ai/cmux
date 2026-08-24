@@ -365,8 +365,13 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         process.waitUntilExit()
 
         let logContents = (try? String(contentsOf: logURL, encoding: .utf8)) ?? "<missing>"
+        let transcript = (try? String(contentsOf: transcriptURL, encoding: .utf8)) ?? "<missing>"
         if secondAttachFinished {
             #expect(logContents == "attach\nattach\ncomplete\n", Comment(rawValue: logContents))
+            #expect(
+                transcript.contains("Input typed while disconnected is discarded."),
+                Comment(rawValue: transcript)
+            )
         }
     }
 
