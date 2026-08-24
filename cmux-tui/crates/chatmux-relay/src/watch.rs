@@ -544,6 +544,7 @@ mod tests {
         serde_json::from_str(&frame.text).expect("valid frame json")
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn watch_streams_debounced_changes_for_a_write() {
         let root = scratch("stream");
@@ -570,6 +571,7 @@ mod tests {
         registry.close("w1");
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn watch_refuses_typed_and_respects_the_session_cap() {
         let root = scratch("refuse");
@@ -594,6 +596,19 @@ mod tests {
         let capped = next_frame(&mut critical, &mut watch, "watch_limit").await;
         assert_eq!(capped["type"], "fs_watch_error");
         assert_eq!(capped["code"], "watch_limit");
+    }
+
+    #[cfg(not(unix))]
+    #[tokio::test]
+    async fn scoped_watch_answers_typed_unsupported() {
+        let root = scratch("unsupported-scope");
+        let (sink, mut critical, mut watch) = OutboundSink::channels();
+        let registry = WatchRegistry::new(sink);
+        registry.open(open_frame("w-unsupported", &root), None);
+        let refusal = next_frame(&mut critical, &mut watch, "unsupported refusal").await;
+        assert_eq!(refusal["type"], "fs_watch_error");
+        assert_eq!(refusal["watchId"], "w-unsupported");
+        assert_eq!(refusal["code"], "unsupported_verb");
     }
 
     #[test]
