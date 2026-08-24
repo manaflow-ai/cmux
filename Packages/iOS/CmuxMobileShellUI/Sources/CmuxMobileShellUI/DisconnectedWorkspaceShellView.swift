@@ -33,6 +33,11 @@ struct DisconnectedWorkspaceShellView: View {
     /// requirement is rendered in the empty state instead of a top banner.
     var tailscalePairingRequired = false
     var showSettings: () -> Void = {}
+    /// Present the Computers management sheet. Essential while disconnected:
+    /// the per-Computer connection method lives in the Computer detail, and a
+    /// Computer stuck on an undialable method (Tailscale Only with no grant)
+    /// can ONLY be fixed from there.
+    var showComputers: (() -> Void)? = nil
     var setupHelpPresentation = MobileChildSheetPresentation()
 
     #if os(iOS)
@@ -68,6 +73,18 @@ struct DisconnectedWorkspaceShellView: View {
                     #if os(iOS)
                     ToolbarItem(placement: .topBarLeading) {
                         settingsMenu
+                    }
+                    if let showComputers {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button(action: showComputers) {
+                                Image(systemName: "desktopcomputer")
+                            }
+                            .accessibilityLabel(L10n.string(
+                                "mobile.connections.title",
+                                defaultValue: "Computers"
+                            ))
+                            .accessibilityIdentifier("MobileWorkspaceDevicesButton")
+                        }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         addDeviceToolbarButton
@@ -167,10 +184,10 @@ struct DisconnectedWorkspaceShellView: View {
                     unhide: unhideComputer
                 )
             } header: {
-                Text(L10n.string("mobile.devices.savedTitle", defaultValue: "Your Computers"))
+                Text(L10n.string("mobile.connections.savedTitle", defaultValue: "Your Computers"))
             } footer: {
                 Text(L10n.string(
-                    "mobile.disconnected.listFooter",
+                    "mobile.connections.disconnected.listFooter",
                     defaultValue: "Tap a shown computer to reconnect. Use its switch to show or hide it on this iPhone."
                 ))
             }
@@ -178,7 +195,7 @@ struct DisconnectedWorkspaceShellView: View {
                 if let showAddDevice {
                     Button(action: showAddDevice) {
                         Label(
-                            L10n.string("mobile.computers.add", defaultValue: "Add Computer"),
+                            L10n.string("mobile.connections.add", defaultValue: "Add Computer"),
                             systemImage: "plus"
                         )
                     }
@@ -210,7 +227,7 @@ struct DisconnectedWorkspaceShellView: View {
     private var emptyState: some View {
         ContentUnavailableView {
             Label(
-                L10n.string("mobile.devices.emptyTitle", defaultValue: "No Computers"),
+                L10n.string("mobile.connections.emptyTitle", defaultValue: "No Computers"),
                 systemImage: "desktopcomputer.and.iphone"
             )
         } description: {
@@ -229,7 +246,7 @@ struct DisconnectedWorkspaceShellView: View {
                 .accessibilityIdentifier("MobileDisconnectedScanPairingCode")
             } else if let showAddDevice {
                 Button(action: showAddDevice) {
-                    Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
+                    Text(L10n.string("mobile.connections.add", defaultValue: "Add Computer"))
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.blue)
@@ -253,7 +270,7 @@ struct DisconnectedWorkspaceShellView: View {
         #endif
         return L10n.string(
             "mobile.devices.emptyDescription",
-            defaultValue: "For Auto-Connect to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+            defaultValue: "For Iroh to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
         )
     }
 
@@ -330,12 +347,12 @@ struct DisconnectedWorkspaceShellView: View {
     private var savedMacDescription: String {
         guard showAddDevice != nil else {
             return L10n.string(
-                "mobile.devices.savedDescription.reconnectOnly",
+                "mobile.connections.savedDescription.reconnectOnly",
                 defaultValue: "Tap a saved computer to reconnect."
             )
         }
         return L10n.string(
-            "mobile.devices.savedDescription",
+            "mobile.connections.savedDescription",
             defaultValue: "Tap a saved computer to reconnect, or add another."
         )
     }
@@ -344,8 +361,8 @@ struct DisconnectedWorkspaceShellView: View {
         ContentUnavailableView {
             Label(
                 savedMacs.isEmpty
-                    ? L10n.string("mobile.devices.emptyTitle", defaultValue: "No Computers")
-                    : L10n.string("mobile.devices.savedTitle", defaultValue: "Your Computers"),
+                    ? L10n.string("mobile.connections.emptyTitle", defaultValue: "No Computers")
+                    : L10n.string("mobile.connections.savedTitle", defaultValue: "Your Computers"),
                 systemImage: "desktopcomputer.and.iphone"
             )
         } description: {
@@ -353,7 +370,7 @@ struct DisconnectedWorkspaceShellView: View {
                 savedMacs.isEmpty
                     ? L10n.string(
                         "mobile.devices.emptyDescription",
-                        defaultValue: "For Auto-Connect to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+                        defaultValue: "For Iroh to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
                     )
                     : savedMacDescription
             )
@@ -383,8 +400,8 @@ struct DisconnectedWorkspaceShellView: View {
                 Button(action: showAddDevice) {
                     Text(
                         savedMacs.isEmpty
-                            ? L10n.string("mobile.addDevice.title", defaultValue: "Add Computer")
-                            : L10n.string("mobile.addDevice.another", defaultValue: "Add another Computer")
+                            ? L10n.string("mobile.connections.add", defaultValue: "Add Computer")
+                            : L10n.string("mobile.connections.addAnother", defaultValue: "Add another Computer")
                     )
                 }
                 .buttonStyle(.borderedProminent)
@@ -434,7 +451,7 @@ struct DisconnectedWorkspaceShellView: View {
             Button(action: showAddDevice) {
                 Image(systemName: "plus")
             }
-            .accessibilityLabel(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
+            .accessibilityLabel(L10n.string("mobile.connections.add", defaultValue: "Add Computer"))
             .accessibilityIdentifier("MobileShowAddDeviceToolbarButton")
         }
     }
