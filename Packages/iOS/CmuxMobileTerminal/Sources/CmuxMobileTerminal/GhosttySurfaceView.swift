@@ -304,8 +304,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     nonisolated struct LocalPixelScrollState {
         var remainderPx: Double = 0
         var lastFallbackLogTime: CFTimeInterval = 0
-        #if DEBUG
+        /// The last (row, remainder) the pixel pump applied. While a gesture
+        /// is active this is the position AUTHORITY: batches rebase from it
+        /// instead of the live viewport, so a verified-replay bottom-reset
+        /// between batches is overwritten on the next frame instead of
+        /// hijacking the gesture. Cleared on dock/typing snaps and surface
+        /// replacement, where the live viewport becomes the truth again.
         var lastApplied: (row: UInt64, remainderPx: Double, revision: UInt64, total: UInt64)?
+        #if DEBUG
         /// Rate-limits slow-batch perf log lines (scroll-hitch investigation).
         var lastPerfLogTime: CFTimeInterval = 0
         #endif
@@ -2144,6 +2150,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var pendingLocalPixelScrollInteractionGeneration: UInt64?
     var localPixelScrollApplyInFlight = false
     var localPixelScrollApplyInFlightGeneration: UInt64?
+    /// A verified replay completed mid-gesture: run one zero-delta pixel
+    /// batch to re-assert the held position over the replay's bottom reset.
+    var pendingLocalPixelScrollReassert = false
     var pendingLocalScrollDrains: [(generation: UInt64, continuation: CheckedContinuation<Bool, Never>)] = []
 
     /// Drops scroll work tied to a surface generation that will no longer run.
@@ -2163,6 +2172,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         localPixelScrollApplyInFlightGeneration = nil
         localPixelScrollApplyStartedAt = nil
         localPixelScrollApplyToken = nil
+        pendingLocalPixelScrollReassert = false
         localPixelScrollState.withLock { $0 = .init() }
         scrollToBottomInFlight = false
         scrollToBottomRequested = false
@@ -2949,11 +2959,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// stall never fans out into one lock-taking queue item per event.
     func enqueueScrollToBottom() {
         // The bottom snap resets Ghostty's fractional pixel offset; drop the
-        // pixel batch and remainder so the next gesture rebases from bottom.
+        // pixel batch, remainder, and held position so the next gesture
+        // rebases from the bottom.
         pendingScrollPixels = 0
         pendingLocalScrollPixels = 0
         pendingLocalPixelScrollInteractionGeneration = nil
-        localPixelScrollState.withLock { $0.remainderPx = 0 }
+        pendingLocalPixelScrollReassert = false
+        localPixelScrollState.withLock {
+            $0.remainderPx = 0
+            $0.lastApplied = nil
+        }
         let interactionGeneration = recordFollowBottomInteraction()
         scrollToBottomInteractionGeneration = interactionGeneration
         if !scrollToBottomRequested && !scrollToBottomInFlight {
