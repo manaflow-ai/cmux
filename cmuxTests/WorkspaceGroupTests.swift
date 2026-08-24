@@ -876,6 +876,36 @@ struct WorkspaceGroupTests {
         #expect(manager.workspaceGroups.first(where: { $0.id == groupId }) == nil)
     }
 
+    @Test func closingSolePinnedAnchorPreservesGroupThroughSessionRoundTrip() throws {
+        let manager = makeTabManager()
+        // Keep an ungrouped outsider so the close path removes the group anchor
+        // without closing the window itself.
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Pinned", childWorkspaceIds: []))
+        manager.toggleWorkspaceGroupPinned(groupId: groupId)
+        let original = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let anchor = try #require(manager.tabs.first { $0.id == original.anchorWorkspaceId })
+
+        manager.closeWorkspace(anchor)
+
+        let surviving = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        #expect(surviving.name == "Pinned")
+        #expect(surviving.isPinned)
+        #expect(!manager.tabs.contains { $0.id == anchor.id })
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let persisted = try #require(snapshot.workspaceGroups?.first { $0.id == groupId })
+        #expect(persisted.name == "Pinned")
+        #expect(persisted.isPinned == true)
+
+        let restored = makeTabManager()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredGroup = try #require(restored.workspaceGroups.first { $0.id == groupId })
+        #expect(restoredGroup.name == "Pinned")
+        #expect(restoredGroup.isPinned)
+        #expect(restored.tabs.filter { $0.groupId == groupId }.isEmpty)
+    }
+
     @Test func ungroupKeepsAllWorkspaces() {
         let manager = makeTabManager()
         let children = manager.tabs.map(\.id)

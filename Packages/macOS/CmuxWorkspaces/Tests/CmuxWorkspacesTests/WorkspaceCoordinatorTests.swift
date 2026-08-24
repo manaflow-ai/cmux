@@ -972,6 +972,30 @@ struct WorkspaceCoordinatorTests {
         #expect(model.tabs.map(\.id) == [outside.id])
     }
 
+    /// Closing the final workspace of a pinned group must leave the group
+    /// metadata available for a later explicit Delete Group action.
+    @Test
+    func pinnedAnchorClosePreservesEmptyGroup() throws {
+        let (model, host, groups, _) = makeWorld()
+        _ = host
+        let outside = CoordinatorStubTab()
+        model.tabs = [outside]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "Pinned", childWorkspaceIds: []))
+        groups.setWorkspaceGroupPinned(groupId: groupId, isPinned: true)
+        let original = try #require(model.workspaceGroups.first { $0.id == groupId })
+        let anchorId = original.anchorWorkspaceId
+
+        if let index = model.tabs.firstIndex(where: { $0.id == anchorId }) {
+            model.tabs.remove(at: index)
+        }
+        model.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: anchorId)
+
+        let surviving = try #require(model.workspaceGroups.first { $0.id == groupId })
+        #expect(surviving.name == original.name)
+        #expect(surviving.isPinned)
+        #expect(model.tabs.map(\.id) == [outside.id])
+    }
+
     /// If the snapshot anchor is closed while the Delete Group confirmation is
     /// open, the group promotes its next member to anchor. On acceptance the
     /// batch close must drain that *live* anchor last, not the stale snapshot
