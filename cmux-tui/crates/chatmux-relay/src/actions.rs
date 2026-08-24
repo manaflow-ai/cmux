@@ -863,6 +863,7 @@ struct WindowsJob {
 #[cfg(windows)]
 impl WindowsJob {
     fn attach(child: &tokio::process::Child) -> Result<Self, ()> {
+        use std::mem::size_of;
         use std::ptr::null_mut;
         use windows_sys::Win32::System::JobObjects::{
             CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
@@ -877,7 +878,7 @@ impl WindowsJob {
         let mut information = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
         information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         let information_size =
-            u32::try_from(std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
+            u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
                 .expect("Windows job information fits in u32");
         if unsafe {
             SetInformationJobObject(
