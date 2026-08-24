@@ -639,6 +639,12 @@ fn base64_encode(bytes: &[u8]) -> String {
 }
 
 fn run_write(scope: &Scope, op: &wire::FsWriteOp) -> Result<wire::WorkspaceResultBody, Refusal> {
+    // Windows OpenOptions follows reparse points. Until writes use a
+    // handle-relative CreateFile path with FILE_FLAG_OPEN_REPARSE_POINT,
+    // fail closed rather than allowing a post-canonicalization redirect.
+    #[cfg(windows)]
+    return Err(Refusal::path_forbidden("scoped writes are unavailable on Windows relays"));
+
     if op.content.len() > WRITE_MAX_BYTES {
         return Err(Refusal::new(
             wire::WorkspaceErrorCode::TooLarge,
@@ -1631,6 +1637,23 @@ mod tests {
             .is_ok()
         );
         assert_eq!(std::fs::read_to_string(root.join("deep/dir/new.txt")).expect("read"), "x\n");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_scoped_write_is_refused_before_filesystem_mutation() {
+        let root = scratch("windows-write-refusal");
+        let scope = scope_for(&root);
+        let op = wire::FsWriteOp {
+            op: wire::TagFsWrite::FsWrite,
+            path: "new.txt".into(),
+            content: "must not be written".to_owned(),
+            base_sha256: None,
+        };
+
+        let refusal = run_write(&scope, &op).expect_err("Windows scoped writes must fail closed");
+        assert_eq!(refusal.code, wire::WorkspaceErrorCode::PathForbidden);
+        assert!(!root.join("new.txt").exists());
     }
 
     #[cfg(unix)]
