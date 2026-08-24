@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/sessionpath"
 )
 
 func TestGeneratedInventoryHasTypedMethodForEveryCommand(t *testing.T) {
@@ -400,7 +402,7 @@ func TestSocketResolutionFallsBackWhenUnixPathIsTooLong(t *testing.T) {
 	}
 }
 
-func TestNewClientSharesTimeoutAcrossSocketFallback(t *testing.T) {
+func TestNewClientDoesNotProbeLegacySocketForNormalRuntimePath(t *testing.T) {
 	t.Setenv("CMUX_TUI_SOCKET", "")
 	t.Setenv("CMUX_MUX_SOCKET", "")
 	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
@@ -414,21 +416,34 @@ func TestNewClientSharesTimeoutAcrossSocketFallback(t *testing.T) {
 			t.Fatal("dial context has no deadline")
 		}
 		deadlines = append(deadlines, deadline)
-		if len(deadlines) == 1 {
-			<-ctx.Done()
-			return nil, syscall.ENOENT
-		}
-		if ctx.Err() == nil {
-			t.Fatal("fallback dial received a fresh timeout")
-		}
 		return nil, syscall.ENOENT
 	}
 	_, err := NewClient(Options{Timeout: 5 * time.Millisecond})
-	if err == nil || len(deadlines) != 2 {
-		t.Fatalf("NewClient error = %v, dial attempts = %d, want two attempts", err, len(deadlines))
+	if err == nil || len(deadlines) != 1 {
+		t.Fatalf("NewClient error = %v, dial attempts = %d, want one attempt", err, len(deadlines))
 	}
-	if !deadlines[1].Equal(deadlines[0]) {
-		t.Fatalf("fallback deadline changed: first %v, second %v", deadlines[0], deadlines[1])
+}
+
+func TestLegacyFallbackRequiresExactHashedPathProvenance(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	t.Setenv("TMPDIR", "")
+	session := "main"
+	uid := fmt.Sprintf("cmux-tui-hashed-%d", os.Getuid())
+	leaf := sessionpath.Digest(session) + ".sock"
+	legacy := legacySocketPathForSession(session)
+	if got := legacySocketPathForResolvedSession(
+		filepath.Join("/run/user-test", uid, leaf), session,
+	); got != legacy {
+		t.Fatalf("exact hashed path fallback = %q, want %q", got, legacy)
+	}
+	for _, path := range []string{
+		filepath.Join("/run/user-test", fmt.Sprintf("cmux-tui-%d", os.Getuid()), "main.sock"),
+		filepath.Join("/run/user-test", uid+"-stale", leaf),
+		filepath.Join("/run/user-test", uid, sessionpath.Digest("other")+".sock"),
+	} {
+		if got := legacySocketPathForResolvedSession(path, session); got != "" {
+			t.Fatalf("untrusted path %q installed fallback %q", path, got)
+		}
 	}
 }
 

@@ -9,8 +9,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
+
+	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/sessionpath"
 )
 
 type invalidCountConn struct{}
@@ -25,11 +28,27 @@ func (invalidCountConn) SetReadDeadline(time.Time) error  { return nil }
 func (invalidCountConn) SetWriteDeadline(time.Time) error { return nil }
 
 func TestWriteRejectsInvalidWriteCount(t *testing.T) {
-	c := &Client{conn: invalidCountConn{}, timeout: time.Second, maxRequestBytes: 1024, writer: make(chan struct{}, 1), done: make(chan struct{})}
+	c := &Client{
+		conn:            invalidCountConn{},
+		timeout:         time.Second,
+		maxRequestBytes: 1024,
+		writer:          make(chan struct{}, 1),
+		done:            make(chan struct{}),
+	}
 	c.writer <- struct{}{}
-	mayHaveSent, fullyWritten, err := c.write(context.Background(), "test", map[string]any{"x": 1}, nil)
+	mayHaveSent, fullyWritten, err := c.write(
+		context.Background(),
+		"test",
+		map[string]any{"x": 1},
+		nil,
+	)
 	if mayHaveSent || fullyWritten || err == nil || !strings.Contains(err.Error(), "invalid write count") {
-		t.Fatalf("write result = (%v, %v, %v), want invalid count without send", mayHaveSent, fullyWritten, err)
+		t.Fatalf(
+			"write result = (%v, %v, %v), want invalid count without send",
+			mayHaveSent,
+			fullyWritten,
+			err,
+		)
 	}
 }
 
@@ -100,6 +119,45 @@ func TestHighLevelClientRejectsUnsafeSessionBeforeDial(t *testing.T) {
 	}
 }
 
+func TestHighLevelClientDoesNotProbeLegacySocketForNormalRuntimePath(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	var paths []string
+	_, err := NewClient(context.Background(), ClientOptions{
+		Session: "main",
+		DialContext: func(_ context.Context, network, address string) (net.Conn, error) {
+			if network != "unix" {
+				t.Fatalf("network = %q, want unix", network)
+			}
+			paths = append(paths, address)
+			return nil, syscall.ENOENT
+		},
+	})
+	if err == nil || len(paths) != 1 {
+		t.Fatalf("NewClient error = %v, dial paths = %q, want one path", err, paths)
+	}
+}
+
+func TestHighLevelLegacyFallbackRequiresExactHashedPathProvenance(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	t.Setenv("TMPDIR", "")
+	session := "main"
+	uid := "cmux-tui-hashed-" + fmt.Sprint(os.Getuid())
+	leaf := sessionpath.Digest(session) + ".sock"
+	legacy := legacySocketPathForSession(session)
+	if got := legacySocketPathForResolvedSession(
+		filepath.Join("/run/user-test", uid, leaf), session,
+	); got != legacy {
+		t.Fatalf("exact hashed path fallback = %q, want %q", got, legacy)
+	}
+	if got := legacySocketPathForResolvedSession(
+		filepath.Join("/run/user-test", "cmux-tui-"+fmt.Sprint(os.Getuid()), "main.sock"), session,
+	); got != "" {
+		t.Fatalf("normal runtime path installed fallback %q", got)
+	}
+}
+
 func TestDefaultSocketPathEmptySessionIsolated(t *testing.T) {
 	t.Setenv("CMUX_TUI_SOCKET", "")
 	t.Setenv("CMUX_MUX_SOCKET", "")
@@ -144,40 +202,6 @@ func TestHighLevelSocketPathPreservesLegacySafeNames(t *testing.T) {
 		if !strings.HasSuffix(path, "/"+session+".sock") {
 			t.Fatalf("session %q path = %q, want suffix %q", session, path, "/"+session+".sock")
 		}
-	}
-}
-
-func TestHighLevelSocketPathPrefersRuntimeBaseOverTmpCompatibilityPath(t *testing.T) {
-	t.Setenv("CMUX_TUI_SOCKET", "")
-	t.Setenv("CMUX_MUX_SOCKET", "")
-	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
-	t.Setenv("TMPDIR", "/tmp")
-	path, err := resolveSocketPath("", "main")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := filepath.Join("/run/user-test", fmt.Sprintf("cmux-tui-%d", os.Getuid()), "main.sock")
-	if path != want {
-		t.Fatalf("preferred runtime path = %q, want %q", path, want)
-	}
-}
-
-func TestHighLevelSocketPathFallsBackToTmpBeforeHashing(t *testing.T) {
-	t.Setenv("CMUX_TUI_SOCKET", "")
-	t.Setenv("CMUX_MUX_SOCKET", "")
-	t.Setenv("XDG_RUNTIME_DIR", "/"+strings.Repeat("x", 150))
-	t.Setenv("TMPDIR", "")
-	path, err := resolveSocketPath("", "main")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := filepath.Join(
-		"/tmp",
-		fmt.Sprintf("cmux-tui-%d", os.Getuid()),
-		"main.sock",
-	)
-	if path != want {
-		t.Fatalf("fallback path = %q, want %q", path, want)
 	}
 }
 
