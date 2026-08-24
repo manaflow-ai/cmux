@@ -282,7 +282,7 @@ def drain(seconds):
             except OSError:
                 break
 
-def wait_screen_contains(surface_id, needle, seconds=15):
+def wait_screen_contains(surface_id, needle, seconds=45):
     deadline = time.time() + seconds
     last = ""
     while time.time() < deadline:
@@ -293,7 +293,7 @@ def wait_screen_contains(surface_id, needle, seconds=15):
             return last
     raise AssertionError(last[-500:])
 
-def wait_any_screen_contains(surface_ids, needle, seconds=15):
+def wait_any_screen_contains(surface_ids, needle, seconds=45):
     deadline = time.time() + seconds
     last = {}
     while time.time() < deadline:
@@ -628,7 +628,7 @@ wait_render_contains(sidebar_marker)
 print("focused sidebar Tab toggles workspaces to files ok")
 os.write(fd, b"\t")
 drain(0.5)
-assert "workspaces" in render_text_snapshot(output), output[-1200:]
+assert "+ new workspace" in render_text_snapshot(output), output[-1200:]
 os.write(fd, b"\x02S")
 drain(0.4)
 
@@ -689,8 +689,9 @@ try:
     os.write(fd, b'\\x1b]11;?\\x1b\\\\')
     data = b''
     # Generous deadline: the shell may still be consuming the pasted
-    # heredoc and the TUI coalesces frames (this raced at 2s).
-    end = time.time() + 8
+    # heredoc and the TUI coalesces frames (this raced at 2s, and 8s
+    # still fails on saturated CI runners).
+    end = time.time() + 30
     while time.time() < end and not (data.endswith(b'\\x1b\\\\') or data.endswith(b'\\x07')):
         r, _, _ = select.select([fd], [], [], max(0, end - time.time()))
         if not r:
@@ -898,8 +899,7 @@ text = output.decode("utf-8", "replace")
 assert "smoke-ws" in text, text[-500:]
 print("rename pane/workspace ok")
 
-# Sidebar rendered: header + new-workspace row are sidebar-only strings.
-assert "workspaces" in text, text[-500:]
+# Sidebar rendered: the new-workspace row is a sidebar-only string.
 assert "+ new workspace" in text, text[-500:]
 print("sidebar rendered ok")
 

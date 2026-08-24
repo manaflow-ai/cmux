@@ -379,6 +379,9 @@ jobs:
             -derivedDataPath "$IOS_DERIVED_DATA"
           )
           if [ -n "${TEST_FILTER:-}" ]; then
+            if [[ "$TEST_FILTER" == cmuxUITests/* ]]; then
+              XCODEBUILD_ARGS+=(-testPlan cmux-ui)
+            fi
             XCODEBUILD_ARGS+=(-only-testing:"$TEST_FILTER")
           else
             # Full UI tests currently exceed the pull-request simulator budget
