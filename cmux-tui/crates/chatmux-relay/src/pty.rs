@@ -282,7 +282,6 @@ struct ViewerSink {
 /// fans output out to every attachment (multi-viewer, tmux-style).
 struct ShellSession {
     control: Arc<dyn PtyControl>,
-    cwd: PathBuf,
     inner: Mutex<ShellInner>,
     banner: Option<Vec<u8>>,
 }
@@ -545,11 +544,12 @@ impl Inner {
                 return;
             }
         };
-        if let Some(value) = frame.get("cwd") {
-            if !value.is_null() && !value.is_string() {
-                fail("bad_request", "cwd must be a string");
-                return;
-            }
+        if let Some(value) = frame.get("cwd")
+            && !value.is_null()
+            && !value.is_string()
+        {
+            fail("bad_request", "cwd must be a string");
+            return;
         }
         let cwd = match scoped_cwd(
             frame.get("cwd").and_then(Value::as_str),
@@ -970,7 +970,6 @@ impl Inner {
                 let PtyHandle { control, output, banner } = handle;
                 let shell_session = Arc::new(ShellSession {
                     control,
-                    cwd: cwd.to_path_buf(),
                     banner,
                     inner: Mutex::new(ShellInner {
                         ring: VecDeque::new(),
