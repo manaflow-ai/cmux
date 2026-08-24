@@ -558,9 +558,10 @@ struct SidebarWorkspaceTableSuspensionTests {
         #expect(appliedInputs == 1)
         #expect(viewportFlushes == 1)
         #expect(postUpdateActions == 1)
-        // The authoritative apply owns the complete row graph, so a reload
-        // staged for the superseded graph is intentionally discarded.
-        #expect(reloads == 1)
+        #expect(
+            reloads == 1,
+            "An authoritative apply owns the current row graph, so a stale staged reload is superseded."
+        )
     }
 
     @Test

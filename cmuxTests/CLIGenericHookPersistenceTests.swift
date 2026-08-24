@@ -2217,6 +2217,147 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testGrokSessionStartUsesLiveTargetWithoutHookEnvironmentAndDescribesResolutionFailures() throws {
+        let cliPath = try bundledCLIPath()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-live-target-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        func environment(socketPath: String, probePath: String? = nil) -> [String: String] {
+            var values: [String: String] = [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": probePath == nil ? "1" : "0",
+                "GROK_HOME": root.appendingPathComponent("grok-home", isDirectory: true).path,
+            ]
+            values["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"] = probePath
+            return values
+        }
+
+        let successSocketPath = makeSocketPath("grok-live-target")
+        let successListenerFD = try bindUnixSocket(at: successSocketPath)
+        let successState = MockSocketServerState()
+        defer {
+            Darwin.close(successListenerFD)
+            unlink(successSocketPath)
+        }
+        startDetachedMockServer(listenerFD: successListenerFD, state: successState) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return "OK"
+            }
+            switch method {
+            case "agent.resolve_delivery_target":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                        "source": "pid",
+                    ]
+                )
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return "OK"
+            }
+        }
+
+        let liveStart = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "grok", "session-start"],
+            environment: environment(socketPath: successSocketPath),
+            standardInput: #"{"sessionId":"grok-live-session","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#,
+            timeout: 5
+        )
+        XCTAssertFalse(liveStart.timedOut, liveStart.stderr)
+        XCTAssertEqual(liveStart.status, 0, liveStart.stderr)
+        XCTAssertEqual(liveStart.stdout, "{}\n")
+
+        let liveRequests = successState.snapshot().compactMap { self.jsonObject($0) }
+        XCTAssertTrue(
+            liveRequests.contains {
+                ($0["method"] as? String) == "agent.resolve_delivery_target"
+                    && (((($0["params"] as? [String: Any])?["pid"] as? NSNumber)?.intValue ?? 0) > 0)
+            },
+            "A sanitized Grok hook must resolve its live process identity, saw \(successState.snapshot())"
+        )
+        XCTAssertTrue(
+            liveRequests.contains { ($0["method"] as? String) == "surface.resume.set" },
+            "A resolved Grok SessionStart must persist the live target, saw \(successState.snapshot())"
+        )
+        let resumeRequest = try XCTUnwrap(
+            liveRequests.first { ($0["method"] as? String) == "surface.resume.set" }
+        )
+        let resumeParams = try XCTUnwrap(resumeRequest["params"] as? [String: Any])
+        XCTAssertEqual(resumeParams["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(resumeParams["surface_id"] as? String, surfaceId)
+        let storeURL = root.appendingPathComponent("grok-hook-sessions.json", isDirectory: false)
+        let storeJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
+        )
+        let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])
+        let liveRecord = try XCTUnwrap(sessions["grok-live-session"] as? [String: Any])
+        XCTAssertEqual(liveRecord["workspaceId"] as? String, workspaceId)
+        XCTAssertEqual(liveRecord["surfaceId"] as? String, surfaceId)
+
+        let failureSocketPath = makeSocketPath("grok-live-failure")
+        let failureListenerFD = try bindUnixSocket(at: failureSocketPath)
+        let failureState = MockSocketServerState()
+        let probePath = root.appendingPathComponent("target-resolution-error.txt", isDirectory: false).path
+        defer {
+            Darwin.close(failureListenerFD)
+            unlink(failureSocketPath)
+        }
+        startDetachedMockServer(listenerFD: failureListenerFD, state: failureState) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return "OK"
+            }
+            guard method == "agent.resolve_delivery_target" else {
+                return "OK"
+            }
+            return self.v2Response(
+                id: id,
+                ok: false,
+                error: ["code": "not_found", "message": "No live delivery target"]
+            )
+        }
+
+        let failedStart = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "grok", "session-start"],
+            environment: environment(
+                socketPath: failureSocketPath,
+                probePath: probePath
+            ),
+            standardInput: #"{"sessionId":"grok-failed-session","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#,
+            timeout: 5
+        )
+        XCTAssertFalse(failedStart.timedOut, failedStart.stderr)
+        XCTAssertEqual(failedStart.status, 0, failedStart.stderr)
+        XCTAssertEqual(failedStart.stdout, "{}\n")
+        let capturedError = try String(contentsOfFile: probePath, encoding: .utf8)
+        XCTAssertTrue(
+            capturedError.contains("Grok") && capturedError.contains("session-start"),
+            "Target-resolution telemetry must describe the failure, saw \(capturedError)"
+        )
+        XCTAssertFalse(capturedError.contains("(null)"), capturedError)
+    }
+
     func testGrokStopFallbackCompletionsFireForTwoConcurrentThreads() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-two-threads")
