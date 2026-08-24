@@ -45,4 +45,7 @@ if (result.error) {
   console.error(`cmux-relay: failed to launch ${path}: ${result.error.message}`);
   process.exit(1);
 }
+if (result.signal) {
+  process.kill(process.pid, result.signal);
+}
 process.exit(result.status === null ? 1 : result.status);
