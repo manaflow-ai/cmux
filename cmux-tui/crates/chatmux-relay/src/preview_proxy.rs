@@ -386,6 +386,7 @@ struct ProxyShared {
     next_peer_id: AtomicU64,
     next_cdp_id: AtomicI64,
     shutdown: tokio::sync::watch::Receiver<bool>,
+    upgrades: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -440,6 +441,7 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRu
         next_peer_id: AtomicU64::new(1),
         next_cdp_id: AtomicI64::new(PROXY_CDP_ID_BASE),
         shutdown: stopped.clone(),
+        upgrades: Mutex::new(Vec::new()),
     });
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let task = tokio::spawn(async move {
@@ -474,6 +476,11 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRu
         }
         connections.abort_all();
         while connections.join_next().await.is_some() {}
+        let upgrades = shared.upgrades.lock().map(|mut tasks| tasks.drain(..).collect()).unwrap_or_default();
+        for task in upgrades {
+            task.abort();
+            let _ = task.await;
+        }
     });
     // Do not publish the port until the accept loop has started. This avoids
     // clients racing the task scheduler immediately after preview_open.
@@ -923,7 +930,7 @@ async fn forward_upgrade(
         return response.map(passthrough_body);
     }
     let client_upgrade = hyper::upgrade::on(&mut response);
-    tokio::spawn(async move {
+    let task = tokio::spawn(async move {
         let (Ok(client), Ok(server)) = tokio::join!(client_upgrade, server_upgrade) else {
             return;
         };
@@ -931,6 +938,11 @@ async fn forward_upgrade(
         let mut server_io = hyper_util::rt::TokioIo::new(server);
         let _ = tokio::io::copy_bidirectional(&mut server_io, &mut client_io).await;
     });
+    if let Ok(mut upgrades) = shared.upgrades.lock() {
+        upgrades.push(task);
+    } else {
+        task.abort();
+    }
     let (parts, _body) = response.into_parts();
     hyper::Response::from_parts(parts, full_body(Vec::new()))
 }
