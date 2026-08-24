@@ -228,7 +228,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let environment = herdrCompatEnvironment(
             searchPath: emptyBin.path,
             home: isolatedHome,
-            locale: "fr"
+            locale: "ja"
         )
 
         let missing = runProcess(
@@ -240,7 +240,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         XCTAssertFalse(missing.timedOut, missing.diagnostics)
         XCTAssertEqual(missing.status, 127, missing.diagnostics)
         XCTAssertTrue(
-            missing.stderr.contains("Impossible de lancer la commande requise."),
+            missing.stderr.contains("必要なコマンドを起動できませんでした。インストールされていることを確認して、もう一度お試しください。"),
             missing.diagnostics
         )
         XCTAssertFalse(missing.stderr.localizedStandardContains("herdr"), missing.diagnostics)
@@ -255,7 +255,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         XCTAssertFalse(unknown.timedOut, unknown.diagnostics)
         XCTAssertEqual(unknown.status, 2, unknown.diagnostics)
         XCTAssertTrue(
-            unknown.stderr.contains("Commande de compatibilité inconnue"),
+            unknown.stderr.contains("不明な互換コマンド"),
             unknown.diagnostics
         )
         XCTAssertFalse(unknown.stderr.localizedStandardContains("herdr"), unknown.diagnostics)
@@ -268,8 +268,8 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
         XCTAssertFalse(help.timedOut, help.stdout)
         XCTAssertEqual(help.status, 0, help.stdout)
-        XCTAssertTrue(help.stdout.contains("Utilisation : cmux __herdr-compat"), help.stdout)
-        XCTAssertTrue(help.stdout.contains("Commandes :"), help.stdout)
+        XCTAssertTrue(help.stdout.contains("使用法: cmux __herdr-compat"), help.stdout)
+        XCTAssertTrue(help.stdout.contains("コマンド:"), help.stdout)
         XCTAssertFalse(help.stdout.contains("Usage:"), help.stdout)
     }
 

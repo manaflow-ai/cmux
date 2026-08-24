@@ -8,16 +8,26 @@ extension CMUXCLI {
     /// then `exec` replaces cmux so stdout, stderr, signals, and exit status remain
     /// exactly those of Herdr.
     func runHerdrCompat(commandArgs: [String], jsonOutput: Bool) throws {
+        var herdrCommandArgs = commandArgs
+        var effectiveJSONOutput = jsonOutput
+        // `--json` before the compatibility alias is a cmux presentation option.
+        // Keep it accepted while preserving a later alias-local `--json` so the
+        // JSON-only aliases can reject the provider's unsupported flag.
+        while herdrCommandArgs.first == "--json" {
+            effectiveJSONOutput = true
+            herdrCommandArgs.removeFirst()
+        }
+
         let usage = Self.herdrCompatUsage
-        if commandArgs.first.map({ $0 == "--help" || $0 == "-h" }) ?? false {
+        if herdrCommandArgs.first.map({ $0 == "--help" || $0 == "-h" }) ?? false {
             print(usage)
             return
         }
 
-        guard let command = commandArgs.first else {
+        guard let command = herdrCommandArgs.first else {
             throw CLIError(message: usage, exitCode: 2)
         }
-        let arguments = Array(commandArgs.dropFirst())
+        let arguments = Array(herdrCommandArgs.dropFirst())
         // Herdr accepts `--json` only on `status`. Alias-local `--json` on the
         // JSON-only aliases would be forwarded and rejected by the provider;
         // fail here with the compatibility usage instead.
@@ -27,7 +37,7 @@ extension CMUXCLI {
         guard let translated = Self.herdrCompatArguments(
             command: command,
             arguments: arguments,
-            jsonOutput: jsonOutput
+            jsonOutput: effectiveJSONOutput
         ) else {
             let format = String(
                 localized: "cli.herdrCompat.error.unknownCommand",
@@ -135,7 +145,8 @@ extension CMUXCLI {
             Notes:
               - `status` accepts cmux `--json` (mapped to provider `status --json`).
               - `snapshot`, `list-workspaces`, `list-tabs`, and `list-panes` always return JSON;
-                cmux `--json` is accepted and ignored for those aliases.
+                a top-level cmux `--json` is accepted and ignored, while an alias-local
+                `--json` is rejected.
             """,
             bundle: herdrCompatLocalizationBundle
         )
