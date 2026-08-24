@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxSettings
 import Foundation
 
@@ -83,16 +84,9 @@ struct AgentExecutableResolver {
             ])
         }
 
-        var seen: Set<String> = []
-        return directories.compactMap { rawDirectory in
-            let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            let standardized = URL(fileURLWithPath: trimmed, isDirectory: true)
-                .standardizedFileURL
-                .path
-            guard seen.insert(standardized).inserted else { return nil }
-            return standardized
-        }
+        return AgentExecutableSearchPathResolver(
+            currentDirectoryPath: fileManager.currentDirectoryPath
+        ).normalizedDirectories(from: directories)
     }
 
     private func userRuntimeSearchDirectories(home: String) -> [String] {

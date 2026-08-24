@@ -17,7 +17,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         _ rendezvous: CmxIrohLANRendezvous
     ) async -> [CmxIrohPathHint]
     public typealias CustomPrivateFallbackProvider = @Sendable (
-        _ expectedMacDeviceID: String
+        _ expectedMacDeviceID: String,
+        _ expectedInstanceTag: String?
     ) async -> [CmxIrohCustomPrivatePathBootstrap]
 
     let localEndpointIdentity: @Sendable () async throws -> CmxIrohPeerIdentity
@@ -762,7 +763,10 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         at clock: Date
     ) async -> [CmxIrohPathHint] {
         guard let customPrivateFallback else { return [] }
-        let configured = await customPrivateFallback(targetBinding.deviceID)
+        let configured = await customPrivateFallback(
+            targetBinding.deviceID,
+            targetBinding.tag
+        )
         let peerAlias = DiagnosticCorrelation().handle(for: targetBinding.deviceID)
         guard !configured.isEmpty else {
             diagnostics?.record(DiagnosticEvent(

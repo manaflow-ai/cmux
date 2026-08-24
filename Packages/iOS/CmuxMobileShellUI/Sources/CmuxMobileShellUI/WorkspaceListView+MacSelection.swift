@@ -33,7 +33,9 @@ extension WorkspaceListView {
             displayPairedMacs: displayPairedMacsForPicker,
             foregroundMacDeviceID: store?.connectedMacDeviceID ?? store?.activeTicket?.macDeviceID,
             foregroundInstanceTag: store?.connectedMacInstanceTag,
-            aliasesFor: { store?.pairedMacAliasIDs(for: $0) ?? [] }
+            aliasesFor: {
+                store?.pairedMacAliasIDs(for: $0, instanceTag: $1) ?? []
+            }
         )
     }
 
@@ -49,7 +51,7 @@ extension WorkspaceListView {
         let scope = macSelectionScope
         return WorkspaceMachineSnapshots(
             workspaces: workspaces,
-            filterMachineIDFor: { scope.aliasIndex.deviceRepresentativeID(for: $0) },
+            filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },
             macPickerMachineIDs: scope.machineIDs,
             namesByID: macDisplayNamesByID(),
             buildLabelsByID: macBuildLabelsByID(),
@@ -70,6 +72,10 @@ extension WorkspaceListView {
                 continue
             }
             names[id] = name
+            names[MobilePairedMac.pairingID(
+                macDeviceID: id,
+                instanceTag: workspace.macInstanceTag
+            )] = name
         }
         for device in store?.deviceTreeDevices ?? [] {
             if let name = device.displayName, !name.isEmpty {
@@ -102,7 +108,7 @@ extension WorkspaceListView {
         var seen = Set<String>()
         var present: [String] = []
         for id in MobileWorkspaceListFilter.machineIDs(in: workspaces) {
-            let representativeID = aliasIndex.deviceRepresentativeID(for: id)
+            let representativeID = aliasIndex.representativeID(for: id)
             if seen.insert(representativeID).inserted {
                 present.append(representativeID)
             }

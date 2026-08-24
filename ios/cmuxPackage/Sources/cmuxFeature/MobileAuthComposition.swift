@@ -384,14 +384,9 @@ public struct MobileAuthComposition {
     }
 
     private static func keychainAccessGroup(in bundle: Bundle) -> String? {
-        let value = bundle.object(
-            forInfoDictionaryKey: "CMUXKeychainAccessGroup"
-        ) as? String
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let trimmed, !trimmed.isEmpty, !trimmed.contains("$(") else {
-            return nil
-        }
-        return trimmed
+        MobileKeychainAccessGroupPolicy.resolve(
+            bundle.object(forInfoDictionaryKey: "CMUXKeychainAccessGroup") as? String
+        )
     }
 
     /// Parse optional string overrides from a bundled `LocalConfig.plist`.

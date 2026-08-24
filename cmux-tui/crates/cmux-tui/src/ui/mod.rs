@@ -167,9 +167,30 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
 }
 
 fn draw_machine_transition(app: &mut App, frame: &mut Frame) -> bool {
-    let Some((name, phase)) =
-        app.machine_transition().map(|(name, phase)| (name.to_string(), phase))
-    else {
+    let Some((name, status_text)) = app.machine_transition().map(|view| {
+        // Precedence for the interstitial's second line: a hard failure,
+        // then a deliberately-asleep hint, then the provider's live progress
+        // message, then a status-aware default ("waking" beats a generic
+        // "connecting" for a sleeping or stopped machine being resumed).
+        let asleep = matches!(
+            view.status,
+            crate::machine::MachineStatus::Sleeping | crate::machine::MachineStatus::Stopped
+        );
+        let status_text = if view.phase == MachineConnectionPhase::Failed {
+            catalog().sidebar.unavailable.to_string()
+        } else if view.phase == MachineConnectionPhase::Disconnected && asleep {
+            // Deliberately asleep, nothing in flight: the next keystroke or
+            // click wakes it.
+            catalog().sidebar.sleeping_wake_hint.to_string()
+        } else if let Some(progress) = view.progress {
+            progress.to_string()
+        } else if asleep {
+            catalog().sidebar.waking.to_string()
+        } else {
+            catalog().sidebar.connecting.to_string()
+        };
+        (view.name.to_string(), status_text)
+    }) else {
         return false;
     };
     let area = app.content_area;
@@ -183,12 +204,7 @@ fn draw_machine_transition(app: &mut App, frame: &mut Frame) -> bool {
             || rect.y >= area.y.saturating_add(area.height)
             || area.y >= rect.y.saturating_add(rect.height)
     });
-    let status = match phase {
-        MachineConnectionPhase::Failed => catalog().sidebar.unavailable,
-        MachineConnectionPhase::Disconnected
-        | MachineConnectionPhase::Connecting
-        | MachineConnectionPhase::Ready => catalog().sidebar.connecting,
-    };
+    let status = status_text.as_str();
     let style = Style::default().fg(app.chrome.sidebar_dim_fg);
     let title_style =
         Style::default().fg(app.chrome.sidebar_selected_fg).add_modifier(Modifier::BOLD);
@@ -386,26 +402,69 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
         (start, width)
     };
 
-    for segment in left_segments {
+    let segment_bg = |segment: &crate::app::StatusSegmentView| segment.bg.unwrap_or(status_bg);
+    // Segment lists are bounded (eight per side), so lookahead scans stay
+    // cheap and the draw path allocates nothing.
+    let left_separator = app.config.status_bar.left_separator.as_deref();
+    for (index, segment) in left_segments.iter().enumerate() {
+        if segment.text.is_empty() {
+            continue;
+        }
         put(frame, &mut x, &segment.text, segment_style(segment));
+        if let Some(separator) = left_separator {
+            // Powerline transition: the separator's foreground takes this
+            // segment's background and its background the next segment's
+            // (or the bar's own, after the last segment).
+            let next_bg = left_segments[index + 1..]
+                .iter()
+                .find(|next| !next.text.is_empty())
+                .map(segment_bg)
+                .unwrap_or(status_bg);
+            put(frame, &mut x, separator, Style::default().fg(segment_bg(segment)).bg(next_bg));
+        }
     }
     if app.config.status_bar.show_screens
         && let Some(ws) = app.tree.active_workspace().cloned()
     {
         put(frame, &mut x, " screens ", base.fg(chrome.status_dim_fg));
+        let screen_caps = app.config.status_bar.screens_style.caps();
         for (i, screen) in ws.screens.iter().enumerate() {
             let active = i == ws.active_screen;
             let label = format!(" {} ", truncate(&screen.display_name(i), 20));
-            let (start, width) =
-                put(frame, &mut x, &label, if active { active_style } else { base });
-            if width > 0 {
+            let chip_start = x;
+            // Caps wrap only the active chip: inactive screens share the
+            // bar background, so caps there would be invisible anyway.
+            if let (Some((cap_left, _)), true) = (screen_caps, active) {
+                put(
+                    frame,
+                    &mut x,
+                    cap_left,
+                    Style::default().fg(chrome.status_active_bg).bg(status_bg),
+                );
+            }
+            put(frame, &mut x, &label, if active { active_style } else { base });
+            if let (Some((_, cap_right)), true) = (screen_caps, active) {
+                put(
+                    frame,
+                    &mut x,
+                    cap_right,
+                    Style::default().fg(chrome.status_active_bg).bg(status_bg),
+                );
+            }
+            let chip_width = x.saturating_sub(chip_start);
+            if chip_width > 0 {
                 hits.push((
-                    Rect { x: start, y: status_y, width, height: 1 },
+                    Rect { x: chip_start, y: status_y, width: chip_width, height: 1 },
                     Hit::ScreenEntry { index: i, id: screen.id },
                 ));
             }
         }
-        let (start, width) = put(frame, &mut x, " + ", base.fg(chrome.status_dim_fg));
+        let (start, width) = put(
+            frame,
+            &mut x,
+            &app.config.status_bar.screens_plus.label,
+            base.fg(chrome.status_dim_fg),
+        );
         if width > 0 {
             hits.push((Rect { x: start, y: status_y, width, height: 1 }, Hit::NewScreen));
         }
@@ -444,9 +503,12 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     // Right-aligned custom segments sit left of the label; draw them and
     // shrink the viewport track accordingly.
     let mut right_x = area.width.saturating_sub(label_w);
-    for segment in right_segments.iter().rev() {
+    let right_separator = app.config.status_bar.right_separator.as_deref();
+    // Empty texts are normal before a command's first result; later
+    // segments still draw.
+    for index in (0..right_segments.len()).rev() {
+        let segment = &right_segments[index];
         if segment.text.is_empty() {
-            // Normal before a command's first result; later segments still draw.
             continue;
         }
         let width = (segment.text.width() as u16).min(right_x.saturating_sub(x));
@@ -461,6 +523,29 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
             width as usize,
             segment_style(segment),
         );
+        if let Some(separator) = right_separator {
+            let separator_width = (separator.width() as u16).min(right_x.saturating_sub(x));
+            if separator_width == 0 {
+                break;
+            }
+            // Mirrored powerline transition: the separator sits left of its
+            // segment, foreground from the segment, background from the
+            // next segment to the left (or the bar itself).
+            let left_bg = right_segments[..index]
+                .iter()
+                .rev()
+                .find(|previous| !previous.text.is_empty())
+                .map(segment_bg)
+                .unwrap_or(status_bg);
+            right_x = right_x.saturating_sub(separator_width);
+            frame.buffer_mut().set_stringn(
+                right_x,
+                status_y,
+                separator,
+                separator_width as usize,
+                Style::default().fg(segment_bg(segment)).bg(left_bg),
+            );
+        }
     }
     let track_end = right_x;
     let track_start = x.saturating_add(1);
