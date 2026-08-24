@@ -37,7 +37,7 @@ final class FocusHistoryMenuInvalidator: ObservableObject {
 
     init(
         center: NotificationCenter = .default,
-        closedItemHistoryStore: ClosedItemHistoryStore = .shared,
+        closedItemHistoryStore: ClosedItemHistoryStore? = nil,
         managerProvider: @escaping @MainActor () -> TabManager? = {
             AppDelegate.shared?.activeTabManagerForCommands(
                 preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
@@ -45,7 +45,7 @@ final class FocusHistoryMenuInvalidator: ObservableObject {
         }
     ) {
         self.center = center
-        self.closedItemHistoryStore = closedItemHistoryStore
+        self.closedItemHistoryStore = closedItemHistoryStore ?? ClosedItemHistoryStore.shared
         self.managerProvider = managerProvider
         observers.append(center.addObserver(
             forName: .tabManagerFocusHistoryRevisionDidChange,
