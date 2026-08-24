@@ -8567,8 +8567,9 @@ final class cmuxUITests: XCTestCase {
     }
 
     /// Verify the built app's two-part keyboard contract at steady state:
-    /// the OS-selected geometry source resolves to the real software-keyboard edge,
-    /// and the visible composer/toolbar stack resolves to that same target.
+    /// the notification-derived dock target resolves to the real
+    /// software-keyboard edge, and the visible composer/toolbar stack resolves
+    /// to that same target.
     @MainActor
     private func assertTerminalDockPinnedToSoftwareKeyboard(
         _ dock: [String: String],
@@ -8578,7 +8579,7 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        guard let source = dock["keyboardDockSource"],
+        guard let targetTop = dock["keyboardDockTargetTop"].flatMap(Double.init),
               let composerMinY = dock["composerMinY"].flatMap(Double.init),
               let composerMaxY = dock["composerMaxY"].flatMap(Double.init),
               let toolbarMaxY = dock["toolbarMaxY"].flatMap(Double.init) else {
@@ -8591,59 +8592,41 @@ final class cmuxUITests: XCTestCase {
         }
 
         let dockEdge = composerMaxY - composerMinY > 0.5 ? composerMaxY : toolbarMaxY
-        let targetTop: Double
-        switch source {
-        case "notification":
-            guard let notificationTop = dock["keyboardDockTargetTop"].flatMap(Double.init) else {
-                XCTFail(
-                    "Missing notification keyboard target for \(context). dock=\(dock)",
-                    file: file,
-                    line: line
-                )
-                return
-            }
-            targetTop = notificationTop
-        case "layoutGuide":
-            guard let guideTop = dock["keyboardGuideTop"].flatMap(Double.init) else {
-                XCTFail(
-                    "Missing keyboard-guide target for \(context). dock=\(dock)",
-                    file: file,
-                    line: line
-                )
-                return
-            }
-            targetTop = guideTop
-        default:
-            XCTFail(
-                "Unknown keyboard dock source for \(context). dock=\(dock)",
-                file: file,
-                line: line
-            )
-            return
-        }
         XCTAssertEqual(
             dockEdge,
             targetTop,
             accuracy: 1,
-            "Dock must terminate at its selected keyboard target for \(context). dock=\(dock)",
+            "Dock must terminate at its keyboard target for \(context). dock=\(dock)",
             file: file,
             line: line
         )
-        XCTAssertEqual(
-            Double(surface.frame.minY) + targetTop,
-            Double(keyboard.frame.minY),
-            accuracy: 2,
-            "Selected keyboard geometry must resolve to the visible keyboard edge for "
-                + "\(context). keyboard=\(keyboard) surface=\(surface.frame) dock=\(dock)",
+        // The dock seats on UIKit's notification frame, which includes the
+        // accessory chrome ABOVE the key plane (autocorrect / inline-autofill
+        // bar); the XCUI keyboard element covers only the keys. Assert the dock
+        // sits inside that chrome band: never below the key plane (covering
+        // keys), never floating more than one accessory bar above it.
+        let dockEdgeInWindow = Double(surface.frame.minY) + targetTop
+        let chromeAboveKeys = Double(keyboard.frame.minY) - dockEdgeInWindow
+        XCTAssertGreaterThanOrEqual(
+            chromeAboveKeys,
+            -2,
+            "Dock must not cover the key plane for \(context). "
+                + "keyboard=\(keyboard) surface=\(surface.frame) dock=\(dock)",
             file: file,
             line: line
         )
-        assertTerminalRenderBottomAttachedToViewport(
-            dock,
-            context: context,
+        XCTAssertLessThanOrEqual(
+            chromeAboveKeys,
+            60,
+            "Dock floated above the keyboard's accessory chrome for \(context). "
+                + "keyboard=\(keyboard) surface=\(surface.frame) dock=\(dock)",
             file: file,
             line: line
         )
+        // The render's settled attachment is asserted at echo-settled
+        // checkpoints, not here: mid-transition the render may intentionally
+        // hold while blank rows absorb the keyboard intrusion, and the fresh
+        // grid arrives with the Mac's viewport echo a round-trip later.
     }
 
     /// Repeatedly open and close the composer via the toolbar compose button and assert
@@ -9016,7 +8999,11 @@ final class cmuxUITests: XCTestCase {
         let port = try await server.start()
         defer { server.stop() }
 
-        let app = try launchConnectedApp(port: port)
+        // Legacy ships as the default; this suite regression-tests the rebuilt
+        // path that stays reachable behind the rebuild-revert kill switch.
+        let app = try launchConnectedApp(port: port, environment: [
+            "CMUX_UITEST_FORCE_REBUILD_KEYBOARD_DOCK": "1",
+        ])
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 8))
 
@@ -9101,8 +9088,15 @@ final class cmuxUITests: XCTestCase {
 
         hideKeyboardButton.tap()
         XCTAssertTrue(waitForKeyboardDismissal(in: app))
+        // The render refills the grown viewport only after the Mac's grid echo
+        // lands, so the settle wait includes the render attachment instead of
+        // asserting it against a pre-echo snapshot.
         let hiddenDock = waitForDock(in: app, describe: "keyboard-hidden terminal presentation settled") {
-            $0["keyboardUp"] == "0" && $0["keyboardTransitionID"] == "-1"
+            guard $0["keyboardUp"] == "0",
+                  $0["keyboardTransitionID"] == "-1",
+                  let renderMaxY = Int($0["renderMaxY"] ?? ""),
+                  let viewportHeight = Int($0["viewportHeight"] ?? "") else { return false }
+            return abs(renderMaxY - viewportHeight) <= 2
         }
         assertTerminalPresentationPinnedToDock(
             hiddenDock,
@@ -9125,7 +9119,11 @@ final class cmuxUITests: XCTestCase {
         let port = try await server.start()
         defer { server.stop() }
 
-        let app = try launchConnectedApp(port: port)
+        // Legacy ships as the default; this suite regression-tests the rebuilt
+        // path that stays reachable behind the rebuild-revert kill switch.
+        let app = try launchConnectedApp(port: port, environment: [
+            "CMUX_UITEST_FORCE_REBUILD_KEYBOARD_DOCK": "1",
+        ])
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 8))
 
@@ -9174,18 +9172,18 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
-    /// iOS 27 falls back to notification-driven keyboard geometry because its
-    /// keyboard layout guide can remain seated at the screen bottom. Force that
-    /// runtime policy on the CI simulator and prove the visible dock follows the
-    /// real software-keyboard edge through the production composer path.
+    /// The rebuilt notification-driven dock stays reachable on iOS ≤26 behind
+    /// the rebuild-revert kill switch. Force it and prove the visible dock
+    /// follows the real software-keyboard edge through the production
+    /// composer path.
     @MainActor
-    func testIOS27KeyboardDockWorkaroundPinsComposerToKeyboard() async throws {
+    func testNotificationKeyboardDockPinsComposerToKeyboard() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
         defer { server.stop() }
 
         let app = try launchConnectedApp(port: port, environment: [
-            "CMUX_UITEST_FORCE_IOS27_KEYBOARD_DOCK": "1",
+            "CMUX_UITEST_FORCE_REBUILD_KEYBOARD_DOCK": "1",
         ])
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 8))
@@ -9199,7 +9197,7 @@ final class cmuxUITests: XCTestCase {
             minimumOverlap: 120,
             timeout: 4
         ) else { return }
-        let dock = waitForDock(in: app, describe: "iOS 27 notification fallback tracks keyboard") {
+        let dock = waitForDock(in: app, describe: "notification dock tracks keyboard") {
             $0["keyboardDockSource"] == "notification"
                 && ($0["keyboardHeight"].flatMap(Double.init) ?? 0) > 120
         }
@@ -9208,7 +9206,7 @@ final class cmuxUITests: XCTestCase {
               let composerMinY = dock["composerMinY"].flatMap(Double.init),
               let composerMaxY = dock["composerMaxY"].flatMap(Double.init),
               let toolbarMaxY = dock["toolbarMaxY"].flatMap(Double.init) else {
-            XCTFail("Missing iOS 27 keyboard-dock fallback geometry. dock=\(dock)")
+            XCTFail("Missing notification keyboard-dock geometry. dock=\(dock)")
             return
         }
 
@@ -9217,17 +9215,115 @@ final class cmuxUITests: XCTestCase {
             dockEdge,
             dockTargetTop,
             accuracy: 1,
-            "The iOS 27 fallback must terminate the dock at its notification-derived target. dock=\(dock)"
+            "The dock must terminate at its notification-derived target. dock=\(dock)"
         )
-        XCTAssertEqual(
-            Double(surface.frame.minY) + dockTargetTop,
-            Double(keyboard.frame.minY),
-            accuracy: 2,
-            "The iOS 27 fallback must pin the composer to the visible software keyboard. keyboard=\(keyboard) dock=\(dock)"
+        // The notification frame includes accessory chrome above the XCUI key
+        // plane; the dock must sit inside that band (see
+        // assertTerminalDockPinnedToSoftwareKeyboard).
+        let dockEdgeInWindow = Double(surface.frame.minY) + dockTargetTop
+        let chromeAboveKeys = Double(keyboard.frame.minY) - dockEdgeInWindow
+        XCTAssertGreaterThanOrEqual(
+            chromeAboveKeys,
+            -2,
+            "The notification dock must not cover the key plane. keyboard=\(keyboard) dock=\(dock)"
         )
+        XCTAssertLessThanOrEqual(
+            chromeAboveKeys,
+            60,
+            "The notification dock floated above the keyboard chrome. keyboard=\(keyboard) dock=\(dock)"
+        )
+        // The keyboard-up grid arrives with the Mac's viewport echo; wait for
+        // the settled render before asserting its attachment.
+        let settledDock = waitForDock(in: app, describe: "grid echo settled the keyboard-up render") {
+            guard let renderMaxY = Int($0["renderMaxY"] ?? ""),
+                  let viewportHeight = Int($0["viewportHeight"] ?? "") else { return false }
+            return abs(renderMaxY - viewportHeight) <= 2
+        }
         assertTerminalRenderBottomAttachedToViewport(
+            settledDock,
+            context: "notification keyboard dock"
+        )
+    }
+
+    /// The legacy (notification+transform) keyboard dock path is the shipping
+    /// default on every OS. Launch with no overrides and prove the default
+    /// path selects legacy and the visible dock follows the real
+    /// software-keyboard edge through the production composer path.
+    @MainActor
+    func testLegacyKeyboardDockPinsComposerToKeyboard() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 4))
+        composerField.tap()
+
+        guard let keyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        let dock = waitForDock(in: app, describe: "legacy dock tracks keyboard") {
+            $0["keyboardDockSource"] == "legacyNotification"
+                && ($0["keyboardHeight"].flatMap(Double.init) ?? 0) > 120
+        }
+        assertTerminalDockPinnedToSoftwareKeyboard(
             dock,
-            context: "iOS 27 notification fallback"
+            surface: surface,
+            keyboard: keyboard,
+            context: "legacy keyboard dock"
+        )
+        assertTerminalPresentationPinnedToDock(
+            dock,
+            context: "legacy keyboard dock"
+        )
+    }
+
+    /// The Settings > Developer "Rebuilt Keyboard Pinning" toggle persists
+    /// `cmux.mobile.debug.forceRebuildKeyboardDock.v1` and the terminal host
+    /// snapshots it at mount. Drive the same defaults key through the launch
+    /// argument domain and prove it selects the rebuilt dock path end to end,
+    /// with the dock still pinned to the real software-keyboard edge.
+    @MainActor
+    func testRebuildKeyboardDockDebugSettingSelectsRebuildPath() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(
+            port: port,
+            launchArguments: ["-cmux.mobile.debug.forceRebuildKeyboardDock.v1", "1"]
+        )
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 4))
+        composerField.tap()
+
+        guard let keyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        let dock = waitForDock(in: app, describe: "debug-setting dock tracks keyboard") {
+            $0["keyboardDockSource"] == "notification"
+                && ($0["keyboardHeight"].flatMap(Double.init) ?? 0) > 120
+        }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            dock,
+            surface: surface,
+            keyboard: keyboard,
+            context: "debug-setting rebuilt keyboard dock"
+        )
+        assertTerminalPresentationPinnedToDock(
+            dock,
+            context: "debug-setting rebuilt keyboard dock"
         )
     }
 

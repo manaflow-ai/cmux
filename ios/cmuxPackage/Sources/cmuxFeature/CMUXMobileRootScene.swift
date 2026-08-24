@@ -374,6 +374,7 @@ public struct CMUXMobileRootScene: View {
             .environment(pushCoordinator)
             .environment(displaySettings)
             .terminalFilesChipEnabled(featureFlags.terminalFilesChipEnabled)
+            .keyboardDockRebuildRevertEnabled(featureFlags.keyboardDockRebuildRevertEnabled)
             .environment(connectionMethodStore)
             .environment(autoConnectMigrationStore)
             #endif

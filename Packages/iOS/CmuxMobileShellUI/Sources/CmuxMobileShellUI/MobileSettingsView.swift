@@ -279,6 +279,22 @@ struct MobileSettingsView: View {
                         range: MobileDisplaySettings.unreadIndicatorLeftShiftRange,
                         identifier: "MobileSettingsUnreadIndicatorLeftness"
                     )
+
+                    Toggle(isOn: $displaySettings.forceRebuildKeyboardDock) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.string(
+                                "mobile.settings.rebuildKeyboardDock",
+                                defaultValue: "Rebuilt Keyboard Pinning"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.rebuildKeyboardDockCaption",
+                                defaultValue: "Use the rebuilt keyboard path instead of the default (iOS 26 and earlier). Reopen the workspace to apply."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsRebuildKeyboardDock")
                 }
 
                 Section(L10n.string(
