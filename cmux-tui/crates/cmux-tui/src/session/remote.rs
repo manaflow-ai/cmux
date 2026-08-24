@@ -466,6 +466,11 @@ impl RemoteSurface {
         self.cursor_provenance.lock().unwrap().scan(bytes);
     }
 
+    #[cfg(test)]
+    pub(super) fn test_scan_cursor_provenance(&self, bytes: &[u8]) {
+        self.scan_cursor_provenance(bytes);
+    }
+
     pub(super) fn sync_mouse_encoders(&self, terminal: &Terminal) {
         self.mouse_encoders.lock().unwrap().sync_from_terminal(terminal);
     }

@@ -11061,7 +11061,10 @@ impl App {
             .filter(|intent| Some(*intent) != self.machine_presented)
             .is_some_and(|intent| {
                 !self.machine_action_in_flight
-                    && update.connection_phase(intent) == MachineConnectionPhase::Failed
+                    && (update.connection_phase(intent) == MachineConnectionPhase::Failed
+                        || self.machine_ui.as_ref().is_some_and(|previous| {
+                            previous.connection_phase(intent) == MachineConnectionPhase::Failed
+                        }))
             });
         if presented_deleted
             && let Some(presented) = self.machine_presented
@@ -25756,7 +25759,7 @@ mod tests {
         assert!(app.shortcut_help.is_none());
 
         app.run_action(Action::ShowShortcuts).unwrap();
-        let tall_height = app.config.keys.resolved_shortcuts().len() as u16 + 6;
+        let tall_height = app.shortcut_help.as_ref().unwrap().rows.len() as u16 + 6;
         let mut tall_terminal = Terminal::new(TestBackend::new(180, tall_height)).unwrap();
         tall_terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         let help = app.shortcut_help.as_ref().unwrap();
@@ -37261,10 +37264,12 @@ mod tests {
 
     #[test]
     fn scoped_frame_cursor_reset_preserves_host_cursor_without_inner_authorship() {
-        let mux = Mux::new("scoped-cursor-preserve-test", SurfaceOptions::default());
-        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
-        let mut app = test_app(Session::Local(mux.clone()));
-        app.surface_only = Some(surface.id);
+        let surface_id = 7;
+        let (session, surface) = crate::session::test_remote_session_with_unleased_view_surface(
+            surface_id,
+        );
+        let mut app = test_app(session);
+        app.surface_only = Some(surface_id);
         app.desired_outer_cursor = OuterCursorSpec::Terminal {
             color: Rgb { r: 1, g: 2, b: 3 },
             shape: CursorShape::Bar,
@@ -37274,18 +37279,20 @@ mod tests {
         app.reset_frame_cursor_spec();
         assert!(matches!(app.desired_outer_cursor, OuterCursorSpec::Terminal { .. }));
 
+        surface.test_scan_cursor_provenance(b"\x1b[3 q");
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[3 q"));
         app.reset_frame_cursor_spec();
         assert_eq!(app.desired_outer_cursor, OuterCursorSpec::Reset);
+        surface.test_scan_cursor_provenance(b"\x1b[5 q");
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[5 q"));
         app.use_terminal_cursor_spec(Rgb { r: 1, g: 2, b: 3 }, CursorShape::Bar, true);
+        surface.test_scan_cursor_provenance(b"\x1b[0 q");
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[0 q"));
         app.reset_frame_cursor_spec();
         assert_eq!(app.desired_outer_cursor, OuterCursorSpec::Reset);
         app.use_terminal_cursor_spec(Rgb { r: 1, g: 2, b: 3 }, CursorShape::Bar, true);
         app.reassert_scoped_host_terminal_state();
         assert_eq!(app.desired_outer_cursor, OuterCursorSpec::Reset);
-        mux.close_surface(surface.id).unwrap();
     }
 
     fn test_mouse_motion() -> MouseInput {
