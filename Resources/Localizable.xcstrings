@@ -170212,7 +170212,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Applies to terminal link clicks and intercepted `open https://...` calls. One rule per line. Plain text matches any URL substring, or prefix with `re:` for regex (for example: openai.com/usage, re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage))."
+            "value": "Applies to browser-page link clicks, terminal link clicks, and intercepted `open https://...` calls. One rule per line. Plain text matches any URL substring; regex-shaped rules and `*`/`?` wildcards are supported (for example: example.com, *example.com*, .*example\\\\.com.*, re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage))."
           }
         },
         "es": {
@@ -170236,7 +170236,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルのリンククリックおよびインターセプトされた`open https://...`呼び出しに適用されます。1行に1ルール。プレーンテキストはURL部分文字列に一致し、`re:`プレフィックスで正規表現を使用できます（例: openai.com/usage, re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage)）。"
+            "value": "ブラウザページのリンククリック、ターミナルのリンククリック、およびインターセプトされた`open https://...`呼び出しに適用されます。1行に1ルール。プレーンテキストはURL部分文字列に一致し、正規表現形式のルールと`*`/`?`ワイルドカードも使用できます（例: example.com、*example.com*、.*example\\\\.com.*、re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage)）。"
           }
         },
         "ko": {

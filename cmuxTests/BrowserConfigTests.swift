@@ -5564,6 +5564,39 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
             )
         )
     }
+
+    func testExternalOpenNavigationRuleOnlyAppliesToMainFrameLinkActivation() throws {
+        defaults.set(
+            ["example.com"],
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        let url = try XCTUnwrap(URL(string: "https://example.com/"))
+
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                url,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true,
+                defaults: defaults
+            )
+        )
+        XCTAssertFalse(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                url,
+                navigationType: .other,
+                targetFrameIsMain: true,
+                defaults: defaults
+            )
+        )
+        XCTAssertFalse(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                url,
+                navigationType: .linkActivated,
+                targetFrameIsMain: false,
+                defaults: defaults
+            )
+        )
+    }
 }
 
 

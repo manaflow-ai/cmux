@@ -480,7 +480,7 @@ enum BrowserLinkOpenSettings {
 
     static let browserHostWhitelistKey = "browserHostWhitelist"
     static let defaultBrowserHostWhitelist: String = ""
-    static let browserExternalOpenPatternsKey = "browserExternalOpenPatterns"
+    static let browserExternalOpenPatternsKey = BrowserExternalURLPolicy.userDefaultsKey
     static let defaultBrowserExternalOpenPatterns: String = ""
 
     static func openTerminalLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
@@ -534,11 +534,7 @@ enum BrowserLinkOpenSettings {
     }
 
     static func externalOpenPatterns(defaults: UserDefaults = .standard) -> [String] {
-        let raw = defaults.string(forKey: browserExternalOpenPatternsKey) ?? defaultBrowserExternalOpenPatterns
-        return raw
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+        BrowserExternalURLPolicy(defaults: defaults).patterns
     }
 
     static func shouldOpenExternally(_ url: URL, defaults: UserDefaults = .standard) -> Bool {
@@ -549,21 +545,20 @@ enum BrowserLinkOpenSettings {
         let target = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !target.isEmpty else { return false }
         guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return true }
+        return BrowserExternalURLPolicy(defaults: defaults).matches(target)
+    }
 
-        for rawPattern in externalOpenPatterns(defaults: defaults) {
-            guard let (isRegex, value) = parseExternalPattern(rawPattern) else { continue }
-            if isRegex {
-                guard let regex = try? NSRegularExpression(pattern: value, options: [.caseInsensitive]) else { continue }
-                let range = NSRange(target.startIndex..<target.endIndex, in: target)
-                if regex.firstMatch(in: target, options: [], range: range) != nil {
-                    return true
-                }
-            } else if target.range(of: value, options: [.caseInsensitive]) != nil {
-                return true
-            }
+    static func shouldOpenExternally(
+        _ url: URL,
+        navigationType: WKNavigationType,
+        targetFrameIsMain: Bool?,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        guard navigationType == .linkActivated,
+              targetFrameIsMain != false else {
+            return false
         }
-
-        return false
+        return shouldOpenExternally(url, defaults: defaults)
     }
 
     /// Check whether a hostname matches the configured whitelist.
@@ -605,18 +600,6 @@ enum BrowserLinkOpenSettings {
         return host == pattern
     }
 
-    private static func parseExternalPattern(_ rawPattern: String) -> (isRegex: Bool, value: String)? {
-        let trimmed = rawPattern.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        if trimmed.lowercased().hasPrefix("re:") {
-            let regexPattern = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !regexPattern.isEmpty else { return nil }
-            return (isRegex: true, value: regexPattern)
-        }
-
-        return (isRegex: false, value: trimmed)
-    }
 }
 
 enum BrowserAvailabilitySettings {
@@ -8321,6 +8304,16 @@ private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
             "windowFeatures={\(windowFeaturesSummary)}"
         )
 #endif
+        if let url = navigationAction.request.url,
+           BrowserLinkOpenSettings.shouldOpenExternally(
+               url,
+               navigationType: navigationAction.navigationType,
+               targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
+           ),
+           NSWorkspace.shared.open(url) {
+            return nil
+        }
+
         if let url = navigationAction.request.url,
            navigationAction.targetFrame?.isMainFrame != false,
            url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased(),

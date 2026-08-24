@@ -320,6 +320,36 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(fileOpener.opened.isEmpty)
     }
 
+    @Test("Configured external URL rules bypass the embedded terminal browser")
+    @MainActor
+    func configuredExternalURLRuleUsesSystemBrowser() throws {
+        let defaults = makeDefaults()
+        defaults.set(
+            [".*example\\.com.*"],
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+
+        let url = try #require(URL(string: "https://example.com/"))
+        var externallyOpened: [URL] = []
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, _ in nil },
+            externalOpen: { openedURL in
+                externallyOpened.append(openedURL)
+                return true
+            },
+            deferOperation: { operation in operation() }
+        )
+
+        #expect(coordinator.open(TerminalLinkOpenRequest(
+            rawValue: url.absoluteString,
+            sourceWorkspaceId: nil,
+            sourcePanelId: UUID(),
+            workingDirectory: nil
+        )))
+        #expect(externallyOpened == [url])
+    }
+
     private func makeHTMLFixture(pathExtension: String) throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-html-click-\(UUID().uuidString)", isDirectory: true)

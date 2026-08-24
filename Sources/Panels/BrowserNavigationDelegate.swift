@@ -296,6 +296,29 @@ import WebKit
             return
         }
 
+        if let url = navigationAction.request.url,
+           BrowserLinkOpenSettings.shouldOpenExternally(
+               url,
+               navigationType: navigationAction.navigationType,
+               targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
+           ),
+           NSWorkspace.shared.open(url) {
+            clearAttemptedRequest(discardPendingBypasses: true)
+            let reportTerminalCancellation = terminalPolicyCancellationReporter?(
+                navigationAction,
+                webView
+            ) ?? {}
+            reportTerminalCancellation()
+#if DEBUG
+            cmuxDebugLog(
+                "browser.nav.decidePolicy.action kind=openConfiguredExternalURL " +
+                "url=\(browserNavigationDebugURL(url))"
+            )
+#endif
+            decisionHandler(.cancel)
+            return
+        }
+
         if let url = navigationAction.request.url {
             let isTrustedInternal = trustedInternalNavigation(for: url, in: webView)
             let isMainFrame = navigationAction.targetFrame?.isMainFrame != false
