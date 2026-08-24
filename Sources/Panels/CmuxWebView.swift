@@ -695,13 +695,11 @@ final class CmuxWebView: WKWebView {
             }
             // WebKit declined the equivalent. Deliver one native keyDown before
             // returning so AppKit's main menu cannot consume the captured chord.
-            if window.cmuxForceDispatchKeyDownOnce(
+            _ = window.cmuxForceDispatchKeyDownOnce(
                 event,
                 to: self,
                 reason: "browser capture setting keyDown fallback"
-            ) {
-                return finish(true)
-            }
+            )
             return finish(true)
         }
         if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(

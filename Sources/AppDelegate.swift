@@ -18223,13 +18223,11 @@ private extension NSWindow {
             guard normalizedFlags.contains(.command) else {
                 return false
             }
-            if cmuxForceDispatchKeyDownOnce(
+            _ = cmuxForceDispatchKeyDownOnce(
                 event,
                 to: firstResponderWebView,
                 reason: "browser capture setting keyDown fallback"
-            ) {
-                return true
-            }
+            )
             return true
         }
         if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(event, preferredWindow: self) {
