@@ -405,6 +405,9 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         var forwardedParams: [String: Any] = [
             workspaceParamKey: requestedWorkspaceID.uuidString,
         ]
+        if forwardCallerContext {
+            forwardedParams["_cmux_caller_workspace_id"] = requestedWorkspaceID.uuidString
+        }
         if let surfaceRaw {
             forwardedParams[surfaceParamKey] = surfaceRaw
         }

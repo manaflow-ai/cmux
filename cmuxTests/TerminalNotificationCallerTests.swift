@@ -171,6 +171,8 @@ final class TerminalNotificationCallerTests: XCTestCase {
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
 
         let notificationQueued = expectation(description: "stale surface notification queued")
+        notificationQueued.expectedFulfillmentCount = 2
+        notificationQueued.assertForOverFulfill = false
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in
             notificationQueued.fulfill()
@@ -226,6 +228,24 @@ final class TerminalNotificationCallerTests: XCTestCase {
         let result = try XCTUnwrap(response["result"] as? [String: Any])
         XCTAssertEqual(result["workspace_id"] as? String, callerWorkspace.id.uuidString)
         XCTAssertEqual(result["surface_id"] as? String, callerSurfaceID.uuidString)
+
+        let scopedResponse = try await sendV2RequestAsync(
+            method: "notification.create_for_caller",
+            params: [
+                "preferred_workspace_id": staleWorkspace.id.uuidString,
+                "preferred_surface_id": staleSurfaceID.uuidString,
+                "_cmux_caller_workspace_id": staleWorkspace.id.uuidString,
+                "caller_tty": "/dev/ttys-caller",
+                "prefer_tty": true,
+                "title": "Scoped caller",
+                "body": "Body",
+            ],
+            to: socketPath
+        )
+        XCTAssertEqual(scopedResponse["ok"] as? Bool, true, "\(scopedResponse)")
+        let scopedResult = try XCTUnwrap(scopedResponse["result"] as? [String: Any])
+        XCTAssertEqual(scopedResult["workspace_id"] as? String, staleWorkspace.id.uuidString)
+        XCTAssertEqual(scopedResult["surface_id"] as? String, staleSurfaceID.uuidString)
 
         await fulfillment(of: [notificationQueued], timeout: 1.0)
         XCTAssertTrue(store.hasUnreadNotification(forTabId: callerWorkspace.id, surfaceId: callerSurfaceID))

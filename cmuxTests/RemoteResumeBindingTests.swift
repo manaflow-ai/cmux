@@ -525,6 +525,12 @@ struct RemoteResumeBindingTests {
             workspaceAliases: [:],
             surfaceAliases: [:]
         )
+        let callerOnlyRequest = try jsonRequest(callerOnly)
+        let callerOnlyParams = try #require(callerOnlyRequest["params"] as? [String: Any])
+        #expect(
+            callerOnlyParams[WorkspaceRemoteRelayCommandRewriter.callerWorkspaceIDKey] as? String
+                == workspace.id.uuidString
+        )
         let callerOnlyEnvelope = try v2Envelope(requestData: callerOnly)
         #expect(callerOnlyEnvelope["ok"] as? Bool == true, "\(callerOnlyEnvelope)")
 

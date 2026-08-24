@@ -9,6 +9,7 @@ struct WorkspaceRemoteRelayCommandRewriter: RemoteRelayCommandRewriting {
     static let authenticationCodeKey = "_cmux_remote_relay_authentication_code"
     static let requestAuthenticationCodeKey = "_cmux_remote_relay_request_authentication_code"
     static let remoteWorkspaceIDKey = "_cmux_remote_workspace_id"
+    static let callerWorkspaceIDKey = "_cmux_caller_workspace_id"
 
     let remoteWorkspaceID: UUID
     let remoteRelayTokenHex: String

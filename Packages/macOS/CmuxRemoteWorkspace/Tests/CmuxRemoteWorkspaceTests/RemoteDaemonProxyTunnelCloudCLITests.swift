@@ -65,6 +65,7 @@ struct RemoteDaemonProxyTunnelCloudCLITests {
         #expect(envelope["method"] as? String == "notification.create_for_caller")
         let params = try #require(envelope["params"] as? [String: Any])
         #expect(params["preferred_workspace_id"] as? String == workspaceID.uuidString)
+        #expect(params["_cmux_caller_workspace_id"] as? String == workspaceID.uuidString)
         #expect(params["preferred_surface_id"] == nil)
         #expect(params["caller_tty"] as? String == "pts/7")
         #expect(params["prefer_tty"] as? Bool == true)
