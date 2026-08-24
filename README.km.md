@@ -69,7 +69,7 @@
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> បង្កើត workspace សម្រាប់ម៉ាស៊ីនពីចម្ងាយ។ ផ្ទាំងកម្មវិធីរុករកធ្វើដំណើរឆ្លងកាត់បណ្តាញពីចម្ងាយ ដូច្នេះ localhost ដំណើរការបានយ៉ាងស្រួល។ អូសរូបភាពចូលទៅក្នុង session ពីចម្ងាយ ដើម្បីផ្ទុកឡើងតាមរយៈ scp។
+<code>cmux ssh user@remote</code> បង្កើត workspace សម្រាប់ម៉ាស៊ីនពីចម្ងាយ។ បញ្ជូន <code>--command 'omp "investigate auth"'</code> ដើម្បីដំណើរការពាក្យបញ្ជាដំបូងម្តង នៅក្នុងស្ថានីយពីចម្ងាយដំបូងរបស់វា។ ផ្ទាំងកម្មវិធីរុករកធ្វើដំណើរឆ្លងកាត់បណ្តាញពីចម្ងាយ ដូច្នេះ localhost ដំណើរការបានយ៉ាងស្រួល។ អូសរូបភាពចូលទៅក្នុង session ពីចម្ងាយ ដើម្បីផ្ទុកឡើងតាមរយៈ scp។
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -119,6 +119,21 @@ brew upgrade --cask cmux
 ```
 
 នៅពេលបើកលើកដំបូង macOS អាចសុំឱ្យអ្នកបញ្ជាក់ការបើកកម្មវិធីពីអ្នកអភិវឌ្ឍន៍ដែលបានកំណត់អត្តសញ្ញាណ។ ចុច **Open** ដើម្បីបន្ត។
+
+### ការបំពេញស្វ័យប្រវត្តិក្នុង Shell
+
+Homebrew cask ដំឡើងការបំពេញស្វ័យប្រវត្តិសម្រាប់ zsh, bash និង fish។ សូមចាប់ផ្តើម shell ថ្មីបន្ទាប់ពីដំឡើង។ ប្រសិនបើវាមិនផ្ទុក សូមពិនិត្យថាថតការបំពេញរបស់ Homebrew ត្រូវបានភ្ជាប់ជាមួយ shell របស់អ្នក (មើល [ឯកសារបំពេញស្វ័យប្រវត្តិ Shell របស់ Homebrew](https://docs.brew.sh/Shell-Completion))។
+
+ប្រសិនបើអ្នកបានដំឡើង cmux តាមវិធីផ្សេង សូមបន្ថែមបន្ទាត់ដែលត្រូវគ្នាទៅក្នុងឯកសារចាប់ផ្តើម shell របស់អ្នក រួចចាប់ផ្តើម shell ថ្មី៖
+
+```bash
+# zsh
+eval "$(cmux completion zsh)"
+# bash
+eval "$(cmux completion bash)"
+# fish
+cmux completion fish | source
+```
 
 ## ហេតុអ្វីបានជា cmux?
 
