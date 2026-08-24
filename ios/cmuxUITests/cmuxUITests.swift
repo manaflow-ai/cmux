@@ -5676,9 +5676,10 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(selectedPath.label, "/Users/ui/mobile-root/Sources")
     }
 
-    /// Empty search is a real filesystem browser. Hidden folders, packages,
-    /// symlinked directories, root navigation, and current-folder selection
-    /// must all remain available instead of collapsing to recent suggestions.
+    /// The picker is a real drill-down filesystem browser. Hidden folders,
+    /// packages, symlinked directories, back navigation up the hierarchy, the
+    /// locations root, and current-folder selection must all remain available
+    /// instead of collapsing to recent suggestions.
     @MainActor
     func testTaskComposerDirectoryBrowserShowsEveryDirectoryKindAndSelectsCurrentFolder() throws {
         let app = launchApp(mockData: false, environment: [
@@ -5687,15 +5688,26 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
-        XCTAssertTrue(
-            app.descendants(matching: .any)["MobileTaskDirectoryBrowseCurrent"]
-                .waitForExistence(timeout: 8)
-        )
-        XCTAssertTrue(app.buttons["MobileTaskDirectoryBrowseComputer"].exists)
-        XCTAssertTrue(app.buttons[".hidden"].exists)
+        let hidden = app.buttons[".hidden"]
+        XCTAssertTrue(hidden.waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["Projects.app"].exists)
         XCTAssertTrue(app.buttons["mobile-link"].exists)
 
+        tap(app.buttons["mobile-root"], in: app)
+        XCTAssertTrue(app.buttons["Sources"].waitForExistence(timeout: 4))
+
+        // The standard back button walks up to the parent folder.
+        tap(app.navigationBars.buttons["ui"], in: app)
+        XCTAssertTrue(hidden.waitForExistence(timeout: 4))
+
+        // One more level up is the picker root with the browse locations.
+        tap(app.navigationBars.buttons["Choose Folder"], in: app)
+        XCTAssertTrue(app.buttons["MobileTaskDirectoryBrowseHome"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["MobileTaskDirectoryBrowseComputer"].exists)
+
+        // Drill back down from Home and choose the project folder itself.
+        tap(app.buttons["MobileTaskDirectoryBrowseHome"], in: app)
+        XCTAssertTrue(hidden.waitForExistence(timeout: 4))
         tap(app.buttons["mobile-root"], in: app)
         XCTAssertTrue(app.buttons["Sources"].waitForExistence(timeout: 4))
         tap(app.buttons["MobileTaskDirectoryBrowseUseCurrent"], in: app)
@@ -5740,23 +5752,22 @@ final class cmuxUITests: XCTestCase {
 
         let firstFolder = app.buttons["folder-00"]
         let lastFolder = app.buttons["folder-49"]
-        let parentFolder = app.buttons["MobileTaskDirectoryBrowseParent"]
+        let cancel = app.buttons["MobileTaskDirectoryPickerCancel"]
         XCTAssertTrue(firstFolder.waitForExistence(timeout: 8))
-        XCTAssertTrue(parentFolder.isHittable)
+        XCTAssertTrue(cancel.isHittable)
 
         for _ in 0..<8 where !lastFolder.isHittable {
             app.swipeUp(velocity: .fast)
         }
         XCTAssertTrue(lastFolder.isHittable)
-        XCTAssertTrue(parentFolder.isHittable)
 
-        let cancel = app.buttons["MobileTaskDirectoryPickerCancel"]
         XCTAssertTrue(cancel.isHittable)
         tap(cancel, in: app)
         XCTAssertFalse(cancel.waitForExistence(timeout: 3))
     }
 
-    /// A failed append must leave page 1 interactive, and retry must request
+    /// The next page loads automatically when the listing tail appears. A
+    /// failed append must leave page 1 interactive, and retry must request
     /// the exact failed page without replacing the successful snapshot.
     @MainActor
     func testTaskComposerDirectoryPaginationRecoveryPreservesPageOneAndRetriesPageTwo() throws {
@@ -5772,13 +5783,8 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(unreadableFolder.exists)
         XCTAssertFalse(unreadableFolder.isEnabled)
 
-        let showMore = app.buttons["MobileTaskDirectoryBrowseMore"]
-        XCTAssertTrue(showMore.waitForExistence(timeout: 3))
-        XCTAssertTrue(showMore.isHittable)
-        let showMoreFrame = showMore.frame
-        XCTAssertGreaterThanOrEqual(showMoreFrame.height, 44)
-        tap(showMore, in: app)
-
+        // Page 2 is requested automatically and fails once, leaving page 1
+        // intact behind an inline retry affordance.
         let retry = app.buttons["TaskComposerDirectoryBrowseRetry"]
         XCTAssertTrue(retry.waitForExistence(timeout: 4))
         XCTAssertTrue(pageOneFolder.exists)
@@ -5787,8 +5793,6 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.buttons["z-second-page-folder"].exists)
 
         XCTAssertTrue(retry.isHittable)
-        let retryFrame = retry.frame
-        XCTAssertGreaterThanOrEqual(retryFrame.height, 44)
         let hasAppendFailureTitle = app.staticTexts["Couldn’t Load More Folders"].exists
         tap(retry, in: app)
         XCTAssertTrue(app.buttons["z-second-page-folder"].waitForExistence(timeout: 4))
@@ -5796,7 +5800,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(retry.waitForExistence(timeout: 1))
         XCTAssertTrue(
             hasAppendFailureTitle,
-            "Expected the page-2 failure title. Show More frame: \(showMoreFrame); Retry frame: \(retryFrame)"
+            "Expected the page-2 failure title after the automatic append failed."
         )
     }
 

@@ -11294,6 +11294,40 @@
         }
       }
     },
+    "mobile.taskComposer.directoryPicker.browse.folderCountFormat.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 folder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1個のフォルダ"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.directoryPicker.browse.folderCountFormat.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d folders"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d個のフォルダ"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.directoryPicker.browse.home": {
       "extractionState": "manual",
       "localizations": {
@@ -11328,23 +11362,6 @@
         }
       }
     },
-    "mobile.taskComposer.directoryPicker.browse.more": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show More"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "さらに表示"
-          }
-        }
-      }
-    },
     "mobile.taskComposer.directoryPicker.browse.more.failure.title": {
       "extractionState": "manual",
       "localizations": {
@@ -11375,23 +11392,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "このフォルダ内のフォルダを表示します。"
-          }
-        }
-      }
-    },
-    "mobile.taskComposer.directoryPicker.browse.parent": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Parent Folder"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "親フォルダ"
           }
         }
       }
@@ -11715,6 +11715,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "このMacを検索中…"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.directoryPicker.sections.locations": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Locations"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "場所"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.directoryPicker.sections.suggested": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggested"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "候補"
           }
         }
       }
