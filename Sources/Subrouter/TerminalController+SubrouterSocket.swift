@@ -11,10 +11,10 @@ import CmuxSubrouter
 /// token-free metadata crosses the socket.
 extension TerminalController {
     /// The daemon may fan out usage requests across a large remote pool;
-    /// leave headroom beyond the client's 60-second read deadline so the
-    /// socket worker does not report a timeout while the request is still
-    /// legitimately in flight.
-    private nonisolated static let subrouterDataResponseTimeoutSeconds: TimeInterval = 90
+    /// leave enough room for the serialized switch/reload/refresh pipeline:
+    /// one 30s CLI invocation plus two 60s daemon reads can take about 150s
+    /// on a cold remote pool. The CLI uses a matching larger deadline.
+    private nonisolated static let subrouterDataResponseTimeoutSeconds: TimeInterval = 240
 
     private nonisolated static var subrouterDisabledError: TerminalController.V2CallResult {
         .err(
@@ -76,7 +76,7 @@ extension TerminalController {
                     message: "subrouter.switch requires `provider` (codex|claude) and `account`."
                 )
             }
-            return v2AsyncResultCall(id: id, timeoutSeconds: 90) {
+            return v2AsyncResultCall(id: id, timeoutSeconds: Self.subrouterDataResponseTimeoutSeconds) {
                 await Self.subrouterSwitchResult(providerRaw: providerRaw, accountID: accountID)
             }
         case "subrouter.reload":

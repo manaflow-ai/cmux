@@ -1,5 +1,6 @@
 import AppKit
 import CmuxSubrouter
+import Darwin
 
 /// The app-side composition owner of the subrouter integration: constructs
 /// the one ``SubrouterStore``, feeds it settings changes, and gates the
@@ -20,6 +21,10 @@ final class SubrouterAppRuntime {
     private var agentsPanelVisibleCount = 0
     private var appIsActive = NSApp.isActive
     private var observationTasks: [Task<Void, Never>] = []
+    // File-system watch is active only while a Subrouter surface is visible;
+    // `sr server use` edits the registry outside UserDefaults, so relying on
+    // activation alone can leave a visible panel pinned to the old daemon.
+    private var serverRegistryWatch: DispatchSourceFileSystemObject?
 
     /// The cached `sr server` default from `~/.subrouter/codex/servers.json`.
     /// Read once synchronously at init — the store must never start against
@@ -47,6 +52,11 @@ final class SubrouterAppRuntime {
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)
             .first?
             .appendingPathComponent("cmux/subrouter-usage-history.json")
+        // The Agents panel can switch accounts before a user has run any
+        // `cmux subrouter` command. Materialize the app-bundled `sr` binary
+        // at composition time so the injected switcher sees the same fallback
+        // executable as the CLI entrypoint.
+        _ = CMUXCLI.extractedSubrouterBinary(persona: "sr")
         store = SubrouterStore(historyStorageURL: historyURL)
         applyServerRegistryState(SubrouterIntegrationSettings.loadServerRegistryState())
         applyCurrentConfiguration()
@@ -64,6 +74,7 @@ final class SubrouterAppRuntime {
             task.cancel()
         }
         selectionRefreshTask?.cancel()
+        stopServerRegistryWatch()
     }
 
     /// Called by the footer switcher button as it appears/disappears. The
@@ -71,13 +82,25 @@ final class SubrouterAppRuntime {
     /// button is on screen *and* the app is active.
     func footerSwitcherDidAppear() {
         footerVisibleCount += 1
-        syncFooterSurfaceVisibility()
+        syncServerRegistryWatch()
+        if footerVisibleCount == 1 {
+            // Do not let the first background poll race a registry refresh.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.refreshServerSelectionAndApply()
+                guard self.footerVisibleCount > 0 else { return }
+                self.syncFooterSurfaceVisibility()
+            }
+        } else {
+            syncFooterSurfaceVisibility()
+        }
     }
 
     /// See ``footerSwitcherDidAppear()``.
     func footerSwitcherDidDisappear() {
         footerVisibleCount = max(0, footerVisibleCount - 1)
         syncFooterSurfaceVisibility()
+        syncServerRegistryWatch()
     }
 
     private func syncFooterSurfaceVisibility() {
@@ -90,23 +113,83 @@ final class SubrouterAppRuntime {
     /// sidebar must not stop polling for the others.
     func agentsPanelDidBecomeVisible() {
         agentsPanelVisibleCount += 1
+        syncServerRegistryWatch()
         if agentsPanelVisibleCount == 1 {
-            // Opening the panel is an authoritative boundary: pick up an
-            // `sr server use` run while the app stayed active (activation
-            // never fires when the change happens inside a cmux terminal).
-            refreshServerSelection()
+            // Opening the panel is an authoritative boundary: await the
+            // registry read before enabling its poll surface, so the first
+            // request cannot hit loopback while `sr server use` selects a
+            // remote daemon.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.refreshServerSelectionAndApply()
+                guard self.agentsPanelVisibleCount > 0 else { return }
+                self.syncAgentsPanelSurfaceVisibility()
+            }
+        } else {
+            syncAgentsPanelSurfaceVisibility()
         }
-        syncAgentsPanelSurfaceVisibility()
     }
 
     /// See ``agentsPanelDidBecomeVisible()``.
     func agentsPanelDidBecomeHidden() {
         agentsPanelVisibleCount = max(0, agentsPanelVisibleCount - 1)
         syncAgentsPanelSurfaceVisibility()
+        syncServerRegistryWatch()
     }
 
     private func syncAgentsPanelSurfaceVisibility() {
         store.setSurfaceVisible(.agentsPanel, agentsPanelVisibleCount > 0)
+    }
+
+    /// Watches the directory containing `servers.json` while a Subrouter UI
+    /// surface is visible. The event source is the low-level file-watching
+    /// seam; its handler only schedules the existing single-flight, off-main
+    /// registry read and never performs disk I/O on the callback queue.
+    private func syncServerRegistryWatch() {
+        let shouldWatch = agentsPanelVisibleCount > 0
+            || (footerVisibleCount > 0 && appIsActive)
+        if shouldWatch {
+            startServerRegistryWatchIfNeeded()
+        } else {
+            stopServerRegistryWatch()
+        }
+    }
+
+    private func startServerRegistryWatchIfNeeded() {
+        guard serverRegistryWatch == nil else { return }
+        let registryDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".subrouter/codex", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: registryDirectory.path) else {
+            return
+        }
+        let descriptor = open(registryDirectory.path, O_EVTONLY)
+        guard descriptor >= 0 else { return }
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: descriptor,
+            eventMask: [.write, .rename, .delete],
+            queue: .main
+        )
+        source.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.refreshServerSelectionAndApply()
+                // An atomic replace can invalidate the watched directory;
+                // re-arm against the current path after every event.
+                self.stopServerRegistryWatch()
+                self.startServerRegistryWatchIfNeeded()
+            }
+        }
+        source.setCancelHandler {
+            close(descriptor)
+        }
+        serverRegistryWatch = source
+        source.resume()
+    }
+
+    private func stopServerRegistryWatch() {
+        guard let source = serverRegistryWatch else { return }
+        serverRegistryWatch = nil
+        source.cancel()
     }
 
     private func applyCurrentConfiguration() {
@@ -191,6 +274,7 @@ final class SubrouterAppRuntime {
                 // so `sr server use` in a terminal is picked up when the
                 // user returns.
                 self.refreshServerSelection()
+                self.syncServerRegistryWatch()
                 self.syncFooterSurfaceVisibility()
             }
         })
@@ -199,6 +283,7 @@ final class SubrouterAppRuntime {
                 guard let self else { return }
                 self.appIsActive = false
                 self.syncFooterSurfaceVisibility()
+                self.syncServerRegistryWatch()
             }
         })
     }

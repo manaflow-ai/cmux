@@ -8,7 +8,10 @@ import Foundation
 extension CMUXCLI {
     /// Leaves headroom for the app's socket deadline and a cold remote usage
     /// fan-out before the CLI gives up on a read-only subrouter verb.
-    private static let subrouterDataResponseTimeout: TimeInterval = 120
+    /// Must outlive the socket worker's full switch/reload/refresh pipeline:
+    /// a 30s `sr` command plus two 60s daemon reads can legitimately take
+    /// roughly 150s on a cold remote pool.
+    private static let subrouterDataResponseTimeout: TimeInterval = 240
 
     static let subrouterUsage = """
         Usage: cmux subrouter [setup|status|accounts|usage|switch|sessions|reload] [--json]
@@ -102,7 +105,7 @@ extension CMUXCLI {
             let response = try client.sendV2(
                 method: "subrouter.switch",
                 params: ["provider": positionals[0].lowercased(), "account": positionals[1]],
-                responseTimeout: 120
+                responseTimeout: Self.subrouterDataResponseTimeout
             )
             if jsonOutput {
                 print(jsonString(response))
@@ -170,15 +173,13 @@ extension CMUXCLI {
                 defaultValue: "The subrouter integration is disabled. Enable it in Settings before running sr commands."
             ))
         } catch {
-            // The standalone CLI can still be used when no cmux app is
-            // running, but honor an explicit local opt-out in that case.
-            if UserDefaults.standard.object(forKey: "subrouterEnabled") != nil,
-               !UserDefaults.standard.bool(forKey: "subrouterEnabled") {
-                throw CLIError(message: String(
-                    localized: "cli.subrouter.disabled",
-                    defaultValue: "The subrouter integration is disabled. Enable it in Settings before running sr commands."
-                ))
-            }
+            // Fail closed when the app cannot answer: the release feature
+            // flag and its safe default live in the app process, so a missing
+            // or old socket must never become an authorization bypass.
+            throw CLIError(message: String(
+                localized: "cli.subrouter.gateUnavailable",
+                defaultValue: "Cannot verify Subrouter integration. Open cmux, enable it in Settings, and retry."
+            ))
         }
     }
 
@@ -189,12 +190,7 @@ extension CMUXCLI {
     /// accounts. Idempotent —
     /// re-running on a healthy setup just prints status and next steps.
     private func runSubrouterWelcome(client: SocketClient) throws {
-        do {
-            try requireSubrouterIntegrationEnabled(client: client)
-        } catch {
-            print(error)
-            return
-        }
+        try requireSubrouterIntegrationEnabled(client: client)
         print("cmux ⨯ subrouter — route agents across subscription accounts")
         print("")
 

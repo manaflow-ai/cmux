@@ -9,7 +9,7 @@ import Testing
         )
         #expect(
             SubrouterMaintenanceCommand.addAccount(provider: .claude)
-                == "SUBROUTER_CODEX_SERVER=local cmux sr claude add"
+                == "SUBROUTER_SERVER=local cmux sr claude add"
         )
         #expect(SubrouterMaintenanceCommand.addAccount(provider: SubrouterProvider(rawValue: "gemini")) == nil)
         #expect(
@@ -18,7 +18,7 @@ import Testing
         )
         #expect(
             SubrouterMaintenanceCommand.removeAccount(provider: .claude, accountID: "work")
-                == "SUBROUTER_CODEX_SERVER=local cmux sr claude remove 'work'"
+                == "SUBROUTER_SERVER=local cmux sr claude remove 'work'"
         )
         #expect(
             SubrouterMaintenanceCommand.signIn(provider: .codex, accountID: "a@b.com")
@@ -54,7 +54,7 @@ import Testing
                 provider: .claude,
                 target: .server(name: "cmux-mac-mini")
             )
-                == "SUBROUTER_CODEX_SERVER='cmux-mac-mini' cmux sr claude add"
+                == "SUBROUTER_SERVER='cmux-mac-mini' cmux sr claude add"
         )
         #expect(
             SubrouterMaintenanceCommand.addAccount(
@@ -69,7 +69,7 @@ import Testing
         #expect(SubrouterMaintenanceCommand.shellQuoted("a'b; rm -rf ~") == "'a'\\''b; rm -rf ~'")
         #expect(
             SubrouterMaintenanceCommand.removeAccount(provider: .claude, accountID: "a'b")
-                == "SUBROUTER_CODEX_SERVER=local cmux sr claude remove 'a'\\''b'"
+                == "SUBROUTER_SERVER=local cmux sr claude remove 'a'\\''b'"
         )
         #expect(
             SubrouterMaintenanceCommand.signIn(

@@ -474,8 +474,10 @@ public struct SettingsWindowRoot: View {
         )
         .id(anchorID(for: .automation))
 
-        SubrouterSection(defaultsStore: defaultsStore, catalog: catalog)
-            .id(anchorID(for: .subrouter))
+        if runtime.visibleSections.contains(.subrouter) {
+            SubrouterSection(defaultsStore: defaultsStore, catalog: catalog)
+                .id(anchorID(for: .subrouter))
+        }
 
         BrowserSection(
             defaultsStore: defaultsStore,

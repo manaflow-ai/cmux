@@ -18,6 +18,13 @@ extension CMUXCLI {
     /// CLI runs outside an app bundle that ships one.
     static func bundledSubrouterArchivePath() -> String? {
         var candidates: [String] = []
+        if let bundledResource = Bundle.main.url(
+            forResource: "subrouter",
+            withExtension: "gz",
+            subdirectory: "bin"
+        ) {
+            candidates.append(bundledResource.path)
+        }
         if let bundled = ProcessInfo.processInfo.environment["CMUX_BUNDLED_CLI_PATH"], !bundled.isEmpty {
             candidates.append(bundled)
         }

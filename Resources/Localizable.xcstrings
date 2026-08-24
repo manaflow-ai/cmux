@@ -267637,6 +267637,23 @@
         }
       }
     },
+    "cli.subrouter.gateUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot verify Subrouter integration. Open cmux, enable it in Settings, and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subrouter 連携を確認できません。cmux を開き、設定で有効にしてから再試行してください。"
+          }
+        }
+      }
+    },
     "cli.subrouter.install.manual": {
       "extractionState": "manual",
       "localizations": {

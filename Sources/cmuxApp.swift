@@ -167,6 +167,10 @@ struct cmuxApp: App {
         // Reconcile saved language preference before any UI loads
         LanguageSettingsStore(defaults: .standard).reconcileLanguageOverrideAtLaunch()
         StartupBreadcrumbLog.append("app.init.language.applied")
+        var visibleSettingsSections = Set(SettingsSectionID.allCases)
+        if !CmuxFeatureFlags.shared.isSubrouterUIEnabled {
+            visibleSettingsSections.remove(.subrouter)
+        }
         self.settingsRuntime = SettingsRuntime(
             catalog: settingsCatalog,
             userDefaultsStore: UserDefaultsSettingsStore(
@@ -177,7 +181,8 @@ struct cmuxApp: App {
             secretStore: secretStore,
             errorLog: SettingsErrorLog(),
             accountFlow: authComposition.accountFlow,
-            hostActions: HostSettingsActions(configFileURL: configFileURL)
+            hostActions: HostSettingsActions(configFileURL: configFileURL),
+            visibleSections: visibleSettingsSections
         )
         StartupBreadcrumbLog.append("app.init.settingsRuntime.created")
 

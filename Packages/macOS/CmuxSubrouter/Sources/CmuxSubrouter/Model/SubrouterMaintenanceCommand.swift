@@ -6,20 +6,19 @@ public enum SubrouterMaintenanceCommand {
     /// The command that starts an interactive add-account login for the
     /// provider, or `nil` when the provider has no add verb.
     ///
-    /// The destination is pinned for this invocation through the `sr` CLI's
-    /// `SUBROUTER_CODEX_SERVER` override. This keeps a local add local even
-    /// when a remote server is configured as the user's default, and sends a
-    /// remote add directly through the selected named server without a second
-    /// `server sync`/`claude push` pass.
+    /// The destination is pinned for this invocation through a provider-aware
+    /// `sr` server override. Codex uses `SUBROUTER_CODEX_SERVER`; Claude uses
+    /// `SUBROUTER_SERVER`, which its profile upload hook honors without
+    /// pretending Claude is a Codex account command.
     public static func addAccount(
         provider: SubrouterProvider,
         target: SubrouterAccountTarget = .local
     ) -> String? {
         switch provider {
         case .codex:
-            return scoped("cmux sr add", target: target)
+            return scoped("cmux sr add", provider: provider, target: target)
         case .claude:
-            return scoped("cmux sr claude add", target: target)
+            return scoped("cmux sr claude add", provider: provider, target: target)
         default:
             return nil
         }
@@ -49,7 +48,7 @@ public enum SubrouterMaintenanceCommand {
     ) -> String? {
         switch provider {
         case .codex:
-            return scoped("cmux sr add", target: target)
+            return scoped("cmux sr add", provider: provider, target: target)
         case .claude:
             return nil
         default:
@@ -67,9 +66,9 @@ public enum SubrouterMaintenanceCommand {
     ) -> String? {
         switch provider {
         case .codex:
-            return scoped("cmux sr remove \(shellQuoted(accountID))", target: target)
+            return scoped("cmux sr remove \(shellQuoted(accountID))", provider: provider, target: target)
         case .claude:
-            return scoped("cmux sr claude remove \(shellQuoted(accountID))", target: target)
+            return scoped("cmux sr claude remove \(shellQuoted(accountID))", provider: provider, target: target)
         default:
             return nil
         }
@@ -89,7 +88,11 @@ public enum SubrouterMaintenanceCommand {
     }
 
     /// Prefixes an `sr` command with a one-shot destination override.
-    private static func scoped(_ command: String, target: SubrouterAccountTarget) -> String {
+    private static func scoped(
+        _ command: String,
+        provider: SubrouterProvider,
+        target: SubrouterAccountTarget
+    ) -> String {
         let value: String
         switch target {
         case .local:
@@ -97,7 +100,10 @@ public enum SubrouterMaintenanceCommand {
         case .server(let name):
             value = shellQuoted(name)
         }
-        return "SUBROUTER_CODEX_SERVER=\(value) \(command)"
+        let environmentKey = provider == .claude
+            ? "SUBROUTER_SERVER"
+            : "SUBROUTER_CODEX_SERVER"
+        return "\(environmentKey)=\(value) \(command)"
     }
 
     /// Wraps a value in single quotes for POSIX shells, escaping any

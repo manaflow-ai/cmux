@@ -103,15 +103,19 @@ public struct SettingsSearchIndex: Sendable {
     ///     ``Swift/Array/cmuxDefault`` — the table the cmux app ships
     ///     with. Tests pass an empty array or a focused subset; hosts
     ///     can append their own entries to expose additional rows.
+    ///   - visibleSections: Optional rollout-filtered section set. Omitted
+    ///     means every ``SettingsSectionID`` is indexed.
     public init(
         catalog: SettingCatalog,
-        curatedEntries: [CuratedSettingEntry] = .cmuxDefault
+        curatedEntries: [CuratedSettingEntry] = .cmuxDefault,
+        visibleSections: Set<SettingsSectionID>? = nil
     ) {
         _ = catalog
         let matcher = SettingsSearchMatcher()
         var built: [Entry] = []
+        let sections = visibleSections ?? Set(SettingsSectionID.allCases)
 
-        for section in SettingsSectionID.allCases {
+        for section in SettingsSectionID.allCases where sections.contains(section) {
             built.append(Entry(
                 id: "section:\(section.rawValue)",
                 kind: .section,
@@ -126,7 +130,7 @@ public struct SettingsSearchIndex: Sendable {
 
         var pathAnchors: [String: String] = [:]
 
-        for entry in curatedEntries {
+        for entry in curatedEntries where sections.contains(entry.section) {
             let entryID = "setting:\(entry.section.rawValue):\(entry.id)"
             let searchPaths = entry.paths.isEmpty
                 ? matcher.dottedTokens(in: entry.synonyms)
