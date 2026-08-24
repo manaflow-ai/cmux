@@ -499,11 +499,14 @@ struct WorkspaceShellView: View {
         // and re-check, otherwise the has-Computers gate never answers.
         .onAppear {
             presentWhatsNewIfNeeded()
-            Task {
-                await whatsNewCenter?.refresh()
-                await store.loadPairedMacs()
-                presentWhatsNewIfNeeded()
-            }
+        }
+        // `.task` (not an unstructured Task in onAppear) so the refresh and
+        // paired-Mac load are owned by the view: cancelled on disappear and
+        // never running concurrently across repeated shell appearances.
+        .task {
+            await whatsNewCenter?.refresh()
+            await store.loadPairedMacs()
+            presentWhatsNewIfNeeded()
         }
         .onChange(of: store.pairedMacs.isEmpty) { _, _ in
             presentWhatsNewIfNeeded()

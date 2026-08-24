@@ -23,7 +23,9 @@ struct MobileWhatsNewContent: View {
             .padding(.horizontal, 32)
             if case .features(let features) = page.body {
                 VStack(alignment: .leading, spacing: 28) {
-                    ForEach(features, id: \.title) { feature in
+                    // Positional identity: remote feature rows carry no id
+                    // and duplicate titles must not merge or drop rows.
+                    ForEach(Array(features.enumerated()), id: \.offset) { _, feature in
                         HStack(alignment: .top, spacing: 16) {
                             Image(systemName: feature.symbol)
                                 .font(.title2)

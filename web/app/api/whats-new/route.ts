@@ -38,6 +38,13 @@ export function validateList(input: WhatsNewList): WhatsNewList {
     if (seenAnnouncementIDs.has(announcement.id)) {
       throw new Error(`announcements contains duplicate id ${announcement.id}`);
     }
+    // Announcement and visible binary pages render in one archive list, so
+    // their ids share one identity namespace on device.
+    if (seenEntryIDs.has(announcement.id)) {
+      throw new Error(
+        `announcements id ${announcement.id} collides with visibleEntryIds`,
+      );
+    }
     seenAnnouncementIDs.add(announcement.id);
   }
   return input;
@@ -56,8 +63,13 @@ function validateAnnouncement(announcement: WhatsNewAnnouncement, path: string):
   const hasFeatures = (announcement.features?.length ?? 0) > 0;
   if (hasNative) nonemptyString(announcement.nativeEntryId, `${path}.nativeEntryId`);
   if (hasWeb) webURL(announcement.webUrl, `${path}.webUrl`);
+  const seenFeatureTitles = new Set<string>();
   for (const [index, feature] of (announcement.features ?? []).entries()) {
     validateFeature(feature, `${path}.features[${index}]`);
+    if (seenFeatureTitles.has(feature.title)) {
+      throw new Error(`${path}.features contains duplicate title ${feature.title}`);
+    }
+    seenFeatureTitles.add(feature.title);
   }
   if (!hasNative && !hasWeb && !hasFeatures) {
     throw new Error(
