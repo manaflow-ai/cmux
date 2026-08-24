@@ -17,6 +17,7 @@ struct SettingsSearchIndexTests {
         assertSearch("disable browser", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "enable-browser"))
         assertSearch("default browser zoom", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "default-zoom-level"))
         assertSearch("http allowlist", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "http-allowlist"))
+        assertSearch("browser url allowlist", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "url-allowlist"))
         assertSearch("claude executable", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "claude-path"))
         assertSearch("resume on reopen", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
         assertSearch("workspace cwd", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "workspace-inherit-working-directory"))

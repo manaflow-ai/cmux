@@ -10,8 +10,8 @@ struct MobileIrohSettingsView: View {
     @State private var editedCustomRelayID: String?
     @State private var pendingCustomRemovalID: String?
     @State private var showsPrivatePathEditor = false
-    @State private var editedPrivatePathMacDeviceID: String?
-    @State private var pendingPrivatePathRemovalMacDeviceID: String?
+    @State private var editedPrivatePathID: String?
+    @State private var pendingPrivatePathRemovalID: String?
     @State private var showsResetConfirmation = false
 
     init(
@@ -104,25 +104,26 @@ struct MobileIrohSettingsView: View {
             MobileIrohPrivateNetworksSection(
                 configurations: model.snapshot.customPrivateNetworks,
                 availableMacs: model.snapshot.privateNetworkMacs,
-                edit: { macDeviceID in
-                    editedPrivatePathMacDeviceID = macDeviceID
+                edit: { id in
+                    editedPrivatePathID = id
                     showsPrivatePathEditor = true
                 },
                 add: {
-                    editedPrivatePathMacDeviceID = nil
+                    editedPrivatePathID = nil
                     showsPrivatePathEditor = true
                 },
                 setEnabled: { configuration, isEnabled in
                     let draft = CmxIrohCustomPrivatePathDraft(
                         macDeviceID: configuration.macDeviceID,
+                        instanceTag: configuration.instanceTag,
                         macDisplayName: configuration.macDisplayName,
                         addresses: configuration.addresses,
                         isEnabled: isEnabled
                     )
                     Task { _ = await model.upsertCustomPrivatePath(draft) }
                 },
-                requestRemoval: { macDeviceID in
-                    pendingPrivatePathRemovalMacDeviceID = macDeviceID
+                requestRemoval: { id in
+                    pendingPrivatePathRemovalID = id
                 }
             )
 
@@ -263,18 +264,23 @@ struct MobileIrohSettingsView: View {
                 defaultValue: "Remove these private addresses?"
             ),
             isPresented: Binding(
-                get: { pendingPrivatePathRemovalMacDeviceID != nil },
-                set: { if !$0 { pendingPrivatePathRemovalMacDeviceID = nil } }
+                get: { pendingPrivatePathRemovalID != nil },
+                set: { if !$0 { pendingPrivatePathRemovalID = nil } }
             )
         ) {
             Button(
                 L10n.string("mobile.common.remove", defaultValue: "Remove"),
                 role: .destructive
             ) {
-                if let macDeviceID = pendingPrivatePathRemovalMacDeviceID {
-                    model.removeCustomPrivatePath(macDeviceID: macDeviceID)
+                if let id = pendingPrivatePathRemovalID,
+                   let configuration = model.snapshot.customPrivateNetworks
+                    .first(where: { $0.id == id }) {
+                    model.removeCustomPrivatePath(
+                        macDeviceID: configuration.macDeviceID,
+                        instanceTag: configuration.instanceTag
+                    )
                 }
-                pendingPrivatePathRemovalMacDeviceID = nil
+                pendingPrivatePathRemovalID = nil
             }
         }
     }
@@ -336,23 +342,24 @@ struct MobileIrohSettingsView: View {
     }
 
     private var editedPrivatePath: CmxIrohSettingsSnapshot.CustomPrivateNetwork? {
-        guard let editedPrivatePathMacDeviceID else { return nil }
+        guard let editedPrivatePathID else { return nil }
         return model.snapshot.customPrivateNetworks.first {
-            $0.macDeviceID == editedPrivatePathMacDeviceID
+            $0.id == editedPrivatePathID
         }
     }
 
     private var privatePathEditorMacs: [CmxIrohSettingsSnapshot.PrivateNetworkMac] {
         if let editedPrivatePath {
             return [.init(
-                id: editedPrivatePath.macDeviceID,
+                macDeviceID: editedPrivatePath.macDeviceID,
+                instanceTag: editedPrivatePath.instanceTag,
                 displayName: editedPrivatePath.macDisplayName,
                 supportsPrivatePaths: model.snapshot.privateNetworkMacs.first {
-                    $0.id == editedPrivatePath.macDeviceID
+                    $0.id == editedPrivatePath.id
                 }?.supportsPrivatePaths ?? false
             )]
         }
-        let configuredIDs = Set(model.snapshot.customPrivateNetworks.map(\.macDeviceID))
+        let configuredIDs = Set(model.snapshot.customPrivateNetworks.map(\.id))
         return model.snapshot.privateNetworkMacs.filter {
             !configuredIDs.contains($0.id)
         }
