@@ -172,6 +172,23 @@ import Testing
         #expect(second.repositoryLink?.url.absoluteString == "https://github.com/second/repo")
     }
 
+    @Test func repositoryLinkCacheInvalidatesWhenMissingConfigAppears() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let service = GitMetadataService()
+
+        let first = await service.workspaceMetadata(for: fixture.root.path)
+        #expect(first.repositoryLink == nil)
+
+        try fixture.writeConfig("""
+        [remote "origin"]
+            url = https://github.com/appeared/repo.git
+        """)
+
+        let second = await service.workspaceMetadata(for: fixture.root.path)
+        #expect(second.repositoryLink?.url.absoluteString == "https://github.com/appeared/repo")
+    }
+
     @Test func repositoryLinkCacheInvalidatesWhenOnBranchIncludeChanges() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main", commit: String(repeating: "a", count: 40))

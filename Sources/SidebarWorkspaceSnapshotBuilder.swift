@@ -35,9 +35,13 @@ struct SidebarWorkspaceSnapshotBuilder {
         let remoteName: String
         let displayName: String
         let url: URL
+        let openTooltip: String
 
-        var openTooltip: String {
-            String(
+        init(remoteName: String, displayName: String, url: URL) {
+            self.remoteName = remoteName
+            self.displayName = displayName
+            self.url = url
+            self.openTooltip = String(
                 format: String(
                     localized: "sidebar.repository.openTooltip",
                     defaultValue: "Open repository %@"
