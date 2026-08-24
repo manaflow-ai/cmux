@@ -17225,6 +17225,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled(),
               browserPanelOwning(webView) != nil,
               let window = webView.window,
+              !isCommandPaletteEffectivelyVisible(for: window),
               let responder = window.firstResponder else {
             return false
         }
@@ -17249,7 +17250,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled() else {
             return false
         }
-        return shortcutEventBrowserWebView(event) != nil
+        guard let webView = shortcutEventBrowserWebView(event),
+              let window = webView.window,
+              !isCommandPaletteEffectivelyVisible(for: window) else {
+            return false
+        }
+        return true
     }
 
     /// Delivers a remapped-away menu shortcut to the focused browser page.
