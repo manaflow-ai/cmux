@@ -75,10 +75,23 @@ public final class MobileWhatsNewCenter {
             remoteList = list
             lastRefreshSucceeded = true
             defaults.set(data, forKey: Self.cacheKey)
+            pruneAcknowledgedAnnouncements(against: list)
         } catch {
             // Keep the cached list; no cache ever fetched means binary
             // entries stay visible (fail-open to binary truth).
         }
+    }
+
+    /// Drops acknowledged announcement ids the authoritative list no longer
+    /// carries. Announcements expire remotely and their ids never return, so
+    /// without pruning the UserDefaults-backed set would grow without bound.
+    private func pruneAcknowledgedAnnouncements(against list: MobileWhatsNewRemoteList) {
+        let acknowledged = acknowledgedAnnouncementIDs
+        guard !acknowledged.isEmpty else { return }
+        let live = Set(list.announcements.map(\.id))
+        let pruned = acknowledged.intersection(live)
+        guard pruned != acknowledged else { return }
+        defaults.set(pruned.sorted(), forKey: Self.acknowledgedAnnouncementsKey)
     }
 
     /// Hosts an in-app What's New webpage may load: the cmux-owned production

@@ -28,7 +28,7 @@ func whatsNewWebURLAllowed(_ url: URL, allowedHosts: Set<String>) -> Bool {
 struct MobileWhatsNewWebView: View {
     /// One webview load lifecycle: loading until the page finishes, then
     /// loaded; failed on error or when the load deadline passes first.
-    private enum LoadPhase {
+    private enum LoadPhase: Equatable {
         case loading
         case loaded
         case failed
