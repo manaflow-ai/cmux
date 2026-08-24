@@ -26,7 +26,7 @@ pub(crate) fn sidebar_view_id(
     session_id: &SessionPublicId,
 ) -> Result<SidebarViewPublicId, ResourceError> {
     let mut digest = Sha256::new();
-    digest.update(b"cmux.protocol/1/sidebar-view/");
+    digest.update(b"cmux.protocol/2/sidebar-view/");
     digest.update(session_id.as_str().as_bytes());
     let digest = digest.finalize();
     let payload = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();

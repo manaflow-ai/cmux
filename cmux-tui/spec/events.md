@@ -1,8 +1,8 @@
 # Event Contract
 
-This file specifies private protocol-v10 events for cmux frontends and raw SDK
+This file specifies private protocol-v12 events for cmux frontends and raw SDK
 adapters. Application code should use the typed streams in
-[`cmux.protocol/1`](resource-api-v1.md).
+[`cmux.protocol/2`](resource-api-v2.md).
 
 Event lines are JSON objects with an `event` string and no response envelope.
 
@@ -92,10 +92,13 @@ Protocol v6 attach streams are ordered as `vt-state -> (resized | output | color
 
 Protocol v7 render attach streams are ordered as `render-state -> (render-delta | scroll-changed)* -> detached`. The initial state snapshot and render tap are registered under one terminal lock, matching the byte stream's no-gap/no-duplication guarantee. `render-delta` frames coalesce damage but preserve authoritative state order. See [`render.md`](render.md#stream-ordering).
 
-When a local PTY or browser exits, the mux removes it from the tree before
-`surface-exited`. A durable terminal-host PTY instead remains as an addressable
-dead tab until an explicit close tombstones it. Consumers must inspect the tree
-or durable terminal registry rather than treating every exit as removal.
+When a terminal resource exits, the mux atomically records its durable exit
+receipt and detaches every live tab placement. A terminal with several
+placements emits `surface-exited` once for each former legacy surface ID so
+existing per-placement subscribers invalidate every view. The receipt remains
+addressable through the terminal registry until `terminal.close` tombstones
+it, but no placement or live runtime remains. Browser surfaces and
+unregistered compatibility PTYs are also reaped on exit.
 
 ## Subscribe Events
 
@@ -604,9 +607,11 @@ Payload:
 object{event:"surface-exited",surface:Id}
 ```
 
-Meaning: A PTY child exited or a browser surface was closed. Local PTYs and
-browsers are already reaped from the tree. A terminal-host-backed PTY remains
-as a dead, addressable tab until explicit close.
+Meaning: A PTY child exited or a browser surface was closed. A session-owned
+terminal retains a durable exit receipt until explicit `terminal.close`, while
+every placement and its live runtime are already removed. A projected terminal
+emits this event for each former placement. Browsers and unregistered
+compatibility PTYs are also already reaped from the tree.
 
 Example:
 

@@ -1309,7 +1309,7 @@ mod tests {
     }
 
     async fn wait_for_available_permits(semaphore: &Semaphore, expected: usize) {
-        tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::time::timeout(crate::test_observation_timeout(Duration::from_secs(5)), async {
             loop {
                 if semaphore.available_permits() == expected {
                     return;
@@ -1807,9 +1807,12 @@ mod tests {
 
         let (second_client, second_connection) = connect_test_client(&listener, secret(50)).await;
         wait_for_available_permits(&listener.admission.connection_overflow, 0).await;
-        let _ = tokio::time::timeout(Duration::from_secs(2), second_connection.closed())
-            .await
-            .expect("queued Iroh connection outlived the admission deadline");
+        let _ = tokio::time::timeout(
+            crate::test_observation_timeout(Duration::from_secs(2)),
+            second_connection.closed(),
+        )
+        .await
+        .expect("queued Iroh connection outlived the admission deadline");
         wait_for_available_permits(&listener.admission.connection_overflow, 1).await;
         assert!(first_connection.close_reason().is_none());
 

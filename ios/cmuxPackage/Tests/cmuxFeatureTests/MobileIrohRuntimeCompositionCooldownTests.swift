@@ -332,6 +332,21 @@ struct MobileIrohRuntimeCompositionCooldownTests {
     }
 
     @Test
+    func liveMacDiscoveryForcesFreshBrokerSnapshotAfterActivation() async throws {
+        let fixture = try await MobileIrohCooldownFixture.makeSuccessfulBootstrap()
+        await settleActivation(fixture) {
+            fixture.composition.runtime != nil
+        }
+
+        let activationDiscoveryCount = await fixture.broker.discoveryRequestCount()
+        #expect(activationDiscoveryCount == 1)
+
+        _ = await fixture.composition.discoverLiveMacs()
+
+        #expect(await fixture.broker.discoveryRequestCount() == activationDiscoveryCount + 1)
+    }
+
+    @Test
     func activeRuntimeRateLimitSurvivesCompositionRecreation() async throws {
         let fixture = try await MobileIrohCooldownFixture.makeSuccessfulBootstrap()
         await settleActivation(fixture) {
@@ -534,7 +549,7 @@ private struct MobileIrohCooldownFixture {
                 customRelayCredentials: customRelayCredentials,
                 relayPolicyTrustRoot: relayPolicyTrustRoot,
                 endpointFactory: endpointFactory,
-                brokerFactory: { _ in broker },
+                brokerFactory: { _, _ in broker },
                 brokerBackpressureGate: CmxIrohBrokerBackpressureGate(
                     store: CmxIrohUserDefaultsInstallStateStore(defaults: defaults),
                     now: { clock.now() }
@@ -1000,11 +1015,8 @@ private actor MobileIrohCooldownCredentialStore: CmxIrohSecureCredentialStoring 
     func deleteAll() { storage.removeAll() }
 }
 
-// The synchronous storage protocol is used only by one identity repository actor.
-private final class MobileIrohCooldownIdentityStore: CmxIrohSecureIdentityStoring,
-    @unchecked Sendable
-{
-    nonisolated(unsafe) private var storage: [String: Data] = [:]
+private actor MobileIrohCooldownIdentityStore: CmxIrohSecureIdentityStoring {
+    private var storage: [String: Data] = [:]
 
     func read(account: String) -> Data? { storage[account] }
     func write(_ data: Data, account: String) { storage[account] = data }

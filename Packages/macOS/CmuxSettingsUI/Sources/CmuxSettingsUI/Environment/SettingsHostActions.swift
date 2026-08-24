@@ -56,6 +56,9 @@ public protocol SettingsHostActions: AnyObject {
     /// Applies the current persisted control-socket configuration to the live server.
     func socketControlConfigurationDidChange()
 
+    /// Live-reloads Ghostty after the adaptive-default-theme preference commits.
+    func terminalAdaptiveDefaultThemeDidChange()
+
     /// Launches the host's browser-import flow (Safari / Chrome /
     /// Firefox source picker + profile selection + cookie prompt).
     func openBrowserImportFlow()
@@ -170,6 +173,17 @@ public protocol SettingsHostActions: AnyObject {
     /// `async` because the availability check probes a real bind.
     func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult
 
+    /// Current Mac-owned forwarding policy for cmux mobile push notifications.
+    func mobilePhonePushSettings() -> MobilePhonePushSettingsSnapshot
+
+    /// Live forwarding-policy updates from every app entrypoint.
+    func mobilePhonePushSettingsUpdates() -> AsyncStream<MobilePhonePushSettingsSnapshot>
+
+    /// Applies one forwarding-policy field through the host's shared owner.
+    func updateMobilePhonePushSettings(
+        _ mutation: MobilePhonePushSettingsMutation
+    ) -> MobilePhonePushSettingsSnapshot
+
     /// Shows the Sleepy Mode screensaver as a non-locking preview (any key/click
     /// exits, no Touch ID). The host owns the overlay window.
     func sleepyModePreview()
@@ -207,6 +221,9 @@ public protocol SettingsHostActions: AnyObject {
 public extension SettingsHostActions {
     /// Default no-op for previews and tests without a live control socket.
     func socketControlConfigurationDidChange() {}
+
+    /// Default no-op for package-only settings hosts without Ghostty.
+    func terminalAdaptiveDefaultThemeDidChange() {}
 
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
@@ -268,6 +285,21 @@ public extension SettingsHostActions {
     /// Default: save-for-later, for hosts without a live mobile service (previews/tests).
     func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult {
         (1...65535).contains(port) ? .savedForLater(port: port) : .invalid(requestedPort: port)
+    }
+
+    func mobilePhonePushSettings() -> MobilePhonePushSettingsSnapshot {
+        .defaultValue
+    }
+
+    func mobilePhonePushSettingsUpdates() -> AsyncStream<MobilePhonePushSettingsSnapshot> {
+        AsyncStream { $0.finish() }
+    }
+
+    func updateMobilePhonePushSettings(
+        _ mutation: MobilePhonePushSettingsMutation
+    ) -> MobilePhonePushSettingsSnapshot {
+        _ = mutation
+        return mobilePhonePushSettings()
     }
 
     func sidebarFontSize() -> SettingsFontSize {

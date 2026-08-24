@@ -11,12 +11,33 @@ public protocol PushRegistering: Sendable {
     /// Whether the user has opted into phone notifications.
     var isEnabled: Bool { get async }
 
+    /// The furthest locally and remotely confirmed registration stage.
+    var snapshot: PushRegistrationSnapshot { get async }
+
+    /// A stream that immediately yields the current snapshot and every change.
+    func snapshots() async -> AsyncStream<PushRegistrationSnapshot>
+
     /// Persist the opt-in flag, re-uploading any cached token on enable and
     /// removing it server-side on disable.
     func setEnabled(_ enabled: Bool) async
 
+    /// Commits a coordinator-owned preference in generation order. Opt-out
+    /// cleanup runs in an app-owned worker and this call awaits its bounded
+    /// attempt without transferring cancellation ownership. Enabling is
+    /// persisted here but must wait for ``reconcileEnabledIntent(generation:)``
+    /// after iOS notification authorization succeeds.
+    func applyEnabledIntent(_ enabled: Bool, generation: UInt64) async
+
+    /// Starts backend registration for the current enabled intent after the
+    /// coordinator has confirmed that iOS permits notification delivery.
+    func reconcileEnabledIntent(generation: UInt64) async
+
     /// Cache and (when opted in) upload a freshly registered APNs device token.
     func register(deviceToken: Data) async
+
+    /// Records a terminal APNs token-registration callback failure without
+    /// retaining or exposing the system error description.
+    func deviceTokenRegistrationFailed() async
 
     /// Re-upload the cached token (e.g. after sign-in). No-op unless opted in.
     func syncTokenIfPossible() async
@@ -32,4 +53,11 @@ public protocol PushRegistering: Sendable {
     /// live provider could authenticate as a NEXT account whose sign-in raced
     /// the bounded teardown.
     func unregisterFromServer(accessToken: String?, refreshToken: String?) async
+
+    /// Sign-out variant carrying the account id captured before local clear.
+    func unregisterFromServer(
+        accountID: String?,
+        accessToken: String?,
+        refreshToken: String?
+    ) async
 }

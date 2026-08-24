@@ -31,6 +31,16 @@ const RESOURCE_SESSION = sessionId(`session_${"a".repeat(32)}`);
 const RESOURCE_WORKSPACE = workspaceId(`ws_${"b".repeat(32)}`);
 const RESOURCE_TERMINAL = terminalId(`term_${"c".repeat(32)}`);
 
+test("explicit empty socket paths fail with a typed validation error", () => {
+  const message = "socketPath must be a non-empty path";
+  assert.throws(() => new NodeClient({ socketPath: "" }), (error: unknown) =>
+    error instanceof TypeError && error.message === message,
+  );
+  assert.throws(() => new CmuxClient({ socketPath: "" }), (error: unknown) =>
+    error instanceof TypeError && error.message === message,
+  );
+});
+
 interface DelayedUnixFixture {
   readonly transport: UnixSocketTransport;
   readonly received: string[];
@@ -625,7 +635,7 @@ test("Unix resource streams outlive their acknowledged open deadline", async () 
         if (request.operation === "session.events") {
           const streamId = request.params.stream_id as string;
           socket.write(`${JSON.stringify({
-            protocol: "cmux.protocol/1",
+            protocol: "cmux.protocol/2",
             type: "response",
             id: request.id,
             ok: true,
@@ -633,7 +643,7 @@ test("Unix resource streams outlive their acknowledged open deadline", async () 
           })}\n`);
           emitEvent = () => {
             socket.write(`${JSON.stringify({
-              protocol: "cmux.protocol/1",
+              protocol: "cmux.protocol/2",
               type: "stream_item",
               stream_id: streamId,
               sequence: "0",
@@ -644,14 +654,14 @@ test("Unix resource streams outlive their acknowledged open deadline", async () 
         }
         assert.equal(request.operation, "stream.cancel");
         socket.write(`${JSON.stringify({
-          protocol: "cmux.protocol/1",
+          protocol: "cmux.protocol/2",
           type: "response",
           id: request.id,
           ok: true,
           result: {},
         })}\n`);
         socket.write(`${JSON.stringify({
-          protocol: "cmux.protocol/1",
+          protocol: "cmux.protocol/2",
           type: "stream_end",
           stream_id: request.params.stream,
           reason: "canceled",

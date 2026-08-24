@@ -39,9 +39,9 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
         _ application: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
-        NSLog("cmux.push registration failed: %@", error.localizedDescription)
         let nsError = error as NSError
         Task { @MainActor in
+            await pushCoordinator?.handleDeviceTokenFailure(error: error)
             analytics?.capture("ios_push_token_registration_failed", [
                 "stage": .string("apns"),
                 "error_code": .int(nsError.code),
@@ -58,7 +58,8 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
         let present = await pushCoordinator?.shouldPresentInForeground(
             workspaceId: ids.workspaceId,
             surfaceId: ids.surfaceId,
-            macDeviceId: ids.macDeviceId
+            macDeviceId: ids.macDeviceId,
+            macInstanceTag: ids.macInstanceTag
         ) ?? true
         return present ? [.banner, .sound, .badge] : []
     }
@@ -69,13 +70,39 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
     ) async {
         let request = response.notification.request
         // A swipe/clear of a cmux banner delivers the custom dismiss action
-        // (enabled via the `cmux.terminal` category's `.customDismissAction`).
+        // (enabled on both cmux terminal categories via `.customDismissAction`).
         // Forward it to the Mac so the desktop banner + store entry clear too.
         let ids = Self.cmuxIDs(from: request.content.userInfo)
         if response.actionIdentifier == UNNotificationDismissActionIdentifier {
             await pushCoordinator?.handleDismiss(
                 notificationId: Self.notificationID(from: request),
-                macDeviceId: ids.macDeviceId
+                macDeviceId: ids.macDeviceId,
+                macInstanceTag: ids.macInstanceTag
+            )
+            return
+        }
+        if response.actionIdentifier == MobilePushCoordinator.replyActionIdentifier,
+           let replyText = (response as? UNTextInputNotificationResponse)?.userText,
+           !replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let notificationId = Self.notificationID(from: request)
+            await analytics?.capture("ios_push_inline_reply", [
+                "has_workspace_id": .bool(ids.workspaceId != nil),
+                "has_surface_id": .bool(ids.surfaceId != nil),
+                "has_mac_device_id": .bool(ids.macDeviceId != nil),
+                "has_notification_id": .bool(notificationId != nil),
+            ])
+            await pushCoordinator?.handleReply(
+                text: replyText,
+                workspaceId: ids.workspaceId,
+                surfaceId: ids.surfaceId,
+                macDeviceId: ids.macDeviceId,
+                macInstanceTag: ids.macInstanceTag,
+                retargetsToLiveSurfaceOwner: ids.retargetsToLiveSurfaceOwner
+            )
+            await pushCoordinator?.handleDismiss(
+                notificationId: notificationId,
+                macDeviceId: ids.macDeviceId,
+                macInstanceTag: ids.macInstanceTag
             )
             return
         }
@@ -93,11 +120,13 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
             workspaceId: ids.workspaceId,
             surfaceId: ids.surfaceId,
             macDeviceId: ids.macDeviceId,
+            macInstanceTag: ids.macInstanceTag,
             retargetsToLiveSurfaceOwner: ids.retargetsToLiveSurfaceOwner
         )
         await pushCoordinator?.handleDismiss(
             notificationId: Self.notificationID(from: request),
-            macDeviceId: ids.macDeviceId
+            macDeviceId: ids.macDeviceId,
+            macInstanceTag: ids.macInstanceTag
         )
     }
 
@@ -115,12 +144,25 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
     ) async -> UIBackgroundFetchResult {
         let dismissedIds = Self.dismissedIDs(from: userInfo)
         guard !dismissedIds.isEmpty else { return .noData }
-        return await handleRemoteDismiss(ids: dismissedIds)
+        let owner = Self.cmuxIDs(from: userInfo)
+        return await handleRemoteDismiss(
+            ids: dismissedIds,
+            macDeviceId: owner.macDeviceId,
+            macInstanceTag: owner.macInstanceTag
+        )
     }
 
     @MainActor
-    private func handleRemoteDismiss(ids: [String]) async -> UIBackgroundFetchResult {
-        await pushCoordinator?.handleRemoteDismiss(ids: ids)
+    private func handleRemoteDismiss(
+        ids: [String],
+        macDeviceId: String?,
+        macInstanceTag: String?
+    ) async -> UIBackgroundFetchResult {
+        await pushCoordinator?.handleRemoteDismiss(
+            ids: ids,
+            macDeviceId: macDeviceId,
+            macInstanceTag: macInstanceTag
+        )
         return .newData
     }
 
@@ -146,12 +188,21 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
 
     private nonisolated static func cmuxIDs(
         from userInfo: [AnyHashable: Any]
-    ) -> (workspaceId: String?, surfaceId: String?, macDeviceId: String?, retargetsToLiveSurfaceOwner: Bool) {
-        guard let cmux = userInfo["cmux"] as? [String: Any] else { return (nil, nil, nil, true) }
+    ) -> (
+        workspaceId: String?,
+        surfaceId: String?,
+        macDeviceId: String?,
+        macInstanceTag: String?,
+        retargetsToLiveSurfaceOwner: Bool
+    ) {
+        guard let cmux = userInfo["cmux"] as? [String: Any] else {
+            return (nil, nil, nil, nil, true)
+        }
         return (
             cmux["workspaceId"] as? String,
             cmux["surfaceId"] as? String,
             cmux["macDeviceId"] as? String,
+            cmux["macInstanceTag"] as? String,
             cmux["retargetsToLiveSurfaceOwner"] as? Bool ?? true
         )
     }
@@ -159,9 +210,9 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
     /// The stable Mac-side notification id for a delivered request, or `nil` when
     /// this push does not carry one.
     ///
-    /// The `cmux.notificationId` payload key is authoritative: the Mac stamps the
-    /// same value as `apns-collapse-id`, so it equals `request.identifier` for a
-    /// modern push. We deliberately do NOT fall back to a bare `request.identifier`
+    /// The `cmux.notificationId` payload key is authoritative. The APNs collapse
+    /// id also incorporates the Mac app-instance identity, so the request id is
+    /// intentionally opaque. We deliberately do NOT fall back to it
     /// when the payload key is absent: a push without `notificationId` (an older
     /// Mac, or any push that omitted it) has an OS-assigned random identifier that
     /// matches no Mac notification, so forwarding it would mark the wrong (or no)

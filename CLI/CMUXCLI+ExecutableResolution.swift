@@ -37,16 +37,14 @@ extension CMUXCLI {
         return prefix.contains("cmux claude wrapper - injects hooks and session tracking")
     }
 
-    func isCmuxClaudeCommandShim(at path: String) -> Bool {
+    func isCmuxAgentCommandShim(at path: String) -> Bool {
         let candidate = URL(fileURLWithPath: path, isDirectory: false)
             .standardizedFileURL
             .path
         let environment = ProcessInfo.processInfo.environment
-        let shimPaths = [
-            environment["CMUX_CLAUDE_WRAPPER_SHIM"],
-        ]
-        for shimPath in shimPaths {
-            guard let shimPath else { continue }
+        for (key, rawPath) in environment where key.hasSuffix("_WRAPPER_SHIM") {
+            let shimPath = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !shimPath.isEmpty else { continue }
             let standardizedShim = URL(fileURLWithPath: shimPath, isDirectory: false)
                 .standardizedFileURL
                 .path
@@ -55,16 +53,22 @@ extension CMUXCLI {
             }
         }
 
-        let shimRoots: [String?] = [
-            environment["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"],
+        var shimRoots = environment.compactMap { key, rawPath -> String? in
+            guard key == "CMUX_AGENT_COMMAND_SHIM_ROOT" || key.hasSuffix("_WRAPPER_SHIM_ROOT") else {
+                return nil
+            }
+            return rawPath
+        }
+        shimRoots.append(contentsOf: [
             URL(fileURLWithPath: environment["TMPDIR"] ?? NSTemporaryDirectory(), isDirectory: true)
                 .appendingPathComponent("cmux-cli-shims", isDirectory: true)
                 .standardizedFileURL
                 .path,
             "/tmp/cmux-cli-shims",
-        ]
+        ])
         for shimRoot in shimRoots {
-            guard let shimRoot else { continue }
+            let shimRoot = shimRoot.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !shimRoot.isEmpty else { continue }
             let standardizedRoot = URL(fileURLWithPath: shimRoot, isDirectory: true)
                 .standardizedFileURL
                 .path
@@ -94,6 +98,7 @@ extension CMUXCLI {
                   !isDirectory.boolValue,
                   FileManager.default.isExecutableFile(atPath: candidate) else { continue }
             guard !isBundledProviderExecutable(at: candidate) else { continue }
+            guard !isCmuxAgentCommandShim(at: candidate) else { continue }
             if let skip, skip(candidate) { continue }
             return candidate
         }
@@ -109,7 +114,7 @@ extension CMUXCLI {
                   !isDirectory.boolValue,
                   FileManager.default.isExecutableFile(atPath: trimmed),
                   !isBundledProviderExecutable(at: trimmed),
-                  !isCmuxClaudeCommandShim(at: trimmed),
+                  !isCmuxAgentCommandShim(at: trimmed),
                   !isCmuxClaudeWrapper(at: trimmed) else { continue }
             return URL(fileURLWithPath: trimmed, isDirectory: false).standardizedFileURL.path
         }
@@ -121,7 +126,7 @@ extension CMUXCLI {
         resolveExecutableInSearchPath(
             "claude",
             searchPath: searchPath,
-            skip: { self.isCmuxClaudeCommandShim(at: $0) || self.isCmuxClaudeWrapper(at: $0) }
+            skip: { self.isCmuxClaudeWrapper(at: $0) }
         )
     }
 
@@ -302,6 +307,8 @@ extension CMUXCLI {
         for key in ClaudeSessionEnvironmentPolicy().inheritedIndependentLaunchKeys {
             unsetenv(key)
         }
+        unsetenv(ClaudeTeamsRespawnEnvironmentTransport.environmentKey)
+        unsetenv("CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH")
     }
 
     private func providerExecutableSearchDirectories(searchPath: String?) -> [String] {
@@ -329,17 +336,9 @@ extension CMUXCLI {
             "/bin"
         ])
 
-        var seen: Set<String> = []
-        return directories.compactMap { rawDirectory in
-            let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            let standardized = URL(fileURLWithPath: trimmed, isDirectory: true)
-                .standardizedFileURL
-                .path
-            guard !isCmuxAppBundleResourceBinDirectory(standardized) else { return nil }
-            guard seen.insert(standardized).inserted else { return nil }
-            return standardized
-        }
+        return AgentExecutableSearchPathResolver()
+            .normalizedDirectories(from: directories)
+            .filter { !isCmuxAppBundleResourceBinDirectory($0) }
     }
 
     private func providerNodeVersionBinDirectories(root: String, suffix: String) -> [String] {
