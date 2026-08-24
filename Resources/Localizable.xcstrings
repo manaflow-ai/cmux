@@ -35245,6 +35245,74 @@
         }
       }
     },
+    "cli.browser.cookies.clearRequiresScope": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser cookies clear requires exactly one of --all or a cookie scope"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser cookies clear には --all または Cookie スコープを1つだけ指定してください"
+          }
+        }
+      }
+    },
+    "cli.browser.cookies.invalidExpires": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser cookies clear --expires must be an integer Unix timestamp"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser cookies clear --expires には Unix 時刻の整数を指定してください"
+          }
+        }
+      }
+    },
+    "cli.browser.cookies.invalidFilter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser cookies clear received an invalid cookie filter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser cookies clear に無効な Cookie フィルターが指定されました"
+          }
+        }
+      }
+    },
+    "cli.browser.cookies.invalidURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser cookies clear --url requires a valid URL with a host"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser cookies clear --url にはホストを含む有効な URL を指定してください"
+          }
+        }
+      }
+    },
     "cli.browser.error.tabManagerUnavailable": {
       "extractionState": "manual",
       "localizations": {

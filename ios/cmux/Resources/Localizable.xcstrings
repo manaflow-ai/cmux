@@ -1276,6 +1276,40 @@
         }
       }
     },
+    "mobile.simulatorStream.needsRecovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator Needs Recovery"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorの復旧が必要です"
+          }
+        }
+      }
+    },
+    "mobile.simulatorStream.needsRecoveryDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator session on the Mac stopped and is showing its last frame."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacのSimulatorセッションが停止し、最後のフレームを表示しています。"
+          }
+        }
+      }
+    },
     "mobile.simulatorStream.panelClosedDetail": {
       "extractionState": "manual",
       "localizations": {
@@ -1357,6 +1391,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "高画質"
+          }
+        }
+      }
+    },
+    "mobile.simulatorStream.recover": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recover"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復旧"
           }
         }
       }
@@ -2024,6 +2075,62 @@
         }
       }
     },
+    "mobile.composer.attach.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add Attachment" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルを追加" } }
+      }
+    },
+    "mobile.composer.attach.chooseFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose Files" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルを選択" } }
+      }
+    },
+    "mobile.composer.attach.paste": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Paste" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペースト" } }
+      }
+    },
+    "mobile.composer.attach.photoLibrary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Photo Library" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "写真ライブラリ" } }
+      }
+    },
+    "mobile.composer.attachment.alert.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t Add Attachment" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルを追加できませんでした" } }
+      }
+    },
+    "mobile.composer.attachment.file": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "File attachment" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイル添付" } }
+      }
+    },
+    "mobile.composer.attachment.image": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Image attachment" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "画像添付" } }
+      }
+    },
+    "mobile.composer.attachment.limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "You can attach up to 10 items." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付できるのは最大10個までです。" } }
+      }
+    },
     "mobile.composer.attachment.remove": {
       "extractionState": "manual",
       "localizations": {
@@ -2039,6 +2146,41 @@
             "value": "添付を削除"
           }
         }
+      }
+    },
+    "mobile.composer.attachment.preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Preview Attachment" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付をプレビュー" } }
+      }
+    },
+    "mobile.composer.attachment.previewFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This attachment couldn’t be previewed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この添付はプレビューできませんでした。" } }
+      }
+    },
+    "mobile.composer.attachment.tooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose a file smaller than 32 MB." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "32 MB未満のファイルを選択してください。" } }
+      }
+    },
+    "mobile.composer.attachment.unreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "That item couldn’t be read." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "その項目を読み込めませんでした。" } }
+      }
+    },
+    "mobile.composer.attachment.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This Mac doesn’t support file attachments yet. Update cmux on the Mac." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このMacはファイル添付にまだ対応していません。Macのcmuxをアップデートしてください。" } }
       }
     },
     "mobile.composer.close": {
@@ -10494,6 +10636,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Task attachments can use up to 64 MB in total." } },
         "ja": { "stringUnit": { "state": "translated", "value": "タスクの添付ファイルは合計64 MBまでです。" } }
+      }
+    },
+    "mobile.taskComposer.attachments.paste": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Paste" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペースト" } }
       }
     },
     "mobile.taskComposer.attachments.photoLibrary": {

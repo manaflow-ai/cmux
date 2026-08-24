@@ -976,6 +976,20 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "送信" } }
       }
     },
+    "mobile.push.reply.failure.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reply not sent" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "返信を送信できませんでした" } }
+      }
+    },
+    "mobile.push.reply.failure.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Your reply didn’t reach your Mac. Open cmux to send it again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "返信はMacに届きませんでした。cmuxを開いてもう一度送信してください。" } }
+      }
+    },
     "mobile.push.debugReply.title" : {
       "extractionState" : "manual",
       "localizations" : {

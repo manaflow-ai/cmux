@@ -52,6 +52,10 @@ struct TaskComposerSheet: View {
     @State var attachmentPhotoSelection: [PhotosPickerItem] = []
     @State var isAttachmentFileImporterPresented = false
     @State var attachmentStagingTask: Task<Void, Never>?
+    /// Monotonic batch token: each staging batch bumps it, and a finishing
+    /// batch clears ``attachmentStagingTask`` only when its own token is still
+    /// current, so a stale (cancelled) batch cannot drop a newer batch's handle.
+    @State var attachmentStagingGeneration = 0
     @State var attachmentAlertMessage: String?
     /// Draft typing is sampled once per composer presentation so this bounded
     /// log records that editing occurred without one event per keystroke.
@@ -594,6 +598,7 @@ struct TaskComposerSheet: View {
             requestStartAgain: { isStartAgainConfirmationPresented = true },
             chooseAttachmentPhotos: presentAttachmentPhotoPicker,
             chooseAttachmentFiles: presentAttachmentFileImporter,
+            pasteAttachments: stagePasteboardAttachments,
             removeAttachment: removeAttachment
         )
     }

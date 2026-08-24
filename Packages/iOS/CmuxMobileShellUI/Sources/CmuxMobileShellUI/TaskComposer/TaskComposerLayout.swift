@@ -50,6 +50,11 @@ struct TaskComposerLayout: View {
     let requestStartAgain: () -> Void
     let chooseAttachmentPhotos: () -> Void
     let chooseAttachmentFiles: () -> Void
+    /// Stages pasted images/files as attachments; `true` consumes the paste.
+    /// Shared by the prompt editor's system Paste action and the attachment
+    /// menu's Paste item (which ignores the result — text-only pasteboards
+    /// simply stage nothing there).
+    let pasteAttachments: () -> Bool
     let removeAttachment: (UUID) -> Void
 
     @State private var isPromptFocused = false
@@ -121,7 +126,8 @@ struct TaskComposerLayout: View {
                     "mobile.taskComposer.prompt",
                     defaultValue: "Prompt"
                 ),
-                accessibilityHint: promptPlaceholder
+                accessibilityHint: promptPlaceholder,
+                pasteAttachments: pasteAttachments
             )
                 .padding(.horizontal, 20)
                 .padding(.vertical, 18)
@@ -227,7 +233,8 @@ struct TaskComposerLayout: View {
                     style: .circularPlus,
                     isDisabled: isDisabled,
                     choosePhotos: chooseAttachmentPhotos,
-                    chooseFiles: chooseAttachmentFiles
+                    chooseFiles: chooseAttachmentFiles,
+                    pasteAttachments: { _ = pasteAttachments() }
                 )
             }
         }
