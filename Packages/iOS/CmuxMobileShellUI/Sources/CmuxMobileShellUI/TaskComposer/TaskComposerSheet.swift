@@ -457,13 +457,12 @@ struct TaskComposerSheet: View {
                 isPresented: $isStartAgainConfirmationPresented,
                 confirm: confirmStartAgain
             ))
-            .confirmationDialog(
+            .alert(
                 L10n.string(
                     "mobile.taskComposer.drafts.leaveDialog.title",
                     defaultValue: "Save this task as a draft?"
                 ),
-                isPresented: $isLeaveConfirmationPresented,
-                titleVisibility: .visible
+                isPresented: $isLeaveConfirmationPresented
             ) {
                 Button(L10n.string(
                     "mobile.taskComposer.drafts.leaveDialog.save",
