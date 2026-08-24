@@ -2943,6 +2943,26 @@ class GhosttyApp {
         }
     }
 
+    /// Enqueues a pointer-state transition without blocking Ghostty's callback
+    /// thread, then drops it if the originating runtime has already been
+    /// replaced or torn down by the time the main actor consumes it.
+    private func enqueueTerminalPointerStyleEvent(
+        _ event: TerminalPointerStyleEvent,
+        surfaceView: GhosttyNSView,
+        surfaceId: UUID,
+        callbackContext: GhosttySurfaceCallbackContext
+    ) {
+        DispatchQueue.main.async { [weak surfaceView, weak callbackContext] in
+            guard let surfaceView,
+                  let callbackContext,
+                  let terminalSurface = surfaceView.terminalSurface,
+                  terminalSurface.id == surfaceId,
+                  terminalSurface.isActiveRuntimeCallbackContext(callbackContext)
+            else { return }
+            surfaceView.applyTerminalPointerStyle(event)
+        }
+    }
+
     private func splitDirection(from direction: ghostty_action_split_direction_e) -> SplitDirection? {
         switch direction {
         case GHOSTTY_SPLIT_DIRECTION_RIGHT: return .right
@@ -3083,13 +3103,13 @@ class GhosttyApp {
             let actionSurface = callbackContext?.terminalSurface
             if let surfaceView = callbackContext?.surfaceView,
                let actionSurfaceId = callbackSurfaceId,
-               let runtimeLifetimeId = callbackContext?.runtimeLifetimeId {
-                performOnMain {
-                    guard surfaceView.terminalSurface?.id == actionSurfaceId else { return }
-                    surfaceView.runtimeSurfaceDidEnd(
-                        runtimeLifetimeId: runtimeLifetimeId
-                    )
-                }
+               let callbackContext {
+                enqueueTerminalPointerStyleEvent(
+                    .runtimeEnded(callbackContext.runtimeLifetimeId),
+                    surfaceView: surfaceView,
+                    surfaceId: actionSurfaceId,
+                    callbackContext: callbackContext
+                )
             }
             return handleChildExitedAction(
                 runtimeSurface: actionSurface,
@@ -3207,13 +3227,16 @@ class GhosttyApp {
         case GHOSTTY_ACTION_MOUSE_SHAPE:
             let shape = action.action.mouse_shape
             guard let actionSurfaceId = callbackSurfaceId,
-                  let runtimeLifetimeId = callbackContext?.runtimeLifetimeId else { return false }
-            performOnMain {
-                guard surfaceView.terminalSurface?.id == actionSurfaceId else { return }
-                surfaceView.applyTerminalPointerStyle(
-                    .ghosttyShape(shape, runtimeLifetimeId: runtimeLifetimeId)
-                )
-            }
+                  let callbackContext else { return false }
+            enqueueTerminalPointerStyleEvent(
+                .ghosttyShape(
+                    shape,
+                    runtimeLifetimeId: callbackContext.runtimeLifetimeId
+                ),
+                surfaceView: surfaceView,
+                surfaceId: actionSurfaceId,
+                callbackContext: callbackContext
+            )
             return true
         case GHOSTTY_ACTION_MOUSE_OVER_LINK:
             let url = GhosttySurfaceScrollView.linkHoverURL(from: action.action.mouse_over_link)
