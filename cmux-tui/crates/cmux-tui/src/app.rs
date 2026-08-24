@@ -4292,9 +4292,9 @@ impl MenuAction {
             MenuAction::ShowShortcuts => {
                 localization::catalog().action_label(Action::ShowShortcuts)
             }
-            MenuAction::SetClientSizing { enabled: true, .. } => menu.use_client_size,
+            MenuAction::SetClientSizing { enabled: true, .. } => menu.include_client_size,
             MenuAction::SetClientSizing { enabled: false, .. } => menu.excluded,
-            MenuAction::UseClientSize { .. } => menu.use_client_size,
+            MenuAction::UseClientSize { .. } => menu.use_only_client_size,
             MenuAction::RestoreAllClientSizing(_) => menu.restore_all_client_sizing,
             MenuAction::DisconnectClient(_) => menu.disconnect_client,
             MenuAction::SelectProviderScope(_) | MenuAction::InvokeProviderAction(_) => {
