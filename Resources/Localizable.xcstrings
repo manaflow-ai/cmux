@@ -1,6 +1,20 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "socket.error.unknownMethod": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown method" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明なメソッド" } }
+      }
+    },
+    "socket.feed.jump.invalidParams": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "feed.jump requires workstream_id" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "feed.jump には workstream_id が必要です" } }
+      }
+    },
     "caffeine.error.missingEnabled": {
       "extractionState": "manual",
       "localizations": {

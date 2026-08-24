@@ -36,7 +36,11 @@ extension ControlCommandCoordinator {
         guard let workstreamID = rawString(request.params, "workstream_id") else {
             return .err(
                 code: "invalid_params",
-                message: "feed.jump requires workstream_id",
+                message: context?.controlFeedInvalidJumpMessage()
+                    ?? String(
+                        localized: "socket.feed.jump.invalidParams",
+                        defaultValue: "feed.jump requires workstream_id"
+                    ),
                 data: nil
             )
         }

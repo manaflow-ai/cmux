@@ -4,11 +4,8 @@ import Foundation
 /// Resolves Feed workstream identities to the cmux surface recorded by an
 /// agent hook session.
 ///
-/// Resolution is deliberately a synchronous, nonisolated operation so the
-/// socket-worker ingress path can perform one bounded file read without
-/// hopping through the main actor. UI callers use ``FeedSessionStoreLookup``
-/// below, which owns the same operation behind an actor and therefore never
-/// perform the read on the main actor.
+/// The compatibility helpers are nonisolated and value-only; production Feed
+/// ingress uses ``FeedSessionStoreLookup`` so filesystem work stays actor-owned.
 nonisolated enum FeedJumpResolver {
     private static let hookSessionFileSuffix = "-hook-sessions.json"
 
@@ -39,12 +36,19 @@ nonisolated enum FeedJumpResolver {
             )
         }
 
-        // Legacy ids use a hyphen separator, but agent ids may themselves
-        // contain hyphens. Enumerate the registered hook-session files once,
-        // then probe only agent prefixes that actually exist. Each candidate
-        // file is decoded at most once, so a malformed id cannot trigger one
-        // JSON parse per delimiter.
-        let agentIDs = availableAgentIDs(homeDirectory: homeDirectory)
+        return resolveLegacy(
+            workstreamID,
+            homeDirectory: homeDirectory,
+            agentIDs: availableAgentIDs(homeDirectory: homeDirectory)
+        )
+    }
+
+    /// Resolves a legacy id against a caller-owned agent-file index.
+    static func resolveLegacy(
+        _ workstreamID: String,
+        homeDirectory: URL,
+        agentIDs: [String]
+    ) -> Target? {
         var sessionsByAgent: [String: [String: Target]] = [:]
         let matches = legacyCandidates(
             for: workstreamID,
@@ -107,7 +111,7 @@ nonisolated enum FeedJumpResolver {
         }
     }
 
-    private static func availableAgentIDs(homeDirectory: URL) -> [String] {
+    static func availableAgentIDs(homeDirectory: URL) -> [String] {
         let directory = homeDirectory.appendingPathComponent(
             ".cmuxterm",
             isDirectory: true
@@ -195,13 +199,51 @@ nonisolated enum FeedJumpResolver {
 /// ``FeedJumpResolver.Target`` values to its caller and never owns UI state.
 actor FeedSessionStoreLookup {
     private let homeDirectory: URL
+    private var indexedAgentIDs: [String]?
+    private var indexedDirectoryModificationDate: Date?
 
     init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
         self.homeDirectory = homeDirectory
     }
 
     func resolve(_ workstreamID: String) -> FeedJumpResolver.Target? {
-        FeedJumpResolver.resolve(workstreamID, homeDirectory: homeDirectory)
+        if let versioned = FeedWorkstreamIdentifier(rawValue: workstreamID) {
+            return FeedJumpResolver.lookup(
+                agent: versioned.agentID,
+                sessionId: versioned.sessionID,
+                homeDirectory: homeDirectory
+            )
+        }
+        guard let agentIDs = agentIDsForCurrentDirectory() else { return nil }
+        return FeedJumpResolver.resolveLegacy(
+            workstreamID,
+            homeDirectory: homeDirectory,
+            agentIDs: agentIDs
+        )
+    }
+
+    /// Returns the cached hook-session file index, refreshing only when the
+    /// directory's modification signal changes. Session contents are still
+    /// read per candidate, so updates within an existing file are immediate.
+    private func agentIDsForCurrentDirectory() -> [String]? {
+        let directory = homeDirectory.appendingPathComponent(
+            ".cmuxterm",
+            isDirectory: true
+        )
+        guard let attributes = try? FileManager.default.attributesOfItem(
+            atPath: directory.path
+        ),
+        let modified = attributes[.modificationDate] as? Date else {
+            return nil
+        }
+        if let indexedAgentIDs,
+           indexedDirectoryModificationDate == modified {
+            return indexedAgentIDs
+        }
+        let refreshed = FeedJumpResolver.availableAgentIDs(homeDirectory: homeDirectory)
+        indexedAgentIDs = refreshed
+        indexedDirectoryModificationDate = modified
+        return refreshed
     }
 }
 

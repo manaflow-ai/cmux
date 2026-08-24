@@ -37,6 +37,10 @@ extension ControlAppFocusContext {
 }
 
 extension ControlFeedContext {
+    nonisolated func controlFeedInvalidJumpMessage() -> String {
+        "feed.jump requires workstream_id"
+    }
+
     nonisolated func controlFeedResolvePossibleSurfaceAsync(
         workstreamID: String
     ) async -> Bool { false }

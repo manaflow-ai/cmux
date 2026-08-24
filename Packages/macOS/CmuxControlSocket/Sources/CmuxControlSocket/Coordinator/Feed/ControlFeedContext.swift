@@ -13,6 +13,11 @@
 /// isolated because it snapshots the observable Feed store.
 @MainActor
 public protocol ControlFeedContext: AnyObject {
+    /// Localized validation text for a malformed `feed.jump` request. The app
+    /// supplies this value so the package does not bind localization to its
+    /// resource bundle.
+    nonisolated func controlFeedInvalidJumpMessage() -> String
+
     /// Asynchronously resolves a workstream id without performing hook-session
     /// filesystem I/O on the socket worker or the main actor.
     nonisolated func controlFeedResolvePossibleSurfaceAsync(

@@ -27,6 +27,8 @@ final class NotificationSoundFilePickerModel {
         self.hostActions = hostActions
     }
 
+    deinit {}
+
     /// Presents a picker and validates the selected file before invoking
     /// `onValid`. A newer selection or disappearance cancels the prior task.
     func choose(

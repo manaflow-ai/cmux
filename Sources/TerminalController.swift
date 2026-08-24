@@ -1171,31 +1171,6 @@ class TerminalController {
                     }
                 }
             }
-            if request.method == "feed.jump" {
-                return v2AsyncResultCall(id: request.id, timeoutSeconds: 5) {
-                    guard let result = await self.controlCommandCoordinator
-                        .handleSocketWorkerFeedAsync(
-                            parsedRequest,
-                            context: self
-                        ) else {
-                        return .err(
-                            code: "method_not_found",
-                            message: "Unknown method",
-                            data: nil
-                        )
-                    }
-                    switch result {
-                    case .ok(let payload):
-                        return .ok(payload.foundationObject)
-                    case let .err(code, message, data):
-                        return .err(
-                            code: code,
-                            message: message,
-                            data: data?.foundationObject
-                        )
-                    }
-                }
-            }
             // Coordinator-owned worker-lane bodies (the tranche-D resolution
             // reads): nonisolated coordinator code runs on this worker thread
             // — pure parse plus JSON payload build — with ONE
@@ -1739,6 +1714,14 @@ class TerminalController {
                 Task { await preauthorizationLimiter.release() }
             }
 
+            // `feed.jump` owns an actor-backed filesystem lookup. Schedule its
+            // response independently so this connection's reader thread is
+            // never parked behind hook-session I/O; JSON-RPC request ids allow
+            // responses to arrive after later independent commands.
+            if scheduleAsyncFeedJumpResponse(trimmed, socket: socket) {
+                continue
+            }
+
             var shouldCloseSocket = false
             autoreleasepool {
                 if isEventsStreamRequest(trimmed) {
@@ -1780,6 +1763,42 @@ class TerminalController {
         if !socketServer.isConnectionAuthorizationCurrent(authorizationGeneration) {
             _ = writeSocketResponse(Self.socketClientAccessDeniedResponse, to: socket)
         }
+    }
+
+    /// Schedules an asynchronous `feed.jump` response and reports whether the
+    /// line was claimed by that path.
+    private nonisolated func scheduleAsyncFeedJumpResponse(
+        _ command: String,
+        socket: Int32
+    ) -> Bool {
+        guard command.hasPrefix("{"),
+              case .success(let request) = Self.v2Parser.request(fromLine: command),
+              request.method == "feed.jump" else {
+            return false
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let result = await self.controlCommandCoordinator
+                .handleSocketWorkerFeedAsync(request, context: self)
+            let response: String
+            if let result {
+                response = Self.v2Encoder.response(id: request.id, result)
+            } else {
+                response = Self.v2Encoder.error(
+                    id: request.id,
+                    code: "method_not_found",
+                    message: String(
+                        localized: "socket.error.unknownMethod",
+                        defaultValue: "Unknown method"
+                    ),
+                    data: nil
+                )
+            }
+            _ = self.writeSocketResponse(response, to: socket)
+            self.publishSocketEvents(command: command, response: response)
+        }
+        return true
     }
 
     private nonisolated func processSocketLine(

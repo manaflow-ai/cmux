@@ -85,7 +85,8 @@ extension TabItemView {
         .disabled(context.pinState == nil)
 
         Button {
-            actions.setNotificationsMuted(targetIds, !context.allNotificationsMuted)
+            let requestedMuted = !actions.currentNotificationsMuted(targetIds)
+            actions.setNotificationsMuted(targetIds, requestedMuted)
         } label: {
             Label(
                 muteNotificationsLabel,

@@ -16,8 +16,34 @@ private final class NotificationSoundProcessCancellation: @unchecked Sendable {
     }
 }
 
+/// Drains a conversion pipe on a detached task while retaining only bounded
+/// diagnostic output. The Foundation handle is confined to this reader.
+private final class NotificationSoundErrorPipeReader: @unchecked Sendable {
+    private let handle: FileHandle
+
+    init(handle: FileHandle) {
+        self.handle = handle
+    }
+
+    func readCapped(maxBytes: Int) -> Data {
+        var captured = Data()
+        while true {
+            let chunk = handle.readData(ofLength: 4096)
+            guard !chunk.isEmpty else { break }
+            if captured.count < maxBytes {
+                captured.append(
+                    chunk.prefix(maxBytes - captured.count)
+                )
+            }
+        }
+        return captured
+    }
+}
+
 /// Runs `afconvert` without blocking the caller's executor.
 struct NotificationSoundProcessRunner: Sendable {
+    private static let maximumErrorOutputBytes = 64 * 1024
+
     struct Result: Sendable {
         let terminationStatus: Int32
         let errorOutput: String?
@@ -38,6 +64,12 @@ struct NotificationSoundProcessRunner: Sendable {
         process.standardOutput = FileHandle.nullDevice
         let errorPipe = Pipe()
         process.standardError = errorPipe
+        let errorReader = NotificationSoundErrorPipeReader(
+            handle: errorPipe.fileHandleForReading
+        )
+        let errorReaderTask = Task.detached {
+            errorReader.readCapped(maxBytes: Self.maximumErrorOutputBytes)
+        }
 
         let cancellation = NotificationSoundProcessCancellation(process: process)
         let terminationStatus: Int32
@@ -56,6 +88,8 @@ struct NotificationSoundProcessRunner: Sendable {
                         }
                     } catch {
                         process.terminationHandler = nil
+                        errorPipe.fileHandleForReading.closeFile()
+                        errorPipe.fileHandleForWriting.closeFile()
                         continuation.resume(throwing: error)
                     }
                 }
@@ -67,7 +101,7 @@ struct NotificationSoundProcessRunner: Sendable {
             throw error
         }
 
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
+        let errorData = await errorReaderTask.value
         let errorOutput = String(data: errorData, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return Result(
