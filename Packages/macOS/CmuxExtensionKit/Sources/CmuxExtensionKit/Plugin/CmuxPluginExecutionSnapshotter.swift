@@ -165,7 +165,7 @@ public actor CmuxPluginExecutionSnapshotter {
             throw CmuxPluginExecutionSnapshotError.missingEntrypoint
         }
 
-        guard Darwin.fchflags(pinnedEntrypoint.descriptor, UF_IMMUTABLE) == 0 else {
+        guard Darwin.fchflags(pinnedEntrypoint.descriptor, UInt32(UF_IMMUTABLE)) == 0 else {
             closeEntrypointDescriptor(pinnedEntrypoint.descriptor)
             removeStagingRoot(stagingRoot)
             throw CmuxPluginExecutionSnapshotError.entrypointDescriptorFailed
@@ -261,7 +261,7 @@ public actor CmuxPluginExecutionSnapshotter {
 
     private func closeEntrypointDescriptor(_ descriptor: Int32) {
         guard descriptor >= 0, openEntrypointDescriptors.remove(descriptor) != nil else { return }
-        _ = Darwin.fchflags(descriptor, 0)
+        _ = Darwin.fchflags(descriptor, UInt32(0))
         Darwin.close(descriptor)
     }
 
