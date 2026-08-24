@@ -463,6 +463,8 @@ struct PortScannerAgentPortRetirementTests {
             startMicroseconds: 0
         )
         let root = AgentPortRootIdentity(pid: 100, processIdentity: rootIdentity)
+        // Test seam only: synchronous liveness callbacks and the command-runner
+        // actor must observe one small mutable fixture state atomically.
         let state = OSAllocatedUnfairLock(initialState: AgentPortChurnState(
             rootIdentity: rootIdentity,
             listenerIdentity: listenerIdentity,
