@@ -3,6 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxIrohTransport
 
+@Suite(.serialized)
 struct CmxConnectivityPeerSessionTests {
     @Test
     func concurrentCallersShareOneDialAndOneAdmittedSession() async throws {
@@ -10,7 +11,7 @@ struct CmxConnectivityPeerSessionTests {
         let routeVariant = try Self.request(routeID: "iroh-v2-refreshed")
         let peerID = try CmxConnectivityPeerID(request: request)
         let admitted = TestConnectivitySession(continuityID: 7)
-        let builder = GatedConnectivitySessionBuilder(session: admitted)
+        let builder = SequencedConnectivitySessionBuilder(sessions: [admitted])
         let peer = CmxConnectivityPeerSession(
             peerID: peerID,
             buildSession: { request in
