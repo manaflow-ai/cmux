@@ -367,11 +367,6 @@ extension MobileShellComposite {
                 )
                 guard !Task.isCancelled,
                       self.connectionRecoveryOwner.isCurrent(attempt) else { return }
-                // Temporary Not Connected diagnostics for dogfood; remove before merge.
-                MobileDebugLog.anchormux(
-                    "connection.recovery settled outcome=\(reconnectOutcome) "
-                        + "trigger=\(trigger.description)"
-                )
                 guard self.settleConnectionRecovery(
                     attempt,
                     outcome: reconnectOutcome,
@@ -746,10 +741,6 @@ extension MobileShellComposite {
                 forMacDeviceID: pairedMacDeviceID,
                 instanceTag: instanceTagExpectation.expectedTag
             )
-        // Temporary Direct-lane diagnostics for dogfood; remove before merge.
-        MobileDebugLog.anchormux(
-            "storedMac.dial mac=\(pairedMacDeviceID) expectedTag=\(instanceTagExpectation.expectedTag ?? "nil") method=\(resolvedMethod.rawValue) knownPairing=\(knownPairing != nil) routes=\(routes.count)"
-        )
         // Direct and Tailscale Only ride the Iroh lane below: identity-checked
         // and encrypted, with transport admission as the single auth
         // authority. The method's addresses (user-enabled Direct entries, or
@@ -766,10 +757,6 @@ extension MobileShellComposite {
             knownPairing: knownPairing
         ) ?? (resolvedMethod == .direct ? [] : nil)
         if let methodPinnedCandidates, methodPinnedCandidates.isEmpty {
-            // Temporary Direct-lane diagnostics for dogfood; remove before merge.
-            MobileDebugLog.anchormux(
-                "methodPinned.dial fail-closed mac=\(pairedMacDeviceID) method=\(resolvedMethod.rawValue) reason=no-dialable-addresses"
-            )
             return .failed(.unsupportedRoute)
         }
         let supportedKinds = runtime?.supportedRouteKinds ?? []

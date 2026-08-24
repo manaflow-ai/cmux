@@ -2741,10 +2741,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 scheduleSecondaryAggregation(discoverLivePeers: true)
             }
             if case .failed(let failure) = outcome {
-                // Temporary Not Connected diagnostics for dogfood; remove before merge.
-                MobileDebugLog.anchormux(
-                    "storedMacReconnect settled failed=\(failure.rawValue) generation=\(generation)"
-                )
                 armAutomaticReconnectRetryAfterFailedAttempt(
                     failure: failure,
                     stackUserID: stackUserID
@@ -2923,10 +2919,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let isLegacyPrivateNetworkPairing = !mac.routes.contains { $0.kind == .iroh }
                 && mac.routes.contains { $0.kind == .tailscale }
 
-            // Temporary Direct-lane diagnostics for dogfood; remove before merge.
-            MobileDebugLog.anchormux(
-                "reconnect.candidate[\(candidateIndex)] mac=\(mac.macDeviceID) tag=\(mac.instanceTag ?? "nil") method=\(connectionMethod(for: mac).rawValue) directEnabled=\(mac.directAddresses.filter(\.enabled).count) localRoutes=\(localRoutes.count) canSecure=\(localCanConnectSecurely)"
-            )
             // Raw Tailscale/TCP is bearer-capable only for an exact local route
             // grandfathered during the v7-to-v8 migration. Every fresh, changed,
             // restored, or registry route remains a hint for discovering Iroh.
@@ -8901,16 +8893,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 forMacDeviceID: ticket.macDeviceID,
                 instanceTag: nil
             )
-        if let directOnlyDialCandidates {
-            // Temporary Direct-lane diagnostics for dogfood; remove before merge.
-            MobileDebugLog.anchormux(
-                "methodPinned.dial connect mac=\(ticket.macDeviceID) allowlist=["
-                    + directOnlyDialCandidates
-                        .map { "\($0.address):\($0.port.map(String.init) ?? "broker-udp")" }
-                        .joined(separator: ",")
-                    + "] relay=disabled discovery=disabled joins=disabled"
-            )
-        }
         let supportedRoutes = supportedRoutes(
             for: ticket,
             supportedKinds: supportedKinds,
