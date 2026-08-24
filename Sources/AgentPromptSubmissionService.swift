@@ -12,6 +12,7 @@ import Foundation
 /// agent panes.
 @MainActor
 final class AgentPromptSubmissionService {
+    private static let maximumPromptBytes = 1_048_576
     typealias Delivery = @MainActor @Sendable () -> AgentPromptSubmissionResult
 
     struct Receipt: Sendable {
@@ -57,6 +58,16 @@ final class AgentPromptSubmissionService {
         delivery: @escaping Delivery
     ) -> Receipt {
         let messageID = UUID()
+        guard text.utf8.count <= Self.maximumPromptBytes else {
+            return Receipt(
+                messageID: messageID,
+                result: .promptTooLarge(
+                    workspaceID: workspaceID,
+                    surfaceID: requestedSurfaceID,
+                    maximumBytes: Self.maximumPromptBytes
+                )
+            )
+        }
         let request = PendingRequest(
             messageID: messageID,
             workspaceID: workspaceID,
@@ -268,10 +279,32 @@ final class AgentPromptSubmissionService {
         return receipts
     }
 
-    /// Releases hook-awaiting messages when a terminal surface is torn down.
-    func remove(surfaceID: UUID) {
+    /// Releases messages tied to a terminal surface when it is torn down.
+    @discardableResult
+    func remove(surfaceID: UUID) -> [Receipt] {
+        var receipts: [Receipt] = []
+        for (workspaceID, pending) in Array(pendingByWorkspace) {
+            let removed = pending.filter { $0.surfaceID == surfaceID }
+            guard !removed.isEmpty else { continue }
+            let remaining = pending.filter { $0.surfaceID != surfaceID }
+            if remaining.isEmpty {
+                pendingByWorkspace.removeValue(forKey: workspaceID)
+            } else {
+                pendingByWorkspace[workspaceID] = remaining
+            }
+            receipts.append(contentsOf: removed.map { request in
+                Receipt(
+                    messageID: request.messageID,
+                    result: .surfaceNotFound(
+                        workspaceID: workspaceID,
+                        surfaceID: surfaceID
+                    )
+                )
+            })
+        }
         acceptedBySurface.removeValue(forKey: surfaceID)
         acceptedSurfaceOrder.removeAll { $0 == surfaceID }
+        return receipts
     }
 
     var pendingCount: Int {

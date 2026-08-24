@@ -67,7 +67,8 @@ extension TerminalController {
             submitKey: submitKey,
             agentInputScope: target.agentInputScope,
             rejectIfHumanComposerBusy: true,
-            hookRecordingSource: "workspace.agent_submit"
+            hookRecordingSource: "workspace.agent_submit",
+            deferDuringRuntimeClipboardRead: false
         )
         switch result {
         case .sent, .queued:

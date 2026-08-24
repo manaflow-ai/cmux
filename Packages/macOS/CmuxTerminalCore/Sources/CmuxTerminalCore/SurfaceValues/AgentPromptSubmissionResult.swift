@@ -30,4 +30,6 @@ public enum AgentPromptSubmissionResult: Equatable, Sendable {
     case invalidSubmitKey(workspaceID: UUID, surfaceID: UUID)
     /// The bounded app-owned queue cannot accept another request.
     case submissionQueueFull(workspaceID: UUID, surfaceID: UUID?)
+    /// The prompt exceeds the bounded addressed-delivery payload budget.
+    case promptTooLarge(workspaceID: UUID, surfaceID: UUID?, maximumBytes: Int)
 }

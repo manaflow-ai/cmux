@@ -54,6 +54,16 @@ extension TerminalController {
                 data: nil
             ))
         }
+        guard text.utf8.count <= 1_048_576 else {
+            return .failure(.err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.workspace.agentSubmit.promptTooLarge",
+                    defaultValue: "Agent prompt text is too large; keep it under 1 MiB."
+                ),
+                data: ["maximum_bytes": 1_048_576]
+            ))
+        }
 
         let surfaceID: UUID?
         if let rawSurface = params["surface_id"], !(rawSurface is NSNull) {
@@ -181,6 +191,20 @@ extension TerminalController {
                 surfaceId: nil,
                 state: "failed",
                 reason: "workspace_not_found"
+            )
+        }
+    }
+
+    /// Completes messages explicitly bound to a surface that disappeared.
+    @MainActor
+    func discardAgentPromptQueue(surfaceID: UUID, workspaceID: UUID) {
+        for receipt in agentPromptSubmissionService.remove(surfaceID: surfaceID) {
+            CmuxEventBus.shared.publishAgentPromptDelivery(
+                messageID: receipt.messageID,
+                workspaceId: workspaceID,
+                surfaceId: surfaceID,
+                state: "failed",
+                reason: "surface_not_found"
             )
         }
     }
@@ -402,6 +426,20 @@ extension TerminalController {
                 message: String(
                     localized: "socket.workspace.agentSubmit.queueFull",
                     defaultValue: "The agent prompt queue is full. Retry after an earlier prompt is delivered."
+                ),
+                data: data
+            )
+        case .promptTooLarge(let workspaceID, let surfaceID, let maximumBytes):
+            var data: [String: Any] = [
+                "workspace_id": workspaceID.uuidString,
+                "maximum_bytes": maximumBytes,
+            ]
+            if let surfaceID { data["surface_id"] = surfaceID.uuidString }
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.workspace.agentSubmit.promptTooLarge",
+                    defaultValue: "Agent prompt text is too large; keep it under 1 MiB."
                 ),
                 data: data
             )

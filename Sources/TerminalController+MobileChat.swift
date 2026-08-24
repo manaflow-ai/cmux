@@ -409,7 +409,10 @@ extension TerminalController {
                 "session_id": sessionID
             ])
         }
-        let keyResult = terminalPanel.sendNamedKeyResult(hard ? "ctrl+c" : "escape")
+        let keyResult = terminalPanel.sendNamedKeyResult(
+            hard ? "ctrl+c" : "escape",
+            recordsPromptInput: false
+        )
         guard keyResult.accepted else {
             return .err(code: "surface_unavailable", message: String(
                 localized: "mobile.chat.error.interruptNotAccepted",

@@ -272,10 +272,16 @@ extension TerminalSurface {
     /// surface.
     @MainActor
     @discardableResult
-    public func sendNamedKey(_ keyName: String) -> NamedKeySendResult {
+    public func sendNamedKey(
+        _ keyName: String,
+        recordsPromptInput: Bool = true
+    ) -> NamedKeySendResult {
         guard let event = pendingKeyEvent(for: keyName) else { return .unknownKey }
         didReceiveExplicitInput()
-        let result = sendNamedKeyAfterExplicitInput(event)
+        let result = sendNamedKeyAfterExplicitInput(
+            event,
+            recordsPromptInput: recordsPromptInput
+        )
         if result.accepted {
             hibernationRecorder.recordTerminalInput(
                 workspaceId: tabId,
@@ -287,20 +293,28 @@ extension TerminalSurface {
 
     @MainActor
     private func sendNamedKeyAfterExplicitInput(
-        _ event: PendingKeyEvent
+        _ event: PendingKeyEvent,
+        recordsPromptInput: Bool
     ) -> NamedKeySendResult {
         if deferInputDuringRuntimeClipboardRead(
             estimatedBytes: PendingSocketInput.key(event).estimatedBytes,
-            replay: { [weak self] in _ = self?.sendNamedKeyAfterExplicitInput(event) }
+            replay: { [weak self] in
+                _ = self?.sendNamedKeyAfterExplicitInput(
+                    event,
+                    recordsPromptInput: recordsPromptInput
+                )
+            }
         ) {
             return .queued
         }
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
-            promptInputLedger.recordHumanInput(
-                promptInputMutation(for: event)
-            )
+            if recordsPromptInput {
+                promptInputLedger.recordHumanInput(
+                    promptInputMutation(for: event)
+                )
+            }
             requestInputDemandSurfaceStartIfNeeded()
             didAcceptExplicitInput()
             return .queued
@@ -310,9 +324,11 @@ extension TerminalSurface {
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
         sendKeyEvent(surface: liveSurface, keycode: event.keycode, mods: event.mods)
-        promptInputLedger.recordHumanInput(
-            promptInputMutation(for: event)
-        )
+        if recordsPromptInput {
+            promptInputLedger.recordHumanInput(
+                promptInputMutation(for: event)
+            )
+        }
         didAcceptExplicitInput()
         return .sent
     }
@@ -444,7 +460,8 @@ extension TerminalSurface {
         rejectIfHumanComposerBusy: Bool = true,
         hookRecordingSource: String? =
             nil,
-        hookConfirmsHumanInput: Bool = false
+        hookConfirmsHumanInput: Bool = false,
+        deferDuringRuntimeClipboardRead: Bool = true
     ) -> PromptSubmissionSendResult {
         let data = Data(text.utf8)
         guard let submitEvent = pendingKeyEvent(for: submitKey) else {
@@ -456,20 +473,23 @@ extension TerminalSurface {
         guard preparationEvents.count == preparationKeys.count else {
             return .unknownKey
         }
-        if deferInputDuringRuntimeClipboardRead(
-            estimatedBytes: data.count + preparationEvents.reduce(0) { $0 + $1.queuedByteCost },
-            replay: { [weak self] in
-                _ = self?.sendPromptSubmission(
-                    text,
-                    submitKey: submitKey,
-                    preparationKeys: preparationKeys,
-                    rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
-                    hookRecordingSource: hookRecordingSource,
-                    hookConfirmsHumanInput: hookConfirmsHumanInput
-                )
+        if deferDuringRuntimeClipboardRead {
+            if deferInputDuringRuntimeClipboardRead(
+                estimatedBytes: data.count + preparationEvents.reduce(0) { $0 + $1.queuedByteCost },
+                replay: { [weak self] in
+                    _ = self?.sendPromptSubmission(
+                        text,
+                        submitKey: submitKey,
+                        preparationKeys: preparationKeys,
+                        rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
+                        hookRecordingSource: hookRecordingSource,
+                        hookConfirmsHumanInput: hookConfirmsHumanInput,
+                        deferDuringRuntimeClipboardRead: true
+                    )
+                }
+            ) {
+                return .queued
             }
-        ) {
-            return .queued
         }
         if rejectIfHumanComposerBusy,
            promptInputLedger.hasUnconfirmedHumanInput {

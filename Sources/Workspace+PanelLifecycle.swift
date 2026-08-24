@@ -178,6 +178,9 @@ extension Workspace {
         // wake the panel and remain one compound queued transaction.
         if let panel = terminalPanel(for: panelId),
            let agent = panel.agentHibernationState?.agent,
+           isStructuredAgentHookPIDKey(
+               "agentPIDKey:\(agent.kind.rawValue)"
+           ),
            TextBoxAgentDetection.supportsActiveAgentPrefixes(
                context: "agentPIDKey:\(agent.kind.rawValue)"
            ) {
@@ -188,6 +191,9 @@ extension Workspace {
 
     private func synchronizePromptInputAgentScope(forPanelId panelId: UUID) {
         let scope = agentPromptInputScope(forPanelId: panelId)
+        let hasTrackedPromptAgent = agentPIDKeysByPanelId[panelId]?.contains {
+            isPromptCapableAgentPIDKey($0)
+        } == true
         let controlReturnIsPromptSubmissionBoundary = scope.map {
             let activeAgentContext = String(
                 $0.prefix { character in character != "|" }
@@ -204,6 +210,13 @@ extension Workspace {
             )
         if scope != nil {
             TerminalController.shared.drainAgentPromptQueue(workspaceID: id)
+        } else if !hasTrackedPromptAgent {
+            // No remaining cmux-owned agent binding means queued messages for
+            // this surface cannot safely target a replacement process.
+            TerminalController.shared.discardAgentPromptQueue(
+                surfaceID: panelId,
+                workspaceID: id
+            )
         }
     }
 
@@ -379,13 +392,14 @@ extension Workspace {
 
     /// Whether a tracked agent key can own a recoverable prompt composer.
     func isPromptCapableAgentPIDKey(_ key: String) -> Bool {
-        // Hook-capable agents get exact confirmation boundaries. Agents that
-        // do not emit cmux hooks remain targetable through their launch-bound
-        // PID identity, but a human draft keeps delivery queued fail-closed.
-        TextBoxAgentDetection.supportsActiveAgentPrefixes(
-            context: "agentPIDKey:\(key)"
-        )
-            && agentPIDProcessIdentitiesByKey[key] != nil
+        // Only cmux's structured hook bindings can provide an authoritative
+        // prompt boundary. A key may be tracked while its process identity is
+        // temporarily unavailable; that is still a target with a retryable
+        // scope gap rather than an unrelated/not-found agent.
+        isStructuredAgentHookPIDKey(key)
+            && TextBoxAgentDetection.supportsActiveAgentPrefixes(
+                context: "agentPIDKey:\(key)"
+            )
     }
 
     @discardableResult

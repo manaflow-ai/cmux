@@ -1877,6 +1877,131 @@
           }
         }
       },
+      "socket.workspace.agentSubmit.promptTooLarge": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "نص مطالبة الوكيل كبير جدًا؛ اجعله أقل من 1 ميجابايت."
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Tekst upita agenta je prevelik; zadržite ga ispod 1 MiB."
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Agentprompten er for stor; hold den under 1 MiB."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Der Agent-Prompt ist zu groß; halten Sie ihn unter 1 MiB."
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Agent prompt text is too large; keep it under 1 MiB."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "El texto del prompt del agente es demasiado grande; manténgalo por debajo de 1 MiB."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Le texte du prompt est trop volumineux; limitez-le à 1 Mio."
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Il testo del prompt è troppo grande; mantienilo sotto 1 MiB."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "エージェントのプロンプトが大きすぎます。1 MiB 未満にしてください。"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "អត្ថបទប្រអប់បញ្ចូលភ្នាក់ងារធំពេក។ រក្សាវាឲ្យក្រោម 1 MiB។"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "에이전트 프롬프트 텍스트가 너무 큽니다. 1MiB 미만으로 유지하세요."
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Agentpromptteksten er for stor; hold den under 1 MiB."
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Tekst promptu agenta jest za duży; niech ma mniej niż 1 MiB."
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "O texto do prompt do agente é grande demais; mantenha-o abaixo de 1 MiB."
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Текст запроса агента слишком велик; ограничьте его 1 МиБ."
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ข้อความพรอมต์ของเอเจนต์ใหญ่เกินไป ให้มีขนาดต่ำกว่า 1 MiB"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Aracı istem metni çok büyük; 1 MiB altında tutun."
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Текст запиту агента завеликий; обмежте його 1 МіБ."
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "代理提示文本过大；请控制在 1 MiB 以下。"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "代理提示文字過大；請控制在 1 MiB 以下。"
+            }
+          }
+        }
+      },
       "socket.workspace.agentSubmit.queueFull": {
         "extractionState": "manual",
         "localizations": {

@@ -644,8 +644,9 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func close() {
         isClosingPanel = true
-        TerminalController.shared.agentPromptSubmissionService.remove(
-            surfaceID: id
+        TerminalController.shared.discardAgentPromptQueue(
+            surfaceID: id,
+            workspaceID: workspaceId
         )
         AgentHibernationController.shared.discardTrackingStateForClosedPanel(
             workspaceId: workspaceId,
@@ -714,9 +715,15 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     @discardableResult
-    func sendNamedKeyResult(_ keyName: String) -> TerminalSurface.NamedKeySendResult {
+    func sendNamedKeyResult(
+        _ keyName: String,
+        recordsPromptInput: Bool = true
+    ) -> TerminalSurface.NamedKeySendResult {
         resumeForExplicitInputIfNeeded()
-        return surface.sendNamedKey(keyName)
+        return surface.sendNamedKey(
+            keyName,
+            recordsPromptInput: recordsPromptInput
+        )
     }
 
     /// Delivers one complete agent prompt transaction, including any app-owned
@@ -732,7 +739,8 @@ final class TerminalPanel: Panel, ObservableObject {
         agentInputScope: String?,
         rejectIfHumanComposerBusy: Bool,
         hookRecordingSource: String?,
-        hookConfirmsHumanInput: Bool = false
+        hookConfirmsHumanInput: Bool = false,
+        deferDuringRuntimeClipboardRead: Bool = true
     ) -> TerminalSurface.PromptSubmissionSendResult {
         if rejectIfHumanComposerBusy {
             guard let agentInputScope else {
@@ -753,7 +761,8 @@ final class TerminalPanel: Panel, ObservableObject {
             preparationKeys: preparationKeys,
             rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
             hookRecordingSource: hookRecordingSource,
-            hookConfirmsHumanInput: hookConfirmsHumanInput
+            hookConfirmsHumanInput: hookConfirmsHumanInput,
+            deferDuringRuntimeClipboardRead: deferDuringRuntimeClipboardRead
         )
     }
 
