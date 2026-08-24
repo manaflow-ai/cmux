@@ -1,3 +1,5 @@
+import CmuxMobileShell
+
 /// The single iOS modal owner and its root-sheet and child-sheet transitions.
 ///
 /// Root presentations share one SwiftUI sheet host. Child presentations claim
@@ -23,7 +25,6 @@ struct MobileRootPresentationState: Equatable {
         case workspaceChanges
         case customization
         case terminalArtifactFiles
-        case chatShortcutsSettings
         case alternateScreenExplanation
     }
 
@@ -53,7 +54,7 @@ struct MobileRootPresentationState: Equatable {
     enum Action: Equatable {
         case presentAutoConnectMigrationIfIdle
         case useAutoConnect
-        case setUpTailscale(hasUsableAuthorization: Bool)
+        case setUpTailscale(status: MobileTailscaleSetupStatus)
         case presentSettings
         case dismissSettings(presentAutoConnectMigration: Bool)
         case presentComputers
@@ -73,7 +74,7 @@ struct MobileRootPresentationState: Equatable {
         case none
         case acknowledgeAutoConnectMigration
         case useAutoConnect
-        case setUpTailscale
+        case setUpTailscale(requiresPairing: Bool)
         case finishPairing
         case retryAutoConnectMigration
     }
@@ -122,12 +123,20 @@ struct MobileRootPresentationState: Equatable {
             presentation = nil
             return .useAutoConnect
 
-        case let .setUpTailscale(hasUsableAuthorization):
+        case let .setUpTailscale(status):
             guard presentation == .autoConnectMigrationIntroduction else { return .none }
-            presentation = hasUsableAuthorization
-                ? nil
-                : .pairing(.scanner(entry: .autoConnectMigration))
-            return .setUpTailscale
+            switch status {
+            case .pairingRequired:
+                presentation = .pairing(.scanner(entry: .autoConnectMigration))
+                return .setUpTailscale(requiresPairing: true)
+            case .authorized, .loadingAuthorization, .notSelected:
+                // Selecting Tailscale while authorization is still being
+                // resolved must not open a scanner based on a stale false
+                // authorization flag. The shell will promote the setup banner
+                // if the authoritative result later requires pairing.
+                presentation = nil
+                return .setUpTailscale(requiresPairing: false)
+            }
 
         case .presentSettings:
             guard presentation == nil else { return .none }

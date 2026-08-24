@@ -10,7 +10,7 @@ public struct MobileImageAttachmentPreparer: Sendable {
     public static let maximumEncodedBytes = 8 * 1024 * 1024
 
     private let sendMaxPixelSize = 2_048
-    private let thumbnailMaxPixelSize = 168
+    private let thumbnailMaxPixelSize = 384
 
     /// Creates a reusable image attachment preparer.
     public init() {}

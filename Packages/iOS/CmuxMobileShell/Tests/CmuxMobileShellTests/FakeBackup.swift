@@ -15,18 +15,21 @@ actor FakeBackup: PairedMacBackingUp {
     /// unset, one shared list backs every team (the legacy single-bucket mode).
     private var recordsByTeam: [String: [PairedMacBackupRecord]]?
     private let deletedMacDeviceIDs: [String]
+    private let requiresMigrationRetry: Bool
     private var failNextFetches: Int
     private var failNextUploads: Int
 
     init(
         records: [PairedMacBackupRecord] = [],
         deletedMacDeviceIDs: [String] = [],
+        requiresMigrationRetry: Bool = false,
         failNextFetches: Int = 0,
         failNextUploads: Int = 0
     ) {
         self.records = records
         self.recordsByTeam = nil
         self.deletedMacDeviceIDs = deletedMacDeviceIDs
+        self.requiresMigrationRetry = requiresMigrationRetry
         self.failNextFetches = failNextFetches
         self.failNextUploads = failNextUploads
     }
@@ -34,12 +37,14 @@ actor FakeBackup: PairedMacBackingUp {
     init(
         recordsByTeam: [String: [PairedMacBackupRecord]],
         deletedMacDeviceIDs: [String] = [],
+        requiresMigrationRetry: Bool = false,
         failNextFetches: Int = 0,
         failNextUploads: Int = 0
     ) {
         self.records = []
         self.recordsByTeam = recordsByTeam
         self.deletedMacDeviceIDs = deletedMacDeviceIDs
+        self.requiresMigrationRetry = requiresMigrationRetry
         self.failNextFetches = failNextFetches
         self.failNextUploads = failNextUploads
     }
@@ -192,6 +197,7 @@ actor FakeBackup: PairedMacBackingUp {
         return PairedMacBackupSnapshot(
             records: fetched,
             deletedMacDeviceIDs: deletedMacDeviceIDs,
+            requiresMigrationRetry: requiresMigrationRetry,
             // Mirror the worker's echo of its verified resolved team on the
             // restore read too, matching uploadReportingResolvedTeam.
             resolvedTeamID: echoedResolvedTeamID ?? teamID

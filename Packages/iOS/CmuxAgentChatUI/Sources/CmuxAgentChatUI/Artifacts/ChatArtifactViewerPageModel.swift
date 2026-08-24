@@ -235,7 +235,11 @@ final class ChatArtifactViewerPageModel {
     }
 
     func setShowsFileActionError(_ isPresented: Bool) {
-        fileActionState.showsError = isPresented
+        if isPresented {
+            fileActionState.failure = fileActionState.failure ?? .loadFailed
+        } else {
+            fileActionState.failure = nil
+        }
     }
 
     private func prepareFileAction(
@@ -261,7 +265,7 @@ final class ChatArtifactViewerPageModel {
             loader.recordDiagnostic(failed, failure: .cancelled)
             return
         } catch {
-            fileActionState.showsError = true
+            fileActionState.failure = (error as? ChatArtifactError) ?? .loadFailed
             loader.recordDiagnostic(
                 failed,
                 failure: DiagnosticFailureKind.classify(error)

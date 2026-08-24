@@ -23,6 +23,7 @@ import {
 import {
   RelayConfigurationError,
   RelayDatabaseError,
+  relayAuthenticationError,
 } from "../../../../services/relay/errors";
 import {
   productionRelayWorkflowConfig,
@@ -34,6 +35,13 @@ import {
   IrohRepository,
   IrohRepositoryLive,
 } from "../../../../services/iroh/repository";
+import {
+  verifyBindingRequestSignature,
+  type IrohBindingRequestProof,
+} from "../../../../services/iroh/crypto";
+import {
+  parseBindingRequestProof,
+} from "../../../../services/iroh/routeHandler";
 import {
   unauthorized,
   verifyRequest,
@@ -59,10 +67,12 @@ export interface RelayTokenDeps {
     readonly key: KeyObject;
     readonly nowSeconds: number;
   }) => readonly ManagedRelayCredentialGrant[];
-  readonly isEndpointBound: (input: {
+  readonly isEndpointAuthorized: (input: {
     readonly accountId: string;
     readonly endpointId: string;
+    readonly clientNamespace: string;
     readonly nowSeconds: number;
+    readonly bindingProof: IrohBindingRequestProof | undefined;
   }) => Promise<boolean>;
   readonly checkRateLimit: RelayRateLimitCheck;
   readonly rateLimitRuleId: () => string | undefined;
@@ -88,14 +98,28 @@ const productionDeps: RelayTokenDeps = {
     key: input.key,
     nowSeconds: input.nowSeconds,
   }),
-  isEndpointBound: async (input) => await runRelayEffect(
+  isEndpointAuthorized: async (input) => await runRelayEffect(
     Effect.gen(function* () {
       const repository = yield* IrohRepository;
       const binding = yield* repository.findActiveBindingByEndpoint(
         input.accountId,
         input.endpointId,
       );
-      return binding !== null;
+      if (!binding || binding.clientNamespace !== input.clientNamespace) {
+        return false;
+      }
+      if (!input.bindingProof) return input.clientNamespace === "legacy";
+      if (input.bindingProof.bindingId !== binding.id) return false;
+      try {
+        verifyBindingRequestSignature({
+          ...input.bindingProof,
+          endpointId: binding.endpointId,
+          nowSeconds: input.nowSeconds,
+        });
+        return true;
+      } catch {
+        return false;
+      }
     }).pipe(
       Effect.provide(IrohRepositoryLive),
       Effect.mapError((cause) => new RelayDatabaseError({
@@ -115,8 +139,38 @@ export async function handleRelayTokenRequest(
   request: Request,
   deps: RelayTokenDeps,
 ): Promise<Response> {
-  const user = await deps.verifyRequest(request);
+  // Apply the cheap IP-scoped gate before calling Stack Auth. A storming
+  // client must not spend one upstream users/me request per retry. The clone
+  // preserves the existing auth-first semantics for malformed requests, which
+  // must not consume a valid relay-token budget.
+  if (await hasValidRelayEndpoint(request)) {
+    try {
+      await runRelayEffect(enforceRelayRateLimit({
+        request,
+        accountId: "pre-auth",
+        rateLimitKey: null,
+        ruleId: deps.rateLimitRuleId(),
+        check: deps.checkRateLimit,
+        isVercel: deps.isVercel(),
+        retryAfterSeconds: RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS,
+      }));
+    } catch (error) {
+      return relayErrorResponse(error);
+    }
+  }
+
+  let user: AuthedUser | null;
+  try {
+    user = await deps.verifyRequest(request);
+  } catch (error) {
+    return relayErrorResponse(relayAuthenticationError(error));
+  }
   if (!user) return unauthorized();
+  const clientNamespace = request.headers.get("x-cmux-app-namespace") ?? "legacy";
+  if (!/^[A-Za-z0-9._:-]{1,255}$/.test(clientNamespace)) {
+    return jsonResponse({ error: "invalid_client_namespace" }, 400);
+  }
+  const proofRequest = request.clone();
 
   try {
     const key = deps.signingKey();
@@ -131,19 +185,33 @@ export async function handleRelayTokenRequest(
     if (typeof rawEndpointId !== "string" || !isValidEndpointId(rawEndpointId)) {
       return jsonResponse({ error: "invalid_endpoint_id" }, 400);
     }
+    const bindingProof = parseBindingRequestProof(
+      proofRequest,
+      new Uint8Array(await proofRequest.arrayBuffer()),
+    );
+    if (bindingProof instanceof Response) return bindingProof;
+    if (clientNamespace !== "legacy" && !bindingProof) {
+      return jsonResponse({ error: "binding_request_proof_required" }, 403);
+    }
 
     const nowSeconds = deps.nowSeconds();
+    const endpointId = rawEndpointId.toLowerCase();
+    const isEndpointAuthorized = await deps.isEndpointAuthorized({
+      accountId: user.id,
+      endpointId,
+      clientNamespace,
+      nowSeconds,
+      bindingProof,
+    });
+    if (clientNamespace !== "legacy" && !isEndpointAuthorized) {
+      return jsonResponse({ error: "invalid_binding_request_proof" }, 403);
+    }
+
     const policy = await deps.signedPolicy(user.id, nowSeconds);
     if (!key && deps.credentialSigningRequired()) {
       return jsonResponse({ error: "relay_token_not_configured" }, 503);
     }
     const relayUrls = policy.payload.relays.map((relay) => relay.url);
-    const endpointId = rawEndpointId.toLowerCase();
-    const isEndpointBound = await deps.isEndpointBound({
-      accountId: user.id,
-      endpointId,
-      nowSeconds,
-    });
     // A fresh endpoint must fetch policy before registration, then fetch its
     // bound credential immediately after registration. Renewals happen every
     // four minutes because both artifacts expire after five. Give bootstrap
@@ -153,7 +221,7 @@ export async function handleRelayTokenRequest(
     const rateLimitBucket = Math.floor(
       nowSeconds / RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS,
     );
-    const rateLimitPhase = isEndpointBound ? "credential" : "bootstrap";
+    const rateLimitPhase = isEndpointAuthorized ? "credential" : "bootstrap";
     const retryAfterSeconds = RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS -
       (nowSeconds % RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS);
     await runRelayEffect(enforceRelayRateLimit({
@@ -171,7 +239,7 @@ export async function handleRelayTokenRequest(
     // relay JWT signer. They still return the signed fleet policy so clients
     // install one coherent account preference and continue with direct/LAN
     // paths. Deployed non-preview runtimes fail closed above.
-    const relayCredentials = isEndpointBound && key
+    const relayCredentials = isEndpointAuthorized && key
       ? deps.issueCredentials({
         accountId: user.id,
         endpointId,
@@ -254,4 +322,14 @@ function homogeneousLegacyCredential(
 
 export function POST(request: Request): Promise<Response> {
   return handleRelayTokenRequest(request, productionDeps);
+}
+
+async function hasValidRelayEndpoint(request: Request): Promise<boolean> {
+  try {
+    const body = await readBoundedJsonObject(request.clone(), MAX_BODY_BYTES);
+    const endpointId = body.ok ? body.value.endpointId : undefined;
+    return typeof endpointId === "string" && isValidEndpointId(endpointId);
+  } catch {
+    return false;
+  }
 }

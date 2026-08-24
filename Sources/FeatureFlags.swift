@@ -60,6 +60,8 @@ final class CmuxFeatureFlags {
     private nonisolated static let simulatorDefault = true
     private static let workspaceTodoControlsDefault = false
     private static let appKitSidebarListDefault = true
+    private static let mobileTerminalFilesChipDefault = true
+    private nonisolated static let mobileTaskComposerDefault = true
 
     #if DEBUG
     private static let subrouterUIDefault = true
@@ -115,6 +117,24 @@ final class CmuxFeatureFlags {
         defaultWhenUnavailable: CmuxFeatureFlags.mobileWorkspaceChangesDefault
     )
 
+    // FLAG(key: ios-artifact-chip-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2027-02-01, defaultWhenUnavailable: true)
+    // Controls the fully integrated terminal Files chip on iOS. The enabled
+    // fallback preserves the shipping behavior when PostHog is unavailable;
+    // a remote false value is the emergency kill switch.
+    static let mobileTerminalFilesChipFlag = CmuxFeatureFlagDefinition(
+        key: "ios-artifact-chip-enabled-release",
+        title: String(
+            localized: "featureFlags.mobileTerminalFilesChip.title",
+            defaultValue: "Mobile terminal Files chip"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.mobileTerminalFilesChip.description",
+            defaultValue: "Shows the Files chip over iOS terminals and runs its visible-path count scan."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.mobileTerminalFilesChipDefault
+    )
+
     // FLAG(key: simulator-enabled-release, owner: lawrencecchen,
     //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
     // Controls every Simulator entrypoint and active pane. The enabled
@@ -135,20 +155,37 @@ final class CmuxFeatureFlags {
         defaultWhenUnavailable: CmuxFeatureFlags.simulatorDefault
     )
 
+    // FLAG(key: mobile-task-composer-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+    // Controls the iOS Task Composer from the Mac host. When off, the Mac stops
+    // advertising task-create/model/directory/attachment capabilities and
+    // task-specific RPCs fail with capability_disabled, so paired phones hide
+    // the composer without needing a user-visible Beta toggle.
+    nonisolated static let mobileTaskComposerFlag = CmuxFeatureFlagDefinition(
+        key: "mobile-task-composer-enabled-release",
+        title: String(
+            localized: "featureFlags.mobileTaskComposer.title",
+            defaultValue: "Mobile Task Composer"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.mobileTaskComposer.description",
+            defaultValue: "Enables the iOS New Task composer, including task model discovery, directory picking, and attachment staging."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.mobileTaskComposerDefault
+    )
+
     // FLAG(key: subrouter-ui-enabled-release, owner: austinwang,
     //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
-    // Shows the subrouter integration (Agents right-sidebar mode,
-    // footer account switcher, Agent Accounts settings pane, and the
-    // cmux subrouter CLI). Release builds hide it until the PostHog
-    // flag is enabled; DEBUG keeps it on for dogfood. The
-    // subrouter.enabled cmux.json setting remains a user opt-out
-    // inside the flag.
+    // Shows the Subrouter integration (Agents sidebar mode, footer account
+    // switcher, Agent Accounts settings, and the cmux subrouter CLI). Release
+    // builds hide it until the PostHog flag enables it; DEBUG keeps it on for
+    // dogfood. The subrouter.enabled setting remains the user's opt-out.
     nonisolated static let subrouterUIFlag = CmuxFeatureFlagDefinition(
         key: "subrouter-ui-enabled-release",
         title: String(localized: "featureFlags.subrouter.title", defaultValue: "Subrouter integration"),
         flagDescription: String(
             localized: "featureFlags.subrouter.description",
-            defaultValue: "Shows the Agents sidebar panel, footer account switcher, and cmux subrouter CLI backed by the local subrouter daemon."
+            defaultValue: "Shows the Agents sidebar panel, footer account switcher, and cmux subrouter CLI backed by the configured daemon."
         ),
         defaultWhenUnavailable: CmuxFeatureFlags.subrouterUIDefault
     )
@@ -275,6 +312,8 @@ final class CmuxFeatureFlags {
 
             CmuxFeatureFlags.mobileWorkspaceChangesFlag,
 
+            CmuxFeatureFlags.mobileTerminalFilesChipFlag,
+            CmuxFeatureFlags.mobileTaskComposerFlag,
             CmuxFeatureFlags.subrouterUIFlag,
         ]
     }()
@@ -317,6 +356,14 @@ final class CmuxFeatureFlags {
 
     var isMobileWorkspaceChangesEnabled: Bool {
         effectiveValue(for: Self.mobileWorkspaceChangesFlag)
+    }
+
+    var isMobileTerminalFilesChipEnabled: Bool {
+        effectiveValue(for: Self.mobileTerminalFilesChipFlag)
+    }
+
+    var isMobileTaskComposerEnabled: Bool {
+        effectiveValue(for: Self.mobileTaskComposerFlag)
     }
 
     var isSubrouterUIEnabled: Bool {

@@ -9,6 +9,17 @@ private let reconnectRouteLog = Logger(
     category: "MobileReconnectRoutes"
 )
 
+/// Readiness of the selected Tailscale connection method.
+///
+/// Keeping the load phase explicit prevents presentation code from treating a
+/// not-yet-loaded authorization as either confirmed or missing.
+public enum MobileTailscaleSetupStatus: Equatable, Sendable {
+    case notSelected
+    case loadingAuthorization
+    case pairingRequired
+    case authorized
+}
+
 /// Canonical identity for one locally authorized legacy Tailscale endpoint.
 private nonisolated struct MobileTailscaleAuthorizationEndpoint:
     Hashable, Sendable
@@ -178,11 +189,28 @@ extension MobileShellComposite {
         return hasStoredUsableTailscaleAuthorization
     }
 
+    /// Readiness if the user selects Tailscale, before that preference is saved.
+    public var tailscaleSetupStatusWhenSelected: MobileTailscaleSetupStatus {
+        if hasUsableTailscaleAuthorization {
+            return .authorized
+        }
+        if pairedMacLoadState == .notLoaded, hasKnownPairedMac {
+            return .loadingAuthorization
+        }
+        return .pairingRequired
+    }
+
+    /// Readiness of the currently selected Tailscale connection method.
+    public var tailscaleSetupStatus: MobileTailscaleSetupStatus {
+        guard connectionMethodStore?.method == .tailscale else {
+            return .notSelected
+        }
+        return tailscaleSetupStatusWhenSelected
+    }
+
     /// Whether the selected Tailscale method still needs its one-time pairing grant.
     public var tailscalePairingRequired: Bool {
-        connectionMethodStore?.method == .tailscale
-            && (pairedMacLoadState != .notLoaded || !hasKnownPairedMac)
-            && !hasUsableTailscaleAuthorization
+        tailscaleSetupStatus == .pairingRequired
     }
 
     /// The strict Tailscale policy for one paired Mac: only exact grant routes
@@ -398,8 +426,7 @@ extension MobileShellComposite {
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded
         // appear without a manual pull-to-refresh.
-        if multiMacAggregationEnabled,
-           connectionState == .connected,
+        if connectionState == .connected,
            remoteClient != nil {
             self.scheduleSecondaryAggregation(discoverLivePeers: true)
         }
@@ -606,11 +633,29 @@ extension MobileShellComposite {
         hasKnownPairedMac = value
     }
 
-    /// Mark the stored-Mac reconnect attempt resolved only for the current generation.
-    func finishStoredMacReconnectAttempt(generation: Int) {
-        guard generation == storedMacReconnectGeneration else { return }
+    /// Finish the stored-Mac reconnect attempt and drain any forced retry that
+    /// arrived while the underlying dial was still in flight.
+    func finishStoredMacReconnectAttempt(generation: Int, supersede: Bool = false) {
+        guard supersede || generation == storedMacReconnectGeneration else { return }
+        if supersede { storedMacReconnectGeneration &+= 1 }
+        let shouldRetry = pendingForcedStoredMacReconnect
+        pendingForcedStoredMacReconnect = false
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = true
+        guard shouldRetry, isSignedIn else { return }
+        let stackUserID = lastReconnectStackUserID
+        let accountID = stackUserID ?? identityProvider?.currentUserID
+        let retryGeneration = storedMacReconnectGeneration
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard retryGeneration == self.storedMacReconnectGeneration,
+                  self.isSignedIn,
+                  self.identityProvider?.currentUserID == accountID else { return }
+            _ = await self.retryActiveMacReconnect(
+                stackUserID: stackUserID,
+                force: true
+            )
+        }
     }
 
     /// Returns the completed result when an async stored reconnect must stop.

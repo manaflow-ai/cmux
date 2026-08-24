@@ -1,5 +1,4 @@
 import Foundation
-import CMUXMobileCore
 import Testing
 @testable import CmuxMobileShellUI
 
@@ -11,28 +10,6 @@ import Testing
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         return defaults
-    }
-
-    @Test func recordsMutationsMadeOutsideTheSettingsView() async throws {
-        let defaults = try makeDefaults("diagnosticMutations")
-        let log = DiagnosticLog(capacity: 8)
-        let settings = MobileDisplaySettings(defaults: defaults, diagnosticLog: log)
-
-        settings.showAltScreenNotice = false
-        settings.workspacePreviewLineCount = 1
-
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(1))
-        while await log.processedCount() < 2, clock.now < deadline {
-            await Task.yield()
-        }
-        #expect(await log.processedCount() >= 2)
-        let events = await log.snapshot().events
-        #expect(events.map(\.a) == [
-            DiagnosticAppEventKind.displayAltScreenNoticeChanged.rawValue,
-            DiagnosticAppEventKind.displayWorkspacePreviewLinesChanged.rawValue,
-        ])
-        #expect(events.map(\.c) == [0, 1])
     }
 
     @Test func previewLineCountDefaultsToTwoWithoutAWrite() throws {
@@ -79,13 +56,6 @@ import Testing
         #expect(MobileDisplaySettings(defaults: defaults).showMissingFiles)
         settings.showMissingFiles = false
         #expect(!MobileDisplaySettings(defaults: defaults).showMissingFiles)
-    }
-
-    @Test func terminalFilesChipDefaultsToFalseWithoutAWrite() throws {
-        let defaults = try makeDefaults("terminalFilesChipDefaults")
-        let settings = MobileDisplaySettings(defaults: defaults)
-        #expect(!settings.terminalFilesChipEnabled)
-        #expect(defaults.object(forKey: "cmux.mobile.terminalFilesChipEnabled") == nil)
     }
 
     @Test func terminalFolderTapDefaultsToTrueWithoutAWrite() throws {
@@ -138,31 +108,6 @@ import Testing
         #expect(!MobileDisplaySettings(defaults: defaults).terminalFolderTapEnabled)
     }
 
-    @Test func terminalFilesChipPersistsAcrossInstances() throws {
-        let defaults = try makeDefaults("terminalFilesChipPersists")
-        let settings = MobileDisplaySettings(defaults: defaults)
-        settings.terminalFilesChipEnabled = true
-        #expect(MobileDisplaySettings(defaults: defaults).terminalFilesChipEnabled)
-        settings.terminalFilesChipEnabled = false
-        #expect(!MobileDisplaySettings(defaults: defaults).terminalFilesChipEnabled)
-    }
-
-    @Test func taskComposerDefaultsToFalseWithoutAWrite() throws {
-        let defaults = try makeDefaults("taskComposerDefaults")
-        let settings = MobileDisplaySettings(defaults: defaults)
-        #expect(!settings.taskComposerEnabled)
-        #expect(defaults.object(forKey: "cmux.mobile.taskComposerEnabled") == nil)
-    }
-
-    @Test func taskComposerPersistsAcrossInstances() throws {
-        let defaults = try makeDefaults("taskComposerPersists")
-        let settings = MobileDisplaySettings(defaults: defaults)
-        settings.taskComposerEnabled = true
-        #expect(MobileDisplaySettings(defaults: defaults).taskComposerEnabled)
-        settings.taskComposerEnabled = false
-        #expect(!MobileDisplaySettings(defaults: defaults).taskComposerEnabled)
-    }
-
     @Test func previewLineCountPersistsAcrossInstances() throws {
         let defaults = try makeDefaults("persists")
         let settings = MobileDisplaySettings(defaults: defaults)
@@ -188,15 +133,6 @@ import Testing
         let settings = MobileDisplaySettings(defaults: defaults)
         #expect(settings.unreadIndicatorLeftShift == 1.5)
         #expect(defaults.object(forKey: "cmux.mobile.debug.unreadIndicatorLeftShift.v2") == nil)
-        #if DEBUG
-        #expect(settings.taskComposerLayoutStyle == .composer)
-        #expect(settings.taskComposerModelPickerVariant == .combined)
-        #else
-        #expect(settings.taskComposerLayoutStyle == .classic)
-        #expect(settings.taskComposerModelPickerVariant == .off)
-        #endif
-        #expect(defaults.object(forKey: "cmux.mobile.debug.taskComposerLayoutStyle.v1") == nil)
-        #expect(defaults.object(forKey: "cmux.mobile.debug.taskComposerModelPickerVariant.v1") == nil)
         #expect(settings.taskComposerShellIconVariant == .current)
         #expect(defaults.object(forKey: "cmux.mobile.debug.taskComposerShellIconVariant.v1") == nil)
     }
@@ -226,64 +162,6 @@ import Testing
     }
 
     #if DEBUG
-    @Test func taskComposerLayoutStylePersistsAndRejectsUnknownValues() throws {
-        let defaults = try makeDefaults("taskComposerLayoutStyle")
-        let settings = MobileDisplaySettings(defaults: defaults)
-        settings.taskComposerLayoutStyle = .classic
-        #expect(MobileDisplaySettings(defaults: defaults).taskComposerLayoutStyle == .classic)
-
-        defaults.set("removed-style", forKey: "cmux.mobile.debug.taskComposerLayoutStyle.v1")
-        #expect(MobileDisplaySettings(defaults: defaults).taskComposerLayoutStyle == .composer)
-    }
-
-    @Test func modelPickerVariantPersistsAndRejectsUnknownValues() throws {
-        let defaults = try makeDefaults("modelPickerVariant")
-        let settings = MobileDisplaySettings(defaults: defaults)
-        settings.taskComposerModelPickerVariant = .pillStrip
-        #expect(MobileDisplaySettings(defaults: defaults).taskComposerModelPickerVariant == .pillStrip)
-
-        defaults.set("removed-variant", forKey: "cmux.mobile.debug.taskComposerModelPickerVariant.v1")
-        #expect(MobileDisplaySettings(defaults: defaults).taskComposerModelPickerVariant == .combined)
-    }
-
-    @Test func taskComposerPreviewPinsStableLabDefaults() throws {
-        // A fresh install under the accessibility preview keeps the shipping
-        // classic layout and no model UI so the XCUITest suite's element tree
-        // stays stable across lab default changes.
-        let defaults = try makeDefaults("previewLabDefaults")
-        let preview = ["CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1"]
-        let settings = MobileDisplaySettings(defaults: defaults, environment: preview)
-        #expect(settings.taskComposerLayoutStyle == .classic)
-        #expect(settings.taskComposerModelPickerVariant == .off)
-    }
-
-    @Test func taskComposerPreviewHonorsExplicitLabOverrides() throws {
-        let defaults = try makeDefaults("previewLabOverrides")
-        let environment = [
-            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
-            "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "composer",
-            "CMUX_UITEST_TASK_COMPOSER_MODEL_VARIANT": "contextRow",
-        ]
-        let settings = MobileDisplaySettings(defaults: defaults, environment: environment)
-        #expect(settings.taskComposerLayoutStyle == .composer)
-        #expect(settings.taskComposerModelPickerVariant == .contextRow)
-    }
-
-    @Test func taskComposerPreviewPrefersPersistedLabValues() throws {
-        // The dev screenshot recipe writes defaults then relaunches with the
-        // preview env; the persisted choice must win over the preview fallback.
-        let defaults = try makeDefaults("previewLabPersisted")
-        defaults.set("composer", forKey: "cmux.mobile.debug.taskComposerLayoutStyle.v1")
-        defaults.set(
-            "pillStrip",
-            forKey: "cmux.mobile.debug.taskComposerModelPickerVariant.v1"
-        )
-        let preview = ["CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1"]
-        let settings = MobileDisplaySettings(defaults: defaults, environment: preview)
-        #expect(settings.taskComposerLayoutStyle == .composer)
-        #expect(settings.taskComposerModelPickerVariant == .pillStrip)
-    }
-
     @Test func shellIconVariantPersistsAndRejectsUnknownValues() throws {
         let defaults = try makeDefaults("shellIconVariant")
         let settings = MobileDisplaySettings(defaults: defaults)

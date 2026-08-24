@@ -219,18 +219,22 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
             "Expected the focus-mode test page to finish loading. data=\(loadGotoSplit() ?? [:])"
         )
 
-        let focusModeButton = app.buttons["BrowserFocusModeButton"].firstMatch
+        // Focus mode is a plain action in the overflow menu while inactive.
+        // Use its configured shortcut to enter it, then verify the active chip
+        // is promoted back into the inline accessory row.
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [.command, .option])
+
+        let focusModeButton = toolbarElement(app, identifier: "BrowserFocusModeButton")
         XCTAssertTrue(
             focusModeButton.waitForExistence(timeout: 5.0),
-            "Expected browser focus-mode toolbar button to exist"
+            "Expected the active browser focus-mode chip to be promoted inline"
         )
-        focusModeButton.click()
 
         XCTAssertTrue(
             waitForGotoSplitMatch(timeout: 5.0) { data in
                 data["browserFocusModeActive"] == "true"
             },
-            "Expected toolbar button to enter browser focus mode. data=\(loadGotoSplit() ?? [:])"
+            "Expected the configured focus-mode shortcut to enter browser focus mode. data=\(loadGotoSplit() ?? [:])"
         )
 
         app.typeKey("f", modifierFlags: [.command])
@@ -277,11 +281,211 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
             "Expected second Escape to exit focus mode without reaching the page. data=\(loadGotoSplit() ?? [:])"
         )
 
+        XCTAssertFalse(
+            focusModeButton.exists,
+            "The inactive focus-mode action should return to the overflow menu"
+        )
+
         let baselineAddTabInvocations = loadKeyequiv()["addTabInvocations"].flatMap(Int.init) ?? 0
         app.typeKey("n", modifierFlags: [.command])
         XCTAssertTrue(
             waitForKeyequivInt(key: "addTabInvocations", toBeAtLeast: baselineAddTabInvocations + 1, timeout: 5.0),
             "Expected Cmd+N to resume normal cmux routing after focus mode exit. data=\(loadKeyequiv())"
+        )
+    }
+
+    func testWideBrowserToolbarUsesOverflowForPlainActions() {
+        let app = launchWithBrowserSetup(browserURL: makeBrowserFocusModePageURL())
+
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 10.0) { data in
+                data["browserPageTitle"] == "focus-ready"
+            },
+            "Expected the browser fixture to finish loading before checking toolbar controls. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        let expectedInlineIdentifiers = [
+            "BrowserOverflowMenu",
+            "BrowserDesignModeButton",
+            "BrowserToggleDevToolsButton",
+            "BrowserProfileButton",
+            "BrowserThemeModeButton",
+        ]
+        for identifier in expectedInlineIdentifiers {
+            XCTAssertTrue(
+                toolbarElement(app, identifier: identifier).waitForExistence(timeout: 5.0),
+                "Expected the wide browser toolbar to expose \(identifier)"
+            )
+        }
+        XCTAssertGreaterThan(
+            toolbarElement(app, identifier: "BrowserOverflowMenu").frame.minX,
+            toolbarElement(app, identifier: "BrowserThemeModeButton").frame.maxX,
+            "More should be the rightmost accessory control"
+        )
+        XCTAssertGreaterThan(
+            toolbarElement(app, identifier: "BrowserToggleDevToolsButton").frame.minX,
+            toolbarElement(app, identifier: "BrowserThemeModeButton").frame.maxX,
+            "Inspect/DevTools should sit immediately before More"
+        )
+        XCTAssertGreaterThan(
+            toolbarElement(app, identifier: "BrowserOverflowMenu").frame.minX,
+            toolbarElement(app, identifier: "BrowserToggleDevToolsButton").frame.maxX,
+            "More should trail the Inspect/DevTools control"
+        )
+
+        let inlineOverflowActionIdentifiers = [
+            "BrowserFocusModeButton",
+            "BrowserScreenshotPageButton",
+            "BrowserScreenshotSectionButton",
+        ]
+        for identifier in inlineOverflowActionIdentifiers {
+            XCTAssertFalse(
+                toolbarElement(app, identifier: identifier).exists,
+                "The low-frequency action \(identifier) should remain in the overflow menu"
+            )
+        }
+
+        let overflowMenu = toolbarElement(app, identifier: "BrowserOverflowMenu")
+        overflowMenu.click()
+
+        let overflowActionIdentifiers = [
+            "BrowserOverflowFocusModeButton",
+            "BrowserScreenshotPageButton",
+            "BrowserScreenshotSectionButton",
+        ]
+        for identifier in overflowActionIdentifiers {
+            XCTAssertTrue(
+                app.menuItems.matching(identifier: identifier).firstMatch.waitForExistence(timeout: 5.0),
+                "Expected inactive action \(identifier) to remain available in BrowserOverflowMenu"
+            )
+        }
+        XCTAssertEqual(
+            app.menuItems.matching(identifier: "BrowserOverflowFocusModeButton").firstMatch.label,
+            "Focus Mode",
+            "Focus Mode should use the compact menu label"
+        )
+        XCTAssertEqual(
+            app.menuItems.matching(identifier: "BrowserScreenshotPageButton").firstMatch.label,
+            "Screenshot Page",
+            "Screenshot should use the compact menu label"
+        )
+        XCTAssertEqual(
+            app.menuItems.matching(identifier: "BrowserScreenshotSectionButton").firstMatch.label,
+            "Screenshot Section",
+            "Screenshot Section should use the concise menu label"
+        )
+        XCTAssertFalse(
+            app.menuItems.matching(identifier: "BrowserOverflowDesignModeButton").firstMatch.exists,
+            "Design Mode should remain directly available in the browser toolbar"
+        )
+        XCTAssertFalse(
+            app.menuItems.matching(identifier: "BrowserOverflowReactGrabButton").firstMatch.exists,
+            "React Grab should not be exposed in the browser chrome menu"
+        )
+        XCTAssertFalse(
+            app.menuItems.matching(identifier: "BrowserToggleDevToolsButton").firstMatch.exists,
+            "Developer Tools should remain directly available in the browser toolbar"
+        )
+
+        // Menu activation must use the same path as the former inline button:
+        // closing the menu should promote Focus Mode into the active inline chip.
+        let focusMenuItem = app.menuItems.matching(identifier: "BrowserOverflowFocusModeButton").firstMatch
+        focusMenuItem.click()
+        let activeFocusButton = toolbarElement(app, identifier: "BrowserFocusModeButton")
+        XCTAssertTrue(
+            waitForCondition(timeout: 5.0) { activeFocusButton.exists },
+            "Clicking Focus Mode in More should activate the inline focus chip"
+        )
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 5.0) { data in
+                data["browserFocusModeActive"] == "true"
+            },
+            "Clicking Focus Mode in More should update the browser focus state. data=\(loadGotoSplit() ?? [:])"
+        )
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(
+            waitForCondition(timeout: 5.0) { !activeFocusButton.exists },
+            "Double Escape should leave the focus mode entered from More"
+        )
+    }
+
+    func testScreenshotSectionShowsTheCopiedFeedbackChip() {
+        let app = launchWithBrowserSetup(browserURL: makeBrowserFocusModePageURL())
+
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 10.0) { data in
+                data["browserPageTitle"] == "focus-ready"
+            },
+            "Expected the browser fixture to finish loading before screenshot selection. data=\(loadGotoSplit() ?? [:])"
+        )
+        guard let browserPanelId = loadGotoSplit()?[
+            "browserPanelId"
+        ], !browserPanelId.isEmpty else {
+            XCTFail("Missing browserPanelId in goto_split setup data")
+            return
+        }
+
+        let browserPane = app.otherElements["BrowserPanelContent.\(browserPanelId)"].firstMatch
+        XCTAssertTrue(browserPane.waitForExistence(timeout: 6.0), "Expected browser pane content for screenshot selection")
+        toolbarElement(app, identifier: "BrowserOverflowMenu").click()
+        let sectionItem = app.menuItems.matching(identifier: "BrowserScreenshotSectionButton").firstMatch
+        XCTAssertTrue(sectionItem.waitForExistence(timeout: 5.0), "Expected Screenshot Section in More")
+        sectionItem.click()
+
+        let start = browserPane.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.30))
+        let end = browserPane.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.70))
+        start.press(forDuration: 0.2, thenDragTo: end)
+
+        let copiedChip = toolbarElement(app, identifier: "BrowserScreenshotPageCopied")
+        XCTAssertTrue(
+            waitForCondition(timeout: 10.0) { copiedChip.exists },
+            "Screenshot Section should surface the same Copied feedback chip as Screenshot Page"
+        )
+    }
+
+    func testBrowserDesignModeUsesTheSharedActiveModeChip() {
+        let app = launchWithBrowserSetup(browserURL: makeBrowserFocusModePageURL())
+
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 10.0) { data in
+                data["browserPageTitle"] == "focus-ready"
+            },
+            "Expected the browser fixture to finish loading before entering Design Mode. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        // Design Mode is inactive in the overflow menu. Its configured
+        // shortcut should promote the same single active-mode chip used by
+        // Focus Mode, without restoring any of the removed toolbar icons.
+        app.typeKey("d", modifierFlags: [.command, .option, .control])
+
+        let designModeButton = toolbarElement(app, identifier: "BrowserDesignModeButton")
+        XCTAssertTrue(
+            waitForCondition(timeout: 10.0) { designModeButton.exists },
+            "Expected active Design Mode to appear as the shared inline status chip"
+        )
+        XCTAssertEqual(
+            designModeButton.label,
+            "Design Mode",
+            "The active mode control should expose a concise text state instead of another toolbar glyph"
+        )
+        XCTAssertEqual(
+            browserToolbar(app).descendants(matching: .any).matching(identifier: "BrowserDesignModeButton").count,
+            1,
+            "Design Mode should have one active text control, not an additional inactive toolbar icon"
+        )
+        XCTAssertFalse(
+            toolbarElement(app, identifier: "BrowserFocusModeButton").exists,
+            "Focus Mode should not create a second active control while Design Mode is active"
+        )
+        XCTAssertFalse(
+            toolbarElement(app, identifier: "BrowserScreenshotPageButton").exists,
+            "Screenshot should remain in the overflow menu while Design Mode is active"
+        )
+        app.typeKey("d", modifierFlags: [.command, .option, .control])
+        XCTAssertTrue(
+            waitForCondition(timeout: 10.0) { !designModeButton.exists },
+            "Expected the shared Design Mode status chip to disappear after deactivation"
         )
     }
 
@@ -330,6 +534,14 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         }
 
         XCTFail("App failed to start. state=\(app.state.rawValue)")
+    }
+
+    private func browserToolbar(_ app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: "BrowserToolbarAccessoryRow").firstMatch
+    }
+
+    private func toolbarElement(_ app: XCUIApplication, identifier: String) -> XCUIElement {
+        browserToolbar(app).descendants(matching: .any).matching(identifier: identifier).firstMatch
     }
 
     private func makeBrowserHandledCmdFPageURL() -> String {
