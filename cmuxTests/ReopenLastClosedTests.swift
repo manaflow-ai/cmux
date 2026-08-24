@@ -19,6 +19,150 @@ struct ReopenLastClosedTests {
         case window
     }
 
+    /// Closed panels must share the finite recency window used by the
+    /// production store instead of growing for the life of the history file.
+    /// https://github.com/manaflow-ai/cmux/issues/10352
+    @Test
+    func sharedStoreBoundsClosedPanelHistoryAndKeepsNewestRecords() throws {
+        let store = ClosedItemHistoryStore.shared
+        store.removeAll()
+        defer { store.removeAll() }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let baseSnapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first
+        )
+        let expectedCapacity = 500
+
+        for index in 0...expectedCapacity {
+            var snapshot = baseSnapshot
+            snapshot.customTitle = "Closed \(index)"
+            store.push(ClosedItemHistoryRecord(
+                closedAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                entry: .panel(ClosedPanelHistoryEntry(
+                    workspaceId: workspace.id,
+                    paneId: UUID(),
+                    tabIndex: 0,
+                    snapshot: snapshot
+                ))
+            ))
+        }
+
+        let menuSnapshot = store.menuSnapshot()
+        #expect(menuSnapshot.totalItemCount == expectedCapacity)
+        #expect(menuSnapshot.items.first?.title == "Closed \(expectedCapacity)")
+        #expect(menuSnapshot.items.last?.title == "Closed 1")
+        #expect(!menuSnapshot.items.contains { $0.title == "Closed 0" })
+    }
+
+    @Test
+    func loadTimeTotalCapacityTrimKeepsNewestRecordsAndPersistsTrim() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-closed-panel-trim-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let historyURL = temporaryDirectory.appendingPathComponent("history.json")
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelSnapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first
+        )
+        let seedStore = ClosedItemHistoryStore(
+            capacity: nil,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: true,
+            persistsRecordsSynchronously: true
+        )
+
+        seedStore.push(panelRecord(
+            title: "Newest",
+            closedAt: 30,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ))
+        seedStore.push(panelRecord(
+            title: "Oldest",
+            closedAt: 10,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ))
+        seedStore.push(panelRecord(
+            title: "Middle",
+            closedAt: 20,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ))
+
+        let boundedStore = ClosedItemHistoryStore(
+            capacity: 2,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: true,
+            persistsRecordsSynchronously: true
+        )
+        #expect(boundedStore.menuSnapshot().totalItemCount == 2)
+        #expect(boundedStore.menuSnapshot().items.map(\.title) == ["Newest", "Middle"])
+
+        let reloadedStore = ClosedItemHistoryStore(
+            capacity: nil,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: true,
+            persistsRecordsSynchronously: true
+        )
+        #expect(reloadedStore.menuSnapshot().totalItemCount == 2)
+        #expect(reloadedStore.menuSnapshot().items.map(\.title) == ["Newest", "Middle"])
+    }
+
+    @Test
+    func workspaceCapacityStillKeepsNewestWorkspaceRecords() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let workspaceSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let store = ClosedItemHistoryStore(
+            workspaceCapacity: 2,
+            loadPersisted: false
+        )
+
+        for index in 0..<3 {
+            var snapshot = workspaceSnapshot
+            snapshot.customTitle = "Workspace \(index)"
+            store.push(ClosedItemHistoryRecord(
+                closedAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                entry: .workspace(ClosedWorkspaceHistoryEntry(
+                    workspaceId: UUID(),
+                    windowId: nil,
+                    workspaceIndex: index,
+                    snapshot: snapshot
+                ))
+            ))
+        }
+
+        #expect(store.menuSnapshot().items.map(\.title) == ["Workspace 2", "Workspace 1"])
+    }
+
+    private func panelRecord(
+        title: String,
+        closedAt: TimeInterval,
+        workspace: Workspace,
+        snapshot: SessionPanelSnapshot
+    ) -> ClosedItemHistoryRecord {
+        var snapshot = snapshot
+        snapshot.customTitle = title
+        return ClosedItemHistoryRecord(
+            closedAt: Date(timeIntervalSince1970: closedAt),
+            entry: .panel(ClosedPanelHistoryEntry(
+                workspaceId: workspace.id,
+                paneId: UUID(),
+                tabIndex: 0,
+                snapshot: snapshot
+            ))
+        )
+    }
+
     @Test
     func mixedHistoryRestoresNewestOnceAndPreservesWindowGeometry() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
