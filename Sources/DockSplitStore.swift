@@ -308,7 +308,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
         self.fileContentChangeCoordinator =
-            fileContentChangeCoordinator ?? .shared
+            fileContentChangeCoordinator ?? FileContentChangeCoordinator()
         self.terminalTitleUpdateCoalescer =
             terminalTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.settings = settings

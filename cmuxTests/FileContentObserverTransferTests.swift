@@ -38,6 +38,9 @@ struct FileContentObserverTransferTests {
             preview.close()
         }
         await editor.loadTextContent().value
+        if let initialPreviewLoad = preview.loadTextContent() {
+            await initialPreviewLoad.value
+        }
 
         editor.updateTextContent(updatedContent)
         let save = try #require(editor.saveTextContent())
@@ -77,6 +80,13 @@ struct FileContentObserverTransferTests {
             preview.close()
         }
 
+        if let initialEditorLoad = editor.loadTextContent() {
+            await initialEditorLoad.value
+        }
+        if let initialPreviewLoad = preview.loadTextContent() {
+            await initialPreviewLoad.value
+        }
+
         editor.updateTextContent(updatedContent)
         let save = try #require(editor.saveTextContent())
         editor.updateWorkspaceId(
@@ -84,12 +94,15 @@ struct FileContentObserverTransferTests {
             fileContentChangeCoordinator: destinationChanges
         )
         await save.value
+        if let previewReload = preview.loadTextContent(replacingDirtyContent: false) {
+            await previewReload.value
+        }
 
         #expect(preview.content == updatedContent)
     }
 
     @Test("Dock attachment moves Markdown observation to the destination coordinator")
-    func dockAttachmentRetargetsMarkdownObservation() throws {
+    func dockAttachmentRetargetsMarkdownObservation() async throws {
         let fileURL = FileManager.default.temporaryDirectory
             .appending(path: "cmux-markdown-observer-transfer-\(UUID().uuidString).md")
         defer { try? FileManager.default.removeItem(at: fileURL) }
@@ -130,6 +143,9 @@ struct FileContentObserverTransferTests {
 
         #expect(destinationOwnsPanel)
         #expect(panel.workspaceId == destinationDock.workspaceId)
+        if let initialLoad = panel.loadTextContent() {
+            await initialLoad.value
+        }
         #expect(panel.content == originalContent)
 
         try updatedContent.write(to: fileURL, atomically: false, encoding: .utf8)
@@ -137,6 +153,9 @@ struct FileContentObserverTransferTests {
         #expect(panel.content == originalContent)
 
         destinationChanges.fileWriteCompleted(at: fileURL.path)
+        if let destinationReload = panel.loadTextContent(replacingDirtyContent: false) {
+            await destinationReload.value
+        }
         #expect(panel.content == updatedContent)
     }
 
@@ -145,7 +164,9 @@ struct FileContentObserverTransferTests {
         let manager = TabManager()
         let dockStore = manager.makeWindowDockStore(windowId: UUID())
         defer { dockStore.closeAllPanels() }
-        let workspace = Workspace()
+        let workspace = Workspace(
+            fileContentChangeCoordinator: manager.fileContentChangeCoordinator
+        )
         defer { workspace.teardownAllPanels() }
 
         #expect(
@@ -155,7 +176,7 @@ struct FileContentObserverTransferTests {
     }
 
     @Test("Retargeting a Markdown panel does not reload an unchanged file")
-    func markdownRetargetSkipsReloadForUnchangedFile() throws {
+    func markdownRetargetSkipsReloadForUnchangedFile() async throws {
         let fileURL = FileManager.default.temporaryDirectory
             .appending(path: "cmux-markdown-retarget-unchanged-\(UUID().uuidString).md")
         defer { try? FileManager.default.removeItem(at: fileURL) }
@@ -170,6 +191,9 @@ struct FileContentObserverTransferTests {
             fileContentChangeCoordinator: sourceChanges
         )
         defer { panel.close() }
+        if let initialLoad = panel.loadTextContent() {
+            await initialLoad.value
+        }
         #expect(panel.content == originalContent)
 
         var reloadPublishes = 0
@@ -189,6 +213,9 @@ struct FileContentObserverTransferTests {
             UUID(),
             fileContentChangeCoordinator: changedDestination
         )
+        if let changedLoad = panel.loadTextContent(replacingDirtyContent: false) {
+            await changedLoad.value
+        }
         #expect(panel.content == updatedContent)
     }
 }

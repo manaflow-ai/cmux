@@ -6139,6 +6139,24 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             workspace.panels.values.compactMap { $0 as? FilePreviewPanel }.count,
             2
         )
+
+        // With an unfocused match, focused duplication is not requested: reveal
+        // the existing preview instead of creating a third occurrence.
+        let initialPanelId = try XCTUnwrap(
+            workspace.panels.values.first(where: { $0.id != first.id && $0.id != second.id })?.id
+        )
+        workspace.focusPanel(initialPanelId)
+        let revealed = try XCTUnwrap(workspace.openOrFocusFilePreviewSurface(
+            inPane: paneId,
+            filePath: fileURL.path,
+            focus: true,
+            duplicateWhenFocused: true
+        ))
+        XCTAssertTrue([first.id, second.id].contains(revealed.id))
+        XCTAssertEqual(
+            workspace.panels.values.compactMap { $0 as? FilePreviewPanel }.count,
+            2
+        )
     }
 
     func testOpenOrFocusRightSidebarToolSurfaceReusesExistingMode() {

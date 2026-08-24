@@ -9192,7 +9192,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             pullRequestProbeService: pullRequestProbeService,
             workspaceCustomizationStore: self.tabManager?.workspaceCustomizationStore
                 ?? WorkspaceCustomizationStore(defaults: .standard),
-            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
+            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
+            fileContentChangeCoordinator: self.tabManager?.fileContentChangeCoordinator
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {

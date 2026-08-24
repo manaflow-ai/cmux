@@ -339,6 +339,9 @@ final class MarkdownPanelTests: XCTestCase {
 
         let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path)
         defer { panel.close() }
+        if let initialLoad = panel.loadTextContent() {
+            await initialLoad.value
+        }
 
         XCTAssertEqual(panel.content, originalContent)
         XCTAssertFalse(panel.isFileUnavailable)

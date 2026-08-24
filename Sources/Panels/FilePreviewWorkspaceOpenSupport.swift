@@ -74,7 +74,8 @@ extension Workspace {
         filePaths: [String],
         focus: Bool? = nil,
         targetIndex: Int? = nil,
-        reuseExisting: Bool = false
+        reuseExisting: Bool = false,
+        duplicateWhenFocused: Bool = false
     ) -> [FilePreviewPanel] {
         let shouldFocusNewTabs = focus ?? (bonsplitController.focusedPaneId == paneId)
         var nextIndex = targetIndex
@@ -86,7 +87,8 @@ extension Workspace {
                 panel = openOrFocusFilePreviewSurface(
                     inPane: paneId,
                     filePath: filePath,
-                    focus: shouldFocusNewTabs
+                    focus: shouldFocusNewTabs,
+                    duplicateWhenFocused: duplicateWhenFocused
                 )
             } else {
                 panel = newFilePreviewSurface(

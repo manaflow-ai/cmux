@@ -73,6 +73,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel,
     /// Stable markdown renderer state. Keep this panel-owned so split/tab
     /// layout churn does not recreate the WKWebView and flash existing content.
     let rendererSession = MarkdownRendererSession()
+    /// Serializes file reads while retaining only the newest refresh request.
+    /// The loader itself is bounded and runs off the main actor.
+    private let textLoadCoordinator = FilePreviewLatestLoadCoordinator<FilePreviewTextLoader.Result>()
 
     // MARK: - File watching
 
@@ -120,9 +123,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel,
         self.followedMaxContentWidth = defaultMaxWidth
         self.displayTitle = (filePath as NSString).lastPathComponent
         self.fileContentChangeCoordinator =
-            fileContentChangeCoordinator ?? .shared
+            fileContentChangeCoordinator ?? FileContentChangeCoordinator()
 
-        loadFileContent()
+        _ = loadFileContent()
         startWatchingForFileChanges()
         observeTypographyDefaults()
     }
@@ -253,6 +256,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel,
     func close() {
         isClosed = true
         rendererSession.close()
+        textLoadCoordinator.cancel()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
         stopWatchingForFileChanges()
@@ -293,7 +297,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel,
     }
 
     /// Re-reads the file without discarding an unsaved TextEdit buffer.
-    func reloadFromDisk() {
+    @discardableResult
+    func reloadFromDisk() -> Task<Void, Never> {
         loadFileContent(replacingDirtyContent: false)
     }
 
@@ -324,7 +329,6 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel,
     @discardableResult
     func loadTextContent(replacingDirtyContent: Bool = true) -> Task<Void, Never>? {
         loadFileContent(replacingDirtyContent: replacingDirtyContent)
-        return nil
     }
 
     @discardableResult
@@ -382,18 +386,32 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel,
                 self.isFileUnavailable = !fileExists
                 GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
             }
-            self.loadFileContent(replacingDirtyContent: false)
+            await self.loadFileContent(replacingDirtyContent: false).value
         }
     }
 
     // MARK: - File I/O
 
-    private func loadFileContent(replacingDirtyContent: Bool = true) {
+    @discardableResult
+    private func loadFileContent(replacingDirtyContent: Bool = true) -> Task<Void, Never> {
         lastObservedFileState = .capture(path: filePath)
-        switch Self.loadMarkdownFile(at: filePath) {
-        case .loaded(let newContent, let encoding):
-            applyLoadedContent(newContent, encoding: encoding, replacingDirtyContent: replacingDirtyContent)
-        case .unavailable:
+        let fileURL = URL(fileURLWithPath: filePath)
+        return textLoadCoordinator.submit(load: {
+            await FilePreviewTextLoader.load(url: fileURL)
+        }) { [weak self] result in
+            guard let self, !self.isClosed else { return }
+            self.applyLoadedResult(
+                result,
+                replacingDirtyContent: replacingDirtyContent
+            )
+        }
+    }
+
+    private func applyLoadedResult(
+        _ result: FilePreviewTextLoader.Result,
+        replacingDirtyContent: Bool
+    ) {
+        guard case .loaded(let newContent, let encoding) = result else {
             guard replacingDirtyContent || !isDirty else {
                 isFileUnavailable = true
                 GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
@@ -405,14 +423,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel,
             isDirty = false
             isFileUnavailable = true
             GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+            return
         }
-    }
 
-    private func applyLoadedContent(
-        _ newContent: String,
-        encoding: String.Encoding,
-        replacingDirtyContent: Bool
-    ) {
         if !replacingDirtyContent && isDirty {
             originalTextContent = newContent
             textEncoding = encoding
@@ -429,21 +442,6 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel,
         isDirty = false
         isFileUnavailable = false
         GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
-    }
-
-    private static func loadMarkdownFile(at path: String) -> FilePreviewTextLoader.Result {
-        guard let data = FileManager.default.contents(atPath: path) else {
-            return .unavailable
-        }
-        if let decoded = String(data: data, encoding: .utf8) {
-            return .loaded(content: decoded, encoding: .utf8)
-        }
-        // Fallback: ISO Latin-1 accepts all 256 byte values and covers common
-        // legacy encodings like Windows-1252 well enough for a raw editor.
-        if let decoded = String(data: data, encoding: .isoLatin1) {
-            return .loaded(content: decoded, encoding: .isoLatin1)
-        }
-        return .unavailable
     }
 
     private func applyPendingSearchNeedleIfPossible() {
@@ -473,7 +471,6 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel,
     @discardableResult
     func reloadFromObservedFileChange() -> Task<Void, Never>? {
         loadFileContent(replacingDirtyContent: false)
-        return nil
     }
 
     deinit {
