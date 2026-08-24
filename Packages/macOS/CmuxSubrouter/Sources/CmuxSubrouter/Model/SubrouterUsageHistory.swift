@@ -1,10 +1,9 @@
 public import Foundation
 
 /// A rolling, persistable history of quota-window usage samples, keyed by
-/// account and window name. The store appends a sample after each
-/// successful usage refresh; the panel renders the series as sparklines so
-/// subscription burn is visible over time, not just as an instantaneous
-/// percentage.
+/// account and window name. An opt-in consumer can append samples after
+/// successful usage refreshes and render the series as a trend view, so
+/// subscription burn is visible over time rather than only as a percentage.
 public struct SubrouterUsageHistory: Sendable, Equatable, Codable {
     /// One observation of a window's used percentage.
     public struct Sample: Sendable, Equatable, Codable {
@@ -132,7 +131,7 @@ public struct SubrouterUsageHistory: Sendable, Equatable, Codable {
     /// series, samples recorded before this history's first live sample are
     /// prepended, then the per-series cap re-applies. Lets a startup disk
     /// load land after the first refresh without discarding the persisted
-    /// week of sparkline history.
+    /// week of trend history.
     /// - Parameter olderHistory: The persisted history loaded from disk.
     public mutating func merge(olderHistory: SubrouterUsageHistory) {
         for (key, olderSamples) in olderHistory.seriesByKey {

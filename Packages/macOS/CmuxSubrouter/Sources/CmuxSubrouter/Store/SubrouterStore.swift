@@ -92,8 +92,8 @@ public final class SubrouterStore {
     /// ``finishHistoryLoad(with:)`` then persists the merged result.
     @ObservationIgnored private var wantsHistorySaveAfterLoad = false
 
-    /// Rolling usage samples per account window; the panel renders these as
-    /// sparklines. Persisted to ``historyStorageURL`` when provided; starts
+    /// Rolling usage samples per account window for an opt-in history
+    /// consumer. Persisted to ``historyStorageURL`` when provided; starts
     /// empty and adopts the persisted file via an off-main load so the
     /// main-actor `init` never touches disk.
     public private(set) var usageHistory: SubrouterUsageHistory
@@ -454,11 +454,11 @@ public final class SubrouterStore {
         return kept
     }
 
-    /// Records freshly fetched usage into the rolling history and persists
-    /// it off-main when anything changed. Persistence waits for the
-    /// startup load: a save must never overwrite the file before the load
-    /// has read it.
+    /// Records freshly fetched usage only when a history consumer opted in.
+    /// Persistence waits for the startup load: a save must never overwrite
+    /// the file before the load has read it.
     private func recordUsageHistory(_ usage: [SubrouterAccountUsageStatus]) {
+        guard historyStorageURL != nil else { return }
         guard usageHistory.record(usageStatuses: usage, now: now()) else { return }
         guard historyLoadCompleted else {
             wantsHistorySaveAfterLoad = true

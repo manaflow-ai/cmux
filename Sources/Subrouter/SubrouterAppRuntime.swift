@@ -16,14 +16,23 @@ final class SubrouterAppRuntime {
     static let shared = SubrouterAppRuntime()
 
     /// Synchronous availability mirror for nonisolated sidebar-mode callers.
-    /// The store remains the source of truth; this one-bit publication only
-    /// lets keyboard/restore paths fail closed without reaching across the
-    /// main actor. Acquire/release ordering publishes the applied
-    /// configuration transition to those readers.
+    /// The store remains the source of truth; this publication only lets
+    /// keyboard/restore paths read its gate without reaching across the main
+    /// actor. Acquire/release ordering publishes applied transitions.
     private nonisolated static let runtimeEnabledSnapshot = AtomicBooleanGate(false)
+    private nonisolated static let runtimeConfigurationKnownSnapshot = AtomicBooleanGate(false)
 
     nonisolated static var isRuntimeEnabled: Bool {
         runtimeEnabledSnapshot.loadAcquire()
+    }
+
+    /// Availability callers preserve a stored Agents selection until the
+    /// asynchronous runtime has published its first authoritative config.
+    /// The store itself remains disabled until that publication, so this
+    /// temporary fail-open value cannot start network or account work.
+    nonisolated static var isRuntimeEnabledForAvailability: Bool {
+        !runtimeConfigurationKnownSnapshot.loadAcquire()
+            || runtimeEnabledSnapshot.loadAcquire()
     }
 
     let store: SubrouterStore
@@ -60,11 +69,10 @@ final class SubrouterAppRuntime {
     private var selectionRefreshTask: Task<Void, Never>?
 
     private init() {
-        let historyURL = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first?
-            .appendingPathComponent("cmux/subrouter-usage-history.json")
-        store = SubrouterStore(historyStorageURL: historyURL)
+        // Usage-history persistence is opt-in until a UI consumer is wired;
+        // constructing the runtime must not retain samples or write a file
+        // that no visible surface reads.
+        store = SubrouterStore()
         // Keep startup on the main actor free of registry disk I/O. The store
         // starts disabled and every visible/socket boundary awaits this
         // single-flight read before enabling work.
@@ -223,6 +231,7 @@ final class SubrouterAppRuntime {
         )
         store.updateConfiguration(configuration)
         Self.runtimeEnabledSnapshot.storeRelease(configuration.isEnabled)
+        Self.runtimeConfigurationKnownSnapshot.storeRelease(true)
     }
 
     /// Folds one registry read into the cached selection. An unreadable

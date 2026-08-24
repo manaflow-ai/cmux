@@ -28,7 +28,7 @@ extension RightSidebarMode {
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
             agentsEnabled: settings.isEnabled
                 && settings.hasValidEndpointSetting
-                && SubrouterAppRuntime.isRuntimeEnabled
+                && SubrouterAppRuntime.isRuntimeEnabledForAvailability
         )
     }
 
@@ -49,7 +49,7 @@ extension RightSidebarMode {
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
             agentsEnabled: settings.isEnabled
                 && settings.hasValidEndpointSetting
-                && SubrouterAppRuntime.isRuntimeEnabled
+                && SubrouterAppRuntime.isRuntimeEnabledForAvailability
         )
     }
 

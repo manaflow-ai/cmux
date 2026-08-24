@@ -26,16 +26,33 @@ public struct SubrouterHTTPClient: SubrouterClienting {
     public static let maximumResponseBytes = 8 * 1_024 * 1_024
 
     private let session: URLSession
+    // URLSession does not retain its delegate strongly; keep the stateless
+    // redirect policy alive for the lifetime of the client.
+    private let redirectDelegate: SubrouterHTTPRedirectRejectingDelegate
     private let decoder: JSONDecoder
 
     /// Creates the production client.
     /// - Parameter requestTimeout: Per-request timeout in seconds.
     public init(requestTimeout: TimeInterval = SubrouterHTTPClient.defaultRequestTimeout) {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = requestTimeout
-        configuration.timeoutIntervalForResource = requestTimeout * 2
-        configuration.waitsForConnectivity = false
-        self.session = URLSession(configuration: configuration)
+        self.init(
+            requestTimeout: requestTimeout,
+            configuration: .ephemeral
+        )
+    }
+
+    /// Test seam for supplying a URLProtocol-backed session configuration.
+    init(requestTimeout: TimeInterval, configuration: URLSessionConfiguration) {
+        let sessionConfiguration = configuration
+        sessionConfiguration.timeoutIntervalForRequest = requestTimeout
+        sessionConfiguration.timeoutIntervalForResource = requestTimeout * 2
+        sessionConfiguration.waitsForConnectivity = false
+        let redirectDelegate = SubrouterHTTPRedirectRejectingDelegate()
+        self.redirectDelegate = redirectDelegate
+        self.session = URLSession(
+            configuration: sessionConfiguration,
+            delegate: redirectDelegate,
+            delegateQueue: nil
+        )
         self.decoder = Self.makeDecoder()
     }
 
@@ -206,5 +223,25 @@ public struct SubrouterHTTPClient: SubrouterClienting {
     /// Parses one Go RFC3339Nano timestamp (fractional seconds optional).
     static func parseTimestamp(_ raw: String) -> Date? {
         fractionalTimestampParser.date(from: raw) ?? plainTimestampParser.date(from: raw)
+    }
+}
+
+/// Rejects every redirect for requests that may carry a Subrouter admin token.
+/// The daemon API uses a configured absolute endpoint; following a redirect
+/// would let an intermediary forward that credential to another host or
+/// protocol before the caller can inspect the destination.
+private final class SubrouterHTTPRedirectRejectingDelegate:
+    NSObject,
+    URLSessionTaskDelegate,
+    @unchecked Sendable
+{
+    nonisolated func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
     }
 }
