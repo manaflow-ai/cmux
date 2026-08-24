@@ -150,7 +150,7 @@ struct AgentHibernationPlannerSwiftTests {
     }
 
     @Test
-    func liveScopedProcessCreatesPressureButIsNotSelected() {
+    func scheduledHibernationSelectsIdleLiveProcessOverCap() {
         let workspaceId = UUID()
         let now: TimeInterval = 1_000
         let runningAgent = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
@@ -188,7 +188,7 @@ struct AgentHibernationPlannerSwiftTests {
             now: now
         )
 
-        #expect(selected == Set([exitedAgent]))
+        #expect(selected == Set([runningAgent]))
     }
 
     @Test
