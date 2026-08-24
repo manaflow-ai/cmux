@@ -135,16 +135,27 @@ public struct SubrouterUsageHistory: Sendable, Equatable, Codable {
     public mutating func merge(olderHistory: SubrouterUsageHistory) {
         for (key, olderSamples) in olderHistory.seriesByKey {
             guard let current = seriesByKey[key], let firstCurrent = current.first else {
-                seriesByKey[key] = olderSamples
+                seriesByKey[key] = Self.normalizedSamples(olderSamples)
                 continue
             }
             var merged = olderSamples.filter { $0.recordedAt < firstCurrent.recordedAt }
             merged.append(contentsOf: current)
-            if merged.count > Self.maximumSamplesPerSeries {
-                merged.removeFirst(merged.count - Self.maximumSamplesPerSeries)
-            }
-            seriesByKey[key] = merged
+            seriesByKey[key] = Self.normalizedSamples(merged)
         }
+        let newest = seriesByKey.values.compactMap { $0.last?.recordedAt }.max() ?? .distantPast
+        _ = evictStaleSeries(cutoff: newest.addingTimeInterval(-Self.retention))
+    }
+
+    private static func normalizedSamples(_ samples: [Sample]) -> [Sample] {
+        guard !samples.isEmpty else { return [] }
+        let sorted = samples.sorted { $0.recordedAt < $1.recordedAt }
+        let cutoff = (sorted.last?.recordedAt ?? .distantPast)
+            .addingTimeInterval(-Self.retention)
+        var normalized = sorted.filter { $0.recordedAt >= cutoff }
+        if normalized.count > Self.maximumSamplesPerSeries {
+            normalized.removeFirst(normalized.count - Self.maximumSamplesPerSeries)
+        }
+        return normalized
     }
 
     /// Loads a persisted history, or an empty one for missing/undecodable

@@ -136,7 +136,7 @@ final class SubrouterAppRuntime {
     }
 
     private func syncAgentsPanelSurfaceVisibility() {
-        store.setSurfaceVisible(.agentsPanel, agentsPanelVisibleCount > 0)
+        store.setSurfaceVisible(.agentsPanel, agentsPanelVisibleCount > 0 && appIsActive)
     }
 
     /// Watches the directory containing `servers.json` while a Subrouter UI
@@ -144,8 +144,8 @@ final class SubrouterAppRuntime {
     /// seam; its handler only schedules the existing single-flight, off-main
     /// registry read and never performs disk I/O on the callback queue.
     private func syncServerRegistryWatch() {
-        let shouldWatch = agentsPanelVisibleCount > 0
-            || (footerVisibleCount > 0 && appIsActive)
+        let shouldWatch = appIsActive
+            && (agentsPanelVisibleCount > 0 || footerVisibleCount > 0)
         if shouldWatch {
             startServerRegistryWatchIfNeeded()
         } else {
@@ -283,6 +283,7 @@ final class SubrouterAppRuntime {
                 // user returns.
                 self.refreshServerSelection()
                 self.syncServerRegistryWatch()
+                self.syncAgentsPanelSurfaceVisibility()
                 self.syncFooterSurfaceVisibility()
             }
         })
@@ -290,6 +291,7 @@ final class SubrouterAppRuntime {
             for await _ in center.notifications(named: NSApplication.willResignActiveNotification).map({ _ in () }) {
                 guard let self else { return }
                 self.appIsActive = false
+                self.syncAgentsPanelSurfaceVisibility()
                 self.syncFooterSurfaceVisibility()
                 self.syncServerRegistryWatch()
             }
