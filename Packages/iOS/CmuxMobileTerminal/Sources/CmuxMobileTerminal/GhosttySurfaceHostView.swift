@@ -145,10 +145,18 @@ public final class GhosttySurfaceHostView: UIView {
         guard !keyboardTransitionActive else { return }
         if usesKeyboardGuideSensor {
             // Self-heal for transitions missed while detached (workspace
-            // switches): the settled guide is the keyboard's live seat.
+            // switches): the settled guide is the keyboard's live seat. The
+            // VISIBILITY heals too — the model lives on the (persistent)
+            // surface, so a dismissal that happened while this host was
+            // detached leaves it stuck at "visible" and the toolbar's
+            // keyboard toggle opens a fresh workspace in the wrong state,
+            // needing two taps. A settled guide at the screen bottom is an
+            // authoritative "keyboard down" on the OS versions the sensor
+            // runs on.
+            let overlap = keyboardLayoutGuideOverlap
             surfaceView.setHostedKeyboardState(
-                height: keyboardLayoutGuideOverlap,
-                isVisible: nil
+                height: overlap,
+                isVisible: overlap > 0.5
             )
         }
         syncPresentationReservation()
