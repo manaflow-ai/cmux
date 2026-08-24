@@ -1,7 +1,4 @@
-// Send a push to the authenticated user's registered iOS devices. Called by the
-// macOS app when it shows a terminal notification AND the user enabled phone
-// forwarding. No-ops (no APNs traffic) when the user has no registered devices.
-// Auth: Stack Bearer from the Mac's signed-in user; routing is by that user id.
+// Every Mac sender must name one exact iOS target. Missing targets fail closed.
 
 import crypto from "node:crypto";
 import * as Effect from "effect/Effect";
@@ -18,6 +15,7 @@ import {
 } from "../../../../services/apns/routeHandler";
 import {
   MAX_PUSH_REQUEST_BYTES,
+  normalizeApnsBundle,
   parsePushPayload,
   readBoundedJsonObject,
   type PushPayload,
@@ -32,10 +30,8 @@ import {
   PushDeliveryService,
   type PushDeliveryError,
 } from "../../../../services/apns/pushDeliveryService";
+import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
 
-export const runtime = "nodejs"; // http2 + node:crypto, not edge
-export const dynamic = "force-dynamic";
-// The default APNs loop is bounded to ~28s. Keep the platform request alive
 // through that loop while staying comfortably below the 120s event TTL.
 export const maxDuration = 45;
 
@@ -50,8 +46,12 @@ function apnsConfig(): ApnsConfig | null {
 export const DEFAULT_PUSH_TTL_SECONDS = 120;
 const MAX_PUSH_TTL_SECONDS = 300;
 
-function pushPayloadFingerprint(payload: PushPayload): string {
+function pushPayloadFingerprint(
+  payload: PushPayload,
+  targetBundleId: string,
+): string {
   const canonicalPayload = {
+    targetBundleId,
     kind: payload.kind,
     title: payload.title,
     subtitle: payload.subtitle,
@@ -60,6 +60,7 @@ function pushPayloadFingerprint(payload: PushPayload): string {
     surfaceId: payload.surfaceId,
     retargetsToLiveSurfaceOwner: payload.retargetsToLiveSurfaceOwner,
     macDeviceId: payload.macDeviceId,
+    macInstanceTag: payload.macInstanceTag,
     notificationId: payload.notificationId,
     expirationEpochSeconds: payload.expirationEpochSeconds,
     dismissedIds: payload.dismissedIds,
@@ -118,7 +119,12 @@ async function sendPush(
     config: ApnsConfig | null;
   },
 ): Promise<Response> {
-  const user = await verifyRequest(request, { allowCookie: false });
+  let user: Awaited<ReturnType<typeof verifyRequest>>;
+  try {
+    user = await verifyRequest(request, { allowCookie: false });
+  } catch (error) {
+    return authProviderErrorResponse(error, "notifications.push.auth");
+  }
   if (!user) return unauthorized();
 
   const body = await readBoundedJsonObject(request, MAX_PUSH_REQUEST_BYTES);
@@ -128,9 +134,25 @@ async function sendPush(
 
   const payload = parsePushPayload(body.value);
   if (!payload.ok) return jsonResponse({ error: payload.error }, 400);
+  // Macs from before the namespace rollout (0.64.x) never send this header.
+  // They are the `legacy` namespace: deliver to every iOS token the account
+  // registered, each on its own bundle topic, matching pre-namespace reach.
+  // A present-but-unknown value is still a hard error: only old builds are
+  // allowed to omit the routing hint, new builds must send a valid one.
+  const requestedNamespace = request.headers.get("x-cmux-ios-target-namespace");
+  let targetNamespace: ReturnType<typeof normalizeApnsBundle> = null;
+  if (requestedNamespace !== null) {
+    targetNamespace = normalizeApnsBundle(requestedNamespace);
+    if (!targetNamespace) {
+      return jsonResponse({ error: "invalid_target_namespace" }, 400);
+    }
+  }
   const correlationId =
     payload.value.correlationId ?? crypto.randomUUID();
-  const payloadFingerprint = pushPayloadFingerprint(payload.value);
+  const payloadFingerprint = pushPayloadFingerprint(
+    payload.value,
+    targetNamespace?.bundleId ?? "legacy",
+  );
   const startedAt = new Date();
   const nowEpochSeconds = Math.floor(startedAt.getTime() / 1_000);
   if (
@@ -165,6 +187,7 @@ async function sendPush(
       const delivery = yield* PushDeliveryService;
       return yield* delivery.deliver({
         userId: user.id,
+        targetBundleId: targetNamespace?.bundleId ?? null,
         correlationId,
         payloadFingerprint,
         startedAt,

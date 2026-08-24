@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 import Testing
 
@@ -27,6 +28,7 @@ struct DockControlDefinitionDecodingTests {
         return url
     }
 
+    @MainActor
     private func v2Result(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
         let request: [String: Any] = [
             "id": method,
@@ -83,6 +85,17 @@ struct DockControlDefinitionDecodingTests {
         #expect(control.kind == .browser)
         #expect(control.url == "https://example.com")
         #expect(control.command == nil)
+        #expect(control.showsBrowserChrome)
+    }
+
+    @Test("Browser config decodes chromeless toolbar policy")
+    func chromelessBrowserDecodes() throws {
+        let control = try decode(
+            #"{"id":"dashboard","type":"browser","url":"http://127.0.0.1:8877/sidebar","chrome":false}"#
+        )
+
+        #expect(control.kind == .browser)
+        #expect(!control.showsBrowserChrome)
     }
 
     @Test("Browser config missing url throws")
@@ -136,6 +149,21 @@ struct DockControlDefinitionDecodingTests {
         let encoded = String(data: try JSONEncoder().encode(control), encoding: .utf8) ?? ""
         #expect(encoded.contains("\"type\""))
         #expect(encoded.contains("\"url\""))
+        #expect(!encoded.contains("\"chrome\""))
+    }
+
+    @Test("Chromeless browser entries re-encode the opt-in field")
+    func chromelessBrowserReencodeIncludesChrome() throws {
+        let control = DockControlDefinition(
+            id: "dashboard",
+            title: "Dashboard",
+            kind: .browser,
+            url: "http://127.0.0.1:8877/sidebar",
+            showsBrowserChrome: false
+        )
+        let encoded = String(data: try JSONEncoder().encode(control), encoding: .utf8) ?? ""
+
+        #expect(encoded.contains("\"chrome\":false"))
     }
 
     @Test("Browser entries without url fail to encode")
@@ -161,6 +189,469 @@ struct DockControlDefinitionDecodingTests {
         #expect(file.controls[0].kind == .terminal)
         #expect(file.controls[1].kind == .browser)
         #expect(file.controls[1].url == "https://example.com")
+    }
+
+    @Test("Chromeless Dock browser stays hidden across focus requests and session restore")
+    @MainActor
+    func chromelessBrowserBehaviorPersists() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { root.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+
+        let generation = store.markConfigurationLoadInFlightForTesting(
+            rootDirectory: root.path
+        )
+        let resolution = DockConfigResolution(
+            controls: [
+                DockControlDefinition(
+                    id: "dashboard",
+                    title: "Dashboard",
+                    kind: .browser,
+                    url: "http://127.0.0.1:8877/sidebar",
+                    showsBrowserChrome: false
+                )
+            ],
+            sourceURL: nil,
+            baseDirectory: root.path,
+            isProjectSource: false
+        )
+        store.applyConfigurationLoadResult(
+            .resolved(resolution),
+            generation: generation,
+            replacingPanels: false
+        )
+
+        let panel = try #require(
+            store.panels.values.compactMap { $0 as? BrowserPanel }.first
+        )
+        #expect(panel.chromeVisibility == .chromeless)
+        #expect(!panel.isOmnibarVisible)
+        #expect(panel.requestAddressBarFocus(selectionIntent: .selectAll) == nil)
+        #expect(!panel.isOmnibarVisible)
+        #expect(!panel.setOmnibarVisible(true))
+        #expect(!panel.toggleOmnibarVisibility())
+        #expect(panel.chromeVisibility == .chromeless)
+
+        let snapshot = store.sessionSnapshot(includeScrollback: false)
+        let encodedSnapshot = try JSONEncoder().encode(snapshot)
+        let persistedSnapshot = try JSONDecoder().decode(
+            SessionSplitContainerSnapshot.self,
+            from: encodedSnapshot
+        )
+        #expect(
+            persistedSnapshot.panels.first?.browser?.chromeVisibility ==
+                .chromeless
+        )
+
+        let restoredStore = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { root.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { restoredStore.closeAllPanels() }
+        restoredStore.restoreSessionSnapshot(persistedSnapshot)
+
+        let restoredPanel = try #require(
+            restoredStore.panels.values.compactMap { $0 as? BrowserPanel }.first
+        )
+        #expect(restoredPanel.chromeVisibility == .chromeless)
+        #expect(restoredPanel.requestAddressBarFocus() == nil)
+        #expect(!restoredPanel.isOmnibarVisible)
+    }
+
+    @Test(
+        "Configured Dock terminal follows live titles without replacing a custom name",
+        arguments: [DockScope.workspace, DockScope.global]
+    )
+    @MainActor
+    func configuredTerminalFollowsLiveTitlesWithoutReplacingCustomName(
+        scope: DockScope
+    ) throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let store: DockSplitStore
+        switch scope {
+        case .workspace:
+            store = workspace.dockSplit
+        case .global:
+            store = manager.makeWindowDockStore(windowId: UUID())
+        }
+        defer {
+            store.closeAllPanels()
+            workspace.teardownAllPanels()
+        }
+
+        let resolution = DockConfigResolution(
+            controls: [
+                DockControlDefinition(
+                    id: "agent",
+                    title: "Agent",
+                    command: "codex"
+                )
+            ],
+            sourceURL: nil,
+            baseDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+            isProjectSource: false
+        )
+        store.applyConfigurationLoadResult(
+            .resolved(resolution),
+            generation: 0,
+            replacingPanels: false
+        )
+
+        let tabID = try #require(store.bonsplitController.allTabIds.first)
+        let terminal = try #require(store.panel(for: tabID) as? TerminalPanel)
+        #expect(store.bonsplitController.tab(tabID)?.title == "Agent")
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: GhosttyTitleChange(
+                tabId: store.workspaceId,
+                surfaceId: terminal.id,
+                title: "codex · starting",
+                sourceSurfaceIdentifier: ObjectIdentifier(terminal.surface)
+            ).userInfo
+        )
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: GhosttyTitleChange(
+                tabId: store.workspaceId,
+                surfaceId: terminal.id,
+                title: "codex · issue 9337",
+                sourceSurfaceIdentifier: ObjectIdentifier(terminal.surface)
+            ).userInfo
+        )
+
+        let flushedSnapshot = store.sessionSnapshot(includeScrollback: false)
+        let flushedPanel = try #require(
+            flushedSnapshot.panels.first { $0.id == terminal.id }
+        )
+        #expect(flushedPanel.title == "codex · issue 9337")
+        #expect(terminal.displayTitle == "codex · issue 9337")
+        #expect(store.bonsplitController.tab(tabID)?.title == "codex · issue 9337")
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: GhosttyTitleChange(
+                tabId: store.workspaceId,
+                surfaceId: terminal.id,
+                title: "zsh",
+                sourceSurfaceIdentifier: ObjectIdentifier(terminal.surface)
+            ).userInfo
+        )
+
+        store.flushPendingTerminalTitleUpdates()
+        #expect(terminal.displayTitle == "zsh")
+        #expect(store.bonsplitController.tab(tabID)?.title == "zsh")
+
+        store.bonsplitController.updateTab(
+            tabID,
+            title: "Pinned agent",
+            hasCustomTitle: true
+        )
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: GhosttyTitleChange(
+                tabId: store.workspaceId,
+                surfaceId: terminal.id,
+                title: "claude · issue 9337",
+                sourceSurfaceIdentifier: ObjectIdentifier(terminal.surface)
+            ).userInfo
+        )
+
+        store.flushPendingTerminalTitleUpdates()
+        #expect(terminal.displayTitle == "claude · issue 9337")
+        #expect(store.bonsplitController.tab(tabID)?.title == "Pinned agent")
+    }
+
+    @Test("Window Dock title routing retains every live window store")
+    @MainActor
+    func windowDockTitleRoutingRetainsEveryLiveStore() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let firstStore = manager.makeWindowDockStore(windowId: UUID())
+        let secondStore = manager.makeWindowDockStore(windowId: UUID())
+        defer {
+            firstStore.closeAllPanels()
+            secondStore.closeAllPanels()
+            workspace.teardownAllPanels()
+        }
+
+        for (store, liveTitle) in [
+            (firstStore, "codex · first window Dock"),
+            (secondStore, "codex · second window Dock"),
+        ] {
+            let paneID = try #require(
+                store.bonsplitController.allPaneIds.first
+            )
+            let panelID = try #require(store.newSurface(
+                kind: .terminal,
+                inPane: paneID,
+                workingDirectory: "/tmp",
+                focus: false
+            ))
+            let terminal = try #require(
+                store.panels[panelID] as? TerminalPanel
+            )
+            let tabID = try #require(
+                store.surfaceId(forPanelId: panelID)
+            )
+
+            NotificationCenter.default.post(
+                name: .ghosttyDidSetTitle,
+                object: nil,
+                userInfo: GhosttyTitleChange(
+                    tabId: store.workspaceId,
+                    surfaceId: panelID,
+                    title: liveTitle,
+                    sourceSurfaceIdentifier: ObjectIdentifier(terminal.surface)
+                ).userInfo
+            )
+            store.flushPendingTerminalTitleUpdates()
+
+            #expect(terminal.displayTitle == liveTitle)
+            #expect(store.bonsplitController.tab(tabID)?.title == liveTitle)
+        }
+    }
+
+    @Test("Dock terminal title bursts use the configured coalescing delay")
+    @MainActor
+    func terminalTitleBurstsUseConfiguredCoalescingDelay() throws {
+        let defaultsName = "DockTitleCoalescing.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defaults.removePersistentDomain(forName: defaultsName)
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
+        settings.set(
+            true,
+            for: catalog.terminal.titleUpdateCoalescingEnabled
+        )
+        settings.set(
+            250,
+            for: catalog.terminal.titleUpdateCoalescingMilliseconds
+        )
+        let scheduler = ManualTitleCoalescerScheduler()
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { "/tmp" },
+            terminalTitleUpdateCoalescer: NotificationBurstCoalescer(
+                schedule: scheduler.schedule(delay:action:)
+            ),
+            settings: settings
+        )
+        defer { store.closeAllPanels() }
+
+        let paneID = try #require(store.bonsplitController.allPaneIds.first)
+        let panelID = try #require(
+            store.newSurface(
+                kind: .terminal,
+                inPane: paneID,
+                workingDirectory: "/tmp",
+                focus: false
+            )
+        )
+        let tabID = try #require(store.surfaceId(forPanelId: panelID))
+        let terminal = try #require(store.panels[panelID] as? TerminalPanel)
+
+        for title in ["codex · starting", "codex · latest"] {
+            #expect(store.applyTerminalTitleChange(GhosttyTitleChange(
+                tabId: store.workspaceId,
+                surfaceId: panelID,
+                title: title,
+                sourceSurfaceIdentifier: ObjectIdentifier(terminal.surface)
+            )))
+        }
+
+        #expect(scheduler.delays == [0.25])
+        #expect(terminal.displayTitle != "codex · latest")
+        scheduler.fire(at: 0)
+        #expect(terminal.displayTitle == "codex · latest")
+        #expect(store.bonsplitController.tab(tabID)?.title == "codex · latest")
+    }
+
+    @Test("Pending Dock title is rejected after the retained terminal advances lifecycle")
+    @MainActor
+    func pendingTerminalTitleIsRejectedAfterHibernationLifecycleAdvance() throws {
+        let defaultsName = "DockTitleHibernation.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defaults.removePersistentDomain(forName: defaultsName)
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
+        settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
+        settings.set(250, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
+        let scheduler = ManualTitleCoalescerScheduler()
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { "/tmp" },
+            terminalTitleUpdateCoalescer: NotificationBurstCoalescer(
+                schedule: scheduler.schedule(delay:action:)
+            ),
+            settings: settings
+        )
+        defer { store.closeAllPanels() }
+
+        let paneID = try #require(store.bonsplitController.allPaneIds.first)
+        let panelID = try #require(store.newSurface(
+            kind: .terminal,
+            inPane: paneID,
+            workingDirectory: "/tmp",
+            focus: false
+        ))
+        let tabID = try #require(store.surfaceId(forPanelId: panelID))
+        let terminal = try #require(store.panels[panelID] as? TerminalPanel)
+        let originalLifecycleID = terminal.surface.terminalLifecycleId
+        let staleTitle = "codex · retired child"
+
+        #expect(store.applyTerminalTitleChange(GhosttyTitleChange(
+            tabId: store.workspaceId,
+            surfaceId: panelID,
+            title: staleTitle,
+            sourceSurfaceIdentifier: ObjectIdentifier(terminal.surface)
+        )))
+        #expect(scheduler.delays == [0.25])
+        #expect(terminal.displayTitle != staleTitle)
+
+        #expect(terminal.surface.suspendRuntimeSurfaceForAgentHibernation(
+            reason: "test.pendingDockTitle"
+        ))
+        #expect(terminal.surface.terminalLifecycleId != originalLifecycleID)
+
+        scheduler.fire(at: 0)
+
+        #expect(terminal.displayTitle != staleTitle)
+        #expect(store.bonsplitController.tab(tabID)?.title != staleTitle)
+    }
+
+    @Test(
+        "Transferred custom Dock title survives later live terminal titles",
+        arguments: [false, true]
+    )
+    @MainActor
+    func transferredCustomTitleSurvivesLiveTerminalTitle(
+        attachesBySplitting: Bool
+    ) throws {
+        let source = Workspace()
+        defer { source.teardownAllPanels() }
+        let panelID = try #require(source.focusedPanelId)
+        #expect(source.setPanelCustomTitle(panelId: panelID, title: "Pinned agent"))
+        let detached = try #require(source.detachSurface(panelId: panelID))
+        #expect(detached.customTitle == "Pinned agent")
+
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let store = workspace.dockSplit
+        defer {
+            store.closeAllPanels()
+            workspace.teardownAllPanels()
+        }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let attachedPanelID: UUID?
+        if attachesBySplitting {
+            attachedPanelID = store.attachDetachedSurface(
+                detached,
+                bySplitting: rootPane,
+                orientation: .horizontal,
+                insertFirst: false,
+                focus: false
+            )
+        } else {
+            attachedPanelID = store.attachDetachedSurface(
+                detached,
+                inPane: rootPane,
+                focus: false
+            )
+        }
+        #expect(attachedPanelID == panelID)
+
+        let tabID = try #require(store.surfaceId(forPanelId: panelID))
+        let terminal = try #require(store.panel(for: tabID) as? TerminalPanel)
+        #expect(store.bonsplitController.tab(tabID)?.title == "Pinned agent")
+        #expect(store.bonsplitController.tab(tabID)?.hasCustomTitle == true)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: GhosttyTitleChange(
+                tabId: store.workspaceId,
+                surfaceId: terminal.id,
+                title: "codex · transferred",
+                sourceSurfaceIdentifier: ObjectIdentifier(terminal.surface)
+            ).userInfo
+        )
+
+        store.flushPendingTerminalTitleUpdates()
+        #expect(terminal.displayTitle == "codex · transferred")
+        #expect(store.bonsplitController.tab(tabID)?.title == "Pinned agent")
+        #expect(store.bonsplitController.tab(tabID)?.hasCustomTitle == true)
+
+        store.bonsplitController.updateTab(
+            tabID,
+            title: "Renamed agent",
+            hasCustomTitle: true
+        )
+        let renamedSnapshot = store.sessionSnapshot(includeScrollback: false)
+        let renamedPanel = try #require(
+            renamedSnapshot.panels.first { $0.id == panelID }
+        )
+        #expect(renamedPanel.title == "Renamed agent")
+        #expect(renamedPanel.customTitle == "Renamed agent")
+        #expect(renamedPanel.customTitleSource == .user)
+
+        store.bonsplitController.updateTab(
+            tabID,
+            title: terminal.displayTitle,
+            hasCustomTitle: false
+        )
+        let automaticSnapshot = store.sessionSnapshot(includeScrollback: false)
+        let automaticPanel = try #require(
+            automaticSnapshot.panels.first { $0.id == panelID }
+        )
+        #expect(automaticPanel.title == "codex · transferred")
+        #expect(automaticPanel.customTitle == nil)
+        #expect(automaticPanel.customTitleSource == nil)
+        #expect(automaticPanel.customTitle != "Pinned agent")
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: GhosttyTitleChange(
+                tabId: store.workspaceId,
+                surfaceId: terminal.id,
+                title: "claude · before detach",
+                sourceSurfaceIdentifier: ObjectIdentifier(terminal.surface)
+            ).userInfo
+        )
+        let detachedFromDock = try #require(
+            store.detachSurface(panelId: panelID)
+        )
+        defer { detachedFromDock.panel.close() }
+        #expect(detachedFromDock.title == "claude · before detach")
+        #expect(detachedFromDock.cachedTitle == "claude · before detach")
+        #expect(detachedFromDock.customTitle == nil)
+        #expect(detachedFromDock.restoredPanelTitleBoundary == nil)
+
+        terminal.updateTitle("claude · after detach")
+        let tablessMetadata = store.resolvedDockTitleMetadata(
+            panel: terminal,
+            transfer: detachedFromDock,
+            tab: nil
+        )
+        #expect(tablessMetadata.title == "claude · after detach")
+        #expect(tablessMetadata.cachedTitle == "claude · after detach")
     }
 
     @Test("Project config identity follows the resolved dock file, not child cwd")
@@ -514,5 +1005,37 @@ struct DockControlDefinitionDecodingTests {
 
         #expect(store.bonsplitController.allTabIds.isEmpty)
         #expect(!store.containsPanel(panelId))
+    }
+
+    private final class ManualTitleCoalescerScheduler {
+        private struct PendingFlush {
+            var isCancelled = false
+            let action: @MainActor () -> Void
+        }
+
+        private var pendingFlushes: [PendingFlush] = []
+        private(set) var delays: [TimeInterval] = []
+
+        @MainActor
+        func schedule(
+            delay: TimeInterval,
+            action: @escaping @MainActor () -> Void
+        ) -> NotificationBurstCoalescer.Cancellation {
+            let index = pendingFlushes.count
+            delays.append(delay)
+            pendingFlushes.append(PendingFlush(action: action))
+            return { [weak self] in
+                self?.pendingFlushes[index].isCancelled = true
+            }
+        }
+
+        @MainActor
+        func fire(at index: Int) {
+            guard pendingFlushes.indices.contains(index),
+                  !pendingFlushes[index].isCancelled else {
+                return
+            }
+            pendingFlushes[index].action()
+        }
     }
 }

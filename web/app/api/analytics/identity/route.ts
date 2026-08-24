@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 
 import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
 
-export const dynamic = "force-dynamic";
 
 type IdentityRouteDependencies = {
   readonly isConfigured: () => boolean;
@@ -27,7 +26,22 @@ export function makeAnalyticsIdentityHandler(
     void request;
     if (!dependencies.isConfigured()) return identityResponse(null);
 
-    const user = await dependencies.getUser();
+    let user: Awaited<ReturnType<IdentityRouteDependencies["getUser"]>>;
+    try {
+      user = await dependencies.getUser();
+    } catch {
+      // Identity is auxiliary analytics state. A Stack outage should produce a
+      // bounded response that the browser can treat as anonymous, rather than
+      // a 500 that invites retries on every focus/visibility event.
+      console.warn("analytics.identity.auth_unavailable");
+      return NextResponse.json(
+        { error: "analytics_identity_unavailable" },
+        {
+          status: 503,
+          headers: { "Cache-Control": "private, no-store" },
+        },
+      );
+    }
     // Stack anonymous checkout users must not replace PostHog's browser-level
     // anonymous identity. They become canonical only after account conversion.
     return identityResponse(user && !user.isAnonymous

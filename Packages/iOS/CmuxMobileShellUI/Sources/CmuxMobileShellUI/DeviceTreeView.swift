@@ -6,11 +6,12 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-/// The Computers screen: the Macs signed in to the user's account, each shown
-/// with its name, live/last-seen status, and workspace count. The main workspace
-/// list owns the Mac picker; this screen manages the saved computer set and lets
-/// users inspect one or choose whether it appears on this iPhone. The data is
-/// the durable-object–backed device
+/// The Computers screen: the user's Computers — paired Mac app instances
+/// (device + build) — each shown once, grouped under the connection method
+/// that Computer is configured to use (Iroh or Tailscale, set per Computer in
+/// its configuration). The main workspace list owns the Mac picker; this
+/// screen manages the saved set and lets users inspect one or choose whether
+/// it appears on this iPhone. The data is the durable-object–backed device
 /// registry (with a paired-Mac fallback) plus live presence.
 ///
 /// Snapshot boundary (see AGENTS.md): every row below the `List` takes an
@@ -25,10 +26,11 @@ struct DeviceTreeView: View {
     /// Present the add-device (pairing) flow. `nil` hides the add affordance.
     var showAddDevice: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
-    /// Message for the always-visible failure alert shown when a Forget cannot be
-    /// completed. An alert, not a toast, so the error still surfaces when the
-    /// Toasts beta flag is off.
-    @State private var forgetFailureMessage: String?
+    /// Live app routes dismiss through the root modal owner. Standalone hosts
+    /// leave this nil and retain the environment dismissal fallback.
+    var dismissAction: (() -> Void)? = nil
+    @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
+        MobileConnectionMethodStore?
 
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
@@ -48,37 +50,62 @@ struct DeviceTreeView: View {
                 if computers.isEmpty && store.hiddenComputers.isEmpty {
                     emptySection
                 } else {
+                    // One row per Computer, grouped under the connection
+                    // method that Computer is configured to use. The method
+                    // itself is changed in the Computer's own configuration.
+                    ForEach(MacComputerListSection.sections(from: computers)) { section in
+                        Section {
+                            ComputerVisibilityRows(
+                                visibleComputers: section.computers,
+                                hiddenComputers: [],
+                                mutatingComputerIDs: store.computerVisibilityMutationIDs,
+                                hide: hideComputer,
+                                unhide: unhideComputer,
+                            )
+                        } header: {
+                            Text(section.title)
+                        }
+                    }
+                    if !store.hiddenComputers.isEmpty {
+                        Section {
+                            ComputerVisibilityRows(
+                                visibleComputers: [],
+                                hiddenComputers: store.hiddenComputers,
+                                mutatingComputerIDs: store.computerVisibilityMutationIDs,
+                                hide: hideComputer,
+                                unhide: unhideComputer,
+                            )
+                        } header: {
+                            Text(L10n.string(
+                                "mobile.connections.hidden.title",
+                                defaultValue: "Hidden Computers"
+                            ))
+                        }
+                    }
                     Section {
-                        ComputerVisibilityRows(
-                            visibleComputers: computers,
-                            hiddenComputers: store.hiddenComputers,
-                            mutatingComputerIDs: store.computerVisibilityMutationIDs,
-                            hide: hideComputer,
-                            unhide: unhideComputer,
-                            forget: forgetComputer
-                        )
                         if showAddDevice != nil {
                             addComputerRow
                         }
                     } footer: {
                         Text(L10n.string(
-                            "mobile.computers.footer",
-                            defaultValue: "Turn a computer off to hide its workspaces on this iPhone. It stays signed in to your account."
+                            "mobile.connections.footer",
+                            defaultValue: "Each computer connects using the method set in its own configuration. Turning a computer off hides its workspaces on this iPhone; it stays signed in to your account."
                         ))
                     }
                 }
             }
             .listStyle(.insetGrouped)
-            .navigationDestination(for: String.self) { pairingID in
-                if let computer = computers.first(where: { $0.id == pairingID }) {
+            .navigationDestination(for: MacConnectionRef.self) { ref in
+                if let computer = computers.first(where: { $0.id == ref.pairingID }) {
                     MacComputerDetailView(
                         store: store,
                         macDeviceID: computer.deviceId,
-                        instanceTag: computer.instanceTag
+                        instanceTag: computer.instanceTag,
+                        focusedRouteKind: ref.routeKind
                     )
                 }
             }
-            .navigationTitle(L10n.string("mobile.computers.title", defaultValue: "Computers"))
+            .navigationTitle(L10n.string("mobile.connections.title", defaultValue: "Computers"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if showAddDevice != nil {
@@ -86,13 +113,13 @@ struct DeviceTreeView: View {
                         Button(action: addComputer) {
                             Image(systemName: "plus")
                         }
-                        .accessibilityLabel(L10n.string("mobile.computers.add", defaultValue: "Add Computer"))
+                        .accessibilityLabel(L10n.string("mobile.connections.add", defaultValue: "Add Computer"))
                         .accessibilityIdentifier("MobileComputersAddButton")
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
-                        dismiss()
+                        dismissScreen()
                     }
                     .accessibilityIdentifier("MobileDeviceTreeDone")
                 }
@@ -115,26 +142,6 @@ struct DeviceTreeView: View {
             }
         }
         .accessibilityIdentifier("MobileDeviceTree")
-        .alert(
-            L10n.string(
-                "mobile.computers.forget.failureTitle",
-                defaultValue: "Couldn't forget computer"
-            ),
-            isPresented: Binding(
-                get: { forgetFailureMessage != nil },
-                set: { presented in if !presented { forgetFailureMessage = nil } }
-            ),
-            presenting: forgetFailureMessage
-        ) { _ in
-            Button(
-                L10n.string("mobile.common.ok", defaultValue: "OK"),
-                role: .cancel
-            ) {
-                forgetFailureMessage = nil
-            }
-        } message: { message in
-            Text(message)
-        }
     }
 
     /// End-of-list affordance mirroring the top-left toolbar button, so users who
@@ -143,7 +150,7 @@ struct DeviceTreeView: View {
     private var addComputerRow: some View {
         Button(action: addComputer) {
             Label(
-                L10n.string("mobile.computers.add", defaultValue: "Add Computer"),
+                L10n.string("mobile.connections.add", defaultValue: "Add Computer"),
                 systemImage: "plus"
             )
         }
@@ -154,18 +161,39 @@ struct DeviceTreeView: View {
     /// the top-left toolbar button and the end-of-list row.
     private func addComputer() {
         showAddDevice?()
-        dismiss()
+        dismissScreen()
+    }
+
+    private func dismissScreen() {
+        if let dismissAction {
+            dismissAction()
+        } else {
+            dismiss()
+        }
     }
 
     @ViewBuilder
     private var emptySection: some View {
         Section {
-            Text(L10n.string(
-                "mobile.computers.empty",
-                defaultValue: "No computers yet. Add one to see its workspaces here."
-            ))
-            .foregroundStyle(.secondary)
+            Text(emptyDescription)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("MobileComputersEmptyDescription")
         }
+    }
+
+    private var emptyDescription: String {
+        if connectionMethodStore?.method == .tailscale {
+            return MobilePairingScannerSheet.emptyStateGuidanceText
+        }
+        return showAddDevice != nil
+            ? L10n.string(
+                "mobile.connections.empty",
+                defaultValue: "No computers yet. Iroh finds Macs running cmux 0.64.20 or later. Both devices must be signed in to the same cmux account, and the Mac must keep cmux running while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+            )
+            : L10n.string(
+                "mobile.devices.emptyDescription",
+                defaultValue: "For Iroh to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+            )
     }
 
     private func hideComputer(_ computer: MacComputerSnapshot) {
@@ -180,16 +208,6 @@ struct DeviceTreeView: View {
             computer.macDeviceID,
             instanceTag: computer.instanceTag
         )
-    }
-
-    private func forgetComputer(_ computer: MobileHiddenComputer) async {
-        let forgot = await store.forgetHiddenComputer(computer)
-        if !forgot {
-            forgetFailureMessage = L10n.string(
-                "mobile.computers.forget.failureMessage",
-                defaultValue: "It's still signed in. Check your connection and try again."
-            )
-        }
     }
 
     private func reload() async {

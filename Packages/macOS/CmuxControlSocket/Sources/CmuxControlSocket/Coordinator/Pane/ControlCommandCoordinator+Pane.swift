@@ -202,6 +202,12 @@ extension ControlCommandCoordinator {
                 message: "Pane not found",
                 data: .object(["pane_id": .string(id.uuidString)])
             )
+        case .dockUnavailable(let message):
+            return .err(
+                code: "unavailable",
+                message: message,
+                data: .object(["pane_id": .string(paneID.uuidString)])
+            )
         case .focused(let windowID, let workspaceID, let focusedPaneID):
             return .ok(.object([
                 "window_id": orNull(windowID?.uuidString),

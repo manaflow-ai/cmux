@@ -1,6 +1,5 @@
 public import AppKit
 public import CmuxTerminalCore
-internal import UniformTypeIdentifiers
 #if DEBUG
 internal import CMUXDebugLog
 #endif
@@ -86,7 +85,7 @@ extension TerminalPasteboardService: TerminalImagePasteWriting {
         do {
             try data.write(to: fileURL)
         } catch {
-            try? FileManager.default.removeItem(at: fileURL)
+            try? fileManager.removeItem(at: fileURL)
             return nil
         }
         registerOwnedTemporaryImageFile(fileURL)
@@ -118,7 +117,7 @@ extension TerminalPasteboardService {
 #if DEBUG
                 logDebugEvent("terminal.paste.image.writeFailed error=\(error.localizedDescription)")
 #endif
-                try? FileManager.default.removeItem(at: fileURL)
+                try? fileManager.removeItem(at: fileURL)
                 cleanupTransferredTemporaryImageFiles(fileURLs)
                 return .rejectedImagePayload
             }
@@ -130,7 +129,7 @@ extension TerminalPasteboardService {
         return .saved(fileURLs)
     }
 
-    private func temporaryImageFileURL(fileExtension: String) -> URL {
+    func temporaryImageFileURL(fileExtension: String) -> URL {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd-HHmmss"
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -142,7 +141,7 @@ extension TerminalPasteboardService {
     /// Constrains a client-supplied image extension to a known-good lowercase
     /// token, defaulting to `png`, so the temp filename can never carry path
     /// separators or other hostile characters.
-    private func sanitizedImageFileExtension(_ raw: String) -> String {
+    func sanitizedImageFileExtension(_ raw: String) -> String {
         let token = raw.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         let allowed: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tiff", "bmp"]
         return allowed.contains(token) ? token : "png"

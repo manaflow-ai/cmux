@@ -167,6 +167,16 @@ std::string stream_open_response(
         "{\"stream_id\":\"" + stream_id + "\"}");
 }
 
+std::string attachment_open_response(
+    const std::string& request_id,
+    const std::string& stream_id,
+    const std::string& attachment_lease) {
+    return response(
+        request_id,
+        "{\"stream_id\":\"" + stream_id +
+            "\",\"attachment_lease\":\"" + attachment_lease + "\"}");
+}
+
 std::string resource_snapshot(std::uint64_t revision) {
     const auto decimal = std::to_string(revision);
     return
@@ -585,7 +595,11 @@ TEST("all creation options validate and encode correlation keys") {
 
     cmux::SplitPaneOptions split(cmux::PaneDirection::right);
     split.correlation_key = "create-correlation";
+    split.viewport_width = 0.5;
     check(split.to_params());
+    CHECK_EQ(
+        split.to_params().value().at("viewport_width").as_double().value(),
+        0.5);
 
     cmux::CreateTerminalTabOptions terminal;
     terminal.correlation_key = "create-correlation";
@@ -705,6 +719,36 @@ TEST("mutation sends one stable injected idempotency key without retry") {
     CHECK_EQ(
         params->at("expected_revision").as_string().value(),
         std::string_view("42"));
+}
+
+TEST("workspace creation accepts an expected resource revision") {
+    auto state = std::make_shared<FakeState>();
+    auto client = client_for(state);
+    enqueue(
+        state,
+        response(
+            "cpp-request-1",
+            R"({"value":{"kind":"workspace","workspace_id":"ws_0123456789abcdef0123456789abcdef"},"generation":"g","revision":"1","replayed":false})"));
+    auto key = cmux::MutationOptions::with_key("workspace-create-key");
+    CHECK(key);
+    auto result = client.mutate(
+        cmux::Operation::workspace_create,
+        {{"initial_content", cmux::Json("empty")}},
+        std::move(key).value().expecting(0));
+    CHECK(result);
+
+    std::lock_guard lock(state->mutex);
+    CHECK_EQ(state->outgoing.size(), 1U);
+    auto envelope = cmux::Json::parse(state->outgoing.front());
+    CHECK(envelope);
+    CHECK_EQ(
+        envelope.value().find("operation")->as_string().value(),
+        std::string_view("workspace.create"));
+    const auto* params =
+        envelope.value().find("params")->as_object().value();
+    CHECK_EQ(
+        params->at("expected_revision").as_string().value(),
+        std::string_view("0"));
 }
 
 TEST("default idempotency keys contain independent random 128-bit values") {
@@ -1420,7 +1464,7 @@ TEST("malformed wait cleanup preserves timeout and fail closes once") {
 TEST("terminal lifecycle and wait-exit unions decode strictly") {
     auto running = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
-            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef"],"title":"shell","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef"],"title":"shell","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
             .value());
     CHECK(running);
     CHECK_EQ(
@@ -1430,10 +1474,17 @@ TEST("terminal lifecycle and wait-exit unions decode strictly") {
 
     auto projected = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
-            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef","tab_11111111111111111111111111111111"],"title":"shell","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef","tab_11111111111111111111111111111111"],"title":"shell","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
             .value());
     CHECK(projected);
     CHECK_EQ(projected.value().tab_ids.size(), 2U);
+
+    auto missing_attached_views = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+        cmux::Json::parse(
+            R"({"id":"term_0123456789abcdef0123456789abcdef","title":"legacy","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            .value());
+    CHECK(!missing_attached_views);
+    CHECK_EQ(missing_attached_views.error().code, cmux::ErrorCode::decode);
 
     auto legacy_attached = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
@@ -1441,35 +1492,30 @@ TEST("terminal lifecycle and wait-exit unions decode strictly") {
             .value());
     CHECK(legacy_attached);
     CHECK_EQ(legacy_attached.value().tab_ids.size(), 1U);
-    CHECK_EQ(
-        legacy_attached.value().tab_ids.front(),
-        legacy_attached.value().tab_id.value());
 
     auto legacy_detached = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
             R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":null,"title":"legacy","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
             .value());
     CHECK(legacy_detached);
-    CHECK(!legacy_detached.value().tab_id.has_value());
     CHECK(legacy_detached.value().tab_ids.empty());
 
-    auto nonnull_empty = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+    auto consistent_dual = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
-            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":[],"title":"bad","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef"],"title":"legacy","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
             .value());
-    CHECK(!nonnull_empty);
-    CHECK_EQ(nonnull_empty.error().code, cmux::ErrorCode::decode);
+    CHECK(consistent_dual);
 
-    auto mismatched_primary = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+    auto inconsistent_dual = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
-            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_11111111111111111111111111111111","tab_ids":["tab_0123456789abcdef0123456789abcdef","tab_11111111111111111111111111111111"],"title":"bad","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":[],"title":"legacy","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
             .value());
-    CHECK(!mismatched_primary);
-    CHECK_EQ(mismatched_primary.error().code, cmux::ErrorCode::decode);
+    CHECK(!inconsistent_dual);
+    CHECK_EQ(inconsistent_dual.error().code, cmux::ErrorCode::decode);
 
     auto exited = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
-            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":null,"tab_ids":[],"title":"done","cols":80,"rows":24,"running":false,"lifecycle":"exited","exit":{"outcome":{"kind":"exit","code":0},"exited_at":"123","revision":"9"}})")
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_ids":[],"title":"done","cols":80,"rows":24,"running":false,"lifecycle":"exited","exit":{"outcome":{"kind":"exit","code":0},"exited_at":"123","revision":"9"}})")
             .value());
     CHECK(exited);
     CHECK(exited.value().exit.has_value());
@@ -1479,7 +1525,7 @@ TEST("terminal lifecycle and wait-exit unions decode strictly") {
     auto inconsistent =
         cmux::detail::decode_value<cmux::TerminalSnapshot>(
             cmux::Json::parse(
-                R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef"],"title":"bad","cols":80,"rows":24,"running":true,"lifecycle":"launching"})")
+                R"({"id":"term_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef"],"title":"bad","cols":80,"rows":24,"running":true,"lifecycle":"launching"})")
                 .value());
     CHECK(!inconsistent);
     CHECK_EQ(inconsistent.error().code, cmux::ErrorCode::decode);
@@ -2911,11 +2957,13 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
     auto client = client_for(control, stream_state);
     std::atomic<bool> open_route_ok{false};
     std::atomic<bool> resize_route_ok{false};
+    std::atomic<bool> release_route_ok{false};
 
     std::thread server([
         stream_state,
         &open_route_ok,
-        &resize_route_ok
+        &resize_route_ok,
+        &release_route_ok
     ] {
         wait_for_writes(stream_state, 1);
         cmux::Json open;
@@ -2939,7 +2987,10 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
             std::memory_order_release);
         enqueue(
             stream_state,
-            stream_open_response(request_id, stream_id));
+            attachment_open_response(
+                request_id,
+                stream_id,
+                "terminal-lease"));
 
         wait_for_writes(stream_state, 2);
         cmux::Json resize;
@@ -2956,6 +3007,8 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
                     "terminal.viewer.resize" &&
                 resize_params->at("terminal").as_string().value() ==
                     "term_0123456789abcdef0123456789abcdef" &&
+                resize_params->at("attachment_lease").as_string().value() ==
+                    "terminal-lease" &&
                 resize_params->at("cols").as_uint64().value() == 100U &&
                 resize_params->at("rows").as_uint64().value() == 40U,
             std::memory_order_release);
@@ -2963,7 +3016,7 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
             stream_state,
             response(
                 resize_id,
-                R"({"accepted":true,"size":{"cols":100,"rows":40}})"));
+                R"({"accepted":true,"size":{"cols":100,"rows":40},"outcome":"applied"})"));
 
         wait_for_writes(stream_state, 3);
         cmux::Json release;
@@ -2974,7 +3027,19 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
         }
         const auto release_id =
             std::string(release.find("id")->as_string().value());
-        enqueue(stream_state, response(release_id));
+        const auto* release_params =
+            release.find("params")->as_object().value();
+        release_route_ok.store(
+            release.find("operation")->as_string().value() ==
+                    "terminal.viewer.release" &&
+                release_params->at("terminal").as_string().value() ==
+                    "term_0123456789abcdef0123456789abcdef" &&
+                release_params->at("attachment_lease").as_string().value() ==
+                    "terminal-lease",
+            std::memory_order_release);
+        enqueue(
+            stream_state,
+            response(release_id, R"({"outcome":"applied"})"));
     });
 
     auto terminal_id = cmux::TerminalId::parse(
@@ -2991,11 +3056,18 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
     CHECK(resized);
     CHECK(resized.value().accepted);
     CHECK_EQ(resized.value().size.cols, 100U);
+    CHECK_EQ(
+        resized.value().outcome,
+        cmux::ViewerResizeResult::Outcome::applied);
     auto released = stream.value().release_viewer();
     CHECK(released);
+    CHECK_EQ(
+        released.value().outcome,
+        cmux::ViewerResizeResult::Outcome::applied);
     server.join();
     CHECK(open_route_ok.load(std::memory_order_acquire));
     CHECK(resize_route_ok.load(std::memory_order_acquire));
+    CHECK(release_route_ok.load(std::memory_order_acquire));
     std::lock_guard lock(control->mutex);
     CHECK(control->outgoing.empty());
 }
