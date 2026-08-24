@@ -1355,22 +1355,18 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 Err(HostError::Io(error)) => return io_fail(error),
             };
             let mut names: Vec<String> = Vec::new();
-            let mut total = 0_usize;
-            for entry in entries.flatten() {
-                total += 1;
-                if names.len() >= MAX_LISTING_ENTRIES {
-                    continue;
+            let mut truncated = false;
+            for entry in entries.flatten().take(MAX_LISTING_ENTRIES + 1) {
+                if names.len() == MAX_LISTING_ENTRIES {
+                    truncated = true;
+                    break;
                 }
                 let name = entry.file_name().to_string_lossy().into_owned();
                 let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
                 names.push(if is_dir { format!("{name}/") } else { name });
             }
             names.sort();
-            let more = if total > MAX_LISTING_ENTRIES {
-                format!("\n…[{} more entries]", total - MAX_LISTING_ENTRIES)
-            } else {
-                String::new()
-            };
+            let more = if truncated { "\n…[more entries]".to_owned() } else { String::new() };
             ok_result(
                 version,
                 &action_id,
