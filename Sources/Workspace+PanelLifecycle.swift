@@ -512,7 +512,7 @@ extension Workspace {
         panelDirectoryDisplayLabels.removeValue(forKey: panelId)
         panelGitBranches.removeValue(forKey: panelId)
         panelPullRequests.removeValue(forKey: panelId)
-        panelRepositoryLinks.removeValue(forKey: panelId)
+        clearPanelRepositoryLink(panelId: panelId)
         panelTitles.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
         panelCustomTitleSources.removeValue(forKey: panelId)
