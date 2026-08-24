@@ -482,7 +482,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // cache served the measured one — the row clipping/overlap reports
         // (probe: served=48 actual=50 on every streaming row).
         if !pumpHeightOverrides.isEmpty {
-            for (index, row) in nextRows.enumerated() where pumpHeightOverrides[row.id] != nil {
+            let effectiveWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : width
+            for (index, row) in nextRows.enumerated()
+            where pumpHeightOverride(for: row.id, columnWidth: effectiveWidth) != nil {
                 heightChanges.insert(index)
             }
         }
@@ -598,7 +600,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             let visible = table.rows(in: table.visibleRect)
             for row in visible.lowerBound..<(visible.lowerBound + visible.length)
             where rows.indices.contains(row) {
-                let served = pumpHeightOverrides[rows[row].id]
+                let served = pumpHeightOverride(
+                    for: rows[row].id,
+                    columnWidth: probeWidth
+                )
                     ?? rowHeightCache.height(for: rows[row], columnWidth: probeWidth)
                     ?? rows[row].estimatedHeight
                 let actual = table.rect(ofRow: row).height - spacing
@@ -773,10 +778,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         guard rows.indices.contains(row) else { return tableView.rowHeight }
         let configuration = rows[row]
-        if let override = pumpHeightOverrides[configuration.id] {
+        let columnWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : currentColumnWidth()
+        if let override = pumpHeightOverride(for: configuration.id, columnWidth: columnWidth) {
             return override
         }
-        let columnWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : currentColumnWidth()
         return rowHeightCache.height(
             for: configuration,
             columnWidth: columnWidth
@@ -1467,7 +1472,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // heightOfRow answers, so those rows re-note even when the cache
         // entry itself didn't move.
         if !pumpHeightOverrides.isEmpty {
-            for (index, row) in rows.enumerated() where pumpHeightOverrides[row.id] != nil {
+            for (index, row) in rows.enumerated()
+            where pumpHeightOverride(for: row.id, columnWidth: width) != nil {
                 changed.insert(index)
             }
         }
@@ -1668,7 +1674,23 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// Pump-driven height corrections between applies: heightOfRow consults
     /// these before the equivalence-keyed cache (which only refreshes on the
     /// next container apply).
-    private var pumpHeightOverrides: [SidebarWorkspaceRenderItemID: CGFloat] = [:]
+    private struct PumpHeightOverride {
+        let height: CGFloat
+        let columnWidth: CGFloat
+    }
+
+    private var pumpHeightOverrides: [SidebarWorkspaceRenderItemID: PumpHeightOverride] = [:]
+
+    private func pumpHeightOverride(
+        for rowId: SidebarWorkspaceRenderItemID,
+        columnWidth: CGFloat
+    ) -> CGFloat? {
+        guard let override = pumpHeightOverrides[rowId],
+              override.columnWidth == columnWidth else {
+            return nil
+        }
+        return override.height
+    }
 
     private func noteRowHeightOverride(
         rowId: SidebarWorkspaceRenderItemID,
@@ -1682,11 +1704,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let width = currentColumnWidth()
         guard width > 0 else { return }
         let height = ceil(cell.layoutContent(model: model, width: width, apply: false))
-        let current = pumpHeightOverrides[rowId]
+        let current = pumpHeightOverride(for: rowId, columnWidth: width)
             ?? rowHeightCache.height(for: row, columnWidth: width)
             ?? row.estimatedHeight
         guard abs(height - current) >= 0.5 else { return }
-        pumpHeightOverrides[rowId] = height
+        pumpHeightOverrides[rowId] = PumpHeightOverride(
+            height: height,
+            columnWidth: width
+        )
         if isApplyingTableGeometryUpdate {
             deferredPumpHeightRowIds.insert(rowId)
         } else {
