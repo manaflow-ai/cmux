@@ -55,16 +55,18 @@ public struct BrowserExternalURLPolicy: Equatable, Sendable {
 
         // Keep the documented plain-text substring behavior, while accepting
         // the regex-shaped rules users historically supplied to this setting.
-        // A plain star/question rule is a glob unless it contains an
-        // unambiguous regex marker such as an escape, anchor, or dot-star.
-        // More ambiguous regex syntax remains literal unless the rule uses
-        // the explicit re: prefix, preserving legacy URL substring rules.
+        // A plain star/question rule is a glob unless it contains regex
+        // syntax. Regex-shaped rules first get a literal chance so legacy
+        // URLs containing metacharacters remain usable as exact substrings.
         if pattern.contains("*") || pattern.contains("?"),
            !isRegexShaped(pattern) {
             return regexMatches(wildcardRegex(for: pattern), target: target)
         }
 
         if isRegexShaped(pattern) {
+            if target.range(of: pattern, options: [.caseInsensitive]) != nil {
+                return true
+            }
             return regexMatches(pattern, target: target)
         }
 
@@ -88,7 +90,7 @@ public struct BrowserExternalURLPolicy: Equatable, Sendable {
             return true
         }
         return pattern.contains(where: { character in
-            "\\^$".contains(character)
+            "\\^$+()[]{}|".contains(character)
         })
     }
 
