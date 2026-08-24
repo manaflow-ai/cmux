@@ -35,6 +35,68 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.contains("cleanup"), result.stdout)
     }
 
+    func testLocalTmuxDetachedLifecycleKeepsServerIndependentOfCmuxSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let tmuxPath = [
+            "/opt/homebrew/bin/tmux",
+            "/usr/local/bin/tmux",
+            "/usr/bin/tmux",
+        ].first(where: { FileManager.default.isExecutableFile(atPath: $0) })
+        let tmux = try XCTUnwrap(tmuxPath)
+        let stateRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-local-tmux-\(UUID().uuidString)", isDirectory: true)
+        let sessionName = "regression-\(UUID().uuidString.prefix(8))"
+        try FileManager.default.createDirectory(at: stateRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: stateRoot) }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_LOCAL_TMUX_BIN"] = tmux
+        environment["CMUX_LOCAL_TMUX_STATE_DIR"] = stateRoot.path
+        environment.removeValue(forKey: "CMUX_SOCKET_PATH")
+        environment.removeValue(forKey: "CMUX_SOCKET")
+
+        let start = runProcess(
+            executablePath: cliPath,
+            arguments: ["local-tmux", "start", sessionName, "--cwd", stateRoot.path, "--detached"],
+            environment: environment,
+            timeout: 10
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+        XCTAssertTrue(start.stdout.contains("state=detached"), start.stdout)
+
+        let list = runProcess(
+            executablePath: cliPath,
+            arguments: ["local-tmux", "list", "--json"],
+            environment: environment,
+            timeout: 10
+        )
+        XCTAssertFalse(list.timedOut, list.stderr)
+        XCTAssertEqual(list.status, 0, list.stderr)
+        let listPayload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(list.stdout.utf8)) as? [String: Any]
+        )
+        let sessions = try XCTUnwrap(listPayload["sessions"] as? [[String: Any]])
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertEqual(sessions.first?["session_name"] as? String, sessionName)
+        XCTAssertEqual(sessions.first?["live"] as? Bool, true)
+
+        var rootStat = stat()
+        XCTAssertEqual(lstat(stateRoot.path, &rootStat), 0)
+        XCTAssertEqual(rootStat.st_mode & 0o077, 0)
+
+        let close = runProcess(
+            executablePath: cliPath,
+            arguments: ["local-tmux", "close", sessionName],
+            environment: environment,
+            timeout: 10
+        )
+        XCTAssertFalse(close.timedOut, close.stderr)
+        XCTAssertEqual(close.status, 0, close.stderr)
+        XCTAssertTrue(close.stdout.contains("closed"), close.stdout)
+    }
+
     func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-running")
         defer { context.cleanup() }
