@@ -127,6 +127,21 @@ public final class MobileDisplaySettings {
             )
         }
     }
+
+    /// DEBUG-only override forcing the legacy (iOS 27) keyboard dock path on
+    /// this device, exposed in Settings > Developer for keyboard-pinning A/B
+    /// dogfood. Terminal hosts snapshot the flag when they mount, so a change
+    /// applies after the workspace is reopened. Writes through to the shared
+    /// ``MobileKeyboardDockDebugSetting`` key that `GhosttySurfaceHostView`
+    /// reads.
+    public var forceLegacyKeyboardDock: Bool {
+        didSet {
+            defaults.set(
+                forceLegacyKeyboardDock,
+                forKey: MobileKeyboardDockDebugSetting.forceLegacyDefaultsKey
+            )
+        }
+    }
     #else
     /// Production builds expose only the shipping Shell icon treatment.
     var taskComposerShellIconVariant: TaskComposerShellIconVariant { .current }
@@ -161,6 +176,7 @@ public final class MobileDisplaySettings {
         self.taskComposerShellIconVariant = defaults.string(
             forKey: Self.taskComposerShellIconVariantKey
         ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
+        self.forceLegacyKeyboardDock = MobileKeyboardDockDebugSetting.forceLegacy(from: defaults)
         #endif
     }
 

@@ -42,6 +42,9 @@ public final class GhosttySurfaceHostView: UIView {
     private let usesLegacyKeyboardDockPath: Bool = {
         #if DEBUG
         if UITestConfig.forceLegacyKeyboardDock { return true }
+        // Settings > Developer dogfood override (per-host snapshot: applies to
+        // terminals hosted after the toggle changes).
+        if MobileKeyboardDockDebugSetting.forceLegacy(from: .standard) { return true }
         #endif
         return ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
     }()

@@ -7634,6 +7634,40 @@
         }
       }
     },
+    "mobile.settings.legacyKeyboardDock": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legacy Keyboard Pinning"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レガシーキーボード固定"
+          }
+        }
+      }
+    },
+    "mobile.settings.legacyKeyboardDockCaption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use the iOS 27 keyboard path on this device. Reopen the workspace to apply."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスで iOS 27 のキーボード処理を使用します。ワークスペースを開き直すと適用されます。"
+          }
+        }
+      }
+    },
     "mobile.settings.devices": {
       "extractionState": "manual",
       "localizations": {

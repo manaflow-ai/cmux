@@ -307,6 +307,22 @@ struct MobileSettingsView: View {
                         range: MobileDisplaySettings.unreadIndicatorLeftShiftRange,
                         identifier: "MobileSettingsUnreadIndicatorLeftness"
                     )
+
+                    Toggle(isOn: $displaySettings.forceLegacyKeyboardDock) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.string(
+                                "mobile.settings.legacyKeyboardDock",
+                                defaultValue: "Legacy Keyboard Pinning"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.legacyKeyboardDockCaption",
+                                defaultValue: "Use the iOS 27 keyboard path on this device. Reopen the workspace to apply."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsLegacyKeyboardDock")
                 }
 
                 Section(L10n.string(
