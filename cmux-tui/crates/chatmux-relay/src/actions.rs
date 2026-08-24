@@ -528,6 +528,7 @@ pub fn resolve_scoped_host_path(
 // Bounded file I/O (O_NOFOLLOW where the host supports it)
 // ---------------------------------------------------------------------------
 
+#[cfg(not(unix))]
 fn open_options_no_follow(read: bool) -> std::fs::OpenOptions {
     let mut options = std::fs::OpenOptions::new();
     if read {
@@ -602,6 +603,7 @@ fn write_utf8_no_follow(path: &HostScopedPath, content: &str) -> Result<(), Host
     Ok(())
 }
 
+#[cfg(not(unix))]
 fn create_parent_dirs_no_symlink(path: &Path) -> Result<(), HostError> {
     // Preserve Windows drive prefixes while walking absolute paths. A path
     // such as `C:\\work\\out` starts with Prefix and RootDir components.
