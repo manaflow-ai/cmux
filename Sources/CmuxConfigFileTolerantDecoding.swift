@@ -17,11 +17,10 @@ extension CmuxConfigFile {
     /// by the config store so one bad action cannot hide otherwise valid
     /// actions, while errors in the rest of the file still reject the file.
     static func decodeToleratingInvalidActions(
-        from data: Data,
-        userInfo: [CodingUserInfoKey: Any] = [:]
+        from data: Data
     ) throws -> CmuxConfigFileDecodeResult {
         do {
-            let config = try decodeConfig(data: data, userInfo: userInfo)
+            let config = try decodeConfig(data: data)
             return CmuxConfigFileDecodeResult(config: config, actionIssues: [])
         } catch let originalError {
             guard var root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -35,7 +34,7 @@ extension CmuxConfigFile {
                 let rawAction = rawActions[actionID] as Any
                 do {
                     let actionData = try JSONSerialization.data(withJSONObject: rawAction)
-                    _ = try decodeAction(data: actionData, userInfo: userInfo)
+                    _ = try decodeAction(data: actionData)
                     validActions[actionID] = rawAction
                 } catch {
                     actionIssues.append(
@@ -54,7 +53,7 @@ extension CmuxConfigFile {
             root["actions"] = validActions
             do {
                 let partialData = try JSONSerialization.data(withJSONObject: root)
-                let config = try decodeConfig(data: partialData, userInfo: userInfo)
+                let config = try decodeConfig(data: partialData)
                 return CmuxConfigFileDecodeResult(config: config, actionIssues: actionIssues)
             } catch {
                 throw originalError
@@ -62,21 +61,13 @@ extension CmuxConfigFile {
         }
     }
 
-    private static func decodeConfig(
-        data: Data,
-        userInfo: [CodingUserInfoKey: Any]
-    ) throws -> CmuxConfigFile {
+    private static func decodeConfig(data: Data) throws -> CmuxConfigFile {
         let decoder = JSONDecoder()
-        decoder.userInfo = userInfo
         return try decoder.decode(CmuxConfigFile.self, from: data)
     }
 
-    private static func decodeAction(
-        data: Data,
-        userInfo: [CodingUserInfoKey: Any]
-    ) throws -> CmuxConfigActionDefinition {
+    private static func decodeAction(data: Data) throws -> CmuxConfigActionDefinition {
         let decoder = JSONDecoder()
-        decoder.userInfo = userInfo
         return try decoder.decode(CmuxConfigActionDefinition.self, from: data)
     }
 
