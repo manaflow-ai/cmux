@@ -176,6 +176,23 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
         #expect(descriptor.gitMetadataPaths.contains(targetURL.standardizedFileURL.path))
     }
 
+    @Test func symlinkedConfigDirectoryNeverExpandsWatcherToFilesystemRoot() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let configURL = fixture.gitDirectory.appendingPathComponent("config")
+        try FileManager.default.createSymbolicLink(
+            atPath: configURL.path,
+            withDestinationPath: "/"
+        )
+
+        let descriptor = try #require(
+            await GitMetadataService().watchDescriptor(for: fixture.root.path)
+        )
+
+        #expect(!descriptor.watchedPaths.contains("/"))
+        #expect(!descriptor.gitMetadataPaths.contains("/"))
+    }
+
     @Test func gitlinkPlanningRejectsIndexAboveByteBudgetBeforeParsing() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")

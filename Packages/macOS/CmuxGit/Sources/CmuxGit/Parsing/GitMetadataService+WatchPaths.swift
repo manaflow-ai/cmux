@@ -100,7 +100,10 @@ extension GitMetadataService {
         return GitWorkspaceMetadataWatchDescriptor(
             repositoryRoot: repository.workTreeRoot,
             watchedPaths: watchedPaths.sorted(),
-            gitMetadataPaths: sortedUniqueNormalizedPaths(gitMetadataPaths),
+            gitMetadataPaths: filteredMetadataWatchPaths(
+                gitMetadataPaths,
+                repository: repository
+            ),
             trackedEntryPaths: trackedEntryPaths,
             acceptsAllWorkTreeEvents: acceptsAllWorkTreeEvents,
             eventCoalescingInterval: eventCoalescingInterval,
@@ -163,26 +166,24 @@ extension GitMetadataService {
         var candidate = URL(fileURLWithPath: path).standardizedFileURL
         var isDirectory: ObjCBool = false
         if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory) {
+            if isDirectory.boolValue {
+                let resolved = nativeStandardizedPath(
+                    candidate.resolvingSymlinksInPath().path
+                )
+                guard isAllowedDirectoryWatchRoot(resolved, repository: repository) else {
+                    return nil
+                }
+                return resolved
+            }
             return nativeStandardizedPath(candidate.path)
         }
         while true {
             if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory) {
                 let normalized = nativeStandardizedPath(candidate.path)
-                guard normalized != "/" else { return nil }
-                let repositoryRoots = [
-                    repository.workTreeRoot,
-                    repository.gitDirectory,
-                    repository.commonDirectory
-                ].map(nativeStandardizedPath)
-                let home = nativeStandardizedPath(
-                    FileManager.default.homeDirectoryForCurrentUser.path
-                )
-                let isInsideRepository = repositoryRoots.contains {
-                    isSameOrInside(normalized, root: $0)
+                guard isDirectory.boolValue,
+                      isAllowedDirectoryWatchRoot(normalized, repository: repository) else {
+                    return nil
                 }
-                let isInsideHomeSubdirectory = normalized != home
-                    && isSameOrInside(normalized, root: home)
-                guard isInsideRepository || isInsideHomeSubdirectory else { return nil }
                 return normalized
             }
             let parent = candidate.deletingLastPathComponent()
@@ -193,6 +194,41 @@ extension GitMetadataService {
 
     private nonisolated static func isSameOrInside(_ path: String, root: String) -> Bool {
         path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
+    }
+
+    private nonisolated static func isAllowedDirectoryWatchRoot(
+        _ path: String,
+        repository: ResolvedGitRepository
+    ) -> Bool {
+        let normalized = nativeStandardizedPath(path)
+        guard normalized != "/" else { return false }
+        let repositoryRoots = [
+            repository.workTreeRoot,
+            repository.gitDirectory,
+            repository.commonDirectory
+        ].map(nativeStandardizedPath)
+        let home = nativeStandardizedPath(
+            FileManager.default.homeDirectoryForCurrentUser.path
+        )
+        return repositoryRoots.contains { isSameOrInside(normalized, root: $0) }
+            || (normalized != home && isSameOrInside(normalized, root: home))
+    }
+
+    private nonisolated static func filteredMetadataWatchPaths(
+        _ paths: [String],
+        repository: ResolvedGitRepository
+    ) -> [String] {
+        sortedUniqueNormalizedPaths(paths).filter { path in
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
+                return true
+            }
+            guard isDirectory.boolValue else { return true }
+            let resolved = nativeStandardizedPath(
+                URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+            )
+            return isAllowedDirectoryWatchRoot(resolved, repository: repository)
+        }
     }
 
     /// Standardizes once outside event loops and copies Foundation-backed path
