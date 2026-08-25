@@ -1,5 +1,4 @@
 import Foundation
-import CmuxArtifacts
 import CmuxSettings
 import Testing
 import WebKit
@@ -57,7 +56,7 @@ struct ArtifactHTMLPreviewSecurityTests {
         try Data().write(to: oversized)
         let oversizedHandle = try FileHandle(forWritingTo: oversized)
         try oversizedHandle.truncate(
-            atOffset: UInt64(ArtifactCaptureConfiguration.defaultValue.maximumFileBytes) + 1
+            atOffset: UInt64(8 * 1024 * 1024) + 1
         )
         try oversizedHandle.close()
 

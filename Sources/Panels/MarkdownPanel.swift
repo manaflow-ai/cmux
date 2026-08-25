@@ -23,6 +23,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     let filePath: String
     private let artifactFile: ArtifactSidebarFileAccess.OpenedFile?
     private var artifactReadCopyURL: URL?
+    private var artifactPreviewTask: Task<Void, Never>?
 
     /// The workspace this panel belongs to.
     private(set) var workspaceId: UUID
@@ -125,9 +126,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         self.workspaceId = workspaceId
         self.filePath = filePath
         self.artifactFile = artifactFile
-        self.artifactReadCopyURL = artifactFile?.makeTemporaryPreviewURL(
-            maximumBytes: ArtifactCaptureConfiguration.defaultValue.maximumFileBytes
-        )
+        self.artifactReadCopyURL = nil
+        self.artifactPreviewTask = nil
         self.fontSize = MarkdownFontSizeSettings.clamp(fontSize ?? defaultSize)
         self.fontFamily = defaultFamily
         self.maxContentWidth = defaultMaxWidth
@@ -136,11 +136,41 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         self.followedMaxContentWidth = defaultMaxWidth
         self.displayTitle = (filePath as NSString).lastPathComponent
 
-        loadFileContent()
         if artifactFile == nil {
+            loadFileContent()
             startWatching()
+        } else {
+            startArtifactPreviewLoad()
         }
         observeTypographyDefaults()
+    }
+
+    private func startArtifactPreviewLoad() {
+        guard let artifactFile, artifactPreviewTask == nil else { return }
+        artifactPreviewTask = Task { @MainActor [weak self, artifactFile] in
+            let temporaryURL = await artifactFile.makeTemporaryPreviewURLAsync(
+                maximumBytes: ArtifactCaptureConfiguration.defaultValue.maximumFileBytes
+            )
+            guard let self else {
+                if let temporaryURL {
+                    try? FileManager.default.removeItem(at: temporaryURL)
+                }
+                return
+            }
+            self.artifactPreviewTask = nil
+            guard !self.isClosed else {
+                if let temporaryURL {
+                    try? FileManager.default.removeItem(at: temporaryURL)
+                }
+                return
+            }
+            guard let temporaryURL else {
+                self.isFileUnavailable = true
+                return
+            }
+            self.artifactReadCopyURL = temporaryURL
+            self.loadFileContent()
+        }
     }
 
     /// Adopt a changed typography default (from another viewer's "Set as Default"
@@ -268,6 +298,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func close() {
         isClosed = true
+        artifactPreviewTask?.cancel()
+        artifactPreviewTask = nil
         rendererSession.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
@@ -485,6 +517,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     deinit {
         fileWatchTask?.cancel()
+        artifactPreviewTask?.cancel()
         if let typographyDefaultsObserver {
             NotificationCenter.default.removeObserver(typographyDefaultsObserver)
         }

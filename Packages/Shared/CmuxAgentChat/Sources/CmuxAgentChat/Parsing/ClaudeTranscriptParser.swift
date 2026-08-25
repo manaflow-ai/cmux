@@ -177,7 +177,13 @@ public struct ClaudeTranscriptParser: Sendable {
                     output: output,
                     isError: isError,
                     exitCode: exitCode
-                )
+                ),
+                // Display status may use a non-empty, non-failure result even
+                // when Claude omitted `is_error`; mutation authorization above
+                // remains fail-closed until the explicit false flag arrives.
+                hasPositiveSuccessEvidence: output?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .isEmpty == false
             ),
             resultSeq: seq
         )

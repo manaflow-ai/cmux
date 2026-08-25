@@ -983,6 +983,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     let filePath: String
     private let artifactFile: ArtifactSidebarFileAccess.OpenedFile?
     private var artifactReadCopyURL: URL?
+    private var artifactPreviewTask: Task<Void, Never>?
     private(set) var workspaceId: UUID
     @Published private(set) var displayTitle: String
     @Published private(set) var displayIcon: String?
@@ -1054,9 +1055,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.workspaceId = workspaceId
         self.filePath = filePath
         self.artifactFile = artifactFile
-        self.artifactReadCopyURL = artifactFile?.makeTemporaryPreviewURL(
-            maximumBytes: ArtifactCaptureConfiguration.defaultValue.maximumFileBytes
-        )
+        self.artifactReadCopyURL = nil
+        self.artifactPreviewTask = nil
         self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
         self.textLoader = textLoader
         self.textSaver = textSaver
@@ -1071,11 +1071,42 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.lastObservedFileState = .capture(path: filePath)
 
         prepareContentForPreviewMode()
+        if artifactFile != nil {
+            startArtifactPreviewLoad()
+        }
         if artifactFile == nil {
             resolvePreviewModeIfNeeded(for: fileURL)
         }
         if startFileWatcher, artifactFile == nil {
             startWatchingForFileChanges()
+        }
+    }
+
+    private func startArtifactPreviewLoad() {
+        guard let artifactFile, artifactPreviewTask == nil else { return }
+        artifactPreviewTask = Task { @MainActor [weak self, artifactFile] in
+            let temporaryURL = await artifactFile.makeTemporaryPreviewURLAsync(
+                maximumBytes: ArtifactCaptureConfiguration.defaultValue.maximumFileBytes
+            )
+            guard let self else {
+                if let temporaryURL {
+                    try? FileManager.default.removeItem(at: temporaryURL)
+                }
+                return
+            }
+            self.artifactPreviewTask = nil
+            guard !self.isClosed else {
+                if let temporaryURL {
+                    try? FileManager.default.removeItem(at: temporaryURL)
+                }
+                return
+            }
+            guard let temporaryURL else {
+                self.isFileUnavailable = true
+                return
+            }
+            self.artifactReadCopyURL = temporaryURL
+            _ = self.prepareContentForPreviewMode()
         }
     }
 
@@ -1089,6 +1120,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func close() {
         isClosed = true
+        artifactPreviewTask?.cancel()
+        artifactPreviewTask = nil
         unbindTabMetadata()
         stopWatchingForFileChanges()
         textLoadCoordinator.cancel()
@@ -2498,6 +2531,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     }
 
     deinit {
+        artifactPreviewTask?.cancel()
         removePDFScrollObserver()
         NotificationCenter.default.removeObserver(self)
     }

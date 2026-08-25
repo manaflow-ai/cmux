@@ -38,9 +38,14 @@ extension ContentView {
             let workspaceID = workspace.id
             Task { @MainActor in
                 guard let previewURL = await openedFile.makeTemporaryPreviewURLAsync(
-                    maximumBytes: ArtifactCaptureConfiguration.defaultValue.maximumFileBytes
+                    maximumBytes: 8 * 1024 * 1024
                 ) else {
-                    NSSound.beep()
+                    _ = workspace.openArtifactFileSurface(
+                        inPane: paneId,
+                        file: openedFile,
+                        focus: true,
+                        reuseExisting: true
+                    )
                     return
                 }
                 defer { try? FileManager.default.removeItem(at: previewURL) }

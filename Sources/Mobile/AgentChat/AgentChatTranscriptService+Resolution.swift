@@ -11,14 +11,27 @@ extension AgentChatTranscriptService {
         for _ in 0..<2 {
             let resolutionRecord = candidate
             let candidateTranscriptPath = candidate.transcriptPath
-            let resolvedPath = try await Task.detached(priority: .utility) {
-                try resolver.transcriptPath(for: resolutionRecord)
-            }.value
+            let candidateAgentKind = candidate.agentKind
+            let candidateWorkspaceID = candidate.workspaceID
+            let candidateSurfaceID = candidate.surfaceID
+            let candidateWorkingDirectory = candidate.workingDirectory
+            let candidateHookStoreSessionID = candidate.hookStoreLookupSessionID
+            let resolvedPath: String?
+            if let boundedPath = resolver.boundedTranscriptPath(for: resolutionRecord) {
+                resolvedPath = boundedPath
+            } else {
+                resolvedPath = await fallbackResolutionCoordinator.resolve(for: resolutionRecord)
+            }
             guard let resolvedPath,
                   let current = registry.record(sessionID: sessionID) else {
                 return nil
             }
-            guard current.transcriptPath == candidateTranscriptPath else {
+            guard current.transcriptPath == candidateTranscriptPath,
+                  current.agentKind == candidateAgentKind,
+                  current.workspaceID == candidateWorkspaceID,
+                  current.surfaceID == candidateSurfaceID,
+                  current.workingDirectory == candidateWorkingDirectory,
+                  current.hookStoreLookupSessionID == candidateHookStoreSessionID else {
                 candidate = current
                 continue
             }

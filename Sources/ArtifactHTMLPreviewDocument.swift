@@ -1,10 +1,9 @@
 import Darwin
-import CmuxArtifacts
 import Foundation
 
 /// A bounded, sandbox-wrapped HTML document safe to load as an artifact preview.
 struct ArtifactHTMLPreviewDocument: Sendable {
-    private static let maximumSourceBytes = ArtifactCaptureConfiguration.defaultValue.maximumFileBytes
+    private static let maximumSourceBytes = 8 * 1024 * 1024
 
     let url: URL
 

@@ -4,6 +4,7 @@ import Foundation
 public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identifiable {
     private static let maximumDerivedPathCount = 1_024
     private static let maximumCanonicalAliasCount = 2_048
+
     /// Canonical display path when the file exists, otherwise its lexical path.
     public let path: String
     /// Highest-precedence provenance observed for the path.
@@ -71,6 +72,7 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
     ) -> [ChatArtifactIndexedReference] {
         var byPath: [String: ChatArtifactIndexedReference] = [:]
         var canonicalPathByLexicalPath: [String: String] = [:]
+        var recencyHeap = ChatArtifactRecencyHeap()
         let detector = TerminalArtifactPathDetector()
         let normalizer = ChatArtifactPathNormalizer(workingDirectory: workingDirectory)
         for message in messages {
@@ -132,6 +134,7 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
                     canonicalizer: canonicalizer,
                     canonicalPathByLexicalPath: &canonicalPathByLexicalPath,
                     into: &byPath,
+                    recencyHeap: &recencyHeap,
                     maximumPathCount: Self.maximumDerivedPathCount
                 )
             }
@@ -145,6 +148,7 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
                     canonicalizer: canonicalizer,
                     canonicalPathByLexicalPath: &canonicalPathByLexicalPath,
                     into: &byPath,
+                    recencyHeap: &recencyHeap,
                     maximumPathCount: Self.maximumDerivedPathCount
                 )
             }
@@ -164,6 +168,7 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
                 canonicalizer: canonicalizer,
                 canonicalPathByLexicalPath: &canonicalPathByLexicalPath,
                 into: &byPath,
+                recencyHeap: &recencyHeap,
                 maximumPathCount: Self.maximumDerivedPathCount
             )
         }
@@ -177,23 +182,11 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
         canonicalizer: ChatArtifactPathCanonicalizer,
         canonicalPathByLexicalPath: inout [String: String],
         into byPath: inout [String: ChatArtifactIndexedReference],
+        recencyHeap: inout ChatArtifactRecencyHeap,
         maximumPathCount: Int
     ) {
         let canonicalPath = canonicalPathByLexicalPath[path]
             ?? canonicalizer.canonicalPathKey(for: path)
-        if byPath[canonicalPath] == nil, byPath.count >= maximumPathCount {
-            guard let oldest = byPath.min(by: { lhs, rhs in
-                if lhs.value.lastReferencedSeq != rhs.value.lastReferencedSeq {
-                    return lhs.value.lastReferencedSeq < rhs.value.lastReferencedSeq
-                }
-                return lhs.key < rhs.key
-            }),
-            seq > oldest.value.lastReferencedSeq
-                || (seq == oldest.value.lastReferencedSeq && canonicalPath > oldest.key) else {
-                return
-            }
-            byPath.removeValue(forKey: oldest.key)
-        }
         if canonicalPathByLexicalPath[path] == nil,
            canonicalPathByLexicalPath.count < Self.maximumCanonicalAliasCount {
             canonicalPathByLexicalPath[path] = canonicalPath
@@ -213,5 +206,22 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
             lastReferencedSeq: max(previous?.lastReferencedSeq ?? Int.min, seq),
             captureAuthorization: captureAuthorization
         )
+        recencyHeap.insert(
+            path: canonicalPath,
+            seq: byPath[canonicalPath]?.lastReferencedSeq ?? seq
+        )
+        while byPath.count > maximumPathCount {
+            guard let oldest = recencyHeap.pop() else { break }
+            guard let current = byPath[oldest.path],
+                  current.lastReferencedSeq == oldest.seq else {
+                continue
+            }
+            byPath.removeValue(forKey: oldest.path)
+        }
+        if recencyHeap.count > maximumPathCount * 4 {
+            recencyHeap.compact(
+                currentSequences: byPath.mapValues(\.lastReferencedSeq)
+            )
+        }
     }
 }
