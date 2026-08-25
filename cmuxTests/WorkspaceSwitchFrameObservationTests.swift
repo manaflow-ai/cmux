@@ -82,5 +82,6 @@ struct WorkspaceSwitchFrameObservationTests {
         #expect(targetView.localRenderedFrameNotificationDemandIsActive)
         coordinator.sourceDidRetire(workspaceID: sourceWorkspaceID)
         #expect(!targetView.localRenderedFrameNotificationDemandIsActive)
+        #expect(!coordinator.isMeasuringSwitch)
     }
 }

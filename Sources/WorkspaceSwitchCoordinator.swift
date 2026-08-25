@@ -284,6 +284,15 @@ final class WorkspaceSwitchCoordinator {
         // normal portal visibility owns renderer reclamation again. Visual
         // diagnostics may continue without extending the switch-path lease.
         releaseRendererProtection(&transaction)
+        guard transaction.readiness?.presentationIsReady == true else {
+            // Mount reconciliation has completed, so an unresolved visual
+            // signal is diagnostic-only. End the transaction here rather than
+            // leaving an active signpost/interaction state waiting for a frame
+            // whose observer was deliberately released above.
+            Self.endAllIntervals(in: transaction)
+            active = nil
+            return
+        }
         finishIfPossible(&transaction)
     }
 
