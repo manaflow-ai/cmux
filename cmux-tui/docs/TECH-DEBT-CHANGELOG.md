@@ -2,7 +2,7 @@
 
 Current snapshot: 2026-08-25. The audited aggregate tip before this
 documentation snapshot is [`31fc5df2b4`](https://github.com/manaflow-ai/cmux/commit/31fc5df2b4),
-787 commits ahead of `origin/main` at
+788 commits ahead of `origin/main` at
 `bd985bddcded04ed849e3484dbcb645b32a32cb6`. PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708)
 still has remote head `f8b526ce7b5537a4bf85c0a54eb16bba6035a637`; the audited
 head is not pushed yet. Current hosted status and merge evidence belong in
