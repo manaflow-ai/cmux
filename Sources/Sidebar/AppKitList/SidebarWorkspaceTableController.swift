@@ -510,7 +510,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         let requiresAtomicReorderReload =
             hasStructuralChanges && !heightChanges.isEmpty && isSmallPureReorder
-        let viewportAnchor = requiresAtomicReorderReload
+        let viewportAnchor = (requiresAtomicReorderReload || forceTableReload)
             ? SidebarWorkspaceTableViewportAnchor.capture(
                 table: containerView.tableView,
                 previousRows: previousRows,
@@ -587,6 +587,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             let postUpdateActions = detachLoadedCells()
             performTableGeometryUpdateWithoutAnimation(in: table) {
                 table.reloadData()
+                viewportAnchor?.restore(table: table, rows: nextRows)
             }
             mutationScheduler.stagePostUpdateActions(postUpdateActions)
         } else {
@@ -1750,8 +1751,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 continue
             }
             let height = ceil(cell.layoutContent(model: model, width: columnWidth, apply: false))
+            let previousHeight = pumpHeightOverrides[row.id]?.height ?? height
             pumpHeightOverrides[row.id] = (height: height, columnWidth: columnWidth)
-            heightRows.insert(index)
+            if abs(previousHeight - height) >= 0.5 {
+                heightRows.insert(index)
+            }
         }
     }
 
