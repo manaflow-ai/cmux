@@ -1308,7 +1308,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let sandboxedCommandStart = state.snapshot().count
         let sandboxed = runCursorHook(
             "shell-exec",
-            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"git status --short","sandbox":true}"#
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"rm -rf sandboxed-output","sandbox":true}"#
         )
         XCTAssertFalse(sandboxed.timedOut, sandboxed.stderr)
         XCTAssertEqual(sandboxed.status, 0, sandboxed.stderr)

@@ -31627,13 +31627,16 @@ export default CMUXSessionRestore;
             ?? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
             ?? normalizedHookValue(env["PWD"]) ?? (def.name == "codex" ? normalizedHookValue(FileManager.default.currentDirectoryPath) : nil)
         let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
-        let mappedSessionForPolicy = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+        let cursorShellEvent = def.name == "cursor" && subcommand == "shell-exec"
+        let mappedSessionForPolicy = cursorShellEvent
+            ? (sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)))
+            : nil
         let cursorApprovalSettings: (
             mode: String?,
             allowedShellCommands: [String],
             deniedShellCommands: [String]
         ) = {
-            guard def.name == "cursor" else { return (nil, [], []) }
+            guard cursorShellEvent else { return (nil, [], []) }
             var mode: String?
             var allowedShellCommands: [String] = []
             var deniedShellCommands: [String] = []
@@ -31673,19 +31676,20 @@ export default CMUXSessionRestore;
             }
             let cwdURL = URL(fileURLWithPath: rawCwd).standardizedFileURL
             let fileManager = FileManager.default
-            var ancestors: [URL] = []
             var cursor = cwdURL
+            var projectRoot: URL?
             while true {
-                ancestors.append(cursor)
+                if fileManager.fileExists(
+                    atPath: cursor.appendingPathComponent(".git", isDirectory: false).path
+                ) {
+                    projectRoot = cursor
+                    break
+                }
                 let parent = cursor.deletingLastPathComponent()
                 if parent.path == cursor.path { break }
                 cursor = parent
             }
-            let projectRoot = ancestors.reversed().first(where: {
-                fileManager.fileExists(
-                    atPath: $0.appendingPathComponent(".git", isDirectory: false).path
-                )
-            }) ?? cwdURL
+            let projectRoot = projectRoot ?? cwdURL
             applyConfig(
                 at: projectRoot
                     .appendingPathComponent(".cursor", isDirectory: true)
@@ -31711,7 +31715,6 @@ export default CMUXSessionRestore;
         let cursorLaunchRequestsEverything = mappedSessionForPolicy?.launchCommand?.arguments.contains {
             $0 == "-f" || $0 == "--force" || $0 == "--yolo"
         } == true
-        let cursorShellEvent = def.name == "cursor" && subcommand == "shell-exec"
         let cursorShellNeedsApproval = cursorShellEvent
             && AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
                 payload: input.rawObject,

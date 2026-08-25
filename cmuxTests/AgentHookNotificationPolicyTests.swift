@@ -209,6 +209,16 @@ struct AgentHookNotificationPolicyTests {
         #expect(
             AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
                 payload: [
+                    "command": "/tmp/git status --short",
+                    "sandbox": false,
+                ],
+                approvalMode: "allowlist",
+                allowedShellCommands: ["Shell(git)"]
+            ) == true
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: [
                     "command": "curl https://example.com",
                     "sandbox": false,
                 ],

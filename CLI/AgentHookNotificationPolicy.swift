@@ -303,7 +303,6 @@ enum AgentHookNotificationPolicy {
         )
         let commandBase = commandParts.first.map(String.init) ?? ""
         let commandArguments = commandParts.count > 1 ? String(commandParts[1]) : ""
-        let normalizedBase = URL(fileURLWithPath: commandBase).lastPathComponent
 
         if pattern.contains(":") {
             let components = pattern.split(
@@ -313,7 +312,7 @@ enum AgentHookNotificationPolicy {
             )
             guard let basePattern = components.first.map(String.init),
                   let argumentPattern = components.dropFirst().first.map(String.init),
-                  basePattern == commandBase || basePattern == normalizedBase else {
+                  basePattern == commandBase else {
                 return false
             }
             return globMatches(argumentPattern, value: commandArguments)
@@ -322,7 +321,7 @@ enum AgentHookNotificationPolicy {
             // Cursor's Shell(commandBase) form allows any arguments for that
             // command; matching the whole string would reject valid entries
             // such as Shell(git) for a git status command.
-            return pattern == commandBase || pattern == normalizedBase
+            return pattern == commandBase
         }
 
         return globMatches(pattern, value: normalizedCommand)

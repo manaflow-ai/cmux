@@ -169,6 +169,7 @@ struct WorkstreamStoreTests {
         )
         let events: [WorkstreamEvent.HookEventName] = [
             .postToolUse,
+            .postToolUseFailure,
             .preCompact,
             .postCompact,
             .subagentStart,
