@@ -211,4 +211,171 @@ struct SudoReviewRegressionTests {
 
         #expect(!FileManager.default.fileExists(atPath: temporaryURL.path))
     }
+
+    @Test("Recovered runners are reconciled at their durable deadline")
+    func recoveredRunnerLivenessIsBounded() async throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_786_000_000)
+        let request = try fixture.enqueue(id: "recovered-runner", createdAt: now)
+        let pending = try #require(
+            fixture.store.pendingRequests().first { $0.request.id == request.id }
+        )
+        let transition = try fixture.store.transitionToApproved(
+            pending: pending,
+            now: now,
+            executionGraceSeconds: SudoBroker.executionGraceSeconds
+        )
+        guard case .approved(let manifest) = transition else {
+            Issue.record("recovery fixture did not enter approved state")
+            return
+        }
+        try fixture.store.writeState(
+            SudoRequestState(
+                id: request.id,
+                phase: .executing,
+                updatedAt: now,
+                runner: SudoProcessIdentity(
+                    processIdentifier: 5_200,
+                    startSeconds: 200,
+                    startMicroseconds: 1
+                )
+            )
+        )
+        let clock = TestSudoClock(date: now)
+        let recovery = ReviewRecovery(
+            dispositions: [.runnerActive, .recovered]
+        )
+        let broker = SudoBroker(
+            paths: fixture.paths,
+            dependencies: SudoBrokerDependencies(
+                clock: clock,
+                pam: TestPAMChecker(enabled: true),
+                runner: TestRunnerLauncher(),
+                recovery: recovery,
+                watcher: nil,
+                requesterInspector: TestSudoProcessInspector()
+            ),
+            messages: .testMessages
+        )
+
+        _ = try await broker.start()
+        #expect(await recovery.callCount == 1)
+        for _ in 0..<20 { await Task.yield() }
+        await clock.advance(to: manifest.deadline)
+        _ = try await broker.refresh()
+        for _ in 0..<100 {
+            await Task.yield()
+            if await recovery.callCount >= 2,
+               fixture.store.result(id: request.id) != nil {
+                break
+            }
+        }
+
+        #expect(await recovery.callCount >= 2)
+        #expect(fixture.store.result(id: request.id)?.errorCode == .executionInterrupted)
+    }
+
+    @Test("Cleanup recovery is not retried for every unrelated refresh")
+    func cleanupRecoveryHasBackoff() async throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_786_000_000)
+        let request = try fixture.enqueue(id: "cleanup-backoff", createdAt: now)
+        let pending = try #require(
+            fixture.store.pendingRequests().first { $0.request.id == request.id }
+        )
+        _ = try fixture.store.transitionToApproved(
+            pending: pending,
+            now: now,
+            executionGraceSeconds: SudoBroker.executionGraceSeconds
+        )
+        let survivor = SudoProcessIdentity(
+            processIdentifier: 5_201,
+            startSeconds: 201,
+            startMicroseconds: 1
+        )
+        try fixture.store.writeState(
+            SudoRequestState(
+                id: request.id,
+                phase: .executing,
+                updatedAt: now,
+                execution: survivor,
+                cleanupSurvivors: [survivor]
+            )
+        )
+        _ = try fixture.store.settle(
+            SudoResult(
+                id: request.id,
+                status: .failed,
+                errorCode: .processCleanupFailed,
+                note: "cleanup"
+            )
+        )
+        let recovery = ReviewRecovery(dispositions: [.cleanupIncomplete, .cleanupIncomplete])
+        let broker = SudoBroker(
+            paths: fixture.paths,
+            dependencies: SudoBrokerDependencies(
+                clock: TestSudoClock(date: now),
+                pam: TestPAMChecker(enabled: true),
+                runner: TestRunnerLauncher(),
+                recovery: recovery,
+                watcher: nil,
+                requesterInspector: TestSudoProcessInspector()
+            ),
+            messages: .testMessages
+        )
+
+        _ = try await broker.start()
+        _ = try await broker.refresh()
+        _ = try await broker.refresh()
+
+        #expect(await recovery.callCount == 1)
+    }
+
+    @Test("Reviewed-byte transport has an independent deadline", .timeLimit(.minutes(1)))
+    func reviewedByteTransportDeadlineIsBounded() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        var masterDescriptor: Int32 = -1
+        var slaveDescriptor: Int32 = -1
+        #expect(openpty(&masterDescriptor, &slaveDescriptor, nil, nil, nil) == 0)
+        try #require(masterDescriptor >= 0 && slaveDescriptor >= 0)
+        defer {
+            Darwin.close(masterDescriptor)
+            Darwin.close(slaveDescriptor)
+        }
+        let receiver = SudoPrivilegedScriptReceiver(
+            inputDescriptor: slaveDescriptor,
+            outputDescriptor: slaveDescriptor,
+            temporaryDirectoryURL: fixture.root
+        )
+
+        #expect(throws: (any Error).self) {
+            try receiver.withReceivedDescriptor(
+                expectedByteCount: 1,
+                deadline: Date.now.addingTimeInterval(0.05)
+            ) { _ in }
+        }
+    }
+}
+
+private actor ReviewRecovery: SudoInterruptedExecutionRecovering {
+    private let dispositions: [SudoExecutionRecoveryDisposition]
+    private var index = 0
+    private(set) var callCount = 0
+
+    init(dispositions: [SudoExecutionRecoveryDisposition]) {
+        self.dispositions = dispositions
+    }
+
+    func recover(
+        states: [SudoRequestState],
+        approvedDirectory: URL
+    ) async -> [String: SudoExecutionRecoveryDisposition] {
+        callCount += 1
+        let disposition = dispositions[min(index, dispositions.count - 1)]
+        index += 1
+        return Dictionary(uniqueKeysWithValues: states.map { ($0.id, disposition) })
+    }
 }

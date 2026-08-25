@@ -12,7 +12,8 @@ actor TestRunnerLauncher: SudoRunnerLaunching {
 
     func launch(
         requestID: String,
-        reviewedScript: Data
+        reviewedScript: Data,
+        manifest: SudoExecutionManifest
     ) async -> SudoLaunchedRunner {
         reviewedScripts[requestID] = reviewedScript
         return makeRunner(requestID: requestID)
