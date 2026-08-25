@@ -1168,6 +1168,10 @@ jobs:
 
             echo "Running app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} serially"
             local batch_status
+            # Reset this batch's capture before every invocation. The outer
+            # SwiftPM-resolution retry reuses the path, and a failed retry
+            # must not inherit an earlier attempt's expected-failure summary.
+            : > "$batch_output"
             {
               # These app-host tests create real SwiftUI/WebKit/Ghostty windows and
               # intermittently crash inside XCTest's post-test memory checker or

@@ -1865,7 +1865,8 @@ def _shell_eval_target_ranges(
         for start, end in nested_targets
     ):
         return []
-    return [_trim_bounds(line, argument_start, statement_end)]
+    statement_start, _ = _shell_command_region_bounds(line, verb_start)
+    return [(statement_start, statement_end)]
 
 
 def _call_uses_explicit_shell(
@@ -1960,6 +1961,7 @@ def _nested_network_source_target_ranges(
     source_bounds: tuple[int, int],
     verb_start: int,
     path_suffix: str,
+    require_public_url: bool = True,
 ) -> list[tuple[int, int]]:
     """Resolve a network verb inside a command string using that language's rules."""
     if not _bounds_contain_offset(source_bounds, verb_start):
@@ -1978,7 +1980,7 @@ def _nested_network_source_target_ranges(
     if nested_match is None:
         return []
     nested_ranges = _network_target_ranges(source, nested_match, path_suffix)
-    if not any(
+    if require_public_url and not any(
         _contains_public_network_url(source[start:end])
         for start, end in nested_ranges
     ):
@@ -2270,7 +2272,11 @@ def _launcher_target_ranges(
                     bounds,
                     verb_start,
                 ):
-                    return [bounds]
+                    statement_start, _ = _shell_command_region_bounds(
+                        line,
+                        verb_start,
+                    )
+                    return [(statement_start, bounds[1])]
     else:
         for launcher in _SHELL_COMMAND_LAUNCHER.finditer(line):
             if launcher.start() >= verb_start:
@@ -2921,8 +2927,11 @@ def _direct_network_target_ranges(
             command, _ = _shell_word_value_and_bounds(line, command_word)
             if command.rsplit("/", 1)[-1] != "curl":
                 return []
-            _, statement_end = _shell_command_region_bounds(line, match.start())
-            return [(command_word[0], statement_end)]
+            statement_start, statement_end = _shell_command_region_bounds(
+                line,
+                match.start(),
+            )
+            return [(statement_start, statement_end)]
 
         statement_end = line.find("\n", match.start())
         return [(match.start(), len(line) if statement_end == -1 else statement_end)]
@@ -3057,6 +3066,21 @@ def _network_target_ranges(
             if env_split_ranges:
                 return env_split_ranges
             if _bounds_contain_offset(env_split_source, verb_start):
+                statement_start, statement_end = _shell_command_region_bounds(
+                    line,
+                    verb_start,
+                )
+                command_ranges = _nested_network_source_target_ranges(
+                    line,
+                    env_split_source,
+                    verb_start,
+                    ".sh",
+                    require_public_url=False,
+                )
+                if command_ranges and _contains_public_network_url(
+                    line[statement_start:statement_end]
+                ):
+                    return [(statement_start, statement_end)]
                 return []
     if path_suffix == ".sh" and match.group(0).lower().strip() == "curl":
         direct_ranges = _direct_network_target_ranges(line, match, path_suffix)
