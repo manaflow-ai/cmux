@@ -203,6 +203,7 @@ extension ControlCommandCoordinator {
         _ params: [String: JSONValue]
     ) -> ControlCallResult? {
         guard nonBlankRawString(params, "initial_input") != nil,
+              hasNonNull(params, "type"),
               let type = params["type"] else {
             return nil
         }

@@ -16,7 +16,8 @@ struct ControlCommandCoordinatorSurfaceTests {
     private func capturedCreationInputs(
         method: String,
         initialCommand: JSONValue? = nil,
-        initialInput: JSONValue? = nil
+        initialInput: JSONValue? = nil,
+        type: JSONValue? = nil
     ) -> (wasCaptured: Bool, initialCommand: String?, initialInput: String?) {
         let context = FakeSurfaceControlCommandContext()
         context.paneCreateResolution = .createFailed
@@ -32,6 +33,9 @@ struct ControlCommandCoordinatorSurfaceTests {
         }
         if let initialInput {
             params["initial_input"] = initialInput
+        }
+        if let type {
+            params["type"] = type
         }
 
         _ = coordinator.handle(ControlRequest(
@@ -100,6 +104,23 @@ struct ControlCommandCoordinatorSurfaceTests {
         let capture = capturedCreationInputs(
             method: method,
             initialInput: .string(input)
+        )
+
+        #expect(capture.wasCaptured)
+        #expect(capture.initialCommand == nil)
+        #expect(capture.initialInput == input)
+    }
+
+    @Test(
+        "terminal creation RPCs treat null type as omitted",
+        arguments: ["surface.split", "pane.create", "surface.create"]
+    )
+    func terminalCreationAllowsNullType(method: String) {
+        let input = "echo null type\r"
+        let capture = capturedCreationInputs(
+            method: method,
+            initialInput: .string(input),
+            type: .null
         )
 
         #expect(capture.wasCaptured)
