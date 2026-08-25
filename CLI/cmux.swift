@@ -32538,12 +32538,22 @@ export default CMUXSessionRestore;
             var deniedShellCommands: [String] = []
             var didReadConfig = false
             func applyConfig(at url: URL, readsApprovalMode: Bool) {
-                let maximumConfigBytes: Int64 = 256 * 1024
+                let maximumConfigBytes = 256 * 1024
                 guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
                       values.isRegularFile == true,
                       let fileSize = values.fileSize,
-                      fileSize <= maximumConfigBytes,
-                      let data = try? Data(contentsOf: url),
+                      fileSize <= maximumConfigBytes else {
+                    return
+                }
+                let data: Data
+                do {
+                    let handle = try FileHandle(forReadingFrom: url)
+                    defer { try? handle.close() }
+                    data = try handle.read(upToCount: maximumConfigBytes + 1) ?? Data()
+                } catch {
+                    return
+                }
+                guard data.count <= maximumConfigBytes,
                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                     return
                 }
@@ -32970,8 +32980,25 @@ export default CMUXSessionRestore;
                 // persisted target for this shell path; process/TTY probing
                 // and live re-homing would add unbounded socket work before
                 // the synchronous hook response.
-                let workspaceId = resolvedDirectWorkspaceArg ?? mapped?.workspaceId
-                let preferredSurfaceId = resolvedDirectSurfaceArg ?? mapped?.surfaceId
+                if let mappedWorkspaceId = mapped?.workspaceId {
+                    if let directWorkspaceId = resolvedDirectWorkspaceArg,
+                       directWorkspaceId != mappedWorkspaceId {
+                        return nil
+                    }
+                    if let directSurfaceId = resolvedDirectSurfaceArg,
+                       let mappedSurfaceId = mapped?.surfaceId,
+                       directSurfaceId != mappedSurfaceId {
+                        return nil
+                    }
+                    let preferredSurfaceId = mapped?.surfaceId ?? resolvedDirectSurfaceArg
+                    return resolveTarget(
+                        workspaceId: mappedWorkspaceId,
+                        preferredSurfaceId: preferredSurfaceId,
+                        mapped: mapped
+                    )
+                }
+                let workspaceId = resolvedDirectWorkspaceArg
+                let preferredSurfaceId = resolvedDirectSurfaceArg
                 guard let workspaceId else { return nil }
                 if let preferredSurfaceId,
                    resolvedDirectWorkspaceArg == workspaceId,
@@ -33212,11 +33239,9 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
-            if !failed {
-                guard input.rawObject?["sandbox"] as? Bool == false else {
-                    telemetry.breadcrumb("\(def.name)-hook.shell-done.non-unsandboxed")
-                    return
-                }
+            guard input.rawObject?["sandbox"] as? Bool == false else {
+                telemetry.breadcrumb("\(def.name)-hook.shell-\(failed ? "failed" : "done").non-unsandboxed")
+                return
             }
 
             guard let command = cursorShellCommand(from: input), !sessionId.isEmpty else {
