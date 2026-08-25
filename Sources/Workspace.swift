@@ -10588,6 +10588,23 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return panel
     }
 
+    /// Applies the configured pane-zoom behavior before a user-created terminal tab.
+    ///
+    /// Restore, layout, and placeholder paths intentionally call the lower-level
+    /// ``newTerminalSurface(inPane:focus:workingDirectory:initialCommand:tmuxStartCommand:initialInput:startupRestoreAgent:startupEnvironment:runtimeSpawnPolicy:autoRefreshMetadata:preserveFocusWhenUnfocused:remotePTYSessionID:suppressWorkspaceRemoteStartupCommand:restoredSurfaceId:terminalFontSizeCreationPolicy:inheritWorkingDirectoryFallback:workingDirectoryFallbackSourcePanelId:allowTextBoxFocusDefault:)``
+    /// method directly. Interactive tab entry points call this method first so
+    /// the legacy unzoom behavior and the opt-in inheritance behavior share one
+    /// policy.
+    func applyNewTerminalSurfaceZoomPolicy(inPane paneId: PaneID) {
+        let zoomedPaneId = bonsplitController.zoomedPaneId
+        let keepExpanded = settings.value(for: SettingCatalog().app.keepExpandedOnNewTab)
+        let shouldKeepExpanded = keepExpanded && zoomedPaneId == paneId
+
+        if zoomedPaneId != nil && !shouldKeepExpanded {
+            clearSplitZoom()
+        }
+    }
+
     @discardableResult
     func clearSplitZoom() -> Bool {
         bonsplitController.clearPaneZoom()
@@ -11573,6 +11590,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     private func createTerminalToRight(of anchorTabId: TabID, inPane paneId: PaneID) {
         let sourcePanelId = panelIdFromSurfaceId(anchorTabId)
+        applyNewTerminalSurfaceZoomPolicy(inPane: paneId)
         guard let newPanel = newTerminalSurface(
             inPane: paneId,
             focus: true,
@@ -13599,6 +13617,7 @@ extension Workspace: BonsplitDelegate {
             case .currentTerminal:
                 self.selectedTerminalPanel(inPane: pane)?.sendInput(shellInput)
             case .newTabInCurrentPane:
+                self.applyNewTerminalSurfaceZoomPolicy(inPane: pane)
                 _ = self.newTerminalSurface(
                     inPane: pane,
                     focus: true,
@@ -13615,10 +13634,12 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {
         switch kind {
         case "terminal":
+            applyNewTerminalSurfaceZoomPolicy(inPane: pane)
             _ = newTerminalSurface(inPane: pane, inheritWorkingDirectoryFallback: true)
         case "browser":
             _ = newBrowserSurface(inPane: pane)
         default:
+            applyNewTerminalSurfaceZoomPolicy(inPane: pane)
             _ = newTerminalSurface(inPane: pane, inheritWorkingDirectoryFallback: true)
         }
     }

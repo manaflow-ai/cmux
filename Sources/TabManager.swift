@@ -3933,14 +3933,8 @@ class TabManager: ObservableObject {
         in workspace: Workspace,
         initialInput: String? = nil
     ) -> TerminalPanel? {
-        let zoomedPaneId = workspace.bonsplitController.zoomedPaneId
-        let focusedPaneId = workspace.bonsplitController.focusedPaneId
-        let keepExpanded = settings.value(for: settingsCatalog.app.keepExpandedOnNewTab)
-        let shouldKeepExpanded = keepExpanded && zoomedPaneId != nil && zoomedPaneId == focusedPaneId
-
-        if zoomedPaneId != nil && !shouldKeepExpanded {
-            workspace.clearSplitZoom()
-        }
+        guard let focusedPaneId = workspace.bonsplitController.focusedPaneId else { return nil }
+        workspace.applyNewTerminalSurfaceZoomPolicy(inPane: focusedPaneId)
 
         return workspace.newTerminalSurfaceInFocusedPane(
             focus: true,
