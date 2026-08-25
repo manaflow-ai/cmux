@@ -476,6 +476,7 @@ import CmuxGit
         #expect(await waitUntil {
             host.panelRepositoryLink(workspaceId: workspaceId, panelId: panelId)?.url == link.url
         })
+        let eventCountAfterFirstProbe = host.events.count
         let secondClock = ManualGitPollClock()
         let secondService = makeService(host: host, reader: reader, clock: secondClock)
         secondService.scheduleWorkspaceGitMetadataRefreshIfPossible(
@@ -489,6 +490,12 @@ import CmuxGit
         #expect(await waitUntil { secondService.workspaceGitProbeStateByKey[secondProbeKey] == nil })
 
         #expect(host.panelRepositoryLink(workspaceId: workspaceId, panelId: panelId)?.url == link.url)
+        let secondProbeEvents = host.events.dropFirst(eventCountAfterFirstProbe)
+        #expect(!secondProbeEvents.contains(.clearRepositoryLink(workspaceId, panelId)))
+        #expect(!secondProbeEvents.contains { event in
+            if case .repositoryLink = event { return true }
+            return false
+        })
     }
 
     @Test(.timeLimit(.minutes(1)))

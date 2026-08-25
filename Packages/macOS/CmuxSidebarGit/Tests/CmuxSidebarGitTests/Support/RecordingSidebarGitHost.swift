@@ -195,6 +195,10 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
         record(.clearGitBranch(workspaceId, panelId))
     }
 
+    func clearPanelGitBranchPreservingRepositoryLink(workspaceId: UUID, panelId: UUID) {
+        clearPanelGitBranch(workspaceId: workspaceId, panelId: panelId)
+    }
+
     func updatePanelRepositoryLink(
         workspaceId: UUID,
         panelId: UUID,
