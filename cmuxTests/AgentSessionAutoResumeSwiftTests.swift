@@ -2486,6 +2486,27 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         #expect(!exactWithoutLaunchRemoteCommand.contains(capturedDirectory))
     }
 
+    @Test func persistentSSHRegistrationWithoutCwdFailsClosedForDirectoryKeyedAgent() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let context = SurfaceResumeRemoteContext(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            persistentPTYSessionID: "persistent-grok-session"
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "grok",
+            command: "grok resume persistent-grok-session",
+            checkpointId: "persistent-grok-session",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let registered = binding.registeredForPersistentSSH(context)
+
+        #expect(registered.restoreWorkingDirectorySelection == .unavailable)
+    }
+
     @MainActor
     @Test(arguments: [RestorableAgentKind.codex, .opencode])
     func remoteManualResumeRecordUsesOnlyTrustedReportedDirectory(
