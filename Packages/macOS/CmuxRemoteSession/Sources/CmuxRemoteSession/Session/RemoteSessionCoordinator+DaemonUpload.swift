@@ -100,8 +100,8 @@ extension RemoteSessionCoordinator {
         # dup, cat exits 0 after writing an empty payload even though ssh had
         # a file-backed stdin stream to forward.
         exec 3<&0
-        # Keep the shell PID marker. Scoped recovery can signal this owner,
-        # and its trap then stops both the reader and watchdog children.
+        # Keep the shell PID marker for stale-file detection. Recovery never
+        # signals a marker PID because numeric PIDs can be reused.
         set -C
         # Create the owner marker atomically after noclobber is enabled.
         if ! printf '%s\\n' "$$" > "$pid_path"; then
