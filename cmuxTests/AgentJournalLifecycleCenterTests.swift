@@ -8,7 +8,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("Agent journal lifecycle center")
+@Suite("Agent journal lifecycle center", .serialized)
 struct AgentJournalLifecycleCenterTests {
     @MainActor
     @Test func liveClaudeCompletionJournalAppliesIdleDespiteLiveProcess() async throws {
