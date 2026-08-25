@@ -1104,11 +1104,14 @@ impl Inner {
                         (viewer.on_exit)(code);
                     }
                 });
-                output.subscribe(on_session_data, on_session_exit);
                 self.shell_sessions
                     .lock()
                     .expect("shell lock")
                     .insert(session.to_owned(), Arc::clone(&shell_session));
+                // Register before subscribing so a synchronous buffered exit
+                // can remove this session instead of being overwritten by a
+                // later insertion.
+                output.subscribe(on_session_data, on_session_exit);
                 self.shell_starting.lock().expect("shell starting lock").remove(session);
                 reservation.active = false;
                 reservation.notify.notify_waiters();
