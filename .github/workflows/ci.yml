@@ -187,6 +187,9 @@ jobs:
       - name: Validate activation benchmark scrollback sizing
         run: python3 tests/test_perf_activation_scrollback_sizing.py
 
+      - name: Validate target-scale resource budget contract
+        run: python3 tests/test_perf_target_scale.py
+
       - name: Validate create-dmg version pinning
         run: ./tests/test_ci_create_dmg_pinned.sh
 
