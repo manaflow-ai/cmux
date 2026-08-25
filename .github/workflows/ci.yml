@@ -261,6 +261,9 @@ jobs:
       - name: Validate Zig install without sudo
         run: ./tests/test_install_zig_ci_no_sudo.sh
 
+      - name: Validate Zig download resume and mirror isolation
+        run: ./tests/test_install_zig_ci_download_resume.sh
+
       - name: Initialize Ghostty for Zig version guard
         run: git submodule update --init --depth 1 ghostty
 

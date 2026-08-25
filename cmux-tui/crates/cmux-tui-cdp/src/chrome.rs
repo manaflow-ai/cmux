@@ -47,7 +47,12 @@ impl Chrome {
 
     pub fn launch_with(options: &ChromeLaunchOptions) -> anyhow::Result<Self> {
         let (profile_dir, profile_ephemeral) = profile_dir_for(options)?;
-        std::fs::create_dir_all(&profile_dir)?;
+        std::fs::create_dir_all(&profile_dir).map_err(|error| {
+            anyhow::anyhow!(
+                "failed to create Chrome profile directory {}: {error}",
+                profile_dir.display()
+            )
+        })?;
         let mut command = Command::new(&options.binary);
         command.args(chrome_args_for(&profile_dir, options.mode));
         let mut child = command

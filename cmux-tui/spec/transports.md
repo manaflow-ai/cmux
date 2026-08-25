@@ -29,9 +29,35 @@ $TMPDIR
 /tmp
 ```
 
-It appends `cmux-tui-<uid>/<session>.sock`. When that path exceeds the platform Unix-socket limit, the server uses its short `/tmp` fallback. The TUI exports the resolved path to child surfaces as `CMUX_TUI_SOCKET` and legacy `CMUX_MUX_SOCKET`. SDKs must prefer an explicit socket or `CMUX_TUI_SOCKET`, then implement the same resolution algorithm.
+It appends `cmux-tui-<uid>/<session>.sock`. When that path exceeds the
+platform Unix-socket limit, the server first uses the same leaf below `/tmp`.
+If the session leaf itself is still too long, the server and every SDK first
+use `<runtime-base>/cmux-tui-hashed-<uid>/<sha256>.sock` when that path fits,
+then use `/tmp/cmux-tui-hashed-<uid>/<sha256>.sock` only when the preferred
+runtime base is also too long. Here `<runtime-base>` is the first non-empty
+value of `XDG_RUNTIME_DIR`, `TMPDIR`, or `/tmp`, and `sha256` is the full
+lowercase SHA-256 digest of the session's UTF-8 bytes. The separate directory
+prevents a digest leaf from aliasing an ordinary session name. The TUI exports
+the resolved path to child surfaces as `CMUX_TUI_SOCKET` and legacy
+`CMUX_MUX_SOCKET`. SDKs must prefer an explicit socket or `CMUX_TUI_SOCKET`,
+then implement the same byte-length and path-resolution algorithm. Empty
+socket environment values are treated as unset.
 
-Protocol v9 does not validate session text before joining it into the path. Callers must currently restrict session names to `[A-Za-z0-9][A-Za-z0-9._-]{0,63}` and reject `.`, `..`, separators, and control characters. vNext makes that validation mandatory in the server.
+The server validates session text before joining it into the path. A name must
+be a non-empty single path component. `.`, `..`, `/`, `\\`, NUL, control
+characters, and Unicode line separators are rejected. Existing names with
+spaces, Unicode, leading punctuation, colons, or long text remain valid.
+Clients that can target an older protocol-v9 server must apply the same
+validation before computing a socket path. SDKs must expose a fallible
+validation path before opening a derived socket. Legacy non-fallible helpers
+must never join invalid text into the normal socket root; they may return a
+distinct, hash-derived per-input error path for source compatibility. That
+path is outside the normal `cmux-tui-<uid>` session directory and is never a
+server-derived session socket. A compatibility hash is only a deterministic
+namespace guard, not a cryptographic identity. SDK connectors must use the
+fallible path and must not open a compatibility path. For SDK discovery,
+explicit socket paths and `CMUX_TUI_SOCKET` / `CMUX_MUX_SOCKET` overrides
+remain authoritative and do not require a session component.
 
 The `cmux-tui` process accepts `--session <name>` to select the default socket name and `--socket <path>` to override the path. The socket contains no canonical state. Workspace identity/order, mutation results/tombstones, and frontend projections are stored in SQLite under the platform state directory (macOS: `~/Library/Application Support/cmux-tui/sessions`), or under `--state <root>`. An explicit socket does not change the state root. `--ephemeral` selects an in-memory registry and is mutually exclusive with `--state`.
 
@@ -97,7 +123,17 @@ The v5 socket security model is filesystem permissions:
 | Runtime directory | `0700` |
 | Socket file | `0600` |
 
-When binding, the server creates the runtime directory if needed, refuses to clobber a live socket, removes a stale socket, binds the listener, and then sets socket permissions. On clean shutdown, it removes the socket file.
+Before binding, the server creates the final socket parent if needed, rejects a
+symlink or non-directory, verifies ownership by the effective user, and
+tightens group/other permissions. It then refuses to clobber a live socket,
+removes a stale socket, binds the listener, and sets socket permissions. On
+clean shutdown, it removes the socket file. These checks cover the final
+parent; because `create_dir_all` can follow intermediate links, a future
+component-by-component `openat`/`O_NOFOLLOW` walk is needed if an untrusted
+process can replace an intermediate parent during creation.
+The relay's ensure-daemon path performs the same final-parent ownership/mode
+validation after `create_dir_all` and has the same intermediate-parent
+limitation.
 
 Access to the Unix socket is equivalent to access to the mux session. A client can type into PTYs, read screens, close surfaces, and change focus. Hosts must keep the runtime directory private.
 

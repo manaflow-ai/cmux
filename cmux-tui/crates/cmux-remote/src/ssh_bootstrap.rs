@@ -1,7 +1,7 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_remote_protocol::REMOTE_PROTOCOL_VERSION;
 use serde::{Deserialize, Serialize};
@@ -9,6 +9,8 @@ use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
 
 const SSH_BOOTSTRAP_OUTPUT_LIMIT: usize = 4_096;
+// Cleanup must not turn a bounded bootstrap timeout into an unbounded wait.
+const SSH_BOOTSTRAP_REAP_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// The version of the npm/PyPI distribution that contains this binary. Release
 /// workflows stamp it independently from the Rust crate's internal version.
@@ -380,16 +382,24 @@ impl SshBootstrapper {
         remote_arguments: [&str; N],
     ) -> Result<RemoteOutput, BootstrapError> {
         let mut command = Command::new(&self.config.ssh_binary);
+        self.configure_ssh_command(&mut command);
+        for argument in remote_arguments {
+            command.arg(argument);
+        }
+        command.stdin(Stdio::null());
+        self.run_child(command).await
+    }
+
+    fn configure_ssh_command(&self, command: &mut Command) {
         command.arg("-T");
         if let Some(port) = self.config.port {
             command.arg("-p").arg(port.to_string());
         }
         command.args(&self.config.extra_args).arg(&self.config.destination);
-        for argument in remote_arguments {
-            command.arg(argument);
-        }
+    }
+
+    async fn run_child(&self, mut command: Command) -> Result<RemoteOutput, BootstrapError> {
         let mut child = command
-            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
@@ -413,6 +423,7 @@ impl SshBootstrapper {
                 )));
             }
         };
+        let started = Instant::now();
         let completion = tokio::time::timeout(self.config.timeout, async {
             // Drain both pipes concurrently so either stream can fill without
             // blocking the other stream or the child exit observation.
@@ -427,7 +438,15 @@ impl SshBootstrapper {
             Ok(Ok(result)) => result,
             Ok(Err(error)) => {
                 terminate_and_reap(&mut child).await;
-                return Err(error);
+                // Preserve the bootstrap contract when the timeout and an
+                // I/O error race under scheduler load. Once the budget has
+                // expired, callers must see Timeout regardless of which
+                // cancelled pipe reports first.
+                return Err(if started.elapsed() >= self.config.timeout {
+                    BootstrapError::Timeout
+                } else {
+                    error
+                });
             }
             Err(_) => {
                 terminate_and_reap(&mut child).await;
@@ -444,56 +463,9 @@ impl SshBootstrapper {
     ) -> Result<RemoteOutput, BootstrapError> {
         let source = std::fs::File::open(source).map_err(BootstrapError::Io)?;
         let mut command = Command::new(&self.config.ssh_binary);
-        command.arg("-T");
-        if let Some(port) = self.config.port {
-            command.arg("-p").arg(port.to_string());
-        }
-        command.args(&self.config.extra_args).arg(&self.config.destination).arg(remote_command);
-        let mut child = command
-            .stdin(Stdio::from(source))
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(BootstrapError::Io)?;
-        let stdout = match child.stdout.take() {
-            Some(stdout) => stdout,
-            None => {
-                terminate_and_reap(&mut child).await;
-                return Err(BootstrapError::Io(std::io::Error::other(
-                    "SSH stdout pipe is unavailable",
-                )));
-            }
-        };
-        let stderr = match child.stderr.take() {
-            Some(stderr) => stderr,
-            None => {
-                terminate_and_reap(&mut child).await;
-                return Err(BootstrapError::Io(std::io::Error::other(
-                    "SSH stderr pipe is unavailable",
-                )));
-            }
-        };
-        let completion = tokio::time::timeout(self.config.timeout, async {
-            tokio::try_join!(
-                read_bounded(stdout, "stdout"),
-                read_bounded(stderr, "stderr"),
-                async { child.wait().await.map_err(BootstrapError::Io) },
-            )
-        })
-        .await;
-        let (stdout, stderr, status) = match completion {
-            Ok(Ok(result)) => result,
-            Ok(Err(error)) => {
-                terminate_and_reap(&mut child).await;
-                return Err(error);
-            }
-            Err(_) => {
-                terminate_and_reap(&mut child).await;
-                return Err(BootstrapError::Timeout);
-            }
-        };
-        Ok(RemoteOutput { status: status.code().unwrap_or(255), stdout, stderr })
+        self.configure_ssh_command(&mut command);
+        command.arg(remote_command).stdin(Stdio::from(source));
+        self.run_child(command).await
     }
 }
 
@@ -571,7 +543,9 @@ async fn read_bounded(
 
 async fn terminate_and_reap(child: &mut Child) {
     let _ = child.start_kill();
-    let _ = child.wait().await;
+    // `wait` can be delayed by scheduler pressure (or a descendant retaining
+    // the stdio pipes). Keep the caller's failure path bounded as well.
+    let _ = tokio::time::timeout(SSH_BOOTSTRAP_REAP_TIMEOUT, child.wait()).await;
 }
 
 struct RemoteOutput {
