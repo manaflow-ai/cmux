@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 
 /// Reads file-backed refs directly and delegates other storage backends to Git.
@@ -12,6 +13,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     private let probesReferenceFormat: Bool
     private let storageProbe: any GitReferenceStorageProbing
     private let configReader: GitConfigFileReader
+    private let boundedCommandWallTimeLimit: TimeInterval
 
     /// Creates a production reader backed by the system Git executable.
     init(
@@ -31,6 +33,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         self.probesReferenceFormat = true
         self.storageProbe = storageProbe ?? SystemGitReferenceStorageProbe()
         self.configReader = configReader
+        self.boundedCommandWallTimeLimit = max(0, boundedCommandWallTimeLimit)
     }
 
     /// Creates a reader with an injected runner for deterministic tests.
@@ -43,6 +46,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         self.probesReferenceFormat = runner is SystemWorkspaceChangesGitRunner
         self.storageProbe = storageProbe ?? SystemGitReferenceStorageProbe()
         self.configReader = configReader
+        self.boundedCommandWallTimeLimit = GitMetadataSafetyConfiguration().gitStatusWallTime
     }
 
     /// Creates a reader with ordered injected runners for behavior tests.
@@ -57,24 +61,34 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         self.probesReferenceFormat = true
         self.storageProbe = storageProbe ?? SystemGitReferenceStorageProbe()
         self.configReader = configReader
+        self.boundedCommandWallTimeLimit = GitMetadataSafetyConfiguration().gitStatusWallTime
     }
 
     /// Resolves refs using direct files or Git plumbing according to storage.
     func snapshot(repository: ResolvedGitRepository) -> GitReferenceSnapshot {
-        if requiresGitPlumbing(repository: repository) {
+        if hasReftableDirectory(repository: repository) {
             return plumbingSnapshot(repository: repository)
         }
-        return fileSnapshot(repository: repository)
+        let directSnapshot = fileSnapshot(repository: repository)
+        let needsBackendResolution = directSnapshot.currentCommit == nil
+            || directSnapshot.branchName == ".invalid"
+        if needsBackendResolution,
+           referenceStorageName(repository: repository).map({ $0 != "files" }) == true {
+            return plumbingSnapshot(repository: repository)
+        }
+        if directSnapshot.branchName == ".invalid" {
+            return GitReferenceSnapshot(
+                checkedOutBranch: .unreadable,
+                headSignature: nil,
+                currentCommit: nil
+            )
+        }
+        return directSnapshot
     }
 
     /// Reports whether this repository needs storage-independent Git plumbing.
     func requiresGitPlumbing(repository: ResolvedGitRepository) -> Bool {
-        let hasReftableDirectory = [repository.gitDirectory, repository.commonDirectory].contains { directory in
-            let path = URL(fileURLWithPath: directory)
-                .appendingPathComponent("reftable", isDirectory: true).path
-            return storageProbe.isDirectory(atPath: path)
-        }
-        if hasReftableDirectory {
+        if hasReftableDirectory(repository: repository) {
             return true
         }
         // A valid file-backed HEAD already resolves its object ID without a
@@ -84,6 +98,14 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             return false
         }
         return referenceStorageName(repository: repository).map({ $0 != "files" }) == true
+    }
+
+    private func hasReftableDirectory(repository: ResolvedGitRepository) -> Bool {
+        [repository.gitDirectory, repository.commonDirectory].contains { directory in
+            let path = URL(fileURLWithPath: directory)
+                .appendingPathComponent("reftable", isDirectory: true).path
+            return storageProbe.isDirectory(atPath: path)
+        }
     }
 
     /// Builds a snapshot from loose/packed reference files.
@@ -98,32 +120,36 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
 
     /// Builds a snapshot from Git's storage-independent plumbing commands.
     private func plumbingSnapshot(repository: ResolvedGitRepository) -> GitReferenceSnapshot {
-        guard let runner = referenceRunner(repository: repository) else {
+        let deadline = DispatchTime.now() + boundedCommandWallTimeLimit
+        guard let runner = referenceRunner(repository: repository, deadline: deadline) else {
             return GitReferenceSnapshot(
                 checkedOutBranch: .unreadable,
                 headSignature: nil,
                 currentCommit: nil
             )
         }
-        return plumbingSnapshot(repository: repository, runner: runner)
+        return plumbingSnapshot(repository: repository, runner: runner, deadline: deadline)
     }
 
     private func plumbingSnapshot(
         repository: ResolvedGitRepository,
-        runner: any WorkspaceChangesGitRunning
+        runner: any WorkspaceChangesGitRunning,
+        deadline: DispatchTime
     ) -> GitReferenceSnapshot {
         let symbolicReference = output(
             arguments: ["symbolic-ref", "--quiet", "HEAD"],
             repository: repository,
             maximumByteCount: Self.maximumSymbolicReferenceByteCount,
-            runner: runner
+            runner: runner,
+            deadline: deadline
         )
 
         if let symbolicReference, symbolicReference.hasPrefix("refs/heads/") {
             guard let stableReference = stableBranchReference(
                 initialSymbolicReference: symbolicReference,
                 repository: repository,
-                runner: runner
+                runner: runner,
+                deadline: deadline
             ),
             let branch = GitMetadataService.normalizedBranchName(
                 String(stableReference.symbolicReference.dropFirst("refs/heads/".count))
@@ -145,7 +171,8 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             arguments: ["rev-parse", "--verify", "HEAD^{commit}"],
             repository: repository,
             maximumByteCount: Self.maximumObjectIDByteCount,
-            runner: runner
+            runner: runner,
+            deadline: deadline
         ).flatMap { normalizedObjectID($0) }
 
         let checkedOutBranch: GitCheckedOutBranch
@@ -170,7 +197,8 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
 
     /// Selects one executable whose reference-format probe succeeds.
     private func referenceRunner(
-        repository: ResolvedGitRepository
+        repository: ResolvedGitRepository,
+        deadline: DispatchTime
     ) -> (any WorkspaceChangesGitRunning)? {
         guard probesReferenceFormat else { return runners.first }
         for runner in runners {
@@ -178,7 +206,8 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                 arguments: ["rev-parse", "--show-ref-format"],
                 repository: repository,
                 maximumByteCount: Self.maximumSymbolicReferenceByteCount,
-                runner: runner
+                runner: runner,
+                deadline: deadline
             ) else { continue }
             if format == "files" || format == "reftable" {
                 return runner
@@ -191,28 +220,32 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     private func stableBranchReference(
         initialSymbolicReference: String,
         repository: ResolvedGitRepository,
-        runner: any WorkspaceChangesGitRunning
+        runner: any WorkspaceChangesGitRunning,
+        deadline: DispatchTime
     ) -> (symbolicReference: String, currentCommit: String?)? {
         var symbolicReference = initialSymbolicReference
         for _ in 0..<2 {
             let currentCommit = resolvedCommit(
                 for: symbolicReference,
                 repository: repository,
-                runner: runner
+                runner: runner,
+                deadline: deadline
             )
             if case .failed = currentCommit { return nil }
             guard let verifiedSymbolicReference = output(
                 arguments: ["symbolic-ref", "--quiet", "HEAD"],
                 repository: repository,
                 maximumByteCount: Self.maximumSymbolicReferenceByteCount,
-                runner: runner
+                runner: runner,
+                deadline: deadline
             ) else {
                 return nil
             }
             let verifiedCommit = resolvedCommit(
                 for: verifiedSymbolicReference,
                 repository: repository,
-                runner: runner
+                runner: runner,
+                deadline: deadline
             )
             if verifiedSymbolicReference == symbolicReference {
                 if case let (.value(current), .value(verified)) = (currentCommit, verifiedCommit),
@@ -244,13 +277,15 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     private func resolvedCommit(
         for symbolicReference: String,
         repository: ResolvedGitRepository,
-        runner: any WorkspaceChangesGitRunning
+        runner: any WorkspaceChangesGitRunning,
+        deadline: DispatchTime
     ) -> GitReferenceCommandResult {
         let result = commandOutput(
             arguments: ["rev-parse", "--verify", "\(symbolicReference)^{commit}"],
             repository: repository,
             maximumByteCount: Self.maximumObjectIDByteCount,
-            runner: runner
+            runner: runner,
+            deadline: deadline
         )
         guard case .value(let value) = result else { return result }
         guard let normalized = normalizedObjectID(value) else { return .failed }
@@ -262,13 +297,15 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         arguments: [String],
         repository: ResolvedGitRepository,
         maximumByteCount: Int,
-        runner: any WorkspaceChangesGitRunning
+        runner: any WorkspaceChangesGitRunning,
+        deadline: DispatchTime
     ) -> String? {
         guard case .value(let value) = commandOutput(
             arguments: arguments,
             repository: repository,
             maximumByteCount: maximumByteCount,
-            runner: runner
+            runner: runner,
+            deadline: deadline
         ) else { return nil }
         return value
     }
@@ -278,12 +315,18 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         arguments: [String],
         repository: ResolvedGitRepository,
         maximumByteCount: Int,
-        runner: any WorkspaceChangesGitRunning
+        runner: any WorkspaceChangesGitRunning,
+        deadline: DispatchTime
     ) -> GitReferenceCommandResult {
+        let now = DispatchTime.now()
+        guard deadline > now else { return .failed }
+        let remainingNanoseconds = deadline.uptimeNanoseconds - now.uptimeNanoseconds
+        let remainingSeconds = Double(remainingNanoseconds) / 1_000_000_000
         guard let result = try? runner.run(
             arguments: arguments,
             in: URL(fileURLWithPath: repository.workTreeRoot, isDirectory: true),
-            maximumOutputByteCount: maximumByteCount
+            maximumOutputByteCount: maximumByteCount,
+            wallTimeLimit: remainingSeconds
         ),
         !result.standardOutputWasTruncated,
         let output = String(data: result.output, encoding: .utf8) else {

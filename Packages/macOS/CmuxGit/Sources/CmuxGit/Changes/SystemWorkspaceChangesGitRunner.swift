@@ -50,6 +50,20 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         in directory: URL,
         maximumOutputByteCount: Int
     ) throws -> WorkspaceChangesGitResult {
+        try run(
+            arguments: arguments,
+            in: directory,
+            maximumOutputByteCount: maximumOutputByteCount,
+            wallTimeLimit: boundedCommandWallTimeLimit
+        )
+    }
+
+    func run(
+        arguments: [String],
+        in directory: URL,
+        maximumOutputByteCount: Int,
+        wallTimeLimit: TimeInterval
+    ) throws -> WorkspaceChangesGitResult {
         let limit = Int64(max(0, maximumOutputByteCount))
         var output = Data()
         output.reserveCapacity(min(max(0, maximumOutputByteCount), Self.readChunkByteCount))
@@ -57,6 +71,7 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
             arguments: arguments,
             directory: directory,
             maximumOutputByteCount: limit,
+            wallTimeLimit: wallTimeLimit,
             prepareAttempt: {
                 output.removeAll(keepingCapacity: true)
             }
@@ -85,6 +100,7 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
             arguments: arguments,
             directory: directory,
             maximumOutputByteCount: max(0, maximumOutputByteCount),
+            wallTimeLimit: boundedCommandWallTimeLimit,
             prepareAttempt: {
                 try destinationHandle.seek(toOffset: 0)
                 try destinationHandle.truncate(atOffset: 0)
@@ -103,10 +119,11 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         arguments: [String],
         directory: URL,
         maximumOutputByteCount: Int64,
+        wallTimeLimit: TimeInterval,
         prepareAttempt: () throws -> Void,
         consume: (Data) throws -> Void
     ) throws -> (exitCode: Int32, wasTruncated: Bool) {
-        let deadline = DispatchTime.now() + boundedCommandWallTimeLimit
+        let deadline = DispatchTime.now() + max(0, wallTimeLimit)
         let now = DispatchTime.now()
         let remainingNanoseconds = deadline > now
             ? deadline.uptimeNanoseconds - now.uptimeNanoseconds

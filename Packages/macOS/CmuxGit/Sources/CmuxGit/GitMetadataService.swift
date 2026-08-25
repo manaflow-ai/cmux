@@ -174,18 +174,18 @@ public struct GitMetadataService: Sendable {
     public nonisolated func watchDescriptor(
         for directory: String
     ) async -> GitWorkspaceMetadataWatchDescriptor? {
-        guard let repository = Self.resolveGitRepository(containing: directory),
-              let descriptor = Self.workspaceGitMetadataWatchDescriptor(
-                  for: directory,
-                  safetyConfiguration: safetyConfiguration
-              ) else {
+        guard let repository = Self.resolveGitRepository(containing: directory) else {
             return nil
         }
         let branchContext = await gitReferenceBranchContext(repository: repository)
-        return branchAwareWatchDescriptor(
-            descriptor,
+        let configPaths = GitConfigBranchTraversal(
             repository: repository,
             branchContext: branchContext
+        ).configURLs().map { $0.path }
+        return Self.workspaceGitMetadataWatchDescriptor(
+            for: directory,
+            safetyConfiguration: safetyConfiguration,
+            configPaths: configPaths
         )
     }
 

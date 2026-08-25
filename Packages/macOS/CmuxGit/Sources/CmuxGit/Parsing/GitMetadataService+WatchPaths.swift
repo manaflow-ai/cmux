@@ -20,13 +20,17 @@ extension GitMetadataService {
     /// event source but impose a much longer throttle before bounded Git status.
     nonisolated static func workspaceGitMetadataWatchDescriptor(
         for directory: String,
-        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration()
+        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
+        configPaths: [String]? = nil
     ) -> GitWorkspaceMetadataWatchDescriptor? {
         guard let repository = resolveGitRepository(containing: directory) else {
             return nil
         }
 
-        let gitMetadataPaths = gitRepositoryMetadataWatchPaths(repository: repository)
+        let gitMetadataPaths = gitRepositoryMetadataWatchPaths(
+            repository: repository,
+            configPaths: configPaths
+        )
             + gitlinkMetadataWatchPaths(
                 repository: repository,
                 safetyConfiguration: safetyConfiguration
@@ -110,7 +114,8 @@ extension GitMetadataService {
     /// The metadata paths (`HEAD`, `index`, `refs`, `packed-refs`, `reftable`,
     /// every reachable `config`) for a single resolved repository.
     nonisolated static func gitRepositoryMetadataWatchPaths(
-        repository: ResolvedGitRepository
+        repository: ResolvedGitRepository,
+        configPaths: [String]? = nil
     ) -> [String] {
         [
             joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),
@@ -120,7 +125,7 @@ extension GitMetadataService {
             joinedPath(root: repository.commonDirectory, relativePath: "refs"),
             joinedPath(root: repository.commonDirectory, relativePath: "packed-refs"),
             joinedPath(root: repository.commonDirectory, relativePath: "reftable"),
-        ] + gitConfigURLs(repository: repository).map(\.path)
+        ] + (configPaths ?? gitConfigURLs(repository: repository).map(\.path))
     }
 
     private nonisolated static func sortedUniqueTrackedPaths(
