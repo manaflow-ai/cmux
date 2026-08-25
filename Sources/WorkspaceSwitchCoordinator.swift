@@ -5,6 +5,7 @@ import WebKit
 extension Notification.Name {
     static let terminalPortalDidBecomePresentable = Notification.Name("cmux.terminalPortalDidBecomePresentable")
     static let browserPortalDidBecomePresentable = Notification.Name("cmux.browserPortalDidBecomePresentable")
+    static let workspaceSwitchDidFinish = Notification.Name("cmux.workspaceSwitchDidFinish")
 }
 
 /// Records one window's selection, presentation, and input-readiness intervals.
@@ -299,7 +300,7 @@ final class WorkspaceSwitchCoordinator {
             // leaving an active signpost/interaction state waiting for a frame
             // whose observer was deliberately released above.
             endAllIntervals(in: transaction)
-            active = nil
+            finishTransaction()
             return
         }
         finishIfPossible(&transaction)
@@ -310,7 +311,7 @@ final class WorkspaceSwitchCoordinator {
         releaseRendererProtection(&transaction)
         releaseFrameObservation(&transaction)
         endAllIntervals(in: transaction)
-        active = nil
+        finishTransaction()
     }
 
     private func reconcileTerminalTarget(
@@ -430,7 +431,12 @@ final class WorkspaceSwitchCoordinator {
         }
         releaseFrameObservation(&transaction)
         endAllIntervals(in: transaction)
+        finishTransaction()
+    }
+
+    private func finishTransaction() {
         active = nil
+        notificationCenter.post(name: .workspaceSwitchDidFinish, object: self)
     }
 
     private func releaseRendererProtection(_ transaction: inout WorkspaceSwitchActiveTransaction) {
