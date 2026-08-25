@@ -289,7 +289,7 @@ struct SSHRemoteCommandCLIIntegrationTests {
 
         let result = Harness.runProcess(
             executablePath: cliPath,
-            arguments: ["ssh", "example.test", "--no-focus"] + sshArguments,
+            arguments: ["ssh", "--no-focus", "example.test"] + sshArguments,
             environment: environment,
             timeout: 5
         )
