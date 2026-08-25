@@ -97,18 +97,6 @@ extension ControlCommandCoordinator {
         } else {
             processGeneration = nil
         }
-        if pidValue != nil,
-           processGeneration == nil,
-           context?.controlSidebarRequiresAgentProcessGeneration(
-               key,
-               target: target,
-               panelID: panelResolution.panelId
-           ) == true {
-            let strings =
-                context?.controlSidebarAgentStrings() ?? .englishFallback
-            return strings.processGenerationRequired
-        }
-
         context?.controlSidebarScheduleStatusUpsert(
             target: target,
             key: key,

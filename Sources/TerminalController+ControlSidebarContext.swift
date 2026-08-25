@@ -47,11 +47,18 @@ extension TerminalController: ControlSidebarContext {
                 ).isBuiltInNamespace
                 let acceptedProcessIdentity: AgentPIDProcessIdentity?
                 if keyIsBuiltIn {
-                    guard let exactProcessIdentity,
-                          exactProcessIdentity.pid == pid else {
-                        return
+                    if owner.usesRemoteAgentProcessNamespace(panelId: panelID) {
+                        // Relay PIDs belong to the remote host. Preserve the
+                        // status update without binding that numeric PID to
+                        // this Mac's process table.
+                        acceptedProcessIdentity = nil
+                    } else {
+                        guard let exactProcessIdentity,
+                              exactProcessIdentity.pid == pid else {
+                            return
+                        }
+                        acceptedProcessIdentity = exactProcessIdentity
                     }
-                    acceptedProcessIdentity = exactProcessIdentity
                 } else {
                     acceptedProcessIdentity =
                         exactProcessIdentity ?? reconstructedProcessIdentity
@@ -143,7 +150,11 @@ extension TerminalController: ControlSidebarContext {
             } else if AgentHibernationLifecycleStatusKeys(
                 rawValue: key
             ).isBuiltInNamespace {
-                return
+                if owner.usesRemoteAgentProcessNamespace(panelId: panelID) {
+                    acceptedProcessIdentity = nil
+                } else {
+                    return
+                }
             } else {
                 acceptedProcessIdentity = reconstructedProcessIdentity
             }
@@ -255,9 +266,23 @@ extension TerminalController: ControlSidebarContext {
         // Never reconstruct a missing generation from the current numeric PID:
         // local and relayed hooks can both arrive after that PID was recycled
         // in their respective process namespaces.
-        AgentHibernationLifecycleStatusKeys(
+        guard AgentHibernationLifecycleStatusKeys(
             rawValue: key
-        ).isBuiltInNamespace
+        ).isBuiltInNamespace else {
+            return false
+        }
+        // A relay's PID is meaningful only on the remote host; the owner
+        // accepts it without local generation binding once the target is
+        // resolved on the main actor. Unresolved owners stay fail-closed.
+        return v2MainSync {
+            guard let owner = self.controlSidebarResolvePanelOwner(
+                target: target,
+                panelID: panelID
+            ) else {
+                return true
+            }
+            return !owner.usesRemoteAgentProcessNamespace(panelId: panelID)
+        }
     }
 
     nonisolated func controlSidebarScheduleAgentLifecycle(
@@ -282,10 +307,13 @@ extension TerminalController: ControlSidebarContext {
             if AgentHibernationLifecycleStatusKeys(rawValue: key).isAllowed {
                 // The parser rejects missing generations for built-ins; keep
                 // this mutation-boundary guard for queued replacement races.
-                guard let exactProcessGeneration else {
-                    return
-                }
-                if !owner.usesRemoteAgentProcessNamespace(panelId: panelID) {
+                if owner.usesRemoteAgentProcessNamespace(panelId: panelID) {
+                    // Remote PIDs are authoritative only in the relay's
+                    // namespace; do not require a local start-time tuple.
+                } else {
+                    guard let exactProcessGeneration else {
+                        return
+                    }
                     guard
                       owner.hasLiveAgentProcess(
                           statusKey: key,

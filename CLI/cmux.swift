@@ -409,6 +409,13 @@ final class ClaudeHookSessionStore {
                         deferredSettlement: nil
                     )
                 }
+                if normalizedTurnId == nil {
+                    // A work item without turn identity cannot be matched to
+                    // a later turn-specific Stop. Keep a session-wide
+                    // conservative latch until authoritative process/session
+                    // cleanup proves that the work drained.
+                    record.hasBackgroundWorkTurnOverflow = true
+                }
                 if !workIdFitsBound
                     || (!activeWorkIds.contains(normalizedWorkId ?? "")
                         && activeWorkIds.count
