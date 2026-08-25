@@ -18,8 +18,8 @@ extension GitMetadataService {
         return lines.isEmpty ? nil : lines.joined()
     }
 
-    /// The repository's top-level config files (common directory, then git
-    /// directory).
+    /// The repository's top-level config files, including a linked worktree's
+    /// `config.worktree` when that bounded regular file is present.
     nonisolated static func gitRootConfigURLs(repository: ResolvedGitRepository) -> [URL] {
         var urls = [
             URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config"),

@@ -4,12 +4,6 @@ import Foundation
 extension SystemGitReferenceReader {
     private static let maximumDirectReferenceByteCount = 1 * 1_024 * 1_024
 
-    private enum BoundedReferenceRead {
-        case contents(String)
-        case missing
-        case unsafe
-    }
-
     enum QuickReferenceStorageProbe: Sendable {
         case complete(String?)
         case incomplete
@@ -79,9 +73,9 @@ extension SystemGitReferenceReader {
         ) {
         case .missing:
             return unreadableSnapshot()
-        case .unsafe:
+        case .oversized, .unavailable:
             return nil
-        case .contents(let contents):
+        case .contents(let contents, consumedByteCount: _):
             let head = contents.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !head.isEmpty else { return unreadableSnapshot() }
             if head.hasPrefix("ref: ") {
@@ -93,12 +87,12 @@ extension SystemGitReferenceReader {
                     refName: refName,
                     deadline: deadline
                 ) {
-                case .unsafe:
+                case .oversized, .unavailable:
                     return nil
                 case .missing:
                     value = nil
-                case .contents(let contents):
-                    value = contents
+                case .contents(let contents, consumedByteCount: _):
+                    value = contents.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
                 let branch: GitCheckedOutBranch
                 if refName.hasPrefix("refs/heads/") {
@@ -149,7 +143,7 @@ extension SystemGitReferenceReader {
         repository: ResolvedGitRepository,
         refName: String,
         deadline: DispatchTime
-    ) -> BoundedReferenceRead {
+    ) -> GitConfigFileReader.ReadResult {
         let lookups = [repository.gitDirectory, repository.commonDirectory].map { base in
             (base: base, url: URL(fileURLWithPath: base).appendingPathComponent(refName))
         }
@@ -164,12 +158,14 @@ extension SystemGitReferenceReader {
                 maximumByteCount: Self.maximumObjectIDByteCount,
                 deadline: deadline
             ) {
-            case .contents(let contents):
-                return .contents(contents)
+            case .contents(let contents, consumedByteCount: byteCount):
+                return .contents(contents, consumedByteCount: byteCount)
             case .missing:
                 continue
-            case .unsafe:
-                return .unsafe
+            case .oversized:
+                return .oversized(consumedByteCount: 0)
+            case .unavailable(let byteCount):
+                return .unavailable(consumedByteCount: byteCount)
             }
         }
 
@@ -182,15 +178,15 @@ extension SystemGitReferenceReader {
         ) {
         case .missing:
             return .missing
-        case .unsafe:
-            return .unsafe
-        case .contents(let contents):
+        case .oversized, .unavailable:
+            return .unavailable(consumedByteCount: 0)
+        case .contents(let contents, consumedByteCount: byteCount):
             for rawLine in contents.split(whereSeparator: \.isNewline) {
                 let line = rawLine.trimmingCharacters(in: .whitespaces)
                 guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix("^") else { continue }
                 let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
                 guard parts.count == 2, String(parts[1]) == refName else { continue }
-                return .contents(String(parts[0]))
+                return .contents(String(parts[0]), consumedByteCount: byteCount)
             }
             return .missing
         }
@@ -200,21 +196,15 @@ extension SystemGitReferenceReader {
         at url: URL,
         maximumByteCount: Int,
         deadline: DispatchTime
-    ) -> BoundedReferenceRead {
-        guard deadline > DispatchTime.now() else { return .unsafe }
-        switch configReader.read(
+    ) -> GitConfigFileReader.ReadResult {
+        guard deadline > DispatchTime.now() else {
+            return .unavailable(consumedByteCount: 0)
+        }
+        return configReader.read(
             at: url,
             maximumByteCount: maximumByteCount,
             deadline: deadline
-        ) {
-        case .contents(let contents, consumedByteCount: _):
-            let value = contents.trimmingCharacters(in: .whitespacesAndNewlines)
-            return value.isEmpty ? .missing : .contents(value)
-        case .missing:
-            return .missing
-        case .oversized, .unavailable:
-            return .unsafe
-        }
+        )
     }
 
     /// Resolves the configured backend through the bounded include traversal.
