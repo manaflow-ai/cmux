@@ -314,7 +314,7 @@ extension SurfaceResumeBindingSnapshot {
         var bindingAgent = agent
         bindingAgent.launchCommand = launchCommand ?? agent.launchCommand
         bindingAgent.permissionMode = permissionMode ?? agent.permissionMode
-        let constrainedAgent = bindingAgent.applyingRestoreWorkingDirectorySelection(effectiveSelection)
+        let constrainedAgent = bindingAgent.applyingAuthoritativeBindingSelection(effectiveSelection)
         guard let command = constrainedAgent.resumeCommand(
             includeWorkingDirectoryPrefix: true,
             workingDirectorySelection: effectiveSelection
