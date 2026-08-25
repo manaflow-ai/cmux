@@ -1081,9 +1081,19 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private let entriesByPanel: [PanelKey: Entry]
     private let entriesByPanelId: [UUID: Entry]
+    private let ambiguousPanelIds: Set<UUID>
 
     func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
         entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? entriesByPanelId[panelId]
+    }
+
+    /// Resolves sidebar identity without guessing between restored workspace owners.
+    func sidebarEntry(workspaceId: UUID, panelId: UUID) -> Entry? {
+        if let exact = entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] {
+            return exact
+        }
+        guard !ambiguousPanelIds.contains(panelId) else { return nil }
+        return entriesByPanelId[panelId]
     }
 
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
@@ -2750,13 +2760,18 @@ struct RestorableAgentSessionIndex: Sendable {
     private init(entriesByPanel: [PanelKey: Entry]) {
         self.entriesByPanel = entriesByPanel
         var entriesByPanelId: [UUID: Entry] = [:]
+        var panelKeyCounts: [UUID: Int] = [:]
         for (key, entry) in entriesByPanel {
+            panelKeyCounts[key.panelId, default: 0] += 1
             let existing = entriesByPanelId[key.panelId]
             if existing == nil || entry.updatedAt >= (existing?.updatedAt ?? 0) {
                 entriesByPanelId[key.panelId] = entry
             }
         }
         self.entriesByPanelId = entriesByPanelId
+        self.ambiguousPanelIds = Set(
+            panelKeyCounts.compactMap { panelId, count in count > 1 ? panelId : nil }
+        )
     }
 }
 

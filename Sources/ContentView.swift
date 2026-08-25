@@ -6070,8 +6070,13 @@ struct ContentView: View {
                     )
                 }
             }
-            guard let activePanelKey = commandPaletteForkableAgentActivePanelKey,
-                  changedPanelKeys.contains(activePanelKey) else {
+            let exactMatch = commandPaletteForkableAgentActivePanelKey.map {
+                changedPanelKeys.contains($0)
+            } == true
+            let panelAliasMatch = focusedPanelContext.map { context in
+                (notification.userInfo?["panelIds"] as? Set<UUID>)?.contains(context.panelId) == true
+            } == true
+            guard exactMatch || panelAliasMatch else {
                 return
             }
         } else if let workspaceId = notification.userInfo?["workspaceId"] as? UUID,

@@ -3703,9 +3703,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 if let index = SharedLiveAgentIndex.shared.index {
                     let completedPanelIds: [UUID]
                     if let panelIdsByWorkspaceId = notification.userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>] {
-                        guard let changedPanelIds = panelIdsByWorkspaceId[self.id] else {
-                            return
-                        }
+                        let changedPanelIds = panelIdsByWorkspaceId[self.id]
+                            ?? (notification.userInfo?["panelIds"] as? Set<UUID> ?? [])
                         completedPanelIds = changedPanelIds.filter { panelId in
                             self.restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit
                         }

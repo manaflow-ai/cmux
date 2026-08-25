@@ -1030,6 +1030,7 @@ final class SharedLiveAgentIndex {
             object: self,
             userInfo: [
                 "panelIdsByWorkspaceId": panelIdsByWorkspaceId,
+                "panelIds": Set(panelIdsByWorkspaceId.values.joined()),
             ]
         )
     }

@@ -32,7 +32,7 @@ extension Workspace {
                 }
             }
             let runtimeKeys = agentPIDKeysByPanelId[panelID] ?? []
-            let indexEntry = liveIndex?.entry(workspaceId: id, panelId: panelID)
+            let indexEntry = liveIndex?.sidebarEntry(workspaceId: id, panelId: panelID)
             var lifecycleByStatus: [String: AgentHibernationLifecycleState] = [:]
             for (key, state) in runtimeStates {
                 guard !AgentHibernationLifecycleStatusKeys.isManualKey(key) else { continue }
