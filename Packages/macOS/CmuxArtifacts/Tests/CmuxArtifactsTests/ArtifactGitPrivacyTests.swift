@@ -361,10 +361,8 @@ struct ArtifactGitPrivacyTests {
         )
         let repaired = try String(contentsOf: exclude, encoding: .utf8)
         let repairedLines = repaired.split(separator: "\n").map(String.init)
-        #expect(
-            Array(repairedLines.suffix(ArtifactGitIgnoreManager.ignoreEntries.count))
-                == ArtifactGitIgnoreManager.ignoreEntries
-        )
+        #expect(Set(repairedLines) == Set(ArtifactGitIgnoreManager.ignoreEntries))
+        #expect(repairedLines.count == Set(repairedLines).count)
 
         try await repository.prepareForMutation(
             paths: ArtifactStorePaths(projectRoot: root)

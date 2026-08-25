@@ -24,7 +24,10 @@ struct ArtifactHTMLPreviewSecurityTests {
         <a href="file:///private/sibling.txt">sibling</a>
         """.write(to: source, atomically: true, encoding: .utf8)
 
-        let document = try await ArtifactHTMLPreviewDocument.load(sourceURL: source)
+        let document = try await ArtifactHTMLPreviewDocument.load(
+            sourceURL: source,
+            allowedRoot: root
+        )
         let prefix = "data:text/html;base64,"
         #expect(document.url.absoluteString.hasPrefix(prefix))
         let encoded = String(document.url.absoluteString.dropFirst(prefix.count))
@@ -53,10 +56,48 @@ struct ArtifactHTMLPreviewSecurityTests {
         try Data(repeating: 0x20, count: 8 * 1024 * 1024 + 1).write(to: oversized)
 
         await #expect(throws: CocoaError.self) {
-            _ = try await ArtifactHTMLPreviewDocument.load(sourceURL: symbolicLink)
+            _ = try await ArtifactHTMLPreviewDocument.load(
+                sourceURL: symbolicLink,
+                allowedRoot: root
+            )
         }
         await #expect(throws: CocoaError.self) {
-            _ = try await ArtifactHTMLPreviewDocument.load(sourceURL: oversized)
+            _ = try await ArtifactHTMLPreviewDocument.load(
+                sourceURL: oversized,
+                allowedRoot: root
+            )
+        }
+    }
+
+    @Test("Artifact previews reject a swapped parent symlink")
+    func rejectsSwappedParentSymlink() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-artifact-html-\(UUID().uuidString)", isDirectory: true)
+        let outside = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-artifact-html-outside-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: outside)
+        }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let parent = root.appendingPathComponent("session", isDirectory: true)
+        let source = parent.appendingPathComponent("artifact.html")
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        try "<p>authorized</p>".write(to: source, atomically: true, encoding: .utf8)
+        try "<p>outside</p>".write(
+            to: outside.appendingPathComponent("artifact.html"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.removeItem(at: parent)
+        try FileManager.default.createSymbolicLink(at: parent, withDestinationURL: outside)
+
+        await #expect(throws: CocoaError.self) {
+            _ = try await ArtifactHTMLPreviewDocument.load(
+                sourceURL: source,
+                allowedRoot: root
+            )
         }
     }
 

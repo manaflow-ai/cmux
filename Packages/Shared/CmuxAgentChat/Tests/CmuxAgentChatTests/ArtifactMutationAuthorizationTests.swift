@@ -237,6 +237,30 @@ struct ArtifactMutationAuthorizationTests {
         #expect(artifact.provenance == .referenced)
     }
 
+    @Test("Backtick command substitutions remain references")
+    func backtickCommandSubstitutionFailsClosed() throws {
+        let call = codexLine(type: "response_item", payload: [
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json([
+                "cmd": "echo `false > /Users/me/private.md`",
+            ]),
+            "call_id": "backtick",
+        ])
+        let output = codexLine(type: "response_item", payload: [
+            "type": "function_call_output",
+            "call_id": "backtick",
+            "output": "Process exited with code 0\nOutput:\n",
+        ])
+
+        let result = CodexTranscriptParser().parse(lines: [call, output], startingSeq: 0)
+        let artifact = try #require(
+            indexedArtifacts(result).first { $0.path == "/Users/me/private.md" }
+        )
+
+        #expect(artifact.provenance == .referenced)
+    }
+
     @Test("Shell comparison operators do not authorize artifact mutations")
     func shellConditionalComparisonFailsClosed() throws {
         let call = codexLine(type: "response_item", payload: [
