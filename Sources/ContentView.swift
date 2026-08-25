@@ -11645,8 +11645,9 @@ struct VerticalTabsSidebar: View, Equatable {
             // rows receive the keyed cache refresh without a full projection.
             while !Task.isCancelled {
                 let sharedIndex = SharedLiveAgentIndex.shared
+                _ = sharedIndex.currentIndexSchedulingRefresh()
                 if sharedIndex.hasCachedProcessLivenessEntries() || sharedIndex.index == nil {
-                    let panelKeys = Set(renderContext.tabs.flatMap { workspace in
+                    let panelKeys = Set(tabManager.tabs.flatMap { workspace in
                         workspace.panels.keys.map {
                             RestorableAgentSessionIndex.PanelKey(
                                 workspaceId: workspace.id,

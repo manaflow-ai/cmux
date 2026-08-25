@@ -470,6 +470,7 @@ final class SharedLiveAgentIndex {
             return
         }
         guard sidebarLivenessRefreshTask == nil,
+              refreshTask == nil,
               forkAvailabilityRefreshTask == nil else { return }
         guard !panelKeys.isEmpty else { return }
         let now = dateProvider()
