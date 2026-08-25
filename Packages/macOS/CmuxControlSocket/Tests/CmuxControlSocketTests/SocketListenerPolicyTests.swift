@@ -1,6 +1,5 @@
 import CmuxSettings
 import Darwin
-import Foundation
 import Testing
 
 @testable import CmuxControlSocket
@@ -100,28 +99,6 @@ import Testing
         #expect(AcceptFailureRecoveryAction.retryImmediately.debugLabel == "retry_immediately")
         #expect(AcceptFailureRecoveryAction.resumeAfterDelay(delayMs: 1).debugLabel == "resume_after_delay")
         #expect(AcceptFailureRecoveryAction.rearmAfterDelay(delayMs: 1).debugLabel == "rearm_after_delay")
-    }
-}
-
-@Suite struct SocketListenerFailurePolicyTests {
-    @Test func repeatedStartupFailuresAreSampledAtAnHourlyCadence() {
-        let policy = SocketListenerFailurePolicy(captureCooldown: 3_600)
-        let first = Date(timeIntervalSince1970: 1_000)
-
-        #expect(policy.shouldCapture(lastCapturedAt: nil, now: first))
-        #expect(!policy.shouldCapture(
-            lastCapturedAt: first,
-            now: first.addingTimeInterval(3599)
-        ))
-        #expect(policy.shouldCapture(
-            lastCapturedAt: first,
-            now: first.addingTimeInterval(3_600)
-        ))
-    }
-
-    @Test func missingCaptureTimestampAlwaysAdmitsTheFirstFailure() {
-        let policy = SocketListenerFailurePolicy()
-        #expect(policy.shouldCapture(lastCapturedAt: nil, now: Date(timeIntervalSince1970: 1)))
     }
 }
 

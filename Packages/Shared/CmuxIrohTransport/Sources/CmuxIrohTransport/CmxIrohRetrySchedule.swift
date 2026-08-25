@@ -83,14 +83,16 @@ public struct CmxIrohRetrySchedule: Equatable, Sendable {
             : Self()
     }
 
-    /// Cause-aware retry profile for the macOS host's relay-policy loop.
-    /// Authentication transitions get a short recovery window; network and
-    /// policy availability failures use the long-lived idle cadence.
-    public static func macHostRelayPolicy(
-        for failureKind: DiagnosticFailureKind
-    ) -> Self {
-        failureKind == .authorizationFailed
+    /// Creates the cause-aware retry profile for the macOS host's
+    /// relay-policy loop. Authentication transitions get a short recovery
+    /// window; network and policy availability failures use the long-lived
+    /// idle cadence.
+    ///
+    /// - Parameter failureKind: The diagnostic cause that selected the retry
+    ///   profile.
+    public init(for failureKind: DiagnosticFailureKind) {
+        self = failureKind == .authorizationFailed
             ? Self(initialDelay: 30, maximumDelay: 600)
-            : Self.macHostRelayPolicy
+            : .macHostRelayPolicy
     }
 }

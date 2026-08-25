@@ -467,9 +467,7 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                         self.relayPolicyDiagnostics = diagnostics
                         self.publishIrohSettingsUpdate()
                     }
-                    let retryDelay = CmxIrohRetrySchedule.macHostRelayPolicy(
-                        for: failureKind
-                    ).delay(
+                    let retryDelay = CmxIrohRetrySchedule(for: failureKind).delay(
                         failureCount: failureCount,
                         retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
                             .retryAfterSeconds,
