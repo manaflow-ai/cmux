@@ -22,7 +22,12 @@ public struct SentryNoiseFilter: Sendable {
     /// unavailable. The caller must still restrict this check to an agent-hook
     /// stage; this method does not classify arbitrary Sentry messages.
     public func isExpectedLegacyCLIAppLifecycleMessage(_ text: String) -> Bool {
-        text.lowercased().contains("tabmanager not available")
+        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.hasPrefix("tabmanager not available") ||
+            normalized.hasPrefix("error: tabmanager not available") ||
+            normalized.hasPrefix("unavailable: tabmanager not available") ||
+            normalized.hasPrefix("clierror: tabmanager not available") ||
+            normalized.hasPrefix("clierror: unavailable:")
     }
 
     /// Returns `true` for an expected CLI socket lifecycle failure.

@@ -83,6 +83,9 @@ import Testing
         #expect(!filter.isExpectedLegacyCLIAppLifecycleMessage(
             "remote proxy unavailable: connection refused"
         ))
+        #expect(!filter.isExpectedLegacyCLIAppLifecycleMessage(
+            "remote proxy failed: TabManager not available"
+        ))
     }
 
     @Test func keepsActionableSocketFailures() {
