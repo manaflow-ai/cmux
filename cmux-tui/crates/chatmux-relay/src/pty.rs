@@ -639,9 +639,23 @@ struct DispatchReservation {
 }
 
 enum OrderedControlCommandKind {
-    Send { command: String, params: Value },
-    Request { command: String, params: Value, reply: oneshot::Sender<Option<Value>> },
-    Close { reply: oneshot::Sender<bool> },
+    Send {
+        command: String,
+        params: Value,
+    },
+    Request {
+        command: String,
+        params: Value,
+        reply: oneshot::Sender<Option<Value>>,
+    },
+    Close {
+        reply: oneshot::Sender<bool>,
+    },
+    /// Local teardown after a target-wide close failure. This is dispatched
+    /// by the same wire actor but does not attempt another daemon barrier.
+    /// `ControlHandle::end` only closes this local transport; it does not
+    /// mutate daemon state. All daemon-state mutations still use the actor.
+    Abort,
 }
 
 struct OrderedControlQueueState {
@@ -677,6 +691,10 @@ struct OrderedControlQueueState {
     /// Close replies removed by the barrier worker but not yet completed.
     /// Input may be queued behind these already-enqueued FIFO closes.
     closing_inflight: Vec<usize>,
+    /// Local aborts that could not fit behind retained close commands after a
+    /// failed barrier. Keep the endpoint until the wire worker can enqueue its
+    /// bounded local teardown; never drop an admitted control silently.
+    abort_pending: VecDeque<Arc<OrderedControlEndpoint>>,
     /// The command currently reserved by the wire actor. The reservation is
     /// the linearization point for a daemon mutation: a leave/update that
     /// acquires the queue state lock after this point is ordered after the
@@ -705,6 +723,7 @@ impl OrderedControlQueue {
                 closing_waiters: Vec::new(),
                 closing_failed: false,
                 closing_inflight: Vec::new(),
+                abort_pending: VecDeque::new(),
                 dispatching: None,
                 next_dispatch_id: 0,
                 next_claim_token: 0,
@@ -991,6 +1010,15 @@ impl OrderedControlQueue {
             let Some(command) =
                 self.wire_pending.lock().expect("ordered control pending lock").pop_front()
             else {
+                let abort_enqueued = {
+                    let mut state = self.state.lock().expect("ordered control queue lock");
+                    let mut pending =
+                        self.wire_pending.lock().expect("ordered control pending lock");
+                    self.enqueue_abort_pending_locked(&mut state, &mut pending)
+                };
+                if abort_enqueued {
+                    continue;
+                }
                 self.wire_running.store(false, Ordering::Release);
                 self.remove_retired_if_idle();
                 return;
@@ -1005,7 +1033,7 @@ impl OrderedControlQueue {
                     unreachable!("close command kind changed")
                 };
                 self.deactivate_endpoint(&endpoint);
-                endpoint.control.end();
+                end_local_transport(&endpoint);
                 let _ = reply.send(true);
                 continue;
             }
@@ -1028,6 +1056,7 @@ impl OrderedControlQueue {
                     }
                 }
                 OrderedControlCommandKind::Close { .. } => unreachable!("close handled above"),
+                OrderedControlCommandKind::Abort => end_local_transport(&endpoint),
             }
             self.clear_dispatch_reservation(reservation);
         }
@@ -1101,6 +1130,15 @@ impl OrderedControlQueue {
             let Some(command) =
                 self.wire_pending.lock().expect("ordered control pending lock").pop_front()
             else {
+                let abort_enqueued = {
+                    let mut state = self.state.lock().expect("ordered control queue lock");
+                    let mut pending =
+                        self.wire_pending.lock().expect("ordered control pending lock");
+                    self.enqueue_abort_pending_locked(&mut state, &mut pending)
+                };
+                if abort_enqueued {
+                    continue;
+                }
                 self.wire_running.store(false, Ordering::Release);
                 // A producer can enqueue after the empty check but before the
                 // flag reset. Re-check once and keep one worker alive.
@@ -1130,10 +1168,12 @@ impl OrderedControlQueue {
             };
             let endpoint = Arc::clone(&command.endpoint);
             let is_close = matches!(&command.kind, OrderedControlCommandKind::Close { .. });
+            let is_abort = matches!(&command.kind, OrderedControlCommandKind::Abort);
             let (failed, reservation) = {
                 let _gate = self.wire_gate.lock().await;
-                let reservation = if is_close { None } else { self.reserve_command(&command) };
-                let current = is_close || reservation.is_some();
+                let reservation =
+                    if is_close || is_abort { None } else { self.reserve_command(&command) };
+                let current = is_close || is_abort || reservation.is_some();
                 let kind = command.kind;
                 if !current {
                     match kind {
@@ -1141,7 +1181,8 @@ impl OrderedControlQueue {
                             let _ = reply.send(None);
                         }
                         OrderedControlCommandKind::Send { .. }
-                        | OrderedControlCommandKind::Close { .. } => {}
+                        | OrderedControlCommandKind::Close { .. }
+                        | OrderedControlCommandKind::Abort => {}
                     }
                     (false, reservation)
                 } else {
@@ -1171,6 +1212,10 @@ impl OrderedControlQueue {
                             }
                             let _ = reply.send(result);
                             !result
+                        }
+                        OrderedControlCommandKind::Abort => {
+                            end_local_transport(&endpoint);
+                            false
                         }
                     };
                     (failed, reservation)
@@ -1514,6 +1559,30 @@ impl OrderedControlQueue {
         self.enqueue_close_locked(&mut state, endpoint)
     }
 
+    /// Move as many retained local aborts as fit into the bounded wire queue.
+    /// The caller holds the queue-state lock and the pending-queue lock. Any
+    /// remainder stays owned by the target and is retried when the worker
+    /// reaches the next empty-queue point.
+    fn enqueue_abort_pending_locked(
+        &self,
+        state: &mut OrderedControlQueueState,
+        pending: &mut VecDeque<OrderedControlCommand>,
+    ) -> bool {
+        let mut enqueued = false;
+        while pending.len() < MAX_ORDERED_CONTROL_COMMANDS {
+            let Some(endpoint) = state.abort_pending.pop_front() else { break };
+            pending.push_back(OrderedControlCommand {
+                endpoint,
+                generation: None,
+                expected_owner: None,
+                requires_unowned: false,
+                kind: OrderedControlCommandKind::Abort,
+            });
+            enqueued = true;
+        }
+        enqueued
+    }
+
     /// Remove one endpoint while the caller already owns the queue lock. The
     /// pointer check prevents a late leave from clearing a replacement that
     /// reused the same viewer ID.
@@ -1561,6 +1630,7 @@ impl OrderedControlQueue {
         state.closing.clear();
         state.closing_waiters.clear();
         state.closing_inflight.clear();
+        state.abort_pending.clear();
         state.closing_failed = false;
     }
 
@@ -1852,6 +1922,14 @@ struct OrderedControlEndpoint {
 
 fn endpoint_ptr(endpoint: &Arc<OrderedControlEndpoint>) -> usize {
     Arc::as_ptr(endpoint) as usize
+}
+
+/// Close only the local control transport. This is the explicit exception to
+/// the daemon-mutation actor rule: `end` does not send a daemon command or
+/// claim geometry. Shared-sizing teardown calls this helper only from the
+/// ordered wire worker after it has fenced daemon requests.
+fn end_local_transport(endpoint: &OrderedControlEndpoint) {
+    endpoint.control.end();
 }
 
 impl OrderedControlEndpoint {
@@ -2302,9 +2380,26 @@ impl TerminalSizing {
                 return;
             }
             let owner = state.owner;
-            let candidate = owner.is_none()
-                && candidate_viewer_id_at_generation(&state, Self::current_generation(&target))
-                    == Some(viewer_id);
+            let current_generation = Self::current_generation(&target);
+            // Preserve an explicit claim while any viewer updates. A passive
+            // viewer can change the smallest grid while another viewer's
+            // claim is in flight. Advancing the generation without carrying
+            // that claim would make the old request stale and leave the
+            // target frozen, even though the claimant is still attached.
+            let explicit_candidate = if owner.is_none() {
+                state
+                    .claim_requested
+                    .filter(|request| request.generation == current_generation)
+                    .and_then(|request| {
+                        state.viewers.get(&request.viewer_id).and_then(|viewer| {
+                            (viewer.endpoint.is_active()
+                                && endpoint_ptr(&viewer.endpoint) == request.endpoint_ptr)
+                                .then(|| (request.viewer_id, Arc::clone(&viewer.endpoint)))
+                        })
+                    })
+            } else {
+                None
+            };
             let endpoint_matches = state.viewers.get(&viewer_id).is_some_and(|viewer| {
                 expected_endpoint.is_none_or(|expected| Arc::ptr_eq(&viewer.endpoint, expected))
             });
@@ -2314,28 +2409,30 @@ impl TerminalSizing {
             let Some(viewer) = state.viewers.get_mut(&viewer_id) else { return };
             viewer.grid = grid;
             let Some(effective_grid) = smallest_sizing_grid(&state.viewers) else { return };
-            let claim = owner.is_none() && candidate;
+            let claim = owner.is_none() && explicit_candidate.is_some();
             let should_enqueue = claim || state.applied != Some(effective_grid);
             let endpoint = if should_enqueue {
                 if let Some(owner_id) = owner {
                     state.viewers.get(&owner_id).map(|viewer| Arc::clone(&viewer.endpoint))
-                } else if candidate {
-                    state.viewers.get(&viewer_id).map(|viewer| Arc::clone(&viewer.endpoint))
+                } else if let Some((_, candidate_endpoint)) = explicit_candidate.as_ref() {
+                    Some(Arc::clone(candidate_endpoint))
                 } else {
                     None
                 }
             } else {
                 None
             };
-            let endpoint_viewer_id = owner.unwrap_or(viewer_id);
+            let endpoint_viewer_id = owner
+                .or_else(|| explicit_candidate.as_ref().map(|(candidate_id, _)| *candidate_id))
+                .unwrap_or(viewer_id);
             let claim_endpoint_ptr = endpoint.as_ref().map(|endpoint| endpoint_ptr(endpoint));
             let generation = self.advance_generation(&target);
             if claim {
-                // An explicit candidate update is a new generation of the
-                // same claim attempt. Carry the identity forward before the
-                // queue validates the new generation; otherwise the update
-                // would erase the only candidate marker and leave the sole
-                // unowned viewer permanently frozen.
+                // An update while an explicit claim is in flight is a new
+                // generation of the same claim attempt. Carry the identity
+                // forward before the queue validates the new generation;
+                // otherwise a passive viewer update would erase the only
+                // candidate marker and leave the unowned target frozen.
                 if let Some(endpoint_ptr) = claim_endpoint_ptr {
                     let same_claim = state.claim_requested.is_some_and(|request| {
                         request.viewer_id == endpoint_viewer_id
@@ -2664,6 +2761,7 @@ impl TerminalSizing {
             && state.closing.is_empty()
             && state.closing_waiters.is_empty()
             && state.closing_inflight.is_empty()
+            && state.abort_pending.is_empty()
             && state.dispatching.is_none()
         {
             target.queue.close_locked(&mut queue_state);
@@ -2674,11 +2772,11 @@ impl TerminalSizing {
     /// A failed close proves that no later command can be ordered against the
     /// old daemon socket. Detach every viewer that was admitted behind that
     /// close, including a replacement that joined while the close was in
-    /// flight. Mark the target retired and end those controls outside the
-    /// coordinator locks; no replacement may remain active but permanently
-    /// unable to send input.
+    /// flight. Mark the target retired and retain local abort commands under
+    /// the queue actor until the wire worker can dispatch them; no replacement
+    /// may remain active but permanently unable to send input.
     fn fail_target_after_close(&self, target: &Arc<SizingTarget>) {
-        let controls = {
+        let should_start = {
             let targets = self.targets.lock().expect("terminal sizing targets lock");
             let Some(current) = targets.get(&target.key) else { return };
             if !Arc::ptr_eq(current, target) {
@@ -2689,31 +2787,77 @@ impl TerminalSizing {
                 return;
             }
             let mut state = target.state.lock().expect("terminal sizing state lock");
-            if state.retired && state.viewers.is_empty() {
-                return;
+            let endpoints = if state.retired && state.viewers.is_empty() {
+                // A previous invocation may have filled the bounded queue
+                // before all local aborts were enqueued. Keep draining the
+                // retained list; never drop an admitted control on a repeat
+                // callback.
+                Vec::new()
+            } else {
+                let viewers = std::mem::take(&mut state.viewers);
+                for viewer in viewers.values() {
+                    viewer.endpoint.active.store(false, Ordering::Release);
+                }
+                state.owner = None;
+                state.claim_requested = None;
+                state.retired = true;
+                // Invalidate every queued mutation generation. The wire actor
+                // will reject already-enqueued commands while the failed close
+                // remains the permanent ordering barrier.
+                self.advance_generation(target);
+                queue_state.pending_resize = None;
+                queue_state.last_resize = None;
+                queue_state.claim_fence = None;
+                queue_state.owner_resize_fence = None;
+                viewers.into_values().map(|viewer| viewer.endpoint).collect::<Vec<_>>()
+            };
+            queue_state.abort_pending.extend(endpoints);
+            let mut pending =
+                target.queue.wire_pending.lock().expect("ordered control pending lock");
+            let mut retained = VecDeque::with_capacity(
+                pending.len().saturating_add(queue_state.abort_pending.len()),
+            );
+            for command in pending.drain(..) {
+                let OrderedControlCommand {
+                    endpoint,
+                    generation,
+                    expected_owner,
+                    requires_unowned,
+                    kind,
+                } = command;
+                match kind {
+                    OrderedControlCommandKind::Close { reply } => {
+                        // The target-wide barrier has already failed. Do not
+                        // leave another pending close ahead of local cleanup;
+                        // wake its waiter as failed and convert the endpoint
+                        // to the actor-owned local abort path.
+                        let _ = reply.send(false);
+                        queue_state.abort_pending.push_back(endpoint);
+                    }
+                    OrderedControlCommandKind::Abort => {
+                        retained.push_back(OrderedControlCommand {
+                            endpoint,
+                            generation,
+                            expected_owner,
+                            requires_unowned,
+                            kind: OrderedControlCommandKind::Abort,
+                        });
+                    }
+                    OrderedControlCommandKind::Request { reply, .. } => {
+                        let _ = reply.send(None);
+                    }
+                    OrderedControlCommandKind::Send { .. } => {}
+                }
             }
-            let viewers = std::mem::take(&mut state.viewers);
-            for viewer in viewers.values() {
-                viewer.endpoint.active.store(false, Ordering::Release);
-            }
-            state.owner = None;
-            state.claim_requested = None;
-            state.retired = true;
-            // Invalidate every queued mutation generation. The wire actor
-            // will reject already-enqueued commands while the failed close
-            // remains the permanent ordering barrier.
-            self.advance_generation(target);
-            queue_state.pending_resize = None;
-            queue_state.last_resize = None;
-            queue_state.claim_fence = None;
-            queue_state.owner_resize_fence = None;
-            viewers.into_values().map(|viewer| viewer.control).collect::<Vec<_>>()
+            self.enqueue_abort_pending_locked(&mut queue_state, &mut retained);
+            let should_start = !retained.is_empty();
+            *pending = retained;
+            should_start
         };
-        for control in controls {
-            // The daemon ordering is already failed closed. This local end
-            // releases the replacement control without issuing a new daemon
-            // mutation through the queue.
-            control.end();
+        if should_start {
+            // The abort commands use the same actor as normal close commands;
+            // they do not attempt another daemon barrier.
+            target.queue.start_wire_drain();
         }
         self.complete_waiters(target);
     }
@@ -7587,6 +7731,79 @@ mod tests {
         .expect("renewed candidate did not complete after passive leave");
         assert!(endpoint.is_active(), "passive leave detached the candidate endpoint");
         coordinator.leave(&key, 3);
+    }
+
+    #[tokio::test]
+    async fn stale_candidate_reply_survives_passive_viewer_update() {
+        let owner = SizingControl::new(12, &[]);
+        let passive = SizingControl::new(12, &[]);
+        let candidate = SizingControl::new(12, &[]);
+        candidate.block_claim_dispatch();
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-passive-update-claim.sock"),
+            surface_id: 43,
+        };
+        coordinator
+            .join(key.clone(), 1, 43, Arc::new(owner.clone()), SizingGrid { cols: 120, rows: 40 })
+            .expect("owner sizing barrier")
+            .await
+            .expect("owner sizing worker");
+        coordinator
+            .join(key.clone(), 2, 43, Arc::new(passive.clone()), SizingGrid { cols: 100, rows: 30 })
+            .expect("passive sizing barrier")
+            .await
+            .expect("passive sizing worker");
+        coordinator.leave(&key, 1);
+
+        coordinator
+            .join(
+                key.clone(),
+                3,
+                43,
+                Arc::new(candidate.clone()),
+                SizingGrid { cols: 90, rows: 28 },
+            )
+            .expect("candidate sizing barrier");
+        candidate.wait_for_claim_dispatch().await;
+
+        let target = coordinator.targets.lock().unwrap().get(&key).cloned().unwrap();
+        let endpoint = coordinator.queue_for(&key, 3).expect("candidate endpoint");
+        let old_generation = TerminalSizing::current_generation(&target);
+        let old_token =
+            target.queue.state.lock().unwrap().claim_fence.expect("candidate fence").token;
+
+        // A passive viewer can change the smallest grid while the candidate's
+        // claim request is waiting for a daemon response. The candidate is an
+        // explicit relay request, so renew it at the new generation instead
+        // of invalidating it and freezing the target.
+        coordinator.update(&key, 2, SizingGrid { cols: 80, rows: 24 });
+        let new_generation = TerminalSizing::current_generation(&target);
+        assert!(new_generation > old_generation);
+        let new_token =
+            target.queue.state.lock().unwrap().claim_fence.expect("renewed fence").token;
+        assert_ne!(new_token, old_token);
+        assert!(target.state.lock().unwrap().claim_requested.is_some_and(|request| {
+            request.generation == new_generation
+                && request.viewer_id == 3
+                && request.token == Some(new_token)
+                && request.endpoint_ptr == endpoint_ptr(&endpoint)
+        }));
+
+        candidate.release_claim_dispatch();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if target.state.lock().unwrap().owner == Some(3) {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("renewed candidate did not complete after passive update");
+        assert!(endpoint.is_active(), "passive update detached the candidate endpoint");
+        coordinator.leave(&key, 3);
+        coordinator.leave(&key, 2);
     }
 
     #[tokio::test]
