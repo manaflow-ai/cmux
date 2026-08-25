@@ -818,7 +818,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     func testClaudeCompactSignalIgnoresNonCompactNestedAndStaleSessionStarts() throws {
-        func seed(_ context: ClaudeHookContext, sessionId: String, activeSessionId: String? = nil) throws -> URL {
+        func seed(
+            _ context: ClaudeHookContext,
+            sessionId: String,
+            activeSessionId: String? = nil,
+            surfaceId: String? = nil
+        ) throws -> URL {
             let transcriptURL = context.root.appendingPathComponent("\(sessionId).jsonl")
             try #"{"type":"user","message":{"content":"Fix the auth bug"}}"#
                 .write(to: transcriptURL, atomically: true, encoding: .utf8)
@@ -833,7 +838,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 lastAttemptAt: now - 30,
                 inFlightAt: nil,
                 activeSessionId: activeSessionId,
-                activeAllowsNewSessionReplacement: true
+                activeAllowsNewSessionReplacement: true,
+                surfaceId: surfaceId
             )
             return transcriptURL
         }
@@ -877,7 +883,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             let context = try makeClaudeHookContext(name: "claude-stale-compact")
             defer { context.cleanup() }
             let sessionId = "stale-compact-session"
-            let transcriptURL = try seed(context, sessionId: sessionId, activeSessionId: "newer-session")
+            let recordedSurfaceId = "99999999-9999-9999-9999-999999999999"
+            let transcriptURL = try seed(
+                context,
+                sessionId: sessionId,
+                activeSessionId: "newer-session",
+                surfaceId: recordedSurfaceId
+            )
             let stale = runClaudeHook(
                 context: context,
                 arguments: ["hooks", "claude", "session-start"],
@@ -887,7 +899,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertFalse(stale.timedOut, stale.stderr)
             XCTAssertEqual(stale.status, 0, stale.stderr)
             XCTAssertTrue(autoNamingApplyRequests(in: context).isEmpty)
-            XCTAssertNil(try readClaudeHookSession(sessionId, context: context)["autoNameTitleReconciliationGeneration"])
+            let staleRecord = try readClaudeHookSession(sessionId, context: context)
+            XCTAssertNil(staleRecord["autoNameTitleReconciliationGeneration"])
+            XCTAssertEqual(
+                staleRecord["surfaceId"] as? String,
+                recordedSurfaceId,
+                "A delayed compact event must not rewrite the stale session's recorded pane"
+            )
             let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
             let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
             let activeSessions = try XCTUnwrap(state["activeSessionsByWorkspace"] as? [String: Any])
@@ -1878,11 +1896,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let sessionId = "codex-manual-auto-title-session"
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        let transcriptURL = try writeCodexTerminalTranscript(
+            context: context,
+            name: "codex-manual-auto-title.jsonl",
+            turnId: "turn-1"
+        )
         startAgentHookMockServerAccepting(context: context)
         let prompt = runCodexHook(
             context: context,
             subcommand: "prompt-submit",
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"Investigate auth"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"Investigate auth"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(prompt.timedOut, prompt.stderr)
@@ -1893,7 +1916,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             context: context
         ) { session in
             session["autoNameLastTitle"] = "Investigate auth"
-            session["autoNameLastLineCount"] = 500
+            session["autoNameLastLineCount"] = 1
             session["autoNameLastNamedAt"] = Date().timeIntervalSince1970 - 60
         }
 
@@ -1906,7 +1929,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let stop = runCodexHook(
             context: context,
             subcommand: "stop",
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"Done"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"Done"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(stop.timedOut, stop.stderr)
@@ -1918,6 +1941,29 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             autoNamingProbeRequestCount(in: stopCommands),
             2,
             "A stored auto title must keep the detached reconciliation path available under a manual workspace, saw \(stopCommands)"
+        )
+
+        let unexpectedSecondDetachedProbe = expectation(description: "second detached auto-name child probe")
+        unexpectedSecondDetachedProbe.isInverted = true
+        let secondCommandStart = startManualWorkspaceAutoNamingProbeServer(
+            context: context,
+            expectedProbeCount: 2,
+            expectation: unexpectedSecondDetachedProbe
+        )
+        let secondStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"Done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(secondStop.timedOut, secondStop.stderr)
+        XCTAssertEqual(secondStop.status, 0, secondStop.stderr)
+        wait(for: [unexpectedSecondDetachedProbe], timeout: 1)
+        let secondStopCommands = Array(context.state.snapshot().dropFirst(secondCommandStart))
+        XCTAssertEqual(
+            autoNamingProbeRequestCount(in: secondStopCommands),
+            1,
+            "A settled manual workspace must not fork another detached auto-name worker"
         )
     }
 
