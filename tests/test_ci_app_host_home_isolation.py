@@ -137,8 +137,8 @@ def require_config_path_alias_is_accepted() -> None:
         fake_xcodebuild.write_text(
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
-            "printf 'cmux DEV [default] reading configuration file path=%s\\r\\n' "
-            '"$CMUX_TEST_REPORTED_CONFIG_PATH"\n'
+            "printf 'cmux DEV [default] reading configuration file path=%s%s\\r\\n' "
+            '"$CMUX_TEST_REPORTED_CONFIG_PATH" "${CMUX_TEST_REPORTED_CONFIG_SUFFIX:-}"\n'
             "printf 'cmux DEV message = \"socket.listener.start\"\\r\\n'\n",
             encoding="utf-8",
         )
@@ -222,11 +222,15 @@ def require_config_path_alias_is_accepted() -> None:
                 }
             )
 
-            def run_validation(config_path: Path) -> subprocess.CompletedProcess[str]:
+            def run_validation(
+                config_path: Path,
+                config_suffix: str = "",
+            ) -> subprocess.CompletedProcess[str]:
                 invocation_environment = environment.copy()
                 invocation_environment["CMUX_TEST_REPORTED_CONFIG_PATH"] = str(
                     config_path
                 )
+                invocation_environment["CMUX_TEST_REPORTED_CONFIG_SUFFIX"] = config_suffix
                 return subprocess.run(
                     [
                         "/bin/bash",
@@ -241,7 +245,10 @@ def require_config_path_alias_is_accepted() -> None:
                     timeout=30,
                 )
 
-            validation = run_validation(reported_config_path)
+            validation = run_validation(
+                reported_config_path,
+                " err=2 (invalid configuration value)",
+            )
             if validation.returncode != 0:
                 raise SystemExit(
                     "FAIL: app-host wrapper rejected a canonical config-path alias\n"
