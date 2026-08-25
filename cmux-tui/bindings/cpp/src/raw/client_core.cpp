@@ -301,7 +301,7 @@ Result<ClientCore> ClientCore::connect(ClientOptions options) {
             control_factory = unix_transport_factory(
                 std::move(resolved_path), options.timeout, options.transport_limits);
         }
-        if (has_legacy_path) {
+        if (has_legacy_path && !options.stream_transport_factory) {
             auto stream_path = effective_path;
             options.stream_transport_factory = [stream_path, timeout = options.timeout,
                                                 limits = options.transport_limits]() {
