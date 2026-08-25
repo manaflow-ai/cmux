@@ -4,14 +4,6 @@ import Foundation
 import GhosttyKit
 import OSLog
 
-/// Relationship between workspace-panel ownership and the canonical terminal
-/// model used by socket I/O.
-enum ControlTerminalSocketBindingState: String {
-    case bound
-    case registryRebound = "registry_rebound"
-    case unavailable
-}
-
 /// One control-plane terminal destination after workspace ownership and live
 /// runtime identity have been reconciled.
 ///
@@ -22,6 +14,13 @@ enum ControlTerminalSocketBindingState: String {
 /// instead of pinning itself to the outgoing panel wrapper.
 @MainActor
 struct ControlTerminalSocketTarget {
+    /// Relationship between workspace-panel ownership and canonical runtime.
+    enum BindingState: String {
+        case bound
+        case registryRebound = "registry_rebound"
+        case unavailable
+    }
+
     nonisolated private static let logger = Logger(
         subsystem: "com.cmuxterm.app",
         category: "socket.terminal-binding"
@@ -30,7 +29,7 @@ struct ControlTerminalSocketTarget {
     let surfaceID: UUID
     let panel: TerminalPanel
     let surface: TerminalSurface
-    let bindingState: ControlTerminalSocketBindingState
+    let bindingState: BindingState
 
     /// Sends socket text through the canonical surface while preserving the
     /// panel-owned hibernation resume path when both owners already agree.
@@ -203,7 +202,7 @@ private extension ControlTerminalSocketTarget {
               canonical.tabId == workspaceID else {
             return nil
         }
-        let state: ControlTerminalSocketBindingState = canonical === panel.surface
+        let state: ControlTerminalSocketTarget.BindingState = canonical === panel.surface
             ? .bound
             : .registryRebound
         if state == .registryRebound {
@@ -233,7 +232,7 @@ extension TerminalController {
                 inWindow: terminalTarget?.surface.isViewInWindow
                     ?? terminalPanel.surface.isViewInWindow,
                 socketBindingRawValue: terminalTarget?.bindingState.rawValue
-                    ?? ControlTerminalSocketBindingState.unavailable.rawValue
+                    ?? ControlTerminalSocketTarget.BindingState.unavailable.rawValue
             )
         }
         let inWindow = (panel as? BrowserPanel).map { $0.webView.window != nil }
