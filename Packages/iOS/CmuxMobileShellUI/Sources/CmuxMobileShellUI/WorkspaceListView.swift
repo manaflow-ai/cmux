@@ -267,6 +267,10 @@ struct WorkspaceListView: View {
         macSelectionCoordinator.deferredWorkspaceSelectionGeneration
     }
 
+    func invalidateDeferredWorkspaceSelection() {
+        macSelectionCoordinator.invalidateDeferredWorkspaceSelection()
+    }
+
     /// Whether the list presents the recency sort: chosen mode `.recentActivity`
     /// while the visible scope spans computers (All Computers). A single-Mac
     /// scope keeps that Mac's own order — the sort exists to make the
