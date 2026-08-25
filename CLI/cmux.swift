@@ -33396,6 +33396,25 @@ export default CMUXSessionRestore;
                     terminalTurnIds:
                         mapped?.terminalPromptTurnIds ?? []
                 )
+            let settlementTurnFreshness: AgentTurnFreshness = {
+                let requiresExplicitTurnIdentity =
+                    def.integration == .codex || def.integration == .amp
+                let activePromptDepth = max(
+                    mapped?.activePromptDepth ?? 0,
+                    mapped?.activePromptTurnIds?.count ?? 0
+                )
+                if turnFreshness == .unknown,
+                   normalizedHookValue(input.turnId) == nil,
+                   !requiresExplicitTurnIdentity,
+                   activePromptDepth <= 1 {
+                    // Several generic hook APIs expose only one owner-scoped
+                    // Stop per session. Exact process liveness plus the
+                    // single-turn depth makes that boundary authoritative
+                    // even though the provider has no turn identifier.
+                    return .current
+                }
+                return turnFreshness
+            }()
             let structuredBackgroundWorkCount: Int
             let structuredSiblingBackgroundWorkCount: Int
             if !sessionId.isEmpty,
@@ -33484,7 +33503,7 @@ export default CMUXSessionRestore;
                     activeBackgroundWorkCount: activeBackgroundWorkCount,
                     activeSiblingTurnCount: activeSiblingTurnCount,
                     processLiveness: processLiveness,
-                    turnFreshness: turnFreshness
+                    turnFreshness: settlementTurnFreshness
                 )
             )
             let settledTurnKeepsProcessRunning =

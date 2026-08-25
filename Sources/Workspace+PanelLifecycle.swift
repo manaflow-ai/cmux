@@ -635,7 +635,10 @@ extension Workspace {
         return didChange
     }
 
-    func adoptDetachedAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) {
+    func adoptDetachedAgentRuntimeState(
+        _ runtimeState: DetachedAgentRuntimeState?,
+        isRemoteTerminal: Bool = false
+    ) {
         guard let runtimeState else { return }
         for (statusKey, statusEntry) in runtimeState.statusEntries {
             statusEntries[statusKey] = statusEntry
@@ -655,6 +658,7 @@ extension Workspace {
             let recordedIdentity =
                 runtimeState.agentPIDProcessIdentities[key]
             if let recordedIdentity,
+               !isRemoteTerminal,
                Self.agentPIDProcessIdentity(pid: pid) != recordedIdentity {
                 let statusKey = agentStatusKey(forAgentPIDKey: key)
                 rejectedStatusKeys.insert(statusKey)
@@ -671,7 +675,8 @@ extension Workspace {
                 pid: pid,
                 panelId: runtimeState.panelId,
                 processIdentity: recordedIdentity,
-                refreshPorts: false
+                refreshPorts: false,
+                observeProcessExit: !isRemoteTerminal
             )
             didAdoptAgentPID = true
         }

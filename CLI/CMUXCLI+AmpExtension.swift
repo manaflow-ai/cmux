@@ -598,6 +598,7 @@ export default function (amp: PluginAPI) {
     nativeStateSubscription: AmpThreadStateSubscription | null;
     nativeStateSnapshotDeadline: ReturnType<typeof setTimeout> | null;
     nativeStateSnapshotCancel: (() => void) | null;
+    nativeStateSnapshotTimedOut: boolean;
     nativeStateObservationEpoch: number;
     nativeThreadState: AmpNativeThreadState | null;
     nativeAttentionDesiredEpisode: NativeAttentionEpisodeIdentity | null;
@@ -664,6 +665,7 @@ export default function (amp: PluginAPI) {
       nativeStateSubscription: null,
       nativeStateSnapshotDeadline: null,
       nativeStateSnapshotCancel: null,
+      nativeStateSnapshotTimedOut: false,
       nativeStateObservationEpoch: 0,
       nativeThreadState: null,
       nativeAttentionDesiredEpisode: null,
@@ -1071,6 +1073,7 @@ export default function (amp: PluginAPI) {
     state.nativeStateSubscription?.unsubscribe();
     state.nativeStateSubscription = null;
     state.nativeStateObservable = null;
+    state.nativeStateSnapshotTimedOut = false;
     state.nativeThreadState = null;
   };
 
@@ -1228,6 +1231,7 @@ export default function (amp: PluginAPI) {
     ) return;
     if (
       state.nativeStateObservable
+      && !state.nativeStateSnapshotTimedOut
       && state.nativeThreadState !== "idle"
       && state.nativeThreadState !== "error"
     ) {
@@ -1293,6 +1297,7 @@ export default function (amp: PluginAPI) {
       ) {
         return;
       }
+      state.nativeStateSnapshotTimedOut = false;
       state.nativeThreadState = nativeState;
       if (nativeState === "awaiting-approval") {
         beginNativeAttention(state);
@@ -1377,9 +1382,13 @@ export default function (amp: PluginAPI) {
       state.nativeStateSnapshotCancel = cancelSnapshotWait;
     });
     let snapshotDeadline: ReturnType<typeof setTimeout> | null = null;
+    let nativeSnapshotTimedOut = false;
     const snapshotTimedOut = new Promise<void>((resolve) => {
       snapshotDeadline = setTimeout(
-        resolve,
+        () => {
+          nativeSnapshotTimedOut = true;
+          resolve();
+        },
         nativeStateSnapshotDeadlineMilliseconds,
       );
       state.nativeStateSnapshotDeadline = snapshotDeadline;
@@ -1397,6 +1406,18 @@ export default function (amp: PluginAPI) {
         && state.nativeThreadState === null
       ) {
         fallbackAfterNativeStateFailure();
+      } else if (
+        nativeSnapshotTimedOut
+        && !didReceiveSubscriptionState
+        && state.nativeThreadState === null
+      ) {
+        // A registered observable whose snapshot never resolves is not
+        // authoritative enough to hold a pending end forever. Keep its
+        // event-driven subscription alive, but let the structured-work seam
+        // settle unless a later native event supplies real state first.
+        state.nativeStateSnapshotTimedOut = true;
+        tryPublishSettledTurn(threadId, state);
+        if (turnStates.get(threadId) === state) publishAggregateStatus();
       } else if (!state.retired && turnStates.get(threadId) === state) {
         tryPublishSettledTurn(threadId, state);
       }
