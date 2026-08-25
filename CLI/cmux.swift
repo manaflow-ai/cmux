@@ -550,7 +550,9 @@ final class ClaudeHookSessionStore {
                 // `pending=true` with `exhausted=true` keeps the caller from
                 // falling through into a fresh LLM pass on this Stop.
                 record.autoNameTitleReconciliationGeneration = nil
-                record.autoNameTitleReconciliationAttemptCount = nil
+                // Keep the maxed count as an exhausted marker. Without it,
+                // the next Stop would reopen the same transcript-shrink
+                // reconciliation through the ordinary path.
                 record.autoNameLastObservationGeneration = nil
                 record.autoNameInFlightObservedLineCount = nil
                 record.autoNameInFlightAt = nil
@@ -25120,7 +25122,15 @@ struct CMUXCLI {
             let workspaceId = resolvedTarget.workspaceId
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
-            sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            if resolvedSurface.isAuthoritative {
+                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            } else {
+                // A compact fallback is useful only for preserving the
+                // persisted session obligation; its focused pane is not a
+                // valid feed destination.
+                didSendFeedTelemetry = true
+                telemetry.breadcrumb("claude-hook.session-start.fallback-telemetry-suppressed")
+            }
             let claudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
