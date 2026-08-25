@@ -9871,9 +9871,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // here only adds a second connect-time round trip and can
                     // observe a different process during a rapid dev restart.
                     startTerminalRefreshPolling(initialHostStatus: status)
-                    if !runtime.supportsServerPushEvents {
-                        startTransportPathObservation(for: client)
-                    }
+                    startTransportPathObservation(for: client)
                     // The connect seam guarantees identity recovery for an
                     // anonymous (v2 QR) ticket on every supported runtime, not
                     // just push-event ones: when the event-listener task starts,

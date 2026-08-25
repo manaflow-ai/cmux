@@ -104,11 +104,17 @@ struct MobilePairingView: View {
         reachableViaIroh: Bool,
         reachableViaTailscale: Bool
     ) -> TransportChoice {
-        if chosenTransport == .tailscale, !reachableViaTailscale {
-            return reachableViaIroh ? .iroh : .tailscale
+        if let chosenTransport {
+            switch chosenTransport {
+            case .tailscale where !reachableViaTailscale:
+                return reachableViaIroh ? .iroh : .tailscale
+            case .iroh where !reachableViaIroh:
+                return reachableViaTailscale ? .tailscale : .iroh
+            default:
+                return chosenTransport
+            }
         }
-        return chosenTransport
-            ?? (reachableViaIroh ? .iroh : .tailscale)
+        return reachableViaIroh ? .iroh : .tailscale
     }
 
     private func transportPicker(
@@ -128,7 +134,9 @@ struct MobilePairingView: View {
             )
         ) {
             // Transport product names are literal tokens, not translatable copy.
-            Text(verbatim: "Iroh").tag(TransportChoice.iroh)
+            Text(verbatim: "Iroh")
+                .tag(TransportChoice.iroh)
+                .disabled(!reachableViaIroh)
             Text(verbatim: "Tailscale")
                 .tag(TransportChoice.tailscale)
                 .disabled(!reachableViaTailscale)
