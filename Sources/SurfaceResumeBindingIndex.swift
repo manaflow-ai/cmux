@@ -61,6 +61,10 @@ struct SurfaceResumeBindingIndex: Sendable {
         return bindingsByPanelId[panelId]
     }
 
+    func hasAmbiguousPanel(_ panelId: UUID) -> Bool {
+        ambiguousPanelIds.contains(panelId)
+    }
+
     /// Resolves a restart-stable panel while preferring a process-detected binding for its owner.
     func bindingForStablePanel(workspaceId: UUID, panelId: UUID) -> SurfaceResumeBindingSnapshot? {
         let exact = bindingsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]

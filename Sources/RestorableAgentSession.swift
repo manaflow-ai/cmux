@@ -1038,6 +1038,10 @@ struct RestorableAgentSessionIndex: Sendable {
         return entriesByPanelId[panelId]
     }
 
+    func hasAmbiguousPanel(_ panelId: UUID) -> Bool {
+        ambiguousPanelIds.contains(panelId)
+    }
+
     /// Resolves a restart-stable panel while preserving a live entry for its current owner.
     ///
     /// Dock owners can rotate independently of the panel UUID. An exact owner entry is
@@ -1280,6 +1284,7 @@ struct RestorableAgentSessionIndex: Sendable {
         registry: CmuxVaultAgentRegistry,
         detectedSnapshots: [PanelKey: ProcessDetectedSnapshotEntry],
         hibernationProcessScopes: [PanelKey: HibernationProcessScope] = [:],
+        environment: [String: String] = ProcessInfo.processInfo.environment,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         },
@@ -1313,7 +1318,10 @@ struct RestorableAgentSessionIndex: Sendable {
         var hookCandidatesByPanelIdAndKind: [PanelIDKindKey: PanelIDKindCandidate] = [:]
 
         for (kind, registration) in hookKinds {
-            let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory)
+            let fileURL = kind.hookStoreFileURL(
+                homeDirectory: homeDirectory,
+                environment: environment
+            )
             guard fileManager.fileExists(atPath: fileURL.path),
                   let data = try? Data(contentsOf: fileURL),
                   let state = try? decoder.decode(RestorableAgentHookSessionStoreFile.self, from: data) else {

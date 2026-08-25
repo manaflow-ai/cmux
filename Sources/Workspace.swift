@@ -1313,6 +1313,11 @@ extension Workspace {
     ) {
         for panelId in panels.keys {
             let storedBinding = surfaceResumeBindingsByPanelId[panelId]
+            if surfaceResumeBindingIndex.hasAmbiguousPanel(panelId) {
+                // A missing panel-only winner is uncertainty, not proof that a
+                // process-backed binding exited; preserve the existing binding.
+                continue
+            }
             let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
 
             if let detectedBinding, detectedBinding.isPlainSSHProcessDetectedBinding {
@@ -1394,6 +1399,9 @@ extension Workspace {
             return storedBinding
         }
 
+        if surfaceResumeBindingIndex.hasAmbiguousPanel(panelId) {
+            return storedBinding
+        }
         let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
         guard let storedBinding else { return detectedBinding }
         guard let detectedBinding else {
@@ -1558,6 +1566,11 @@ extension Workspace {
                 }
                 let liveIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
                     ?? RestorableAgentSessionIndex.load()
+                if liveIndex.hasAmbiguousPanel(snapshot.id) {
+                    // Do not launch while panel ownership is ambiguous; a live process
+                    // may still be attached to another owner record.
+                    return true
+                }
                 let liveEntry = liveIndex.entry(workspaceId: id, panelId: snapshot.id)
                 if AgentResumeLiveness.hasLiveProcess(
                     for: liveEntry,

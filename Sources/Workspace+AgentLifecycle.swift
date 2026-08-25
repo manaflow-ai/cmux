@@ -484,6 +484,9 @@ extension Workspace {
             return false
         }
         let liveIndex = restorableAgentIndex ?? SharedLiveAgentIndex.shared.index
+        if liveIndex?.hasAmbiguousPanel(panelId) == true {
+            return false
+        }
         return !AgentResumeLiveness.hasLiveProcess(
             for: liveIndex?.entry(workspaceId: id, panelId: panelId),
             kind: kind,

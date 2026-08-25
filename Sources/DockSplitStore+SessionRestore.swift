@@ -476,6 +476,11 @@ extension DockSplitStore {
         guard shouldAutoResume, let restorableAgent else { return false }
         let index = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
             ?? RestorableAgentSessionIndex.load()
+        if index.hasAmbiguousPanel(snapshotPanelId) {
+            // Unknown ownership is safer than launching a duplicate agent against a
+            // session that may still be live under another restored owner.
+            return true
+        }
         if AgentResumeLiveness.hasLiveProcess(
             for: index.entry(workspaceId: workspaceId, panelId: snapshotPanelId),
             kind: restorableAgent.kind.rawValue,
