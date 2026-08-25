@@ -482,13 +482,17 @@ extension CampfireHookNotificationTests {
                 executable: executable,
                 message: message
             )
+            let captures = AgentJournalAppendCapture.captures(in: commands)
+                .filter { $0.agentKey == agent }
             #expect(
-                commands.contains { $0.hasPrefix("set_agent_lifecycle \(agent) error ") },
-                "\(agent): \"\(message)\" must publish the error lifecycle, saw \(commands)"
+                captures.contains { $0.kind == "agent.error.reported" },
+                "\(agent): \"\(message)\" must journal an error, saw \(commands)"
             )
             #expect(
-                !commands.contains { $0.hasPrefix("set_agent_lifecycle \(agent) needsInput ") },
-                "\(agent): \"\(message)\" must not publish needsInput, saw \(commands)"
+                !captures.contains {
+                    $0.kind == "agent.approval.requested" || $0.kind == "agent.question.requested"
+                },
+                "\(agent): \"\(message)\" must not journal a needs-input event, saw \(commands)"
             )
             }
         }
@@ -537,11 +541,13 @@ extension CampfireHookNotificationTests {
 
         let stopCommands = Array(context.state.snapshot().dropFirst(stopStart))
         #expect(
-            stopCommands.contains {
-                $0.hasPrefix("set_agent_lifecycle cursor idle --tab=\(context.workspaceId)")
-                    && $0.contains("--panel=\(context.surfaceId)")
+            AgentJournalAppendCapture.captures(in: stopCommands).contains { capture in
+                capture.kind == "agent.turn.completed"
+                    && capture.agentKey == "cursor"
+                    && capture.surfaceId == context.surfaceId
+                    && capture.pendingWork == false
             },
-            "A drifted prompt-depth counter must not suppress the stop lane's idle write, saw \(stopCommands)"
+            "A drifted prompt-depth counter must not suppress the stop lane's idle signal, saw \(stopCommands)"
         )
     }
 }

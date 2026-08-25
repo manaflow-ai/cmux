@@ -167,8 +167,8 @@ struct ClaudeBackgroundWorkNotifyTests {
         // The counterpart to `idlePromptAfterIdleStopNotifiesWithoutFlippingToNeedsInput`:
         // suppressing the idle nag must not also suppress a real blocking prompt,
         // which is the one case that may paint the pane as needing input.
-        #expect(lifecycleLine(snapshot, value: "needsInput") != nil,
-                "permission_prompt must set the needsInput lifecycle; saw \(snapshot)")
+        #expect(journalEvent(snapshot, kind: "agent.approval.requested") != nil,
+                "permission_prompt must journal an approval request; saw \(snapshot)")
         #expect(statusLine(snapshot, value: "Needs input") != nil,
                 "permission_prompt must set the Needs input pill; saw \(snapshot)")
     }
@@ -218,13 +218,17 @@ struct ClaudeBackgroundWorkNotifyTests {
             #expect(handled.wait(timeout: .now() + 15) == .success)
             harness.assertSuccessfulHook(result)
             let commands = Array(context.state.snapshot().dropFirst(start))
+            let captures = AgentJournalAppendCapture.captures(in: commands)
+                .filter { $0.agentKey == "claude_code" }
             #expect(
-                commands.contains { $0.hasPrefix("set_agent_lifecycle claude_code error ") },
-                "\"\(message)\" must publish the error lifecycle; saw \(commands)"
+                captures.contains { $0.kind == "agent.error.reported" },
+                "\"\(message)\" must journal an error; saw \(commands)"
             )
             #expect(
-                !commands.contains { $0.hasPrefix("set_agent_lifecycle claude_code needsInput ") },
-                "\"\(message)\" must not publish needsInput; saw \(commands)"
+                !captures.contains {
+                    $0.kind == "agent.approval.requested" || $0.kind == "agent.question.requested"
+                },
+                "\"\(message)\" must not journal a needs-input event; saw \(commands)"
             )
         }
     }
@@ -267,12 +271,15 @@ struct ClaudeBackgroundWorkNotifyTests {
             #expect(handled.wait(timeout: .now() + 15) == .success)
             harness.assertSuccessfulHook(result)
             let commands = Array(context.state.snapshot().dropFirst(start))
+            let readyAssertion = AgentJournalAppendCapture.captures(in: commands).first {
+                $0.kind == "agent.state.changed" && $0.agentKey == "claude_code"
+            }
             #expect(
-                commands.contains { $0.hasPrefix("set_agent_lifecycle claude_code idle ") },
-                "source=\(source) must publish idle so a ready agent is not read as no agent; saw \(commands)"
+                readyAssertion?.declaredPhase == "idle",
+                "source=\(source) must assert the ready phase so a live agent is not read as no agent; saw \(commands)"
             )
             #expect(
-                !commands.contains { $0.hasPrefix("set_agent_lifecycle claude_code running ") },
+                !commands.contains { $0.hasPrefix("set_status claude_code Running ") },
                 "source=\(source) must not report the agent as working; saw \(commands)"
             )
             #expect(
@@ -280,6 +287,41 @@ struct ClaudeBackgroundWorkNotifyTests {
                 "source=\(source) must not set a Running pill; saw \(commands)"
             )
         }
+    }
+
+    /// A turn that ends because the account is out of budget is not a completed
+    /// turn. Claude reports it only in the assistant's own last message - no
+    /// error notification, no distinct hook event - so without reading that, a
+    /// spend-limited agent is indistinguishable from a finished one and its pane
+    /// reads as ready while it can do nothing at all.
+    @Test func stopOnSpendLimitReportsErrorRatherThanACompletedTurn() throws {
+        let session = "stop-spend-limit"
+        let result = try runStopHook(
+            name: "stop-spend",
+            sessionId: session,
+            stdin: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"You've hit your monthly spend limit","background_tasks":[],"session_crons":[]}"#
+        )
+        #expect(journalEvent(result.snapshot, kind: "agent.error.reported") != nil,
+                "A spend-limit stop must journal an error; saw \(result.snapshot)")
+        #expect(journalEvent(result.snapshot, kind: "agent.turn.completed") == nil,
+                "A spend-limit stop must not journal a completed turn; saw \(result.snapshot)")
+        #expect(statusLine(result.snapshot, value: "Idle") == nil,
+                "A spend-limit stop must not set an Idle pill; saw \(result.snapshot)")
+    }
+
+    /// The counterpart: ordinary prose must not trip the limit detector. A
+    /// false red would stick until the next turn.
+    @Test func stopMentioningLimitsInPassingStillCompletesTheTurn() throws {
+        let session = "stop-prose-limit"
+        let result = try runStopHook(
+            name: "stop-prose",
+            sessionId: session,
+            stdin: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"Fixed the rate limit error and raised the quota in the config","background_tasks":[],"session_crons":[]}"#
+        )
+        #expect(journalEvent(result.snapshot, kind: "agent.turn.completed") != nil,
+                "Prose about limits must still complete the turn; saw \(result.snapshot)")
+        #expect(journalEvent(result.snapshot, kind: "agent.error.reported") == nil,
+                "Prose about limits must not report an error; saw \(result.snapshot)")
     }
 
     @Test func notificationWithoutTypeFallsBackToCueClassification() throws {

@@ -177,6 +177,7 @@ enum AgentHookNotificationClassifier {
             return true
         }
         return lowercasedText.contains("quota")
+            || lowercasedText.contains("spend limit")
             || lowercasedText.contains("usage limit")
             || lowercasedText.contains("usage_limit")
             || lowercasedText.contains("rate limit")

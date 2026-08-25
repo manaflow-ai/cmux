@@ -25795,7 +25795,6 @@ struct CMUXCLI {
                     sessionId: acceptedSessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    isSubagent: isNestedAgentSession,
                     nativeEvent: reportedHookEventName(from: parsedInput) ?? "SessionStart",
                     declaredPhase: .idle,
                     detail: isClearSessionStart ? "cleared" : "started",
@@ -25937,6 +25936,10 @@ struct CMUXCLI {
                 // the ~60s-later idle_prompt Notification can consult it, and forwarded
                 // to the app so it can suppress the done-ping until work truly drains.
                 let hasPendingBackgroundWork = hasActiveClaudeBackgroundWork(parsedInput)
+                // A turn that ended because the account is out of budget did not
+                // complete: the agent stopped because it cannot continue, and the
+                // pane has to say so rather than reading as ready.
+                let stoppedOnSpendLimit = claudeStopHitSpendLimit(parsedInput)
 
                 // Update session with transcript summary and send completion notification.
                 let completion = summarizeClaudeHookStop(
@@ -25954,7 +25957,9 @@ struct CMUXCLI {
                         // Pending background work keeps the pane out of the
                         // hibernatable .idle state so the planner cannot SIGTERM
                         // a live task (mirrors the antigravity fullyIdle flip).
-                        agentLifecycle: hasPendingBackgroundWork ? .running : .idle,
+                        agentLifecycle: stoppedOnSpendLimit
+                            ? .error
+                            : (hasPendingBackgroundWork ? .running : .idle),
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
                         hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
@@ -25977,7 +25982,7 @@ struct CMUXCLI {
 
                 emitAgentJournalEvent(
                     client: client,
-                    kind: .turnCompleted,
+                    kind: stoppedOnSpendLimit ? .errorReported : .turnCompleted,
                     source: "claude",
                     agentKey: Self.claudeCodeStatusKey,
                     sessionId: parsedInput.sessionId,
@@ -25986,10 +25991,29 @@ struct CMUXCLI {
                     isSubagent: isNestedAgentSession,
                     pendingWork: hasPendingBackgroundWork,
                     nativeEvent: reportedHookEventName(from: parsedInput) ?? "Stop",
+                    detail: stoppedOnSpendLimit ? completion?.body : nil,
                     store: sessionStore,
                     telemetry: telemetry
                 )
-                if hasPendingBackgroundWork {
+                if stoppedOnSpendLimit {
+                    try? setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        value: String.localizedStringWithFormat(
+                            String(
+                                localized: "agent.generic.notification.status.error",
+                                defaultValue: "%@ error"
+                            ),
+                            String(
+                                localized: "cli.claude-hook.notification.title",
+                                defaultValue: "Claude Code"
+                            )
+                        ),
+                        icon: "exclamationmark.triangle.fill",
+                        color: "#FF453A"
+                    )
+                } else if hasPendingBackgroundWork {
                     // The turn ended but a background task or scheduled wakeup is
                     // still live, so the pane is not idle — show it as still
                     // running rather than the misleading "Idle". Reuse the shared
@@ -27702,6 +27726,35 @@ struct CMUXCLI {
             body += ". Last: \(lastMessage)"
         }
         return ("Completed", body)
+    }
+
+    /// Phrases Claude itself emits when a turn ends because the account ran out
+    /// of budget rather than because the work finished.
+    ///
+    /// Deliberately whole phrases rather than the shared error/quota cue: this
+    /// reads the assistant's own prose, where a bare "quota", "rate limit", or
+    /// "error" is far more likely to be the agent discussing code than reporting
+    /// that it cannot continue. A false red here would be worse than a missed
+    /// one, since it would stick until the next turn.
+    private static let claudeSpendLimitStopPhrases = [
+        "monthly spend limit",
+        "spend limit reached",
+        "usage limit reached",
+        "hit your usage limit",
+        "out of credits",
+    ]
+
+    /// True when a Stop payload's own assistant message says the agent stopped
+    /// because it is out of budget. Claude reports this nowhere else — there is
+    /// no error notification and no distinct hook event — so a stop that hits a
+    /// spend limit is otherwise indistinguishable from a completed turn and the
+    /// pane reads as ready when the agent cannot do anything at all.
+    func claudeStopHitSpendLimit(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        let message = claudeAssistantMessageFromHookPayload(parsedInput.rawObject)
+            ?? claudeAssistantMessageFromHookPayload(parsedInput.object)
+        guard let message else { return false }
+        let lowered = message.lowercased()
+        return Self.claudeSpendLimitStopPhrases.contains { lowered.contains($0) }
     }
 
     private func claudeAssistantMessageFromHookPayload(_ object: [String: Any]?) -> String? {
@@ -32563,6 +32616,10 @@ export default CMUXSessionRestore;
                     case .running?: correctedPhase = .running
                     case .idle?: correctedPhase = .idle
                     case .needsInput?: correctedPhase = .needsInput
+                    // A stored error is more specific than raw liveness: the agent
+                    // errored, and merely being alive does not clear that. Only a
+                    // new hook event may.
+                    case .error?: correctedPhase = .error
                     case .unknown?: correctedPhase = .unknown
                     case nil: correctedPhase = nil
                     }
