@@ -249,8 +249,11 @@ extension TerminalSurface {
             }
             return baseConfig.workingDirectory
         }()
+        let configuredInitialCommand = hasStartupRestoreAdmissionCommandOverride
+            ? startupRestoreAdmissionCommandOverride
+            : initialCommand
         let resolvedCommand = TerminalLaunchCommandPolicy().resolve(
-            initialCommand: initialCommand,
+            initialCommand: configuredInitialCommand,
             surfaceCommand: baseConfig.command,
             hasUserGhosttyCommand: engine.hasUserGhosttyCommand,
             managedShellCommand: managedShellCommand,

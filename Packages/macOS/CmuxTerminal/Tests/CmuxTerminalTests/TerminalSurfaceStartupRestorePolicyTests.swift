@@ -81,6 +81,39 @@ struct TerminalSurfaceStartupRestorePolicyTests {
         #expect(scheduler.scheduledSurfaceIds == [surface.id])
     }
 
+    @Test("Cancelling deferred admission uses the transport-only command")
+    func cancellationUsesTransportOnlyCommand() {
+        let nativeView = FakeTerminalSurfaceNativeView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let paneHost = FakeTerminalSurfacePaneHost(
+            surfaceView: nativeView,
+            attachesThroughSurfaceModel: true
+        )
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            initialCommand: "resume-with-payload",
+            runtimeSpawnPolicy: .pacedSessionRestore
+                .requiringDeferredAgentResumeAdmission(),
+            dependencies: makeDependencies(
+                scheduler: scheduler,
+                nativeView: nativeView,
+                paneHost: paneHost
+            )
+        )
+        defer { surface.closeHeadlessStartupWindowIfNeeded() }
+
+        surface.setStartupRestoreAdmissionFallbackCommand("attach-only")
+        surface.cancelStartupRestoreAdmission()
+
+        #expect(surface.startupRestoreAdmissionCommandOverride == "attach-only")
+        #expect(surface.hasStartupRestoreAdmissionCommandOverride)
+        #expect(surface.suppressConfiguredInitialInput)
+    }
+
     private func makeSurface(
         policy: TerminalSurfaceRuntimeSpawnPolicy,
         scheduler: RecordingRestoreSpawnScheduler,

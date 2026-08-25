@@ -188,9 +188,14 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public let initialInput: String?
     var nextRuntimeInitialInput: String?
     /// When true, a deferred restore was cancelled before its first runtime.
-    /// This suppresses the construction-time input while retaining
-    /// ``initialInput`` for persistence/debug inspection.
+    /// This suppresses the construction-time startup payload while retaining
+    /// the configured values for persistence/debug inspection.
     var suppressConfiguredInitialInput = false
+    /// The command to use when a deferred restore is cancelled, if it needs to
+    /// keep a transport attach alive without running the resume payload.
+    var startupRestoreAdmissionFallbackCommand: String?
+    var startupRestoreAdmissionCommandOverride: String?
+    var hasStartupRestoreAdmissionCommandOverride = false
     let initialEnvironmentOverrides: [String: String]
 
     /// The working directory requested at construction, if any.

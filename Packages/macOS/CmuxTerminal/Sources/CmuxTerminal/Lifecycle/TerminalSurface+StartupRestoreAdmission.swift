@@ -12,6 +12,8 @@ extension TerminalSurface {
         if let initialInput {
             prepareNextRuntimeInitialInput(initialInput)
         }
+        startupRestoreAdmissionCommandOverride = nil
+        hasStartupRestoreAdmissionCommandOverride = false
         suppressConfiguredInitialInput = false
         startupRestoreAdmissionPhase = .admitted
         scheduleHeadlessRuntimeStartIfNeeded(reason: "startup-restore-admitted")
@@ -26,6 +28,8 @@ extension TerminalSurface {
     public func cancelStartupRestoreAdmission() {
         guard startupRestoreAdmissionPhase == .awaitingAdmission else { return }
         nextRuntimeInitialInput = nil
+        startupRestoreAdmissionCommandOverride = startupRestoreAdmissionFallbackCommand
+        hasStartupRestoreAdmissionCommandOverride = true
         suppressConfiguredInitialInput = true
         startupRestoreAdmissionPhase = .admitted
         scheduleHeadlessRuntimeStartIfNeeded(reason: "startup-restore-cancelled")
@@ -36,6 +40,8 @@ extension TerminalSurface {
     func cancelStartupRestoreAdmissionForExplicitInput() -> Bool {
         guard startupRestoreAdmissionPhase == .awaitingAdmission else { return false }
         nextRuntimeInitialInput = nil
+        startupRestoreAdmissionCommandOverride = startupRestoreAdmissionFallbackCommand
+        hasStartupRestoreAdmissionCommandOverride = true
         suppressConfiguredInitialInput = true
         startupRestoreAdmissionPhase = .admitted
         // User input is an immediate runtime demand; do not make the first

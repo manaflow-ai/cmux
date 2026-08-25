@@ -3848,8 +3848,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var pendingExplicitKeyUpEvents: [UInt16: [NSEvent]] = [:]
     private var pendingExplicitKeyUpEventCount = 0
     private weak var pendingPasteSurface: TerminalSurface?
-    private var pendingPasteAfterSurfaceReady = false
+    private var pendingPasteAfterSurfaceReadyCount = 0
     private static let maximumPendingExplicitKeyDownEvents = 32
+    private static let maximumPendingPasteActions = 32
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
     private var keyboardCopyModeRenderedFrameDemandRelease: (() -> Void)?
@@ -4142,7 +4143,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
             if pendingPasteSurface !== surface {
                 pendingPasteSurface = nil
-                pendingPasteAfterSurfaceReady = false
+                pendingPasteAfterSurfaceReadyCount = 0
             }
             appliedColorScheme = nil
             // Reset any OSC 22 mouse shape carried over from the previous surface.
@@ -4227,26 +4228,34 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         pendingExplicitKeyUpEventCount = 0
     }
 
-    fileprivate func queuePasteAfterSurfaceReady(for surface: TerminalSurface) {
+    @discardableResult
+    fileprivate func queuePasteAfterSurfaceReady(for surface: TerminalSurface) -> Bool {
+        guard pendingPasteAfterSurfaceReadyCount < Self.maximumPendingPasteActions else {
+            return false
+        }
         pendingPasteSurface = surface
-        pendingPasteAfterSurfaceReady = true
+        pendingPasteAfterSurfaceReadyCount += 1
+        return true
     }
 
     fileprivate func discardPendingPasteAfterSurfaceReady() {
         pendingPasteSurface = nil
-        pendingPasteAfterSurfaceReady = false
+        pendingPasteAfterSurfaceReadyCount = 0
     }
 
     fileprivate func replayPendingPasteAfterSurfaceReadyIfNeeded() {
-        guard pendingPasteAfterSurfaceReady else { return }
+        guard pendingPasteAfterSurfaceReadyCount > 0 else { return }
         guard let pendingSurface = pendingPasteSurface,
               pendingSurface === terminalSurface else {
             discardPendingPasteAfterSurfaceReady()
             return
         }
+        let pendingPasteCount = pendingPasteAfterSurfaceReadyCount
         discardPendingPasteAfterSurfaceReady()
-        if performBindingAction("paste_from_clipboard") {
-            pendingSurface.didAcceptExplicitInput()
+        for _ in 0..<pendingPasteCount {
+            if performBindingAction("paste_from_clipboard") {
+                pendingSurface.didAcceptExplicitInput()
+            }
         }
     }
 
@@ -4675,7 +4684,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard ensureSurfaceReadyForInput() != nil else {
             if cancelledDeferredAdmission || inputSurface?.canCreateRuntimeSurface == true,
                let inputSurface {
-                queuePasteAfterSurfaceReady(for: inputSurface)
+                guard queuePasteAfterSurfaceReady(for: inputSurface) else {
+                    requestInputRecoveryAfterSurfaceMiss(reason: reason)
+                    return false
+                }
             }
             requestInputRecoveryAfterSurfaceMiss(reason: reason)
             return false
