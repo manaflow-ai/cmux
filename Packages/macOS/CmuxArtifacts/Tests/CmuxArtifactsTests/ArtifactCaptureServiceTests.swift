@@ -13,7 +13,7 @@ struct ArtifactCaptureServiceTests {
         let projectLocal = try ArtifactTestSupport.write("keep", named: "project.md", under: root)
         let external = try ArtifactTestSupport.write("private", named: "external.md", under: temporary)
         var configuration = ArtifactCaptureConfiguration.defaultValue
-        configuration.ephemeralPathPrefixes = [temporary.path]
+        configuration.ephemeralPathPrefixes = [root.path, temporary.path]
         let store = ConfiguredArtifactStore(configuration: configuration)
         let service = ArtifactCaptureService(store: store)
         let context = ArtifactCaptureContext(projectRoot: root)
@@ -47,6 +47,31 @@ struct ArtifactCaptureServiceTests {
         #expect(!prefixes.contains("/Users/shared"))
         #expect(prefixes.contains { $0.hasSuffix("/tmp/cmux-session") })
         #expect(prefixes.contains("/var/folders/zz"))
+    }
+
+    @Test("Referenced capture rejects symlinked prefixes outside trusted roots")
+    func rejectsSymlinkedEphemeralPrefixOutsideTrustedRoots() async throws {
+        let projectRoot = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("CmuxArtifactsTests-\(UUID().uuidString)", isDirectory: true)
+        defer { ArtifactTestSupport.remove(projectRoot) }
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        let source = try ArtifactTestSupport.write("private", named: "project.md", under: projectRoot)
+
+        let alias = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CmuxArtifactsPrefix-\(UUID().uuidString)", isDirectory: true)
+        defer { ArtifactTestSupport.remove(alias) }
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: projectRoot)
+
+        var configuration = ArtifactCaptureConfiguration.defaultValue
+        configuration.ephemeralPathPrefixes = [alias.path]
+        let store = ConfiguredArtifactStore(configuration: configuration)
+        let outcomes = await ArtifactCaptureService(store: store).capture(
+            candidates: [ArtifactCandidate(sourceURL: source, provenance: .referenced)],
+            context: ArtifactCaptureContext(projectRoot: projectRoot)
+        )
+
+        #expect(outcomes.first == .skipped(.provenanceNotEligible))
+        #expect(await store.importCount == 0)
     }
 
     @Test("Candidate limits are enforced before imports")
