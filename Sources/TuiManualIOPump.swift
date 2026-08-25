@@ -305,14 +305,30 @@ final class TuiManualIOPump {
         }
     }
 
-    /// Binds the pump to its surface and starts the relay once the surface
-    /// reports its first applied grid size, so the initial replay arrives
-    /// at final geometry.
+    /// Binds the pump to its surface and starts the relay at the first
+    /// known grid size. Applied resizes are the steady-state signal, but a
+    /// session-restored panel can mount at exactly the runtime's initial
+    /// grid (no apply ever fires), so the pump also samples the grid
+    /// directly when the runtime is (or becomes) ready and attaches
+    /// eagerly; a later mount just resizes the daemon terminal.
     func start(surface: TerminalSurface) {
         self.surface = surface
         surface.onManualSizeApplied = { [weak self] sample in
             self?.handleSizingSample(cols: sample.columns, rows: sample.rows)
         }
+        surface.onRuntimeReady = { [weak self, weak surface] in
+            guard let self, let surface else { return }
+            surface.flushPendingManualSizeReportIfAttached()
+            self.sampleCurrentGrid(of: surface)
+        }
+        surface.flushPendingManualSizeReportIfAttached()
+        sampleCurrentGrid(of: surface)
+    }
+
+    private func sampleCurrentGrid(of surface: TerminalSurface) {
+        guard let sample = surface.rawSizingSample(),
+              sample.columns > 1, sample.rows > 1 else { return }
+        handleSizingSample(cols: sample.columns, rows: sample.rows)
     }
 
     /// The overlay's Reconnect button: skip the remaining backoff, or leave
