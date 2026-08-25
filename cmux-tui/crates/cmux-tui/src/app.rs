@@ -18803,8 +18803,9 @@ impl App {
                 return Ok(RenderAction::Draw);
             }
             Action::Detach => {
-                // Local sessions end with the TUI; remote sessions keep
-                // running server-side (detach).
+                // Only a session hosted inside this process ends with the
+                // TUI; a session owned elsewhere (detached local owner or
+                // remote daemon) keeps running after this client leaves.
                 self.quit = true;
                 return Ok(RenderAction::None);
             }

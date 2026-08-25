@@ -17,6 +17,7 @@ pub(super) struct ServerPlan {
 #[derive(Clone, Debug)]
 pub(super) enum ServerAction {
     Status,
+    Ensure,
     Stop { force: bool },
     ReloadConfig,
 }
@@ -70,6 +71,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         }
     };
     let socket_output = socket.to_string_lossy().into_owned();
+    if matches!(plan.action, ServerAction::Ensure) {
+        return run_ensure(expected_session, socket, socket_output, global.output);
+    }
     let stream = match transport::connect(&socket) {
         Ok(stream) => stream,
         Err(error) if matches!(plan.action, ServerAction::Stop { .. }) && is_absent(&error) => {
@@ -167,6 +171,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     }
 
     match plan.action {
+        ServerAction::Ensure => unreachable!("ensure returns before the lifecycle exchange"),
         ServerAction::Status => print_success(
             json!({
                 "status":"running",
@@ -281,6 +286,61 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 }),
                 global.output,
             )
+        }
+    }
+}
+
+/// `server ensure`: connect to a ready owner, spawning a detached one when
+/// nothing serves the socket. Reports `running` for an owner that already
+/// existed and `started` for one this call spawned.
+fn run_ensure(
+    expected_session: Option<String>,
+    socket: std::path::PathBuf,
+    socket_output: String,
+    output: OutputMode,
+) -> i32 {
+    let messages = &crate::localization::catalog().local_server;
+    let spec = crate::local_owner::OwnerSpec {
+        session: expected_session.clone().unwrap_or_else(|| "main".to_string()),
+        socket,
+        state: None,
+    };
+    let deadline = Instant::now() + crate::local_owner::ENSURE_DEADLINE;
+    match crate::local_owner::ensure_owner(&spec, expected_session.as_deref(), deadline) {
+        Ok(ensured) => {
+            let (status, message, ready) = match &ensured {
+                crate::local_owner::Ensured::Running(ready) => ("running", messages.running, ready),
+                crate::local_owner::Ensured::Started(ready) => ("started", messages.started, ready),
+            };
+            print_success(
+                json!({
+                    "status":status,
+                    "session":ready.session,
+                    "socket":socket_output,
+                    "pid":ready.pid,
+                    "generation":ready.generation,
+                    "message":message,
+                }),
+                output,
+            )
+        }
+        Err(crate::local_owner::EnsureError::Spawn(error)) => local_error(
+            "server.spawn_failed",
+            &messages.owner_spawn_failed(&error),
+            output,
+            3,
+        ),
+        Err(crate::local_owner::EnsureError::NotReady) => {
+            local_error("server.unavailable", messages.owner_not_ready, output, 3)
+        }
+        Err(crate::local_owner::EnsureError::WrongOwner) => {
+            local_error("server.wrong_owner", messages.wrong_owner, output, 1)
+        }
+        Err(crate::local_owner::EnsureError::DifferentSession) => {
+            local_error("server.different_session", messages.different_session, output, 1)
+        }
+        Err(crate::local_owner::EnsureError::InvalidIdentity) => {
+            local_error("server.invalid_identity", messages.invalid_identity, output, 3)
         }
     }
 }

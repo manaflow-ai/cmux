@@ -196,7 +196,7 @@ fn parse_command(
             .collect::<Vec<_>>();
         let topic = match words.as_slice() {
             ["server", action, ..]
-                if matches!(*action, "start" | "status" | "stop" | "reload-config") =>
+                if matches!(*action, "start" | "ensure" | "status" | "stop" | "reload-config") =>
             {
                 Some(format!("server {action}"))
             }
@@ -368,6 +368,7 @@ fn scope_help_for(
     match scope {
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
+        "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),
         "server status" => Cow::Borrowed(catalog.local_server.status_help),
         "server stop" => Cow::Borrowed(catalog.local_server.stop_help),
         "server reload-config" => Cow::Borrowed(catalog.local_server.reload_config_help),
