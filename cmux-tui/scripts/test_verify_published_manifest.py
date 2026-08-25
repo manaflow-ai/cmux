@@ -25,6 +25,7 @@ class FakeResponse:
     def __init__(self, body: dict[str, object]) -> None:
         self.body = json.dumps(body).encode("utf-8")
         self.headers: dict[str, str] = {}
+        self._read = False
 
     def __enter__(self) -> "FakeResponse":
         return self
@@ -33,6 +34,9 @@ class FakeResponse:
         return None
 
     def read(self, size: int = -1) -> bytes:
+        if self._read:
+            return b""
+        self._read = True
         return self.body
 
 
