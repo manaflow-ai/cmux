@@ -151,20 +151,26 @@ public struct GitMetadataService: Sendable {
             trackedChanges = await gitTrackedChangesSnapshot(repository: repository)
         }
         resolvedReferences = latestReferences
-        let repositoryLink = await gitRepositoryLink(repository: repository)
+        let headSignature = resolvedReferences.headSignature
+        let repositoryLink = await gitRepositoryLink(
+            repository: repository,
+            headSignature: headSignature
+        )
         return GitWorkspaceMetadata(
             isRepository: true,
             branch: resolvedReferences.branchName,
             isDirty: trackedChanges.isDirty,
             indexSignature: trackedChanges.indexSignature,
             indexContentSignature: trackedChanges.indexContentSignature,
-            headSignature: resolvedReferences.headSignature,
+            headSignature: headSignature,
             repositoryLink: repositoryLink
         )
     }
 
-    nonisolated func gitRepositoryLink(repository: ResolvedGitRepository) async -> GitRepositoryLink? {
-        let headSignature = Self.gitHeadSignature(repository: repository)
+    nonisolated func gitRepositoryLink(
+        repository: ResolvedGitRepository,
+        headSignature: String?
+    ) async -> GitRepositoryLink? {
         if let cached = await repositoryLinkCache.cachedLink(
             repository: repository,
             headSignature: headSignature,

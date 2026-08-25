@@ -32,6 +32,11 @@ struct SidebarWorkspaceSnapshotBuilder {
     }
 
     struct RepositoryLinkDisplay: Equatable {
+        private static let openTooltipFormat = String(
+            localized: "sidebar.repository.openTooltip",
+            defaultValue: "Open repository %@"
+        )
+
         let remoteName: String
         let displayName: String
         let url: URL
@@ -41,13 +46,9 @@ struct SidebarWorkspaceSnapshotBuilder {
             self.remoteName = remoteName
             self.displayName = displayName
             self.url = url
-            self.openTooltip = String(
-                format: String(
-                    localized: "sidebar.repository.openTooltip",
-                    defaultValue: "Open repository %@"
-                ),
-                locale: .current,
-                displayName
+            self.openTooltip = Self.openTooltipFormat.replacingOccurrences(
+                of: "%@",
+                with: displayName
             )
         }
     }
