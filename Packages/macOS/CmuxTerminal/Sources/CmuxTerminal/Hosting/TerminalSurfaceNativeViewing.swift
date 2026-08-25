@@ -44,7 +44,9 @@ public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
     /// lifetime that is about to be created.
     /// - Parameter runtimeLifetimeId: The callback-context identity installed
     ///   before the native constructor can emit actions.
-    func prepareForRuntimeSurfaceCreation(runtimeLifetimeId: UUID)
+    /// - Returns: The ingress generation assigned to this runtime lifetime.
+    @discardableResult
+    func prepareForRuntimeSurfaceCreation(runtimeLifetimeId: UUID) -> UInt64
 
     /// Resets view-owned state and rejects callbacks from an ended native
     /// surface lifetime.
