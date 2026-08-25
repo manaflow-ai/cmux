@@ -31,6 +31,7 @@ extension TerminalSurface {
         scheduleHeadlessRuntimeStartIfNeeded(reason: "startup-restore-cancelled")
     }
 
+    @MainActor
     private func cancelStartupRestoreAdmissionForExplicitInput() {
         guard startupRestoreAdmissionPhase == .awaitingAdmission else { return }
         nextRuntimeInitialInput = nil
