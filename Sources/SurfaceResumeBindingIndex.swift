@@ -19,12 +19,6 @@ struct SurfaceResumeBindingIndex: Sendable {
         var bindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
         var ambiguousPanelIds: Set<UUID> = []
         for (panelId, candidates) in candidatesByPanelId {
-            let candidatesByTimestamp = Dictionary(grouping: candidates) { $0.updatedAt }
-            let processDetectedCandidates = candidates.filter(\.isProcessDetected)
-            if processDetectedCandidates.count > 1 ||
-               (processDetectedCandidates.isEmpty && candidatesByTimestamp.values.contains(where: { $0.count > 1 })) {
-                ambiguousPanelIds.insert(panelId)
-            }
             guard var selected = candidates.first else {
                 continue
             }
@@ -40,6 +34,16 @@ struct SurfaceResumeBindingIndex: Sendable {
                 let candidateIdentity = "\(candidate.kind ?? ""):\(candidate.checkpointId ?? candidate.command)"
                 let selectedIdentity = "\(selected.kind ?? ""):\(selected.checkpointId ?? selected.command)"
                 if candidateIdentity > selectedIdentity { selected = candidate }
+            }
+            let topRankCount = candidates.reduce(into: 0) { count, candidate in
+                guard candidate.isProcessDetected == selected.isProcessDetected,
+                      candidate.updatedAt == selected.updatedAt else {
+                    return
+                }
+                count += 1
+            }
+            if topRankCount > 1 {
+                ambiguousPanelIds.insert(panelId)
             }
             bindingsByPanelId[panelId] = selected
         }

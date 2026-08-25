@@ -2649,20 +2649,24 @@ struct RestorableAgentSessionIndex: Sendable {
         var entriesByPanelId: [UUID: Entry] = [:]
         var ambiguousPanelIds: Set<UUID> = []
         for (panelId, candidates) in candidatesByPanelId {
-            let candidatesByTimestamp = Dictionary(grouping: candidates) { $0.updatedAt }
-            let liveCandidates = candidates.filter(Self.entryHasLiveProcess)
-            if liveCandidates.count > 1 ||
-               (liveCandidates.isEmpty && candidatesByTimestamp.values.contains(where: { $0.count > 1 })) {
-                // Equal timestamps from separate owner keys have no reliable panel-only winner.
-                ambiguousPanelIds.insert(panelId)
-            }
-
             guard var selected = candidates.first else {
                 continue
             }
             for candidate in candidates.dropFirst()
             where Self.shouldPreferStablePanelEntry(candidate, over: selected) {
                 selected = candidate
+            }
+            let selectedIsLive = Self.entryHasLiveProcess(selected)
+            let topRankCount = candidates.reduce(into: 0) { count, candidate in
+                guard Self.entryHasLiveProcess(candidate) == selectedIsLive,
+                      candidate.updatedAt == selected.updatedAt else {
+                    return
+                }
+                count += 1
+            }
+            if topRankCount > 1 {
+                // Equal top-ranked owner records have no reliable panel-only winner.
+                ambiguousPanelIds.insert(panelId)
             }
             entriesByPanelId[panelId] = selected
         }
