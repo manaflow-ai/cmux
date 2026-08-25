@@ -1,5 +1,7 @@
 import CMUXMobileCore
 import Combine
+import CmuxNotifications
+import CmuxSimulator
 import CmuxWorkspaces
 import Foundation
 import OSLog
@@ -14,17 +16,22 @@ private let mobileWorkspaceObserverLog = Logger(subsystem: "dev.cmux", category:
 /// the `@Published` source of truth instead of trying to catch every caller.
 @MainActor
 final class MobileWorkspaceListObserver {
+    /// One shared output window keeps every observed mutation source from
+    /// bypassing the expensive full-list scan and mobile broadcast cap.
+    private static let throttleMilliseconds = 80
+
     private weak var tabManager: TabManager?
-    /// The app-global notification store, source of each workspace's last-activity
-    /// preview line. Weak because the store is app-global and outlives this
-    /// observer; the weak reference keeps the observer from extending the store's
-    /// lifetime, mirroring how `tabManager` is held.
-    private weak var notificationStore: TerminalNotificationStore?
+    /// The authoritative unread snapshot that supplies each workspace's
+    /// last-activity preview and unread state.
+    private let sidebarUnread: SidebarUnreadModel?
+    /// Per-window config supplies the effective group icon rendered by the Mac
+    /// row when the group itself has no explicit icon.
+    private weak var configStore: CmuxConfigStore?
     private var tabsCancellable: AnyCancellable?
     private var selectionCancellable: AnyCancellable?
     private var groupsCancellable: AnyCancellable?
-    private var notificationsCancellable: AnyCancellable?
-    private var unreadIndicatorsCancellable: AnyCancellable?
+    private var groupConfigCancellable: AnyCancellable?
+    private var unreadIndicatorsObservation: SidebarUnreadObservation?
     private struct WorkspaceCancellableEntry {
         let objectID: ObjectIdentifier
         let cancellable: AnyCancellable
@@ -38,13 +45,10 @@ final class MobileWorkspaceListObserver {
     private var subscriptionsChangeObserver: NSObjectProtocol?
     private var pipelinesAttached = false
     private var lastSummaryHash: Int = 0
-    /// Throttle window with `latest: true`. First event in a burst emits
-    /// immediately (iPhone gets the change in milliseconds), subsequent
-    /// events within the window collapse to one trailing emit carrying the
-    /// final state. So a single action is instant; a burst caps at ~1 emit
-    /// per 80 ms. Hash-diff suppresses no-op rebroadcasts.
-    private let throttleMilliseconds: Int = 80
-
+    private let emissionCoalescer: MobileWorkspaceEmissionCoalescer
+    /// Delivery is injected so tests can observe actual publications without
+    /// reaching into hash-deduplication state.
+    private let workspaceUpdateEmitter: @MainActor () -> Void
     #if DEBUG
     /// Test seam: fidelity tests exercise the pipelines without a live phone
     /// connection, so they force presence on instead of registering a real
@@ -54,7 +58,7 @@ final class MobileWorkspaceListObserver {
     #endif
 
     /// Whether any mobile client currently subscribes to `workspace.updated`.
-    /// The observer's entire publisher graph (five global streams plus ~a dozen
+    /// The observer's entire publisher graph (six global streams plus ~a dozen
     /// per-workspace streams, all throttled on the main run loop) and the
     /// full-list summary hash it computes per delivery exist only to feed that
     /// event, so with no subscriber the graph stays detached and agent-driven
@@ -66,9 +70,29 @@ final class MobileWorkspaceListObserver {
         return MobileHostService.hasEventSubscribers(topic: "workspace.updated")
     }
 
-    init(tabManager: TabManager, notificationStore: TerminalNotificationStore? = nil) {
+    init(
+        tabManager: TabManager,
+        sidebarUnread: SidebarUnreadModel? = nil,
+        configStore: CmuxConfigStore? = nil,
+        workspaceUpdateEmitter: (@MainActor () -> Void)? = nil,
+        emissionSleep: @escaping @Sendable (Duration) async throws -> Void = { duration in
+            try await ContinuousClock().sleep(for: duration)
+        }
+    ) {
         self.tabManager = tabManager
-        self.notificationStore = notificationStore
+        self.sidebarUnread = sidebarUnread
+        self.configStore = configStore
+        self.emissionCoalescer = MobileWorkspaceEmissionCoalescer(
+            window: .milliseconds(Self.throttleMilliseconds),
+            sleep: emissionSleep
+        )
+        self.workspaceUpdateEmitter = workspaceUpdateEmitter ?? {
+            MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
+            // v2 phones get per-record deltas instead of the empty invalidation
+            // above. Same tick, same throttle; a no-op diff emits nothing, and the
+            // call returns immediately when no phone subscribed to the delta topic.
+            MobileStateSyncHost.shared.broadcastIfSubscribed()
+        }
         #if DEBUG
         cmuxDebugLog("mobile.observer init tabs=\(tabManager.tabs.count)")
         #endif
@@ -82,6 +106,19 @@ final class MobileWorkspaceListObserver {
             }
         }
         reconcilePipelines()
+    }
+
+    func updateConfigStore(_ next: CmuxConfigStore?) {
+        if let configStore, let next, configStore === next {
+            return
+        }
+        if configStore == nil, next == nil {
+            return
+        }
+        configStore = next
+        guard pipelinesAttached else { return }
+        attachGroupConfigPipeline()
+        requestEmission()
     }
 
     deinit {
@@ -109,8 +146,10 @@ final class MobileWorkspaceListObserver {
         tabsCancellable = nil
         selectionCancellable = nil
         groupsCancellable = nil
-        notificationsCancellable = nil
-        unreadIndicatorsCancellable = nil
+        groupConfigCancellable = nil
+        emissionCoalescer.cancel()
+        unreadIndicatorsObservation?.cancel()
+        unreadIndicatorsObservation = nil
         perWorkspaceCancellables.removeAll()
         descriptionProjectionCache.removeAll()
     }
@@ -122,30 +161,31 @@ final class MobileWorkspaceListObserver {
         let initial = Self.summaryHash(
             for: tabManager.tabs,
             groups: tabManager.workspaceGroups,
+            groupIconSymbols: currentGroupIconSymbols(for: tabManager),
             selectedTabID: tabManager.selectedTabId,
             descriptionSignatures: currentDescriptionSignatures(for: tabManager.tabs),
             previewSignatures: currentPreviewSignatures(for: tabManager.tabs)
         )
         lastSummaryHash = initial
-        emitIfNeeded(force: true)
+        _ = emitIfNeeded(force: true)
 
         tabsCancellable = tabManager.tabsPublisher
-            .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
+            .throttle(for: .milliseconds(Self.throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] tabs in
                 guard let self else { return }
                 #if DEBUG
                 cmuxDebugLog("mobile.observer tabs sink fired count=\(tabs.count)")
                 #endif
                 self.refreshPerWorkspaceSubscriptions(tabs: tabs)
-                self.emitIfNeeded(force: false)
+                self.requestEmission()
             }
         // Selection changes (Mac user clicks a different sidebar tab) need
         // to push to iPhone too. iPhone's selectedWorkspaceID drives which
         // terminal it displays.
         selectionCancellable = tabManager.selectedTabIdPublisher
-            .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
+            .throttle(for: .milliseconds(Self.throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
+                self?.requestEmission()
             }
         // Group structure (order, name, collapse/pin, anchor, membership) is
         // iOS-facing: the phone renders collapsible group sections. A pure
@@ -154,52 +194,67 @@ final class MobileWorkspaceListObserver {
         // collapsed from the Mac (or from the phone's own collapse RPC, which is
         // authoritative + re-fetch based, not optimistic).
         groupsCancellable = tabManager.workspaceGroupsPublisher
-            .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
+            .throttle(for: .milliseconds(Self.throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
+                self?.requestEmission()
             }
-        // Last-activity preview lines come from the notification store, which is
-        // not part of the TabManager graph. A new notification (or a cleared one)
-        // changes a row's preview + relative time without touching the tab set,
-        // groups, panels, or title, so observe `$notifications` to push it.
-        // Marking a notification read also flows through `$notifications` (the
-        // mutated element re-publishes the array), which the unread flag in the
-        // per-workspace signature turns into a hash change.
-        //
-        // Ordering invariant: `@Published` emits from `willSet`, but every sink
-        // here reads the store's post-`didSet` state (latestNotification /
-        // unread indexes) rather than the emitted value. That is safe because
-        // `throttle(for:scheduler: RunLoop.main)` always hops through the run
-        // loop, so delivery happens after the assignment (and its `didSet`
-        // index rebuild) completes; it never fires synchronously from
-        // `willSet`. The pre-existing `$tabs` / `$selectedTabId` sinks rely on
-        // the same property.
-        notificationsCancellable = notificationStore?.$notifications
-            .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
-            .sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
-            }
-        // Workspace-level unread indicators (manual mark-unread, panel-derived,
-        // session-restored) live in their own published sets, not in
-        // `notifications`. Toggling one changes the phone's unread dot without
-        // touching anything else this observer watches, so merge all three here.
-        if let notificationStore {
-            unreadIndicatorsCancellable = Publishers.MergeMany(
-                notificationStore.$manualUnreadWorkspaceIds.map { _ in () }.eraseToAnyPublisher(),
-                notificationStore.$panelDerivedUnreadWorkspaceIds.map { _ in () }.eraseToAnyPublisher(),
-                notificationStore.$restoredUnreadWorkspaceIds.map { _ in () }.eraseToAnyPublisher()
-            )
-            .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
-            .sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
+        attachGroupConfigPipeline()
+        // Workspace previews and unread indicators share one immutable,
+        // equality-guarded snapshot. Its synchronous post-mutation publication
+        // means this observer never needs to reconcile a legacy willSet stream
+        // with the notification indexes on a timer.
+        if let sidebarUnread {
+            unreadIndicatorsObservation = sidebarUnread.observeSummaryChanges(
+                owner: self
+            ) { observer, _ in
+                observer.requestEmission()
             }
         }
 
         refreshPerWorkspaceSubscriptions(tabs: tabManager.tabs)
     }
 
+    private func attachGroupConfigPipeline() {
+        groupConfigCancellable = configStore?.$workspaceGroupConfigs
+            .dropFirst()
+            .throttle(
+                for: .milliseconds(Self.throttleMilliseconds),
+                scheduler: RunLoop.main,
+                latest: true
+            )
+            .sink { [weak self] _ in
+                self?.requestEmission()
+            }
+    }
+
+    private func currentGroupIconSymbols(for tabManager: TabManager) -> [UUID: String] {
+        let tabs = tabManager.tabs
+        let groups = tabManager.workspaceGroups
+        guard !groups.isEmpty else { return [:] }
+        let currentDirectoryByWorkspaceID = Dictionary(
+            uniqueKeysWithValues: tabs.map { ($0.id, $0.currentDirectory) }
+        )
+        var symbols: [UUID: String] = [:]
+        symbols.reserveCapacity(groups.count)
+        let controller = TerminalController.shared
+        for group in groups {
+            let anchorCwd = currentDirectoryByWorkspaceID[
+                group.anchorWorkspaceId
+            ] ?? nil
+            symbols[group.id] = controller.mobileWorkspaceGroupEffectiveIconSymbol(
+                group,
+                anchorCwd: anchorCwd,
+                configStore: configStore
+            )
+        }
+        return symbols
+    }
+
     private func currentPreviewSignatures(for tabs: [Workspace]) -> [UUID: Int] {
-        Self.previewSignatures(for: tabs, notificationStore: notificationStore)
+        Self.previewSignatures(
+            for: tabs,
+            unreadSnapshot: sidebarUnread?.snapshot
+        )
     }
 
     /// A per-workspace signature of the notification-store state the mobile
@@ -212,18 +267,18 @@ final class MobileWorkspaceListObserver {
     /// with notifications unavailable).
     static func previewSignatures(
         for tabs: [Workspace],
-        notificationStore: TerminalNotificationStore?
+        unreadSnapshot: SidebarUnreadSnapshot?
     ) -> [UUID: Int] {
-        let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-preview-signatures", "workspaces=\(tabs.count) hasStore=\(notificationStore != nil)"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
-        guard let notificationStore else { return [:] }
+        let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-preview-signatures", "workspaces=\(tabs.count) hasSnapshot=\(unreadSnapshot != nil)"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
+        guard let unreadSnapshot else { return [:] }
         var signatures: [UUID: Int] = [:]
         for workspace in tabs {
-            let latest = notificationStore.latestNotification(forTabId: workspace.id)
-            let isUnread = notificationStore.workspaceIsUnread(forTabId: workspace.id)
-            guard latest != nil || isUnread else { continue }
+            let summary = unreadSnapshot.summary(forWorkspaceId: workspace.id)
+            let isUnread = unreadSnapshot.workspaceIsUnread(forWorkspaceId: workspace.id)
+            guard summary.hasLatestNotification || isUnread else { continue }
             var hasher = Hasher()
-            hasher.combine(latest?.id)
-            hasher.combine(latest?.createdAt)
+            hasher.combine(summary.latestNotificationId)
+            hasher.combine(summary.latestNotificationCreatedAt)
             hasher.combine(isUnread)
             signatures[workspace.id] = hasher.finalize()
         }
@@ -290,6 +345,7 @@ final class MobileWorkspaceListObserver {
                 // sub-model, so a pure todo mutation would otherwise never
                 // re-emit to external listeners.
                 workspace.todoState.$statusOverride.map { _ in () }.eraseToAnyPublisher(),
+                workspace.todoState.$statusHidden.map { _ in () }.eraseToAnyPublisher(),
                 workspace.todoState.$checklist.map { _ in () }.eraseToAnyPublisher(),
                 workspace.currentDirectoryChangeRevisionPublisher()
                     .map { _ in () }
@@ -301,25 +357,33 @@ final class MobileWorkspaceListObserver {
                 workspace.paneLayoutVersionPublisher.map { _ in () }.eraseToAnyPublisher(),
             ]
             let merged = Publishers.MergeMany(publishers)
-                .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
+                .throttle(for: .milliseconds(Self.throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             perWorkspaceCancellables[workspace.id] = WorkspaceCancellableEntry(
                 objectID: ObjectIdentifier(workspace),
                 cancellable: merged.sink { [weak self] _ in
-                    self?.emitIfNeeded(force: false)
+                    self?.requestEmission()
                 }
             )
         }
     }
 
-    private func emitIfNeeded(force: Bool) {
+    private func requestEmission() {
+        emissionCoalescer.request { [weak self] in
+            guard let self, pipelinesAttached else { return false }
+            return emitIfNeeded(force: false)
+        }
+    }
+
+    private func emitIfNeeded(force: Bool) -> Bool {
         #if DEBUG
         HostLatencyTrace.stamp("host.sync.observe")
         #endif
         let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-emit-if-needed", "force=\(force)"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
-        guard let tabManager else { return }
+        guard let tabManager else { return false }
         let hash = Self.summaryHash(
             for: tabManager.tabs,
             groups: tabManager.workspaceGroups,
+            groupIconSymbols: currentGroupIconSymbols(for: tabManager),
             selectedTabID: tabManager.selectedTabId,
             descriptionSignatures: currentDescriptionSignatures(for: tabManager.tabs),
             previewSignatures: currentPreviewSignatures(for: tabManager.tabs)
@@ -328,18 +392,15 @@ final class MobileWorkspaceListObserver {
             #if DEBUG
             cmuxDebugLog("mobile.observer skip: hash unchanged=\(hash) tabs=\(tabManager.tabs.count)")
             #endif
-            return
+            return false
         }
         lastSummaryHash = hash
         mobileWorkspaceObserverLog.debug("emitting workspace.updated (hash=\(hash, privacy: .public))")
         #if DEBUG
         cmuxDebugLog("mobile.observer EMIT workspace.updated hash=\(hash) tabs=\(tabManager.tabs.count) force=\(force)")
         #endif
-        MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
-        // v2 phones get per-record deltas instead of the empty invalidation
-        // above. Same tick, same throttle; a no-op diff emits nothing, and the
-        // call returns immediately when no phone subscribed to the delta topic.
-        MobileStateSyncHost.shared.broadcastIfSubscribed()
+        workspaceUpdateEmitter()
+        return true
     }
 
     /// Stable hash of the iOS-facing shape: workspace ids + titles + their
@@ -405,6 +466,7 @@ final class MobileWorkspaceListObserver {
     private static func summaryHash(
         for tabs: [Workspace],
         groups: [WorkspaceGroup],
+        groupIconSymbols: [UUID: String] = [:],
         selectedTabID: UUID?,
         descriptionSignatures: [UUID: Int],
         previewSignatures: [UUID: Int]
@@ -414,15 +476,16 @@ final class MobileWorkspaceListObserver {
         hasher.combine(tabs.count)
         hasher.combine(selectedTabID)
         // Group sections are iOS-facing. Hash group order + the fields the phone
-        // renders (name, collapse, pin, anchor) so a pure collapse/expand, rename,
-        // or reorder re-emits to the phone. Membership is already covered by each
-        // workspace's `groupId`, hashed in the per-workspace loop below.
+        // renders (name, collapse, pin, icon, anchor) so a pure collapse/expand,
+        // rename, icon change, or reorder re-emits to the phone. Membership is
+        // already covered by each workspace's `groupId`, hashed below.
         hasher.combine(groups.count)
         for group in groups {
             hasher.combine(group.id)
             hasher.combine(group.name)
             hasher.combine(group.isCollapsed)
             hasher.combine(group.isPinned)
+            hasher.combine(groupIconSymbols[group.id] ?? group.iconSymbol)
             hasher.combine(group.anchorWorkspaceId)
         }
         for workspace in tabs {
@@ -446,11 +509,18 @@ final class MobileWorkspaceListObserver {
             for id in panelIDs {
                 hasher.combine(workspace.panelTitle(panelId: id))
                 hasher.combine(workspace.reportedPanelDirectory(panelId: id))
+                if let simulator = workspace.panels[id] as? SimulatorPanel {
+                    hasher.combine(simulator.selectedDeviceName)
+                    hasher.combine(simulator.selectedDeviceState)
+                    hasher.combine(simulator.coordinator.status.mobileWorkspaceObserverSignature)
+                    hasher.combine(simulator.coordinator.capabilities)
+                }
             }
             hasher.combine(workspace.presentedCurrentDirectory)
             // Todo mutations change the list-facing shape; without these the
             // hash-diff would suppress the re-emit the publishers above fire.
             hasher.combine(workspace.todoState.statusOverride)
+            hasher.combine(workspace.todoState.statusHidden)
             hasher.combine(workspace.todoState.checklist)
             // Hash every panelDirectories entry (including ids not yet in
             // `panels`) so a directory update is detected even before its panel
@@ -469,16 +539,37 @@ final class MobileWorkspaceListObserver {
     static func summaryHashForTesting(
         tabs: [Workspace],
         groups: [WorkspaceGroup] = [],
+        groupIconSymbols: [UUID: String] = [:],
         selectedTabID: UUID?,
         previewSignatures: [UUID: Int] = [:]
     ) -> Int {
         summaryHash(
             for: tabs,
             groups: groups,
+            groupIconSymbols: groupIconSymbols,
             selectedTabID: selectedTabID,
             descriptionSignatures: descriptionSignatures(for: tabs),
             previewSignatures: previewSignatures
         )
     }
     #endif
+}
+
+private extension SimulatorSessionStatus {
+    var mobileWorkspaceObserverSignature: String {
+        switch self {
+        case .idle:
+            return "idle"
+        case .connecting:
+            return "connecting"
+        case .streaming:
+            return "streaming"
+        case .deviceUnavailable:
+            return "device_unavailable"
+        case .workerCrashed:
+            return "worker_crashed"
+        case .failed:
+            return "failed"
+        }
+    }
 }

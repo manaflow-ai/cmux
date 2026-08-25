@@ -55,6 +55,10 @@ extension ShortcutAction {
         case .selectSurfaceByNumber: return "Select Surface 1…9"
         case .nextSidebarTab: return "Next Workspace"
         case .prevSidebarTab: return "Previous Workspace"
+        case .nextSidebarTabInGroup:
+            return String(localized: "shortcut.nextWorkspaceInGroup.label", defaultValue: "Next Workspace in Group")
+        case .prevSidebarTabInGroup:
+            return String(localized: "shortcut.previousWorkspaceInGroup.label", defaultValue: "Previous Workspace in Group")
         case .moveWorkspaceUp: return String(localized: "shortcut.moveWorkspaceUp.label", defaultValue: "Move Workspace Up")
         case .moveWorkspaceDown: return String(localized: "shortcut.moveWorkspaceDown.label", defaultValue: "Move Workspace Down")
         case .focusHistoryBack: return "Focus Back"
@@ -93,6 +97,10 @@ extension ShortcutAction {
         case .focusRight: return "Focus Pane Right"
         case .focusUp: return "Focus Pane Up"
         case .focusDown: return "Focus Pane Down"
+        case .focusPreviousPane:
+            return String(localized: "shortcut.focusPreviousPane.label", defaultValue: "Focus Previous Pane")
+        case .focusNextPane:
+            return String(localized: "shortcut.focusNextPane.label", defaultValue: "Focus Next Pane")
         case .splitRight: return "Split Right"
         case .splitDown: return "Split Down"
         case .toggleSplitZoom: return "Toggle Pane Zoom"

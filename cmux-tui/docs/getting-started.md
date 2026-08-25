@@ -2,12 +2,7 @@
 
 ## Prerequisites
 
-Builds need Zig 0.16.0, a Rust toolchain, and the `ghostty` submodule. `ghostty-vt-sys` compiles `libghostty-vt.a` from that submodule, so an uninitialized submodule fails before the TUI starts.
-
-```bash
-cd cmux-tui
-cargo build -p cmux-tui
-```
+Builds need Zig 0.16.0, a Rust toolchain, and the `ghostty` submodule. `ghostty-vt-sys` compiles `libghostty-vt.a` from that submodule, so an uninitialized submodule fails before the TUI starts. The first `cargo run` below compiles the TUI and then starts it.
 
 ## Local session
 
@@ -43,6 +38,8 @@ cargo run -p cmux-tui -- attach --session agents
 
 Detach from an attached TUI with prefix `d`. With default keys, that is `Ctrl-b d`. The server keeps running, and another `attach` reconnects to the same tree. PTY tabs attach with a Ghostty VT-state replay followed by a live output stream.
 
+PTY programs may emit inline images with the Kitty graphics protocol. cmux-tui preserves those images across local, attached, and remote sessions when the outer terminal supports Kitty graphics, subject to the configured replay and transport byte limits; graphics beyond the replay budget may be omitted.
+
 Attach one terminal without the sidebar, status bar, pane border, or other tabs:
 
 ```bash
@@ -61,7 +58,7 @@ Resource selectors accept a typed opaque ID, `current`, or an exact name. Names 
 
 ## Remote machines
 
-The optional machine rail keeps rendering local while it connects individual session transports through Unix sockets or SSH. It is disabled for the default local run and activates when `machine_sidebar.enabled` is true or `machines` contains a valid entry in `cmux-tui.json`. Start a headless cmux session on each remote machine, and make the remote `cmux-tui` or `cmux` executable available to noninteractive SSH. The SSH connector runs its `relay` mode and does not nest a second TUI.
+The optional machine rail keeps rendering local while it connects individual sessions through Unix sockets or SSH. It is disabled for the default local run and activates when `machine_sidebar.enabled` is true or `machines` contains a valid entry in `cmux-tui.json`. The SSH connector shares the managed lifecycle used by `cmux-tui ssh`: it checks the remote binary, starts the named headless mux and sidecar on demand, and reconnects without nesting a second TUI. Packaged releases can install their pinned remote binary. Source builds require the exact matching binary to be installed remotely.
 
 Packaged clients use the same configuration and can start with:
 
@@ -77,7 +74,7 @@ To share an existing local session through cmux.cloud without a public listener,
 npx cmux machine-agent --session agents
 ```
 
-Run this command from an interactive terminal with `/dev/tty`; the agent fails closed without a controlling terminal, including on reconnects. The first registration prints the one-time code used by `+ Connect machine` on cmux.cloud.
+Run this command from an interactive terminal with `/dev/tty`; the agent fails closed without a controlling terminal, including on reconnects. The first registration prints the one-time code used by `+ ssh host` on cmux.cloud.
 
 ## Sessions and sockets
 

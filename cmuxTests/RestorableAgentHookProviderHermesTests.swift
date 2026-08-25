@@ -89,10 +89,10 @@ extension SocketListenerAcceptPolicyTests {
             )
         )
 
-        XCTAssertEqual(
-            entry.resumeCommand,
-            "env HERMES_HOME='/tmp/hermes home' hermes --tui --resume hermes-session-123 --model gpt-5.4"
+        let expectedResume = AgentResumeArgv.portableHermesResumeShellCommand(
+            posixCommand: "env HERMES_HOME='/tmp/hermes home' \(AgentResumeArgv.hermesWrapperShellExecutableToken) --profile default --tui --resume hermes-session-123 --model gpt-5.4"
         )
+        XCTAssertEqual(entry.copyResumeCommand, expectedResume)
     }
 
     func testHermesAgentResumeCommandPreservesSubrouterBaseURLs() {

@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import CmuxCore
 import XCTest
@@ -84,9 +85,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let autoResumeInput = autoResumePanel.surface.debugInitialInputMetadata()
         XCTAssertTrue(autoResumeInput.hasInitialInput)
         XCTAssertGreaterThan(autoResumeInput.byteCount, 0)
-        try assertAgentAutoResumeUsesStartupInput(
+        try assertAgentAutoResumeUsesRestoreVerb(
             autoResumePanel,
-            scriptContains: ["'resume'", "codex-auto-resume-disabled-session"]
+            sessionID: "codex-auto-resume-disabled-session"
         )
 
         defaults.set(false, forKey: key)
@@ -187,10 +188,16 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
             XCTAssertTrue(restoredInput.hasInitialInput)
             XCTAssertGreaterThan(restoredInput.byteCount, 0)
-            try assertAgentAutoResumeUsesStartupInput(
+            try assertAgentAutoResumeUsesRestoreVerb(
                 restoredPanel,
-                scriptContains: ["'resume'", "codex-running-at-snapshot-session"]
+                sessionID: "codex-running-at-snapshot-session"
             )
+            XCTAssertEqual(
+                restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
+                .awaitingAutoResumeCommand
+            )
+
+            restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
             XCTAssertEqual(
                 restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
                 .autoResumeCommandRunning
@@ -209,7 +216,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
             let source = Workspace()
             let remoteCommand = "ssh cmux-macmini"
-            let expectedRestoredRemoteCommand = "ssh -tt cmux-macmini"
+            let expectedRestoredRemoteCommand = "/usr/bin/ssh -tt cmux-macmini"
             source.configureRemoteConnection(
                 WorkspaceRemoteConfiguration(
                     destination: "cmux-macmini",
@@ -227,9 +234,11 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             )
             let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
             let remoteWorkingDirectory = "/home/dev/cmux-remote-running"
-            source.updatePanelDirectory(
-                panelId: sourcePanelId,
-                directory: remoteWorkingDirectory
+            XCTAssertTrue(
+                source.updateRemotePanelDirectory(
+                    panelId: sourcePanelId,
+                    directory: remoteWorkingDirectory
+                )
             )
             let sourceIndex = try makeRestorableAgentIndex(
                 workspaceId: source.id,
@@ -254,6 +263,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             XCTAssertTrue(input.contains("'resume'"), input)
             XCTAssertTrue(input.contains("codex-remote-running-session"), input)
             XCTAssertFalse(input.contains("cmux-agent-resume"), input)
+            XCTAssertFalse(input.contains(" cmux restore "), input)
             let remoteCwdPrefix = try XCTUnwrap(
                 TerminalStartupWorkingDirectoryPrefix.optionalChangeDirectoryPrefix(
                     for: remoteWorkingDirectory
@@ -355,9 +365,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
             XCTAssertTrue(restoredInput.hasInitialInput)
             XCTAssertGreaterThan(restoredInput.byteCount, 0)
-            try assertAgentAutoResumeUsesStartupInput(
+            try assertAgentAutoResumeUsesRestoreVerb(
                 restoredPanel,
-                scriptContains: ["'resume'", "codex-unknown-shell-state-session"]
+                sessionID: "codex-unknown-shell-state-session"
             )
         }
     }
@@ -475,7 +485,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
         let userCommandSnapshot = restored.sessionSnapshot(includeScrollback: false)
         XCTAssertNil(userCommandSnapshot.panels.first?.terminal?.agent)
-        XCTAssertNil(userCommandSnapshot.panels.first?.terminal?.resumeBinding)
+        let retainedBinding = try XCTUnwrap(userCommandSnapshot.panels.first?.terminal?.resumeBinding)
+        XCTAssertEqual(retainedBinding.checkpointId, "codex-binding-auto-resume-disabled-session")
+        XCTAssertFalse(retainedBinding.allowsAutomaticResume)
     }
 
     @MainActor
@@ -529,7 +541,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
-    func testAgentHookResumeBindingClearsAfterStartupCommandCompletes() throws {
+    func testAgentHookResumeBindingBecomesManualAfterStartupCommandCompletes() throws {
         let defaults = UserDefaults.standard
         let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
         let previous = defaults.object(forKey: key)
@@ -575,10 +587,16 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let input = restoredPanel.surface.debugInitialInputMetadata()
         XCTAssertTrue(input.hasInitialInput)
         XCTAssertGreaterThan(input.byteCount, 0)
-        try assertAgentAutoResumeUsesStartupInput(
+        try assertAgentAutoResumeUsesRestoreVerb(
             restoredPanel,
-            scriptContains: ["codex resume codex-binding-auto-resume-session"]
+            sessionID: "codex-binding-auto-resume-session"
         )
+        XCTAssertEqual(
+            restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
+            .awaitingAutoResumeCommand
+        )
+
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
         XCTAssertEqual(
             restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
             .autoResumeCommandRunning
@@ -587,7 +605,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
         let completedSnapshot = restored.sessionSnapshot(includeScrollback: false)
         XCTAssertNil(completedSnapshot.panels.first?.terminal?.agent)
-        XCTAssertNil(completedSnapshot.panels.first?.terminal?.resumeBinding)
+        let retainedBinding = try XCTUnwrap(completedSnapshot.panels.first?.terminal?.resumeBinding)
+        XCTAssertEqual(retainedBinding.checkpointId, "codex-binding-auto-resume-session")
+        XCTAssertFalse(retainedBinding.allowsAutomaticResume)
     }
 
     @MainActor
@@ -696,32 +716,21 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
-    private func assertAgentAutoResumeUsesStartupInput(
+    private func assertAgentAutoResumeUsesRestoreVerb(
         _ panel: TerminalPanel,
-        scriptContains needles: [String],
+        kind: String = "codex",
+        sessionID: String,
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
         XCTAssertNil(panel.surface.debugInitialCommand(), file: file, line: line)
         let input = try XCTUnwrap(panel.surface.debugInitialInputForTesting(), file: file, line: line)
-        let launcherPrefix = "/bin/zsh '"
-        let launcherRange = try XCTUnwrap(
-            input.range(of: launcherPrefix, options: .backwards),
+        XCTAssertEqual(
             input,
+            " \(AgentRestoreLaunch.cliStartupExecutableToken) restore \(kind) \(sessionID)\n",
             file: file,
             line: line
         )
-        let launcherSuffix = input[launcherRange.upperBound...]
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        XCTAssertTrue(launcherSuffix.hasSuffix("'"), input, file: file, line: line)
-        let scriptPath = String(launcherSuffix.dropLast())
-        defer { try? FileManager.default.removeItem(atPath: scriptPath) }
-        let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
-        for needle in needles {
-            XCTAssertTrue(script.contains(needle), script, file: file, line: line)
-        }
-        XCTAssertTrue(script.contains("rm -f -- \"$0\""), script, file: file, line: line)
-        XCTAssertFalse(script.contains("exec -l"), script, file: file, line: line)
     }
 
     private func makeRestorableAgentIndex(

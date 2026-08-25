@@ -4773,7 +4773,7 @@ struct WorkspaceForkConversationContextMenuTests {
             executablePath: executable.path
         )
         workspace.setRestoredAgentSnapshotForTesting(snapshotWithExecutable, panelId: panelId)
-        workspace.restoredAgentResumeStatesByPanelId[panelId] = .completedAgentExit
+        workspace.restoredAgentLifecycle.setResumeState(.completedAgentExit, panelId: panelId)
         try writeCustomAgentHookStore(
             root: root,
             agentId: "opencode",

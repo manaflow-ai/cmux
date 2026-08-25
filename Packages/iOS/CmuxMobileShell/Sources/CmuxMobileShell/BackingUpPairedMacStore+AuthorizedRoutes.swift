@@ -31,8 +31,13 @@ extension BackingUpPairedMacStore {
         }
         let previousActive = markActive == true ? existing.first(where: \.isActive) : nil
         let existedBeforeWrite = existing.contains {
-            cmxCanonicalDeviceID($0.macDeviceID) == macDeviceID
-                && $0.instanceTag == instanceTag
+            MacPairingKey(
+                macDeviceID: $0.macDeviceID,
+                instanceTag: $0.instanceTag
+            ) == MacPairingKey(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
         }
         let wrote = try await inner.upsertRoutesIfAuthorized(
             macDeviceID: macDeviceID,

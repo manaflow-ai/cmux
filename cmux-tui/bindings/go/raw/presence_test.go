@@ -71,8 +71,10 @@ func TestCommandMapPreservesExplicitNull(t *testing.T) {
 	}
 }
 
-func TestTerminalPlacementLifecycleIsExactLiteral(t *testing.T) {
+func TestTerminalPlacementPreservesRunningAndEarlyExitLifecycles(t *testing.T) {
 	valid := `{
+		"already_exited":false,
+		"exit":null,
 		"generation":"g",
 		"key":"k",
 		"lifecycle":"running",
@@ -81,7 +83,7 @@ func TestTerminalPlacementLifecycleIsExactLiteral(t *testing.T) {
 		"replayed":false,
 		"screen":2,
 		"surface":3,
-		"terminal_id":null,
+		"terminal_id":"0123456789ab4def8123456789abcdef",
 		"terminal_incarnation":null,
 		"terminal_revision":4,
 		"workspace":5
@@ -90,27 +92,73 @@ func TestTerminalPlacementLifecycleIsExactLiteral(t *testing.T) {
 	if err := json.Unmarshal([]byte(valid), &placement); err != nil {
 		t.Fatal(err)
 	}
-	lifecycle, ok := placement.Lifecycle.Get()
-	if !ok || lifecycle != TerminalPlacementLifecycleRunning {
-		t.Fatalf("lifecycle = %q, %t", lifecycle, ok)
+	if placement.Lifecycle != TerminalLifecycleRunning || placement.AlreadyExited {
+		t.Fatalf("placement = %#v", placement)
 	}
 
-	invalid := []byte(`{
+	exited := []byte(`{
+		"already_exited":true,
+		"exit":{"outcome":{"kind":"exit","code":23},"exited_at_ms":7654321},
 		"generation":"g",
 		"key":"k",
 		"lifecycle":"exited",
+		"pane":null,
+		"registry_id":"r",
+		"replayed":false,
+		"screen":null,
+		"surface":null,
+		"terminal_id":"0123456789ab4def8123456789abcdef",
+		"terminal_incarnation":null,
+		"terminal_revision":4,
+		"workspace":null
+	}`)
+	if err := json.Unmarshal(exited, &placement); err != nil {
+		t.Fatal(err)
+	}
+	if placement.Lifecycle != TerminalLifecycleExited || !placement.AlreadyExited {
+		t.Fatalf("early-exit placement = %#v", placement)
+	}
+	exit, hasExit := placement.Exit.Get()
+	if !placement.Surface.IsNull() || !hasExit {
+		t.Fatalf("early-exit presence = %#v", placement)
+	}
+	if !placement.Pane.IsNull() || !placement.Screen.IsNull() || !placement.Workspace.IsNull() {
+		t.Fatalf("early-exit null fields = %#v", placement)
+	}
+	normal, ok := exit.Outcome.AsExit()
+	if !ok || normal.Code != 23 || exit.ExitedAtMs != 7654321 {
+		t.Fatalf("normal exit = %#v", exit)
+	}
+
+	var signaled TerminalExit
+	if err := json.Unmarshal([]byte(`{
+		"outcome":{"kind":"signal","signal":15,"core_dumped":true},
+		"exited_at_ms":8765432
+	}`), &signaled); err != nil {
+		t.Fatal(err)
+	}
+	signal, ok := signaled.Outcome.AsSignal()
+	if !ok || signal.Signal != 15 || !signal.CoreDumped || signaled.ExitedAtMs != 8765432 {
+		t.Fatalf("signal exit = %#v", signaled)
+	}
+
+	missingExit := []byte(`{
+		"already_exited":false,
+		"generation":"g",
+		"key":"k",
+		"lifecycle":"running",
 		"pane":1,
 		"registry_id":"r",
 		"replayed":false,
 		"screen":2,
 		"surface":3,
-		"terminal_id":null,
+		"terminal_id":"0123456789ab4def8123456789abcdef",
 		"terminal_incarnation":null,
 		"terminal_revision":4,
 		"workspace":5
 	}`)
-	if err := json.Unmarshal(invalid, &placement); err == nil {
-		t.Fatal("invalid TerminalPlacement lifecycle decoded successfully")
+	if err := json.Unmarshal(missingExit, &placement); err == nil {
+		t.Fatal("placement decoded without required exit field")
 	}
 }
 

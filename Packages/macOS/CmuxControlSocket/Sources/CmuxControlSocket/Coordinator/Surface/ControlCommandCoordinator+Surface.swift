@@ -307,6 +307,12 @@ extension ControlCommandCoordinator {
                 message: "Surface not found",
                 data: .object(["surface_id": .string(id.uuidString)])
             )
+        case .dockUnavailable(let message):
+            return .err(
+                code: "unavailable",
+                message: message,
+                data: .object(["surface_id": .string(surfaceID.uuidString)])
+            )
         case .focused(let windowID, let workspaceID, let focusedSurfaceID):
             return .ok(.object([
                 "workspace_id": .string(workspaceID.uuidString),
@@ -444,12 +450,18 @@ extension ControlCommandCoordinator {
             return .err(code: "invalid_params", message: strings.invalidFocus, data: nil)
         }
 
+        let hasSurfaceIDParam = params["surface_id"] != nil
+        let requestedSurfaceID = uuid(params, "surface_id")
+        if hasSurfaceIDParam, requestedSurfaceID == nil {
+            return .err(code: "not_found", message: strings.surfaceNotFoundForID, data: nil)
+        }
+
         let inputs = ControlSurfaceRespawnInputs(
             command: command,
             tmuxStartCommand: tmuxStartCommand,
             workingDirectory: workingDirectory,
-            hasSurfaceIDParam: hasNonNull(params, "surface_id"),
-            requestedSurfaceID: uuid(params, "surface_id"),
+            hasSurfaceIDParam: hasSurfaceIDParam,
+            requestedSurfaceID: requestedSurfaceID,
             hasFocusParam: hasFocusParam,
             requestedFocus: bool(params, "focus") ?? false
         )
@@ -605,11 +617,19 @@ extension ControlCommandCoordinator {
     /// `surface.close` — force-close a surface.
     func surfaceClose(_ params: [String: JSONValue]) -> ControlCallResult {
         let routing = routingSelectors(params)
-        guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
+        guard let context, context.controlSurfaceRoutingResolvesTabManager(routing: routing) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        let resolution = context?.controlSurfaceClose(routing: routing, surfaceID: uuid(params, "surface_id"))
-            ?? .tabManagerUnavailable
+        let surfaceID = uuid(params, "surface_id")
+        let hasSurfaceIDParam = params["surface_id"] != nil
+        if hasSurfaceIDParam, surfaceID == nil {
+            return .err(code: "not_found", message: context.controlSurfaceNotFoundMessage(), data: nil)
+        }
+        let resolution = context.controlSurfaceClose(
+            routing: routing,
+            surfaceID: surfaceID,
+            hasSurfaceIDParam: hasSurfaceIDParam
+        )
         switch resolution {
         case .tabManagerUnavailable:
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -617,10 +637,12 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         case .noFocusedSurface:
             return .err(code: "not_found", message: "No focused surface", data: nil)
+        case .invalidSurfaceID:
+            return .err(code: "not_found", message: context.controlSurfaceNotFoundMessage(), data: nil)
         case .surfaceNotFound(let id):
             return .err(
                 code: "not_found",
-                message: "Surface not found",
+                message: context.controlSurfaceNotFoundMessage(),
                 data: .object(["surface_id": .string(id.uuidString)])
             )
         case .lastSurface:

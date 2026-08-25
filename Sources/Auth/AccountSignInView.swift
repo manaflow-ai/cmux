@@ -1,7 +1,7 @@
 import CmuxSettingsUI
 import SwiftUI
 
-/// Shared Stack sign-in status UI used by the Account and Pair iPhone panes.
+/// Shared Stack sign-in status UI used by the Account and Tailscale Pairing panes.
 struct AccountSignInView: View {
     let model: AccountSignInModel
     let automaticallyStartsSignIn: Bool
@@ -56,7 +56,7 @@ private struct AccountSignInIdleView: View {
                 .cmuxFont(.title2, weight: .semibold)
             Text(String(
                 localized: "account.signIn.prompt",
-                defaultValue: "Continue with your Stack account."
+                defaultValue: "Continue with your cmux account."
             ))
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
@@ -160,7 +160,7 @@ private struct AccountSignInSuccessView: View {
             }
             Text(String(
                 localized: "account.signIn.successBody",
-                defaultValue: "cmux is connected to your Stack account."
+                defaultValue: "Your cmux account is connected."
             ))
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -245,7 +245,7 @@ private extension AccountSignInModel.LoadingStage {
         case .openingBrowser:
             return String(
                 localized: "account.signIn.loading.opening.instructions",
-                defaultValue: "cmux is preparing a secure Stack sign-in window."
+                defaultValue: "cmux is preparing a secure sign-in window."
             )
         case .waiting:
             return String(
@@ -260,7 +260,7 @@ private extension AccountSignInModel.LoadingStage {
         case .finishing:
             return String(
                 localized: "account.signIn.loading.finishing.instructions",
-                defaultValue: "cmux is verifying your Stack account. Keep this pane open."
+                defaultValue: "cmux is verifying your account. Keep this pane open."
             )
         }
     }
@@ -278,19 +278,19 @@ private extension AccountSignInModel.Failure {
         case .offline:
             return String(localized: "account.signIn.error.offline.title", defaultValue: "No internet connection")
         case .network:
-            return String(localized: "account.signIn.error.network.title", defaultValue: "Couldn’t reach Stack")
+            return String(localized: "account.signIn.error.network.title", defaultValue: "Couldn’t reach cmux")
         case .timedOut:
             return String(localized: "account.signIn.error.timedOut.title", defaultValue: "Sign-in timed out")
         case .server:
-            return String(localized: "account.signIn.error.server.title", defaultValue: "Stack is temporarily unavailable")
+            return String(localized: "account.signIn.error.server.title", defaultValue: "cmux sign-in is temporarily unavailable")
         case .invalidLink:
             return String(localized: "account.signIn.error.invalidLink.title", defaultValue: "That sign-in link is no longer valid")
         case .browserUnavailable:
             return String(localized: "account.signIn.error.browserUnavailable.title", defaultValue: "Couldn’t open sign-in")
         case .unauthorized:
-            return String(localized: "account.signIn.error.unauthorized.title", defaultValue: "Stack couldn’t authorize this sign-in")
+            return String(localized: "account.signIn.error.unauthorized.title", defaultValue: "cmux couldn’t authorize this sign-in")
         case .rejected:
-            return String(localized: "account.signIn.error.rejected.title", defaultValue: "Stack rejected the sign-in")
+            return String(localized: "account.signIn.error.rejected.title", defaultValue: "cmux couldn’t complete the sign-in")
         case .unknown:
             return String(localized: "account.signIn.error.unknown.title", defaultValue: "Couldn’t finish sign-in")
         }
@@ -336,7 +336,7 @@ private extension AccountSignInModel.Failure {
         case .unauthorized:
             return String(
                 localized: "account.signIn.error.unauthorized.recovery",
-                defaultValue: "Confirm you’re using the intended Stack account, then try again."
+                defaultValue: "Confirm you’re using the intended cmux account, then try again."
             )
         case .rejected:
             return String(

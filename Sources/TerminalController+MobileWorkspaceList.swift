@@ -10,11 +10,9 @@ import Foundation
 // group collapse/expand handler. Lives in its own file so the mobile list
 // payload code stays together without growing TerminalController.swift.
 extension TerminalController {
-    /// Mobile-gated collapse/expand of a workspace group. P1 group support on
-    /// iOS is display-only: the phone renders collapsible group sections and can
-    /// toggle a section open/closed, but cannot create, rename, or restructure
-    /// groups. This requires an explicit, resolvable `group_id` (it must never
-    /// fall back to the Mac's selected group) and mutates through the same
+    /// Mobile-gated collapse/expand of a workspace group. This requires an
+    /// explicit, resolvable `group_id` (it must never fall back to the Mac's
+    /// selected group) and mutates through the same
     /// `TabManager.setWorkspaceGroupCollapsed` the CLI and sidebar use, so the
     /// mutation path stays shared. `v2ResolveTabManager` routes by `group_id` to
     /// the owning window even in the multi-window case.
@@ -95,7 +93,11 @@ extension TerminalController {
             // a single entry), not a sidebar render, so it omits group sections to
             // keep the response minimal. The phone always lists the full window.
             if requestedWorkspaceID == nil, requestedTerminalID == nil {
-                groups = mobileWorkspaceGroupPayloads(tabManager.workspaceGroups, tabs: tabManager.tabs)
+                groups = mobileWorkspaceGroupPayloads(
+                    tabManager.workspaceGroups,
+                    tabs: tabManager.tabs,
+                    tabManager: tabManager
+                )
             }
             let visibleWorkspaces = requestedWorkspaceID.map { workspaceID in
                 tabManager.tabs.filter { $0.id == workspaceID }
@@ -148,7 +150,8 @@ extension TerminalController {
                 aggregatedGroups.append(
                     contentsOf: mobileWorkspaceGroupPayloads(
                         windowTabManager.workspaceGroups,
-                        tabs: windowTabManager.tabs
+                        tabs: windowTabManager.tabs,
+                        tabManager: windowTabManager
                     )
                 )
                 for workspace in windowTabManager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
@@ -235,6 +238,30 @@ extension TerminalController {
                 "is_focused": workspace.isFocusedTerminalInputSurface(terminal.id)
             ]
         }
+        let simulatorEncoder = MobileSimulatorWireEncoder()
+        let simulators: [[String: Any]]
+        if CmuxFeatureFlags.shared.isSimulatorEnabled {
+            simulators = mobileSimulatorPanels(in: workspace).compactMap { panel in
+                simulatorEncoder.object(MobileHostService.shared.mobileSimulatorStreamCoordinator.descriptor(
+                    panel: panel
+                ) ?? simulatorEncoder.descriptor(panel: panel, workspaceID: workspace.id))
+            }
+        } else {
+            simulators = []
+        }
+        let surfaces = mobileSurfaceDescriptors(in: workspace).map { surface -> [String: Any] in
+            var payload: [String: Any] = [
+                "surface_id": surface.surfaceID,
+                "kind": surface.kind,
+                "title": surface.title,
+                "is_focused": surface.isFocused,
+                "file_path": v2OrNull(surface.filePath),
+            ]
+            if let todo = surface.todo {
+                payload["todo"] = mobileTodoPayload(todo)
+            }
+            return payload
+        }
 
         let store = notificationStore ?? AppDelegate.shared?.notificationStore
         let latestNotification = store?.latestNotification(forTabId: workspace.id)
@@ -273,7 +300,9 @@ extension TerminalController {
             // unread + manual/panel-derived/restored indicators) so the phone can
             // show an iMessage-style unread dot.
             "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
-            "terminals": terminals
+            "terminals": terminals,
+            "surfaces": surfaces,
+            "simulators": simulators
         ]
     }
 
@@ -426,14 +455,24 @@ extension TerminalController {
     /// Serializes the window's workspace groups into the iOS-facing mobile shape.
     ///
     /// A subset of `v2WorkspaceGroupPayload` carrying only what the phone needs to
-    /// render collapsible sections (no v2 handle refs, color, or icon). Member ids
+    /// render collapsible sections (no v2 handle refs or color). Member ids
     /// are taken in `tabs` spatial order so the phone's grouping matches the Mac.
     /// Membership is resolved with a single pass over `tabs` (not a scan per
     /// group), keeping this synchronous RPC path linear on large workspace sets.
-    func mobileWorkspaceGroupPayloads(_ groups: [WorkspaceGroup], tabs: [Workspace]) -> [[String: Any]] {
+    func mobileWorkspaceGroupPayloads(
+        _ groups: [WorkspaceGroup],
+        tabs: [Workspace],
+        tabManager: TabManager? = nil
+    ) -> [[String: Any]] {
         guard !groups.isEmpty else { return [] }
         var memberIDsByGroup: [UUID: [String]] = [:]
+        var currentDirectoryByWorkspaceID: [UUID: String] = [:]
+        currentDirectoryByWorkspaceID.reserveCapacity(tabs.count)
+        let configStore = tabManager.flatMap {
+            AppDelegate.shared?.mainWindowContext(for: $0)?.cmuxConfigStore
+        }
         for workspace in tabs {
+            currentDirectoryByWorkspaceID[workspace.id] = workspace.currentDirectory
             guard let groupId = workspace.groupId else { continue }
             memberIDsByGroup[groupId, default: []].append(workspace.id.uuidString)
         }
@@ -443,9 +482,30 @@ extension TerminalController {
                 "name": group.name,
                 "is_collapsed": group.isCollapsed,
                 "is_pinned": group.isPinned,
+                "icon_symbol": mobileWorkspaceGroupEffectiveIconSymbol(
+                    group,
+                    anchorCwd: currentDirectoryByWorkspaceID[group.anchorWorkspaceId] ?? nil,
+                    configStore: configStore
+                ),
                 "anchor_workspace_id": group.anchorWorkspaceId.uuidString,
                 "member_workspace_ids": memberIDsByGroup[group.id] ?? []
             ]
         }
+    }
+
+    /// Resolves the icon the Mac row actually renders, including per-directory
+    /// `cmux.json` configuration and the shared validated folder fallback.
+    func mobileWorkspaceGroupEffectiveIconSymbol(
+        _ group: WorkspaceGroup,
+        anchorCwd: String?,
+        configStore: CmuxConfigStore?
+    ) -> String {
+        let configured = configStore?
+            .resolveWorkspaceGroupConfig(forCwd: anchorCwd)?
+            .iconSymbol
+        return RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
+            explicit: group.iconSymbol,
+            configured: configured
+        )
     }
 }

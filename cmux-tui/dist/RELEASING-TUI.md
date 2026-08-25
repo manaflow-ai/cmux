@@ -4,9 +4,9 @@ The cmux TUI distribution uses `cmux-tui-vX.Y.Z` tags. The npm launcher
 package, npm platform packages, and PyPI wheels all share the same `X.Y.Z`
 version for a release.
 
-TUI distribution versions are independent of the SDK version. The SDK package
-relocation to `cmux-sdk` is tracked separately and is not part of this release
-path.
+TUI distribution versions are independent of the SDK version. SDKs publish as
+`cmux-sdk` on npm and PyPI, so the `cmux` name remains exclusive to this TUI
+release path.
 
 The TUI does not store its version in a checked-in manifest. The packaging
 scripts receive `--version`, so cutting a stable TUI release is just creating a
@@ -24,6 +24,13 @@ scripts receive `--version`, so cutting a stable TUI release is just creating a
 Linux packages contain static musl binaries that run on both glibc and musl
 distributions. PyPI publishes each Linux binary under matching manylinux and
 musllinux wheel tags so installers on both runtime families can resolve it.
+
+Before upload, the package contract validator checks the exact five npm package
+trees, including both the TUI binary and hook, then runs `npm pack` and an
+offline install of the matching Linux package. It checks the exact six PyPI
+wheels, their platform tags, metadata, `RECORD` hashes, and executable modes.
+The Windows binary and hook are raw release artifacts only. They are not in the
+npm or PyPI package set.
 
 ## One-time registry setup
 

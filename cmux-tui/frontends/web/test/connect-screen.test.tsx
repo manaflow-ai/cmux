@@ -44,7 +44,7 @@ describe("ConnectScreen", () => {
     render(<ConnectScreen
       connecting={false}
       error={null}
-      pairing={{ id: 7, code: "123 456", peer: "127.0.0.1", expiresIn: 60 }}
+      pairing={{ id: 7n, code: "123 456", peer: "127.0.0.1", expiresIn: 60 }}
       onConnect={vi.fn()}
     />);
     expect(screen.getByRole("status")).toHaveTextContent("123 456");

@@ -851,7 +851,7 @@ def _typed_id(value: Optional[str], constructor: Callable[[str], Any]) -> Any:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--socket", help="explicit cmux.protocol/1 Unix socket")
+    parser.add_argument("--socket", help="explicit cmux.protocol/2 Unix socket")
     parser.add_argument(
         "--socket-session",
         default="main",

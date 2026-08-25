@@ -17,6 +17,10 @@ public enum MobileShellConnectionError: LocalizedError, DiagnosticFailureProvidi
     /// remain blocked to cap retained transports until cleanup finishes or the
     /// app process restarts.
     case routeCleanupBlocked
+    /// The connect-attempt registry refused the dial because this exact route
+    /// already has a connect attempt in flight. The refusal is instantaneous
+    /// and never reached the network, so it must not masquerade as a timeout.
+    case connectAttemptGated
     /// A manual host did not advertise a secure route.
     case insecureManualRoute
     /// The attach ticket expired and no fallback was available.
@@ -46,6 +50,11 @@ public enum MobileShellConnectionError: LocalizedError, DiagnosticFailureProvidi
                 "mobile.connection.routeCleanupBlocked",
                 defaultValue: "Connection cleanup is stuck. Restart cmux on this device before reconnecting."
             )
+        case .connectAttemptGated:
+            return L10n.string(
+                "mobile.connection.connectAttemptGated",
+                defaultValue: "Mobile sync connection is retrying"
+            )
         case .insecureManualRoute:
             return "Manual host did not advertise a secure mobile sync route"
         case .attachTicketExpired:
@@ -67,6 +76,8 @@ public enum MobileShellConnectionError: LocalizedError, DiagnosticFailureProvidi
             .connectionClosed
         case .requestTimedOut, .transportWriteTimedOut:
             .timedOut
+        case .connectAttemptGated:
+            .routeGated
         case .routeCleanupBlocked:
             .admissionDenied
         case .insecureManualRoute:

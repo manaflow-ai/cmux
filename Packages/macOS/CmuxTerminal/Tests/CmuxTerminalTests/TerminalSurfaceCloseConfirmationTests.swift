@@ -9,8 +9,37 @@ private func resetGhosttyRuntimeStubs()
 @_silgen_name("cmux_test_ghostty_runtime_stubs_set_close_state")
 private func setGhosttyCloseState(_ needsConfirm: Bool, _ foregroundPID: UInt64, _ ttyName: UnsafePointer<CChar>?)
 
+@_silgen_name("cmux_test_ghostty_tty_name_call_count")
+private func ghosttyTTYNameCallCount() -> UInt32
+
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceCloseConfirmationTests {
+    @Test func controllingTTYNameIsReadOncePerRuntimeLifecycle() {
+        let registry = FakeSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        resetGhosttyRuntimeStubs()
+        defer {
+            resetGhosttyRuntimeStubs()
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+
+        "/dev/null".withCString { ttyName in
+            setGhosttyCloseState(false, 0, ttyName)
+            surface.installRuntimeSurfaceForTesting(runtimeSurface)
+
+            #expect(surface.controllingTTYName() == "/dev/null")
+            #expect(surface.controllingTTYName() == "/dev/null")
+        }
+
+        #expect(
+            ghosttyTTYNameCallCount() == 1,
+            "PID routing must reuse terminal-lifecycle TTY identity instead of probing every surface"
+        )
+    }
+
     @Test func liveSurfaceWithoutPidOrTtyDoesNotRequireConfirmation() {
         let surface = makeSurface()
         let runtimeSurface = fakeRuntimeSurface()
@@ -84,7 +113,10 @@ private func setGhosttyCloseState(_ needsConfirm: Bool, _ foregroundPID: UInt64,
         #expect(reusedPointerLifetime == releasedLifetime &+ 1)
     }
 
-    private func makeSurface(initialCommand: String? = nil) -> TerminalSurface {
+    private func makeSurface(
+        initialCommand: String? = nil,
+        registry: FakeSurfaceRegistry = FakeSurfaceRegistry()
+    ) -> TerminalSurface {
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
         return TerminalSurface(
@@ -93,7 +125,7 @@ private func setGhosttyCloseState(_ needsConfirm: Bool, _ foregroundPID: UInt64,
             configTemplate: nil,
             initialCommand: initialCommand,
             dependencies: TerminalSurfaceRuntimeDependencies(
-                registry: FakeSurfaceRegistry(),
+                registry: registry,
                 engine: FakeTerminalEngine(),
                 viewProvider: FakeTerminalSurfaceViewProvider(surfaceView: nativeView, paneHost: paneHost),
                 spawnPolicy: FakeSpawnPolicyProvider(),
@@ -103,8 +135,8 @@ private func setGhosttyCloseState(_ needsConfirm: Bool, _ foregroundPID: UInt64,
                 runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator(),
                 restoreSpawnScheduler: TerminalSurfaceRestoreSpawnScheduler(interSpawnDelay: .zero),
                 runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
-                    claudeCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
-                    installClaudeCommandShim: { _, _, _ in nil },
+                    agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
+                    installAgentCommandShims: { _, _, _ in nil },
                     isExecutableFile: { _ in false }
                 ),
                 sessionPortBase: 40_000,

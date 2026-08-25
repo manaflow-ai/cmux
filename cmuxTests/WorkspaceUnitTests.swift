@@ -1611,7 +1611,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(invalidPrimaryStore.activeSourcePath, primaryURL.path)
     }
 
-    func testPersistedShortcutOverridesSettingsFileShortcutValues() throws {
+    func testSettingsFileShortcutOverridesPersistedShortcutValues() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -1638,15 +1638,18 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             startWatching: false
         )
 
+        // A binding in cmux.json outranks a shortcut saved through Settings: the file
+        // owns the action for as long as it defines it, and Settings reports the row as
+        // managed (and disables its recorder) instead of editing it.
         XCTAssertEqual(
             KeyboardShortcutSettings.shortcut(for: .newTab),
-            StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
+            StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
         )
         XCTAssertTrue(KeyboardShortcutSettings.isManagedBySettingsFile(.newTab))
     }
 
     @MainActor
-    func testReloadConfigurationReloadsShortcutSettingsFile() throws {
+    func testReloadConfigurationReloadsShortcutSettingsFile() async throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -1684,7 +1687,17 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             to: settingsFileURL
         )
 
-        GhosttyApp.shared.reloadConfiguration(source: "test.reload_config")
+        let reloadCompleted = expectation(
+            description: "shortcut settings file reload completed"
+        )
+        XCTAssertTrue(
+            GhosttyApp.shared.reloadConfiguration(
+                source: "test.reload_config"
+            ) {
+                reloadCompleted.fulfill()
+            }
+        )
+        await fulfillment(of: [reloadCompleted], timeout: 10)
 
         XCTAssertEqual(
             KeyboardShortcutSettings.shortcut(for: .newTab),
@@ -1798,13 +1811,15 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 #endif
     }
 
-    func testSettingsFileShortcutCanBeOverriddenFromUI() throws {
+    func testSettingsFileShortcutCannotBeSetFromUI() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
         let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         let missingSettingsFileURL = directoryURL.appendingPathComponent("missing.json", isDirectory: false)
-        let editedShortcut = StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
+        // Distinct from newTab's built-in cmd+n so the closing assertion can tell a
+        // refused write apart from one that persisted but was outranked.
+        let editedShortcut = StoredShortcut(key: "j", command: true, shift: false, option: true, control: false)
         let managedShortcut = StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
 
         try writeSettingsFile(
@@ -1831,10 +1846,15 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             for: .newTab
         )
 
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), editedShortcut)
-
-        KeyboardShortcutSettings.resetShortcut(for: .newTab)
-
+        // The Settings row for a file-managed action is disabled and subtitled
+        // "Managed in cmux.json", and the shared setter also refuses the write behind
+        // it. Check the backing store directly so the managed lookup cannot mask an
+        // accidentally persisted shortcut.
+        XCTAssertNil(
+            UserDefaults.standard.object(
+                forKey: KeyboardShortcutSettings.Action.newTab.defaultsKey
+            )
+        )
         XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), managedShortcut)
 
         KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
@@ -1847,7 +1867,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), KeyboardShortcutSettings.Action.newTab.defaultShortcut)
     }
 
-    func testSystemWideHotkeySettingsPreserveInvalidManagedShortcutWithoutFallingBackToDefault() throws {
+    func testSystemWideHotkeySettingsPreserveInvalidManagedShortcutButFailClosed() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -1883,12 +1903,13 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             invalidShortcut
         )
         XCTAssertTrue(SystemWideHotkeySettings.isManagedBySettingsFile())
-        XCTAssertEqual(SystemWideHotkeySettings.shortcut(), invalidShortcut)
-        XCTAssertNotEqual(SystemWideHotkeySettings.shortcut(), SystemWideHotkeySettings.defaultShortcut)
-        XCTAssertNil(SystemWideHotkeySettings.shortcut().carbonHotKeyRegistration)
+        let effectiveShortcut = SystemWideHotkeySettings.shortcut()
+        XCTAssertEqual(effectiveShortcut, .unbound)
+        XCTAssertNotEqual(effectiveShortcut, SystemWideHotkeySettings.defaultShortcut)
+        XCTAssertNil(effectiveShortcut.carbonHotKeyRegistration)
     }
 
-    func testSystemWideHotkeyLegacyMigrationPreservesInvalidShortcut() throws {
+    func testSystemWideHotkeyLegacyMigrationStoresInvalidShortcutButFailsClosed() throws {
         let invalidShortcut = StoredShortcut(
             key: "b",
             command: false,
@@ -1901,9 +1922,11 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let defaults = UserDefaults.standard
         defaults.set(encodedShortcut, forKey: SystemWideHotkeySettings.legacyShortcutKey)
 
-        let migratedShortcut = SystemWideHotkeySettings.shortcut()
+        let effectiveShortcut = SystemWideHotkeySettings.shortcut()
 
-        XCTAssertEqual(migratedShortcut, invalidShortcut)
+        XCTAssertEqual(effectiveShortcut, .unbound)
+        XCTAssertNotEqual(effectiveShortcut, SystemWideHotkeySettings.defaultShortcut)
+        XCTAssertNil(effectiveShortcut.carbonHotKeyRegistration)
         XCTAssertNil(defaults.object(forKey: SystemWideHotkeySettings.legacyShortcutKey))
 
         let migratedData = try XCTUnwrap(
@@ -2222,7 +2245,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testReloadConfigurationReloadsManagedAppSettingsFromSettingsFile() throws {
+    func testReloadConfigurationReloadsManagedAppSettingsFromSettingsFile() async throws {
         let defaults = UserDefaults.standard
         let managedKey = SettingCatalog().app.newWorkspacePlacement.userDefaultsKey
         let previousValue = defaults.object(forKey: managedKey)
@@ -2278,7 +2301,17 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             to: settingsFileURL
         )
 
-        GhosttyApp.shared.reloadConfiguration(source: "test.reload_config_app_setting")
+        let reloadCompleted = expectation(
+            description: "managed app settings reload completed"
+        )
+        XCTAssertTrue(
+            GhosttyApp.shared.reloadConfiguration(
+                source: "test.reload_config_app_setting"
+            ) {
+                reloadCompleted.fulfill()
+            }
+        )
+        await fulfillment(of: [reloadCompleted], timeout: 10)
 
         XCTAssertEqual(UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.newWorkspacePlacement), .end)
     }
@@ -3285,6 +3318,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             initialSurface: NewWorkspaceInitialSurface,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
+            initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot?,
             initialTerminalEnvironment: [String: String],
             initialBrowserURL: URL?,
             initialBrowserOmnibarVisible: Bool,
@@ -3302,6 +3336,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
+                initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
                 initialTerminalEnvironment: initialTerminalEnvironment,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
@@ -3598,6 +3633,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             initialSurface: NewWorkspaceInitialSurface,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
+            initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot?,
             initialTerminalEnvironment: [String: String],
             initialBrowserURL: URL?,
             initialBrowserOmnibarVisible: Bool,
@@ -3615,6 +3651,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
+                initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
                 initialTerminalEnvironment: initialTerminalEnvironment,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
@@ -4694,10 +4731,25 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
 
         XCTAssertNotNil(sourcePanel.surface.surface, "Expected runtime surface before forcing stale pointer")
 
+        let reloadState = sourcePanel.surface.captureFontSizeConfigurationReloadState(
+            magnificationPercent: 100
+        )
+        defer {
+            sourcePanel.surface.abandonFontSizeConfigurationReloadReconciliation(
+                from: reloadState,
+                magnificationPercent: 100
+            )
+        }
+
         sourcePanel.surface.replaceSurfaceWithFreedPointerForTesting()
         XCTAssertNotNil(
             sourcePanel.surface.surface,
             "Expected Swift wrapper to remain non-nil while simulating a stale native surface"
+        )
+        _ = sourcePanel.surface.fontSizeLineageSnapshot()
+        XCTAssertNotNil(
+            sourcePanel.surface.surface,
+            "Expected the pending reload snapshot to leave liveness validation to inherited config"
         )
 
         let splitPanel = workspace.newTerminalSplit(
@@ -4728,10 +4780,25 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
 
         XCTAssertNotNil(sourcePanel.surface.surface, "Expected runtime surface before forcing stale pointer")
 
+        let reloadState = sourcePanel.surface.captureFontSizeConfigurationReloadState(
+            magnificationPercent: 100
+        )
+        defer {
+            sourcePanel.surface.abandonFontSizeConfigurationReloadReconciliation(
+                from: reloadState,
+                magnificationPercent: 100
+            )
+        }
+
         sourcePanel.surface.replaceSurfaceWithFreedPointerForTesting()
         XCTAssertNotNil(
             sourcePanel.surface.surface,
             "Expected Swift wrapper to remain non-nil while simulating a stale native surface"
+        )
+        _ = sourcePanel.surface.fontSizeLineageSnapshot()
+        XCTAssertNotNil(
+            sourcePanel.surface.surface,
+            "Expected the pending reload snapshot to leave liveness validation to inherited config"
         )
 
         let createdPanel = workspace.newTerminalSurface(

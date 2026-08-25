@@ -4,9 +4,11 @@
 
 The files sidebar view (`sidebar.view = "files"`) shows the focused pane's cwd, one row per directory/file, and a count or filter footer. A single click selects a file row. Crossterm's mouse events do not expose an existing double-click concept here, so clicks do not open or descend; use Enter or Right while the sidebar is focused. Toggle to the workspaces view with focused-sidebar `Tab` or the `toggle-sidebar-view` action.
 
-The workspaces view shows a `workspaces` header, two rows per workspace, and `+ new workspace`. Click either row of a workspace to select it. Click `+ new workspace` to create one. Its terminal-style scrollbar appears one column inside the resize divider only when workspace rows overflow. Wheel over the rail, click the scrollbar's invisible track, or drag its thumb to scroll the workspace list. Drag the sidebar's right border in either built-in view to set a session-local width override. Configured `sidebar.max_width` limits the drag width when it is greater than zero, and the TUI still leaves at least 40 columns for panes.
+The workspaces view shows two rows per workspace and `+ new workspace`, with no header row. Click either row of a workspace to select it. Click `+ new workspace` to create one. Its terminal-style scrollbar appears one column inside the resize divider only when workspace rows overflow. Wheel over the rail, click the scrollbar's invisible track, or drag its thumb to scroll the workspace list. Drag the sidebar's right border in either built-in view to set a session-local width override. Configured `sidebar.max_width` limits the drag width when it is greater than zero, and the TUI still leaves at least 40 columns for panes.
 
-When configured, the machine rail appears to the left of the workspace or files rail with the same header, two-line entry, active marker, and selected-row treatment as the built-in workspace list. Press and release on the same non-active machine entry to connect to it. Click `+ Connect machine` to open the shared text-input dialog for a host address or pairing code. A negotiated dynamic provider receives that value as opaque input; the static catalog accepts `host` or `user@host` and creates a temporary local SSH target. A provider that advertises create capability also shows `+ new machine`; the built-in static Unix/SSH catalog does not advertise that capability. Drag the machine rail's right divider to resize that rail, or the second rail's right divider to resize the workspace/files rail. The two session-local width overrides are independent.
+When configured, the machine rail uses the same two-line entry, active marker, and selected-row treatment as the built-in workspace list (rails have no header row; the one-row pad at a rail's top focuses it without activating a row, and every rail leads with its `+` action rows at the bottom). Press a non-active machine entry to connect to it. Click `+ ssh host` to open the native SSH host picker, then filter a discovered alias or choose `Add SSH host…` for a process-local target. Provider-owned connection flows may use the same row for a host address or pairing code. Click `+ new vm` to run a provider create action or choose among configured prototype sources; right-click it (or the machine rail's top pad, when create is unavailable) for provider scope switching and provider actions. The prototype picker adds only a local catalog row and never invokes Docker or a cloud API.
+
+An ordered `tabs` column shows every tab in the highlighted workspace. Clicking a row activates its workspace, screen, pane, and tab. Wheel input scrolls long tab lists. Drag any native column's right divider to set its independent session-local width.
 
 Each pane has a border box. Click inside a pane to focus it. The top border is the tab bar: click a tab chip to select it, click `+` to create a PTY tab, click `‹` or `›` to scroll overflowing tabs, or wheel over the bar to scroll tab chips while keeping the active tab visible.
 
@@ -14,12 +16,12 @@ The status bar lists screens for the active workspace. Click a screen segment to
 
 When a screen overflows horizontally, the open space in the status bar becomes a continuous viewport track. Click it to animate to that position, or drag it for direct movement. Horizontal wheel events over the pane region pan by one sixth of the viewport. Screens without horizontal overflow continue forwarding those events to the active surface.
 
-A workspace-row or tab-chip press arms the stable identity from the hit target
-that was actually rendered. Its matching release completes that same action
-even if another frontend changes selection and triggers a routing refresh
-between the two events. A release without a corresponding armed press is a
-no-op; it cannot select whichever workspace or tab happens to occupy that
-coordinate later.
+Every native sidebar row activates on left press. Workspace presses also arm
+the rendered stable identity for reorder, while release only finishes that
+gesture. Pane tab chips still arm their rendered stable identity on press and
+activate or move it on release. A release without a corresponding armed press
+is a no-op; it cannot select whichever workspace or tab later occupies that
+coordinate.
 
 ## Drag Reorder
 
@@ -41,17 +43,17 @@ Drag pane borders to resize the matching split. Dragging a corner adjusts both i
 
 On a horizontally scrollable screen, drag either side of a column divider to resize the column on its left. Drag the final column's right border to resize that column. Column widths are clamped from one tenth through one full viewport. Splits inside each column remain independently resizable. One continuous divider drag is coalesced into one `Ctrl-b U` layout-undo entry.
 
-Drag a rail border to resize that rail for the current TUI session. Dragging the workspace rail leaves compact mode and sets its full-width override. The configured base widths come from `machine_sidebar.width`, `sidebar.width`, and `sidebar.compact_width`; each rail honors its own `max_width`. With both rails visible, resizing one preserves the other rail's width while leaving at least 40 columns for pane content.
+Drag a rail border to resize that rail for the current TUI session. Dragging the workspace rail leaves compact mode and sets its full-width override. `sidebar.views` supplies base widths, maximum widths, and collapse priorities; legacy layouts still use `machine_sidebar.width`, `sidebar.width`, and `sidebar.compact_width`. Resizing one view preserves every other visible view while leaving at least 40 columns for panes.
 
 ## Context Menus
 
-Right-click a pane for rename tab, close tab, new pane, new tab, new browser tab, browser actions when applicable, split right, split down, close pane, maximize/restore, and ID copying. New pane runs the same smart-layout action as `Alt-n`. Pane and status-bar menus do not contain sidebar actions. When an inner PTY app enables mouse tracking, right-click is forwarded to the app; hold Shift while right-clicking to open the cmux menu.
+Right-click a pane for rename tab, close tab, new pane, new tab, new browser tab, browser actions when applicable, split right, split down, close pane, maximize/restore, and ID copying. New pane runs the same smart-layout action as `Alt-n`. Every right-click menu, including blank status-bar space, contains Show/Hide Sidebar. When an inner PTY app enables mouse tracking, right-click is forwarded to the app; hold Shift while right-clicking to open the cmux menu.
 
-Right-click anywhere inside the sidebar, including its header, empty space, file rows, workspace rows, and divider, for show/hide, compact/full, and focus actions. Workspace rows also include their rename, close, and copy-ID actions. Switching between files and workspaces remains a keyboard action (`Ctrl-b e` by default) and is not in the context menu. Right-click a status-bar screen for only its screen actions.
+Right-click anywhere inside the sidebar, including its top pad, empty space, file rows, projected tree rows, and divider, for show/hide, compact/full, and focus actions. Workspace rows also include rename, close, and copy-ID actions. Tab and agent rows rename the exact surface represented by that row. Switching between files and workspaces remains a keyboard action (`Ctrl-b e` by default) and is not in the context menu. Right-click a status-bar screen for its screen actions plus Show/Hide Sidebar.
 
 Each context menu includes Keyboard shortcuts, which opens the same modal as `Ctrl-b ?`. The modal has a visible `[Esc close]` button and a terminal-style scrollbar when its rows overflow, with wheel, track-click, and thumb-drag control. Every menu action with a configured key shows the resolved shortcut on the right. Remapped prefix and action keys appear immediately, and unbound actions omit the shortcut.
 
-Menus draw bordered overlays. Divider rows collapse as needed to keep every action visible when the flat menu would fit. Up and Down move the selected row, Enter activates it, and Esc closes the menu. A right press, drag to a row, and release activates that row. A plain right-click opens the menu and leaves it open.
+Menus draw bordered overlays. Divider rows collapse as needed to keep every action visible when the flat menu would fit. When rows overflow, the menu draws the shared native scrollbar and supports wheel, track click, and thumb drag. Up and Down move the selected row, Enter activates it, and Esc closes the menu. A right press, drag to a row, and release activates that row. A plain right-click opens the menu and leaves it open.
 
 ## Selection and Clipboard
 

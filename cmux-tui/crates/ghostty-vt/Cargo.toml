@@ -11,4 +11,6 @@ description = "Safe Rust wrapper around libghostty-vt"
 workspace = true
 
 [dependencies]
+base64.workspace = true
 ghostty-vt-sys.workspace = true
+png.workspace = true

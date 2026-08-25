@@ -1,4 +1,5 @@
 import CmuxSidebar
+import CmuxNotifications
 import CmuxSwiftRender
 import Foundation
 

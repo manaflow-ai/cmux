@@ -101,6 +101,24 @@ export const shortcutCategories: ShortcutCategory[] = [
       },
       { id: "nextSidebarTab", combos: [["⌃", "⌘", "]"]], description: { en: "Next workspace", ja: "次のワークスペース" } },
       { id: "prevSidebarTab", combos: [["⌃", "⌘", "["]], description: { en: "Previous workspace", ja: "前のワークスペース" } },
+      {
+        id: "nextSidebarTabInGroup",
+        combos: [],
+        description: { en: "Next workspace in group", ja: "グループ内の次のワークスペース" },
+        note: {
+          en: "unbound by default; skips the group anchor and uses window-wide cycling when ungrouped",
+          ja: "デフォルトでは未割り当て。グループのアンカーを除いて循環し、グループに属していない場合はウインドウ全体を循環",
+        },
+      },
+      {
+        id: "prevSidebarTabInGroup",
+        combos: [],
+        description: { en: "Previous workspace in group", ja: "グループ内の前のワークスペース" },
+        note: {
+          en: "unbound by default; skips the group anchor and uses window-wide cycling when ungrouped",
+          ja: "デフォルトでは未割り当て。グループのアンカーを除いて循環し、グループに属していない場合はウインドウ全体を循環",
+        },
+      },
       { id: "moveWorkspaceUp", combos: [["⌃", "⌥", "⌘", "["]], description: { en: "Move workspace up", ja: "ワークスペースを上へ移動" } },
       { id: "moveWorkspaceDown", combos: [["⌃", "⌥", "⌘", "]"]], description: { en: "Move workspace down", ja: "ワークスペースを下へ移動" } },
       {
@@ -312,6 +330,24 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "focusRight", combos: [["⌥", "⌘", "→"]], description: { en: "Focus pane right", ja: "右のペインにフォーカス" } },
       { id: "focusUp", combos: [["⌥", "⌘", "↑"]], description: { en: "Focus pane up", ja: "上のペインにフォーカス" } },
       { id: "focusDown", combos: [["⌥", "⌘", "↓"]], description: { en: "Focus pane down", ja: "下のペインにフォーカス" } },
+      {
+        id: "focusPreviousPane",
+        combos: [],
+        description: { en: "Focus previous pane (cycle)", ja: "前のペインにフォーカス（循環）" },
+        note: {
+          en: "unbound by default; a Ghostty goto_split:previous keybind also cycles panes while Focus Back does not claim the same keys",
+          ja: "デフォルトでは未割り当て。Ghostty の goto_split:previous のキーバインドでも循環できます（Focus Back が同じキーを使っていない場合）",
+        },
+      },
+      {
+        id: "focusNextPane",
+        combos: [],
+        description: { en: "Focus next pane (cycle)", ja: "次のペインにフォーカス（循環）" },
+        note: {
+          en: "unbound by default; a Ghostty goto_split:next keybind also cycles panes while Focus Forward does not claim the same keys",
+          ja: "デフォルトでは未割り当て。Ghostty の goto_split:next のキーバインドでも循環できます（Focus Forward が同じキーを使っていない場合）",
+        },
+      },
       { id: "splitRight", combos: [["⌘", "D"]], description: { en: "Split right", ja: "右に分割" } },
       { id: "splitDown", combos: [["⌘", "⇧", "D"]], description: { en: "Split down", ja: "下に分割" } },
       { id: "splitBrowserRight", combos: [["⌥", "⌘", "D"]], description: { en: "Split browser right", ja: "右にブラウザ分割" } },

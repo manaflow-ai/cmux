@@ -1,4 +1,4 @@
-import type { CmuxClient, Id } from "cmux/browser";
+import type { CmuxClient, Id } from "cmux/raw";
 import { useAttachedTerminal } from "../hooks/useAttachedTerminal";
 import { TerminalFrame } from "./TerminalFrame";
 

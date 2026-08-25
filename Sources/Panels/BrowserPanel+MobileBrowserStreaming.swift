@@ -9,7 +9,10 @@ extension BrowserPanel {
     (() => {
       const handlerName = 'cmuxMobileBrowserStream';
       const editableFocused = () => {
-        const el = document.activeElement;
+        // Descend shadow roots: document.activeElement reports the shadow
+        // host, and the phone keyboard must rise for widget-wrapped inputs.
+        let el = document.activeElement;
+        while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
         if (!el) return false;
         const tag = String(el.tagName || '').toLowerCase();
         return !!el.isContentEditable || tag === 'textarea' ||
@@ -120,6 +123,111 @@ extension BrowserPanel {
     })()
     """
 
+    /// Replays one phone pointer input and, for clicks, moves page focus into
+    /// the editable under the tap.
+    ///
+    /// Replayed clicks reach the page as DOM events, but WebKit refuses to
+    /// move field focus for clicks in a window that is never key (the
+    /// offscreen render host), so a tapped text field never focuses, the
+    /// phone keyboard never rises, and backspace falls through as a
+    /// page-level history-back. Programmatic JS focus is exempt from the
+    /// key-window rule, so hit-test the click point and focus explicitly.
+    /// - Parameter input: Page-point pointer input from the phone.
+    /// - Returns: The focus-assist outcome (0 no editable, 1 focus moved,
+    ///   2 already focused); 0 for non-click kinds.
+    func replayMobileBrowserPointer(_ input: MobileBrowserPointerInput) async throws -> Int {
+        try MobileBrowserInputReplayer().replayPointer(input, in: webView)
+        guard input.kind == .click else { return 0 }
+        return await assistMobileBrowserEditableFocus(atPageX: input.x, pageY: input.y)
+    }
+
+    /// Replays one phone key input unless it is a bare backspace outside an
+    /// editable, which WebKit would interpret as history back-navigation.
+    ///
+    /// The phone keyboard's backspace is a text-editing key: with no focused
+    /// editable it must be dropped, or deleting "highlighted" text navigates
+    /// the page away and loses state. Modified combinations pass through.
+    /// - Parameter input: A key token and modifiers from the phone.
+    /// - Returns: `true` when the key was delivered, `false` when suppressed.
+    func replayMobileBrowserKey(_ input: MobileBrowserKeyInput) async throws -> Bool {
+        let isBareBackspace = (input.key == "delete" || input.key == "backspace")
+            && input.modifiers.isEmpty
+        if isBareBackspace, await mobileBrowserEditableHasFocus() == false {
+            return false
+        }
+        try MobileBrowserInputReplayer().replayKey(input, in: webView)
+        return true
+    }
+
+    /// Whether the streamed page currently focuses an editable element.
+    ///
+    /// `document.activeElement` reports the shadow HOST when focus sits inside
+    /// a shadow root, so the check descends shadow roots to the real focused
+    /// element; otherwise backspace into a widget-wrapped input would be
+    /// suppressed as no-editable.
+    func mobileBrowserEditableHasFocus() async -> Bool {
+        let script = """
+        (() => {
+          const isEditable = (el) => {
+            if (!el || el.nodeType !== 1) return false;
+            if (el.isContentEditable) return true;
+            const tag = el.tagName;
+            if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
+            if (tag !== 'INPUT') return false;
+            const type = String(el.type || 'text').toLowerCase();
+            return !['button','checkbox','color','file','hidden','image','radio','range','reset','submit'].includes(type);
+          };
+          let el = document.activeElement;
+          while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
+          return isEditable(el);
+        })()
+        """
+        let result = try? await webView.evaluateJavaScript(script, contentWorld: .page)
+        return (result as? Bool) ?? false
+    }
+
+    /// Focuses the editable element under a replayed click point.
+    /// - Parameters:
+    ///   - x: Click X in page viewport points.
+    ///   - y: Click Y in page viewport points.
+    /// - Returns: 0 when no editable is at the point, 1 when focus moved,
+    ///   2 when the editable was already focused.
+    func assistMobileBrowserEditableFocus(atPageX x: Double, pageY y: Double) async -> Int {
+        guard x.isFinite, y.isFinite else { return 0 }
+        let script = """
+        (() => {
+          const isEditable = (el) => {
+            if (!el || el.nodeType !== 1) return false;
+            if (el.isContentEditable) return true;
+            const tag = el.tagName;
+            if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
+            if (tag !== 'INPUT') return false;
+            const type = String(el.type || 'text').toLowerCase();
+            return !['button','checkbox','color','file','hidden','image','radio','range','reset','submit'].includes(type);
+          };
+          let el = document.elementFromPoint(\(x), \(y));
+          // Widgets often wrap their input in a shadow root; descend one level
+          // so the hit test can reach the real editable.
+          if (el && el.shadowRoot) {
+            const inner = el.shadowRoot.elementFromPoint(\(x), \(y));
+            if (inner) el = inner;
+          }
+          while (el && !isEditable(el)) el = el.parentElement || (el.getRootNode && el.getRootNode().host) || null;
+          if (!el) return 0;
+          const deepActive = () => {
+            let active = document.activeElement;
+            while (active && active.shadowRoot && active.shadowRoot.activeElement) active = active.shadowRoot.activeElement;
+            return active;
+          };
+          if (deepActive() === el) return 2;
+          try { el.focus({ preventScroll: true }); } catch (_) { return 0; }
+          return deepActive() === el ? 1 : 0;
+        })()
+        """
+        let result = try? await webView.evaluateJavaScript(script, contentWorld: .page)
+        return (result as? Int) ?? 0
+    }
+
     func addMobileBrowserStreamSignalHandler(
         id handlerID: UUID,
         handler: @escaping (MobileBrowserPanelNativeSignal) -> Void
@@ -127,6 +235,12 @@ extension BrowserPanel {
         let wasInactive = mobileBrowserStreamSignalHandlers.isEmpty
         mobileBrowserStreamSignalHandlers[handlerID] = handler
         if wasInactive {
+            // A phone mirror is a visibility touch. A session-restored or
+            // memory-discarded background tab holds only a blank web shell,
+            // and every capture of that shell is a white frame; without this
+            // restore, only a manual reload or revealing the tab on the Mac
+            // ever starts the restore navigation.
+            restoreDiscardedWebViewIfNeeded(reason: "mobile_browser_stream_start")
             installMobileBrowserDirtyBeaconIfNeeded()
             reevaluateHiddenWebViewDiscardScheduling(reason: "mobile_browser_stream_started")
         }

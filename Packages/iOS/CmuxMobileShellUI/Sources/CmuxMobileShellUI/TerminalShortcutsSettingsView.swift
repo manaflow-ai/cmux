@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileSupport
 import CmuxMobileTerminal
 import CmuxMobileTerminalKit
@@ -16,14 +17,10 @@ struct TerminalShortcutsSettingsView: View {
     // reserved for the terminal-surface wave. Until then this view keeps the
     // singleton reach-in so behavior stays identical.
     private var configuration: TerminalAccessoryConfiguration { .shared }
-    private let scope: TerminalShortcutsSettingsScope
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     @State private var isAddingAction = false
     @State private var editingAction: CustomToolbarAction?
-
-    init(scope: TerminalShortcutsSettingsScope = .terminal) {
-        self.scope = scope
-    }
 
     var body: some View {
         NavigationStack {
@@ -36,7 +33,10 @@ struct TerminalShortcutsSettingsView: View {
                 } header: {
                     Text(L10n.string("mobile.shortcuts.header", defaultValue: "Shortcut Buttons"))
                 } footer: {
-                    Text(scope.footer)
+                    Text(L10n.string(
+                        "mobile.shortcuts.footer",
+                        defaultValue: "Choose which buttons appear on the terminal keyboard bar, and drag to reorder them. The modifier keys, zoom, and paste can be moved or hidden along with the shortcuts. Swipe a custom action to edit or delete it."
+                    ))
                 }
 
                 Section {
@@ -54,13 +54,14 @@ struct TerminalShortcutsSettingsView: View {
                 Section {
                     Button(role: .destructive) {
                         configuration.resetToDefaults()
+                        recordShortcutChange(.shortcutsReset)
                     } label: {
                         Text(L10n.string("mobile.shortcuts.reset", defaultValue: "Reset to Defaults"))
                     }
                     .accessibilityIdentifier("TerminalShortcutsResetButton")
                 }
             }
-            .navigationTitle(scope.navigationTitle)
+            .navigationTitle(L10n.string("mobile.shortcuts.title", defaultValue: "Terminal Shortcuts"))
             .mobileInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -75,10 +76,16 @@ struct TerminalShortcutsSettingsView: View {
                 }
             }
             .sheet(isPresented: $isAddingAction) {
-                CustomToolbarActionEditorView(action: nil) { configuration.addCustomAction($0) }
+                CustomToolbarActionEditorView(action: nil) {
+                    configuration.addCustomAction($0)
+                    recordCustomActionChange(.customActionAdded)
+                }
             }
             .sheet(item: $editingAction) { action in
-                CustomToolbarActionEditorView(action: action) { configuration.updateCustomAction($0) }
+                CustomToolbarActionEditorView(action: action) {
+                    configuration.updateCustomAction($0)
+                    recordCustomActionChange(.customActionUpdated)
+                }
             }
         }
     }
@@ -97,6 +104,7 @@ struct TerminalShortcutsSettingsView: View {
             if let custom = item.customAction {
                 Button(role: .destructive) {
                     configuration.removeCustomAction(id: custom.id)
+                    recordCustomActionChange(.customActionRemoved)
                 } label: {
                     Label(L10n.string("mobile.common.delete", defaultValue: "Delete"), systemImage: "trash")
                 }
@@ -116,30 +124,34 @@ struct TerminalShortcutsSettingsView: View {
     private func binding(for id: ToolbarItemID) -> Binding<Bool> {
         Binding(
             get: { configuration.isEnabled(id) },
-            set: { configuration.setEnabled(id, $0) }
+            set: { isEnabled in
+                configuration.setEnabled(id, isEnabled)
+                recordShortcutChange(isEnabled ? .shortcutShown : .shortcutHidden)
+            }
         )
     }
 
     private var displayedItems: [ResolvedToolbarItem] {
-        configuration.displayItems.filter(scope.includes)
+        configuration.displayItems
     }
 
     private func moveDisplayedItems(from offsets: IndexSet, to destination: Int) {
-        guard scope != .terminal else {
-            configuration.moveItems(from: offsets, to: destination)
-            return
-        }
+        configuration.moveItems(from: offsets, to: destination)
+        recordShortcutChange(.shortcutReordered)
+    }
 
-        let visibleIDs = displayedItems.map(\.id)
-        let visibleSet = Set(visibleIDs)
-        var reorderedVisibleIDs = visibleIDs
-        reorderedVisibleIDs.move(fromOffsets: offsets, toOffset: destination)
-        var visibleIterator = reorderedVisibleIDs.makeIterator()
-        let reorderedFullIDs = configuration.displayOrder.map { id in
-            guard visibleSet.contains(id) else { return id }
-            return visibleIterator.next() ?? id
-        }
-        configuration.reorderItems(reorderedFullIDs)
+    private func recordShortcutChange(_ action: DiagnosticToolbarConfigurationAction) {
+        diagnosticLog?.recordAppEvent(
+            .terminalShortcutChanged,
+            detail: .toolbarConfigurationAction(action)
+        )
+    }
+
+    private func recordCustomActionChange(_ action: DiagnosticToolbarConfigurationAction) {
+        diagnosticLog?.recordAppEvent(
+            .customToolbarChanged,
+            detail: .toolbarConfigurationAction(action)
+        )
     }
 }
 #endif
