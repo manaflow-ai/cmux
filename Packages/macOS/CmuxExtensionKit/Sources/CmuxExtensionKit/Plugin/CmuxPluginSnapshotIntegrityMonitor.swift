@@ -11,10 +11,16 @@ import Foundation
 /// no Foundation async equivalent. The wrapper is unchecked-sendable because
 /// its source array is immutable after initialization and callbacks carry only
 /// a sendable invalidation signal; cancellation is idempotent.
-final class CmuxPluginSnapshotIntegrityMonitor: @unchecked Sendable {
+public final class CmuxPluginSnapshotIntegrityMonitor: @unchecked Sendable {
     private let sources: [any DispatchSourceFileSystemObject]
 
-    init(
+    /// Creates a monitor for one private snapshot root.
+    ///
+    /// - Parameters:
+    ///   - rootURL: The staging root whose files should be watched.
+    ///   - fileManager: Filesystem provider used to enumerate the snapshot.
+    ///   - onViolation: Callback delivered when a watched inode changes.
+    public init(
         rootURL: URL,
         fileManager: FileManager = .default,
         onViolation: @escaping @Sendable () -> Void
@@ -54,7 +60,7 @@ final class CmuxPluginSnapshotIntegrityMonitor: @unchecked Sendable {
     }
 
     /// Stops all filesystem sources. Repeated calls are harmless.
-    func cancel() {
+    public func cancel() {
         sources.forEach { $0.cancel() }
     }
 
