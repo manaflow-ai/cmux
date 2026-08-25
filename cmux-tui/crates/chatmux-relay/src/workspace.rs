@@ -1572,23 +1572,23 @@ async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refu
     .spawn()
     .map_err(|error| Refusal::failed(format!("could not run git: {error}")))?;
     let Some(stdout) = child.stdout.take() else {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
         return Err(Refusal::failed("git status produced no stdout pipe"));
     };
-    let stderr_task = child.stderr.take().map(|stderr| {
-        tokio::spawn(async move {
-            let mut bytes = Vec::new();
-            let _ = stderr.take(64 * 1024).read_to_end(&mut bytes).await;
-            bytes
-        })
-    });
+    let mut stderr_task = child.stderr.take().map(GitStderrDrain::start);
     const STATUS_MAX_BYTES: usize = 16 * 1024 * 1024;
     let mut stdout_bytes = Vec::new();
     let read_limit = STATUS_MAX_BYTES.saturating_add(1);
-    stdout
-        .take(read_limit as u64)
-        .read_to_end(&mut stdout_bytes)
-        .await
-        .map_err(|error| Refusal::failed(format!("could not read git status: {error}")))?;
+    let read_result = stdout.take(read_limit as u64).read_to_end(&mut stdout_bytes).await;
+    if let Err(error) = read_result {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+        if let Some(task) = stderr_task.take() {
+            let _ = task.finish().await;
+        }
+        return Err(Refusal::failed(format!("could not read git status: {error}")));
+    }
     let stdout_capped = stdout_bytes.len() > STATUS_MAX_BYTES;
     if stdout_capped {
         stdout_bytes.truncate(STATUS_MAX_BYTES);
@@ -1599,7 +1599,7 @@ async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refu
         .await
         .map_err(|error| Refusal::failed(format!("could not run git: {error}")))?;
     let stderr = match stderr_task {
-        Some(task) => task.await.unwrap_or_default(),
+        Some(task) => task.finish().await?,
         None => Vec::new(),
     };
     if !status.success() {
@@ -2637,6 +2637,22 @@ mod tests {
         .expect("stderr drain");
 
         assert_eq!(retained, b"diagnostic");
+    }
+
+    #[tokio::test]
+    async fn git_stderr_drain_continues_after_retention_cap() {
+        use tokio::io::AsyncWriteExt as _;
+
+        let (mut writer, reader) = tokio::io::duplex(1024);
+        let payload = vec![b'x'; GIT_STDERR_MAX_BYTES * 2];
+        let writer_task = tokio::spawn(async move {
+            writer.write_all(&payload).await.expect("stderr payload");
+        });
+        let retained = GitStderrDrain::start(reader).finish().await.expect("stderr drain");
+        writer_task.await.expect("stderr writer");
+
+        assert_eq!(retained.len(), GIT_STDERR_MAX_BYTES);
+        assert!(retained.iter().all(|byte| *byte == b'x'));
     }
 
     fn seeded_repo(name: &str) -> (PathBuf, Scope) {
