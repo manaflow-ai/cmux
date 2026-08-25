@@ -4037,6 +4037,13 @@ class TerminalController {
                     // A newer automatic title from another session owns this
                     // panel now. Preserve it just like the workspace CAS above.
                     panelApplySkipped = true
+                } else if workspace.isRemoteTmuxMirror,
+                          workspace.panelCustomTitleSources[resolvedPanelId] != .auto {
+                    // Remote tmux owns an unclaimed panel title. A fresh auto
+                    // title has no prior CAS value to compare, so fail closed
+                    // rather than claiming the panel and emitting rename-window
+                    // over the remote user's choice.
+                    panelApplySkipped = true
                 } else {
                     panelApplied = workspace.setPanelCustomTitle(
                         panelId: resolvedPanelId,

@@ -356,6 +356,8 @@ extension CMUXCLI {
             sanitized,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
+            expectedWorkspaceTitle: outcome.lastTitle,
+            expectedPanelTitle: outcome.lastTitle,
             client: client,
             telemetryKey: telemetryKey,
             telemetry: telemetry
