@@ -13,7 +13,8 @@ extension CMUXCLI {
         workspaceId: String,
         surfaceId: String,
         sessionId: String?,
-        sessionDidEnd: Bool = false
+        sessionDidEnd: Bool = false,
+        responseTimeout: TimeInterval? = nil
     ) -> AgentSurfaceResumeBindingClearOutcome {
         let normalizedSessionId = normalizedHookValue(sessionId)
         var params: [String: Any] = [
@@ -27,7 +28,11 @@ extension CMUXCLI {
             params["agent_session_ended"] = true
         }
         do {
-            let result = try client.sendV2(method: "surface.resume.clear", params: params)
+            let result = try client.sendV2(
+                method: "surface.resume.clear",
+                params: params,
+                responseTimeout: responseTimeout
+            )
             guard let cleared = result["cleared"] as? Bool else {
                 return .failed
             }

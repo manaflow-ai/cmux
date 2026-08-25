@@ -308,14 +308,25 @@ final class ClaudeHookSessionStore {
 
     final class CursorShellApprovalReconciliationLease {
         private var fileDescriptor: Int32
+        private let lockStart: off_t
+        private let lockLength: off_t
 
-        init(fileDescriptor: Int32) {
+        init(fileDescriptor: Int32, lockStart: off_t, lockLength: off_t) {
             self.fileDescriptor = fileDescriptor
+            self.lockStart = lockStart
+            self.lockLength = lockLength
         }
 
         func release() {
             guard fileDescriptor >= 0 else { return }
-            _ = flock(fileDescriptor, LOCK_UN)
+            var lock = flock(
+                l_start: lockStart,
+                l_len: lockLength,
+                l_pid: 0,
+                l_type: Int16(F_UNLCK),
+                l_whence: Int16(SEEK_SET)
+            )
+            _ = Darwin.fcntl(fileDescriptor, F_SETLK, &lock)
             Darwin.close(fileDescriptor)
             fileDescriptor = -1
         }
@@ -1978,7 +1989,10 @@ final class ClaudeHookSessionStore {
     ///
     /// The state lock is released before socket I/O; this separate lease keeps
     /// one session's creation and completion mutations ordered without
-    /// serializing unrelated Cursor sessions.
+    /// serializing unrelated Cursor sessions. The fixed shared lock file uses
+    /// byte-range fcntl locks, so session count cannot create unbounded lock
+    /// files. This lock is a cross-process ordering carve-out for synchronous
+    /// hook callbacks; it guards only a short, bounded reconciliation section.
     func acquireCursorShellApprovalReconciliationLock(
         sessionId: String
     ) throws -> CursorShellApprovalReconciliationLease {
@@ -1986,23 +2000,38 @@ final class ClaudeHookSessionStore {
         guard !normalizedSession.isEmpty else {
             throw CLIError(message: "Cursor approval reconciliation requires a session")
         }
-        let hexadecimal = Array("0123456789abcdef".utf8)
-        var encoded: [UInt8] = []
-        encoded.reserveCapacity(64)
-        for byte in SHA256.hash(data: Data(normalizedSession.utf8)) {
-            encoded.append(hexadecimal[Int(byte >> 4)])
-            encoded.append(hexadecimal[Int(byte & 0x0f)])
+        let digest = Array(SHA256.hash(data: Data(normalizedSession.utf8)))
+        var rawOffset: UInt64 = 0
+        for byte in digest.prefix(MemoryLayout<UInt64>.size) {
+            rawOffset = (rawOffset << 8) | UInt64(byte)
         }
-        let lockPath = statePath + ".cursor-approval-reconcile-\(String(decoding: encoded, as: UTF8.self)).lock"
+        let lockStart = off_t(rawOffset & 0x3FFF_FFFF_FFFF_FFFF) + 1
+        let lockLength: off_t = 1
+        let lockPath = statePath + ".cursor-approval-reconcile.lock"
         let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
         if fd < 0 {
             throw CLIError(message: "Failed to open Cursor approval reconciliation lock: \(lockPath)")
         }
-        if flock(fd, LOCK_EX) != 0 {
-            Darwin.close(fd)
-            throw CLIError(message: "Failed to lock Cursor approval reconciliation: \(lockPath)")
+        var lock = flock(
+            l_start: lockStart,
+            l_len: lockLength,
+            l_pid: 0,
+            l_type: Int16(F_WRLCK),
+            l_whence: Int16(SEEK_SET)
+        )
+        let deadline = Date.now.addingTimeInterval(1.0)
+        while Darwin.fcntl(fd, F_SETLK, &lock) != 0 {
+            guard errno == EACCES || errno == EAGAIN, Date.now < deadline else {
+                Darwin.close(fd)
+                throw CLIError(message: "Failed to lock Cursor approval reconciliation: \(lockPath)")
+            }
+            usleep(5_000)
         }
-        return CursorShellApprovalReconciliationLease(fileDescriptor: fd)
+        return CursorShellApprovalReconciliationLease(
+            fileDescriptor: fd,
+            lockStart: lockStart,
+            lockLength: lockLength
+        )
     }
 
     private func loadUnlocked() -> ClaudeHookSessionStoreFile {
@@ -30011,6 +30040,7 @@ struct CMUXCLI {
         launchCommand: AgentHookLaunchCommandRecord?,
         transcriptPath: String? = nil,
         observedPermissionMode: String? = nil,
+        responseTimeout: TimeInterval? = nil,
         telemetry: CLISocketSentryTelemetry? = nil
     ) {
         if kind == "hermes-agent" {
@@ -30030,7 +30060,8 @@ struct CMUXCLI {
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    sessionId: sessionId
+                    sessionId: sessionId,
+                    responseTimeout: responseTimeout
                 )
                 return
             case .unavailable:
@@ -30083,7 +30114,8 @@ struct CMUXCLI {
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    sessionId: sessionId
+                    sessionId: sessionId,
+                    responseTimeout: responseTimeout
                 )
                 return
             case .unavailable:
@@ -30101,7 +30133,8 @@ struct CMUXCLI {
                 client: client,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                sessionId: sessionId
+                sessionId: sessionId,
+                responseTimeout: responseTimeout
             )
             return
         }
@@ -30133,7 +30166,8 @@ struct CMUXCLI {
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    sessionId: sessionId
+                    sessionId: sessionId,
+                    responseTimeout: responseTimeout
                 )
             }
             return
@@ -30165,7 +30199,11 @@ struct CMUXCLI {
             // store mutation; no client-side get/set preflight can close that race.
             params["resume_evidence_provenance"] = codexEvidenceProvenance.logValue
         }
-        _ = try? client.sendV2(method: "surface.resume.set", params: params)
+        _ = try? client.sendV2(
+            method: "surface.resume.set",
+            params: params,
+            responseTimeout: responseTimeout
+        )
     }
 
     @discardableResult
@@ -30174,14 +30212,16 @@ struct CMUXCLI {
         workspaceId: String,
         surfaceId: String,
         sessionId: String?,
-        sessionDidEnd: Bool = false
+        sessionDidEnd: Bool = false,
+        responseTimeout: TimeInterval? = nil
     ) -> Bool {
         clearAgentSurfaceResumeBindingOutcome(
             client: client,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             sessionId: sessionId,
-            sessionDidEnd: sessionDidEnd
+            sessionDidEnd: sessionDidEnd,
+            responseTimeout: responseTimeout
         ) != .failed
     }
 
@@ -32371,6 +32411,22 @@ export default CMUXSessionRestore;
         }
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
         var didSendFeedTelemetry = false
+        let cursorCriticalResponseTimeout: TimeInterval = 0.75
+        var cursorLifecycleLease: ClaudeHookSessionStore.CursorShellApprovalReconciliationLease?
+        defer { cursorLifecycleLease?.release() }
+        func acquireCursorLifecycleLease() -> Bool {
+            guard def.name == "cursor", !sessionId.isEmpty else { return true }
+            if cursorLifecycleLease != nil { return true }
+            guard let lease = try? store.acquireCursorShellApprovalReconciliationLock(sessionId: sessionId) else {
+                telemetry.breadcrumb("cursor-hook.reconciliation-lock-unavailable")
+                return false
+            }
+            cursorLifecycleLease = lease
+            return true
+        }
+        func sendCursorCriticalCommand(_ command: String) {
+            _ = try? client.send(command: command, responseTimeout: cursorCriticalResponseTimeout)
+        }
         // One structured semantic event per hook invocation: the append-only
         // agent journal is what the sidebar reduces lifecycle state from, so
         // every action lane below emits exactly one of these (attributed to
@@ -32383,7 +32439,8 @@ export default CMUXSessionRestore;
             isSubagent: Bool = false,
             pendingWork: Bool = false,
             declaredPhase: AgentLifecyclePhase? = nil,
-            detail: String? = nil
+            detail: String? = nil,
+            responseTimeout: TimeInterval? = nil
         ) {
             emitAgentJournalEvent(
                 client: client,
@@ -32399,6 +32456,7 @@ export default CMUXSessionRestore;
                 nativeEvent: reportedHookEventName(from: input) ?? subcommand,
                 declaredPhase: declaredPhase,
                 detail: detail,
+                responseTimeout: responseTimeout,
                 store: store,
                 telemetry: telemetry
             )
@@ -32408,15 +32466,16 @@ export default CMUXSessionRestore;
         // restore record, clear the surface resume binding, and clear PID routing.
         func performAgentSessionTeardown() {
             guard let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) else { return }
-            sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
+            if def.name != "cursor" {
+                sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
+            }
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)
             if suppressVisibleMutations {
                 telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
             } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
                 if def.name == "cursor", consumed.pendingCursorShellApprovals?.isEmpty == false {
-                    _ = try? sendV1Command(
-                        "clear_notifications --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId))",
-                        client: client
+                    sendCursorCriticalCommand(
+                        "clear_notifications --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId))"
                     )
                 }
                 if !clearAgentSurfaceResumeBinding(
@@ -32424,14 +32483,21 @@ export default CMUXSessionRestore;
                     workspaceId: consumed.workspaceId,
                     surfaceId: consumed.surfaceId,
                     sessionId: consumed.sessionId,
-                    sessionDidEnd: true
+                    sessionDidEnd: true,
+                    responseTimeout: def.name == "cursor" ? cursorCriticalResponseTimeout : nil
                 ) {
                     telemetry.breadcrumb("\(def.name)-hook.session-end.resume-clear-failed")
                 }
-                _ = try? sendV1Command(
-                    "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status",
-                    client: client
-                )
+                if def.name == "cursor" {
+                    sendCursorCriticalCommand(
+                        "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status"
+                    )
+                } else {
+                    _ = try? sendV1Command(
+                        "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status",
+                        client: client
+                    )
+                }
             }
         }
         func runtimeStatus(for notificationStatus: AgentHookNotificationStatus?) -> AgentHookRuntimeStatus? {
@@ -32485,10 +32551,16 @@ export default CMUXSessionRestore;
                 return
             }
             let idleStatus = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
-            _ = try? sendV1Command(
-                "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                client: client
-            )
+            if def.name == "cursor" {
+                sendCursorCriticalCommand(
+                    "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                )
+            } else {
+                _ = try? sendV1Command(
+                    "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+            }
         }
         func sendAgentFeedTelemetry(workspaceId: String? = nil, surfaceId: String? = nil) {
             didSendFeedTelemetry = true
@@ -32842,17 +32914,6 @@ export default CMUXSessionRestore;
                 return
             }
 
-            // Keep the durable resolution and visible reconciliation in one
-            // cross-process order, while leaving socket I/O outside the state
-            // file lock. Two completion hooks can otherwise resolve in order
-            // but enqueue their UI mutations in the opposite order,
-            // resurrecting a stale approval after the final clear.
-            func sendCursorReconciliationCommand(_ command: String) {
-                // Reconciliation is best-effort and must not hold the
-                // cross-process ordering lock behind a stalled socket.
-                _ = try? client.send(command: command, responseTimeout: 1.0)
-            }
-
             func reconcileCursorShellUI(
                 _ resolution: ClaudeHookSessionStore.CursorShellApprovalResolution
             ) {
@@ -32877,8 +32938,8 @@ export default CMUXSessionRestore;
                         body: pendingBody,
                         meta: pendingMeta
                     )
-                    sendCursorReconciliationCommand(
-                        "notify_target_async \(workspaceId) \(surfaceId) \(pendingPayload)",
+                    sendCursorCriticalCommand(
+                        "notify_target_async \(workspaceId) \(surfaceId) \(pendingPayload)"
                     )
                     return
                 }
@@ -32886,12 +32947,12 @@ export default CMUXSessionRestore;
                 guard resolution.matched || (resolution.expired && !resolution.hasRemaining) else {
                     return
                 }
-                sendCursorReconciliationCommand(
-                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                sendCursorCriticalCommand(
+                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
                 )
                 let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
-                sendCursorReconciliationCommand(
-                    "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                sendCursorCriticalCommand(
+                    "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
                 )
             }
 
@@ -32899,10 +32960,7 @@ export default CMUXSessionRestore;
             // the authoritative journal append below. Approval creation uses
             // the same lease, so a newer request cannot be overwritten by
             // this completion's Running event.
-            let reconciliationLease = try? store.acquireCursorShellApprovalReconciliationLock(
-                sessionId: sessionId
-            )
-            defer { reconciliationLease?.release() }
+            guard acquireCursorLifecycleLease() else { return }
             let resolution = try? store.resolveCursorShellApproval(
                 sessionId: sessionId,
                 command: command,
@@ -32928,8 +32986,11 @@ export default CMUXSessionRestore;
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     declaredPhase: .running,
-                    detail: "cursor-shell-expired"
+                    detail: "cursor-shell-expired",
+                    responseTimeout: cursorCriticalResponseTimeout
                 )
+                cursorLifecycleLease?.release()
+                cursorLifecycleLease = nil
                 return
             }
             guard let resolution, resolution.matched else {
@@ -32938,8 +32999,10 @@ export default CMUXSessionRestore;
                     .stateChanged,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    detail: failed ? "cursor-shell-failed-unmatched" : "cursor-shell-completed-unmatched"
+                    detail: failed ? "cursor-shell-failed-unmatched" : "cursor-shell-completed-unmatched",
+                    responseTimeout: cursorCriticalResponseTimeout
                 )
+                cursorLifecycleLease?.release()
                 return
             }
             if resolution.hasRemaining {
@@ -32948,8 +33011,10 @@ export default CMUXSessionRestore;
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     declaredPhase: .needsInput,
-                    detail: failed ? "cursor-shell-failed-remaining" : "cursor-shell-completed-remaining"
+                    detail: failed ? "cursor-shell-failed-remaining" : "cursor-shell-completed-remaining",
+                    responseTimeout: cursorCriticalResponseTimeout
                 )
+                cursorLifecycleLease?.release()
                 return
             }
 
@@ -32968,20 +33033,23 @@ export default CMUXSessionRestore;
                 ),
                 launchCommand: resumeLaunchCommand,
                 transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                responseTimeout: cursorCriticalResponseTimeout,
                 telemetry: telemetry
             )
             if let pid {
-                _ = try? sendV1Command(
-                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
+                sendCursorCriticalCommand(
+                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
                 )
             }
             emitJournal(
                 .turnStarted,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                detail: failed ? "shell-failed" : "shell-completed"
+                detail: failed ? "shell-failed" : "shell-completed",
+                responseTimeout: cursorCriticalResponseTimeout
             )
+            cursorLifecycleLease?.release()
+            cursorLifecycleLease = nil
         }
 
         switch action {
@@ -33148,6 +33216,10 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             if def.name == "cursor", !sessionId.isEmpty {
+                guard acquireCursorLifecycleLease() else {
+                    print("{}")
+                    return
+                }
                 _ = try? store.clearCursorShellApprovals(sessionId: sessionId)
             }
             if def.name == "omp", let mapped {
@@ -33341,7 +33413,9 @@ export default CMUXSessionRestore;
                 stopStaleCodexPromptSubmit()
                 return
             }
-            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
+            if def.name != "cursor" {
+                sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
+            }
             if !sessionId.isEmpty, !suppressVisibleMutations {
                 let acceptedRunningUpdate: Bool
                 if def.name == "codex" {
@@ -33385,6 +33459,7 @@ export default CMUXSessionRestore;
                     cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                     launchCommand: resumeLaunchCommand,
                     transcriptPath: transcriptPathForStore,
+                    responseTimeout: def.name == "cursor" ? cursorCriticalResponseTimeout : nil,
                     telemetry: telemetry
                 )
                 if codexPromptTurnWentTerminal() {
@@ -33397,10 +33472,16 @@ export default CMUXSessionRestore;
                 return
             }
             if let pid, !suppressVisibleMutations {
-                _ = try? sendV1Command(
-                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
-                )
+                if def.name == "cursor" {
+                    sendCursorCriticalCommand(
+                        "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                    )
+                } else {
+                    _ = try? sendV1Command(
+                        "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                }
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
                     return
@@ -33411,20 +33492,37 @@ export default CMUXSessionRestore;
                     stopStaleCodexPromptSubmit()
                     return
                 }
-                emitJournal(.turnStarted, workspaceId: workspaceId, surfaceId: surfaceId)
+                emitJournal(
+                    .turnStarted,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    responseTimeout: def.name == "cursor" ? cursorCriticalResponseTimeout : nil
+                )
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
                     return
                 }
-                _ = try? sendV1Command(
-                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
-                )
+                if def.name == "cursor" {
+                    sendCursorCriticalCommand(
+                        "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                    )
+                } else {
+                    _ = try? sendV1Command(
+                        "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                }
                 let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
-                _ = try sendV1Command(
-                    "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
-                )
+                if def.name == "cursor" {
+                    sendCursorCriticalCommand(
+                        "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                    )
+                } else {
+                    _ = try sendV1Command(
+                        "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                }
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
                     return
@@ -33437,6 +33535,11 @@ export default CMUXSessionRestore;
                     surfaceId: surfaceId,
                     isSubagent: true
                 )
+            }
+            if def.name == "cursor" {
+                cursorLifecycleLease?.release()
+                cursorLifecycleLease = nil
+                sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
             }
             if def.name == "codex", !sessionId.isEmpty, !suppressVisibleMutations {
                 if codexPromptTurnWentTerminal() {
@@ -33502,7 +33605,9 @@ export default CMUXSessionRestore;
                     client: client
                 )
             }
-            sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            if def.name != "cursor" {
+                sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            }
             let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
             let codexFailure: CodexHookFailureSummary?
             let codexSubagentSignals: CodexTranscriptSubagentSignals
@@ -33656,6 +33761,12 @@ export default CMUXSessionRestore;
                 precomputedNestedDetection: isNestedAgentSession,
                 env: env
             ) || staleIdleStopHasNewerRunningSession
+            if def.name == "cursor", !sessionId.isEmpty, !suppressVisibleMutations {
+                guard acquireCursorLifecycleLease() else {
+                    print("{}")
+                    return
+                }
+            }
             let suppressCompletionNotification = suppressVisibleMutations
                 || codexSubagentSignals.hasSubagentNotificationRelay
             let clearedCursorApprovalOnStop = def.name == "cursor"
@@ -33663,9 +33774,8 @@ export default CMUXSessionRestore;
                 && !suppressVisibleMutations
                 && ((try? store.clearCursorShellApprovals(sessionId: sessionId)) == true)
             if clearedCursorApprovalOnStop {
-                _ = try? sendV1Command(
-                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
+                sendCursorCriticalCommand(
+                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
                 )
             }
 
@@ -33680,7 +33790,8 @@ export default CMUXSessionRestore;
                 surfaceId: surfaceId,
                 isSubagent: isNestedAgentSession,
                 pendingWork: antigravityHasActiveBackgroundWork,
-                detail: stopHadFailure ? body : nil
+                detail: stopHadFailure ? body : nil,
+                responseTimeout: def.name == "cursor" ? cursorCriticalResponseTimeout : nil
             )
 
             if !sessionId.isEmpty, !suppressVisibleMutations {
@@ -33705,14 +33816,21 @@ export default CMUXSessionRestore;
                     cwd: cwd,
                     launchCommand: resumeLaunchCommand,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    responseTimeout: def.name == "cursor" ? cursorCriticalResponseTimeout : nil,
                     telemetry: telemetry
                 )
             }
             if let pid, !suppressVisibleMutations {
-                _ = try? sendV1Command(
-                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
-                )
+                if def.name == "cursor" {
+                    sendCursorCriticalCommand(
+                        "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                    )
+                } else {
+                    _ = try? sendV1Command(
+                        "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                }
             }
 
             let notificationFingerprint = notificationDedupeFingerprint(
@@ -33769,7 +33887,12 @@ export default CMUXSessionRestore;
                 )
 #endif
                 do {
-                    let response = try sendV1Command(notifyCommand, client: client)
+                    let response: String
+                    if def.name == "cursor" {
+                        response = try client.send(command: notifyCommand, responseTimeout: cursorCriticalResponseTimeout)
+                    } else {
+                        response = try sendV1Command(notifyCommand, client: client)
+                    }
 #if DEBUG
                     agentHookDebugLog(
                         "agentHook.stop.notify.sent agent=\(def.name) session=\(agentHookDebugShort(sessionId)) resumed=\(env["CMUX_AGENT_RESUME_LAUNCH"] == "1" ? 1 : 0) response=\(response)",
@@ -33800,28 +33923,52 @@ export default CMUXSessionRestore;
             }
             if !suppressVisibleMutations {
                 if let codexFailure {
-                    _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                        client: client
-                    )
+                    if def.name == "cursor" {
+                        sendCursorCriticalCommand(
+                            "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                        )
+                    } else {
+                        _ = try? sendV1Command(
+                            "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                            client: client
+                        )
+                    }
                 } else if antigravityFailure != nil {
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
                         def.displayName
                     )
-                    _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                        client: client
-                    )
+                    if def.name == "cursor" {
+                        sendCursorCriticalCommand(
+                            "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                        )
+                    } else {
+                        _ = try? sendV1Command(
+                            "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                            client: client
+                        )
+                    }
                 } else if antigravityHasActiveBackgroundWork {
                     let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
-                    _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                        client: client
-                    )
+                    if def.name == "cursor" {
+                        sendCursorCriticalCommand(
+                            "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                        )
+                    } else {
+                        _ = try? sendV1Command(
+                            "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                            client: client
+                        )
+                    }
                 } else {
                     setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
                 }
+            }
+
+            if def.name == "cursor" {
+                cursorLifecycleLease?.release()
+                cursorLifecycleLease = nil
+                sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             }
 
             // Opt-in auto-naming for generic-agent sessions: a detached pass so the
@@ -33986,17 +34133,12 @@ export default CMUXSessionRestore;
                 }
             }
 
-            let cursorApprovalReconciliationLease: ClaudeHookSessionStore.CursorShellApprovalReconciliationLease?
             if cursorShellNeedsApproval {
-                cursorApprovalReconciliationLease = try? store.acquireCursorShellApprovalReconciliationLock(
-                    sessionId: sessionId
-                )
-            } else {
-                cursorApprovalReconciliationLease = nil
-            }
-            defer { cursorApprovalReconciliationLease?.release() }
-
-            if cursorShellNeedsApproval {
+                guard acquireCursorLifecycleLease() else {
+                    hookResponse = "{}"
+                    print("{}")
+                    return
+                }
                 guard !sessionId.isEmpty,
                       let command = cursorShellCommand(from: input),
                       (try? store.rememberCursorShellApproval(
@@ -34222,7 +34364,8 @@ export default CMUXSessionRestore;
                 surfaceId: surfaceId,
                 pendingWork: (summary.notifyCategory == .turnComplete || summary.notifyCategory == .idleReminder)
                     && hasActiveAntigravityBackgroundWork(),
-                detail: notificationJournalKind == .errorReported ? summary.body : nil
+                detail: notificationJournalKind == .errorReported ? summary.body : nil,
+                responseTimeout: cursorShellNeedsApproval ? cursorCriticalResponseTimeout : nil
             )
 
             let notificationFingerprint = notificationDedupeFingerprint(
@@ -34316,9 +34459,8 @@ export default CMUXSessionRestore;
                     def.displayName
                 )
                 if cursorShellNeedsApproval {
-                    _ = try? client.send(
-                        command: "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                        responseTimeout: 1.0
+                    sendCursorCriticalCommand(
+                        "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
                     )
                 } else {
                     _ = try? sendV1Command(
@@ -34340,7 +34482,8 @@ export default CMUXSessionRestore;
             case nil:
                 break
             }
-            cursorApprovalReconciliationLease?.release()
+            cursorLifecycleLease?.release()
+            cursorLifecycleLease = nil
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
 
         case .sessionEnd:
@@ -34387,20 +34530,53 @@ export default CMUXSessionRestore;
                 break
             }
             // A non-turn-boundary session-end is a genuine teardown.
+            if def.name == "cursor", !sessionId.isEmpty {
+                guard acquireCursorLifecycleLease() else {
+                    print("{}")
+                    return
+                }
+            }
             if let ending = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
-                emitJournal(.sessionEnded, workspaceId: ending.workspaceId, surfaceId: ending.surfaceId)
+                emitJournal(
+                    .sessionEnded,
+                    workspaceId: ending.workspaceId,
+                    surfaceId: ending.surfaceId,
+                    responseTimeout: def.name == "cursor" ? cursorCriticalResponseTimeout : nil
+                )
             } else {
                 emitJournal(.sessionEnded, workspaceId: nil, surfaceId: nil, unattributedReason: "session-unknown")
             }
             performAgentSessionTeardown()
+            if def.name == "cursor" {
+                cursorLifecycleLease?.release()
+                cursorLifecycleLease = nil
+                if let ending = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
+                    sendAgentFeedTelemetry(workspaceId: ending.workspaceId, surfaceId: ending.surfaceId)
+                }
+            }
 
         case .sessionFinalize:
+            if def.name == "cursor", !sessionId.isEmpty {
+                guard acquireCursorLifecycleLease() else {
+                    print("{}")
+                    return
+                }
+            }
             if let ending = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
-                emitJournal(.sessionEnded, workspaceId: ending.workspaceId, surfaceId: ending.surfaceId)
+                emitJournal(
+                    .sessionEnded,
+                    workspaceId: ending.workspaceId,
+                    surfaceId: ending.surfaceId,
+                    responseTimeout: def.name == "cursor" ? cursorCriticalResponseTimeout : nil
+                )
             } else {
                 emitJournal(.sessionEnded, workspaceId: nil, surfaceId: nil, unattributedReason: "session-unknown")
             }
             performAgentSessionTeardown()
+            if def.name == "cursor" {
+                cursorLifecycleLease?.release()
+                cursorLifecycleLease = nil
+            }
 
         case .noop:
             break

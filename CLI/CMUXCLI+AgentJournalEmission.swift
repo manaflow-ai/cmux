@@ -28,6 +28,7 @@ extension CMUXCLI {
         nativeEvent: String?,
         declaredPhase: AgentLifecyclePhase? = nil,
         detail: String? = nil,
+        responseTimeout: TimeInterval? = nil,
         store: ClaudeHookSessionStore? = nil,
         telemetry: CLISocketSentryTelemetry? = nil
     ) {
@@ -82,7 +83,15 @@ extension CMUXCLI {
             return
         }
         do {
-            let response = try sendV1Command("agent_journal_append \(json)", client: client)
+            let response: String
+            if let responseTimeout {
+                response = try client.send(
+                    command: "agent_journal_append \(json)",
+                    responseTimeout: responseTimeout
+                )
+            } else {
+                response = try sendV1Command("agent_journal_append \(json)", client: client)
+            }
             guard response.hasPrefix("OK") else {
                 recordAgentJournalDeliveryFailure(
                     draft: draft,
