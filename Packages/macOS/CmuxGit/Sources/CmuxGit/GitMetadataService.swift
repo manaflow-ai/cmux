@@ -135,7 +135,8 @@ public struct GitMetadataService: Sendable {
         }
         let configSnapshot = Self.gitRemoteConfigSnapshot(
             repository: repository,
-            safetyConfiguration: safetyConfiguration
+            safetyConfiguration: safetyConfiguration,
+            fileStatusReader: fileStatusReader
         )
         let link = configSnapshot.isComplete
             ? configSnapshot.remoteVOutput.flatMap { Self.repositoryLink(fromGitRemoteVOutput: $0) }
@@ -145,6 +146,7 @@ public struct GitMetadataService: Sendable {
                 link: link,
                 repository: repository,
                 configURLs: configSnapshot.configURLs,
+                expectedConfigStatuses: configSnapshot.configStatuses,
                 headSignature: headSignature,
                 fileStatusReader: fileStatusReader
             )

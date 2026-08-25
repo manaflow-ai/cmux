@@ -6,6 +6,7 @@ struct GitRemoteConfigSnapshot: Sendable {
     let configURLs: [URL]
     let isComplete: Bool
     let watchFallbackURLs: [URL]
+    let configStatuses: [String: GitFileStatus?]
 }
 
 struct GitRemoteURLRewrite: Sendable {
@@ -25,6 +26,12 @@ extension GitMetadataService {
         var exceeded = false
         var fallbackURLs: [URL] = []
         var urlRewrites: [GitRemoteURLRewrite] = []
+        var configStatuses: [String: GitFileStatus?] = [:]
+        let fileStatusReader: any GitFileStatusReading
+
+        init(fileStatusReader: any GitFileStatusReading) {
+            self.fileStatusReader = fileStatusReader
+        }
 
         mutating func recordFallback(_ url: URL) {
             guard fallbackURLs.count < 64 else { return }
@@ -49,6 +56,13 @@ extension GitMetadataService {
                 exceeded = true
                 recordFallback(url)
                 return nil
+            }
+            let dependencyPaths = Set([
+                url.standardizedFileURL.path,
+                readURL.path
+            ])
+            let statusesBefore = dependencyPaths.reduce(into: [String: GitFileStatus?]()) { result, path in
+                result.updateValue(fileStatusReader.status(atPath: path), forKey: path)
             }
             let descriptor = Darwin.open(readURL.path, O_RDONLY | O_CLOEXEC | O_NONBLOCK)
             guard descriptor >= 0 else { return nil }
@@ -81,6 +95,17 @@ extension GitMetadataService {
                 recordFallback(url)
                 return nil
             }
+            let statusesAfter = dependencyPaths.reduce(into: [String: GitFileStatus?]()) { result, path in
+                result.updateValue(fileStatusReader.status(atPath: path), forKey: path)
+            }
+            guard statusesBefore == statusesAfter else {
+                exceeded = true
+                recordFallback(url)
+                return nil
+            }
+            for (path, fileStatus) in statusesAfter {
+                configStatuses.updateValue(fileStatus, forKey: path)
+            }
             fileCount += 1
             byteCount += data.count
             return config
@@ -107,12 +132,13 @@ extension GitMetadataService {
 
     nonisolated static func gitRemoteConfigSnapshot(
         repository: ResolvedGitRepository,
-        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration()
+        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
+        fileStatusReader: any GitFileStatusReading = SystemGitFileStatusReader()
     ) -> GitRemoteConfigSnapshot {
         var lines: [String] = []
         var seenConfigPaths: Set<String> = []
         var configURLs: [URL] = []
-        var budget = GitConfigTraversalBudget()
+        var budget = GitConfigTraversalBudget(fileStatusReader: fileStatusReader)
         for configURL in gitRootConfigURLs(repository: repository) {
             appendGitRemoteVLines(
                 fromConfigURL: configURL,
@@ -130,17 +156,49 @@ extension GitMetadataService {
                 : rewrittenRemoteVOutput(lines.joined(), rewrites: budget.urlRewrites),
             configURLs: configURLs,
             isComplete: !budget.exceeded,
-            watchFallbackURLs: budget.fallbackURLs
+            watchFallbackURLs: budget.fallbackURLs,
+            configStatuses: budget.configStatuses
         )
     }
 
-    /// The repository's top-level config files (common directory, then git
-    /// directory).
+    /// The Git config layers that can affect a repository's fetch remotes.
     nonisolated static func gitRootConfigURLs(repository: ResolvedGitRepository) -> [URL] {
-        [
+        var urls = gitGlobalConfigURLs()
+        urls.append(contentsOf: [
             URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config"),
             URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config"),
-        ]
+        ])
+        let worktreeConfig = URL(fileURLWithPath: repository.gitDirectory)
+            .appendingPathComponent("config.worktree")
+        if FileManager.default.fileExists(atPath: worktreeConfig.path) {
+            urls.append(worktreeConfig)
+        }
+        return urls
+    }
+
+    /// Resolves standard system, global, and XDG Git config locations.
+    private nonisolated static func gitGlobalConfigURLs() -> [URL] {
+        let environment = ProcessInfo.processInfo.environment
+        var urls: [URL] = []
+        if environment["GIT_CONFIG_NOSYSTEM"] == nil {
+            let systemPath = environment["GIT_CONFIG_SYSTEM"] ?? "/etc/gitconfig"
+            if systemPath != "/dev/null" {
+                urls.append(URL(fileURLWithPath: systemPath))
+            }
+        }
+        if let global = environment["GIT_CONFIG_GLOBAL"] {
+            if global != "/dev/null" {
+                urls.append(URL(fileURLWithPath: global))
+            }
+        } else {
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            urls.append(home.appendingPathComponent(".gitconfig"))
+            let xdgHome = environment["XDG_CONFIG_HOME"]
+                .map(URL.init(fileURLWithPath:))
+                ?? home.appendingPathComponent(".config", isDirectory: true)
+            urls.append(xdgHome.appendingPathComponent("git/config"))
+        }
+        return urls
     }
 
     /// Every config file reachable from the repository roots, following
@@ -151,7 +209,8 @@ extension GitMetadataService {
     ) -> [URL] {
         let snapshot = gitRemoteConfigSnapshot(
             repository: repository,
-            safetyConfiguration: safetyConfiguration
+            safetyConfiguration: safetyConfiguration,
+            fileStatusReader: SystemGitFileStatusReader()
         )
         return snapshot.configURLs + snapshot.watchFallbackURLs
     }
