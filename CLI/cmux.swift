@@ -1099,11 +1099,12 @@ final class ClaudeHookSessionStore {
         markActive: Bool = false,
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false,
-        supersedesSameProcessSession: Bool = false
+        supersedesSameProcessSession: Bool = false,
+        deadline: Date? = nil
     ) throws -> [ClaudeHookSessionRecord] {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return [] }
-        return try withLockedState { state in
+        return try withLockedState(deadline: deadline) { state in
             let now = Date().timeIntervalSince1970
             var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
                 sessionId: normalized,
@@ -1743,13 +1744,14 @@ final class ClaudeHookSessionStore {
     func recentlyEmittedNotification(
         sessionId: String,
         fingerprint: String,
-        within interval: TimeInterval = 60 * 60
+        within interval: TimeInterval = 60 * 60,
+        deadline: Date? = nil
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
         let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedFingerprint.isEmpty else { return false }
-        return try withLockedState { state in
+        return try withLockedState(deadline: deadline) { state in
             guard let record = state.sessions[normalized] else { return false }
             let now = Date().timeIntervalSince1970
             if let emittedAt = record.recentEmittedNotificationFingerprints?[normalizedFingerprint],
@@ -1764,12 +1766,16 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    func markNotificationEmitted(sessionId: String, fingerprint: String) throws {
+    func markNotificationEmitted(
+        sessionId: String,
+        fingerprint: String,
+        deadline: Date? = nil
+    ) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
         let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedFingerprint.isEmpty else { return }
-        try withLockedState { state in
+        try withLockedState(deadline: deadline) { state in
             guard var record = state.sessions[normalized] else { return }
             let now = Date().timeIntervalSince1970
             record.lastEmittedNotificationFingerprint = normalizedFingerprint
@@ -1793,11 +1799,12 @@ final class ClaudeHookSessionStore {
         agentName: String,
         stage: String,
         sessionId: String,
-        within interval: TimeInterval = 15 * 60
+        within interval: TimeInterval = 15 * 60,
+        deadline: Date? = nil
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         let key = "\(agentName):\(stage):\(normalized.isEmpty ? "unknown" : normalized)"
-        return try withLockedState { state in
+        return try withLockedState(deadline: deadline) { state in
             let now = Date().timeIntervalSince1970
             var reports = state.agentHookFailureReportTimestamps
             if let lastFailureAt = reports[key], now - lastFailureAt < interval {
@@ -2159,16 +2166,29 @@ final class ClaudeHookSessionStore {
         let stateURL = URL(fileURLWithPath: statePath)
         guard let values = try? stateURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
               values.isRegularFile == true,
-              let fileSize = values.fileSize,
-              fileSize <= 8 * 1024 * 1024 else {
+              let fileSize = values.fileSize else {
             throw CLIError(message: "Claude hook state file is unavailable or too large: \(statePath)")
+        }
+        if fileSize > 8 * 1024 * 1024 {
+            return try quarantineOversizedState(at: stateURL)
         }
         let data = try Data(contentsOf: stateURL)
         guard var decoded = try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data) else {
-            throw CLIError(message: "Claude hook state file is invalid: \(statePath)")
+            return try quarantineOversizedState(at: stateURL)
         }
         backfillSurfaceActiveSlots(&decoded)
         return decoded
+    }
+
+    /// Moves an unreadable/oversized state file aside before rebuilding a
+    /// bounded store, so hook routing can recover without silently destroying
+    /// the user's previous session mappings.
+    private func quarantineOversizedState(at url: URL) throws -> ClaudeHookSessionStoreFile {
+        let backupURL = url.deletingLastPathComponent()
+            .appendingPathComponent(".\(url.lastPathComponent).quarantined.json", isDirectory: false)
+        try? fileManager.removeItem(at: backupURL)
+        try fileManager.moveItem(at: url, to: backupURL)
+        return ClaudeHookSessionStoreFile()
     }
 
     /// Stores written before per-surface tracking (or rewritten by an older
@@ -2661,7 +2681,7 @@ final class SocketClient {
                 close()
             }
         }
-        let shouldCloseAfterSend = relayEndpoint != nil
+        let shouldCloseAfterSend = relayEndpoint != nil && !authenticationInProgress
         defer {
             if shouldCloseAfterSend {
                 close()
@@ -32893,11 +32913,19 @@ export default CMUXSessionRestore;
         }
         func shouldSendNotification(fingerprint: String?) -> Bool {
             guard let fingerprint else { return true }
-            return (try? store.recentlyEmittedNotification(sessionId: sessionId, fingerprint: fingerprint)) != true
+            return (try? store.recentlyEmittedNotification(
+                sessionId: sessionId,
+                fingerprint: fingerprint,
+                deadline: cursorShellDeadline
+            )) != true
         }
         func markNotificationSent(fingerprint: String?) {
             guard let fingerprint else { return }
-            try? store.markNotificationEmitted(sessionId: sessionId, fingerprint: fingerprint)
+            try? store.markNotificationEmitted(
+                sessionId: sessionId,
+                fingerprint: fingerprint,
+                deadline: cursorShellDeadline
+            )
         }
         func reportTargetResolutionFailure() {
             reportAgentHookFailure(
@@ -32906,7 +32934,8 @@ export default CMUXSessionRestore;
                 sessionId: sessionId,
                 event: subcommand,
                 store: store,
-                telemetry: telemetry
+                telemetry: telemetry,
+                deadline: cursorShellDeadline
             )
         }
         func resolveAgentHookTarget(mapped: ClaudeHookSessionRecord?) -> (workspaceId: String, surfaceId: String)? {
@@ -34426,7 +34455,9 @@ export default CMUXSessionRestore;
             }
 
         case .notification:
-            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            let mapped = sessionId.isEmpty
+                ? nil
+                : (try? store.lookup(sessionId: sessionId, deadline: cursorShellDeadline))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 reportTargetResolutionFailure()
                 emitJournal(.stateChanged, workspaceId: nil, surfaceId: nil, unattributedReason: "target-unresolved")
@@ -34676,7 +34707,8 @@ export default CMUXSessionRestore;
                         lastNotificationStatus: summary.status,
                         updateLastNotificationStatus: true,
                         runtimeStatus: storedRuntimeStatus,
-                        updateRuntimeStatus: summary.status != nil
+                        updateRuntimeStatus: summary.status != nil,
+                        deadline: cursorShellNeedsApproval ? cursorShellDeadline : nil
                     )
                 }
             }

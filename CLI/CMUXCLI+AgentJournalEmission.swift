@@ -67,7 +67,8 @@ extension CMUXCLI {
                 draft: draft,
                 message: "invalid draft: \(problem)",
                 store: store,
-                telemetry: telemetry
+                telemetry: telemetry,
+                deadline: deadline
             )
             return
         }
@@ -79,7 +80,8 @@ extension CMUXCLI {
                 draft: draft,
                 message: "encode failed",
                 store: store,
-                telemetry: telemetry
+                telemetry: telemetry,
+                deadline: deadline
             )
             return
         }
@@ -99,7 +101,8 @@ extension CMUXCLI {
                     draft: draft,
                     message: response,
                     store: store,
-                    telemetry: telemetry
+                    telemetry: telemetry,
+                    deadline: deadline
                 )
                 return
             }
@@ -108,7 +111,8 @@ extension CMUXCLI {
                 draft: draft,
                 message: String(describing: error),
                 store: store,
-                telemetry: telemetry
+                telemetry: telemetry,
+                deadline: deadline
             )
         }
     }
@@ -150,7 +154,8 @@ extension CMUXCLI {
         draft: AgentJournalEventDraft,
         message: String,
         store: ClaudeHookSessionStore?,
-        telemetry: CLISocketSentryTelemetry?
+        telemetry: CLISocketSentryTelemetry?,
+        deadline: Date? = nil
     ) {
         appendAgentJournalDeadLetter(draft: draft, message: message)
         cliWriteStderr("Warning: agent journal append failed (\(draft.kind.rawValue)): \(message)\n")
@@ -162,7 +167,8 @@ extension CMUXCLI {
                 event: draft.nativeEvent ?? draft.kind.rawValue,
                 error: nil,
                 store: store,
-                telemetry: telemetry
+                telemetry: telemetry,
+                deadline: deadline
             )
         }
     }
