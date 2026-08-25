@@ -461,6 +461,26 @@ class TerminalController {
         )
         self.socketPathMarkerStore = socketPathMarkerStore
         self.remoteProxyBroker = remoteProxyBroker
+        // Managed Cloud VM daemon endpoints go stale when the machine's preview rotates
+        // (sandbox recreation, preview re-creation). Before each proxy retry, re-mint the
+        // endpoint through the backend so the broker never redials a dead URL forever.
+        (remoteProxyBroker as? RemoteProxyBroker)?.configurationRefresher = { configuration in
+            guard let vmID = configuration.managedCloudVMID else { return nil }
+            guard let attach = try? await VMClient.shared.openAttach(id: vmID, requireDaemon: true),
+                  case .websocket(let endpoint) = attach,
+                  let daemon = endpoint.daemon else {
+                return nil
+            }
+            return configuration.withDaemonWebSocketEndpoint(
+                WorkspaceRemoteWebSocketDaemonEndpoint(
+                    url: daemon.url,
+                    headers: daemon.headers,
+                    token: daemon.token,
+                    sessionId: daemon.sessionId,
+                    expiresAtUnix: daemon.expiresAtUnix
+                )
+            )
+        }
         let simulatorOwnershipFileManager = FileManager()
         let simulatorApplicationSupportDirectory = simulatorOwnershipFileManager.urls(
             for: .applicationSupportDirectory,
@@ -3810,10 +3830,25 @@ class TerminalController {
         case .success(let payload):
             return v2Ok(id: id, result: payload)
         case .failure(let error):
+            if let vmError = error as? VMClientError,
+               Self.isCloudVMAuthenticationError(vmError) {
+                // Keep the auth boundary explicit for every VM verb. The CLI
+                // can then return a stable non-zero auth-required failure
+                // instead of presenting a generic backend error.
+                return v2Error(
+                    id: id,
+                    code: "auth_required",
+                    message: String(
+                        localized: "socket.cloudVM.authRequired",
+                        defaultValue: "Cloud VM access requires sign-in. Run `cmux auth login`, then retry."
+                    )
+                )
+            }
             return v2Error(
                 id: id,
                 code: "vm_error",
-                message: String(describing: error)
+                message: String(describing: error),
+                data: Self.cloudVMBackendErrorData(error)
             )
         case nil:
             return v2Error(
@@ -3821,6 +3856,31 @@ class TerminalController {
                 code: "vm_error",
                 message: "unknown vm error"
             )
+        }
+    }
+
+    /// Backend error code passthrough (`error.data.backend_code`) so the CLI
+    /// can make idempotency decisions structurally instead of parsing the
+    /// formatted display text.
+    private nonisolated static func cloudVMBackendErrorData(_ error: Error) -> [String: Any]? {
+        guard case let VMClientError.httpStatus(status, body) = error,
+              let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              let code = object["error"] as? String,
+              !code.isEmpty else {
+            return nil
+        }
+        return ["backend_code": code, "http_status": status]
+    }
+
+    private nonisolated static func isCloudVMAuthenticationError(_ error: VMClientError) -> Bool {
+        switch error {
+        case .notSignedIn:
+            return true
+        case .httpStatus(let status, _):
+            return status == 401
+        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse:
+            return false
         }
     }
 

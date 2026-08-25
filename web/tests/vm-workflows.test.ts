@@ -1632,6 +1632,7 @@ describe("VM Effect workflows", () => {
       imageVersion: "test-version",
     });
     let providerCreateCalls = 0;
+    let providerMemoryMb: number | undefined;
     let usageEventAttempts = 0;
     const repo: VmRepositoryShape = {
       listUserVms: () => Effect.succeed([]),
@@ -1647,6 +1648,7 @@ describe("VM Effect workflows", () => {
       reservePausedResume: () => Effect.succeed(null),
       reconciliationCandidates: () => Effect.succeed([]),
       markProviderObservedStatus: () => Effect.succeed(false),
+      setDisplayName: () => Effect.succeed(true),
       markCreateRunning: () => Effect.succeed(running),
       markCreateFailed: () => Effect.void,
       hasOwnedSnapshot: () => Effect.succeed(false),
@@ -1668,9 +1670,10 @@ describe("VM Effect workflows", () => {
       },
     };
     const provider: VmProviderGatewayShape = {
-      create: () =>
+      create: (_provider, options) =>
         Effect.sync(() => {
           providerCreateCalls += 1;
+          providerMemoryMb = options.memoryMb;
           return {
             provider: "freestyle" as const,
             providerVmId: "provider-vm-usage-events",
@@ -1701,12 +1704,14 @@ describe("VM Effect workflows", () => {
         provider: "freestyle",
         image: "snapshot-test",
         imageVersion: "test-version",
+        memoryMb: 3072,
         idempotencyKey: "usage-events",
       }).pipe(Effect.provide(layer)),
     );
 
     expect(created.providerVmId).toBe("provider-vm-usage-events");
     expect(providerCreateCalls).toBe(1);
+    expect(providerMemoryMb).toBe(3072);
     expect(usageEventAttempts).toBe(2);
   });
 
@@ -3410,6 +3415,56 @@ describe("VM Effect workflows", () => {
     expect(oldVm?.destroyedAt).toBeInstanceOf(Date);
   });
 
+  dbTest("cron reconcile keeps a volume-backed machine paused, not destroyed, when its compute is gone", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status, provider_metadata, updated_at)
+      values
+        ('user-workflow-reconcile-home', 'team-workflow-reconcile-home', 'free', 'blaxel', 'provider-vm-reconcile-home', 'snapshot-test', 'running', '{"homeVolume": "cmux-home-user-reconcile-home", "image": "blaxel/base-image:latest"}'::jsonb, now() - interval '10 minutes'),
+        ('user-workflow-reconcile-nohome', 'team-workflow-reconcile-home', 'free', 'blaxel', 'provider-vm-reconcile-nohome', 'snapshot-test', 'running', '{}'::jsonb, now() - interval '10 minutes')
+    `;
+
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: (_provider, vmId) =>
+        Effect.suspend(() => {
+          const gone = new Error(`sandbox ${vmId} -> 404 not found`);
+          (gone as Error & { status?: number }).status = 404;
+          return Effect.fail(new VmProviderOperationError({
+            provider: "blaxel",
+            operation: "getStatus",
+            cause: gone,
+          }));
+        }),
+    };
+
+    const result = await Effect.runPromise(
+      reconcileVmProviderStatuses().pipe(Effect.provide(providerLayer(provider))),
+    );
+
+    expect(result.checked).toBe(2);
+    expect(result.destroyed).toBe(1);
+
+    const rows = await sql<{ providerVmId: string; status: string; destroyedAt: Date | null }[]>`
+      select provider_vm_id as "providerVmId", status, destroyed_at as "destroyedAt" from cloud_vms
+      order by provider_vm_id
+    `;
+    const home = rows.find((r) => r.providerVmId === "provider-vm-reconcile-home");
+    const nohome = rows.find((r) => r.providerVmId === "provider-vm-reconcile-nohome");
+    expect(home?.status).toBe("paused");
+    expect(home?.destroyedAt).toBeNull();
+    expect(nohome?.status).toBe("destroyed");
+    expect(nohome?.destroyedAt).toBeInstanceOf(Date);
+
+    const [{ destroyedUsageCount }] = await sql<{ destroyedUsageCount: string }[]>`
+      select count(*)::text as "destroyedUsageCount"
+      from cloud_vm_usage_events
+      where event_type = 'vm.destroyed'
+    `;
+    expect(destroyedUsageCount).toBe("1");
+  });
+
   dbTest("cron reconcile updates drifted rows from provider status", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
@@ -4553,6 +4608,7 @@ function testCloudVmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     billingPlanId: "free",
     provider: "freestyle",
     providerVmId: null,
+    displayName: null,
     imageId: "snapshot-test",
     imageVersion: null,
     status: "provisioning",
@@ -4589,6 +4645,7 @@ function testWorkflowRepo(input: {
 }): VmRepositoryShape {
   return {
     listUserVms: () => Effect.succeed([]),
+    setDisplayName: () => Effect.succeed(true),
     claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
     markBillingGrantApplied: () => Effect.void,
     deleteBillingGrant: () => Effect.void,

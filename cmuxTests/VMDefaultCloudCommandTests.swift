@@ -1,7 +1,74 @@
 import XCTest
 import Darwin
 
+/// Counts vm.create round trips across mock-server connections so a handler
+/// can fail the first attempt and succeed the retry.
+private final class VMCreateCallCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func next() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        count += 1
+        return count
+    }
+}
+
 extension CLINotifyProcessIntegrationRegressionTests {
+    func testVMNewFailsWithAnActionableAuthErrorBeforeProvisioning() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-new-auth-required")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "vm.create")
+            return self.v2Response(
+                id: id,
+                ok: false,
+                error: [
+                    "code": "auth_required",
+                    "message": "Cloud VM access requires sign-in. Run `cmux auth login`, then retry.",
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "new", "--detach"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stdout + result.stderr)
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(
+            (result.stdout + result.stderr).contains("cmux auth login"),
+            result.stdout + result.stderr
+        )
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["vm.create"]
+        )
+    }
+
     func testVMNewDefaultCreatesPinnedSSHDWorkspaceOverFreestyleSSH() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-new-sshd")
@@ -231,6 +298,176 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             ["vm.create"]
+        )
+    }
+
+    func testVMNewMintsFreshIdempotencyKeyAfterRecordedCreateFailure() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-new-failed-key-reset")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let counter = VMCreateCallCounter()
+        let homeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-new-failed-key-reset-\(UUID().uuidString)", isDirectory: true)
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: homeURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "vm.create")
+            if counter.next() == 1 {
+                // The backend recorded a definitive create failure for this key
+                // and will replay it on every retry with the same key.
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: [
+                        "code": "vm_error",
+                        "message": "Cloud VM temporarily unavailable (HTTP 500: vm_create_failed)",
+                        "data": ["backend_code": "vm_create_failed", "http_status": 500],
+                    ]
+                )
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "id": "vm-fresh-after-failure",
+                    "provider": "freestyle",
+                    "image": "snapshot-default",
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = homeURL.path
+
+        let firstRun = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "new", "--provider", "freestyle", "--detach"],
+            environment: environment,
+            timeout: 5
+        )
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(firstRun.timedOut, firstRun.stdout + firstRun.stderr)
+        XCTAssertNotEqual(firstRun.status, 0, firstRun.stdout)
+
+        let secondRun = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "new", "--provider", "freestyle", "--detach"],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(secondRun.timedOut, secondRun.stdout + secondRun.stderr)
+        XCTAssertEqual(secondRun.status, 0, secondRun.stdout + secondRun.stderr)
+
+        let keys = state.snapshot().compactMap { line -> String? in
+            let payload = self.jsonObject(line)
+            guard payload?["method"] as? String == "vm.create" else { return nil }
+            return (payload?["params"] as? [String: Any])?["idempotency_key"] as? String
+        }
+        XCTAssertEqual(keys.count, 2, "\(keys)")
+        XCTAssertFalse(keys[0].isEmpty)
+        XCTAssertFalse(keys[1].isEmpty)
+        XCTAssertNotEqual(
+            keys[0],
+            keys[1],
+            "a recorded create failure must clear the stored key; reusing it can only replay the failure"
+        )
+    }
+
+    func testVMNewReusesIdempotencyKeyWhileCreateStillInProgress() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-new-in-progress-key-reuse")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let counter = VMCreateCallCounter()
+        let homeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-new-in-progress-key-reuse-\(UUID().uuidString)", isDirectory: true)
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: homeURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "vm.create")
+            if counter.next() == 1 {
+                // A create is still running for this key: resending the same key
+                // joins the in-flight attempt, so the CLI must keep it.
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: [
+                        "code": "vm_error",
+                        "message": "A Cloud VM create is already running for this request. (HTTP 409: vm_create_in_progress)",
+                        "data": ["backend_code": "vm_create_in_progress", "http_status": 409],
+                    ]
+                )
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "id": "vm-joined-in-progress",
+                    "provider": "freestyle",
+                    "image": "snapshot-default",
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = homeURL.path
+
+        let firstRun = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "new", "--provider", "freestyle", "--detach"],
+            environment: environment,
+            timeout: 5
+        )
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(firstRun.timedOut, firstRun.stdout + firstRun.stderr)
+        XCTAssertNotEqual(firstRun.status, 0, firstRun.stdout)
+
+        let secondRun = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "new", "--provider", "freestyle", "--detach"],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(secondRun.timedOut, secondRun.stdout + secondRun.stderr)
+        XCTAssertEqual(secondRun.status, 0, secondRun.stdout + secondRun.stderr)
+
+        let keys = state.snapshot().compactMap { line -> String? in
+            let payload = self.jsonObject(line)
+            guard payload?["method"] as? String == "vm.create" else { return nil }
+            return (payload?["params"] as? [String: Any])?["idempotency_key"] as? String
+        }
+        XCTAssertEqual(keys.count, 2, "\(keys)")
+        XCTAssertEqual(
+            keys[0],
+            keys[1],
+            "an in-progress create must keep the stored key so the retry joins the running attempt"
         )
     }
 
