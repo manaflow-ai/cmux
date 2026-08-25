@@ -246,6 +246,24 @@ import Testing
         ) == nil)
     }
 
+    @Test func repositoryLinkConfigTraversalStopsAtLargeConfigBudget() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig(
+            "[remote \"origin\"]\n\turl = https://github.com/deep/repo.git\n"
+                + String(repeating: "#", count: 4 * 1024 * 1024 + 1)
+        )
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(repository: repository)
+
+        #expect(!snapshot.isComplete)
+        #expect(snapshot.configURLs.count <= 512)
+        #expect(snapshot.remoteVOutput == nil)
+    }
+
     @Test func repositoryLinkCacheInvalidatesWhenOnBranchIncludeChanges() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main", commit: String(repeating: "a", count: 40))
