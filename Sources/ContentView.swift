@@ -3438,6 +3438,7 @@ struct ContentView: View {
 
         view = AnyView(view.onDisappear {
             sidebarState.removeVisibilityWillChangeHandler(ownerId: windowId)
+            workspaceSwitchPortalSignalRouter.clearSources()
             if isResizerDragging {
                 TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: tabManager)
                 isResizerDragging = false
@@ -3625,14 +3626,17 @@ struct ContentView: View {
             tabManager.completePendingWorkspaceUnfocus(reason: "no_handoff")
             tabManager.cancelPendingWorkspaceHandoffRetirement()
             tabManager.workspaceSwitchCoordinator.cancel()
+            workspaceSwitchPortalSignalRouter.clearSources()
             return nil
         }
 
+        let presentationTarget = workspaceSwitchPresentationTarget(
+            for: newSelectedId,
+            sourceWorkspaceID: oldSelectedId
+        )
+        configureWorkspaceSwitchPortalSignals(for: newSelectedId)
         tabManager.workspaceSwitchCoordinator.beginPresentation(
-            workspaceSwitchPresentationTarget(
-                for: newSelectedId,
-                sourceWorkspaceID: oldSelectedId
-            ),
+            presentationTarget,
             retiringWorkspaceID: oldSelectedId
         )
 
@@ -3676,6 +3680,7 @@ struct ContentView: View {
             workspaceID: retiringWorkspaceID,
             reason: reason
         )
+        workspaceSwitchPortalSignalRouter.clearSources()
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
             let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
@@ -3686,6 +3691,31 @@ struct ContentView: View {
             cmuxDebugLog("ws.handoff.complete id=none reason=\(reason) retiring=\(debugShortWorkspaceId(retiringWorkspaceID))")
         }
 #endif
+    }
+
+    private func configureWorkspaceSwitchPortalSignals(for workspaceID: UUID) {
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+            workspaceSwitchPortalSignalRouter.clearSources()
+            return
+        }
+        if let focusedPanelID = workspace.focusedPanelId,
+           let browserPanel = workspace.browserPanel(for: focusedPanelID) {
+            workspaceSwitchPortalSignalRouter.observe(
+                terminalHostedView: nil,
+                terminalSurface: nil,
+                browserWebView: browserPanel.webView
+            )
+            return
+        }
+        if let terminalTarget = workspace.focusedTerminalInputTarget() {
+            workspaceSwitchPortalSignalRouter.observe(
+                terminalHostedView: terminalTarget.panel.hostedView,
+                terminalSurface: terminalTarget.panel.surface,
+                browserWebView: nil
+            )
+            return
+        }
+        workspaceSwitchPortalSignalRouter.clearSources()
     }
 
     private func workspaceSwitchPresentationTarget(
