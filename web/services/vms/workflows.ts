@@ -22,6 +22,7 @@ import {
   VmAccountDeletionIdentityRevocationError,
   VmCreateFailedError,
   VmCreateInProgressError,
+  VmFreeAccessExpiredError,
   VmNotFoundError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
@@ -31,7 +32,7 @@ import {
   type VmDatabaseError,
   type VmWorkflowError,
 } from "./errors";
-import { maxActiveVmsForPlan } from "./entitlements";
+import { isVmFreeAccessExpired, maxActiveVmsForPlan, vmFreeAccessWindowDays } from "./entitlements";
 import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
@@ -85,6 +86,8 @@ type ExistingVmAccessInput = {
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly provider?: ProviderId;
+  /** Caller's CURRENT billing plan; access verbs use it for the free window. */
+  readonly callerPlanId?: string | null;
 };
 
 export type VmProviderStatusReconcileResult = {
@@ -1460,11 +1463,13 @@ export function execVm(input: {
   readonly providerVmId: string;
   readonly command: string;
   readonly timeoutMs: number;
+  /** Caller's CURRENT billing plan; used for the free access window. */
+  readonly callerPlanId?: string | null;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input);
+    const vm = yield* requireAccessibleUserVm(input);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -1518,11 +1523,13 @@ export function openVmPort(input: {
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly port: number;
+  /** Caller's CURRENT billing plan; used for the free access window. */
+  readonly callerPlanId?: string | null;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input);
+    const vm = yield* requireAccessibleUserVm(input);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -1632,6 +1639,8 @@ type OpenAttachEndpointInput = {
   readonly providerVmId: string;
   readonly options?: AttachOptions;
   readonly sessionTitle?: string | null;
+  /** Caller's CURRENT billing plan; used for the free access window. */
+  readonly callerPlanId?: string | null;
 };
 
 export function openAttachEndpoint(input: OpenAttachEndpointInput) {
@@ -1649,6 +1658,8 @@ export function openVmSession(input: {
   readonly sessionId?: string;
   readonly attachmentId?: string;
   readonly title?: string | null;
+  /** Caller's CURRENT billing plan; used for the free access window. */
+  readonly callerPlanId?: string | null;
 }) {
   const sessionId = input.sessionId?.trim() || `session-${randomUUID()}`;
   const attachmentId = input.attachmentId?.trim() || `attach-${randomUUID()}`;
@@ -1657,6 +1668,7 @@ export function openVmSession(input: {
     billingTeamId: input.billingTeamId,
     teamIds: input.teamIds,
     providerVmId: input.providerVmId,
+    callerPlanId: input.callerPlanId,
     sessionTitle: input.title,
     options: {
       requireDaemon: true,
@@ -1671,10 +1683,12 @@ export function listVmSessions(input: {
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
+  /** Caller's CURRENT billing plan; used for the free access window. */
+  readonly callerPlanId?: string | null;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
-    const vm = yield* requireUserVm(input);
+    const vm = yield* requireAccessibleUserVm(input);
     return yield* repo.listVmSessions({ userId: input.userId, vmId: vm.id });
   });
 }
@@ -1683,7 +1697,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input);
+    const vm = yield* requireAccessibleUserVm(input);
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
     // Once preflight records the VM as running, that state is externally
     // visible to concurrent attach/SSH requests. Later cleanup failures must
@@ -1746,11 +1760,13 @@ export function openSshEndpoint(input: {
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
+  /** Caller's CURRENT billing plan; used for the free access window. */
+  readonly callerPlanId?: string | null;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input);
+    const vm = yield* requireAccessibleUserVm(input);
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "ssh");
     yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
@@ -1779,6 +1795,23 @@ export function openSshEndpoint(input: {
       metadata: { credentialKind: endpoint.credential.kind },
     }).pipe(Effect.catchAll(() => Effect.void));
     return endpoint;
+  });
+}
+
+/// Access-verb variant of requireUserVm: a free-plan machine older than the
+/// free access window is preserved but unreachable until the caller upgrades.
+/// List/status/rename/delete deliberately keep using requireUserVm so the
+/// machine stays visible and disposable while locked.
+function requireAccessibleUserVm(input: ExistingVmAccessInput) {
+  return Effect.gen(function* () {
+    const vm = yield* requireUserVm(input);
+    if (isVmFreeAccessExpired(input.callerPlanId, vm.createdAt ?? undefined)) {
+      return yield* Effect.fail(new VmFreeAccessExpiredError({
+        vmId: input.providerVmId,
+        windowDays: vmFreeAccessWindowDays(),
+      }));
+    }
+    return vm;
   });
 }
 
