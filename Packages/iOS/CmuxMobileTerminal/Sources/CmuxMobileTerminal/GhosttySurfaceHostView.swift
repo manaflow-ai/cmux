@@ -190,6 +190,11 @@ public final class GhosttySurfaceHostView: UIView {
         super.safeAreaInsetsDidChange()
         guard !keyboardTransitionActive else { return }
         seatDockWithoutAnimation()
+        // The grid container reads the window's bottom inset through the
+        // surface's fallback resolver; the surface itself cannot observe a
+        // window-level inset change (its own inset stays 0 while slid), so
+        // the host forwards the resync.
+        surfaceView.hostRequestsGeometrySync()
     }
 
     /// Folds the tracker's process-wide keyboard record into the surface

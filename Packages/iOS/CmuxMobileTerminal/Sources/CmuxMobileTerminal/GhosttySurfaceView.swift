@@ -1281,6 +1281,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     var hostedKeyboardHeight: CGFloat { keyboardHeight }
 
+    /// Host-driven geometry resync for inputs the surface cannot observe
+    /// itself: the grid container reads the WINDOW's bottom safe-area inset
+    /// (the slid surface's own inset is a meaningless 0), and a window-level
+    /// inset change does not fire this surface's `safeAreaInsetsDidChange`
+    /// or change its bounds.
+    func hostRequestsGeometrySync() {
+        setNeedsGeometrySync()
+    }
+
     /// True while the mirrored terminal is on the ALTERNATE screen (a
     /// full-screen TUI that owns the whole grid). Injected by the hosting
     /// representable from the shell store; the keyboard blank-space
