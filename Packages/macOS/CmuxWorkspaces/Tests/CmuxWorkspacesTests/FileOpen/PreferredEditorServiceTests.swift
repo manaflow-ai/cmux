@@ -63,6 +63,36 @@ struct PreferredEditorServiceTests {
         #expect(opener.openedURLs == [url])
     }
 
+    @Test func terminalEditorFallsBackWithoutLaunchingTheCommand() async throws {
+        let scratch = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let marker = scratch.appendingPathComponent("launched.txt")
+        let editor = scratch.appendingPathComponent("nvim")
+        try #"""
+        #!/bin/sh
+        touch '\#(marker.path)'
+        """#.write(to: editor, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: editor.path
+        )
+
+        let opener = RecordingSystemOpener()
+        let service = PreferredEditorService(
+            editor: FixedEditor(resolvedCommand: editor.path),
+            capture: UITestCaptureSink(environment: [:]),
+            systemOpener: opener
+        )
+        let url = URL(fileURLWithPath: "/tmp/plain.txt")
+
+        service.open(url)
+
+        // Give an incorrectly spawned helper a bounded opportunity to leave
+        // its marker before asserting that the command was never launched.
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(opener.openedURLs == [url])
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
+
     @Test func configuredCommandReceivesTheQuotedPathAsItsArgument() async throws {
         let scratch = try makeScratchDirectory()
         defer { try? FileManager.default.removeItem(at: scratch) }
