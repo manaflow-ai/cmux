@@ -183,6 +183,7 @@ final class CmuxPluginProcessSupervisor {
                     guard let self, let runtime else { return }
                     self.snapshotIntegrityDidChange(
                         pluginID: pluginID,
+                        expectedSnapshot: executionSnapshot,
                         runtime: runtime,
                         reportError: reportError
                     )
@@ -359,10 +360,16 @@ final class CmuxPluginProcessSupervisor {
 
     private func snapshotIntegrityDidChange(
         pluginID: String,
+        expectedSnapshot: CmuxPluginExecutionSnapshot,
         runtime: CmuxPluginRuntime,
         reportError: @escaping @Sendable (String, String?) -> Void
     ) {
-        guard let running = processes.removeValue(forKey: pluginID) else { return }
+        guard let running = processes[pluginID],
+              running.snapshot.directoryURL == expectedSnapshot.directoryURL,
+              running.snapshot.fingerprint == expectedSnapshot.fingerprint else {
+            return
+        }
+        processes.removeValue(forKey: pluginID)
         running.integrityMonitor.cancel()
         runtime.revokeProcess(running.processID)
         if running.process.isRunning {
