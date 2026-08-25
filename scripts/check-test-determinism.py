@@ -4107,6 +4107,16 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/httpx_module_client_nested_shadow.py",
+            (
+                'client = httpx.Client(base_url="https://api.openai.com")\n'
+                "def helper():\n"
+                "    client = FakeClient()\n"
+                'client.get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/httpx_parenthesized_stored_client_get.py",
             (
                 'client = (httpx.Client(base_url="https://api.openai.com"))\n'
