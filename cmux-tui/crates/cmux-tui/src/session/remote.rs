@@ -3374,12 +3374,13 @@ impl RemoteSession {
             },
         );
         drop(capabilities);
-        // A tree snapshot can race a detach or overflow event. The surface
-        // catalog is authoritative for what can be rendered, so filter the
-        // snapshot while holding one catalog snapshot before publishing it.
-        let attached_surface_ids = self.surfaces.lock().unwrap().keys().copied().collect();
+        // The server tree is authoritative. The local surface catalog is a
+        // lazy mirror and may be empty during startup or reconnect, so it
+        // cannot be used as a negative filter. Remove only explicit retire
+        // evidence captured at the detach boundary.
+        let retired_surface_ids = self.retired_surfaces.lock().unwrap().clone();
         let mut tree = tree;
-        tree.retain_surfaces(&attached_surface_ids);
+        tree.retain_not_retired(&retired_surface_ids);
         let live_surface_ids = tree
             .workspaces
             .iter()

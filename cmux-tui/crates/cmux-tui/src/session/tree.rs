@@ -103,6 +103,20 @@ impl TreeView {
         }
     }
 
+    /// Retain the server's authoritative tab topology, removing only tabs
+    /// with explicit detach/retire evidence. The local surface mirror is a
+    /// lazy cache and can be empty during startup or reconnect.
+    pub fn retain_not_retired(&mut self, retired: &HashSet<SurfaceId>) {
+        for workspace in &mut self.workspaces {
+            for screen in &mut workspace.screens {
+                for pane in &mut screen.panes {
+                    pane.tabs.retain(|tab| !retired.contains(&tab.surface));
+                    pane.active_tab = pane.active_tab.min(pane.tabs.len().saturating_sub(1));
+                }
+            }
+        }
+    }
+
     pub fn session_resource_selectors() -> ResourceSelectors {
         ResourceSelectors {
             machine: Some("current".to_string()),
@@ -668,6 +682,15 @@ mod tests {
         let pane = &tree.workspaces[0].screens[0].panes[0];
         assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![8]);
         assert_eq!(pane.active_tab, 0);
+    }
+
+    #[test]
+    fn retain_not_retired_keeps_tabs_when_local_catalog_is_empty() {
+        let mut tree = parse_tree(
+            &json!({"workspaces":[{"id":1,"screens":[{"id":2,"panes":[{"id":3,"tabs":[{"surface":7},{"surface":8}],"active_tab":1}]}]}]}),
+        );
+        tree.retain_not_retired(&HashSet::new());
+        assert_eq!(tree.workspaces[0].screens[0].panes[0].tabs.len(), 2);
     }
 
     #[test]
