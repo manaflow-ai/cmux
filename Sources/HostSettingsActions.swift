@@ -89,8 +89,13 @@ final class HostSettingsActions: SettingsHostActions {
     func resetAllSettingsSideEffects() {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(.system)
         PaneChromeSettings.notifyDidChange()
+        TerminalAdaptiveDefaultThemeSettings.notifyDidChange()
         PhonePushClient.shared.reloadConfigurationFromDefaults()
         AppDelegate.shared?.reconcileSocketListenerConfiguration(source: "settings.reset_all")
+    }
+
+    func terminalAdaptiveDefaultThemeDidChange() {
+        TerminalAdaptiveDefaultThemeSettings.notifyDidChange()
     }
 
     func notifyShortcutSettingsDidChange() {
@@ -260,6 +265,33 @@ final class HostSettingsActions: SettingsHostActions {
         )
     }
 
+    var isCloudMachinesAvailable: Bool {
+        CmuxFeatureFlags.shared.isCloudVMUIEnabled
+    }
+
+    func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary? {
+        guard let client = VMClient.shared else { return nil }
+        guard let page = try? await client.listPage(), let limits = page.limits else { return nil }
+        let isPaid = limits.planId != "free"
+        let planLabel = isPaid
+            ? limits.planId.capitalized
+            : String(localized: "settings.cloudMachines.plan.free", defaultValue: "Free")
+        return CloudMachinesPlanSummary(
+            planLabel: planLabel,
+            activeMachines: page.vms.count,
+            maxMachines: limits.maxActiveVms,
+            isPaidPlan: isPaid
+        )
+    }
+
+    func openCloudMachinesPanel() {
+        _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(mode: .machines)
+    }
+
+    func openCloudMachinesBilling() {
+        ProUpgradePresenter.present()
+    }
+
     func mobilePhonePushSettings() -> MobilePhonePushSettingsSnapshot {
         Self.mobilePhonePushSettingsSnapshot(
             from: PhonePushClient.shared.configuration()
@@ -363,7 +395,7 @@ final class HostSettingsActions: SettingsHostActions {
         // Reads the in-memory cache (kept current by config reloads) rather than
         // forcing a synchronous disk read on the main actor when Settings opens.
         SettingsFontSize(
-            points: Double(GhosttyConfig.load().sidebarFontSize),
+            points: Double(GhosttyConfig.loadForCmux().sidebarFontSize),
             minimum: CmuxGhosttyConfigSettingEditor.minSidebarFontSize,
             maximum: CmuxGhosttyConfigSettingEditor.maxSidebarFontSize,
             defaultValue: CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize
@@ -381,7 +413,7 @@ final class HostSettingsActions: SettingsHostActions {
     func surfaceTabBarFontSize() -> SettingsFontSize {
         // See ``sidebarFontSize()`` — uses the cached config to avoid main-actor disk I/O.
         SettingsFontSize(
-            points: Double(GhosttyConfig.load().surfaceTabBarFontSize),
+            points: Double(GhosttyConfig.loadForCmux().surfaceTabBarFontSize),
             minimum: CmuxGhosttyConfigSettingEditor.minSurfaceTabBarFontSize,
             maximum: CmuxGhosttyConfigSettingEditor.maxSurfaceTabBarFontSize,
             defaultValue: CmuxGhosttyConfigSettingEditor.defaultSurfaceTabBarFontSize

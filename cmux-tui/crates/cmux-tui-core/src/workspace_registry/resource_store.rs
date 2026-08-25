@@ -6,6 +6,7 @@ use super::*;
 /// creation receipts remain protected by their authoritative receipt tables.
 pub(super) const RESOURCE_MUTATION_REPLAY_CAPACITY: usize = 4096;
 pub(super) const RESOURCE_MUTATION_PRUNE_INTERVAL: u64 = 128;
+const RESOURCE_EVENT_PAGE_SIZE: usize = 1024;
 
 pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
@@ -96,6 +97,8 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
          );
          CREATE UNIQUE INDEX IF NOT EXISTS live_resource_tab_position
            ON resource_tabs(pane_id, position) WHERE deleted_revision IS NULL;
+         CREATE INDEX IF NOT EXISTS resource_tabs_by_content
+           ON resource_tabs(content_id);
          CREATE UNIQUE INDEX IF NOT EXISTS live_resource_browser_view
            ON resource_tabs(content_id)
            WHERE content_kind = 'browser' AND deleted_revision IS NULL;
@@ -148,13 +151,6 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
            )
          );
          DROP TRIGGER IF EXISTS resource_agent_projection_terminal_tombstone;
-         CREATE TABLE IF NOT EXISTS resource_events (
-           revision INTEGER PRIMARY KEY NOT NULL,
-           previous_revision INTEGER NOT NULL,
-           origin TEXT NOT NULL,
-           idempotency_key TEXT NOT NULL,
-           deltas_json TEXT NOT NULL
-         );
          CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
            ON resource_mutations(operation, committed_revision DESC);
          CREATE INDEX IF NOT EXISTS resource_agent_projections_by_revision
@@ -220,6 +216,8 @@ pub(super) fn migrate_resource_tabs_to_multiview(
          ALTER TABLE resource_tabs_multiview RENAME TO resource_tabs;
          CREATE UNIQUE INDEX live_resource_tab_position
            ON resource_tabs(pane_id, position) WHERE deleted_revision IS NULL;
+         CREATE INDEX resource_tabs_by_content
+           ON resource_tabs(content_id);
          CREATE UNIQUE INDEX live_resource_browser_view
            ON resource_tabs(content_id)
            WHERE content_kind = 'browser' AND deleted_revision IS NULL;",
@@ -227,12 +225,16 @@ pub(super) fn migrate_resource_tabs_to_multiview(
     Ok(())
 }
 
-/// Detect the development schema that stamped the current version while
-/// retaining the old table-level `UNIQUE(content_id)` constraint. SQLite
-/// represents that constraint as a non-partial, single-column unique index.
-pub(super) fn resource_tabs_has_legacy_content_uniqueness(
+/// Detect a legacy table-level `UNIQUE(content_id)` constraint or a missing or
+/// malformed browser-view index. Any such shape must be rebuilt before terminal
+/// content can have multiple views without weakening the one-live-view browser rule.
+pub(super) fn resource_tabs_needs_multiview_normalization(
     connection: &Connection,
 ) -> anyhow::Result<bool> {
+    const CANONICAL_BROWSER_VIEW_INDEX: &str = concat!(
+        "create unique index live_resource_browser_view on resource_tabs(content_id)",
+        " where content_kind = 'browser' and deleted_revision is null",
+    );
     let mut indexes = connection
         .prepare("SELECT name, [unique], partial FROM pragma_index_list('resource_tabs')")?;
     let indexes = indexes
@@ -240,20 +242,38 @@ pub(super) fn resource_tabs_has_legacy_content_uniqueness(
             Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?, row.get::<_, bool>(2)?))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut saw_browser_view_index = false;
     for (name, unique, partial) in indexes {
-        if !unique || partial {
-            continue;
-        }
         let mut columns =
             connection.prepare("SELECT name FROM pragma_index_info(?1) ORDER BY seqno ASC")?;
         let columns = columns
-            .query_map([name], |row| row.get::<_, Option<String>>(0))?
+            .query_map([&name], |row| row.get::<_, Option<String>>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        if columns.as_slice() == [Some("content_id".to_string())] {
+        let indexes_content = columns.as_slice() == [Some("content_id".to_string())];
+        if name == "live_resource_browser_view" {
+            saw_browser_view_index = true;
+            let definition = connection.query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?1",
+                [&name],
+                |row| row.get::<_, Option<String>>(0),
+            )?;
+            let definition = definition
+                .unwrap_or_default()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_ascii_lowercase();
+            if !unique || !partial || !indexes_content || definition != CANONICAL_BROWSER_VIEW_INDEX
+            {
+                return Ok(true);
+            }
+            continue;
+        }
+        if unique && !partial && indexes_content {
             return Ok(true);
         }
     }
-    Ok(false)
+    Ok(!saw_browser_view_index)
 }
 
 pub(super) fn migrate_resource_agent_projections(
@@ -419,7 +439,6 @@ impl WorkspaceRegistry {
         );
         let fingerprint = canonical_json(fingerprint)?;
         let result_json = canonical_json(result)?;
-        let deltas_json = canonical_json(deltas)?;
         let tx = self.connection.transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)? {
             return Ok(replayed);
@@ -473,20 +492,18 @@ impl WorkspaceRegistry {
                 sqlite_revision,
             ],
         )?;
-        tx.execute(
-            "INSERT INTO resource_events(
-               revision, previous_revision, origin, idempotency_key, deltas_json
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![
-                sqlite_revision,
-                i64::try_from(previous_revision)
-                    .context("resource revision exceeds SQLite range")?,
-                mutation.origin,
-                mutation.id,
-                deltas_json,
-            ],
+        append_resource_journal_record(
+            &tx,
+            revision,
+            previous_revision,
+            &mutation.origin,
+            &mutation.id,
+            OPERATION,
+            None,
+            result,
+            deltas,
         )?;
-        prune_resource_events(&tx)?;
+        prune_resource_mutations(&tx)?;
         tx.commit()?;
         Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
     }
@@ -779,7 +796,6 @@ impl WorkspaceRegistry {
         validate_resource_patch(patch)?;
         let fingerprint = canonical_json(fingerprint)?;
         let result_json = canonical_json(result)?;
-        let deltas_json = canonical_json(deltas)?;
         let tx = self.connection.transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
             return Ok(replayed);
@@ -824,20 +840,18 @@ impl WorkspaceRegistry {
                 sqlite_revision,
             ],
         )?;
-        tx.execute(
-            "INSERT INTO resource_events(
-               revision, previous_revision, origin, idempotency_key, deltas_json
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![
-                sqlite_revision,
-                i64::try_from(previous_revision)
-                    .context("resource revision exceeds SQLite range")?,
-                mutation.origin,
-                mutation.id,
-                deltas_json,
-            ],
+        append_resource_journal_record(
+            &tx,
+            revision,
+            previous_revision,
+            &mutation.origin,
+            &mutation.id,
+            operation,
+            Some(patch),
+            result,
+            deltas,
         )?;
-        prune_resource_events(&tx)?;
+        prune_resource_mutations(&tx)?;
         tx.commit()?;
         Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
     }
@@ -849,7 +863,7 @@ impl WorkspaceRegistry {
         operation: &str,
         fingerprint: &Value,
         expected_generation: Option<&str>,
-        expected_revision: Option<u64>,
+        expected_projection_revision: Option<u64>,
         frontend: &str,
         scope: &str,
         subject_key: &str,
@@ -870,7 +884,6 @@ impl WorkspaceRegistry {
             anyhow::bail!("frontend projection exceeds {MAX_PROJECTION_BYTES} bytes");
         }
         let result_json = canonical_json(result)?;
-        let deltas_json = canonical_json(deltas)?;
         let tx = self.connection.transaction()?;
         if let Some(replay) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
             return Ok(replay);
@@ -884,14 +897,7 @@ impl WorkspaceRegistry {
             );
         }
         let previous_revision = transaction_resource_revision(&tx)?;
-        if let Some(expected) = expected_revision
-            && expected != previous_revision
-        {
-            anyhow::bail!(
-                "resource revision conflict: expected {expected}, current {previous_revision}"
-            );
-        }
-        let projection_revision = tx
+        let current_projection_revision = tx
             .query_row(
                 "SELECT projection_revision FROM frontend_projections
                  WHERE frontend = ?1 AND scope = ?2 AND subject_key = ?3",
@@ -902,7 +908,15 @@ impl WorkspaceRegistry {
             .map(u64::try_from)
             .transpose()
             .context("projection revision is negative")?
-            .unwrap_or(0)
+            .unwrap_or(0);
+        if let Some(expected) = expected_projection_revision
+            && expected != current_projection_revision
+        {
+            anyhow::bail!(
+                "projection revision conflict: expected {expected}, current {current_projection_revision}"
+            );
+        }
+        let projection_revision = current_projection_revision
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("projection revision exhausted"))?;
         tx.execute(
@@ -945,20 +959,18 @@ impl WorkspaceRegistry {
                 sqlite_revision,
             ],
         )?;
-        tx.execute(
-            "INSERT INTO resource_events(
-               revision, previous_revision, origin, idempotency_key, deltas_json
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![
-                sqlite_revision,
-                i64::try_from(previous_revision)
-                    .context("resource revision exceeds SQLite range")?,
-                mutation.origin,
-                mutation.id,
-                deltas_json,
-            ],
+        append_resource_journal_record(
+            &tx,
+            revision,
+            previous_revision,
+            &mutation.origin,
+            &mutation.id,
+            operation,
+            None,
+            result,
+            deltas,
         )?;
-        prune_resource_events(&tx)?;
+        prune_resource_mutations(&tx)?;
         tx.commit()?;
         Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
     }
@@ -968,7 +980,7 @@ impl WorkspaceRegistry {
         if enabled {
             self.connection.execute_batch(
                 "CREATE TEMP TRIGGER cmux_test_fail_resource_patch
-                 BEFORE INSERT ON resource_events
+                 BEFORE INSERT ON session_journal
                  BEGIN SELECT RAISE(ABORT, 'forced resource patch failure'); END;",
             )?;
         } else {
@@ -1239,9 +1251,12 @@ impl WorkspaceRegistry {
         }
         let oldest_revision = self
             .connection
-            .query_row("SELECT MIN(revision) FROM resource_events", [], |row| {
-                row.get::<_, Option<i64>>(0)
-            })?
+            .query_row(
+                "SELECT MIN(resource_revision) FROM journal_event_index
+                 WHERE resource_revision IS NOT NULL",
+                [],
+                |row| row.get::<_, Option<i64>>(0),
+            )?
             .map(|revision| {
                 u64::try_from(revision).context("stored resource event revision is negative")
             })
@@ -1253,28 +1268,64 @@ impl WorkspaceRegistry {
                 "cursor.gap: revision {revision} is older than retained history at {oldest_revision:?}"
             );
         }
-        let mut statement = self.connection.prepare(
-            "SELECT previous_revision, revision, deltas_json
-             FROM resource_events
-             WHERE revision > ?1
-             ORDER BY revision ASC",
-        )?;
-        let batches = statement
-            .query_map(
-                [i64::try_from(revision).context("resource revision exceeds SQLite range")?],
-                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?)),
-            )?
-            .map(|row| {
-                let (previous_revision, revision, changes) = row?;
-                Ok(ResourceEventBatch {
-                    previous_revision: u64::try_from(previous_revision)
-                        .context("stored previous resource revision is negative")?,
-                    revision: u64::try_from(revision)
-                        .context("stored resource revision is negative")?,
-                    changes: serde_json::from_str(&changes)?,
+        let indexed = {
+            let mut statement = self.connection.prepare(
+                "SELECT resource_revision, sequence FROM journal_event_index
+                 WHERE resource_revision > ?1
+                 ORDER BY resource_revision ASC
+                 LIMIT ?2",
+            )?;
+            statement
+                .query_map(
+                    params![
+                        i64::try_from(revision)
+                            .context("resource revision exceeds SQLite range")?,
+                        i64::try_from(RESOURCE_EVENT_PAGE_SIZE)?,
+                    ],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                )?
+                .map(|row| {
+                    let (resource_revision, sequence) = row?;
+                    Ok((
+                        u64::try_from(resource_revision)
+                            .context("resource event revision is negative")?,
+                        u64::try_from(sequence).context("resource event sequence is negative")?,
+                    ))
                 })
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
+                .collect::<anyhow::Result<Vec<_>>>()?
+        };
+        let sequences = indexed.iter().map(|(_, sequence)| *sequence).collect::<Vec<_>>();
+        let mut records =
+            session_journal::query_session_journal_sequences(&self.connection, &sequences)?
+                .into_iter()
+                .map(|record| (record.sequence, record))
+                .collect::<HashMap<_, _>>();
+        let mut expected_revision = revision.saturating_add(1);
+        let mut batches = Vec::with_capacity(indexed.len());
+        for (indexed_revision, sequence) in indexed {
+            anyhow::ensure!(
+                indexed_revision == expected_revision,
+                "resource event history contains a gap before revision {indexed_revision}"
+            );
+            let record = records
+                .remove(&sequence)
+                .context("indexed resource event is absent from the journal")?;
+            anyhow::ensure!(
+                record.resource_revision == Some(indexed_revision)
+                    && record.previous_resource_revision == Some(indexed_revision - 1),
+                "indexed resource event revision does not match its journal record"
+            );
+            batches.push(ResourceEventBatch {
+                previous_revision: indexed_revision - 1,
+                revision: indexed_revision,
+                changes: record
+                    .payload
+                    .get("changes")
+                    .cloned()
+                    .context("resource journal record omitted changes")?,
+            });
+            expected_revision = expected_revision.saturating_add(1);
+        }
         Ok(ResourceEventPage {
             generation: self.generation.clone(),
             head_revision,
@@ -2555,6 +2606,20 @@ fn tombstone_resource_tab(
             other => anyhow::bail!("stored tab {tab_id} has invalid content kind {other:?}"),
         }
     }
+    tombstone_resource_tab_row(transaction, tab_id, revision)?;
+    if close_content && content_kind == "browser" {
+        tombstone_resource_browser(transaction, &content_id, revision)?;
+    } else if !matches!(content_kind.as_str(), "terminal" | "browser") {
+        anyhow::bail!("stored tab {tab_id} has invalid content kind {content_kind:?}");
+    }
+    Ok(())
+}
+
+fn tombstone_resource_tab_row(
+    transaction: &Transaction<'_>,
+    tab_id: &str,
+    revision: i64,
+) -> anyhow::Result<()> {
     transaction.execute(
         "UPDATE resource_tabs
          SET position = NULL, updated_revision = ?1, deleted_revision = ?1
@@ -2567,13 +2632,7 @@ fn tombstone_resource_tab(
          WHERE active_tab_id = ?2 AND deleted_revision IS NULL",
         params![revision, tab_id],
     )?;
-    tombstone_resource_identity(transaction, tab_id, revision)?;
-    if close_content && content_kind == "browser" {
-        tombstone_resource_browser(transaction, &content_id, revision)?;
-    } else if !matches!(content_kind.as_str(), "terminal" | "browser") {
-        anyhow::bail!("stored tab {tab_id} has invalid content kind {content_kind:?}");
-    }
-    Ok(())
+    tombstone_resource_identity(transaction, tab_id, revision)
 }
 
 fn tombstone_resource_terminal(
@@ -2601,7 +2660,7 @@ fn tombstone_resource_terminal(
     }
     let tabs = live_tabs_for_content(transaction, public_id)?;
     for tab in tabs {
-        tombstone_resource_tab(transaction, &tab, revision, false)?;
+        tombstone_resource_tab_row(transaction, &tab, revision)?;
     }
     transaction.execute(
         "UPDATE resource_terminals
@@ -2632,7 +2691,7 @@ fn tombstone_resource_browser(
     }
     let tabs = live_tabs_for_content(transaction, public_id)?;
     for tab in tabs {
-        tombstone_resource_tab(transaction, &tab, revision, false)?;
+        tombstone_resource_tab_row(transaction, &tab, revision)?;
     }
     transaction.execute(
         "UPDATE resource_browsers

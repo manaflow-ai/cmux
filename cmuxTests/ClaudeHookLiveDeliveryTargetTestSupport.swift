@@ -203,6 +203,9 @@ enum ClaudeHookLiveDeliveryHarness {
     }
 
     static func sessionRecord(in storeURL: URL, sessionId: String) throws -> [String: Any]? {
+        // A hook that fails closed before its first accepted upsert never
+        // creates the store file; that is the strongest form of "no record".
+        guard FileManager.default.fileExists(atPath: storeURL.path) else { return nil }
         let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
         let sessions = saved?["sessions"] as? [String: Any]
         return sessions?[sessionId] as? [String: Any]

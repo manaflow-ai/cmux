@@ -35,7 +35,6 @@ const STEP_ORDER: readonly WelcomeStepKey[] = [
   "billing",
 ];
 
-export const dynamic = "force-dynamic";
 
 export default async function AppProWelcomePage({
   searchParams,

@@ -53,6 +53,10 @@ class AgentState(str, Enum):
     DONE = 'done'
     UNKNOWN = 'unknown'
 
+class BrowserProviderAuthentication(str, Enum):
+    NONE = 'none'
+    BEARER = 'bearer'
+
 class ClientTransport(str, Enum):
     LOCAL = 'local'
     UNIX = 'unix'
@@ -62,6 +66,13 @@ class CursorStyle(str, Enum):
     BLOCK = 'block'
     UNDERLINE = 'underline'
     BAR = 'bar'
+
+class FrontendFocusTarget(str, Enum):
+    PANE = 'pane'
+    MACHINE_RAIL = 'machine_rail'
+    WORKSPACE_RAIL = 'workspace_rail'
+    TABS_RAIL = 'tabs_rail'
+    PROJECTION_RAIL = 'projection_rail'
 
 class NotificationLevel(str, Enum):
     INFO = 'info'
@@ -270,6 +281,31 @@ class BrowserFrame:
 
 
 @dataclass(frozen=True)
+class BrowserProviderSnapshot:
+    __cmux_schema_path__: ClassVar[str] = 'types/BrowserProviderSnapshot'
+    available: bool
+    revision: int
+    targets: List[BrowserProviderTarget]
+    authentication: Union[BrowserProviderAuthentication, MissingType] = field(default=MISSING)
+    clients: Union[int, MissingType] = field(default=MISSING)
+    endpoint: Union[str, MissingType] = field(default=MISSING)
+    provider_id: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class BrowserProviderTarget:
+    __cmux_schema_path__: ClassVar[str] = 'types/BrowserProviderTarget'
+    tab_id: str
+    target_id: str
+
+
+@dataclass(frozen=True)
+class BrowserProviderUnregisterResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/BrowserProviderUnregisterResult'
+    removed: bool
+
+
+@dataclass(frozen=True)
 class CellPixelFailure:
     __cmux_schema_path__: ClassVar[str] = 'types/CellPixelFailure'
     surface: Id
@@ -395,6 +431,47 @@ class FocusDirectionResult:
 
 
 @dataclass(frozen=True)
+class FrontendJournalEventFocus:
+    __cmux_schema_path__: ClassVar[str] = 'types/FrontendJournalEvent/variants/focus'
+    event_id: str
+    frontend_projection_id: str
+    generation: str
+    kind: Literal['focus']
+    target: FrontendFocusTarget
+    content_id: Union[str, None, MissingType] = field(default=MISSING)
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
+    screen_id: Union[str, None, MissingType] = field(default=MISSING)
+    tab_id: Union[str, None, MissingType] = field(default=MISSING)
+    workspace_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class FrontendJournalEventResize:
+    __cmux_schema_path__: ClassVar[str] = 'types/FrontendJournalEvent/variants/resize'
+    cell_height: int
+    cell_width: int
+    cols: int
+    event_id: str
+    frontend_projection_id: str
+    generation: str
+    kind: Literal['resize']
+    rows: int
+
+
+@dataclass(frozen=True)
+class FrontendJournalEventViewport:
+    __cmux_schema_path__: ClassVar[str] = 'types/FrontendJournalEvent/variants/viewport'
+    event_id: str
+    frontend_projection_id: str
+    generation: str
+    kind: Literal['viewport']
+    offset: int
+    settled: bool
+    target: int
+    screen_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class FrontendProjection:
     __cmux_schema_path__: ClassVar[str] = 'types/FrontendProjection'
     frontend: str
@@ -438,6 +515,7 @@ class IdentifyResult:
     build_commit: Union[str, None, MissingType] = field(default=MISSING)
     capabilities: Union[List[str], MissingType] = field(default=MISSING)
     ghostty_commit: Union[str, None, MissingType] = field(default=MISSING)
+    lifecycle_ready: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -604,6 +682,7 @@ class ProcessInfoResult:
     command: Union[str, None]
     cwd: Union[str, None]
     pid: Union[int, None]
+    foreground_cwd: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1177,6 +1256,19 @@ class ClearWindowTitleRequest:
 
 
 @dataclass(frozen=True)
+class ClientFocusRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/client-focus/request'
+    client_id: str
+
+
+@dataclass(frozen=True)
+class ClientFocusResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/client-focus/result'
+    pane: Union[Id, None]
+    tab: Union[int, None]
+
+
+@dataclass(frozen=True)
 class ClosePaneRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/close-pane/request'
     pane: Id
@@ -1242,6 +1334,7 @@ class CreateSurfaceWithReceiptRequest:
     argv: Union[List[str], None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     cwd: Union[str, None, MissingType] = field(default=MISSING)
+    idempotency_key: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     selector_fallbacks: Union[List[ResourceSelectors], MissingType] = field(default=MISSING)
     selectors: Union[ResourceSelectors, None, MissingType] = field(default=MISSING)
@@ -1311,6 +1404,12 @@ class FocusPaneRequest:
 
 
 @dataclass(frozen=True)
+class GetBrowserProviderRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/get-browser-provider/request'
+    pass
+
+
+@dataclass(frozen=True)
 class GetCellPixelsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/get-cell-pixels/request'
     pass
@@ -1334,6 +1433,18 @@ class IdentifyRequest:
 class IdsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/ids/request'
     kind: Union[Literal['workspace', 'screen', 'pane', 'surface'], None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class JournalFrontendEventRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/journal-frontend-event/request'
+    event: FrontendJournalEvent
+
+
+@dataclass(frozen=True)
+class JournalFrontendEventResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/journal-frontend-event/result'
+    committed: Literal[True]
 
 
 @dataclass(frozen=True)
@@ -1529,6 +1640,16 @@ class ReadScrollbackRequest:
 
 
 @dataclass(frozen=True)
+class RegisterBrowserProviderRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/register-browser-provider/request'
+    authentication: BrowserProviderAuthentication
+    endpoint: str
+    provider_id: str
+    targets: List[BrowserProviderTarget]
+    bearer_token: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ReleaseAttachedViewSizeRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/release-attached-view-size/request'
     surface: Id
@@ -1603,6 +1724,14 @@ class ReportAgentRequest:
     state: AgentState
     source: AgentReportSource
     session: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ReportFocusRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/report-focus/request'
+    pane: Id
+    client_id: str
+    tab: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1810,6 +1939,12 @@ class UndoLayoutRequest:
 
 
 @dataclass(frozen=True)
+class UnregisterBrowserProviderRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/unregister-browser-provider/request'
+    pass
+
+
+@dataclass(frozen=True)
 class VtStateRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/vt-state/request'
     surface: Id
@@ -1828,6 +1963,18 @@ class ZoomPaneRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/zoom-pane/request'
     pane: Union[Id, None, MissingType] = field(default=MISSING)
     mode: Union[Literal['toggle', 'on', 'off'], None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AgentChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/agent-changed/payload'
+    surface: Id
+    event: Literal['agent-changed']
+    session: Union[str, None]
+    source: AgentSource
+    state: AgentState
+    updated_at_ms: int
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
 @dataclass(frozen=True)
@@ -2339,6 +2486,7 @@ class WorkspaceRenamedEvent(EventBase):
 Base64 = str
 ColorHex = str
 DeclarativeLayout = Union[DeclarativeLayoutLeaf, DeclarativeLayoutSplit, DeclarativeLayoutStack]
+FrontendJournalEvent = Union[FrontendJournalEventFocus, FrontendJournalEventResize, FrontendJournalEventViewport]
 Id = int
 JsonValue = Any
 Layout = Union[LayoutLeaf, LayoutSplit, LayoutStack]
@@ -2346,7 +2494,7 @@ LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
 Pane = Union[LivePane, DeadPane]
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -2359,8 +2507,10 @@ __all__ = [
     'AgentReportSource',
     'AgentSource',
     'AgentState',
+    'BrowserProviderAuthentication',
     'ClientTransport',
     'CursorStyle',
+    'FrontendFocusTarget',
     'NotificationLevel',
     'PaneDirection',
     'RenderGraphicFormat',
@@ -2376,6 +2526,9 @@ __all__ = [
     'AttachedViewOutcomeResult',
     'AttachedViewResizeResult',
     'BrowserFrame',
+    'BrowserProviderSnapshot',
+    'BrowserProviderTarget',
+    'BrowserProviderUnregisterResult',
     'CellPixelFailure',
     'CellPixelResize',
     'CellPixelSurface',
@@ -2391,6 +2544,9 @@ __all__ = [
     'ExportLayoutResult',
     'ExportedPane',
     'FocusDirectionResult',
+    'FrontendJournalEventFocus',
+    'FrontendJournalEventResize',
+    'FrontendJournalEventViewport',
     'FrontendProjection',
     'GetCellPixelsResult',
     'IdMapping',
@@ -2469,6 +2625,8 @@ __all__ = [
     'BrowserWheelGuardedRequest',
     'ClearHistoryRequest',
     'ClearWindowTitleRequest',
+    'ClientFocusRequest',
+    'ClientFocusResult',
     'ClosePaneRequest',
     'CloseProviderManagedWorkspaceRequest',
     'CloseScreenRequest',
@@ -2484,10 +2642,13 @@ __all__ = [
     'ExportLayoutRequest',
     'FocusDirectionRequest',
     'FocusPaneRequest',
+    'GetBrowserProviderRequest',
     'GetCellPixelsRequest',
     'GetFrontendProjectionRequest',
     'IdentifyRequest',
     'IdsRequest',
+    'JournalFrontendEventRequest',
+    'JournalFrontendEventResult',
     'ListAgentsRequest',
     'ListClientsRequest',
     'ListTerminalsRequest',
@@ -2512,6 +2673,7 @@ __all__ = [
     'PutFrontendProjectionRequest',
     'ReadScreenRequest',
     'ReadScrollbackRequest',
+    'RegisterBrowserProviderRequest',
     'ReleaseAttachedViewSizeRequest',
     'ReleaseSurfaceSizeRequest',
     'ReloadConfigRequest',
@@ -2522,6 +2684,7 @@ __all__ = [
     'RenameSurfaceRequest',
     'RenameWorkspaceRequest',
     'ReportAgentRequest',
+    'ReportFocusRequest',
     'ResizeAttachedViewRequest',
     'ResizeSurfaceRequest',
     'ResolveTerminalRequest',
@@ -2547,9 +2710,11 @@ __all__ = [
     'SwapPaneRequest',
     'TerminalEventsRequest',
     'UndoLayoutRequest',
+    'UnregisterBrowserProviderRequest',
     'VtStateRequest',
     'WaitForRequest',
     'ZoomPaneRequest',
+    'AgentChangedEvent',
     'BellEvent',
     'BrowserStateEvent',
     'ClientAttachedEvent',
@@ -2598,6 +2763,7 @@ __all__ = [
     'Base64',
     'ColorHex',
     'DeclarativeLayout',
+    'FrontendJournalEvent',
     'Id',
     'JsonValue',
     'Layout',

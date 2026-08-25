@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobilePairedMac
 internal import CmuxMobileDiagnostics
 internal import CmuxMobileRPC
 public import CmuxMobileShellModel
@@ -35,6 +36,11 @@ extension MobileShellComposite {
         refreshAfterMutation: Bool = true
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         guard workspaceActionCapabilities(for: id).supportsWorkspaceActions else {
+            recordAppEvent(
+                .workspaceMutationUnavailable,
+                correlationID: id.rawValue,
+                failure: .policyUnavailable
+            )
             return .failure(.unsupported(hostDisplayName: workspaceHostDisplayName(for: id)))
         }
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -68,6 +74,11 @@ extension MobileShellComposite {
         refreshAfterMutation: Bool = true
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         guard workspaceActionCapabilities(for: id).supportsWorkspaceActions else {
+            recordAppEvent(
+                .workspaceMutationUnavailable,
+                correlationID: id.rawValue,
+                failure: .policyUnavailable
+            )
             return .failure(.unsupported(hostDisplayName: workspaceHostDisplayName(for: id)))
         }
         var params = workspaceMutationParams(id: id)
@@ -94,6 +105,11 @@ extension MobileShellComposite {
         refreshAfterMutation: Bool = true
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         guard workspaceActionCapabilities(for: id).supportsWorkspaceMetadata else {
+            recordAppEvent(
+                .workspaceMutationUnavailable,
+                correlationID: id.rawValue,
+                failure: .policyUnavailable
+            )
             return .failure(.unsupported(hostDisplayName: workspaceHostDisplayName(for: id)))
         }
         let normalized = MobileWorkspaceMetadataLimits.normalizedCustomDescription(description)
@@ -127,6 +143,11 @@ extension MobileShellComposite {
         refreshAfterMutation: Bool = true
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         guard workspaceActionCapabilities(for: id).supportsWorkspaceMetadata else {
+            recordAppEvent(
+                .workspaceMutationUnavailable,
+                correlationID: id.rawValue,
+                failure: .policyUnavailable
+            )
             return .failure(.unsupported(hostDisplayName: workspaceHostDisplayName(for: id)))
         }
         let normalized = colorHex?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -159,6 +180,11 @@ extension MobileShellComposite {
         _ unread: Bool
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         guard workspaceActionCapabilities(for: id).supportsReadStateActions else {
+            recordAppEvent(
+                .workspaceMutationUnavailable,
+                correlationID: id.rawValue,
+                failure: .policyUnavailable
+            )
             return .failure(.unsupported(hostDisplayName: workspaceHostDisplayName(for: id)))
         }
         var params = workspaceMutationParams(id: id)
@@ -183,15 +209,44 @@ extension MobileShellComposite {
     public func closeWorkspace(
         id: MobileWorkspacePreview.ID
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
+        let terminalIDs = workspaces.first(where: { $0.id == id })?.terminals.map(\.id.rawValue) ?? []
+        for terminalID in terminalIDs {
+            recordAppEvent(.surfaceCloseStarted, correlationID: terminalID)
+        }
         guard workspaceActionCapabilities(for: id).supportsCloseActions else {
+            recordAppEvent(
+                .workspaceMutationUnavailable,
+                correlationID: id.rawValue,
+                failure: .policyUnavailable
+            )
+            for terminalID in terminalIDs {
+                recordAppEvent(
+                    .surfaceCloseFailed,
+                    correlationID: terminalID,
+                    failure: .policyUnavailable
+                )
+            }
             return .failure(.unsupported(hostDisplayName: workspaceHostDisplayName(for: id)))
         }
-        return await sendWorkspaceMutation(
+        let result = await sendWorkspaceMutation(
             method: "workspace.close",
             params: workspaceMutationParams(id: id),
             id: id,
             actionName: "close"
         )
+        for terminalID in terminalIDs {
+            switch result {
+            case .success:
+                recordAppEvent(.surfaceCloseSucceeded, correlationID: terminalID)
+            case .failure(let error):
+                recordAppEvent(
+                    .surfaceCloseFailed,
+                    correlationID: terminalID,
+                    failure: error.diagnosticFailureKind
+                )
+            }
+        }
+        return result
     }
 
     /// Move a workspace to a new group/order on the Mac, then re-sync the list.
@@ -209,11 +264,24 @@ extension MobileShellComposite {
         before beforeWorkspaceID: MobileWorkspacePreview.ID?,
         movesGroup: Bool = false
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
+        let reorderStartedAt = appDiagnosticNow()
+        recordAppEvent(.workspaceReorderStarted, correlationID: id.rawValue)
         MobileDebugLog.anchormux(
             "move.request id=\(id.rawValue.suffix(6)) group=\(groupID?.rawValue.suffix(6) ?? "root") before=\(beforeWorkspaceID?.rawValue.suffix(6) ?? "end") movesGroup=\(movesGroup)"
         )
         guard workspaceActionCapabilities(for: id).supportsMoveActions else {
+            recordAppEvent(
+                .workspaceMutationUnavailable,
+                correlationID: id.rawValue,
+                failure: .policyUnavailable
+            )
             MobileDebugLog.anchormux("move.blocked gate=supportsMoveActions id=\(id.rawValue.suffix(6))")
+            recordAppEvent(
+                .workspaceReorderFailed,
+                correlationID: id.rawValue,
+                startedAt: reorderStartedAt,
+                failure: .policyUnavailable
+            )
             return .failure(.unsupported(hostDisplayName: workspaceHostDisplayName(for: id)))
         }
         let target = workspaceMutationTarget(for: id)
@@ -222,7 +290,18 @@ extension MobileShellComposite {
             fallback: workspaceHostDisplayName(for: id)
         )
         guard macScopedWorkspaceMutationIsAuthorized(target: target) else {
+            recordAppEvent(
+                .workspaceMutationUnavailable,
+                correlationID: id.rawValue,
+                failure: .authorizationFailed
+            )
             MobileDebugLog.anchormux("move.blocked gate=macScopedMutationAuthorization id=\(id.rawValue.suffix(6))")
+            recordAppEvent(
+                .workspaceReorderFailed,
+                correlationID: id.rawValue,
+                startedAt: reorderStartedAt,
+                failure: .authorizationFailed
+            )
             return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
         }
         var params = workspaceMutationParams(id: id)
@@ -247,10 +326,21 @@ extension MobileShellComposite {
         switch result {
         case .success:
             MobileDebugLog.anchormux("move.sent ok id=\(id.rawValue.suffix(6))")
-        case .failure:
+            recordAppEvent(
+                .workspaceReorderSucceeded,
+                correlationID: id.rawValue,
+                startedAt: reorderStartedAt
+            )
+        case .failure(let error):
             // Failure payloads include the user-visible Mac name. The event and
             // scoped workspace suffix are sufficient for move diagnostics.
             MobileDebugLog.anchormux("move.sent FAILED id=\(id.rawValue.suffix(6))")
+            recordAppEvent(
+                .workspaceReorderFailed,
+                correlationID: id.rawValue,
+                startedAt: reorderStartedAt,
+                failure: error.diagnosticFailureKind
+            )
         }
         return result
     }
@@ -332,9 +422,11 @@ extension MobileShellComposite {
         )
         let hostDisplayName = workspaceMutationHostDisplayName(target: target, fallback: nil)
         guard supportedHostCapabilities.contains("workspace.group_create.v1") else {
+            recordAppEvent(.workspaceMutationUnavailable, failure: .policyUnavailable)
             return .failure(.unsupported(hostDisplayName: hostDisplayName))
         }
         guard macScopedWorkspaceMutationIsAuthorized(target: target) else {
+            recordAppEvent(.workspaceMutationUnavailable, failure: .authorizationFailed)
             return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
         }
         var params: [String: Any] = [:]
@@ -422,10 +514,20 @@ extension MobileShellComposite {
         let target = workspaceGroupMutationTarget(for: id)
         let hostDisplayName = workspaceGroupHostDisplayName(for: id, target: target)
         guard workspaceGroupActionCapabilities(for: id).supportsGroupActions else {
+            recordAppEvent(
+                .workspaceMutationUnavailable,
+                correlationID: id.rawValue,
+                failure: .policyUnavailable
+            )
             MobileDebugLog.anchormux("workspace.mutation blocked action=\(actionName) id=\(id.rawValue) reason=capability")
             return .failure(.unsupported(hostDisplayName: hostDisplayName))
         }
         guard macScopedWorkspaceMutationIsAuthorized(target: target) else {
+            recordAppEvent(
+                .workspaceMutationUnavailable,
+                correlationID: id.rawValue,
+                failure: .authorizationFailed
+            )
             MobileDebugLog.anchormux("workspace.mutation blocked action=\(actionName) id=\(id.rawValue) reason=scope")
             return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
         }
@@ -457,6 +559,11 @@ extension MobileShellComposite {
         refreshAfterMutation: Bool = true,
         isMacScoped: Bool = false
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
+        let diagnosticKinds = workspaceMutationDiagnosticKinds(actionName: actionName)
+        let startedAt = appDiagnosticNow()
+        if let start = diagnosticKinds.start {
+            recordAppEvent(start, correlationID: logID)
+        }
         // Route the mutation to the Mac that actually OWNS this workspace. The
         // aggregated list can include rows from secondary Macs, whose connection is
         // not `remoteClient`; sending every mutation to the foreground client would
@@ -471,6 +578,12 @@ extension MobileShellComposite {
             if refreshAfterMutation {
                 await refreshAfterWorkspaceMutation(target)
             }
+            recordAppEvent(
+                diagnosticKinds.failure,
+                correlationID: logID,
+                startedAt: startedAt,
+                failure: .noRoute
+            )
             return .failure(.notConnected(hostDisplayName: hostDisplayName))
         }
         let generation = connectionGeneration
@@ -496,6 +609,12 @@ extension MobileShellComposite {
             }
             MobileDebugLog.anchormux("workspace.mutation failed action=\(actionName) id=\(logID) kind=\(failureKind) code=\(rpcCode)")
             if disconnectForAuthorizationFailureIfNeeded(error) {
+                recordAppEvent(
+                    diagnosticKinds.failure,
+                    correlationID: logID,
+                    startedAt: startedAt,
+                    failure: failureKind
+                )
                 return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
             }
             // Only the foreground connection's health drives the foreground
@@ -512,6 +631,12 @@ extension MobileShellComposite {
             if refreshAfterMutation {
                 await refreshAfterWorkspaceMutation(target)
             }
+            recordAppEvent(
+                diagnosticKinds.failure,
+                correlationID: logID,
+                startedAt: startedAt,
+                failure: failureKind
+            )
             return .failure(workspaceMutationFailure(error, hostDisplayName: hostDisplayName))
         }
         // Re-sync the authoritative list for the Mac we actually mutated.
@@ -519,7 +644,39 @@ extension MobileShellComposite {
             await refreshAfterWorkspaceMutation(target)
         }
         MobileDebugLog.anchormux("workspace.mutation accepted action=\(actionName) id=\(logID)")
+        recordAppEvent(
+            diagnosticKinds.success,
+            correlationID: logID,
+            startedAt: startedAt
+        )
         return .success(())
+    }
+
+    private func workspaceMutationDiagnosticKinds(
+        actionName: String
+    ) -> (
+        start: DiagnosticAppEventKind?,
+        success: DiagnosticAppEventKind,
+        failure: DiagnosticAppEventKind
+    ) {
+        switch actionName {
+        case "rename":
+            (.workspaceRenameStarted, .workspaceRenameSucceeded, .workspaceRenameFailed)
+        case "close":
+            (.workspaceCloseStarted, .workspaceCloseSucceeded, .workspaceCloseFailed)
+        case "move":
+            (.workspaceMoveStarted, .workspaceMoveSucceeded, .workspaceMoveFailed)
+        case "create_group":
+            (.workspaceGroupCreateStarted, .workspaceGroupCreateSucceeded, .workspaceGroupCreateFailed)
+        case "rename_group":
+            (.workspaceGroupRenameStarted, .workspaceGroupRenameSucceeded, .workspaceGroupRenameFailed)
+        case "delete_group", "ungroup_group":
+            (.workspaceGroupDeleteStarted, .workspaceGroupDeleteSucceeded, .workspaceGroupDeleteFailed)
+        case "mark_read", "mark_unread":
+            (nil, .workspaceReadStateChanged, .workspaceReadStateChangeFailed)
+        default:
+            (nil, .workspaceCustomizationChanged, .workspaceCustomizationChangeFailed)
+        }
     }
 
     private func workspaceMutationParams(id: MobileWorkspacePreview.ID) -> [String: Any] {
@@ -635,5 +792,104 @@ extension MobileShellComposite {
             collapsed: collapsed
         )
         workspaceGroups[index].isCollapsed = collapsed
+        recordAppEvent(
+            .workspaceGroupCollapsedChanged,
+            correlationID: id.rawValue,
+            count: collapsed ? 1 : 0
+        )
+    }
+
+    /// Choose how the aggregated All Computers list orders its rows, on THIS
+    /// device only. Persists via the device-local sort store and rebuilds the
+    /// derived list so the change renders immediately; nothing is sent to a
+    /// Mac (each Mac keeps its own sidebar order).
+    public func setWorkspaceSortMode(_ mode: MobileWorkspaceSortMode) {
+        guard workspaceSortMode != mode else { return }
+        workspaceSortStore.setMode(mode)
+        workspaceSortMode = mode
+        recomputeDerivedWorkspaceState()
+        recordAppEvent(.workspaceSortChanged)
+    }
+
+    /// Persist the user's computer order for
+    /// ``MobileWorkspaceSortMode/computerPriority``, highest priority first,
+    /// as device-plus-build pairing ids. Device-local, like the mode.
+    public func setWorkspaceComputerPriority(_ computerIDs: [String]) {
+        guard workspaceComputerPriority != computerIDs else { return }
+        workspaceSortStore.setComputerPriority(computerIDs)
+        workspaceComputerPriority = computerIDs
+        recomputeDerivedWorkspaceState()
+        recordAppEvent(.workspaceComputerOrderChanged, count: computerIDs.count)
+    }
+
+    /// Upgrade pre-build-scoped computer-order entries after paired Macs load.
+    /// A legacy bare device id expands to every currently stored pairing for
+    /// that physical device, preserving the user's order across Stable,
+    /// Nightly, and untagged rows without making the bare id a new wildcard.
+    func migrateLegacyWorkspaceComputerPriority(loadedMacs: [MobilePairedMac]) {
+        guard workspaceSortStore.needsComputerIdentityMigration else { return }
+        var migrated: [String] = []
+        for computerID in workspaceComputerPriority {
+            let identity = CmxMacAppInstanceIdentity(id: computerID)
+            guard identity.instanceTag == nil else {
+                if !migrated.contains(identity.id) { migrated.append(identity.id) }
+                continue
+            }
+            let matches = loadedMacs.filter {
+                CmxMacAppInstanceIdentity(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                ).macDeviceID == identity.macDeviceID
+            }
+            if matches.isEmpty {
+                if !migrated.contains(identity.id) { migrated.append(identity.id) }
+                continue
+            }
+            for mac in matches.sorted(by: {
+                let lhsTag = CmxMacAppInstanceIdentity(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                ).instanceTag
+                let rhsTag = CmxMacAppInstanceIdentity(
+                    macDeviceID: $1.macDeviceID,
+                    instanceTag: $1.instanceTag
+                ).instanceTag
+                if lhsTag == nil { return rhsTag != nil }
+                if rhsTag == nil { return false }
+                return lhsTag! < rhsTag!
+            }) {
+                let pairingID = CmxMacAppInstanceIdentity(
+                    macDeviceID: mac.macDeviceID,
+                    instanceTag: mac.instanceTag
+                ).id
+                if !migrated.contains(pairingID) { migrated.append(pairingID) }
+            }
+        }
+        workspaceSortStore.migrateLegacyComputerPriority(migrated)
+        workspaceComputerPriority = migrated
+    }
+
+    /// The stored computer order expanded with each app instance's stored
+    /// device aliases, so a per-Mac state that reports an alias id still ranks
+    /// with its computer. The instance tag stays attached to every alias;
+    /// otherwise prioritizing Nightly would also prioritize Stable.
+    func expandedWorkspaceComputerPriority() -> [String] {
+        var expanded: [String] = []
+        for computerID in workspaceComputerPriority {
+            let identity = MobilePairedMac.pairingIdentity(from: computerID)
+            for aliasDeviceID in pairedMacAliasIDs(
+                for: identity.macDeviceID,
+                instanceTag: identity.instanceTag
+            ) {
+                let aliasComputerID = MobilePairedMac.pairingID(
+                    macDeviceID: aliasDeviceID,
+                    instanceTag: identity.instanceTag
+                )
+                if !expanded.contains(aliasComputerID) {
+                    expanded.append(aliasComputerID)
+                }
+            }
+        }
+        return expanded
     }
 }

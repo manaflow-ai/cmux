@@ -305,6 +305,7 @@ public enum HermesAgentHookAllowlist {
     public static func installing(events: [HermesAgentHookConfig.Event], in existing: Data?, approvedAt: Date = Date()) throws -> Data {
         var object = try decode(existing)
         let approvals = object["approvals"] as? [[String: Any]] ?? []
+        let installedKeys = Set(events.map { key(event: $0.name, command: $0.command) })
         var keyed: [String: [String: Any]] = [:]
         var passthrough: [[String: Any]] = []
         for approval in approvals {
@@ -313,12 +314,18 @@ public enum HermesAgentHookAllowlist {
                 passthrough.append(approval)
                 continue
             }
-            keyed[key(event: event, command: command)] = approval
+            let approvalKey = key(event: event, command: command)
+            if isCmuxOwnedCommand(command), !installedKeys.contains(approvalKey) {
+                continue
+            }
+            keyed[approvalKey] = approval
         }
 
         let iso = ISO8601DateFormatter().string(from: approvedAt)
         for event in events {
-            keyed[key(event: event.name, command: event.command)] = [
+            let eventKey = key(event: event.name, command: event.command)
+            guard keyed[eventKey] == nil else { continue }
+            keyed[eventKey] = [
                 "event": event.name,
                 "command": event.command,
                 "approved_at": iso,
@@ -342,6 +349,7 @@ public enum HermesAgentHookAllowlist {
                 return true
             }
             return !ownedKeys.contains(key(event: event, command: command))
+                && !isCmuxOwnedCommand(command)
         }
         return try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
     }
@@ -358,5 +366,9 @@ public enum HermesAgentHookAllowlist {
 
     private static func key(event: String, command: String) -> String {
         "\(event)\u{0}\(command)"
+    }
+
+    private static func isCmuxOwnedCommand(_ command: String) -> Bool {
+        HermesAgentHookCommandOwnership().containsOwnedCommand(command)
     }
 }

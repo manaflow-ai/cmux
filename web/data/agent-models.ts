@@ -43,17 +43,9 @@ export interface AgentModelCatalog {
   };
 }
 
-const CODEX_REASONING_EFFORTS: AgentModelChoice[] = [
-  { value: "none", label: "none" },
-  { value: "low", label: "low" },
-  { value: "medium", label: "medium" },
-  { value: "high", label: "high" },
-  { value: "xhigh", label: "xhigh" },
-];
-
 export const agentModelCatalog = {
   schemaVersion: 1,
-  updatedAt: "2026-07-09T00:00:00.000Z",
+  updatedAt: "2026-08-09T00:00:00.000Z",
   providers: {
     claude: {
       defaultModel: "claude-sonnet-5",
@@ -120,8 +112,6 @@ export const agentModelCatalog = {
           description: "Frontier model for complex coding, computer use, knowledge work, and research workflows in Codex.",
           contextWindow: 1050000,
           supportsOneMillion: true,
-          efforts: CODEX_REASONING_EFFORTS,
-          defaultEffort: "medium",
           isDefault: true,
         },
         {
@@ -130,9 +120,15 @@ export const agentModelCatalog = {
           description: "Higher-capability GPT-5.5 model for difficult professional work.",
           contextWindow: 1050000,
           supportsOneMillion: true,
-          efforts: CODEX_REASONING_EFFORTS,
-          defaultEffort: "medium",
         },
+      ],
+    },
+    opencode: {
+      defaultModel: "anthropic/claude-sonnet-5",
+      models: [
+        { id: "anthropic/claude-sonnet-5", label: "Claude Sonnet 5" },
+        { id: "anthropic/claude-opus-4-8", label: "Claude Opus 4.8" },
+        { id: "openai/gpt-5.5", label: "GPT-5.5" },
       ],
     },
     gemini: {

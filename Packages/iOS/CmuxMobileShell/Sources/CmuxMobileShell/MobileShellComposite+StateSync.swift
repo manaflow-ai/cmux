@@ -187,6 +187,7 @@ extension MobileShellComposite {
         }
         stateSyncFetchTask?.cancel()
         let generation = UUID()
+        recordAppEvent(.workspaceStateSyncStarted, correlationID: foregroundMacDeviceID)
         stateSyncFetchGeneration = generation
         stateSyncFetchClientID = ObjectIdentifier(client)
         stateSyncFetchFollowUpRequested = false
@@ -253,6 +254,11 @@ extension MobileShellComposite {
             guard response.workspaces != nil, response.groups != nil else {
                 guard !Task.isCancelled, stateSyncFetchGeneration == generation else { return false }
                 mobileStateSyncLog.error("state sync fetch returned a partial response; staying on legacy")
+                recordAppEvent(
+                    .workspaceStateSyncFailed,
+                    correlationID: foregroundMacDeviceID,
+                    failure: .protocolViolation
+                )
                 fallBackToLegacyListAfterFetchFailure(client: client)
                 return false
             }
@@ -269,6 +275,11 @@ extension MobileShellComposite {
                         : .workspaceDelta(response.workspaces?.records.map(\.id) ?? [])
                 applyStateSyncProjection(
                     changesSummaryRefreshScope: changesSummaryRefreshScope
+                )
+                recordAppEvent(
+                    .workspaceStateSyncSucceeded,
+                    correlationID: foregroundMacDeviceID,
+                    count: response.workspaces?.records.count ?? 0
                 )
             case .staleIgnored:
                 break
@@ -288,12 +299,22 @@ extension MobileShellComposite {
                 // Legacy Mac: stay on the workspace.updated refetch loop for
                 // this connection. Not an error.
                 stateSyncAuthorityClientID = nil
+                recordAppEvent(
+                    .workspaceStateSyncFellBack,
+                    correlationID: foregroundMacDeviceID,
+                    failure: .policyUnavailable
+                )
                 return false
             }
             mobileStateSyncLog.error(
                 "state sync fetch failed: \(String(describing: error), privacy: .private)"
             )
             MobileDebugLog.anchormux("sync.v2 fetch failed; falling back")
+            recordAppEvent(
+                .workspaceStateSyncFailed,
+                correlationID: foregroundMacDeviceID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
             fallBackToLegacyListAfterFetchFailure(client: client)
             return false
         }
@@ -313,6 +334,10 @@ extension MobileShellComposite {
         // guard on current authority here would skip exactly the recovery
         // this exists for.
         stateSyncAuthorityClientID = nil
+        recordAppEvent(
+            .workspaceStateSyncFellBack,
+            correlationID: foregroundMacDeviceID
+        )
         MobileDebugLog.anchormux("sync.v2 fallback to legacy after fetch failure")
         Task { @MainActor [weak self] in
             // The missed delta may have been the last event, so this reload
@@ -365,7 +390,17 @@ extension MobileShellComposite {
                         isFocused: terminal.isFocused,
                         isReady: terminal.isReady
                     )
-                }
+                },
+                surfaces: record.surfaces?.map { surface in
+                    MobileSyncWorkspaceListResponse.Surface(
+                        surfaceID: surface.surfaceID,
+                        kind: surface.kind,
+                        title: surface.title,
+                        filePath: surface.filePath,
+                        todo: surface.todo
+                    )
+                },
+                simulators: record.simulators
             )
         }
         let groups = stateSyncMirror.groups.orderedRecords.map { record in

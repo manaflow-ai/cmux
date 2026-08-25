@@ -218,7 +218,7 @@ public struct FileDiffPageView: View {
             pendingRestoreRowID = rowTracker.topRowID ?? pendingRestoreRowID
             didRestoreScroll = false
         }
-        loadState = .loading
+        publishLoadState(.loading)
         continuationLoadState = .idle
         do {
             let maxLines = lineBudget == FileDiffContinuation.defaultLineBudget
@@ -228,17 +228,29 @@ public struct FileDiffPageView: View {
             guard !Task.isCancelled,
                   requestGeneration.isCurrent(generation) else { return }
             reachedTransportCeiling = false
-            loadState = .loaded(presentation)
+            publishLoadState(.loaded(presentation))
         } catch is CancellationError {
             guard requestGeneration.isCurrent(generation),
                   RecoverableCancellationErrorPolicy().shouldPublishFailure(
                       taskIsCancelled: Task.isCancelled
                   ) else { return }
-            loadState = .failed
+            publishLoadState(.failed)
         } catch {
             guard !Task.isCancelled,
                   requestGeneration.isCurrent(generation) else { return }
-            loadState = .failed
+            publishLoadState(.failed)
+        }
+    }
+
+    /// Publishes a load-state change without animating the structural swap,
+    /// so a load that lands while a page slide is in flight replaces the
+    /// placeholder crisply instead of crossfading with it.
+    @MainActor
+    private func publishLoadState(_ newState: FileDiffLoadState) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            loadState = newState
         }
     }
 

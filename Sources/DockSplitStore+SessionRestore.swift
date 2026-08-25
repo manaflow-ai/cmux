@@ -78,6 +78,9 @@ extension DockSplitStore {
         }
         applyVisibilityToAllPanels()
         scheduleDockPortalReconcile(reason: "dock.sessionRestore")
+        terminalStartupRestoreCoordinator.commitPendingRestores(
+            panelIDs: Array(oldToNewPanelIds.values)
+        )
         return oldToNewPanelIds
     }
 
@@ -92,7 +95,7 @@ extension DockSplitStore {
         sourceSnapshotWorkspaceId: UUID?,
         sourceWorkspaceResolver: (UUID) -> Workspace?
     ) -> UUID? {
-        createSessionRestoredPanel(
+        let restoredPanelId = createSessionRestoredPanel(
             from: snapshot,
             inPane: paneId,
             excludingStableIdentities: [],
@@ -100,6 +103,12 @@ extension DockSplitStore {
             sourceSnapshotWorkspaceId: sourceSnapshotWorkspaceId,
             sourceWorkspaceResolver: sourceWorkspaceResolver
         )
+        if let restoredPanelId {
+            terminalStartupRestoreCoordinator.commitPendingRestores(
+                panelIDs: [restoredPanelId]
+            )
+        }
+        return restoredPanelId
     }
 
     private func createSessionRestoredPanel(
@@ -119,12 +128,17 @@ extension DockSplitStore {
                excludingStableIdentities: excludingStableIdentities
            ) {
             let restoredPanelId = attachDetachedSurface(detached, inPane: paneId, focus: false)
-            if restoredPanelId == nil {
-                AgentHibernationController.shared.discardTrackingStateForClosedPanel(
-                    workspaceId: detached.sourceWorkspaceId,
-                    panelId: detached.panelId
+            if let restoredPanelId {
+                sourceWorkspace.terminalStartupRestoreCoordinator.transferPendingRestore(
+                    panelID: restoredPanelId,
+                    to: terminalStartupRestoreCoordinator
                 )
-                detached.panel.close()
+            } else {
+                let cancelledRestore = sourceWorkspace
+                    .terminalStartupRestoreCoordinator
+                    .cancelPendingRestore(panelID: detached.panelId)
+                // Browser and other non-startup transfers have no restore transaction.
+                if !cancelledRestore { detached.panel.close() }
             }
             return restoredPanelId
         }
@@ -145,6 +159,12 @@ extension DockSplitStore {
                 inPane: paneId,
                 excludingStableIdentities: excludingStableIdentities
             )
+        case .filePreview:
+            return restoreSessionFilePreview(
+                from: snapshot,
+                inPane: paneId,
+                excludingStableIdentities: excludingStableIdentities
+            )
         default:
             return nil
         }
@@ -155,6 +175,10 @@ extension DockSplitStore {
         inPane paneId: PaneID,
         excludingStableIdentities: Set<UUID>
     ) -> UUID? {
+        let snapshot = Workspace.repairedLegacyHermesSessionPanelSnapshot(
+            snapshot,
+            workspaceId: workspaceId
+        )
         guard let terminalSnapshot = snapshot.terminal else { return nil }
         let policy = Workspace.makeSessionRestorePolicyService()
         let restorableAgent = Workspace.restorableAgentForSessionRestore(
@@ -246,6 +270,9 @@ extension DockSplitStore {
             : nil
         let initialCommand = tmuxLauncher
         let initialInput = bindingLaunch?.initialInput ?? agentLaunch?.initialInput
+        let willRunAgentInput =
+            agentLaunch?.initialInput != nil ||
+            (bindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
         let startupHandlesWorkingDirectory =
             tmuxLauncher != nil || agentLaunch != nil || bindingLaunch != nil
         let hostShellWorkingDirectory: String? = {
@@ -264,6 +291,12 @@ extension DockSplitStore {
         let reusableSurfaceId = GhosttyApp.terminalSurfaceRegistry.surface(id: snapshot.id) == nil
             ? snapshot.id
             : UUID()
+        // A rebuilt shell must not inherit socket-report dedupe state from a
+        // closed surface whose persisted ID it is reusing.
+        TerminalController.shared.cleanupSurfaceState(
+            surfaceIds: [reusableSurfaceId],
+            workspaceID: workspaceId
+        )
         let terminal = TerminalPanel(
             id: reusableSurfaceId,
             workspaceId: workspaceId,
@@ -284,7 +317,11 @@ extension DockSplitStore {
             initialInput: initialInput,
             additionalEnvironment: replayEnvironment,
             focusPlacement: .rightSidebarDock,
-            runtimeSpawnPolicy: .pacedSessionRestore
+            runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
+                requestedPolicy: .pacedSessionRestore,
+                willRunStartupCommand: false,
+                willRunStartupInput: willRunAgentInput
+            )
         )
         terminal.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
         terminal.restoreSessionTextBoxDraft(terminalSnapshot.textBoxDraft)
@@ -299,6 +336,10 @@ extension DockSplitStore {
             }
             return nil
         }
+        armRestoredPanelTitleBoundary(
+            panelId: terminal.id,
+            internallySeededInput: initialInput
+        )
         if let stableSurfaceId = snapshot.stableSurfaceId,
            !excludingStableIdentities.contains(stableSurfaceId) {
             terminal.adoptStableSurfaceId(stableSurfaceId)
@@ -312,16 +353,17 @@ extension DockSplitStore {
         if let restoredScrollback {
             restoredTerminalScrollbackByPanelId[terminal.id] = restoredScrollback
         }
-        let willRunAgentCommand = false
-        let willRunAgentInput =
-            agentLaunch?.initialInput != nil ||
-            (bindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
-        seedSessionRestoredAgentState(
-            panelId: terminal.id,
-            restorableAgent: restorableAgent,
-            resumeBinding: managedResumeBinding ?? resumeBinding,
-            willRunStartupCommand: willRunAgentCommand,
-            willRunStartupInput: willRunAgentInput
+        terminalStartupRestoreCoordinator.stage(
+            panel: terminal,
+            snapshot: restorableAgent,
+            resumeBinding: resumeBinding,
+            manualResumeAvailable: restorableAgent != nil ||
+                (managedResumeBinding ?? resumeBinding)?.isAgentHookBinding == true,
+            willRunStartupCommand: false,
+            willRunStartupInput: willRunAgentInput,
+            resumeWorkingDirectory: resumeSessionWorkingDirectory,
+            agentSessionAlreadyActive: agentSessionAlreadyActive,
+            ownsResumeLaunchClaim: agentLaunch != nil
         )
         if let hibernation, let restorableAgent, restorableAgent.resumeCommand != nil {
             terminal.enterAgentHibernation(
@@ -330,17 +372,6 @@ extension DockSplitStore {
                 hibernatedAt: Date(timeIntervalSince1970: hibernation.hibernatedAt)
             )
         }
-        if willRunAgentCommand || willRunAgentInput,
-           let resumeSessionWorkingDirectory {
-            restoredResumeSessionWorkingDirectoriesByPanelId[terminal.id] = resumeSessionWorkingDirectory
-        }
-        recordSessionResumeIntent(
-            panelId: terminal.id,
-            restorableAgent: restorableAgent,
-            resumeBinding: resumeBinding,
-            workingDirectory: resumeSessionWorkingDirectory,
-            agentSessionAlreadyActive: agentSessionAlreadyActive
-        )
         return terminal.id
     }
 
@@ -376,6 +407,28 @@ extension DockSplitStore {
         return browser.id
     }
 
+    /// Recreates one persisted file-preview panel in its restored Dock pane.
+    private func restoreSessionFilePreview(
+        from snapshot: SessionPanelSnapshot,
+        inPane paneId: PaneID,
+        excludingStableIdentities: Set<UUID>
+    ) -> UUID? {
+        guard let filePath = snapshot.filePreview?.filePath else { return nil }
+        let panel = FilePreviewPanel(workspaceId: workspaceId, filePath: filePath)
+        guard attachSessionRestoredPanel(
+            panel,
+            snapshot: snapshot,
+            inPane: paneId
+        ) != nil else {
+            return nil
+        }
+        if let stableSurfaceId = snapshot.stableSurfaceId,
+           !excludingStableIdentities.contains(stableSurfaceId) {
+            panel.adoptStableSurfaceId(stableSurfaceId)
+        }
+        return panel.id
+    }
+
     @discardableResult
     private func attachSessionRestoredPanel(
         _ panel: any Panel,
@@ -392,18 +445,23 @@ extension DockSplitStore {
             title: title,
             hasCustomTitle: snapshot.customTitle != nil,
             icon: panel.displayIcon,
-            kind: panel.panelType == .browser ? "browser" : "terminal",
+            kind: Self.surfaceKind(for: panel),
             isDirty: panel.isDirty,
+            showsNotificationBadge: snapshot.isManuallyUnread,
             isLoading: (panel as? BrowserPanel)?.isLoading ?? false,
             isAudioMuted: (panel as? BrowserPanel)?.isMuted ?? false,
-            isPinned: false,
+            isPinned: snapshot.isPinned,
             inPane: paneId
         ) else {
             discardPanelOwnershipAndClose(panelId: panel.id)
             return nil
         }
-        surfaceIdToPanelId[tabId] = panel.id
-        installSubscription(for: panel, tracksTerminalTitle: true)
+        bindSurface(tabId, toPanelId: panel.id)
+        adoptManualUnreadState(
+            snapshot.isManuallyUnread,
+            panelId: panel.id
+        )
+        installSubscription(for: panel)
         applyVisibility(to: panel)
         return tabId
     }
@@ -413,25 +471,6 @@ extension DockSplitStore {
               let tabId = surfaceId(forPanelId: panelId) else { return }
         bonsplitController.focusPane(paneId)
         bonsplitController.selectTab(tabId)
-    }
-
-    private func seedSessionRestoredAgentState(
-        panelId: UUID,
-        restorableAgent: SessionRestorableAgentSnapshot?,
-        resumeBinding: SurfaceResumeBindingSnapshot?,
-        willRunStartupCommand: Bool,
-        willRunStartupInput: Bool
-    ) {
-        restoredAgentLifecycle.snapshotsByPanelId[panelId] = restorableAgent
-        if willRunStartupCommand {
-            restoredAgentLifecycle.resumeStatesByPanelId[panelId] = .autoResumeCommandRunning
-        } else if willRunStartupInput {
-            restoredAgentLifecycle.resumeStatesByPanelId[panelId] = .awaitingAutoResumeCommand
-        } else if restorableAgent != nil || resumeBinding?.isAgentHookBinding == true {
-            restoredAgentLifecycle.resumeStatesByPanelId[panelId] = .manualResumeAvailable
-        } else {
-            restoredAgentLifecycle.resumeStatesByPanelId.removeValue(forKey: panelId)
-        }
     }
 
     private func sessionAgentAlreadyActive(
@@ -455,35 +494,4 @@ extension DockSplitStore {
         )
     }
 
-    private func recordSessionResumeIntent(
-        panelId: UUID,
-        restorableAgent: SessionRestorableAgentSnapshot?,
-        resumeBinding: SurfaceResumeBindingSnapshot?,
-        workingDirectory: String?,
-        agentSessionAlreadyActive: Bool
-    ) {
-        guard !agentSessionAlreadyActive else { return }
-        let session: (id: String, source: String)? = if let restorableAgent {
-            (restorableAgent.sessionId, restorableAgent.kind.rawValue)
-        } else if resumeBinding?.isAgentHookBinding == true,
-                  let id = resumeBinding?.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !id.isEmpty,
-                  let source = resumeBinding?.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !source.isEmpty {
-            (id, source)
-        } else {
-            nil
-        }
-        guard let session else { return }
-        AgentChatTranscriptService.recordResumeIntent(
-            sessionID: session.id,
-            source: session.source,
-            surfaceID: panelId.uuidString,
-            workspaceID: workspaceId.uuidString,
-            workingDirectory: workingDirectory
-        )
-#if DEBUG
-        cmuxDebugLog("session.restore.dock.resumeBinding workspace=\(workspaceId.uuidString.prefix(8)) surface=\(panelId.uuidString.prefix(8)) source=\(session.source) session=\(session.id.prefix(8))")
-#endif
-    }
 }

@@ -12,20 +12,24 @@ import SwiftUI
 struct MobilePushReadinessPreviewView: View {
     private let fixture: Fixture
     private let rejectsMacMutations: Bool
+    private let delaysPhoneMutation: Bool
 
     @State private var phoneEnabled: Bool
     @State private var authorization: MobilePushAuthorization
     @State private var registration: PushRegistrationSnapshot
     @State private var macStatus: MobileHostPhonePushStatus?
+    @State private var pendingPhoneMutation: Bool?
 
     init(state: String, environment: [String: String] = ProcessInfo.processInfo.environment) {
         let fixture = Fixture(rawValue: state) ?? .healthy
         self.fixture = fixture
         self.rejectsMacMutations = environment["CMUX_UITEST_PUSH_MUTATION_FAILURE"] == "1"
+        self.delaysPhoneMutation = environment["CMUX_UITEST_PUSH_PHONE_MUTATION_DELAY"] == "1"
         self._phoneEnabled = State(initialValue: fixture.registration.isEnabled)
         self._authorization = State(initialValue: fixture.authorization)
         self._registration = State(initialValue: fixture.registration)
         self._macStatus = State(initialValue: fixture.macStatus)
+        self._pendingPhoneMutation = State(initialValue: nil)
     }
 
     var body: some View {
@@ -35,17 +39,40 @@ struct MobilePushReadinessPreviewView: View {
                     "mobile.settings.notifications",
                     defaultValue: "Push Alerts"
                 )) {
-                    MobilePushSettingsContent(
-                        readiness: readiness,
-                        phoneEnabled: $phoneEnabled,
-                        macStatus: macStatus,
-                        supportsMacSettings: macStatus != nil,
-                        supportsMacTest: macStatus != nil,
-                        onPhoneEnabledChange: setPhoneEnabled,
-                        onRepair: repair,
-                        onMacMutation: mutateMac,
-                        onSendTest: { .queuedOnMac }
-                    )
+                    if delaysPhoneMutation {
+                        MobilePushToggle(
+                            isEnabled: $phoneEnabled,
+                            applyEnabledIntent: queuePhoneEnabled
+                        )
+                    } else {
+                        MobilePushSettingsContent(
+                            readiness: readiness,
+                            phoneEnabled: $phoneEnabled,
+                            macStatus: macStatus,
+                            supportsMacSettings: macStatus != nil,
+                            supportsMacTest: macStatus != nil,
+                            canConnectMac: true,
+                            onPhoneEnabledChange: setPhoneEnabled,
+                            onRepair: repair,
+                            onMacMutation: mutateMac,
+                            onSendTest: { .queuedOnMac }
+                        )
+                    }
+
+                    if let pendingPhoneMutation {
+                        Button {
+                            completePhoneMutation()
+                        } label: {
+                            Text(L10n.string(
+                                "mobile.settings.done",
+                                defaultValue: "Done"
+                            ))
+                        }
+                        .accessibilityIdentifier(
+                            "MobilePushReadinessCompletePhoneMutation-"
+                                + (pendingPhoneMutation ? "on" : "off")
+                        )
+                    }
                 }
             }
             .navigationTitle(L10n.string(
@@ -68,11 +95,28 @@ struct MobilePushReadinessPreviewView: View {
 
     @MainActor
     private func setPhoneEnabled(_ enabled: Bool) async -> Bool {
+        applyPhoneMutation(enabled)
+        return enabled
+    }
+
+    @MainActor
+    private func queuePhoneEnabled(_ enabled: Bool) {
+        pendingPhoneMutation = enabled
+    }
+
+    @MainActor
+    private func completePhoneMutation() {
+        guard let pendingPhoneMutation else { return }
+        self.pendingPhoneMutation = nil
+        applyPhoneMutation(pendingPhoneMutation)
+    }
+
+    @MainActor
+    private func applyPhoneMutation(_ enabled: Bool) {
         phoneEnabled = enabled
         registration = enabled
             ? Self.registered
             : .disabled
-        return true
     }
 
     @MainActor

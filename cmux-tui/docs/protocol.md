@@ -1,12 +1,18 @@
-# Raw control protocol v11
+# Raw control protocol v12
 
 This is the private implementation interface for cmux frontends and
-compatibility adapters. New applications should use
+compatibility adapters. New applications should use the public resource API,
+not this socket protocol:
 [`cmux.protocol/2`](../spec/resource-api-v2.md), the
 [noun-first CLI](../spec/cli.md), or a [handwritten SDK](../spec/bindings.md).
-High-level packages expose protocol v11 only through their `raw` namespace.
+High-level packages expose protocol v12 only through their `raw` namespace.
 
-As of protocol v11, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
+Protocol v12 and resource API v2 are separate version domains. They use
+different messages, identifiers, and negotiation. A resource API client does
+not connect to this socket directly, and a raw client does not become a
+resource API client by reporting `protocol: 12`.
+
+As of protocol v12, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
 
 Remote clients can carry the same JSON-lines stream through `cmux relay --session <name>`. The relay copies stdio to an existing local session socket and is commonly launched with `ssh -T`; it performs no authentication or command decoding itself. Client internals consume complete JSON messages, so WebSocket text frames and future framed transports can reuse the same remote-session implementation. See the [transport contract](../spec/transports.md#relay-stdio).
 
@@ -23,7 +29,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":11,"capabilities":["attach-initial-size","workspace-registry-v1","daemon-handoff-force-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-selector-fallbacks-v1","provider-managed-workspace-authority-v2","clear-history-key-v1"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":12,"capabilities":["attach-initial-size","workspace-registry-v1","daemon-handoff-force-v1","browser-provider-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1","provider-managed-workspace-authority-v2","clear-history-key-v1"],"session":"main","pid":12345}}
 ```
 
 Responses have this shape. The second example is a failed `clear-history` request:
@@ -50,6 +56,10 @@ Clients may include the structured `fallback_key` defined in `spec/commands.md` 
 Failed `clear-history` responses add `error_delivery`. `known-not-delivered` proves that no clear or fallback input reached the terminal. `ambiguous` means delivery may have started. Missing or unknown values must be treated as ambiguous.
 
 `provider-managed-workspace-authority-v2` means the mux was provider-locked before its first control client and accepts private mirror commits only with its pre-provisioned authority. `mark-workspaces-provider-managed` validates that authority without changing ownership. Ordinary `close-workspace` and `rename-workspace` requests always fail on that mux. The provider-aware TUI sends an authorized `close-provider-managed-workspace` or `rename-provider-managed-workspace` only after the external provider accepts the corresponding lifecycle request. Provider-aware clients must refuse provider-owned mode when the server does not advertise this capability.
+
+`browser-provider-v1` means browser tabs are attach-only: cmux-tui waits for cmux-browser to publish a connection-scoped loopback CDP endpoint and a target keyed by the tab's stable public id. It never discovers or launches an isolated Chrome process and never closes a provider-owned target. Endpoints and targets are available only to trusted-local `register-browser-provider` and `get-browser-provider` callers. Optional bearer credentials are accepted only during registration and are never returned. Multiple renderer clients may attach independently; presentation focus and scroll remain client-local. Provider disconnects leave canonical topology intact and reattach when a replacement lease appears.
+
+cmux-browser starts the helper with its private agent-browser provider mode. New terminals use isolated upstream agent-browser daemon sessions; the `agent-browser.plugin.v1` adapter resolves the caller's containing workspace from its stable terminal id and returns one page-scoped provider target. This adapter is a control-plane bridge only—snapshotting, refs, actions, and policy remain upstream agent-browser behavior. It rejects bearer CDP leases because the current upstream direct-page provider response has no WebSocket-header field.
 
 `browser-pointer-frame-guard-v1` means browser attach state and frame events report authoritative `pointer_frame_seq` and `pointer_frame_floor_seq`, and the server accepts `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded`. Each admitted bitmap receives a new pointer sequence even when its document and dimensions match the previous bitmap. The reported floor through latest range proves only that a token belongs to the current document and coordinate mapping. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command also acknowledges its own token, so a dropped presentation message cannot strand input. Each connection retains one acknowledged token, while the browser input queue bounds actions admitted before a later presentation. Navigation or geometry changes reset the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A remote TUI sends the same capability in `set-client-info`; the server permits browser attach only when both peers advertise it. Clients and servers that omit it remain compatible for PTY surfaces. The legacy `browser-mouse` and `browser-wheel` JSON schemas still accept an omitted or null guard, but a guarded server rejects those requests before surface lookup instead of interpreting the current frame as authority.
 
@@ -149,7 +159,7 @@ When the stream ends, it sends:
 
 ## Client Compatibility
 
-The remote TUI requires protocol v11. It rejects protocol-v10 servers because v11 changes terminal placement nullability, terminal identity nullability, lifecycle typing, typed terminal exit records, and renderer minting responses. Protocol-v11 servers without `browser-pointer-frame-guard-v1` remain compatible for PTY surfaces, but the remote TUI rejects browser attachment because it cannot route browser pointer input safely. Every bundled client that opens a long-lived `attach-surface` socket sends `set-client-info` with `browser-pointer-frame-guard-v1` on that same connection before attaching a browser surface, because capability state and guarded-client pointer captures are scoped to the connection. Legacy one-shot pointer commands retain owner zero so a down/move/up sequence can remain compatible across short-lived sockets.
+The remote TUI requires protocol v12. It rejects protocol-v11 servers because v12 adds lifecycle readiness to the strict identify response. Protocol v11 changed terminal placement nullability, terminal identity nullability, lifecycle typing, typed terminal exit records, and renderer minting responses. Protocol-v12 servers without `browser-pointer-frame-guard-v1` remain compatible for PTY surfaces, but the remote TUI rejects browser attachment because it cannot route browser pointer input safely. Every bundled client that opens a long-lived `attach-surface` socket sends `set-client-info` with `browser-pointer-frame-guard-v1` on that same connection before attaching a browser surface, because capability state and guarded-client pointer captures are scoped to the connection. Legacy one-shot pointer commands retain owner zero so a down/move/up sequence can remain compatible across short-lived sockets.
 
 Existing `set-ratio` clients remain source-compatible and the server keeps the pane-and-direction command unchanged. Protocol-v8 and newer frontends should read `layout.split` and send `set-split-ratio` so nested same-direction dividers are addressed exactly. Protocol v9 adds stack layout nodes and `new-pane`; clients must not send `new-pane` to a protocol-v8 server. Protocol v10 requires `surface` on every `set-client-sizing` request and moves `size_participating` into each `list-clients.sizes` entry.
 
@@ -169,4 +179,4 @@ Provider-aware clients require `provider-managed-workspace-authority-v2` before 
 
 ## Browser Limitations
 
-Browser surfaces appear in `list-workspaces` as `kind: "browser"` with `browser_source: "external"` or `"launched"` once live, plus additive `browser_status`, `browser_error`, and `browser_frames_stalled` fields. PTY and VT commands against browser surfaces return errors.
+Browser surfaces appear in `list-workspaces` as `kind: "browser"` with `browser_source: "external"` once live, plus additive `browser_status`, `browser_error`, `browser_frames_stalled`, and `url` fields. Canonical screen snapshots may also carry explicit viewport `columns`; focus and horizontal scroll are frontend-local. PTY and VT commands against browser surfaces return errors.

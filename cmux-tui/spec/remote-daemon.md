@@ -91,7 +91,7 @@ Request identifiers, operation identifiers, and cleanup ownership are scoped to 
 
 ## SSH and lifecycle
 
-`cmux-tui ssh <host>` preserves normal SSH expectations: SSH is the transport and authentication mechanism. It starts or discovers a durable user-scoped mux owner and replaceable remote sidecar on demand, then runs a stdio proxy to the sidecar's Unix socket. An npm-backed release or nightly binary auto-installs its exact verified npm version under the remote user's home directory when needed. Source, raw commit-addressed, and PyPI-only builds require a matching preinstalled remote binary because they have no npm bootstrap stamp. Automatic bootstrap never substitutes a different published version. It never replaces or restarts a running sidecar without explicit `--upgrade`.
+`cmux-tui remote ssh <host>` preserves normal SSH expectations: SSH is the transport and authentication mechanism. It starts or discovers a durable user-scoped mux owner and replaceable remote sidecar on demand, then runs a stdio proxy to the sidecar's Unix socket. An npm-backed release or nightly binary auto-installs its exact verified npm version under the remote user's home directory when needed. Source, raw commit-addressed, and PyPI-only builds require a matching preinstalled remote binary because they have no npm bootstrap stamp. Automatic bootstrap never substitutes a different published version. It never replaces or restarts a running sidecar without explicit `--upgrade`.
 
 The SSH bootstrap probes the exact distribution and remote protocol versions. A live named mux socket gets a remote sidecar, preserving the existing tmux-style session; a missing mux socket creates a durable bare headless mux owner before starting the sidecar. Startup is serialized with an owner-local lock. `--upgrade` force-installs the pinned distribution, stops only an SSH-managed sidecar, waits for its runtime metadata cleanup, and reconnects. It interrupts clients, forwards, and sidecar-owned workspace RPC resources but preserves terminal panes. Embedded daemons are refused, and the mux owner needs an explicit full-session restart to run the new binary. Client cancellation interrupts connection setup, and invitation setup uses a deadline long enough for invitation expiry plus local approval.
 
@@ -101,6 +101,6 @@ Local bare `cmux-tui` retains tmux behavior and attaches to the local session wh
 
 ## Compatibility and exclusions
 
-The protocol-11 Unix JSON-lines and opt-in WebSocket text endpoints remain supported while clients migrate. They are compatibility transports and do not define the new provider abstraction.
+The protocol-12 Unix JSON-lines and opt-in WebSocket text endpoints remain supported while clients migrate. They are compatibility transports and do not define the new provider abstraction.
 
 This protocol does not create, destroy, snapshot, or authorize VMs. A daemon may run inside a VM supplied by another component, but VM lifecycle remains outside cmux-tui.

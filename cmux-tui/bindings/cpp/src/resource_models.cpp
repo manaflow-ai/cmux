@@ -197,6 +197,17 @@ std::optional<std::string> required_nullable_string(
     return string_value(value, context);
 }
 
+std::optional<std::string> optional_nullable_string(
+    const Json::Object& object,
+    std::string_view name,
+    std::string_view context) {
+    const auto found = object.find(name);
+    if (found == object.end() || found->second.is_null()) {
+        return std::nullopt;
+    }
+    return string_value(found->second, context);
+}
+
 template <typename Id>
 std::optional<Id> optional_id_value(
     const Json::Object& object,
@@ -974,7 +985,6 @@ TerminalSnapshot parse_terminal(const Json& value) {
         },
         {
             "id",
-            "tab_id",
             "title",
             "cols",
             "rows",
@@ -1000,27 +1010,39 @@ TerminalSnapshot parse_terminal(const Json& value) {
         exit.has_value() != (lifecycle == TerminalLifecycle::exited)) {
         fail("terminal running, lifecycle, and exit fields are inconsistent");
     }
-    auto tab_id = required_nullable_id_value<TabId>(
-        object, "tab_id", "terminal tab_id");
+    const auto legacy_field = object.find("tab_id");
+    const bool has_legacy_tab_id = legacy_field != object.end();
+    std::optional<TabId> legacy_tab_id;
+    if (has_legacy_tab_id && !legacy_field->second.is_null()) {
+        legacy_tab_id = id_value<TabId>(
+            legacy_field->second, "terminal tab_id");
+    }
+    const auto tab_ids_field = object.find("tab_ids");
     std::vector<TabId> tab_ids;
-    if (const auto found = object.find("tab_ids"); found != object.end()) {
+    if (tab_ids_field != object.end()) {
         tab_ids = array_value<TabId>(
-            found->second,
+            tab_ids_field->second,
             "terminal tab_ids",
             [](const Json& item) {
                 return id_value<TabId>(item, "terminal tab_id");
             });
-    } else if (tab_id.has_value()) {
-        tab_ids.push_back(tab_id.value());
+    } else if (has_legacy_tab_id) {
+        if (legacy_tab_id.has_value()) {
+            tab_ids.push_back(legacy_tab_id.value());
+        }
+    } else {
+        fail("terminal snapshot requires tab_ids or tab_id");
     }
-    if (tab_id.has_value() != !tab_ids.empty() ||
-        (tab_id.has_value() && tab_id.value() != tab_ids.front())) {
+    if (has_legacy_tab_id &&
+        (legacy_tab_id.has_value() != !tab_ids.empty() ||
+         (legacy_tab_id.has_value() &&
+          legacy_tab_id.value() != tab_ids.front()))) {
         fail("terminal tab_id must be the first tab_ids item");
     }
     return {
         id_value<TerminalId>(
             field(object, "id", "terminal"), "terminal id"),
-        std::move(tab_id),
+        legacy_tab_id,
         std::move(tab_ids),
         string_value(
             field(object, "title", "terminal"), "terminal title"),
@@ -1357,8 +1379,14 @@ PairingRequestSnapshot parse_pairing(const Json& value) {
 FrontendProjectionSnapshot parse_projection(const Json& value) {
     const auto& object = exact_object(
         value,
-        {"id", "session_id", "projection", "extra"},
-        {"id", "session_id", "projection"},
+        {
+            "id", "session_id", "frontend_id", "window_id", "generation",
+            "projection", "projection_revision", "extra",
+        },
+        {
+            "id", "session_id", "frontend_id", "window_id", "generation",
+            "projection", "projection_revision",
+        },
         "frontend projection snapshot");
     return {
         id_value<FrontendProjectionId>(
@@ -1366,7 +1394,19 @@ FrontendProjectionSnapshot parse_projection(const Json& value) {
         id_value<SessionId>(
             field(object, "session_id", "projection"),
             "projection session_id"),
+        string_value(
+            field(object, "frontend_id", "projection"),
+            "projection frontend_id"),
+        string_value(
+            field(object, "window_id", "projection"),
+            "projection window_id"),
+        string_value(
+            field(object, "generation", "projection"),
+            "projection generation"),
         field(object, "projection", "projection"),
+        decimal_value(
+            field(object, "projection_revision", "projection"),
+            "projection revision"),
         extra_value(object, "frontend projection snapshot"),
     };
 }
@@ -1936,7 +1976,7 @@ TerminalCopyResult parse_terminal_copy(const Json& value) {
 ProcessInfoResult parse_process_info(const Json& value) {
     const auto& object = exact_object(
         value,
-        {"pid", "executable", "argv", "cwd", "children"},
+        {"pid", "executable", "argv", "cwd", "foreground_cwd", "children"},
         {"pid", "argv", "children"},
         "process info result");
     return {
@@ -1952,6 +1992,8 @@ ProcessInfoResult parse_process_info(const Json& value) {
                 return string_value(item, "process argv item");
             }),
         optional_string(object, "cwd", "process cwd"),
+        optional_nullable_string(
+            object, "foreground_cwd", "process foreground_cwd"),
         array_value<std::uint32_t>(
             field(object, "children", "process info"),
             "process children",
@@ -2039,28 +2081,62 @@ CellPixelsResult parse_cell_pixels(const Json& value) {
 ViewerResizeResult parse_viewer_resize(const Json& value) {
     const auto& object = exact_object(
         value,
-        {"accepted", "size"},
-        {"accepted", "size"},
+        {"accepted", "size", "outcome"},
+        {"accepted", "size", "outcome"},
         "viewer resize result");
     return {
         bool_value(
             field(object, "accepted", "viewer resize"),
             "viewer resize accepted"),
         parse_size(field(object, "size", "viewer resize")),
+        enum_value<ViewerResizeResult::Outcome>(
+            field(object, "outcome", "viewer resize"),
+            {
+                {"applied", ViewerResizeResult::Outcome::applied},
+                {"passive", ViewerResizeResult::Outcome::passive},
+                {"superseded", ViewerResizeResult::Outcome::superseded},
+            },
+            "view attachment outcome"),
     };
 }
 
 BrowserViewerResizeResult parse_browser_viewer_resize(const Json& value) {
     const auto& object = exact_object(
         value,
-        {"accepted", "size"},
-        {"accepted", "size"},
+        {"accepted", "size", "outcome"},
+        {"accepted", "size", "outcome"},
         "browser viewer resize result");
     return {
         bool_value(
             field(object, "accepted", "browser viewer resize"),
             "browser viewer resize accepted"),
         parse_pixel_size(field(object, "size", "browser viewer resize")),
+        enum_value<ViewerResizeResult::Outcome>(
+            field(object, "outcome", "browser viewer resize"),
+            {
+                {"applied", ViewerResizeResult::Outcome::applied},
+                {"passive", ViewerResizeResult::Outcome::passive},
+                {"superseded", ViewerResizeResult::Outcome::superseded},
+            },
+            "view attachment outcome"),
+    };
+}
+
+ViewerReleaseResult parse_viewer_release(const Json& value) {
+    const auto& object = exact_object(
+        value,
+        {"outcome"},
+        {"outcome"},
+        "viewer release result");
+    return {
+        enum_value<ViewerResizeResult::Outcome>(
+            field(object, "outcome", "viewer release"),
+            {
+                {"applied", ViewerResizeResult::Outcome::applied},
+                {"passive", ViewerResizeResult::Outcome::passive},
+                {"superseded", ViewerResizeResult::Outcome::superseded},
+            },
+            "view attachment outcome"),
     };
 }
 
@@ -2390,6 +2466,7 @@ CMUX_DEFINE_DECODER(RendererGrant, parse_renderer_grant)
 CMUX_DEFINE_DECODER(CellPixelsResult, parse_cell_pixels)
 CMUX_DEFINE_DECODER(ViewerResizeResult, parse_viewer_resize)
 CMUX_DEFINE_DECODER(BrowserViewerResizeResult, parse_browser_viewer_resize)
+CMUX_DEFINE_DECODER(ViewerReleaseResult, parse_viewer_release)
 CMUX_DEFINE_DECODER(CreationResolution, parse_creation_resolution)
 
 template <>
@@ -2489,6 +2566,159 @@ Result<SessionEvent> decode_session_event(
             });
         }
         return SessionEvent(Unknown{kind, value});
+    });
+}
+
+Result<SessionJournalRecord> decode_session_journal_record(
+    const Json& value,
+    const std::optional<Cursor>& envelope_cursor) {
+    return guarded<SessionJournalRecord>([&] {
+        if (!envelope_cursor) {
+            fail("journal stream item requires an envelope cursor");
+        }
+        const auto& object = exact_object(
+            value,
+            {
+                "sequence", "event_id", "schema_version", "kind", "class", "replay",
+                "occurred_at_ms", "committed_at_ms", "producer", "authority",
+                "causation_id", "correlation_id", "causation_depth", "subjects",
+                "sensitivity", "payload", "resource_revision", "previous_resource_revision",
+            },
+            {
+                "sequence", "event_id", "schema_version", "kind", "class", "replay",
+                "occurred_at_ms", "committed_at_ms", "producer", "authority",
+                "causation_id", "correlation_id", "causation_depth", "subjects",
+                "sensitivity", "payload", "resource_revision", "previous_resource_revision",
+            },
+            "session journal record");
+        const auto sequence = decimal_value(
+            field(object, "sequence", "session journal record"),
+            "journal sequence");
+        if (sequence != envelope_cursor->revision) {
+            fail("journal sequence does not match envelope cursor");
+        }
+        const auto& producer_object = exact_object(
+            field(object, "producer", "session journal record"),
+            {"kind", "id"},
+            {"kind", "id"},
+            "journal producer");
+        const auto& raw_authority = field(
+            object, "authority", "session journal record");
+        std::optional<JournalAuthority> authority;
+        if (!raw_authority.is_null()) {
+            const auto& authority_object = exact_object(
+                raw_authority,
+                {"principal_id", "lease_id", "generation", "role"},
+                {"principal_id", "lease_id", "generation", "role"},
+                "journal authority");
+            authority = JournalAuthority{
+                bounded_string(
+                    field(authority_object, "principal_id", "journal authority"),
+                    "journal principal_id", 1, 512),
+                bounded_string(
+                    field(authority_object, "lease_id", "journal authority"),
+                    "journal lease_id", 1, 512),
+                bounded_string(
+                    field(authority_object, "generation", "journal authority"),
+                    "journal generation", 1, 128),
+                bounded_string(
+                    field(authority_object, "role", "journal authority"),
+                    "journal role", 1, 128),
+            };
+        }
+        auto nullable_string = [&](std::string_view name) {
+            auto result = required_nullable_string(object, name, "session journal record");
+            if (result && (result->empty() || result->size() > 512U)) {
+                fail(std::string(name) + " length is outside protocol bounds");
+            }
+            return result;
+        };
+        auto nullable_decimal = [&](std::string_view name) -> std::optional<std::uint64_t> {
+            const auto& raw = field(object, name, "session journal record");
+            if (raw.is_null()) {
+                return std::nullopt;
+            }
+            return decimal_value(raw, name);
+        };
+        return SessionJournalRecord{
+            sequence,
+            bounded_string(
+                field(object, "event_id", "session journal record"),
+                "journal event_id", 1, 512),
+            static_cast<std::uint32_t>(uint_value(
+                field(object, "schema_version", "session journal record"),
+                std::numeric_limits<std::uint32_t>::max(),
+                "journal schema_version",
+                true)),
+            bounded_string(
+                field(object, "kind", "session journal record"),
+                "journal kind", 1, 128),
+            enum_value<JournalClass>(
+                field(object, "class", "session journal record"),
+                {
+                    {"state", JournalClass::state},
+                    {"observation", JournalClass::observation},
+                    {"effect", JournalClass::effect},
+                    {"checkpoint", JournalClass::checkpoint},
+                },
+                "journal class"),
+            enum_value<JournalReplayPolicy>(
+                field(object, "replay", "session journal record"),
+                {
+                    {"required", JournalReplayPolicy::required},
+                    {"advisory", JournalReplayPolicy::advisory},
+                    {"never", JournalReplayPolicy::never},
+                },
+                "journal replay"),
+            decimal_value(
+                field(object, "occurred_at_ms", "session journal record"),
+                "journal occurred_at_ms"),
+            decimal_value(
+                field(object, "committed_at_ms", "session journal record"),
+                "journal committed_at_ms"),
+            JournalProducer{
+                bounded_string(
+                    field(producer_object, "kind", "journal producer"),
+                    "journal producer kind", 1, 128),
+                bounded_string(
+                    field(producer_object, "id", "journal producer"),
+                    "journal producer id", 1, 512),
+            },
+            std::move(authority),
+            nullable_string("causation_id"),
+            nullable_string("correlation_id"),
+            static_cast<std::uint16_t>(uint_value(
+                field(object, "causation_depth", "session journal record"),
+                std::numeric_limits<std::uint16_t>::max(),
+                "journal causation_depth")),
+            array_value<JournalSubject>(
+                field(object, "subjects", "session journal record"),
+                "journal subjects",
+                [](const Json& item) {
+                    const auto& subject = exact_object(
+                        item, {"kind", "id"}, {"kind", "id"}, "journal subject");
+                    return JournalSubject{
+                        bounded_string(
+                            field(subject, "kind", "journal subject"),
+                            "journal subject kind", 1, 128),
+                        bounded_string(
+                            field(subject, "id", "journal subject"),
+                            "journal subject id", 1, 512),
+                    };
+                }),
+            enum_value<JournalSensitivity>(
+                field(object, "sensitivity", "session journal record"),
+                {
+                    {"public", JournalSensitivity::public_},
+                    {"metadata", JournalSensitivity::metadata},
+                    {"sensitive", JournalSensitivity::sensitive},
+                    {"secret", JournalSensitivity::secret},
+                },
+                "journal sensitivity"),
+            field(object, "payload", "session journal record"),
+            nullable_decimal("resource_revision"),
+            nullable_decimal("previous_resource_revision"),
+        };
     });
 }
 
@@ -2724,6 +2954,10 @@ Result<ViewerResizeResult> decode_viewer_resize(const Json& value) {
 Result<BrowserViewerResizeResult> decode_browser_viewer_resize(
     const Json& value) {
     return decode_value<BrowserViewerResizeResult>(value);
+}
+
+Result<ViewerReleaseResult> decode_viewer_release(const Json& value) {
+    return decode_value<ViewerReleaseResult>(value);
 }
 
 Result<EmptyResult> decode_empty_result(const Json& value) {

@@ -1,8 +1,6 @@
 import { recentlyModifiedUrls, submitIndexNowUrls } from "../../../lib/indexnow";
 import sitemap from "../../../sitemap";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
   const triggerSecret = process.env.CRON_SECRET?.trim();

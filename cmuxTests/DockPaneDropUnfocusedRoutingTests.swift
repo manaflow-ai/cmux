@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxTerminal
 import Foundation
 import Testing
 
@@ -178,6 +179,8 @@ struct DockPaneDropUnfocusedRoutingTests {
             )
             #expect(dragHit === target)
             #expect(dropHit === target)
+            target.draggingEnded(draggingInfo)
+            #expect(!host.hasActivePaneDropDrag)
         }
     }
 
@@ -222,7 +225,7 @@ struct DockPaneDropUnfocusedRoutingTests {
     @Test("Sidebar reorder mouse-up routing uses the active sidebar drag registry")
     @MainActor
     func sidebarReorderMouseUpRoutingUsesActiveSidebarDragRegistry() async throws {
-        try await AppContextSerialGate.withExclusiveAppContext {
+        await AppContextSerialGate.withExclusiveAppContext {
             let previousAppDelegate = AppDelegate.shared
             let appDelegate = AppDelegate()
             AppDelegate.shared = appDelegate
@@ -323,6 +326,82 @@ struct DockPaneDropUnfocusedRoutingTests {
         }
     }
 
+    @Test("Plain Finder file drop into a global Dock terminal inserts the path")
+    @MainActor
+    func plainFinderFileDropIntoGlobalDockTerminalInsertsPath() async throws {
+        try await withGlobalDockTerminalFileDrop(defaultBehavior: .text) {
+            target, draggingInfo, dock, terminalPanel, _, terminalInputs, terminalInputContinuation in
+            #expect(target.draggingEntered(draggingInfo) == .copy)
+            #expect(target.performDragOperation(draggingInfo))
+            terminalInputContinuation.finish()
+
+            var inputIterator = terminalInputs.makeAsyncIterator()
+            let nextInput = await inputIterator.next()
+            let input = try #require(nextInput)
+            let inputText: String
+            switch input {
+            case .bytes(let data):
+                inputText = String(decoding: data, as: UTF8.self)
+            case .namedKey(let name):
+                inputText = name
+            }
+            #expect(inputText == "/tmp/cmux\\ issue\\ 9747/dragged\\ image.png")
+            #expect(dock.panels.count == 1)
+            #expect(dock.panels[terminalPanel.id] === terminalPanel)
+            #expect(dock.focusedPanelId == terminalPanel.id)
+        }
+    }
+
+    @Test("Shift-preview Finder file drop creates its split in the global Dock")
+    @MainActor
+    func shiftPreviewFinderFileDropCreatesSplitInGlobalDock() async throws {
+        // NSDraggingInfo does not expose modifier flags. Verify Shift resolves to
+        // preview, then exercise that resolved branch through the real AppKit entry point.
+        #expect(DragOverlayRoutingPolicy.resolvedFileDropBehavior(
+            pasteboardTypes: [.fileURL],
+            modifierFlags: [.shift],
+            defaultBehavior: .text
+        ) == .preview)
+
+        try await withGlobalDockTerminalFileDrop(defaultBehavior: .preview) {
+            target, draggingInfo, dock, terminalPanel, fileURL, _, _ in
+            #expect(target.draggingEntered(draggingInfo) == .copy)
+            #expect(target.performDragOperation(draggingInfo))
+            #expect(dock.bonsplitController.allPaneIds.count == 2)
+
+            let previewPanels = dock.panels.values.compactMap { $0 as? FilePreviewPanel }
+            let previewPanel = try #require(previewPanels.first)
+            #expect(previewPanels.count == 1)
+            #expect(previewPanel.filePath == fileURL.path)
+            #expect(dock.containsPanel(terminalPanel.id))
+            #expect(dock.paneId(forPanelId: previewPanel.id) != nil)
+        }
+    }
+
+    @Test("Overlay late target discovery resolves its Dock before performing the drop")
+    @MainActor
+    func overlayLateTargetDiscoveryResolvesDockBeforePerformingDrop() async throws {
+        try await withGlobalDockTerminalFileDrop(defaultBehavior: .preview) {
+            target, draggingInfo, dock, terminalPanel, fileURL, _, _ in
+            let contentView = try #require(target.window?.contentView)
+            let overlay = FileDropOverlayView(frame: contentView.bounds)
+            contentView.addSubview(overlay, positioned: .above, relativeTo: target)
+            defer { overlay.removeFromSuperview() }
+
+            #expect(overlay.activePaneDropTarget == nil)
+            #expect(overlay.prepareForDragOperation(draggingInfo))
+            #expect((overlay.preparedPaneDropTarget as AnyObject?) === target)
+            #expect(overlay.performDragOperation(draggingInfo))
+
+            let previewPanels = dock.panels.values.compactMap { $0 as? FilePreviewPanel }
+            let previewPanel = try #require(previewPanels.first)
+            #expect(previewPanels.count == 1)
+            #expect(previewPanel.filePath == fileURL.path)
+            #expect(dock.containsPanel(terminalPanel.id))
+            #expect(dock.paneId(forPanelId: previewPanel.id) != nil)
+        }
+    }
+
     @Test("Accepted unfocused Dock pane drop moves a main surface into the Dock")
     @MainActor
     func acceptedUnfocusedDockPaneDropMovesMainSurfaceIntoDock() async throws {
@@ -415,7 +494,7 @@ struct DockPaneDropUnfocusedRoutingTests {
             let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
             let dockPanelId = try #require(dock.newSurface(kind: .terminal, inPane: dockPane, focus: false))
             let dockTabId = try #require(dock.surfaceId(forPanelId: dockPanelId))
-            let dockSourcePane = try #require(dock.paneId(forPanelId: dockPanelId) ?? dockPane)
+            let dockSourcePane = try #require(dock.paneId(forPanelId: dockPanelId))
 
             let payload = try Self.makePaneDragPayload(tabId: dockTabId.uuid, sourcePaneId: dockSourcePane.id)
             let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.issue-7529.\(UUID().uuidString)"))
@@ -462,6 +541,134 @@ struct DockPaneDropUnfocusedRoutingTests {
             "sourcePaneId": sourcePaneId.uuidString,
             "sourceProcessId": Int(ProcessInfo.processInfo.processIdentifier),
         ])
+    }
+
+    @MainActor
+    private func withGlobalDockTerminalFileDrop(
+        defaultBehavior: FileDropDefaultBehavior,
+        assertions: @MainActor (
+            TerminalPaneDropTargetView,
+            DockPaneDropMockDraggingInfo,
+            DockSplitStore,
+            TerminalPanel,
+            URL,
+            AsyncStream<TerminalManualInput>,
+            AsyncStream<TerminalManualInput>.Continuation
+        ) async throws -> Void
+    ) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let defaults = UserDefaults.standard
+            let previousDefaultBehavior = defaults.object(
+                forKey: FileDropBehaviorSettings.defaultBehaviorKey
+            )
+            let appDelegate = AppDelegate()
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            TerminalController.shared.setActiveTabManager(manager)
+            defaults.set(
+                defaultBehavior.rawValue,
+                forKey: FileDropBehaviorSettings.defaultBehaviorKey
+            )
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                if let previousDefaultBehavior {
+                    defaults.set(
+                        previousDefaultBehavior,
+                        forKey: FileDropBehaviorSettings.defaultBehaviorKey
+                    )
+                } else {
+                    defaults.removeObject(forKey: FileDropBehaviorSettings.defaultBehaviorKey)
+                }
+                TerminalController.shared.setActiveTabManager(previousManager)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+            let (terminalInputs, terminalInputContinuation) =
+                AsyncStream<TerminalManualInput>.makeStream()
+            defer { terminalInputContinuation.finish() }
+            let terminalSurface = TerminalSurface(
+                tabId: dock.workspaceId,
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: nil,
+                focusPlacement: .rightSidebarDock,
+                ioMode: .manualMirror,
+                manualInputHandler: { input in
+                    _ = terminalInputContinuation.yield(input)
+                }
+            )
+            let terminalPanel = TerminalPanel(
+                workspaceId: dock.workspaceId,
+                surface: terminalSurface
+            )
+            dock.panels[terminalPanel.id] = terminalPanel
+            let terminalTab = try #require(dock.bonsplitController.createTab(
+                title: terminalPanel.displayTitle,
+                icon: terminalPanel.displayIcon,
+                kind: terminalPanel.panelType.rawValue,
+                isDirty: false,
+                inPane: dockPane
+            ))
+            dock.bindSurface(terminalTab, toPanelId: terminalPanel.id)
+
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            defer { window.orderOut(nil) }
+            let contentView = try #require(window.contentView)
+            let target = TerminalPaneDropTargetView(
+                frame: NSRect(x: 20, y: 20, width: 260, height: 160)
+            )
+            target.hostedView = terminalPanel.hostedView
+            target.dropContext = PaneDropContext(
+                workspaceId: dock.workspaceId,
+                panelId: terminalPanel.id,
+                paneId: dockPane
+            )
+            contentView.addSubview(target)
+
+            let fileURL = URL(
+                fileURLWithPath: "/tmp/cmux issue 9747/dragged image.png"
+            )
+            let pasteboard = NSPasteboard(
+                name: NSPasteboard.Name("cmux.test.issue-9747.file.\(UUID().uuidString)")
+            )
+            pasteboard.clearContents()
+            pasteboard.writeObjects([fileURL as NSURL])
+            defer { pasteboard.clearContents() }
+
+            let dropPoint = target.convert(
+                NSPoint(x: 10, y: target.bounds.midY),
+                to: nil
+            )
+            let draggingInfo = DockPaneDropMockDraggingInfo(
+                window: window,
+                location: dropPoint,
+                pasteboard: pasteboard
+            )
+
+            #expect(dock.scope == .global)
+            #expect(dock.workspaceId == windowId)
+            #expect(appDelegate.workspaceFor(tabId: dock.workspaceId) == nil)
+            try await assertions(
+                target,
+                draggingInfo,
+                dock,
+                terminalPanel,
+                fileURL,
+                terminalInputs,
+                terminalInputContinuation
+            )
+        }
     }
 
     private static func makeMouseEvent(

@@ -335,7 +335,7 @@ class PiCmuxCommandDispatcher {
             this.failTerminalFeedForSession(sessionId);
             this.discardFeedForSession(sessionId);
           }
-        } else if (result.error instanceof Error && result.error.message.includes("timed out after")) {
+        } else if (result.reason === "timeout") {
           const sessionId = command.context.sessionId;
           if (sessionId) {
             this.failTerminalFeedForSession(sessionId);
@@ -367,18 +367,20 @@ class PiCmuxCommandDispatcher {
     }
 
     const result = await this.spawnCmux(args, cwd, input, cancellation);
-    if (this.isSurfaceResolutionFailure(result)) {
-      const shouldWarn = !sessionId || !this.unavailableSessions.has(sessionId);
-      if (sessionId) this.unavailableSessions.add(sessionId);
-      if (shouldWarn) {
-        warn(context, "cmux hook command failed", {
-          status: result.status,
-          stderr_available: result.stderr.trim().length > 0,
-          error_available: result.error !== undefined,
-          surface_unavailable: true,
-          dispatch_disabled: true,
-        });
-      }
+    const surfaceUnavailable = this.isSurfaceResolutionFailure(result);
+    let shouldLogFailure = true;
+    if (surfaceUnavailable && sessionId) {
+      // Claim synchronously so overlapping Feed/control failures emit one diagnostic.
+      shouldLogFailure = !this.unavailableSessions.has(sessionId);
+      this.unavailableSessions.add(sessionId);
+    }
+    if (!result.ok && result.reason !== "cancelled" && shouldLogFailure) {
+      await warn(context, "cmux hook command failed", {
+        ...commandFailureDetails(args, result),
+        ...(surfaceUnavailable ? { surface_unavailable: true, dispatch_disabled: true } : {}),
+      });
+    }
+    if (surfaceUnavailable) {
       return { ...result, surfaceUnavailable: true };
     }
     return result;
@@ -391,6 +393,8 @@ class PiCmuxCommandDispatcher {
     cancellation?: PiCommandCancellation,
   ): Promise<CommandResult> {
     return new Promise<CommandResult>((resolve) => {
+      const startedAt = performance.now();
+      const timeoutMs = piCommandTimeoutMilliseconds(args);
       let settled = false;
       let stdout = "";
       let stderr = "";
@@ -399,6 +403,7 @@ class PiCmuxCommandDispatcher {
       let terminateGrace: ReturnType<typeof setTimeout> | null = null;
       let forceSettleTimeout: ReturnType<typeof setTimeout> | null = null;
       let terminationError: Error | undefined;
+      let terminationReason: CommandTerminationReason | undefined;
 
       const appendOutput = (current: string, chunk: unknown): string => {
         const limit = 1024 * 1024;
@@ -414,12 +419,18 @@ class PiCmuxCommandDispatcher {
         if (cancellation) cancellation.cancel = undefined;
         resolve(result);
       };
+      const elapsedMilliseconds = (): number => (
+        Math.max(0, Math.round(performance.now() - startedAt))
+      );
       const terminatedResult = (): CommandResult => ({
         ok: false,
         status: null,
         stdout,
         stderr,
         error: terminationError,
+        reason: commandFailureReason(null, terminationError, terminationReason),
+        timeoutMs,
+        elapsedMs: elapsedMilliseconds(),
       });
 
       try {
@@ -438,9 +449,10 @@ class PiCmuxCommandDispatcher {
         child.stdin.on("error", (error) => {
           inputError = error;
         });
-        const beginTermination = (error: Error) => {
+        const beginTermination = (reason: CommandTerminationReason, error: Error) => {
           if (terminationError) return;
           terminationError = error;
+          terminationReason = reason;
           child.stdin.destroy();
           try {
             child.kill("SIGTERM");
@@ -458,7 +470,16 @@ class PiCmuxCommandDispatcher {
           }, 250);
         };
         child.on("error", (error) => {
-          settle(terminationError ? terminatedResult() : { ok: false, status: null, stdout, stderr, error });
+          settle(terminationError ? terminatedResult() : {
+            ok: false,
+            status: null,
+            stdout,
+            stderr,
+            error,
+            reason: commandFailureReason(null, error),
+            timeoutMs,
+            elapsedMs: elapsedMilliseconds(),
+          });
         });
         child.on("close", (code) => {
           if (terminationError) {
@@ -466,24 +487,38 @@ class PiCmuxCommandDispatcher {
             return;
           }
           const status = typeof code === "number" ? code : null;
+          const error = inputError;
+          const reason = commandFailureReason(status, error);
           settle({
-            ok: status === 0 && inputError === undefined,
+            ok: reason === undefined,
             status,
             stdout,
             stderr,
-            error: inputError,
+            error,
+            reason,
+            timeoutMs,
+            elapsedMs: elapsedMilliseconds(),
           });
         });
         if (cancellation) {
-          cancellation.cancel = () => beginTermination(new Error("cmux feed command cancelled"));
+          cancellation.cancel = () => beginTermination("cancelled", new Error("cmux feed command cancelled"));
           if (cancellation.cancelled) cancellation.cancel();
         }
         timeout = setTimeout(() => {
-          beginTermination(new Error("cmux command timed out after 5000ms"));
-        }, 5000);
+          beginTermination("timeout", new Error(`cmux command timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
         child.stdin.end(input);
       } catch (error) {
-        settle({ ok: false, status: null, stdout, stderr, error });
+        settle({
+          ok: false,
+          status: null,
+          stdout,
+          stderr,
+          error,
+          reason: commandFailureReason(null, error),
+          timeoutMs,
+          elapsedMs: elapsedMilliseconds(),
+        });
       }
     });
   }
@@ -498,6 +533,8 @@ class PiCmuxCommandDispatcher {
       status: null,
       stdout: "",
       stderr: "",
+      timeoutMs: piHookTimeoutMilliseconds(),
+      elapsedMs: 0,
       surfaceUnavailable: true,
     };
   }

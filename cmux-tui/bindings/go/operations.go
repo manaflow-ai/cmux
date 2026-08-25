@@ -378,6 +378,43 @@ func (s *Session) Events(ctx context.Context, options SessionEventsOptions) (*St
 	merge(input, options.Extra)
 	return openStream(ctx, s.client, wirev2.SessionEvents, input, decodeSessionEvent)
 }
+func (s *Session) Journal(ctx context.Context, options SessionJournalOptions) (*Stream[SessionJournalRecord], error) {
+	if err := options.validate(); err != nil {
+		return nil, err
+	}
+	input := s.route.params()
+	if options.Cursor != nil {
+		input[wirev2.FieldCursor] = options.Cursor
+	}
+	if options.Start != nil {
+		input[wirev2.FieldStart] = *options.Start
+	}
+	if options.Follow != nil {
+		input["follow"] = *options.Follow
+	}
+	if options.Filter != nil {
+		input["filter"] = options.Filter
+	}
+	merge(input, options.Extra)
+	return openDecodedStream(
+		ctx,
+		s.client,
+		wirev2.SessionJournalSubscribe,
+		input,
+		func(raw json.RawMessage, cursor *Cursor) (SessionJournalRecord, error) {
+			record, err := decodeSessionJournalRecord(raw)
+			if err != nil {
+				return SessionJournalRecord{}, err
+			}
+			if cursor == nil || cursor.Revision != record.Sequence {
+				return SessionJournalRecord{}, &ProtocolError{
+					Message: "journal sequence must match its stream cursor",
+				}
+			}
+			return record, nil
+		},
+	)
+}
 func (s *Session) Ping(ctx context.Context, options SessionPingOptions) (PingResult, error) {
 	input := s.route.params()
 	merge(input, options.Extra)
@@ -559,7 +596,13 @@ func (s *Session) Projection(ctx context.Context, options FrontendProjectionGetO
 }
 func (p *FrontendProjection) Put(ctx context.Context, options FrontendProjectionPutOptions) (MutationResult[*FrontendProjection], error) {
 	input := p.route.params()
+	input["frontend_id"] = options.FrontendID
+	input["window_id"] = options.WindowID
+	input["generation"] = options.Generation
 	input["projection"] = options.Projection
+	if options.ExpectedProjectionRevision != nil {
+		input["expected_projection_revision"] = *options.ExpectedProjectionRevision
+	}
 	merge(input, options.Extra)
 	return mutationHandle(
 		ctx, p.client, wirev2.ProjectionPut, input, options.MutationOptions,
@@ -772,7 +815,10 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 			"id", "session_id", "peer", "code", "expires_in_seconds", "status",
 		}
 	case *FrontendProjectionSnapshot:
-		required = []string{"id", "session_id", "projection"}
+		required = []string{
+			"id", "session_id", "frontend_id", "window_id", "generation",
+			"projection", "projection_revision",
+		}
 	case *SidebarViewSnapshot:
 		required = []string{"id", "session_id", "cols", "rows", "running"}
 	case *PingResult:
@@ -802,7 +848,11 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 			"width_px", "height_px", "resized_terminals", "failures",
 		}
 	case *ViewerResizeResult, *BrowserViewerResizeResult:
-		required = []string{"accepted", "size"}
+		required = []string{"accepted", "size", "outcome"}
+	case *ViewerReleaseResult:
+		required = []string{"outcome"}
+	case *ViewAttachmentStreamOpened:
+		required = []string{"stream_id", "attachment_lease"}
 	case *RenderCursor:
 		required = []string{"x", "y", "style", "blink", "visible", "color"}
 	case *RenderRun:
@@ -873,32 +923,9 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 			return fmt.Errorf("tab snapshot ids must be present")
 		}
 	case *TerminalSnapshot:
-		var terminalFields map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &terminalFields); err != nil {
-			return err
-		}
-		if _, hasTabID := terminalFields["tab_id"]; !hasTabID {
-			return fmt.Errorf("omitted required field tab_id")
-		}
-		// strictDecode ran TabID.UnmarshalJSON for tab_id and every tab_ids
-		// element, so every non-null identity reaching this fallback is valid.
-		if _, hasTabIDs := terminalFields["tab_ids"]; !hasTabIDs {
-			if decoded.TabID == nil {
-				decoded.TabIDs = []TabID{}
-			} else {
-				decoded.TabIDs = []TabID{*decoded.TabID}
-			}
-		}
 		if decoded.ID == "" || decoded.TabIDs == nil ||
 			decoded.Cols == 0 || decoded.Rows == 0 {
 			return fmt.Errorf("terminal snapshot ids and dimensions must be present")
-		}
-		if len(decoded.TabIDs) == 0 {
-			if decoded.TabID != nil {
-				return fmt.Errorf("terminal tab_id must be null when tab_ids is empty")
-			}
-		} else if decoded.TabID == nil || *decoded.TabID != decoded.TabIDs[0] {
-			return fmt.Errorf("terminal tab_id must be the first tab_ids item")
 		}
 		switch decoded.Lifecycle {
 		case TerminalLifecycleLaunching, TerminalLifecycleRunning,
@@ -913,6 +940,10 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 			return fmt.Errorf(
 				"terminal running must be true exactly while lifecycle is running",
 			)
+		}
+		var terminalFields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &terminalFields); err != nil {
+			return err
 		}
 		exitRaw, hasExit := terminalFields["exit"]
 		if hasExit && bytes.Equal(bytes.TrimSpace(exitRaw), []byte("null")) {
@@ -999,7 +1030,8 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 			return fmt.Errorf("invalid pairing request status %q", decoded.Status)
 		}
 	case *FrontendProjectionSnapshot:
-		if decoded.ID == "" || decoded.SessionID == "" {
+		if decoded.ID == "" || decoded.SessionID == "" || decoded.FrontendID == "" ||
+			decoded.WindowID == "" || decoded.Generation == "" {
 			return fmt.Errorf("frontend projection snapshot ids must be present")
 		}
 	case *SidebarViewSnapshot:
@@ -1063,10 +1095,14 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 		if decoded.Size.Cols == 0 || decoded.Size.Rows == 0 {
 			return fmt.Errorf("viewer resize size must be non-zero")
 		}
+		return validateViewAttachmentOutcome(decoded.Outcome)
 	case *BrowserViewerResizeResult:
 		if decoded.Size.WidthPX == 0 || decoded.Size.HeightPX == 0 {
 			return fmt.Errorf("browser viewer resize size must be non-zero")
 		}
+		return validateViewAttachmentOutcome(decoded.Outcome)
+	case *ViewerReleaseResult:
+		return validateViewAttachmentOutcome(decoded.Outcome)
 	case *RenderCursor:
 		return validateRenderCursor(*decoded)
 	case *RenderRun:
@@ -1236,6 +1272,9 @@ func (p *Pane) Split(ctx context.Context, options PaneSplitOptions) (MutationRes
 	input[wirev2.FieldDirection] = options.Direction
 	if options.Ratio != nil {
 		input[wirev2.FieldRatio] = *options.Ratio
+	}
+	if options.ViewportWidth != nil {
+		input[wirev2.FieldViewportWidth] = *options.ViewportWidth
 	}
 	putOptionalString(input, wirev2.FieldCWD, options.CWD)
 	if options.Cols != nil {
@@ -1694,6 +1733,7 @@ func (t *Terminal) CreateRendererGrant(ctx context.Context, options TerminalRend
 }
 func (t *Terminal) ResizeViewer(ctx context.Context, options TerminalViewerResizeOptions) (ViewerResizeResult, error) {
 	input := t.route.params()
+	input["attachment_lease"] = options.AttachmentLease
 	input[wirev2.FieldCols] = options.Cols
 	input[wirev2.FieldRows] = options.Rows
 	merge(input, options.Extra)
@@ -1701,11 +1741,12 @@ func (t *Terminal) ResizeViewer(ctx context.Context, options TerminalViewerResiz
 		ctx, t.client, wirev2.TerminalViewerResize, input, "viewer resize result",
 	)
 }
-func (t *Terminal) ReleaseViewer(ctx context.Context, options TerminalViewerReleaseOptions) (EmptyResult, error) {
+func (t *Terminal) ReleaseViewer(ctx context.Context, options TerminalViewerReleaseOptions) (ViewerReleaseResult, error) {
 	input := t.route.params()
+	input["attachment_lease"] = options.AttachmentLease
 	merge(input, options.Extra)
-	return readValue[EmptyResult](
-		ctx, t.client, wirev2.TerminalViewerRelease, input, "empty result",
+	return readValue[ViewerReleaseResult](
+		ctx, t.client, wirev2.TerminalViewerRelease, input, "viewer release result",
 	)
 }
 func (t *Terminal) ScrollViewport(ctx context.Context, options TerminalViewportScrollOptions) (MutationResult[EmptyResult], error) {
@@ -1912,6 +1953,7 @@ func (b *Browser) Wheel(ctx context.Context, options BrowserInputWheelOptions) (
 }
 func (b *Browser) ResizeViewer(ctx context.Context, options BrowserViewerResizeOptions) (BrowserViewerResizeResult, error) {
 	input := b.route.params()
+	input["attachment_lease"] = options.AttachmentLease
 	input["width_px"] = options.WidthPX
 	input["height_px"] = options.HeightPX
 	merge(input, options.Extra)
@@ -1920,11 +1962,12 @@ func (b *Browser) ResizeViewer(ctx context.Context, options BrowserViewerResizeO
 		"browser viewer resize result",
 	)
 }
-func (b *Browser) ReleaseViewer(ctx context.Context, options BrowserViewerReleaseOptions) (EmptyResult, error) {
+func (b *Browser) ReleaseViewer(ctx context.Context, options BrowserViewerReleaseOptions) (ViewerReleaseResult, error) {
 	input := b.route.params()
+	input["attachment_lease"] = options.AttachmentLease
 	merge(input, options.Extra)
-	return readValue[EmptyResult](
-		ctx, b.client, wirev2.BrowserViewerRelease, input, "empty result",
+	return readValue[ViewerReleaseResult](
+		ctx, b.client, wirev2.BrowserViewerRelease, input, "viewer release result",
 	)
 }
 func (b *Browser) Attach(ctx context.Context, options BrowserAttachOptions) (*Stream[BrowserAttachmentItem], error) {
@@ -2259,6 +2302,111 @@ func decodeSessionEvent(raw json.RawMessage) (SessionEvent, error) {
 	default:
 		return SessionEvent{Kind: kind, Raw: Document(fields)}, nil
 	}
+}
+
+func decodeSessionJournalRecord(raw json.RawMessage) (SessionJournalRecord, error) {
+	var present map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &present); err != nil || present == nil {
+		return SessionJournalRecord{}, &ProtocolError{Message: "invalid session journal record"}
+	}
+	for _, field := range []string{
+		"sequence", "event_id", "schema_version", "kind", "class", "replay",
+		"occurred_at_ms", "committed_at_ms", "producer", "authority", "causation_id",
+		"correlation_id", "causation_depth", "subjects", "sensitivity", "payload",
+		"resource_revision", "previous_resource_revision",
+	} {
+		if _, ok := present[field]; !ok {
+			return SessionJournalRecord{}, &ProtocolError{
+				Message: "session journal record omitted required field " + field,
+			}
+		}
+	}
+	var wire struct {
+		Sequence                 *Decimal             `json:"sequence"`
+		EventID                  *string              `json:"event_id"`
+		SchemaVersion            *uint32              `json:"schema_version"`
+		Kind                     *string              `json:"kind"`
+		Class                    *JournalClass        `json:"class"`
+		Replay                   *JournalReplayPolicy `json:"replay"`
+		OccurredAtMS             *Decimal             `json:"occurred_at_ms"`
+		CommittedAtMS            *Decimal             `json:"committed_at_ms"`
+		Producer                 *JournalProducer     `json:"producer"`
+		Authority                *JournalAuthority    `json:"authority"`
+		CausationID              *string              `json:"causation_id"`
+		CorrelationID            *string              `json:"correlation_id"`
+		CausationDepth           *uint16              `json:"causation_depth"`
+		Subjects                 *[]JournalSubject    `json:"subjects"`
+		Sensitivity              *JournalSensitivity  `json:"sensitivity"`
+		Payload                  json.RawMessage      `json:"payload"`
+		ResourceRevision         *Decimal             `json:"resource_revision"`
+		PreviousResourceRevision *Decimal             `json:"previous_resource_revision"`
+	}
+	if err := strictDecode(raw, &wire); err != nil {
+		return SessionJournalRecord{}, &ProtocolError{
+			Message: "invalid session journal record: " + err.Error(),
+		}
+	}
+	if wire.Sequence == nil || wire.EventID == nil || *wire.EventID == "" ||
+		wire.SchemaVersion == nil || *wire.SchemaVersion == 0 || wire.Kind == nil ||
+		*wire.Kind == "" || wire.Class == nil || wire.Replay == nil ||
+		wire.OccurredAtMS == nil || wire.CommittedAtMS == nil || wire.Producer == nil ||
+		wire.CausationDepth == nil || wire.Subjects == nil || wire.Sensitivity == nil ||
+		len(wire.Payload) == 0 {
+		return SessionJournalRecord{}, &ProtocolError{
+			Message: "session journal record omitted a required field",
+		}
+	}
+	if wire.Producer.Kind == "" || wire.Producer.ID == "" {
+		return SessionJournalRecord{}, &ProtocolError{Message: "invalid journal producer"}
+	}
+	if wire.Authority != nil &&
+		(wire.Authority.PrincipalID == "" || wire.Authority.LeaseID == "" ||
+			wire.Authority.Generation == "" || wire.Authority.Role == "") {
+		return SessionJournalRecord{}, &ProtocolError{Message: "invalid journal authority"}
+	}
+	for _, subject := range *wire.Subjects {
+		if subject.Kind == "" || subject.ID == "" {
+			return SessionJournalRecord{}, &ProtocolError{Message: "invalid journal subject"}
+		}
+	}
+	if *wire.Class != JournalClassState && *wire.Class != JournalClassObservation &&
+		*wire.Class != JournalClassEffect && *wire.Class != JournalClassCheckpoint {
+		return SessionJournalRecord{}, &ProtocolError{Message: "invalid journal class"}
+	}
+	if *wire.Replay != JournalReplayRequired && *wire.Replay != JournalReplayAdvisory &&
+		*wire.Replay != JournalReplayNever {
+		return SessionJournalRecord{}, &ProtocolError{Message: "invalid journal replay policy"}
+	}
+	if *wire.Sensitivity != JournalSensitivityPublic &&
+		*wire.Sensitivity != JournalSensitivityMetadata &&
+		*wire.Sensitivity != JournalSensitivitySensitive &&
+		*wire.Sensitivity != JournalSensitivitySecret {
+		return SessionJournalRecord{}, &ProtocolError{Message: "invalid journal sensitivity"}
+	}
+	var payload JSONValue
+	if err := json.Unmarshal(wire.Payload, &payload); err != nil {
+		return SessionJournalRecord{}, &ProtocolError{Message: "invalid journal payload"}
+	}
+	return SessionJournalRecord{
+		Sequence:                 *wire.Sequence,
+		EventID:                  *wire.EventID,
+		SchemaVersion:            *wire.SchemaVersion,
+		Kind:                     *wire.Kind,
+		Class:                    *wire.Class,
+		Replay:                   *wire.Replay,
+		OccurredAtMS:             *wire.OccurredAtMS,
+		CommittedAtMS:            *wire.CommittedAtMS,
+		Producer:                 *wire.Producer,
+		Authority:                wire.Authority,
+		CausationID:              wire.CausationID,
+		CorrelationID:            wire.CorrelationID,
+		CausationDepth:           *wire.CausationDepth,
+		Subjects:                 *wire.Subjects,
+		Sensitivity:              *wire.Sensitivity,
+		Payload:                  payload,
+		ResourceRevision:         wire.ResourceRevision,
+		PreviousResourceRevision: wire.PreviousResourceRevision,
+	}, nil
 }
 
 func decodeTerminalAttachment(raw json.RawMessage) (TerminalAttachmentItem, error) {
@@ -2900,6 +3048,15 @@ func validColor(value string) bool {
 		}
 	}
 	return true
+}
+
+func validateViewAttachmentOutcome(outcome ViewAttachmentOutcome) error {
+	switch outcome {
+	case ViewAttachmentApplied, ViewAttachmentPassive, ViewAttachmentSuperseded:
+		return nil
+	default:
+		return fmt.Errorf("invalid view attachment outcome %q", outcome)
+	}
 }
 
 func decodeRendererGrant(raw json.RawMessage) (RendererGrant, error) {

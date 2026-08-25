@@ -19,15 +19,27 @@ extension TerminalPasteboardService: TerminalClipboardReading {
 
         let hasImagePayload = hasImageData(in: pasteboard)
         let hasRTFDAttachmentPayload = types.contains(.rtfd)
-        if hasImagePayload,
-           let html = pasteboard.string(forType: .html),
-           PasteboardTextFidelity.htmlHasNoVisibleText(html) {
-            return nil
+        let plainText = plainTextContents(from: pasteboard)
+        let parsedHTMLOutcome: HTMLPlainTextParseOutcome?
+        if hasImagePayload || hasRTFDAttachmentPayload {
+            parsedHTMLOutcome = htmlOutcome(from: pasteboard)
+            if let parsedHTMLOutcome {
+                if hasImagePayload && parsedHTMLOutcome.confirmsNoVisibleText {
+                    return nil
+                }
+            }
+        } else {
+            parsedHTMLOutcome = nil
         }
 
-        let plainText = plainTextContents(from: pasteboard)
         if hasImagePayload || hasRTFDAttachmentPayload {
-            guard let richText = richTextContents(from: pasteboard) else {
+            guard let richText = richTextContents(
+                from: pasteboard,
+                precomputedHTMLOutcome: parsedHTMLOutcome
+            ) else {
+                if parsedHTMLOutcome == .rejected {
+                    return plainText
+                }
                 return nil
             }
             if let plainText,
@@ -89,14 +101,40 @@ extension TerminalPasteboardService {
         return sanitized
     }
 
-    private func richTextContents(from pasteboard: NSPasteboard) -> String? {
-        if let htmlText = attributedStringContents(from: pasteboard, type: .html, documentType: .html) {
+    private func richTextContents(
+        from pasteboard: NSPasteboard,
+        precomputedHTMLOutcome: HTMLPlainTextParseOutcome? = nil
+    ) -> String? {
+        let htmlText: String?
+        if let precomputedHTMLOutcome {
+            htmlText = precomputedHTMLOutcome.plainText
+        } else {
+            htmlText = htmlPlainTextContents(from: pasteboard)
+        }
+        if let htmlText {
             return htmlText
         }
         if let rtfText = attributedStringContents(from: pasteboard, type: .rtf, documentType: .rtf) {
             return rtfText
         }
         return attributedStringContents(from: pasteboard, type: .rtfd, documentType: .rtfd)
+    }
+
+    private func htmlPlainTextContents(
+        from pasteboard: NSPasteboard
+    ) -> String? {
+        htmlOutcome(from: pasteboard)?.plainText
+    }
+
+    private func htmlOutcome(
+        from pasteboard: NSPasteboard
+    ) -> HTMLPlainTextParseOutcome? {
+        let parser = HTMLPlainTextParser()
+        if let html = pasteboard.string(forType: .html) {
+            return parser.outcome(from: html)
+        }
+        guard let data = pasteboard.data(forType: .html) else { return nil }
+        return parser.outcome(from: data)
     }
 
     private func plainTextContents(from pasteboard: NSPasteboard) -> String? {

@@ -3,8 +3,6 @@ import { RPCHandler } from "@orpc/server/fetch";
 import { createORPCContext } from "@/orpc/server/base";
 import { router } from "@/orpc/server/router";
 
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
 
 const handler = new RPCHandler(router);
 

@@ -6,9 +6,13 @@
 //! `cmux-tui attach` connects the same TUI to an existing (usually
 //! headless) session over that socket, which is how detach/reattach works.
 
+#[cfg(unix)]
+mod agent_browser_provider;
+mod agent_hook_install;
 mod app;
 mod browser_input;
 mod cli;
+mod client_log;
 mod config;
 mod host_colors;
 mod keys;
@@ -32,26 +36,13 @@ mod pty_input;
 mod remote_cli;
 #[cfg(not(unix))]
 mod remote_cli {
-    const REMOTE_COMMANDS: &[&str] = &[
-        "connect",
-        "ssh",
-        "forward",
-        "rpc",
-        "enroll",
-        "known-daemons",
-        "remote-probe",
-        "remote-link",
-        "remote-sidecar",
-        "remote-stop",
-        "install-self",
-    ];
-
     pub fn is_remote_invocation(args: &[String]) -> bool {
-        args.first().is_some_and(|argument| REMOTE_COMMANDS.contains(&argument.as_str()))
+        crate::cli::is_remote_invocation(args)
     }
 
     pub fn run(_: &[String], _: &str) -> i32 {
-        eprintln!(
+        crate::client_log::stderr_log!(
+            "startup",
             "cmux-tui: remote daemon commands require Unix sockets and are unsupported on {}",
             std::env::consts::OS
         );
@@ -62,6 +53,7 @@ mod remote_cli {
 mod remote_runtime;
 mod session;
 mod sidebar_files;
+mod sidebar_projection;
 mod ui;
 
 #[cfg(target_os = "linux")]
@@ -69,8 +61,14 @@ use std::ffi::CStr;
 use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader, IsTerminal, Read, Write};
 use std::net::Shutdown;
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+#[cfg(unix)]
+use std::sync::atomic::AtomicI32;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Context;
@@ -87,11 +85,17 @@ use machine_provider_client::{
 };
 #[cfg(unix)]
 use machine_provider_runtime::ProviderMachineController;
-use machine_runtime::MachineRuntime;
+use machine_runtime::{
+    MachineConnection, MachineConnectionHub, MachineConnectionLease, MachineRuntime,
+};
 use session::{RemoteSession, Session};
 use zeroize::Zeroize;
 
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
+#[cfg(unix)]
+static SIGNAL_WAKE_READER: AtomicI32 = AtomicI32::new(-1);
+#[cfg(unix)]
+static SIGNAL_WAKE_WRITER: AtomicI32 = AtomicI32::new(-1);
 #[cfg(unix)]
 const MACHINE_PROVIDER_TOKEN_ENV: &str = "CMUX_MACHINE_PROVIDER_TOKEN";
 const PROVIDER_WORKSPACE_AUTHORITY_ENV: &str = "CMUX_PROVIDER_WORKSPACE_AUTHORITY";
@@ -104,6 +108,15 @@ unsafe extern "C" {
 #[cfg(unix)]
 extern "C" fn handle_signal(_: libc::c_int) {
     SHUTDOWN_REQUESTED.store(true, Ordering::Release);
+    let writer = SIGNAL_WAKE_WRITER.load(Ordering::Relaxed);
+    if writer >= 0 {
+        let byte = 1_u8;
+        // SAFETY: write(2) is async-signal-safe, `writer` is a process-lifetime
+        // socket descriptor, and the one-byte source remains valid for the call.
+        unsafe {
+            let _ = libc::write(writer, std::ptr::from_ref(&byte).cast(), 1);
+        }
+    }
 }
 
 pub(crate) fn shutdown_requested() -> bool {
@@ -112,10 +125,27 @@ pub(crate) fn shutdown_requested() -> bool {
 
 #[cfg(unix)]
 fn install_signal_handlers() -> io::Result<()> {
+    let (wake_reader, wake_writer) = UnixStream::pair()?;
+    for descriptor in [wake_reader.as_raw_fd(), wake_writer.as_raw_fd()] {
+        // UnixStream currently creates close-on-exec descriptors, but enforce
+        // the ownership contract before these descriptors become process-wide.
+        let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
+        if flags < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if unsafe { libc::fcntl(descriptor, libc::F_SETFD, flags | libc::FD_CLOEXEC) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    wake_writer.set_nonblocking(true)?;
+    SIGNAL_WAKE_READER.store(wake_reader.as_raw_fd(), Ordering::Release);
+    SIGNAL_WAKE_WRITER.store(wake_writer.as_raw_fd(), Ordering::Release);
     unsafe {
         let mut action = std::mem::zeroed::<libc::sigaction>();
         action.sa_sigaction = handle_signal as *const () as libc::sighandler_t;
         if libc::sigemptyset(&mut action.sa_mask) != 0 {
+            SIGNAL_WAKE_READER.store(-1, Ordering::Release);
+            SIGNAL_WAKE_WRITER.store(-1, Ordering::Release);
             return Err(io::Error::last_os_error());
         }
         // Termination must interrupt startup and teardown syscalls. In
@@ -124,11 +154,41 @@ fn install_signal_handlers() -> io::Result<()> {
         action.sa_flags = 0;
         for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
             if libc::sigaction(signal, &action, std::ptr::null_mut()) != 0 {
+                SIGNAL_WAKE_READER.store(-1, Ordering::Release);
+                SIGNAL_WAKE_WRITER.store(-1, Ordering::Release);
                 return Err(io::Error::last_os_error());
             }
         }
     }
+    // The signal handler and one cancellation watcher own these descriptors
+    // for the process lifetime. CLI exit and daemon shutdown reclaim them.
+    std::mem::forget(wake_reader);
+    std::mem::forget(wake_writer);
     Ok(())
+}
+
+#[cfg(unix)]
+pub(crate) fn wait_for_shutdown_signal() {
+    if shutdown_requested() {
+        return;
+    }
+    let reader = SIGNAL_WAKE_READER.load(Ordering::Acquire);
+    if reader < 0 {
+        return;
+    }
+    let mut byte = 0_u8;
+    loop {
+        // SAFETY: `reader` is the process-lifetime socket descriptor installed
+        // before signal handlers, and the one-byte destination is writable.
+        let result = unsafe { libc::read(reader, std::ptr::from_mut(&mut byte).cast(), 1) };
+        if result > 0 || shutdown_requested() {
+            return;
+        }
+        if result < 0 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
+            continue;
+        }
+        return;
+    }
 }
 
 // No POSIX signals on Windows; Ctrl-C arrives as console input and the
@@ -298,13 +358,7 @@ cmux - terminal multiplexer and resource client
 
 USAGE
   cmux [OPTIONS]           Start a session
-  cmux daemon [OPTIONS]    Start a headless session and remote daemon
-  cmux connect <ROUTE>     Attach through an authenticated remote route
-  cmux ssh <HOST>          Bootstrap and attach over direct SSH
-  cmux forward <ROUTE>     Forward a workspace TCP service locally
-  cmux rpc <ROUTE>         Run workspace coding-agent RPC requests
-  cmux enroll <ACTION>     Enroll, approve, list, or revoke devices
-  cmux known-daemons       List client-pinned daemon identities and routes
+{lifecycle_usage}
   cmux attach [OPTIONS]    Attach to a session or one terminal
   cmux relay [OPTIONS]     Relay protocol bytes over stdio
   {machine_agent_usage}
@@ -345,7 +399,8 @@ START OPTIONS
                     Refresh the relay ticket from an argv-based command.
   --iroh            Publish an Iroh route for NAT traversal and mobile use.
   --advertise <url> Add a non-secret route hint to enrollment invitations.
-  --term <value>     TERM for child shells (default: xterm-256color).
+  --term <value>     TERM for child shells (default: keep the outer terminal's
+                     xterm-ghostty, else xterm-256color).
   -h, --help         Show this help.
   -V, --version      Print the cmux version.
 ";
@@ -355,10 +410,14 @@ fn usage_for(catalog: &localization::Catalog) -> String {
 }
 
 fn usage_for_platform(catalog: &localization::Catalog, supports_machine_agent: bool) -> String {
+    let usage = USAGE.replace(
+        "{lifecycle_usage}\n",
+        &format!("{}\n", catalog.local_server.startup_lifecycle_usage),
+    );
     if supports_machine_agent {
-        USAGE.replace("  {machine_agent_usage}\n", &format!("  {}\n", catalog.machine_agent.usage))
+        usage.replace("  {machine_agent_usage}\n", &format!("  {}\n", catalog.machine_agent.usage))
     } else {
-        USAGE.replace("  {machine_agent_usage}\n", "")
+        usage.replace("  {machine_agent_usage}\n", "")
     }
 }
 
@@ -399,6 +458,7 @@ struct Args {
     iroh: bool,
     advertised_routes: Vec<String>,
     term: Option<String>,
+    agent_browser_provider: bool,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -436,6 +496,10 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
 }
 
 fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
+    let args = args.into_iter().collect::<Vec<_>>();
+    if has_inline_relay_ticket_argument(&args) {
+        return Err(localization::catalog().remote_client.inline_relay_ticket_rejected.to_string());
+    }
     let mut out = Args {
         attach: false,
         session: "main".to_string(),
@@ -468,22 +532,21 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         iroh: false,
         advertised_routes: Vec::new(),
         term: None,
+        agent_browser_provider: false,
     };
     let mut args = args.into_iter().peekable();
-    match args.peek().map(|s| s.as_str()) {
-        Some("attach") => {
-            out.attach = true;
-            args.next();
-        }
-        Some("daemon") => {
-            out.remote = true;
-            out.headless = true;
-            args.next();
-        }
-        _ => {}
-    }
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            // Accept the attach verb wherever startup options are accepted.
+            // This matches the usual CLI convention that global options may
+            // precede a subcommand, while preserving the existing
+            // `cmux attach ...` spelling.
+            "attach" => {
+                if out.attach {
+                    return Err(localization::catalog().startup.duplicate_attach.to_string());
+                }
+                out.attach = true;
+            }
             "--session" => {
                 out.session = args.next().ok_or_else(|| "--session needs a value".to_string())?;
             }
@@ -624,7 +687,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     .push(args.next().unwrap_or_else(|| usage_exit("--relay-slot needs a value")));
                 out.remote = true;
             }
-            "--relay-ticket" => {
+            option if option == "--relay-ticket" || option.starts_with("--relay-ticket=") => {
                 return Err(localization::catalog()
                     .remote_client
                     .inline_relay_ticket_rejected
@@ -671,13 +734,17 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             "--term" => {
                 out.term = Some(args.next().ok_or_else(|| "--term needs a value".to_string())?);
             }
+            // Private launch contract used by cmux-browser. It configures
+            // Vercel agent-browser to attach through the local provider
+            // adapter instead of starting an unrelated Chrome process.
+            "--agent-browser-provider" => out.agent_browser_provider = true,
             "-h" | "--help" => {
                 print!("{}", usage());
-                std::process::exit(0);
+                client_log::exit(0);
             }
             "-V" | "--version" => {
                 println!("cmux {}", version_string());
-                std::process::exit(0);
+                client_log::exit(0);
             }
             other => return Err(format!("unknown argument {other:?}")),
         }
@@ -685,10 +752,14 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
     if out.terminal.is_some() && !out.attach {
         return Err("--terminal requires `cmux attach`".to_string());
     }
+    #[cfg(not(unix))]
+    if out.agent_browser_provider {
+        return Err(format!("--agent-browser-provider is unsupported on {}", std::env::consts::OS));
+    }
     Ok(out)
 }
 
-fn version_string() -> String {
+pub(crate) fn version_string() -> String {
     // Packaged builds stamp both source identities so artifact validation can
     // reject a cmux binary built against a different Ghostty checkout before
     // it enters an app bundle. Local builds report the crate version alone.
@@ -978,6 +1049,17 @@ fn resolve_provider_launch(
         Some(ProviderLaunch::Unix(socket.clone()))
     } else if let Some(command) = &args.machine_provider_command {
         Some(ProviderLaunch::Command(command.iter().map(OsString::from).collect()))
+    } else if let Some(command) =
+        // Config parity with --machine-provider-command. Any explicit CLI
+        // provider mode above wins; an explicit --cloud also wins below, so
+        // the config command only applies when the CLI chose nothing.
+        config
+            .machine_provider
+            .command
+            .as_ref()
+            .filter(|_| !args.cloud_cli_requested())
+    {
+        Some(ProviderLaunch::Command(command.iter().map(OsString::from).collect()))
     } else if args.cloud_cli_requested() || config.machine_provider.cloud.enabled {
         let cloud = &config.machine_provider.cloud;
         Some(ProviderLaunch::Cloud(CloudLaunch {
@@ -1064,14 +1146,240 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
     if args.term.is_some() {
         conflicts.push("--term");
     }
+    if args.agent_browser_provider {
+        conflicts.push("--agent-browser-provider");
+    }
     if !conflicts.is_empty() {
         anyhow::bail!("machine provider mode cannot be combined with {}", conflicts.join(", "));
     }
     Ok(())
 }
 
+fn rewrite_server_start(args: &mut Vec<String>) {
+    let mut index = 0;
+    let mut output_mode = false;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--socket" | "--session" | "--machine" => {
+                if args.get(index + 1).is_none() {
+                    return;
+                }
+                index += 2;
+            }
+            "--json" | "--jsonl" | "--quiet" => {
+                output_mode = true;
+                index += 1;
+            }
+            "-h" | "--help" => return,
+            "server" if args.get(index + 1).map(String::as_str) == Some("start") => {
+                let start_args = &args[index + 2..];
+                if (output_mode && !has_inline_relay_ticket_argument(start_args))
+                    || server_start_has_cli_routing_flag(start_args)
+                {
+                    return;
+                }
+                args.drain(index..index + 2);
+                args.insert(0, "--headless".to_string());
+                return;
+            }
+            _ => return,
+        }
+    }
+}
+
+fn has_inline_relay_ticket_argument(args: &[String]) -> bool {
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            option if option == "--relay-ticket" || option.starts_with("--relay-ticket=") => {
+                return true;
+            }
+            "--session"
+            | "--socket"
+            | "--machine"
+            | "--terminal"
+            | "--state"
+            | "--machine-provider"
+            | "--cloud-host"
+            | "--cloud-user"
+            | "--cloud-port"
+            | "--cloud-identity"
+            | "--ws"
+            | "--ws-token"
+            | "--remote-ws"
+            | "--remote-http"
+            | "--remote-state-dir"
+            | "--remote-link-socket"
+            | "--remote-admin-socket"
+            | "--remote-resume-lease-seconds"
+            | "--relay"
+            | "--relay-slot"
+            | "--relay-ticket-file"
+            | "--relay-ticket-command"
+            | "--advertise"
+            | "--term" => {
+                if args.get(index + 1).is_some_and(|value| {
+                    value == "--relay-ticket" || value.starts_with("--relay-ticket=")
+                }) {
+                    return true;
+                }
+                index += 2;
+            }
+            "--relay-ticket-command-arg" => index += 2,
+            "--machine-provider-command" => {
+                index += 1;
+                while index < args.len() && args[index] != "--" {
+                    index += 1;
+                }
+                index += 1;
+            }
+            _ => index += 1,
+        }
+    }
+    false
+}
+
+fn server_start_has_cli_routing_flag(args: &[String]) -> bool {
+    if has_inline_relay_ticket_argument(args) {
+        return false;
+    }
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--session"
+            | "--socket"
+            | "--machine"
+            | "--terminal"
+            | "--state"
+            | "--machine-provider"
+            | "--cloud-host"
+            | "--cloud-user"
+            | "--cloud-port"
+            | "--cloud-identity"
+            | "--ws"
+            | "--ws-token"
+            | "--remote-ws"
+            | "--remote-http"
+            | "--remote-state-dir"
+            | "--remote-link-socket"
+            | "--remote-admin-socket"
+            | "--remote-resume-lease-seconds"
+            | "--relay"
+            | "--relay-slot"
+            | "--relay-ticket-file"
+            | "--relay-ticket-command"
+            | "--relay-ticket-command-arg"
+            | "--advertise"
+            | "--term" => index += 2,
+            "--machine-provider-command" => {
+                index += 1;
+                while index < args.len() && args[index] != "--" {
+                    index += 1;
+                }
+                index += 1;
+            }
+            "-h" | "--help" | "--json" | "--jsonl" | "--quiet" => return true,
+            _ => index += 1,
+        }
+    }
+    false
+}
+
+fn is_cli_invocation(args: &[String]) -> bool {
+    if args.first().map(String::as_str) == Some("--headless")
+        && has_inline_relay_ticket_argument(args)
+    {
+        return false;
+    }
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--socket"
+            | "--session"
+            | "--machine"
+            | "--terminal"
+            | "--state"
+            | "--machine-provider"
+            | "--cloud-host"
+            | "--cloud-user"
+            | "--cloud-port"
+            | "--cloud-identity"
+            | "--ws"
+            | "--ws-token"
+            | "--remote-ws"
+            | "--remote-http"
+            | "--remote-state-dir"
+            | "--remote-link-socket"
+            | "--remote-admin-socket"
+            | "--remote-resume-lease-seconds"
+            | "--relay"
+            | "--relay-slot"
+            | "--relay-ticket"
+            | "--relay-ticket-file"
+            | "--relay-ticket-command"
+            | "--relay-ticket-command-arg"
+            | "--advertise"
+            | "--term" => index += 2,
+            "--json" | "--jsonl" | "--quiet" => index += 1,
+            "--ephemeral"
+            | "--cloud"
+            | "--headless"
+            | "--ws-insecure-bind"
+            | "--remote"
+            | "--remote-ws-insecure-bind"
+            | "--iroh" => index += 1,
+            "--machine-provider-command" => return false,
+            "-h" | "--help" | "help" => return true,
+            "attach" => return false,
+            value if cli::is_public_scope(value) => return true,
+            value if value.starts_with('-') => index += 1,
+            // Session startup has no positional arguments. Route unknown
+            // top-level words through the public parser so typos cannot fall
+            // into the unrelated legacy startup help.
+            _ => return true,
+        }
+    }
+    false
+}
+
+fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), String> {
+    if raw_args.first().map(String::as_str) != Some("remote") {
+        return Ok(());
+    }
+    match raw_args.get(1).map(String::as_str) {
+        Some("stop") => {
+            raw_args.drain(..2);
+            raw_args.insert(0, "remote-stop".to_string());
+        }
+        Some("connect" | "ssh" | "forward" | "rpc" | "enroll" | "known-daemons") => {
+            raw_args.remove(0);
+        }
+        Some("-h" | "--help") | None => {}
+        Some(_)
+            if raw_args[2..]
+                .iter()
+                .any(|argument| matches!(argument.as_str(), "-h" | "--help")) => {}
+        Some(action) => {
+            return Err(localization::catalog().remote_client.unknown_action("remote", action));
+        }
+    }
+    Ok(())
+}
+
 fn main() {
-    let raw_args = std::env::args().skip(1).collect::<Vec<_>>();
+    run_main();
+    // Reached only by the normal return paths, which never call
+    // client_log::exit; flush so the last queued records (final status,
+    // shutdown diagnostics) reach the client log on every platform.
+    client_log::flush_for_exit();
+}
+
+fn run_main() {
+    let mut raw_args = std::env::args().skip(1).collect::<Vec<_>>();
+    #[cfg(unix)]
+    if raw_args.first().map(String::as_str) == Some("__agent-browser-provider") {
+        client_log::exit(agent_browser_provider::run());
+    }
     // Private process mode used by the daemon when it launches one durable
     // terminal host per PTY. Keep this out of public help and dispatch it
     // before installing the interactive daemon's signal handlers: the host
@@ -1079,44 +1387,55 @@ fn main() {
     // semantics.
     if raw_args.first().map(String::as_str) == Some("__terminal-host") {
         if let Err(error) = run_terminal_host_process(&raw_args[1..]) {
-            eprintln!("cmux-tui terminal host: {error}");
-            std::process::exit(1);
+            crate::client_log::stderr_log!("startup", "cmux-tui terminal host: {error}");
+            client_log::exit(1);
         }
         return;
     }
     if config::is_ghostty_config_helper_invocation(&raw_args) {
         if let Err(error) = harden_provider_secret_process() {
-            eprintln!("cmux-tui: cannot protect machine-provider credentials: {error}");
-            std::process::exit(1);
+            crate::client_log::stderr_log!(
+                "startup",
+                "cmux-tui: cannot protect machine-provider credentials: {error}"
+            );
+            client_log::exit(1);
         }
         discard_provider_secret_environment();
-        std::process::exit(config::run_ghostty_config_helper());
+        client_log::exit(config::run_ghostty_config_helper());
     }
     if let Err(error) = harden_provider_secret_process() {
-        eprintln!("cmux-tui: cannot protect machine-provider credentials: {error}");
-        std::process::exit(1);
+        crate::client_log::stderr_log!(
+            "startup",
+            "cmux-tui: cannot protect machine-provider credentials: {error}"
+        );
+        client_log::exit(1);
     }
     if let Err(error) = install_signal_handlers() {
-        eprintln!(
+        crate::client_log::stderr_log!(
+            "startup",
             "cmux-tui: {}",
             localization::catalog().runtime.signal_handlers_failed(&error.to_string())
         );
-        std::process::exit(1);
+        client_log::exit(1);
     }
     #[cfg(target_os = "linux")]
     if let Some(exit_code) = provider_authority::try_run(&raw_args) {
-        std::process::exit(exit_code);
+        client_log::exit(exit_code);
+    }
+    if let Err(error) = normalize_remote_resource_args(&mut raw_args) {
+        crate::client_log::stderr_log!("startup", "cmux-tui: {error}");
+        client_log::exit(1);
     }
     if remote_cli::is_remote_invocation(&raw_args) {
         discard_provider_secret_environment();
-        std::process::exit(remote_cli::run(&raw_args, &usage()));
+        client_log::exit(remote_cli::run(&raw_args, &usage()));
     }
     if raw_args.first().map(|arg| arg.as_str()) == Some("relay") {
         let args = parse_args(raw_args.into_iter().skip(1));
         discard_provider_secret_environment();
         if let Err(error) = run_relay(args) {
-            eprintln!("cmux-tui: {error}");
-            std::process::exit(1);
+            crate::client_log::stderr_log!("startup", "cmux-tui: {error}");
+            client_log::exit(1);
         }
         return;
     }
@@ -1124,17 +1443,25 @@ fn main() {
     if raw_args.first().map(|arg| arg.as_str()) == Some("machine-agent") {
         discard_provider_secret_environment();
         if let Err(error) = machine_agent::run(&raw_args[1..]) {
-            eprintln!("cmux-tui: {error}");
+            crate::client_log::stderr_log!("startup", "cmux-tui: {error}");
             if error.show_help() {
-                eprintln!("{}", localization::catalog().machine_agent.help);
+                crate::client_log::stderr_log!(
+                    "startup",
+                    "{}",
+                    localization::catalog().machine_agent.help
+                );
             }
-            std::process::exit(1);
+            client_log::exit(1);
         }
         return;
     }
-    if cli::is_cli_invocation(&raw_args) {
+    // `server start` is the canonical spelling for the existing foreground
+    // headless owner. Keep startup in the established Args/run_server path so
+    // lifecycle aliases cannot drift into a second server launcher.
+    rewrite_server_start(&mut raw_args);
+    if is_cli_invocation(&raw_args) {
         discard_provider_secret_environment();
-        std::process::exit(cli::run(&raw_args, &usage()));
+        client_log::exit(cli::run(&raw_args, &usage()));
     }
     let args = parse_args(raw_args);
     #[cfg(unix)]
@@ -1185,8 +1512,8 @@ fn main() {
         None => run_server(args, provider_workspace_authority),
     };
     if let Err(e) = result {
-        eprintln!("cmux-tui: {e}");
-        std::process::exit(1);
+        crate::client_log::stderr_log!("startup", "cmux-tui: {e}");
+        client_log::exit(1);
     }
 }
 
@@ -1200,8 +1527,10 @@ fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
 }
 
 fn run_attach(args: Args) -> anyhow::Result<()> {
-    let socket_path =
-        args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    let socket_path = match args.socket {
+        Some(path) => path,
+        None => cmux_tui_core::server::try_default_socket_path(&args.session)?,
+    };
     let config = config::load();
     let messages = &localization::catalog().attach;
     let terminal = args
@@ -1291,8 +1620,10 @@ fn run_relay(args: Args) -> anyhow::Result<()> {
     if args.provider_cli_requested() {
         anyhow::bail!("relay cannot also select a machine provider");
     }
-    let socket_path =
-        args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    let socket_path = match args.socket {
+        Some(path) => path,
+        None => cmux_tui_core::server::try_default_socket_path(&args.session)?,
+    };
     let stream = cmux_tui_core::platform::transport::connect(&socket_path).map_err(|error| {
         anyhow::anyhow!("cannot connect relay to session socket {}: {error}", socket_path.display())
     })?;
@@ -1395,6 +1726,61 @@ fn socket_option(fd: std::os::fd::RawFd, option: libc::c_int) -> io::Result<libc
     Ok(value)
 }
 
+struct ServedMuxCleanup {
+    mux: Option<Arc<Mux>>,
+    socket_path: PathBuf,
+}
+
+impl ServedMuxCleanup {
+    fn new(mux: Arc<Mux>, socket_path: PathBuf) -> Self {
+        Self { mux: Some(mux), socket_path }
+    }
+
+    fn disarm(&mut self) {
+        self.mux = None;
+    }
+}
+
+impl Drop for ServedMuxCleanup {
+    fn drop(&mut self) {
+        if let Some(mux) = self.mux.take() {
+            mux.shutdown();
+            cmux_tui_core::server::cleanup(&self.socket_path);
+        }
+    }
+}
+
+struct LocalOwnerEventLoop {
+    stop: Option<cmux_tui_core::MuxEventReceiver>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl LocalOwnerEventLoop {
+    fn finish(mut self) -> anyhow::Result<()> {
+        self.stop_and_join()
+    }
+
+    #[cfg(test)]
+    fn stop_handle(&self) -> cmux_tui_core::MuxEventReceiver {
+        self.stop.as_ref().expect("owner event loop is active").clone()
+    }
+
+    fn stop_and_join(&mut self) -> anyhow::Result<()> {
+        if let Some(stop) = self.stop.take() {
+            stop.close();
+        }
+        self.thread.take().map_or(Ok(()), |thread| {
+            thread.join().map_err(|_| anyhow::anyhow!("local owner event loop panicked"))
+        })
+    }
+}
+
+impl Drop for LocalOwnerEventLoop {
+    fn drop(&mut self) {
+        let _ = self.stop_and_join();
+    }
+}
+
 fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
@@ -1418,10 +1804,10 @@ fn run_server(
     let ws_token = args.ws_token.clone().or(config.server.ws_token.clone());
     // Compute the socket path up front so a normal interactive launch can
     // reuse an existing local session and surface children inherit it.
-    let socket_path = args
-        .socket
-        .clone()
-        .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    let socket_path = match args.socket.clone() {
+        Some(path) => path,
+        None => cmux_tui_core::server::try_default_socket_path(&args.session)?,
+    };
     if args.should_attach_existing(&ws_addr, &ws_token)
         && socket_path.exists()
         && let Ok(remote) = RemoteSession::connect(&socket_path)
@@ -1467,6 +1853,15 @@ fn run_server(
     }
     surface_options.extra_env.push(("CMUX_TUI_SOCKET".into(), socket_path.display().to_string()));
     surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
+    #[cfg(unix)]
+    if args.agent_browser_provider {
+        agent_browser_provider::configure_surface_options(&mut surface_options)?;
+    }
+    if let Some(helper) = agent_hook_install::runtime_helper_path() {
+        surface_options
+            .extra_env
+            .push(("CMUX_TUI_HOOK".into(), helper.to_string_lossy().into_owned()));
+    }
 
     let state_root = if args.ephemeral {
         None
@@ -1529,28 +1924,26 @@ fn run_server(
     let _provider_management = provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))
         .transpose()?;
-    let websocket_server = match ws_addr {
-        Some(addr) => {
-            let addr = addr
-                .parse()
-                .map_err(|error| anyhow::anyhow!("invalid WebSocket address: {error}"))?;
-            Some(cmux_tui_core::server::serve_websocket(
-                mux.clone(),
-                addr,
-                ws_token,
-                args.ws_insecure_bind,
-            )?)
+    let owner_event_loop =
+        background_owner_reload_completion(args.headless).map(|complete_reload| {
+            if complete_reload {
+                start_headless_local_owner_event_loop(&mux)
+            } else {
+                start_local_owner_event_loop(&mux)
+            }
+        });
+    let pending_server = match cmux_tui_core::server::serve_paused(mux.clone(), args.socket.clone())
+    {
+        Ok(server) => server,
+        Err(error) => {
+            mux.shutdown();
+            return Err(error);
         }
-        None => None,
     };
-    if let Some(server) = &websocket_server {
-        eprintln!("cmux-tui: WebSocket control at ws://{}", server.local_addr());
-    }
-    cmux_tui_core::server::serve(mux.clone(), Some(socket_path.clone()))?;
 
     #[cfg(unix)]
     let remote_runtime = if args.remote {
-        let runtime = remote_runtime::start_daemon_runtime(
+        let runtime = match remote_runtime::start_daemon_runtime(
             socket_path.clone(),
             remote_runtime::DaemonRuntimeOptions {
                 session: args.session.clone(),
@@ -1566,24 +1959,76 @@ fn run_server(
                 resume_lease: std::time::Duration::from_secs(args.remote_resume_lease_seconds),
                 replaceable_sidecar: false,
             },
-        )?;
-        eprintln!(
+        ) {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                mux.shutdown();
+                return Err(error);
+            }
+        };
+        crate::client_log::stderr_log!(
+            "startup",
             "cmux-tui: remote daemon {}, link {}, admin {}",
             runtime.info().daemon_fingerprint,
             runtime.info().link_socket.display(),
             runtime.info().admin_socket.display()
         );
         for route in &runtime.info().routes {
-            eprintln!("cmux-tui: remote route {route}");
+            crate::client_log::stderr_log!("startup", "cmux-tui: remote route {route}");
         }
         Some(runtime)
     } else {
         None
     };
 
-    let machine_runtime = (config.machine_sidebar.enabled || !config.machines.is_empty())
-        .then(|| MachineRuntime::new(socket_path.clone(), config.machines.clone()));
+    let websocket_server = match (|| -> anyhow::Result<_> {
+        Ok(match ws_addr {
+            Some(addr) => {
+                let addr = addr
+                    .parse()
+                    .map_err(|error| anyhow::anyhow!("invalid WebSocket address: {error}"))?;
+                Some(cmux_tui_core::server::serve_websocket(
+                    mux.clone(),
+                    addr,
+                    ws_token,
+                    args.ws_insecure_bind,
+                )?)
+            }
+            None => None,
+        })
+    })() {
+        Ok(server) => server,
+        Err(error) => {
+            #[cfg(unix)]
+            if let Some(runtime) = remote_runtime {
+                let _ = runtime.shutdown();
+            }
+            mux.shutdown();
+            return Err(error);
+        }
+    };
+    if let Some(server) = &websocket_server {
+        crate::client_log::stderr_log!(
+            "startup",
+            "cmux-tui: WebSocket control at ws://{}",
+            server.local_addr()
+        );
+    }
+    let served_socket = pending_server.into_bound_path();
+    let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
+
+    let machine_runtime = (config.machine_sidebar.enabled
+        || !config.machine_sidebar.create_sources.is_empty()
+        || !config.machines.is_empty())
+    .then(|| {
+        MachineRuntime::with_creation_sources(
+            socket_path.clone(),
+            config.machines.clone(),
+            config.machine_sidebar.create_sources.clone(),
+        )
+    });
     let result = if args.headless {
+        mux.mark_server_lifecycle_ready();
         #[cfg(unix)]
         {
             run_headless(&mux, &socket_path, || {
@@ -1597,22 +2042,103 @@ fn run_server(
             run_headless(&mux, &socket_path, || false)
         }
     } else if let Some(runtime) = machine_runtime {
-        run_machine_client(runtime)
+        run_machine_client(runtime, mux.clone())
     } else {
         match RemoteSession::connect(&socket_path)
             .context("connect the interactive client to its session server")
         {
-            Ok(remote) => run_tui(Session::Remote(remote), args.session, None),
+            Ok(remote) => {
+                run_tui_with_owner(Session::Remote(remote), args.session, None, Some(mux.clone()))
+            }
             Err(error) => Err(error),
         }
     };
+    let owner_event_result = owner_event_loop.map_or(Ok(()), LocalOwnerEventLoop::finish);
     #[cfg(unix)]
-    if let Some(runtime) = remote_runtime {
-        runtime.shutdown()?;
+    let remote_shutdown = remote_runtime.map(|runtime| runtime.shutdown()).transpose();
+    #[cfg(unix)]
+    {
+        let shutdown_result = finish_server_shutdown(
+            websocket_server,
+            &mux,
+            &socket_path,
+            remote_shutdown,
+            result.and(owner_event_result),
+        );
+        served_mux_cleanup.disarm();
+        drop(served_mux_cleanup);
+        shutdown_result
     }
+    #[cfg(not(unix))]
+    {
+        drop(websocket_server);
+        mux.shutdown();
+        cmux_tui_core::server::cleanup(&socket_path);
+        served_mux_cleanup.disarm();
+        drop(served_mux_cleanup);
+        result.and(owner_event_result)
+    }
+}
+
+fn dispatch_local_owner_event(event: &cmux_tui_core::MuxEvent, reload: impl FnOnce()) {
+    if matches!(event, cmux_tui_core::MuxEvent::ConfigReloadRequested) {
+        reload();
+    }
+}
+
+fn local_owner_reload_events(mux: &Mux) -> cmux_tui_core::MuxEventReceiver {
+    mux.subscribe_config_reload()
+}
+
+fn background_owner_reload_completion(headless: bool) -> Option<bool> {
+    headless.then_some(true)
+}
+
+fn start_local_owner_event_loop(mux: &Arc<Mux>) -> LocalOwnerEventLoop {
+    start_local_owner_event_loop_with_completion(mux, false)
+}
+
+fn start_headless_local_owner_event_loop(mux: &Arc<Mux>) -> LocalOwnerEventLoop {
+    start_local_owner_event_loop_with_completion(mux, true)
+}
+
+fn start_local_owner_event_loop_with_completion(
+    mux: &Arc<Mux>,
+    complete_reload: bool,
+) -> LocalOwnerEventLoop {
+    let weak_mux = Arc::downgrade(mux);
+    let events = local_owner_reload_events(mux);
+    let stop = events.clone();
+    let thread = std::thread::spawn(move || {
+        while let Ok(event) = events.recv() {
+            let mux = weak_mux.upgrade();
+            dispatch_local_owner_event(&event, move || {
+                if let Some(mux) = mux {
+                    let request = mux.begin_config_reload_application();
+                    let config = config::load();
+                    session::apply_config_to_local_owner(&mux, &config);
+                    if complete_reload {
+                        mux.complete_config_reload_application(request);
+                    }
+                }
+            });
+        }
+    });
+    LocalOwnerEventLoop { stop: Some(stop), thread: Some(thread) }
+}
+
+#[cfg(unix)]
+fn finish_server_shutdown<W, R>(
+    websocket_server: Option<W>,
+    mux: &Arc<Mux>,
+    socket_path: &Path,
+    remote_shutdown: anyhow::Result<Option<R>>,
+    result: anyhow::Result<()>,
+) -> anyhow::Result<()> {
     drop(websocket_server);
     mux.shutdown();
-    cmux_tui_core::server::cleanup(&socket_path);
+    cmux_tui_core::server::cleanup(socket_path);
+    remote_shutdown.map(|_| ())?;
     result
 }
 
@@ -1644,7 +2170,16 @@ fn run_tui(
     session_label: String,
     surface_only: Option<cmux_tui_core::SurfaceId>,
 ) -> anyhow::Result<()> {
-    match run_tui_once(session, session_label, surface_only, None, None)? {
+    run_tui_with_owner(session, session_label, surface_only, None)
+}
+
+fn run_tui_with_owner(
+    session: Session,
+    session_label: String,
+    surface_only: Option<cmux_tui_core::SurfaceId>,
+    owner_mux: Option<Arc<Mux>>,
+) -> anyhow::Result<()> {
+    match run_tui_once(session, session_label, surface_only, owner_mux, None, None)? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("machine request returned without a machine runtime")
@@ -1659,7 +2194,10 @@ enum SessionClientMode {
 }
 
 fn session_client_mode(config: &config::Config) -> SessionClientMode {
-    if config.machine_sidebar.enabled || !config.machines.is_empty() {
+    if config.machine_sidebar.enabled
+        || !config.machine_sidebar.create_sources.is_empty()
+        || !config.machines.is_empty()
+    {
         SessionClientMode::Machines
     } else {
         SessionClientMode::Plain
@@ -1679,28 +2217,49 @@ fn run_connected_session_client(
     match session_client_mode(&config) {
         SessionClientMode::Plain => run_tui(session, session_label, None),
         SessionClientMode::Machines => {
-            let runtime = MachineRuntime::new(socket_path, config.machines);
-            run_machine_client_with_initial(runtime, session)
+            let runtime = MachineRuntime::with_creation_sources(
+                socket_path,
+                config.machines,
+                config.machine_sidebar.create_sources,
+            );
+            run_machine_client_with_initial(runtime, session, None)
         }
     }
 }
 
-fn run_machine_client(mut runtime: MachineRuntime) -> anyhow::Result<()> {
+fn run_machine_client(runtime: MachineRuntime, owner_mux: Arc<Mux>) -> anyhow::Result<()> {
     let active = runtime.initial_key();
-    let session = runtime.connect(active)?;
-    run_machine_client_with_initial(runtime, session)
+    let connections = MachineConnectionHub::new(runtime.connection_connectors());
+    let session = connections.connect(active)?;
+    run_machine_client_with_hub(runtime, session, connections, Some(owner_mux))
 }
 
 fn run_machine_client_with_initial(
     runtime: MachineRuntime,
     session: Session,
+    active_lease: Option<Box<dyn MachineConnectionLease>>,
+) -> anyhow::Result<()> {
+    let active = runtime.initial_key();
+    let connections = MachineConnectionHub::new(runtime.connection_connectors());
+    connections
+        .insert_ready(active, MachineConnection { session: session.clone(), _lease: active_lease });
+    run_machine_client_with_hub(runtime, session, connections, None)
+}
+
+fn run_machine_client_with_hub(
+    runtime: MachineRuntime,
+    session: Session,
+    connections: MachineConnectionHub,
+    owner_mux: Option<Arc<Mux>>,
 ) -> anyhow::Result<()> {
     let active = runtime.initial_key();
     let label = runtime.name(active).unwrap_or("machine").to_string();
-    let machine_ui = MachineUiState::new(runtime.snapshot(active));
+    let mut machine_ui = runtime.ui_state(active);
+    machine_ui.set_connection_phases(connections.phases());
+    connections.note_presented(Some(active));
     let controller: Box<dyn MachineController> =
-        Box::new(StaticMachineController { runtime, active, pending_active: None });
-    match run_tui_once(session, label, None, Some(machine_ui), Some(controller))? {
+        Box::new(StaticMachineController { runtime, active, connections, pending: None });
+    match run_tui_once(session, label, None, owner_mux, Some(machine_ui), Some(controller))? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("machine request escaped its in-place controller")
@@ -1711,7 +2270,8 @@ fn run_machine_client_with_initial(
 struct StaticMachineController {
     runtime: MachineRuntime,
     active: machine::MachineKey,
-    pending_active: Option<machine::MachineKey>,
+    connections: MachineConnectionHub,
+    pending: Option<machine::MachineKey>,
 }
 
 impl MachineController for StaticMachineController {
@@ -1720,6 +2280,7 @@ impl MachineController for StaticMachineController {
             MachineRequest::Switch(machine) => self.switch(machine),
             MachineRequest::Connect { target, route: MachineConnectRoute::Local } => {
                 let machine = self.runtime.connect_machine(&target)?;
+                self.register(machine)?;
                 self.switch(machine)
             }
             MachineRequest::Connect { route: MachineConnectRoute::Provider, .. } => Ok(self
@@ -1728,6 +2289,18 @@ impl MachineController for StaticMachineController {
                 )),
             MachineRequest::Create => {
                 Ok(self.notice(localization::catalog().sidebar.machine_catalog_create_unsupported))
+            }
+            MachineRequest::CreateFrom { source_id } => {
+                let (machine, name) = self.runtime.create_from(&source_id)?;
+                self.register(machine)?;
+                let message =
+                    format!("{}: {name}", localization::catalog().sidebar.prototype_machine_added);
+                Ok(self.notice(message))
+            }
+            MachineRequest::RenameClientMachine { machine, name } => {
+                let name = self.runtime.rename_machine(machine, &name)?;
+                let result = MachineActionResult::ui(self.ui_state(self.active));
+                Ok(if machine == self.active { result.with_session_label(name) } else { result })
             }
             MachineRequest::SelectProviderScope(_)
             | MachineRequest::InvokeProviderAction { .. }
@@ -1749,31 +2322,59 @@ impl MachineController for StaticMachineController {
         }
     }
 
-    fn commit_replacement(&mut self) -> anyhow::Result<()> {
-        self.active = self.pending_active.take().ok_or_else(|| {
+    fn commit_replacement(&mut self, present: bool) -> anyhow::Result<()> {
+        let machine = self.pending.take().ok_or_else(|| {
             anyhow::anyhow!(localization::catalog().sidebar.machine_replacement_target_missing)
         })?;
+        if present {
+            self.active = machine;
+            self.connections.note_presented(Some(machine));
+        }
         Ok(())
     }
 
     fn abort_replacement(&mut self) {
-        self.pending_active = None;
+        if let Some(machine) = self.pending.take()
+            && machine != self.active
+        {
+            self.connections.remove(machine);
+        }
+    }
+
+    fn close(&mut self) {
+        self.pending = None;
+        self.connections.close();
     }
 }
 
 impl StaticMachineController {
     fn switch(&mut self, machine: machine::MachineKey) -> anyhow::Result<MachineActionResult> {
-        let session = self.runtime.connect(machine)?;
+        self.register(machine)?;
+        let (session, reused) = self.connections.connect_tracked(machine)?;
         let label = self.runtime.name(machine).unwrap_or("machine").to_string();
-        self.pending_active = Some(machine);
-        let ui = MachineUiState::new(self.runtime.snapshot(machine));
-        Ok(MachineActionResult::replace(ui, session, label))
+        self.pending = Some(machine);
+        let ui = self.ui_state(machine);
+        Ok(MachineActionResult::replace(ui, session, label).with_reused_session(reused))
     }
 
     fn notice(&self, notice: impl Into<String>) -> MachineActionResult {
-        let mut ui = MachineUiState::new(self.runtime.snapshot(self.active));
+        let mut ui = self.ui_state(self.active);
         ui.notice = Some(notice.into());
         MachineActionResult::ui(ui)
+    }
+
+    fn register(&self, machine: machine::MachineKey) -> anyhow::Result<()> {
+        let connector = self.runtime.connection_connector(machine).ok_or_else(|| {
+            anyhow::anyhow!(localization::catalog().sidebar.client_machine_unavailable)
+        })?;
+        self.connections.register(machine, connector);
+        Ok(())
+    }
+
+    fn ui_state(&self, active: machine::MachineKey) -> MachineUiState {
+        let mut ui = self.runtime.ui_state(active);
+        ui.set_connection_phases(self.connections.phases());
+        ui
     }
 }
 
@@ -1798,8 +2399,9 @@ fn run_provider_machine_client(
             &error,
         )),
     };
+    runtime.sync_connections();
     let controller: Box<dyn MachineController> = Box::new(runtime);
-    match run_tui_once(session, label, None, Some(machine_ui), Some(controller))? {
+    match run_tui_once(session, label, None, None, Some(machine_ui), Some(controller))? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("provider request escaped its in-place controller")
@@ -1838,6 +2440,7 @@ fn run_tui_once(
     session: Session,
     session_label: String,
     surface_only: Option<cmux_tui_core::SurfaceId>,
+    owner_mux: Option<Arc<Mux>>,
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
 ) -> anyhow::Result<app::RunOutcome> {
@@ -1854,7 +2457,7 @@ fn run_tui_once(
     let color_result = publish_session_default_colors(&session, colors, surface_only);
     let raw_result = crossterm::terminal::disable_raw_mode();
     if let Err(err) = color_result {
-        eprintln!("cmux-tui: failed to set default colors: {err}");
+        crate::client_log::stderr_log!("startup", "cmux-tui: failed to set default colors: {err}");
     }
     raw_result?;
     app::run_with_machine_updates(
@@ -1862,6 +2465,7 @@ fn run_tui_once(
         session_label,
         colors,
         surface_only,
+        owner_mux,
         machine_ui,
         machine_controller,
     )
@@ -1875,7 +2479,11 @@ fn run_headless<F>(
 where
     F: Fn() -> bool,
 {
-    eprintln!("cmux-tui: headless, control socket at {}", socket_path.display());
+    crate::client_log::stderr_log!(
+        "startup",
+        "cmux-tui: headless, control socket at {}",
+        socket_path.display()
+    );
     // Keep the process alive; the control socket drives everything and
     // the mux reaps exited surfaces itself.
     let events = mux.subscribe();
@@ -1897,8 +2505,8 @@ where
 }
 
 fn usage_exit(msg: &str) -> ! {
-    eprintln!("cmux: {msg}\n\n{}", usage());
-    std::process::exit(2);
+    crate::client_log::stderr_log!("startup", "cmux: {msg}\n\n{}", usage());
+    client_log::exit(2);
 }
 
 #[cfg(all(test, unix))]
@@ -1909,7 +2517,8 @@ mod remote_args_tests {
     fn daemon_accepts_native_and_durable_object_relay_registrations() {
         let args = parse_args(
             [
-                "daemon",
+                "--headless",
+                "--remote",
                 "--relay",
                 "relay+wss://relay.example",
                 "--relay-slot",
@@ -1958,7 +2567,8 @@ mod remote_args_tests {
         let marker = "inline-daemon-secret-marker";
         let error = parse_args_result(
             [
-                "daemon",
+                "--headless",
+                "--remote",
                 "--relay",
                 "relay+wss://relay.example",
                 "--relay-slot",
@@ -1976,6 +2586,15 @@ mod remote_args_tests {
                 .remote_client
                 .inline_relay_ticket_rejected
         );
+    }
+
+    #[test]
+    fn inline_relay_ticket_scanner_preserves_command_argument_literals() {
+        let args =
+            ["--relay-ticket-command", "helper", "--relay-ticket-command-arg", "--relay-ticket"]
+                .map(str::to_string);
+
+        assert!(!has_inline_relay_ticket_argument(&args));
     }
 
     #[test]
@@ -2009,10 +2628,195 @@ mod remote_args_tests {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     fn args(values: &[&str]) -> Args {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
+    }
+
+    #[test]
+    fn public_cli_routing_skips_private_process_option_values() {
+        let strings =
+            |values: &[&str]| values.iter().map(|value| (*value).to_string()).collect::<Vec<_>>();
+        assert!(is_cli_invocation(&strings(&["--relay-slot", "server", "workspace", "list",])));
+        assert!(!is_cli_invocation(&strings(&["--relay-slot", "routing-key", "--headless",])));
+    }
+
+    #[test]
+    fn server_start_routing_skips_private_process_option_values() {
+        for value in ["--help", "--json", "--jsonl", "--quiet"] {
+            let mut values = [
+                "server",
+                "start",
+                "--relay-ticket-command",
+                "ticket-helper",
+                "--relay-ticket-command-arg",
+                value,
+            ]
+            .map(str::to_string)
+            .to_vec();
+
+            rewrite_server_start(&mut values);
+
+            assert_eq!(values[0], "--headless");
+            assert_eq!(values.last().map(String::as_str), Some(value));
+        }
+
+        let mut quiet = ["server", "start", "--quiet"].map(str::to_string).to_vec();
+        rewrite_server_start(&mut quiet);
+        assert_eq!(quiet, ["server", "start", "--quiet"]);
+    }
+
+    #[test]
+    fn local_owner_event_dispatches_reload_to_the_shared_mutation_path() {
+        let applied = std::cell::Cell::new(false);
+
+        dispatch_local_owner_event(&cmux_tui_core::MuxEvent::ConfigReloadRequested, || {
+            applied.set(true);
+        });
+
+        assert!(applied.get());
+    }
+
+    #[test]
+    fn local_owner_reload_subscription_ignores_unrelated_event_overflow() {
+        let mux = Mux::new("owner-reload-overflow", SurfaceOptions::default());
+        let events = local_owner_reload_events(&mux);
+
+        for surface in 0..=4_096 {
+            mux.emit(cmux_tui_core::MuxEvent::Bell(surface));
+        }
+        mux.emit(cmux_tui_core::MuxEvent::ConfigReloadRequested);
+
+        assert!(matches!(events.recv().unwrap(), cmux_tui_core::MuxEvent::ConfigReloadRequested));
+        assert!(!events.overflowed());
+    }
+
+    #[test]
+    fn local_owner_event_loop_stop_wakes_without_a_mux_event() {
+        let mux = Arc::new(Mux::new("owner-event-stop", SurfaceOptions::default()));
+        let event_loop = start_local_owner_event_loop(&mux);
+        let stop = event_loop.stop_handle();
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+
+        stop.close();
+        std::thread::spawn(move || done_tx.send(event_loop.finish()).unwrap());
+        let stopped_without_event = match done_rx.recv_timeout(Duration::from_secs(1)) {
+            Ok(result) => {
+                result.unwrap();
+                true
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => false,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                panic!("owner event loop join observer disconnected")
+            }
+        };
+        if !stopped_without_event {
+            mux.emit(cmux_tui_core::MuxEvent::ConfigReloadRequested);
+            done_rx.recv_timeout(Duration::from_secs(2)).unwrap().unwrap();
+        }
+
+        assert!(stopped_without_event, "owner event loop required a mux event to stop");
+    }
+
+    #[test]
+    fn interactive_owner_event_loop_defers_reload_completion_to_the_app() {
+        let mux = Arc::new(Mux::new("interactive-owner-reload", SurfaceOptions::default()));
+        let event_loop = start_local_owner_event_loop(&mux);
+        let worker_mux = mux.clone();
+        let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            result_tx.send(worker_mux.request_config_reload()).unwrap();
+        });
+
+        assert!(matches!(
+            result_rx.recv_timeout(Duration::from_millis(100)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        let request = mux.begin_config_reload_application();
+        mux.complete_config_reload_application(request);
+        result_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        worker.join().unwrap();
+        event_loop.finish().unwrap();
+    }
+
+    #[test]
+    fn interactive_owner_uses_only_the_app_reload_path() {
+        assert_eq!(background_owner_reload_completion(false), None);
+        assert_eq!(background_owner_reload_completion(true), Some(true));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_shutdown_failure_still_stops_the_mux_and_removes_the_socket() {
+        let socket_path = std::env::temp_dir().join(format!(
+            "cmux-remote-shutdown-{}-{}.sock",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::write(&socket_path, b"test socket marker").unwrap();
+        let mux = Mux::new("remote-shutdown-failure", SurfaceOptions::default());
+
+        let error = finish_server_shutdown(
+            Some(()),
+            &mux,
+            &socket_path,
+            Err::<Option<()>, _>(anyhow::anyhow!("injected remote shutdown failure")),
+            Ok(()),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("injected remote shutdown failure"), "{error}");
+        assert!(mux.daemon_shutdown_requested());
+        assert!(!socket_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn normal_server_cleanup_disarms_the_fallback_guard() {
+        let socket_path = std::env::temp_dir().join(format!(
+            "cmux-normal-shutdown-{}-{}.sock",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::write(&socket_path, b"test socket marker").unwrap();
+        let mux = Mux::new("normal-shutdown", SurfaceOptions::default());
+        let mut cleanup = ServedMuxCleanup::new(mux.clone(), socket_path.clone());
+
+        finish_server_shutdown(
+            Some(()),
+            &mux,
+            &socket_path,
+            Ok::<Option<()>, anyhow::Error>(None),
+            Ok(()),
+        )
+        .unwrap();
+        cleanup.disarm();
+
+        assert!(cleanup.mux.is_none());
+        assert!(mux.daemon_shutdown_requested());
+        assert!(!socket_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn browser_owned_server_accepts_the_private_agent_browser_provider_flag() {
+        let parsed = args(&["--headless", "--agent-browser-provider"]);
+        assert!(parsed.headless);
+        assert!(parsed.agent_browser_provider);
+        assert!(!usage().contains("--agent-browser-provider"));
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn browser_owned_server_rejects_the_private_provider_flag() {
+        let error =
+            parse_args_result(["--headless", "--agent-browser-provider"].map(str::to_string))
+                .unwrap_err();
+        assert!(error.contains("unsupported"));
     }
 
     #[cfg(windows)]
@@ -2125,7 +2929,9 @@ mod tests {
 
         let runtime = MachineRuntime::new(PathBuf::from("/tmp/static-machine-notice.sock"), vec![]);
         let active = runtime.initial_key();
-        let mut controller = StaticMachineController { runtime, active, pending_active: None };
+        let connections = MachineConnectionHub::new(runtime.connection_connectors());
+        let mut controller =
+            StaticMachineController { runtime, active, connections, pending: None };
 
         assert_eq!(
             controller.perform(MachineRequest::Create).unwrap().ui.notice.as_deref(),
@@ -2140,6 +2946,205 @@ mod tests {
                 .as_deref(),
             Some("このマシンカタログにはプロバイダーアクションがありません")
         );
+    }
+
+    #[test]
+    fn static_machine_creation_does_not_connect_until_selected() {
+        let suffix =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let socket = std::env::temp_dir()
+            .join(format!("cmux-unselected-machine-{}-{suffix}.sock", std::process::id()));
+        let runtime = MachineRuntime::with_creation_sources(
+            socket,
+            vec![],
+            vec![config::MachineCreationSourceConfig {
+                id: "docker".into(),
+                name: "Docker".into(),
+                subtitle: "container prototype".into(),
+            }],
+        );
+        let active = runtime.initial_key();
+        let connections = MachineConnectionHub::new(runtime.connection_connectors());
+        let mut controller =
+            StaticMachineController { runtime, active, connections, pending: None };
+
+        let action =
+            controller.perform(MachineRequest::CreateFrom { source_id: "docker".into() }).unwrap();
+        let created = action
+            .ui
+            .snapshot
+            .machines
+            .iter()
+            .find(|machine| machine.id == "prototype:docker:1")
+            .unwrap()
+            .key;
+
+        assert_eq!(
+            action.ui.connection_phase(created),
+            machine::MachineConnectionPhase::Disconnected,
+            "created machine transport must not open until the row is selected"
+        );
+        assert!(action.replacement.is_none(), "creation must not replace the active session");
+    }
+
+    #[test]
+    fn static_machine_controller_retains_committed_connection_leases() {
+        use std::sync::atomic::AtomicUsize;
+
+        struct CountedLease(Arc<AtomicUsize>);
+
+        impl Drop for CountedLease {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let connects = Arc::new(AtomicUsize::new(0));
+        let connector = |key: machine::MachineKey| {
+            let dropped = Arc::clone(&dropped);
+            let connects = Arc::clone(&connects);
+            let connector: machine_runtime::MachineConnectFn = Arc::new(move || {
+                connects.fetch_add(1, Ordering::SeqCst);
+                Ok(MachineConnection {
+                    session: Session::Local(Mux::new(
+                        format!("machine-hub-{}", key.0),
+                        SurfaceOptions::default(),
+                    )),
+                    _lease: Some(Box::new(CountedLease(Arc::clone(&dropped)))),
+                })
+            });
+            (key, connector)
+        };
+        let first = machine::MachineKey(1);
+        let second = machine::MachineKey(2);
+        let connections = MachineConnectionHub::new([connector(first), connector(second)]);
+
+        connections.connect(first).unwrap();
+        connections.connect(second).unwrap();
+        connections.connect(first).unwrap();
+        assert_eq!(
+            dropped.load(Ordering::SeqCst),
+            0,
+            "switching must keep every connected machine lease warm"
+        );
+        assert_eq!(connects.load(Ordering::SeqCst), 2, "returning to a machine reuses its session");
+
+        connections.close();
+        assert_eq!(dropped.load(Ordering::SeqCst), 2, "all leases close with the connection hub");
+    }
+
+    #[test]
+    fn presented_connection_survives_warm_pool_eviction() {
+        use std::sync::atomic::AtomicUsize;
+
+        struct CountedLease(Arc<AtomicUsize>);
+
+        impl Drop for CountedLease {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let connector = |key: machine::MachineKey| {
+            let dropped = Arc::clone(&dropped);
+            let connector: machine_runtime::MachineConnectFn = Arc::new(move || {
+                Ok(MachineConnection {
+                    session: Session::Local(Mux::new(
+                        format!("machine-hub-presented-{}", key.0),
+                        SurfaceOptions::default(),
+                    )),
+                    _lease: Some(Box::new(CountedLease(Arc::clone(&dropped)))),
+                })
+            });
+            (key, connector)
+        };
+        let first = machine::MachineKey(1);
+        let second = machine::MachineKey(2);
+        let third = machine::MachineKey(3);
+        let connections = MachineConnectionHub::with_warm_limit(
+            [connector(first), connector(second), connector(third)],
+            2,
+        );
+
+        // `first` is presented but has the OLDEST use stamp once the others
+        // connect - exactly the shape where plain LRU would evict the
+        // session still on screen mid-switch.
+        connections.connect(first).unwrap();
+        connections.note_presented(Some(first));
+        connections.connect(second).unwrap();
+        connections.connect(third).unwrap();
+        assert_eq!(dropped.load(Ordering::SeqCst), 1, "one eviction past the limit");
+
+        let (_, reused) = connections.connect_tracked(first).unwrap();
+        assert!(reused, "the presented machine's connection must survive eviction");
+
+        connections.close();
+    }
+
+    #[test]
+    fn connection_hub_evicts_least_recently_used_beyond_the_warm_limit() {
+        use std::sync::atomic::AtomicUsize;
+
+        struct CountedLease(Arc<AtomicUsize>);
+
+        impl Drop for CountedLease {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let connects = Arc::new(AtomicUsize::new(0));
+        let connector = |key: machine::MachineKey| {
+            let dropped = Arc::clone(&dropped);
+            let connects = Arc::clone(&connects);
+            let connector: machine_runtime::MachineConnectFn = Arc::new(move || {
+                connects.fetch_add(1, Ordering::SeqCst);
+                Ok(MachineConnection {
+                    session: Session::Local(Mux::new(
+                        format!("machine-hub-lru-{}", key.0),
+                        SurfaceOptions::default(),
+                    )),
+                    _lease: Some(Box::new(CountedLease(Arc::clone(&dropped)))),
+                })
+            });
+            (key, connector)
+        };
+        let first = machine::MachineKey(1);
+        let second = machine::MachineKey(2);
+        let third = machine::MachineKey(3);
+        let connections = MachineConnectionHub::with_warm_limit(
+            [connector(first), connector(second), connector(third)],
+            2,
+        );
+
+        let (_, reused) = connections.connect_tracked(first).unwrap();
+        assert!(!reused, "first connect opens fresh");
+        connections.connect(second).unwrap();
+        assert_eq!(dropped.load(Ordering::SeqCst), 0, "two warm connections fit the limit");
+
+        connections.connect(third).unwrap();
+        assert_eq!(
+            dropped.load(Ordering::SeqCst),
+            1,
+            "a third connection evicts the least recently used one"
+        );
+
+        // `second` stayed warm; returning to it is a reuse, not a reconnect.
+        let (_, reused) = connections.connect_tracked(second).unwrap();
+        assert!(reused, "recently used connections survive eviction");
+        assert_eq!(connects.load(Ordering::SeqCst), 3);
+
+        // `first` was evicted back to Disconnected; its connector reconnects.
+        let (_, reused) = connections.connect_tracked(first).unwrap();
+        assert!(!reused, "evicted machines reconnect through their connector");
+        assert_eq!(connects.load(Ordering::SeqCst), 4);
+        assert_eq!(dropped.load(Ordering::SeqCst), 2, "reconnecting evicted the next oldest");
+
+        connections.close();
+        assert_eq!(dropped.load(Ordering::SeqCst), 4, "all leases close with the connection hub");
     }
 
     #[cfg(unix)]
@@ -2416,10 +3421,15 @@ mod tests {
         let english = usage_for_platform(localization::catalog_for_locale("en_US.UTF-8"), true);
         assert!(english.contains("cmux machine-agent"));
         assert!(english.contains("Share one local session through the configured host"));
+        assert!(english.contains("cmux server <ACTION>"));
+        assert!(english.contains("Stop a replaceable SSH sidecar explicitly"));
         let japanese = usage_for_platform(localization::catalog_for_locale("ja_JP.UTF-8"), true);
         assert!(japanese.contains("cmux machine-agent"));
         assert!(japanese.contains("設定したホスト経由でローカルセッションを共有"));
+        assert!(japanese.contains("cmux server <操作>"));
+        assert!(japanese.contains("置換可能な SSH サイドカーを明示的に停止"));
         assert!(!japanese.contains("Share one local session"));
+        assert!(!japanese.contains("Stop authenticated remote access explicitly"));
     }
 
     #[test]
@@ -2448,6 +3458,13 @@ mod tests {
         assert_eq!(parsed.terminal.as_deref(), Some(terminal));
         assert!(parse_args_result(["--terminal".into(), terminal.into()]).is_err());
         assert!(parse_args_result(["attach".into(), "--terminal".into()]).is_err());
+    }
+
+    #[test]
+    fn attach_verb_can_follow_global_startup_options() {
+        let parsed = args(&["--session", "agents", "attach"]);
+        assert!(parsed.attach);
+        assert_eq!(parsed.session, "agents");
     }
 
     #[test]

@@ -7,6 +7,7 @@ import {
   type AuthedUser,
 } from "./auth";
 import {
+  isPaidVmPlan,
   isVmBillingTeamResolutionError,
   resolveVmEntitlements,
   type VmEntitlements,
@@ -20,6 +21,7 @@ import {
   vmWorkflowErrorCause,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
+import { authProviderErrorResponse } from "./authErrors";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
 export type StackBearer = { accessToken: string; refreshToken: string };
@@ -67,7 +69,12 @@ export async function withAuthedVmApiRoute(
         const routeStartedAtMs = performance.now();
         const bearer = parseBearer(request);
         const authStart = performance.now();
-        const user = await verifyRequest(request, { requestedTeamId: requestedVmTeamIdFromRequest(request) });
+        let user: AuthedUser | null;
+        try {
+          user = await verifyRequest(request, { requestedTeamId: requestedVmTeamIdFromRequest(request) });
+        } catch (error) {
+          return finalize(authProviderErrorResponse(error, `${route}.auth`));
+        }
         const authDurationMs = performance.now() - authStart;
         recordSpanTiming(span, "auth", authDurationMs);
         if (!user) return unauthorized();
@@ -252,6 +259,45 @@ export function vmRequiresProResponse(): Response {
     status: 402,
     message: "Cloud VMs require a cmux Pro plan.",
     action: "Upgrade to cmux Pro at https://cmux.com/pricing to create Cloud VMs.",
+  });
+}
+
+const VM_UPGRADE_URL = "https://cmux.com/pricing";
+
+/**
+ * One response for every provisioning verb that hits the active-VM limit. On a free plan the
+ * limit is the paywall moment: the message sells the upgrade (Pro removes the cap and bills by
+ * usage) and `upgradeRequired`/`upgradeUrl` let clients render a real upgrade prompt instead of
+ * an error. Paid plans keep operational guidance — their cap is a safety rail, not a paywall.
+ */
+export function vmActiveLimitExceededResponse(input: {
+  readonly limit: number;
+  readonly planId: string;
+  readonly retryAction: string;
+  readonly phase?: VmLifecyclePhase;
+}): Response {
+  const paid = isPaidVmPlan(input.planId);
+  const plural = input.limit === 1 ? "" : "s";
+  if (paid) {
+    return vmErrorResponse({
+      error: "vm_active_limit_exceeded",
+      status: 402,
+      message: `This plan allows ${input.limit} active Cloud VM${plural} at a time.`,
+      action: input.retryAction,
+      extra: { limit: input.limit },
+      details: { limit: input.limit },
+      ...(input.phase ? { phase: input.phase } : {}),
+    });
+  }
+  return vmErrorResponse({
+    error: "vm_active_limit_exceeded",
+    status: 402,
+    message: `The free plan includes ${input.limit} Cloud VM${plural}.`,
+    action: `Upgrade to cmux Pro at ${VM_UPGRADE_URL} for more VMs with usage-based billing, ` +
+      "or free a slot with `cmux vm rm <id>`.",
+    extra: { limit: input.limit, upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
+    details: { limit: input.limit, upgradeRequired: true },
+    ...(input.phase ? { phase: input.phase } : {}),
   });
 }
 

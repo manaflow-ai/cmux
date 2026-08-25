@@ -45,7 +45,7 @@ public struct MobileRootAuthGate {
     /// - Parameter url: The URL to classify.
     /// - Returns: `true` when the URL is an attach deep link.
     public static func isAttachURL(_ url: URL) -> Bool {
-        guard CmxPairingURLScheme.isPairingScheme(url.scheme) else {
+        guard CmxPairingURLScheme(rawValue: url.scheme) != nil else {
             return false
         }
         return url.host?.caseInsensitiveCompare("attach") == .orderedSame
@@ -78,16 +78,19 @@ public struct MobileRootAuthGate {
     /// - Parameters:
     ///   - stackAuthenticated: Whether Stack auth is established.
     ///   - attachTicketAuthenticated: Whether a temporary attach ticket grants access.
+    ///   - didFinishAuthBootstrap: Whether launch auth, including team resolution, completed.
     ///   - isRestoringSession: Whether cached auth is still being validated or recreated.
     ///   - connectionState: The current connection state.
     /// - Returns: `true` when Stack-authenticated, auth restore is complete, no temporary ticket is active, and the Mac is not yet connected.
     public static func shouldReconnectStoredMac(
         stackAuthenticated: Bool,
         attachTicketAuthenticated: Bool,
+        didFinishAuthBootstrap: Bool,
         isRestoringSession: Bool,
         connectionState: MobileConnectionState
     ) -> Bool {
         stackAuthenticated
+            && didFinishAuthBootstrap
             && !isRestoringSession
             && !attachTicketAuthenticated
             && connectionState != .connected

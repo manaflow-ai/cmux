@@ -248,6 +248,94 @@ extension CmxIrohOnlineAdmissionRegistryTests {
         await registry.stop()
     }
 
+    @Test(arguments: [
+        CmxIrohTrustBrokerClientError.rejected(
+            statusCode: 401,
+            code: "unauthorized"
+        ),
+        .rejected(statusCode: 408, code: "request_timeout"),
+        .rejected(statusCode: 425, code: "too_early"),
+        .rateLimited(code: "rate_limited", retryAfterSeconds: 5),
+        .rejected(statusCode: 503, code: "unavailable"),
+    ])
+    func retryableRefreshFailureDoesNotCloseVerifiedLease(
+        _ error: CmxIrohTrustBrokerClientError
+    ) async throws {
+        let fixture = try OnlineAdmissionFixture()
+        let clock = OnlineAdmissionManualClock(now: fixture.now)
+        let broker = OnlineAdmissionBroker(responses: [
+            .success(try fixture.discovery()),
+            .failure(error),
+        ])
+        let registry = fixture.registry(broker: broker, clock: clock)
+        let lease = try #require(
+            await registry.authorizePairGrant(
+                fixture.grant(),
+                authenticatedPeerID: fixture.initiator.endpointID
+            ).lease
+        )
+        let closeRecorder = OnlineAdmissionCloseRecorder()
+        await registry.monitor(lease, connection: fixture.connection()) { reason in
+            await closeRecorder.close(reason: reason)
+        }
+        await clock.waitUntilSleeping()
+
+        clock.advance(by: 30)
+        await broker.waitForCallCount(2)
+        for _ in 0 ..< 1_024 {
+            if await closeRecorder.count() > 0
+                || clock.sleepingDeadlines()
+                    == [fixture.now.addingTimeInterval(60)] {
+                break
+            }
+            await Task.yield()
+        }
+
+        #expect(await closeRecorder.count() == 0)
+        #expect(
+            clock.sleepingDeadlines()
+                == [fixture.now.addingTimeInterval(60)]
+        )
+        await registry.stop()
+    }
+
+    @Test(arguments: [
+        CmxIrohTrustBrokerClientError.missingAuthentication,
+        .invalidAuthentication,
+        .rejected(statusCode: 403, code: "forbidden"),
+        .invalidResponse,
+    ])
+    func definitiveRefreshFailureClosesVerifiedLease(
+        _ error: CmxIrohTrustBrokerClientError
+    ) async throws {
+        let fixture = try OnlineAdmissionFixture()
+        let clock = OnlineAdmissionManualClock(now: fixture.now)
+        let broker = OnlineAdmissionBroker(responses: [
+            .success(try fixture.discovery()),
+            .failure(error),
+        ])
+        let registry = fixture.registry(broker: broker, clock: clock)
+        let lease = try #require(
+            await registry.authorizePairGrant(
+                fixture.grant(),
+                authenticatedPeerID: fixture.initiator.endpointID
+            ).lease
+        )
+        let closeRecorder = OnlineAdmissionCloseRecorder()
+        await registry.monitor(lease, connection: fixture.connection()) { reason in
+            await closeRecorder.close(reason: reason)
+        }
+        await clock.waitUntilSleeping()
+
+        clock.advance(by: 30)
+        await closeRecorder.waitUntilClosed()
+
+        #expect(
+            await closeRecorder.observedReasons()
+                == [.revalidationFailed]
+        )
+    }
+
     @Test
     func quickTransportRegistrationRetainsMonitorForConnectionLifetime() async throws {
         let fixture = try OnlineAdmissionFixture()

@@ -7,7 +7,7 @@ import unittest
 from runner import (
     FIXTURES,
     LANGUAGES,
-    RAW_CATALOG,
+    RAW_CATALOGS,
     ConformanceFailure,
     FakeServer,
     assert_case_response,
@@ -26,12 +26,16 @@ class FixtureTests(unittest.TestCase):
             ("python", "typescript", "rust", "go", "java", "cpp", "zig"),
         )
 
-    def test_raw_metadata_baseline_is_frozen_to_protocol_10(self) -> None:
-        catalog = json.loads(RAW_CATALOG.read_text())
-        self.assertEqual(catalog["source_commit"], "34741cdc96")
-        self.assertEqual(catalog["protocol"], 10)
-        self.assertEqual(len(catalog["commands"]), 83)
-        self.assertEqual(len(catalog["events"]), 44)
+    def test_raw_metadata_baselines_are_frozen_to_prior_protocols(self) -> None:
+        expected_counts = {10: (83, 44), 11: (101, 46)}
+        self.assertEqual(len(RAW_CATALOGS), len(expected_counts))
+        for path, source_commit, protocol in RAW_CATALOGS:
+            catalog = json.loads(path.read_text())
+            self.assertEqual(catalog["source_commit"], source_commit)
+            self.assertEqual(catalog["protocol"], protocol)
+            command_count, event_count = expected_counts[protocol]
+            self.assertEqual(len(catalog["commands"]), command_count)
+            self.assertEqual(len(catalog["events"]), event_count)
 
     def test_security_fixture_requires_local_denial_and_no_wire_write(self) -> None:
         cases = {case["name"]: case for case in self.fixtures["fake_cases"]}
@@ -185,7 +189,7 @@ class StreamNegotiationServerTests(unittest.TestCase):
             stream.flush()
             identity = json.loads(stream.readline())
             self.assertEqual(identity["id"], 1)
-            self.assertEqual(identity["data"]["protocol"], 11)
+            self.assertEqual(identity["data"]["protocol"], 12)
 
             stream.write(
                 b'{"id":2,"cmd":"subscribe","tree_events":"deltas"}\n'

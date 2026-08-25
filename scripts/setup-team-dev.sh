@@ -55,12 +55,15 @@ EOF
 }
 
 # --- idempotent: already configured? ----------------------------------------
-# cmux_dev_secrets_load resolves a COMPLETE pair from the same precedence chain
-# the app uses. If the dogfood pair already resolves from the dev file (or env),
-# we are done. Run it in a subshell so the exported password never enters this
-# process environment.
+# Check only the canonical personal file. Shared agent credentials or ambient
+# exports must never make personal onboarding look complete.
 existing_email="$(
-  cmux_dev_secrets_load >/dev/null 2>&1 && printf '%s' "${CMUX_UITEST_STACK_EMAIL:-}" || true
+  cmux_dev_secrets_load \
+    --profile personal \
+    --credentials-file "$DEV_ENV_FILE" \
+    >/dev/null 2>&1 \
+    && printf '%s' "${CMUX_DEV_AUTH_ACCOUNT:-}" \
+    || true
 )"
 if [[ -n "$existing_email" ]]; then
   echo "==> already configured as ${existing_email}"
@@ -161,20 +164,31 @@ case "$verify_rc" in
     ;;
 esac
 
-# --- write the per-user creds file (chmod 600) -------------------------------
+# --- merge the personal pair into the protected profile file -----------------
 mkdir -p "$SECRETS_DIR"
 chmod 700 "$SECRETS_DIR" 2>/dev/null || true
+if [[ -e "$DEV_ENV_FILE" ]]; then
+  cmux_dev_secrets_validate_file "$DEV_ENV_FILE"
+fi
 
 umask_old="$(umask)"
 umask 077
+temporary_file="$(mktemp "$SECRETS_DIR/.cmuxterm-dev.XXXXXX")"
 {
-  echo "# cmux per-developer dogfood credentials. Written by scripts/setup-team-dev.sh."
-  echo "# DEBUG-only, per-user; never commit. See scripts/cmuxterm-dev.env.example."
+  if [[ -f "$DEV_ENV_FILE" ]]; then
+    awk -F= '
+      $1 != "CMUX_DOGFOOD_STACK_EMAIL" && $1 != "CMUX_DOGFOOD_STACK_PASSWORD" { print }
+    ' "$DEV_ENV_FILE"
+  else
+    echo "# cmux named DEBUG auth profiles. Never commit."
+    echo "# Personal keys are managed by scripts/setup-team-dev.sh."
+  fi
   printf 'CMUX_DOGFOOD_STACK_EMAIL=%s\n' "$email"
   printf 'CMUX_DOGFOOD_STACK_PASSWORD=%s\n' "$password"
-} > "$DEV_ENV_FILE"
+} > "$temporary_file"
 umask "$umask_old"
-chmod 600 "$DEV_ENV_FILE"
+chmod 600 "$temporary_file"
+mv -f "$temporary_file" "$DEV_ENV_FILE"
 
-echo "==> wrote $DEV_ENV_FILE (chmod 600) for ${email}"
+echo "==> merged personal profile into $DEV_ENV_FILE (chmod 600) for ${email}"
 next_steps "$email"

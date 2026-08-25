@@ -83,6 +83,7 @@ Environment:
 | `ping` | Check socket connectivity. |
 | `capabilities` | Print server capabilities as JSON. |
 | `events` | Stream reconnectable cmux events as newline-delimited JSON. |
+| `sessions [list]` | List saved agent session records without requiring a running cmux socket. Filters: `--agent <name>`, `--session <id>`, `--workspace <id>`, `--surface <id>`, `--cwd <text>`. Overrides: `--state-dir <path>`, `--codex-home <path>`. Text output defaults to 100 results; `--limit <n>` takes a positive integer and `--all` removes the limit. Supports `--json`. |
 | `auth` | Manage auth status, login, and logout through the app. |
 | `vm`, `cloud` | Manage cloud VMs. `cloud` is an alias for `vm`. |
 | `remotes`, `remote` | Manage remote Macs in the team device registry so they appear in the iOS app's device list. `remote` is an alias for `remotes`. |
@@ -181,6 +182,24 @@ Environment:
 
 ## Command Families
 
+Sessions output:
+
+`cmux sessions [list]` reads saved hook state from disk and never connects to a
+cmux socket. By default the listing includes records that are active for a
+workspace or surface, restorable, launch-backed, or transcript-backed. Passing
+`--all`, or any record filter (`--session`, `--workspace`, `--surface`,
+`--cwd`), includes every record that matches the filters. `--json` prints one
+object with:
+
+| Field | Contract |
+| --- | --- |
+| `state_dir` | Hook state directory the session stores were read from. |
+| `default_codex_home` | Codex home used for transcript checks. |
+| `total_matches` | Number of matching records, counted before `--limit` is applied. |
+| `limit` | Applied result limit, or `null` when `--all` removes it. |
+| `stores` | Per-agent hook store files that were read: `agent`, `path`, `exists`, `session_count`. |
+| `sessions` | The limited result set of session records. |
+
 Auth subcommands:
 
 | Command | Contract |
@@ -194,8 +213,11 @@ VM subcommands:
 | Command | Contract |
 | --- | --- |
 | `vm ls`, `vm list` | List VMs. |
-| `vm new`, `vm create` | Create a VM. Supports `--image`, `--provider`, `--detach`, and `-d`. |
+| `vm new`, `vm create` | Create a VM with a desktop (xfce + noVNC) by default; `--base` makes a shell-only machine. Supports `--image`, `--provider`, `--detach`, and `-d`. |
 | `vm shell`, `vm attach` | Open an interactive shell for an existing VM. |
+| `vm stats <id>`, `vm top <id>` | Print CPU, memory, and disk for the machine right now; a sleeping machine reports `asleep` and is not woken. |
+| `vm desktop <id>`, `vm vnc <id>` | Open the VM's noVNC desktop as a browser pane in the workspace you are in (or `--workspace <id|ref|index>`); desktop-image machines only. |
+| `vm rename <id> <label>`, `vm rename <id> --clear` | Set or clear a display label; the machine id stays its address. |
 | `vm rm`, `vm destroy`, `vm delete` | Destroy a VM. |
 | `vm ssh` | Open a cmux-managed SSH workspace for an existing VM. |
 | `vm ssh-info` | Print SSH connection info. |
@@ -324,7 +346,7 @@ Browser subcommands:
 | `browser download` | Wait for or save downloads. |
 | `browser profiles` | List, add, rename, clear, or delete cmux browser profiles. `clear` refuses to wipe active profiles unless `--force` is passed. |
 | `browser import` | Open the browser import wizard. In detected coding-agent environments, defaults to non-interactive cookie import; pass `--interactive` to force the wizard. Non-interactive import supports `--from`, `--profile`, `--all-profiles`, `--to-profile`, `--create-profile`, and `--domain`. |
-| `browser cookies` | Get, set, or clear cookies. |
+| `browser cookies` | Get, set, or clear cookies. `clear` requires an explicit scope such as `--url`, `--domain`, `--name`, or `--all`, and returns the removed count as `cleared` in JSON output. |
 | `browser storage` | Get, set, or clear local/session storage. |
 | `browser tab` | Create, list, switch, or close browser tabs. |
 | `browser console`, `browser errors` | List or clear console messages and errors. |
@@ -381,7 +403,7 @@ Hook subcommands:
 | `hooks feed --source <agent>` | Convert agent hook events into Feed context. |
 | `hooks <agent> <event>` | Generic hook surface for `grok`, `opencode`, `pi`, `amp`, `cursor`, `gemini`, `kimi`, `rovodev`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
 
-Kimi hook setup targets `${KIMI_SHARE_DIR:-~/.kimi}/config.toml`. Setup and uninstall also remove only cmux's marker-delimited block from the legacy `${KIMI_CODE_HOME:-~/.kimi-code}/config.toml` path.
+Kimi hook setup targets the config file `kimi doctor` reports. Without a reported path, it takes the first of `${KIMI_CODE_HOME:-~/.kimi-code}/config.toml` (Kimi Code CLI) and `${KIMI_SHARE_DIR:-~/.kimi}/config.toml` (Kimi CLI 1.49 and earlier) that already exists as a file, then the first whose directory exists, and the Kimi Code CLI path when neither directory exists. Setup refreshes, but never removes, a cmux marker block already present in the other location; `hooks kimi uninstall` removes the block from both.
 
 Right sidebar commands:
 
@@ -389,8 +411,8 @@ Right sidebar commands:
 | --- | --- |
 | `right-sidebar toggle`, `right-sidebar show`, `right-sidebar hide` | Change right-sidebar visibility without printing on success. |
 | `right-sidebar focus` | Focus the current right-sidebar mode. |
-| `right-sidebar set <files\|find\|vault\|sessions\|feed\|dock>` | Show the right sidebar, switch mode, and focus it unless `--no-focus` is passed. |
-| `right-sidebar files`, `right-sidebar find`, `right-sidebar vault`, `right-sidebar sessions`, `right-sidebar feed`, `right-sidebar dock` | Short aliases for `right-sidebar set <mode>` with focus. |
+| `right-sidebar set <files\|find\|vault\|sessions\|feed\|dock\|cloud>` | Show the right sidebar, switch mode, and focus it unless `--no-focus` is passed. |
+| `right-sidebar files`, `right-sidebar find`, `right-sidebar vault`, `right-sidebar sessions`, `right-sidebar feed`, `right-sidebar dock`, `right-sidebar cloud` | Short aliases for `right-sidebar set <mode>` with focus. `cloud` (aliases `machines`, `vms`) is the Cloud machines panel; `mode` reports it as `machines`. |
 | `right-sidebar mode` | Print JSON with `visible` and `mode`. |
 | `--workspace <id\|ref\|index>` | Target the window containing a workspace. Refs and indexes resolve before the V1 socket command is sent. |
 | `--window <id\|ref\|index>` | Target a window. Refs and indexes resolve before the V1 socket command is sent. |
@@ -532,7 +554,9 @@ the expected text without connecting to a cmux socket.
 <!-- cli-contract-help-probes:start -->
 - `cmux --help` -> `cmux - control cmux via Unix socket`
 - `cmux --help` -> `open <path-or-url>...`
+- `cmux --help` -> `sessions [list] [options]`
 - `cmux help` -> `cmux - control cmux via Unix socket`
+- `cmux sessions --help` -> `Usage: cmux sessions list [options]`
 - `cmux ping --help` -> `Usage: cmux ping`
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux events --help` -> `Usage: cmux events [options]`
@@ -544,7 +568,7 @@ the expected text without connecting to a cmux socket.
 - `cmux rpc --help` -> `Usage: cmux rpc <method> [json-params]`
 - `cmux comments --help` -> `Usage: cmux comments <subcommand> [options]`
 - `cmux help --help` -> `Usage: cmux help`
-- `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]`
+- `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies]`
 - `cmux docs` -> `Topics:`
 - `cmux docs settings` -> `Config files:`
 - `cmux docs dock` -> `dock: Custom right-sidebar terminal controls`

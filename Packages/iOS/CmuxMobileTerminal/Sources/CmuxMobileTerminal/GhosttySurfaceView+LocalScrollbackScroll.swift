@@ -10,18 +10,51 @@ extension GhosttySurfaceView {
     /// display-only and drops those bytes, so the authoritative Mac response
     /// remains the visible update for TUIs.
     ///
-    /// The flush-site generation bump happens on the main actor before this
-    /// enqueue. Restore claims and user viewport batches share `outputQueue`, so
-    /// FIFO ordering makes a pre-restore gesture visible to the claim and applies
-    /// a post-restore gesture afterward. Deltas accumulated during an in-flight
-    /// batch apply as one follow-up batch; obsolete intermediate deltas are
-    /// merged, never replayed. No gate lock spans a Ghostty call, and scrolling
-    /// never takes Ghostty locks on the main actor.
-    func applyLocalScrollbackScroll(lines: Double, col: Int, row: Int) {
+    /// The scroll-event generation bump happens on the main actor before this
+    /// enqueue. Restore claims and user viewport batches share `outputQueue`,
+    /// and replay reveal waits can target the exact generation that was pending
+    /// when the render update tried to present. Deltas accumulated during an
+    /// in-flight batch apply as one follow-up batch; obsolete intermediate
+    /// deltas are merged, never replayed. No gate lock spans a Ghostty call,
+    /// and scrolling never takes Ghostty locks on the main actor.
+    func applyLocalScrollbackScroll(
+        lines: Double,
+        col: Int,
+        row: Int,
+        interactionGeneration: UInt64
+    ) {
         guard lines != 0 else { return }
         pendingLocalScrollLines += lines
         pendingLocalScrollCell = (col, row)
+        pendingLocalScrollInteractionGeneration = max(
+            pendingLocalScrollInteractionGeneration ?? 0,
+            interactionGeneration
+        )
         pumpLocalScrollbackScroll()
+    }
+
+    func waitForLocalScrollApplied(upTo generation: UInt64) async -> Bool {
+        let applied = viewportRestoreGate.withLock {
+            $0.appliedInteractionGeneration >= generation
+        }
+        guard !applied else { return true }
+        // A detached or recovered surface cannot apply the batch. Do not park
+        // a continuation that has no producer left to resume it; replay
+        // callers use `false` to abandon the viewport restore and request a
+        // fresh authoritative frame.
+        guard surface != nil,
+              pendingLocalScrollLines != 0 || localScrollApplyInFlight
+                || pendingLocalScrollPixels != 0 || localPixelScrollApplyInFlight else {
+            return false
+        }
+        return await withCheckedContinuation { continuation in
+            pendingLocalScrollDrains.append((
+                generation: generation,
+                continuation: continuation
+            ))
+            pumpLocalScrollbackScroll()
+            pumpLocalPixelScroll()
+        }
     }
 
     private func pumpLocalScrollbackScroll() {
@@ -32,13 +65,21 @@ extension GhosttySurfaceView {
         }
         let lines = pendingLocalScrollLines
         let cell = pendingLocalScrollCell
+        let interactionGeneration = pendingLocalScrollInteractionGeneration
+            ?? viewportRestoreGate.withLock { $0.interactionGeneration }
         pendingLocalScrollLines = 0
-        let interactionGeneration = viewportRestoreGate.withLock { $0.interactionGeneration }
+        pendingLocalScrollInteractionGeneration = nil
         localScrollApplyInFlight = true
+        localScrollApplyInFlightGeneration = interactionGeneration
+        let token = makeSurfaceOperationID()
+        localScrollApplyStartedAt = CACurrentMediaTime()
+        localScrollApplyToken = token
+        ensureSurfaceOperationDeadlinePump()
         let displayScale = window?.windowScene?.screen.scale ?? traitCollection.displayScale
         let operation = LocalScrollbackSurfaceOperation(
             surface: surface,
-            generation: surfaceGeneration
+            generation: surfaceGeneration,
+            token: token
         )
         let workQueue = outputQueue
         let gate = viewportRestoreGate
@@ -59,16 +100,50 @@ extension GhosttySurfaceView {
             }
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                guard self.localScrollApplyToken == operation.token else { return }
                 self.localScrollApplyInFlight = false
+                self.localScrollApplyInFlightGeneration = nil
+                self.localScrollApplyStartedAt = nil
+                self.localScrollApplyToken = nil
                 guard self.surface == operation.surface,
                       self.surfaceGeneration == operation.generation else {
+                    self.completePendingLocalScrollDrains(returning: false)
                     return
                 }
+                self.enqueueRenderSubmission(
+                    GhosttySurfaceView.RenderSubmission(
+                        token: operation.token,
+                        generation: operation.generation,
+                        kind: .localScroll,
+                        surface: operation.surface,
+                        verifiedReplayRead: nil,
+                        presentationRetryCount: 0
+                    )
+                )
                 self.drawForWakeup()
                 self.scheduleVisibleArtifactCountUpdate()
+                self.completePendingLocalScrollDrains()
                 self.pumpLocalScrollbackScroll()
             }
         }
+    }
+
+    func completePendingLocalScrollDrains(returning result: Bool? = nil) {
+        guard !pendingLocalScrollDrains.isEmpty else { return }
+        let appliedGeneration = viewportRestoreGate.withLock {
+            $0.appliedInteractionGeneration
+        }
+        var remaining: [(generation: UInt64, continuation: CheckedContinuation<Bool, Never>)] = []
+        for pending in pendingLocalScrollDrains {
+            if let result {
+                pending.continuation.resume(returning: result)
+            } else if appliedGeneration >= pending.generation {
+                pending.continuation.resume(returning: true)
+            } else {
+                remaining.append(pending)
+            }
+        }
+        pendingLocalScrollDrains = remaining
     }
 }
 
@@ -78,5 +153,6 @@ private nonisolated struct LocalScrollbackSurfaceOperation: @unchecked Sendable 
     // using this pointer is enqueued on that generation's serial output queue.
     let surface: ghostty_surface_t
     let generation: UInt64
+    let token: UInt64
 }
 #endif

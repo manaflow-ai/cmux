@@ -30,6 +30,15 @@ struct OnboardingSceneChrome: Equatable {
                 defaultValue: "Continue"
             )
             secondaryTitle = nil
+        case .push:
+            primaryTitle = L10n.string(
+                "mobile.onboarding.push.enable",
+                defaultValue: "Enable Notifications"
+            )
+            secondaryTitle = L10n.string(
+                "mobile.onboarding.push.notNow",
+                defaultValue: "Not Now"
+            )
         case .connect:
             guard isAuthenticated else {
                 primaryTitle = L10n.string(
@@ -66,10 +75,7 @@ struct OnboardingSceneChrome: Equatable {
                         "mobile.onboarding.connect.primary",
                         defaultValue: "Check Again"
                     )
-                    secondaryTitle = L10n.string(
-                        "mobile.onboarding.connect.fallback",
-                        defaultValue: "Use QR Code Instead"
-                    )
+                    secondaryTitle = nil
                 }
             case .ready:
                 primaryTitle = L10n.string(

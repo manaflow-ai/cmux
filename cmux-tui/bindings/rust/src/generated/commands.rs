@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 11, IR 5299d9228d2d800423d244630722c8606297370f5962458962b88af542fd5cc1.
+// cmux-tui mux protocol 12, IR 65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -257,6 +257,19 @@ pub type ClearWindowTitleResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClientFocusRequest {
+    pub client_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClientFocusResult {
+    pub pane: Nullable<T::Id>,
+    pub tab: Nullable<u64>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClosePaneRequest {
     pub pane: T::Id,
 }
@@ -356,6 +369,8 @@ pub struct CreateSurfaceWithReceiptRequest {
     pub cols: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cwd: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub idempotency_key: Optional<String>,
     pub operation: String,
     pub origin: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -477,6 +492,14 @@ pub type FocusPaneResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct GetBrowserProviderRequest {
+}
+
+#[rustfmt::skip]
+pub type GetBrowserProviderResult = T::BrowserProviderSnapshot;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct GetCellPixelsRequest {
 }
 
@@ -514,6 +537,18 @@ pub enum IdsRequestKind {
 pub struct IdsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub kind: Optional<IdsRequestKind>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JournalFrontendEventRequest {
+    pub event: T::FrontendJournalEvent,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JournalFrontendEventResult {
+    pub committed: bool,
 }
 
 #[rustfmt::skip]
@@ -790,6 +825,20 @@ pub struct ReadScrollbackRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RegisterBrowserProviderRequest {
+    pub authentication: T::BrowserProviderAuthentication,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub bearer_token: Optional<String>,
+    pub endpoint: String,
+    pub provider_id: String,
+    pub targets: Vec<T::BrowserProviderTarget>,
+}
+
+#[rustfmt::skip]
+pub type RegisterBrowserProviderResult = T::BrowserProviderSnapshot;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReleaseAttachedViewSizeRequest {
     pub lease: String,
     pub surface: T::Id,
@@ -891,6 +940,18 @@ pub struct ReportAgentRequest {
     pub state: T::AgentState,
     pub surface: T::Id,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReportFocusRequest {
+    pub client_id: String,
+    pub pane: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub tab: Optional<u64>,
+}
+
+#[rustfmt::skip]
+pub type ReportFocusResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1206,6 +1267,14 @@ pub struct UndoLayoutRequest {
 pub type UndoLayoutResult = T::LayoutUndoResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct UnregisterBrowserProviderRequest {
+}
+
+#[rustfmt::skip]
+pub type UnregisterBrowserProviderResult = T::BrowserProviderUnregisterResult;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VtStateRequest {
     pub surface: T::Id,
@@ -1323,6 +1392,10 @@ impl CmuxClient {
         self.execute(&CLEAR_WINDOW_TITLE_METADATA, &request)
     }
 
+    pub fn client_focus(&mut self, request: ClientFocusRequest) -> Result<ClientFocusResult> {
+        self.execute(&CLIENT_FOCUS_METADATA, &request)
+    }
+
     pub fn close_pane(&mut self, request: ClosePaneRequest) -> Result<ClosePaneResult> {
         self.execute(&CLOSE_PANE_METADATA, &request)
     }
@@ -1368,6 +1441,9 @@ impl CmuxClient {
     }
 
     pub fn create_surface_with_receipt(&mut self, request: CreateSurfaceWithReceiptRequest) -> Result<CreateSurfaceWithReceiptResult> {
+        if !request.idempotency_key.is_missing() {
+            self.require_capability_field("create-surface-with-receipt", "creation-attempt-keys-v1")?;
+        }
         self.execute(&CREATE_SURFACE_WITH_RECEIPT_METADATA, &request)
     }
 
@@ -1402,6 +1478,10 @@ impl CmuxClient {
         self.execute(&FOCUS_PANE_METADATA, &request)
     }
 
+    pub fn get_browser_provider(&mut self, request: GetBrowserProviderRequest) -> Result<GetBrowserProviderResult> {
+        self.execute(&GET_BROWSER_PROVIDER_METADATA, &request)
+    }
+
     pub fn get_cell_pixels(&mut self, request: GetCellPixelsRequest) -> Result<T::GetCellPixelsResult> {
         self.execute(&GET_CELL_PIXELS_METADATA, &request)
     }
@@ -1416,6 +1496,10 @@ impl CmuxClient {
 
     pub fn ids(&mut self, request: IdsRequest) -> Result<T::IdsResult> {
         self.execute(&IDS_METADATA, &request)
+    }
+
+    pub fn journal_frontend_event(&mut self, request: JournalFrontendEventRequest) -> Result<JournalFrontendEventResult> {
+        self.execute(&JOURNAL_FRONTEND_EVENT_METADATA, &request)
     }
 
     pub fn list_agents(&mut self, request: ListAgentsRequest) -> Result<T::ListAgentsResult> {
@@ -1530,6 +1614,10 @@ impl CmuxClient {
         self.execute(&READ_SCROLLBACK_METADATA, &request)
     }
 
+    pub fn register_browser_provider(&mut self, request: RegisterBrowserProviderRequest) -> Result<RegisterBrowserProviderResult> {
+        self.execute(&REGISTER_BROWSER_PROVIDER_METADATA, &request)
+    }
+
     pub fn release_attached_view_size(&mut self, request: ReleaseAttachedViewSizeRequest) -> Result<ReleaseAttachedViewSizeResult> {
         self.execute(&RELEASE_ATTACHED_VIEW_SIZE_METADATA, &request)
     }
@@ -1580,6 +1668,10 @@ impl CmuxClient {
 
     pub fn report_agent(&mut self, request: ReportAgentRequest) -> Result<T::ReportAgentResult> {
         self.execute(&REPORT_AGENT_METADATA, &request)
+    }
+
+    pub fn report_focus(&mut self, request: ReportFocusRequest) -> Result<ReportFocusResult> {
+        self.execute(&REPORT_FOCUS_METADATA, &request)
     }
 
     pub fn resize_attached_view(&mut self, request: ResizeAttachedViewRequest) -> Result<ResizeAttachedViewResult> {
@@ -1726,6 +1818,10 @@ impl CmuxClient {
 
     pub fn undo_layout(&mut self, request: UndoLayoutRequest) -> Result<UndoLayoutResult> {
         self.execute(&UNDO_LAYOUT_METADATA, &request)
+    }
+
+    pub fn unregister_browser_provider(&mut self, request: UnregisterBrowserProviderRequest) -> Result<UnregisterBrowserProviderResult> {
+        self.execute(&UNREGISTER_BROWSER_PROVIDER_METADATA, &request)
     }
 
     pub fn vt_state(&mut self, request: VtStateRequest) -> Result<T::VtStateResult> {

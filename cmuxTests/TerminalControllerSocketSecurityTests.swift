@@ -33,6 +33,28 @@ private func XCTAssertEqual<T: Equatable>(
     }
 }
 
+private func XCTAssertEqual<T: FloatingPoint>(
+    _ expression1: @autoclosure () throws -> T,
+    _ expression2: @autoclosure () throws -> T,
+    accuracy: T,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        let value1 = try expression1()
+        let value2 = try expression2()
+        #expect(
+            abs(value1 - value2) <= accuracy,
+            testComment(message()),
+            sourceLocation: sourceLocation
+        )
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
 private func XCTAssertNotEqual<T: Equatable>(
     _ expression1: @autoclosure () throws -> T,
     _ expression2: @autoclosure () throws -> T,
@@ -221,7 +243,7 @@ final class TerminalControllerSocketSecurityTests {
     }
 
     init() {
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
     }
 
     deinit {
@@ -251,7 +273,7 @@ final class TerminalControllerSocketSecurityTests {
         try waitForSocket(at: allowAllPath)
         XCTAssertEqual(try socketMode(at: allowAllPath), 0o666)
 
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
 
         let restrictedPath = makeSocketPath("cmux-only")
         TerminalController.shared.start(
@@ -759,6 +781,39 @@ final class TerminalControllerSocketSecurityTests {
         }
     }
 
+    @Test func testMobilePanelArtifactMethodsRunOnSocketWorker() async throws {
+        let socketPath = makeSocketPath("panel-artifact-worker")
+        let tabManager = TabManager()
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        for method in [
+            "mobile.panel.artifact.stat",
+            "mobile.panel.artifact.fetch",
+            "mobile.panel.artifact.thumbnail",
+        ] {
+            let requestLine = try makeV2RequestLine(method: method, params: [:])
+            let mainEnvelope = try decodeV2Envelope(TerminalController.shared.handleSocketLine(requestLine))
+            let mainError = try XCTUnwrap(mainEnvelope["error"] as? [String: Any], method)
+            XCTAssertEqual(mainError["code"] as? String, "invalid_dispatch", method)
+
+            let workerEnvelope = try await sendV2RequestAsync(
+                method: method,
+                params: [:],
+                to: socketPath
+            )
+            let workerError = try XCTUnwrap(workerEnvelope["error"] as? [String: Any], method)
+            XCTAssertNotEqual(workerError["code"] as? String, "invalid_dispatch", method)
+            XCTAssertNotEqual(workerError["code"] as? String, "method_not_found", method)
+            XCTAssertNotEqual(workerError["code"] as? String, "internal_error", method)
+            XCTAssertEqual(workerError["code"] as? String, "invalid_params", method)
+        }
+    }
+
     @Test func testV1PingRunsOnWorkerLaneAndStaysMainThreadCallable() async throws {
         let socketPath = makeSocketPath("v1-ping")
         let tabManager = TabManager()
@@ -926,6 +981,9 @@ final class TerminalControllerSocketSecurityTests {
                 "terminal.replay",
                 "mobile.terminal.viewport",
                 "terminal.viewport",
+                "mobile.panel.artifact.stat",
+                "mobile.panel.artifact.fetch",
+                "mobile.panel.artifact.thumbnail",
                 "mobile.events.subscribe",
                 "mobile.events.unsubscribe",
             ]
@@ -1725,6 +1783,69 @@ final class TerminalControllerSocketSecurityTests {
         #expect(abs(requestedPageZoom - 1.5) < 0.000_001)
         #expect(abs(maximumPageZoom - 2.0.squareRoot()) < 0.000_001)
         #expect(abs(browserPanel.currentPageZoomFactor() - 1.4) < 0.000_001)
+    }
+
+    @Test func browserZoomSetAcceptsNumericValueAndExplicitSurfaceAlias() throws {
+        let manager = TabManager()
+        let defaults = UserDefaults.standard
+        let defaultZoomKey = "browserDefaultZoomLevel"
+        // Snapshot the persisted value, not object(forKey:): the resolved value
+        // includes the fallback registered by BrowserPanel's defaults bootstrap,
+        // and the restore below would persist that fallback for a key that was
+        // never actually written.
+        let domainName = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+        let previousDefaultZoom = defaults.persistentDomain(forName: domainName)?[defaultZoomKey]
+        defaults.set(0.8, forKey: defaultZoomKey)
+        defer {
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            if let previousDefaultZoom {
+                defaults.set(previousDefaultZoom, forKey: defaultZoomKey)
+            } else {
+                defaults.removeObject(forKey: defaultZoomKey)
+            }
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let focusedBrowser = try XCTUnwrap(workspace.newBrowserSurface(
+            inPane: pane,
+            focus: true,
+            creationPolicy: .restoration
+        ))
+        let targetBrowser = try XCTUnwrap(workspace.newBrowserSurface(
+            inPane: pane,
+            focus: false,
+            creationPolicy: .restoration
+        ))
+        XCTAssertTrue(focusedBrowser.setPageZoomFactor(1.2))
+        XCTAssertTrue(targetBrowser.setPageZoomFactor(1.4))
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let response = try handleV2Request(
+            method: "browser.zoom.set",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface": targetBrowser.id.uuidString,
+                "zoom": 0.8,
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(Double(targetBrowser.currentPageZoomFactor()), 0.8, accuracy: 0.000_001)
+        XCTAssertEqual(Double(focusedBrowser.currentPageZoomFactor()), 1.2, accuracy: 0.000_001)
+
+        let resetResponse = try handleV2Request(
+            method: "browser.zoom.set",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface": targetBrowser.id.uuidString,
+                "direction": "reset",
+            ]
+        )
+        XCTAssertEqual(resetResponse["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(resetResponse)")
+        XCTAssertEqual(Double(targetBrowser.currentPageZoomFactor()), 0.8, accuracy: 0.000_001)
+        XCTAssertEqual(Double(focusedBrowser.currentPageZoomFactor()), 1.2, accuracy: 0.000_001)
     }
 
     @Test func testLegacyCloseSurfaceCommandRecordsRecentlyClosedHistory() throws {

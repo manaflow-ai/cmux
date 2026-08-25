@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxMobileShellModel
 
@@ -339,6 +340,212 @@ import Testing
             macIDsInDisplayOrder: macIDsInDisplayOrder
         )
 
+        #expect(workspaces.map(\.rpcWorkspaceID.rawValue) == ["b1", "a1"])
+        #expect(groups.map(\.rpcGroupID.rawValue) == ["group-b", "group-a"])
+    }
+
+    @Test func computerPriorityOverridesForegroundAndNameOrder() {
+        let states = [
+            "mac-a": state("mac-a", name: "Alpha", ["a1"]),
+            "mac-b": state("mac-b", name: "Beta", ["b1"]),
+            "mac-c": state("mac-c", name: "Charlie", ["c1"]),
+        ]
+        let ordered = MobileWorkspaceAggregation().orderedMacIDs(
+            statesByMac: states,
+            foregroundMacDeviceID: "mac-a",
+            computerPriority: ["mac-c", "mac-b"]
+        )
+        // The user's explicit order beats both foreground-first and name order;
+        // the unprioritized foreground Mac follows the prioritized ones.
+        #expect(ordered == ["mac-c", "mac-b", "mac-a"])
+    }
+
+    @Test func unprioritizedMacsKeepAutomaticOrderAfterPrioritizedOnes() {
+        let states = [
+            "mac-a": state("mac-a", name: "Alpha", ["a1"]),
+            "mac-b": state("mac-b", name: "Beta", ["b1"]),
+            "mac-c": state("mac-c", name: "Charlie", ["c1"]),
+        ]
+        let ordered = MobileWorkspaceAggregation().orderedMacIDs(
+            statesByMac: states,
+            foregroundMacDeviceID: "mac-c",
+            computerPriority: ["mac-b"]
+        )
+        // mac-b is pinned first; the rest keep foreground-then-name order.
+        #expect(ordered == ["mac-b", "mac-c", "mac-a"])
+    }
+
+    @Test func computerPriorityIgnoresUnknownAndEmptyEntries() {
+        let states = [
+            "mac-a": state("mac-a", name: "Alpha", ["a1"]),
+            "mac-b": state("mac-b", name: "Beta", ["b1"]),
+        ]
+        let ordered = MobileWorkspaceAggregation().orderedMacIDs(
+            statesByMac: states,
+            foregroundMacDeviceID: nil,
+            computerPriority: ["", "gone-mac", "mac-b"]
+        )
+        #expect(ordered == ["mac-b", "mac-a"])
+    }
+
+    @Test func computerPriorityDoesNotRankAnUnlistedSiblingBuild() {
+        var nightly = state("mac-a", name: "Alpha", ["a-nightly"])
+        nightly.instanceTag = "nightly"
+        var stable = state("mac-a", name: "Alpha", ["a-stable"])
+        stable.instanceTag = nil
+        let states = [
+            "mac-a\u{1F}nightly": nightly,
+            "mac-a": stable,
+            "mac-b": state("mac-b", name: "Beta", ["b1"]),
+        ]
+        let ordered = MobileWorkspaceAggregation().orderedMacIDs(
+            statesByMac: states,
+            foregroundMacDeviceID: "mac-b",
+            computerPriority: ["mac-a"]
+        )
+        // Stable is pinned. The separately identified Nightly build remains
+        // unprioritized, so the unprioritized foreground Mac comes before it.
+        #expect(ordered == ["mac-a", "mac-b", "mac-a\u{1F}nightly"])
+    }
+
+    @Test func computerPriorityOrdersSiblingBuildsIndependently() {
+        var nightly = state("mac-a", name: "Alpha", ["a-nightly"])
+        nightly.instanceTag = "nightly"
+        var stable = state("mac-a", name: "Alpha", ["a-stable"])
+        stable.instanceTag = "stable"
+        let states = [
+            "mac-a\u{1F}nightly": nightly,
+            "mac-a\u{1F}stable": stable,
+            "mac-b": state("mac-b", name: "Beta", ["b1"]),
+        ]
+        let ordered = MobileWorkspaceAggregation().orderedMacIDs(
+            statesByMac: states,
+            foregroundMacDeviceID: "mac-b",
+            computerPriority: [
+                "mac-a\u{1F}nightly",
+                "mac-b",
+                "mac-a\u{1F}stable",
+            ]
+        )
+
+        #expect(ordered == [
+            "mac-a\u{1F}nightly",
+            "mac-b",
+            "mac-a\u{1F}stable",
+        ])
+    }
+
+    @Test func foregroundOrderUsesCanonicalPairingIdentity() {
+        let state = MacWorkspaceState(
+            macDeviceID: "mac-a",
+            instanceTag: " nightly ",
+            displayName: "Alpha",
+            status: .connected
+        )
+        let ordered = MobileWorkspaceAggregation().orderedMacIDs(
+            statesByMac: [state.id: state],
+            foregroundMacDeviceID: "mac-a\u{1F} nightly "
+        )
+
+        #expect(ordered == ["mac-a\u{1F}nightly"])
+        #expect(state.id == "mac-a\u{1F}nightly")
+    }
+
+    @Test func lastOpenedOrdersUnprioritizedMacsByRecencyThenName() {
+        let states = [
+            "mac-a": state("mac-a", name: "Alpha", ["a1"]),
+            "mac-b": state("mac-b", name: "Beta", ["b1"]),
+            "mac-c": state("mac-c", name: "Charlie", ["c1"]),
+            "mac-d": state("mac-d", name: "Delta", ["d1"]),
+        ]
+        let ordered = MobileWorkspaceAggregation().orderedMacIDs(
+            statesByMac: states,
+            foregroundMacDeviceID: "mac-a",
+            lastOpenedAt: [
+                "mac-a": Date(timeIntervalSince1970: 50),
+                "mac-c": Date(timeIntervalSince1970: 300),
+                "mac-b": Date(timeIntervalSince1970: 200),
+            ]
+        )
+        // Foreground still leads even with an older stamp (it is open NOW),
+        // then most recently opened, then never-opened computers by name.
+        #expect(ordered == ["mac-a", "mac-c", "mac-b", "mac-d"])
+    }
+
+    @Test func computerPriorityBeatsLastOpenedRecency() {
+        let states = [
+            "mac-a": state("mac-a", name: "Alpha", ["a1"]),
+            "mac-b": state("mac-b", name: "Beta", ["b1"]),
+        ]
+        let ordered = MobileWorkspaceAggregation().orderedMacIDs(
+            statesByMac: states,
+            foregroundMacDeviceID: nil,
+            computerPriority: ["mac-a"],
+            lastOpenedAt: ["mac-b": Date(timeIntervalSince1970: 500)]
+        )
+        #expect(ordered == ["mac-a", "mac-b"])
+    }
+
+    @Test func emptyComputerPriorityMatchesAutomaticOrder() {
+        let states = [
+            "mac-b": state("mac-b", name: "Beta", ["b1"]),
+            "mac-a": state("mac-a", name: "Alpha", ["a1"]),
+        ]
+        let aggregation = MobileWorkspaceAggregation()
+        let automatic = aggregation.orderedMacIDs(
+            statesByMac: states,
+            foregroundMacDeviceID: "mac-b"
+        )
+        let withEmptyPriority = aggregation.orderedMacIDs(
+            statesByMac: states,
+            foregroundMacDeviceID: "mac-b",
+            computerPriority: []
+        )
+        #expect(automatic == withEmptyPriority)
+    }
+
+    @Test func computerPriorityOrderDrivesWorkspaceAndGroupDerivations() {
+        var macAWorkspace = ws("a1", mac: "mac-a")
+        macAWorkspace.groupID = "group-a"
+        var macBWorkspace = ws("b1", mac: "mac-b")
+        macBWorkspace.groupID = "group-b"
+        let states = [
+            "mac-a": MacWorkspaceState(
+                macDeviceID: "mac-a",
+                displayName: "Alpha",
+                workspaces: [macAWorkspace],
+                groups: [group("group-a", anchor: "a1")],
+                status: .connected
+            ),
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b",
+                displayName: "Beta",
+                workspaces: [macBWorkspace],
+                groups: [group("group-b", anchor: "b1")],
+                status: .connected
+            ),
+        ]
+        let aggregation = MobileWorkspaceAggregation()
+        let macIDsInDisplayOrder = aggregation.orderedMacIDs(
+            statesByMac: states,
+            foregroundMacDeviceID: "mac-a",
+            computerPriority: ["mac-b"]
+        )
+
+        let workspaces = aggregation.derivedWorkspaces(
+            statesByMac: states,
+            foregroundMacDeviceID: "mac-a",
+            machineColorIndex: machineColorIndex(statesByMac: states),
+            macIDsInDisplayOrder: macIDsInDisplayOrder
+        )
+        let groups = aggregation.derivedGroups(
+            statesByMac: states,
+            foregroundMacDeviceID: "mac-a",
+            macIDsInDisplayOrder: macIDsInDisplayOrder
+        )
+
+        // Workspaces and group sections both follow the prioritized Mac order,
+        // so sections never detach from their members.
         #expect(workspaces.map(\.rpcWorkspaceID.rawValue) == ["b1", "a1"])
         #expect(groups.map(\.rpcGroupID.rawValue) == ["group-b", "group-a"])
     }

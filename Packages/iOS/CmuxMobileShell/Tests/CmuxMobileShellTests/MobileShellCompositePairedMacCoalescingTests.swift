@@ -463,6 +463,48 @@ import Testing
         #expect(aliases["mac-new"] == ["mac-old", "mac-new"])
     }
 
+    @Test
+    func siblingBuildsWithTheSameDialEndpointRemainSeparateComputers() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Lawrence Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 20),
+                        isActive: true,
+                        instanceTag: "stable"
+                    ),
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Lawrence Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: false,
+                        instanceTag: "nightly"
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+
+        await store.loadPairedMacs()
+
+        #expect(Set(store.displayPairedMacs.map(\.id)) == Set([
+            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "stable"),
+            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "nightly"),
+        ]))
+        #expect(store.pairedMacAliasIDs(for: "mac-a", instanceTag: "stable") == ["mac-a"])
+        #expect(store.pairedMacAliasIDs(for: "mac-a", instanceTag: "nightly") == ["mac-a"])
+    }
+
     @Test func scopedActionsDoNothingWithoutSignedInScope() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
@@ -505,6 +547,7 @@ import Testing
         port: Int = 50922,
         lastSeenAt: Date,
         isActive: Bool,
+        instanceTag: String? = nil,
         customName: String? = nil,
         customColor: String? = nil,
         customIcon: String? = nil,
@@ -521,7 +564,8 @@ import Testing
             teamID: "team-a",
             customName: customName,
             customColor: customColor,
-            customIcon: customIcon
+            customIcon: customIcon,
+            instanceTag: instanceTag
         )
     }
 }

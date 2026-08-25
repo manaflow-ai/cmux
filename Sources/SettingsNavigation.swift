@@ -7,6 +7,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case textBox
     case sleepyMode
     case mobile
+    case cloudMachines
     case networking
     case sidebarAppearance
     case customSidebars
@@ -36,6 +37,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode")
         case .mobile:
             return String(localized: "settings.section.mobile", defaultValue: "Mobile")
+        case .cloudMachines:
+            return String(localized: "settings.section.cloudMachines", defaultValue: "Cloud Machines")
         case .networking:
             return String(localized: "settings.section.networking", defaultValue: "Networking")
         case .workspaceColors:
@@ -77,6 +80,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "moon.zzz"
         case .mobile:
             return "iphone"
+        case .cloudMachines:
+            return "server.rack"
         case .networking:
             return "network"
         case .workspaceColors:
@@ -118,6 +123,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) sleepy mode screensaver caffeinate keep awake lock touch id battery wifi clock mascot theme glow pixel"
         case .mobile:
             return "\(title) ios iphone ipad mobile pairing local network sync"
+        case .cloudMachines:
+            return "\(title) cloud machines vm virtual machine persistent computer plan upgrade fleet"
         case .networking:
             return "\(title) iroh relay server private network tailscale vpn direct peer custom provider region"
         case .workspaceColors:
@@ -379,6 +386,15 @@ enum SettingsSearchIndex {
         setting(.app, "palette-search-all", String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), "cmd p search terminal browser markdown"),
         setting(.app, "canvas-pane-gap", String(localized: "settings.app.canvasPaneGap", defaultValue: "Canvas Pane Gap"), "canvas.paneGap canvas pane gap spacing freeform layout panes snapping tidy distribute align"),
         setting(.app, "canvas-snapping", String(localized: "settings.app.canvasSnapping", defaultValue: "Canvas Snapping"), "canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"),
+        setting(
+            .terminal,
+            "adaptive-default-theme",
+            String(localized: "settings.terminal.adaptiveDefaultTheme", defaultValue: "Adapt Default Theme to Appearance"),
+            String(
+                localized: "settings.search.alias.setting.terminal.adaptive-default-theme",
+                defaultValue: "terminal.adaptiveDefaultTheme adaptive default theme appearance light dark palette Ghostty managed colors empty untouched config preserve settings"
+            )
+        ),
         setting(.terminal, "scrollbar", String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"), "terminal shell scrollback"),
         setting(.terminal, "session-content-width", String(localized: "settings.terminal.sessionContentWidth", defaultValue: "Session Content Width"), "terminal.sessionContentMaxWidth terminal agent chat max width readable line length narrow wide"),
         setting(.terminal, "session-content-alignment", String(localized: "settings.terminal.sessionContentAlignment", defaultValue: "Session Content Alignment"), "terminal.sessionContentAlignment left center right align terminal agent chat"),
@@ -451,6 +467,7 @@ enum SettingsSearchIndex {
         setting(.browser, "enable-browser", String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"), "webview tabs links"),
         setting(.browser, "search-suggestions", String(localized: "settings.browser.searchSuggestions", defaultValue: "Show Search Suggestions"), "browser address bar suggestions"),
         setting(.browser, "theme", String(localized: "settings.browser.theme", defaultValue: "Browser Theme"), "web appearance light dark system"),
+        setting(.browser, "default-zoom-level", String(localized: "settings.browser.defaultZoomLevel", defaultValue: "Default Page Zoom"), "default browser zoom level page magnification percent scale actual size"),
         setting(.browser, "hidden-webview-discard", String(localized: "settings.browser.hiddenWebViewDiscard", defaultValue: "Discard Hidden Browser WebViews"), "memory hidden tabs webview discard unload"),
         setting(.browser, "hidden-webview-discard-delay", String(localized: "settings.browser.hiddenWebViewDiscardDelay", defaultValue: "Hidden WebView Discard Delay"), "memory hidden tabs delay seconds discard"),
         setting(.browser, "ask-where-to-save-downloads", String(localized: "settings.browser.askWhereToSaveDownloads", defaultValue: "Ask Where to Save Downloads"), "downloads save panel download folder attachments files pdf gmail"),
@@ -459,6 +476,7 @@ enum SettingsSearchIndex {
         setting(.browser, "host-whitelist", String(localized: "settings.browser.hostWhitelist", defaultValue: "Hosts to Open in Embedded Browser"), "hosts wildcard terminal links"),
         setting(.browser, "external-patterns", String(localized: "settings.browser.externalPatterns", defaultValue: "URLs to Always Open Externally"), "regex url rules default browser"),
         setting(.browser, "http-allowlist", String(localized: "settings.browser.httpAllowlist", defaultValue: "HTTP Hosts Allowed in Embedded Browser"), "localhost non https warning"),
+        setting(.browser, "url-allowlist", String(localized: "settings.browser.urlAllowlist", defaultValue: "Embedded Browser URL Allowlist"), "browser url allowlist localhost wildcard scheme port organization policy"),
         setting(.browserImport, "import-data", String(localized: "settings.browser.import", defaultValue: "Import Browser Data"), "bookmarks history cookies profiles"),
         setting(.browserImport, "import-hint", String(localized: "settings.browser.import.hint.show", defaultValue: "Show import hint on blank browser tabs"), "blank tab browser import"),
         setting(.browser, "react-grab", String(localized: "settings.browser.reactGrabVersion", defaultValue: "React Grab Version"), "npm react grab toolbar"),
@@ -552,6 +570,7 @@ enum SettingsSearchIndex {
         "sidebar.rightMaxWidth": settingID(for: .sidebarAppearance, idSuffix: "right-max-width"),
         "sidebar-font-size": settingID(for: .sidebarAppearance, idSuffix: "font-size"),
         "surface-tab-bar-font-size": settingID(for: .terminal, idSuffix: "tab-bar-font-size"),
+        "terminal.adaptiveDefaultTheme": settingID(for: .terminal, idSuffix: "adaptive-default-theme"),
         "terminal.showScrollBar": settingID(for: .terminal, idSuffix: "scrollbar"),
         "terminal.showTextBoxOnNewTerminals": settingID(for: .textBox, idSuffix: "show-textbox-new-terminals"),
         "terminal.focusTextBoxOnNewTerminals": settingID(for: .textBox, idSuffix: "focus-textbox-new-terminals"),
@@ -591,6 +610,7 @@ enum SettingsSearchIndex {
         "browser.customSearchEngineURLTemplate": settingID(for: .browser, idSuffix: "search-engine"),
         "browser.showSearchSuggestions": settingID(for: .browser, idSuffix: "search-suggestions"),
         "browser.theme": settingID(for: .browser, idSuffix: "theme"),
+        "browser.defaultZoomLevel": settingID(for: .browser, idSuffix: "default-zoom-level"),
         "browser.discardHiddenWebViews": settingID(for: .browser, idSuffix: "hidden-webview-discard"),
         "browser.hiddenWebViewDiscardDelaySeconds": settingID(for: .browser, idSuffix: "hidden-webview-discard-delay"),
         "browser.askWhereToSaveDownloads": settingID(for: .browser, idSuffix: "ask-where-to-save-downloads"),
@@ -599,6 +619,7 @@ enum SettingsSearchIndex {
         "browser.hostsToOpenInEmbeddedBrowser": settingID(for: .browser, idSuffix: "host-whitelist"),
         "browser.urlsToAlwaysOpenExternally": settingID(for: .browser, idSuffix: "external-patterns"),
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser": settingID(for: .browser, idSuffix: "http-allowlist"),
+        "browser.urlAllowlist": settingID(for: .browser, idSuffix: "url-allowlist"),
         "browser.showImportHintOnBlankTabs": settingID(for: .browserImport, idSuffix: "import-hint"),
         "browser.reactGrabVersion": settingID(for: .browser, idSuffix: "react-grab"),
         "shortcuts.bindings": settingID(for: .keyboardShortcuts, idSuffix: "shortcuts")

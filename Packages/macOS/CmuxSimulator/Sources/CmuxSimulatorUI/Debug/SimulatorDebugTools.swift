@@ -5,8 +5,10 @@ struct SimulatorDebugTools: View {
     let coordinator: SimulatorPaneCoordinator
 
     var body: some View {
-        Button(simulatorStrings.terminateRenderer, role: .destructive) {
+        Button(role: .destructive) {
             coordinator.terminateRenderer()
+        } label: {
+            Text(simulatorStrings.terminateRenderer)
         }
     }
 }

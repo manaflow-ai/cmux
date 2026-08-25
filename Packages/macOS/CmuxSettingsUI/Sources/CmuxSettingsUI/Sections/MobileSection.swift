@@ -26,6 +26,13 @@ public struct MobileSection: View {
     /// Guards against overlapping Apply taps while a probe is in flight.
     @State private var isApplying = false
 
+    /// Whether an MDM configuration profile disables iOS remote control.
+    /// Refreshed from ``ManagedDevicePolicy/changeSignals(notificationCenter:)``
+    /// so a profile pushed while the Settings window stays open re-renders
+    /// the section.
+    @State private var remoteControlManagedByPolicy =
+        ManagedDevicePolicy().isEnforced(.disableRemoteControl)
+
     /// Host bridge: opens the pairing window, applies the port (availability
     /// checked), and supplies the live pairing status and default display name.
     private let hostActions: SettingsHostActions
@@ -77,33 +84,51 @@ public struct MobileSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.mobile", defaultValue: "Mobile"), section: .mobile)
             SettingsCard {
-                pairDeviceRow
-                SettingsCardDivider()
+                if remoteControlManagedByPolicy {
+                    SettingsCardNote(String(
+                        localized: "settings.mobile.managedByOrganization",
+                        defaultValue: "Remote control from the iOS app is disabled by your organization."
+                    ))
+                    SettingsCardDivider()
+                }
+                // Phone-push forwarding is outbound-only and explicitly out of
+                // the DisableRemoteControl policy's scope, so its rows stay
+                // editable even while the remote-control rows are managed.
                 phonePushForwardingRow
                 SettingsCardDivider()
                 phonePushModeRow
                 SettingsCardDivider()
                 phonePushHideContentRow
                 SettingsCardDivider()
-                iOSPairingHostRow
-                SettingsCardDivider()
-                portRow
-                boundPortStatusRow
-                SettingsCardDivider()
-                displayNameRow
-                SettingsCardDivider()
-                artifactFolderAccessRow
-                if iOSPairingHost.current {
+                Group {
+                    pairDeviceRow
                     SettingsCardDivider()
-                    diagnostics
+                    iOSPairingHostRow
+                    SettingsCardDivider()
+                    portRow
+                    boundPortStatusRow
+                    SettingsCardDivider()
+                    displayNameRow
+                    SettingsCardDivider()
+                    artifactFolderAccessRow
+                    if iOSPairingHost.current {
+                        SettingsCardDivider()
+                        diagnostics
+                    }
+                    SettingsCardNote(String(
+                        localized: "settings.mobile.port.note",
+                        defaultValue: "Click Apply to change the port. cmux checks the port is free first: if it's in use, the current listener keeps running untouched; if it's free, it rebinds and connected devices reconnect on the new port."
+                    ))
                 }
-                SettingsCardNote(String(
-                    localized: "settings.mobile.port.note",
-                    defaultValue: "Click Apply to change the port. cmux checks the port is free first: if it's in use, the current listener keeps running untouched; if it's free, it rebinds and connected devices reconnect on the new port."
-                ))
+                .disabled(remoteControlManagedByPolicy)
             }
         }
         .task { startObservingSettings() }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                remoteControlManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableRemoteControl)
+            }
+        }
     }
 
     private func startObservingSettings() {

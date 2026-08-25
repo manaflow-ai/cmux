@@ -6,6 +6,10 @@ protocol UserNotificationCenterCalling: AnyObject {
 
     func setNotificationCategories(_ categories: Set<UNNotificationCategory>)
 
+    func getNotificationCategories(
+        completionHandler: @escaping @Sendable (Set<UNNotificationCategory>) -> Void
+    )
+
     func getNotificationSettings(
         completionHandler: @escaping @Sendable (UNNotificationSettings) -> Void
     )

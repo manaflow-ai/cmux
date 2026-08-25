@@ -11,6 +11,28 @@ import Testing
 @Suite
 struct QuitConfirmationAlertPresenterTests {
     @Test
+    func freshSnapshotDeadlineTerminatesWithCachedIndexesAfterOwnedCleanup() {
+        #expect(
+            AppDelegate.terminateCleanupDeadlineDisposition(
+                phase: .freshSnapshot,
+                hasOwnedRuntimeCleanup: true
+            ) == .persistCachedSnapshotAndTerminate
+        )
+        #expect(
+            AppDelegate.terminateCleanupDeadlineDisposition(
+                phase: .ownedRuntimeCleanup,
+                hasOwnedRuntimeCleanup: true
+            ) == .cancelTerminationAfterRuntimeCleanupFailure
+        )
+        #expect(
+            AppDelegate.terminateCleanupDeadlineDisposition(
+                phase: .ownedRuntimeCleanup,
+                hasOwnedRuntimeCleanup: false
+            ) == .persistCachedSnapshotAndTerminate
+        )
+    }
+
+    @Test
     func pendingTerminateReplyWaitsForOwnedCleanupOrTerminateOwnedConfirmation() {
         #expect(
             AppDelegate.pendingTerminateReply(
@@ -147,6 +169,13 @@ struct QuitConfirmationAlertPresenterTests {
         #expect(!alert.didBeginSheetModal)
         #expect(!alert.didRunModal)
         #expect(completedResponse == nil)
+
+        // NSAlert starts with a lazy placeholder layout that stacks full-width
+        // buttons. The standalone presenter must resolve that layout before the
+        // alert becomes visible or the panel renders clipped and washed out.
+        let buttonFrames = alert.buttons.map(\.frame)
+        #expect(buttonFrames.count == 2)
+        #expect(abs(buttonFrames[0].midY - buttonFrames[1].midY) < 0.5)
 
         alert.buttons[0].performClick(nil)
 

@@ -744,6 +744,14 @@ def menu_action_variants() -> set[str]:
 
 
 MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
+    "RunConfigured": {
+        "classification": "composite",
+        "route": "frontend configured menu + the referenced action's own route",
+    },
+    "RenameClientMachine": {
+        "classification": "composite",
+        "route": "frontend prompt + client-local machine catalog",
+    },
     "RenameManagedMachine": {
         "classification": "external-protocol",
         "route": "machine-provider rename_machine",
@@ -788,6 +796,10 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
         "classification": "direct",
         "route": "browser-activate",
     },
+    "RenameSurface": {
+        "classification": "composite",
+        "route": "frontend prompt + rename-surface",
+    },
     "CopyTabId": {
         "classification": "presentation-only",
         "route": "tree snapshot + frontend clipboard",
@@ -795,6 +807,18 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
     "CopyPaneId": {
         "classification": "presentation-only",
         "route": "tree snapshot + frontend clipboard",
+    },
+    "CopyStatusMessage": {
+        "classification": "presentation-only",
+        "route": "status snapshot + frontend clipboard",
+    },
+    "ActivateSidebarProfile": {
+        "classification": "presentation-only",
+        "route": "frontend sidebar profile composition",
+    },
+    "SetSidebarViewVisible": {
+        "classification": "presentation-only",
+        "route": "frontend per-profile view visibility",
     },
     "SetClientSizing": {
         "classification": "direct",
@@ -819,6 +843,18 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
     "InvokeProviderAction": {
         "classification": "external-protocol",
         "route": "machine-provider invoke_action",
+    },
+    "CreateMachineFrom": {
+        "classification": "composite",
+        "route": "native source picker + client-local machine catalog",
+    },
+    "ConnectMachineTarget": {
+        "classification": "composite",
+        "route": "SSH config picker + client-local machine connector",
+    },
+    "ConnectOtherMachine": {
+        "classification": "composite",
+        "route": "frontend prompt + client-local machine connector",
     },
 }
 

@@ -320,6 +320,16 @@ final class RemoteTmuxController {
         let connection = acquisition.connection
         let workspace = acquisition.workspace
         workspace.isRemoteTmuxMirror = true
+        // Identity pairs the connection pushes into the remote SESSION
+        // environment on attach and every reconnect (issue #833). Workspace id
+        // is published under both keys, matching the SSH-workspace bootstrap
+        // convention (`CMUX_TAB_ID` is the legacy alias). No socket path: the
+        // ssh-tmux transport has no relay, so a local path would be dead on the
+        // remote — see ``RemoteTmuxControlConnection/pushMirrorSessionEnvironment()``.
+        connection.setMirrorEnvironment([
+            "CMUX_WORKSPACE_ID": workspace.id.uuidString,
+            "CMUX_TAB_ID": workspace.id.uuidString,
+        ])
         workspace.remoteTmuxWindowOrderSync = { [weak self, weak workspace] orderedPanelIds, verification in
             guard let self, let workspace else { return false }
             return self.handleMirrorWindowsReordered(

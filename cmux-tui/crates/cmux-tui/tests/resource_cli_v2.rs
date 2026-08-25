@@ -1,12 +1,14 @@
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
+use cmux_tui_core::resource::PROTOCOL;
 use serde_json::{Value, json};
+use wait_timeout::ChildExt;
 
 const WORKSPACE_ID: &str = "ws_11111111111111111111111111111111";
 const OTHER_WORKSPACE_ID: &str = "ws_12121212121212121212121212121212";
@@ -822,6 +824,355 @@ fn usage_and_transport_failures_use_distinct_exit_codes_and_stderr() {
     );
     assert!(transport.stdout.is_empty());
     assert!(!transport.stderr.is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn journal_subscription_rejects_a_stale_session_before_sending_the_new_envelope() {
+    let dir = unique_temp_dir("journal-stale-session");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = transport::listen(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap();
+        stream.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+        let read_half = stream.try_clone_box().unwrap();
+        let mut reader = BufReader::new(read_half);
+        let mut requests = Vec::new();
+        let mut line = String::new();
+        if reader.read_line(&mut line).unwrap() != 0 {
+            let request: Value = serde_json::from_str(&line).unwrap();
+            requests.push(request.clone());
+            let response = if request.get("cmd").and_then(Value::as_str) == Some("identify") {
+                json!({
+                    "id":request["id"],
+                    "ok":true,
+                    "data":{
+                        "app":"cmux-tui",
+                        "protocol":10,
+                        "capabilities":["workspace-registry-v1"],
+                        "session":"journal-v1"
+                    }
+                })
+            } else {
+                json!({
+                    "protocol":"cmux.protocol/1",
+                    "type":"response",
+                    "id":request["id"],
+                    "ok":false,
+                    "error":{
+                        "code":"validation.invalid",
+                        "message":"invalid request envelope",
+                        "details":{"reason":"invalid request envelope"},
+                        "retryable":false
+                    }
+                })
+            };
+            writeln!(stream, "{response}").unwrap();
+            stream.flush().unwrap();
+        }
+        line.clear();
+        if reader.read_line(&mut line).is_ok() && !line.is_empty() {
+            requests.push(serde_json::from_str(&line).unwrap());
+        }
+        requests
+    });
+
+    let output = Command::new(bin())
+        .args(["--jsonl", "--socket"])
+        .arg(&socket)
+        .args(["session", "current", "journal", "subscribe"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    let requests = server.join().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let error = parse_single_json(&output.stderr);
+    assert_eq!(error["code"], "operation.unsupported");
+    assert_eq!(error["details"]["capability"], "session-journal-v1");
+    assert!(error["details"].get("session").is_none());
+    assert_eq!(requests.len(), 1, "new request reached a stale server: {requests:?}");
+    assert_eq!(requests[0]["cmd"], "identify");
+    let _ = fs::remove_file(&socket);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn pre_ready_resource_reload_uses_selected_locale() {
+    let dir = unique_temp_dir("pre-ready-reload-locale");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = transport::listen(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap();
+        let mut line = String::new();
+        BufReader::new(stream.try_clone_box().unwrap()).read_line(&mut line).unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["operation"], "session.reload_config");
+        let response = json!({
+            "protocol":PROTOCOL,
+            "type":"response",
+            "id":request["id"],
+            "ok":false,
+            "error":{
+                "code":"operation.failed",
+                "message":"server lifecycle is not ready",
+                "details":{
+                    "operation":"session.reload_config",
+                    "reason":"lifecycle_not_ready"
+                },
+                "retryable":false
+            }
+        });
+        writeln!(stream, "{response}").unwrap();
+        stream.flush().unwrap();
+    });
+
+    let output = Command::new(bin())
+        .args(["--socket"])
+        .arg(&socket)
+        .args(["session", "current", "config", "reload"])
+        .env("LC_ALL", "ja_JP.UTF-8")
+        .env("LC_MESSAGES", "ja_JP.UTF-8")
+        .env("LANG", "ja_JP.UTF-8")
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    server.join().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let diagnostic = stderr(&output);
+    assert!(diagnostic.contains("ローカルサーバーは起動中です"), "{diagnostic}");
+    assert!(!diagnostic.contains("server lifecycle is not ready"), "{diagnostic}");
+    let _ = fs::remove_file(&socket);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn pre_ready_resource_reload_json_preserves_server_message() {
+    let dir = unique_temp_dir("pre-ready-reload-json");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = transport::listen(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap();
+        let mut line = String::new();
+        BufReader::new(stream.try_clone_box().unwrap()).read_line(&mut line).unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["operation"], "session.reload_config");
+        let response = json!({
+            "protocol":PROTOCOL,
+            "type":"response",
+            "id":request["id"],
+            "ok":false,
+            "error":{
+                "code":"operation.failed",
+                "message":"server lifecycle is not ready",
+                "details":{
+                    "operation":"session.reload_config",
+                    "reason":"lifecycle_not_ready"
+                },
+                "retryable":false
+            }
+        });
+        writeln!(stream, "{response}").unwrap();
+        stream.flush().unwrap();
+    });
+
+    let output = Command::new(bin())
+        .args(["--json", "--socket"])
+        .arg(&socket)
+        .args(["session", "current", "config", "reload"])
+        .env("LC_ALL", "ja_JP.UTF-8")
+        .env("LC_MESSAGES", "ja_JP.UTF-8")
+        .env("LANG", "ja_JP.UTF-8")
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    server.join().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let error = parse_single_json(&output.stderr);
+    assert_eq!(error["code"], "operation.failed");
+    assert_eq!(error["message"], "server lifecycle is not ready");
+    assert_eq!(error["details"]["reason"], "lifecycle_not_ready");
+    assert_eq!(error["retryable"], false);
+    let _ = fs::remove_file(&socket);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn journal_subscription_negotiates_then_sends_the_resource_envelope() {
+    let dir = unique_temp_dir("journal-capable-session");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = transport::listen(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap();
+        let read_half = stream.try_clone_box().unwrap();
+        let mut reader = BufReader::new(read_half);
+        let mut requests = Vec::new();
+
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let identify: Value = serde_json::from_str(&line).unwrap();
+        requests.push(identify.clone());
+        writeln!(
+            stream,
+            "{}",
+            json!({
+                "id":identify["id"],
+                "ok":true,
+                "data":{
+                    "app":"cmux-tui",
+                    "protocol":10,
+                    "capabilities":["session-journal-v1"],
+                    "session":"journal-capable"
+                }
+            })
+        )
+        .unwrap();
+        stream.flush().unwrap();
+
+        line.clear();
+        reader.read_line(&mut line).unwrap();
+        let subscribe: Value = serde_json::from_str(&line).unwrap();
+        requests.push(subscribe.clone());
+        let stream_id = subscribe["params"]["stream_id"].clone();
+        for envelope in [
+            json!({
+                "protocol":"cmux.protocol/2",
+                "type":"response",
+                "id":subscribe["id"],
+                "ok":true,
+                "result":{"stream_id":stream_id}
+            }),
+            json!({
+                "protocol":"cmux.protocol/2",
+                "type":"stream_end",
+                "stream_id":stream_id,
+                "reason":"completed"
+            }),
+        ] {
+            writeln!(stream, "{envelope}").unwrap();
+        }
+        stream.flush().unwrap();
+        requests
+    });
+
+    let output = Command::new(bin())
+        .args(["--session", "journal-capable", "--jsonl", "--socket"])
+        .arg(&socket)
+        .args(["session", "current", "journal", "subscribe"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    let requests = server.join().unwrap();
+    assert_success(&output);
+    assert!(output.stderr.is_empty(), "{}", stderr(&output));
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0]["cmd"], "identify");
+    assert_eq!(requests[1]["operation"], "session.journal.subscribe");
+    assert_eq!(requests[1]["params"]["session"], "journal-capable");
+    let lifecycle = stdout(&output)
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(lifecycle.len(), 2);
+    assert_eq!(lifecycle[0]["type"], "response");
+    assert_eq!(lifecycle[1]["type"], "stream_end");
+    let _ = fs::remove_file(&socket);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn journal_subscription_sigint_exits_immediately_and_cleanly() {
+    let dir = unique_temp_dir("journal-subscribe-sigint");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = transport::listen(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap();
+        let read_half = stream.try_clone_box().unwrap();
+        let mut reader = BufReader::new(read_half);
+
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let identify: Value = serde_json::from_str(&line).unwrap();
+        writeln!(
+            stream,
+            "{}",
+            json!({
+                "id":identify["id"],
+                "ok":true,
+                "data":{
+                    "app":"cmux-tui",
+                    "protocol":10,
+                    "capabilities":["session-journal-v1"],
+                    "session":"journal-sigint"
+                }
+            })
+        )
+        .unwrap();
+        stream.flush().unwrap();
+
+        line.clear();
+        reader.read_line(&mut line).unwrap();
+        let subscribe: Value = serde_json::from_str(&line).unwrap();
+        writeln!(
+            stream,
+            "{}",
+            json!({
+                "protocol":"cmux.protocol/2",
+                "type":"response",
+                "id":subscribe["id"],
+                "ok":true,
+                "result":{"stream_id":subscribe["params"]["stream_id"]}
+            })
+        )
+        .unwrap();
+        stream.flush().unwrap();
+
+        line.clear();
+        let _ = reader.read_line(&mut line);
+    });
+
+    let mut child = Command::new(bin())
+        .args(["--jsonl", "--socket"])
+        .arg(&socket)
+        .args(["session", "current", "journal", "subscribe"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut accepted = String::new();
+    stdout.read_line(&mut accepted).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&accepted).unwrap()["type"], "response");
+
+    let started = Instant::now();
+    let pid = libc::pid_t::try_from(child.id()).unwrap();
+    assert_eq!(unsafe { libc::kill(pid, libc::SIGINT) }, 0);
+    let status = child.wait_timeout(Duration::from_millis(100)).unwrap().unwrap_or_else(|| {
+        let _ = child.kill();
+        let _ = child.wait();
+        panic!("journal subscriber did not exit within 100 ms of SIGINT");
+    });
+    let elapsed = started.elapsed();
+    let mut stderr = String::new();
+    child.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
+    assert!(status.success(), "SIGINT exit was {status:?}: {stderr}");
+    assert!(stderr.is_empty(), "SIGINT wrote a transport error: {stderr}");
+    assert!(elapsed < Duration::from_millis(100), "SIGINT exit took {elapsed:?}");
+
+    server.join().unwrap();
+    let _ = fs::remove_file(&socket);
+    fs::remove_dir_all(dir).unwrap();
 }
 
 struct RequestCase {

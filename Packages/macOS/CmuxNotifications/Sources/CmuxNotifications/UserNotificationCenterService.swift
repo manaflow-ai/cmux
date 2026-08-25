@@ -85,6 +85,21 @@ public final class UserNotificationCenterService: @unchecked Sendable {
         }
     }
 
+    /// Reads the currently registered notification categories through the
+    /// bounded background boundary. Callers that maintain dynamic per-request
+    /// categories (the Feed's `CMUXFeedQuestion.` namespace) merge against
+    /// this snapshot inside their own serialized update chain.
+    public func notificationCategories() async -> Result<
+        Set<UNNotificationCategory>,
+        UserNotificationCenterFailure
+    > {
+        await perform { [self] completion in
+            center.getNotificationCategories { categories in
+                completion(.success(categories))
+            }
+        }
+    }
+
     /// Returns the app's current notification authorization status.
     public func authorizationStatus() async -> Result<
         UserNotificationAuthorizationStatus,

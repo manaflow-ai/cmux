@@ -35,6 +35,146 @@ private final class MarkedOptionTextView: NSTextView {
 struct AppDelegateOptionDigitShortcutRoutingTests {
 #if DEBUG
     @Test
+    func fileConfiguredOptionOnlyArrowBindingsRouteBeforeTerminalFallback() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let firstWorkspace = try #require(manager.selectedWorkspace)
+            let secondWorkspace = manager.addTab(select: false)
+            manager.selectTab(at: 0)
+
+            let terminalPanelId = try #require(firstWorkspace.focusedPanelId)
+            let terminalPanel = try #require(firstWorkspace.terminalPanel(for: terminalPanelId))
+            terminalPanel.hostedView.setVisibleInUI(true)
+            terminalPanel.hostedView.setActive(true)
+            terminalPanel.hostedView.moveFocus()
+            testWindow.makeKeyAndOrderFront(nil)
+            testWindow.displayIfNeeded()
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            #expect(terminalPanel.hostedView.isSurfaceViewFirstResponder())
+
+            let settingsFileURL = try writeShortcutSettingsFile(bindings: [
+                "nextSidebarTab": "opt+↓",
+                "prevSidebarTab": "opt+↑",
+            ])
+            defer { try? FileManager.default.removeItem(at: settingsFileURL) }
+            KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+            appDelegate.debugResetShortcutRoutingStateForTesting()
+
+            let nextEvent = try #require(makeKeyEvent(
+                modifierFlags: [.option],
+                characters: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+                charactersIgnoringModifiers: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+                keyCode: 125,
+                windowNumber: testWindow.windowNumber
+            ))
+            let previousEvent = try #require(makeKeyEvent(
+                modifierFlags: [.option],
+                characters: String(UnicodeScalar(NSUpArrowFunctionKey)!),
+                charactersIgnoringModifiers: String(UnicodeScalar(NSUpArrowFunctionKey)!),
+                keyCode: 126,
+                windowNumber: testWindow.windowNumber
+            ))
+
+            #expect(appDelegate.debugMatchesConfiguredShortcut(event: nextEvent, action: .nextSidebarTab))
+            #expect(
+                testWindow.performKeyEquivalent(with: nextEvent),
+                "An explicit Option+Down binding should route before the terminal arrow fallback"
+            )
+            #expect(manager.selectedTabId == secondWorkspace.id)
+
+            #expect(appDelegate.debugMatchesConfiguredShortcut(event: previousEvent, action: .prevSidebarTab))
+            #expect(
+                testWindow.performKeyEquivalent(with: previousEvent),
+                "An explicit Option+Up binding should route before the terminal arrow fallback"
+            )
+            #expect(manager.selectedTabId == firstWorkspace.id)
+        }
+    }
+
+    @Test
+    func fileConfiguredOptionOnlyPrintableBindingWinsBeforeTextInput() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let initialWorkspaceCount = manager.tabs.count
+            let settingsFileURL = try writeShortcutSettingsFile(bindings: [
+                "newTab": "opt+q",
+            ])
+            defer { try? FileManager.default.removeItem(at: settingsFileURL) }
+            KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+            appDelegate.debugResetShortcutRoutingStateForTesting()
+
+            let event = try #require(makeKeyEvent(
+                modifierFlags: [.option],
+                characters: "@",
+                charactersIgnoringModifiers: "q",
+                keyCode: 12,
+                windowNumber: testWindow.windowNumber
+            ))
+
+            #expect(shortcutRoutingShouldBypassForPrintableOptionText(event: event))
+            #expect(
+                appDelegate.debugHandleCustomShortcut(event: event),
+                "An explicitly configured Option+Q binding should win over printable Option text"
+            )
+            #expect(manager.tabs.count == initialWorkspaceCount + 1)
+        }
+    }
+
+    @Test
+    func unboundOptionOnlyPrintableTextReachesFirstResponder() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let focusableView = OptionDigitFocusableTestView(
+                frame: NSRect(x: 0, y: 0, width: 120, height: 24)
+            )
+            testWindow.contentView?.addSubview(focusableView)
+            defer { focusableView.removeFromSuperview() }
+            testWindow.makeKeyAndOrderFront(nil)
+            #expect(testWindow.makeFirstResponder(focusableView))
+
+            let event = try #require(makeKeyEvent(
+                modifierFlags: [.option],
+                characters: "@",
+                charactersIgnoringModifiers: "q",
+                keyCode: 12,
+                windowNumber: testWindow.windowNumber
+            ))
+
+            #expect(shortcutRoutingShouldBypassForPrintableOptionText(event: event))
+            #expect(
+                testWindow.performKeyEquivalent(with: event),
+                "An unbound Option+Q should be forwarded as text input"
+            )
+            #expect(focusableView.keyDownCallCount == 1)
+            #expect(focusableView.lastKeyDownCharactersIgnoringModifiers == "q")
+        }
+    }
+
+    @Test
     func optionDigitWorkspaceNumberShortcutBeatsPrintableOptionTextBypass() throws {
         try withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
@@ -609,6 +749,27 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             option: true,
             control: false
         )
+    }
+
+    private func writeShortcutSettingsFile(bindings: [String: String]) throws -> URL {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        let bindingsObject = bindings
+            .sorted { $0.key < $1.key }
+            .map { "\"\($0.key)\": \"\($0.value)\"" }
+            .joined(separator: ",\n        ")
+        try """
+        {
+          "shortcuts": {
+            "bindings": {
+              \(bindingsObject)
+            }
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        return settingsFileURL
     }
 
     private func optionTwoEvent(windowNumber: Int) -> NSEvent? {

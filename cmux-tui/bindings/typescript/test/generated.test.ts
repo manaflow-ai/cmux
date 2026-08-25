@@ -9,11 +9,11 @@ import {
   SDK_SCHEMA_VERSION,
 } from "cmux-sdk/raw";
 
-test("generated protocol coverage matches the canonical v11 IR", () => {
-  assert.equal(MUX_PROTOCOL_VERSION, 11);
+test("generated protocol coverage matches the canonical v12 IR", () => {
+  assert.equal(MUX_PROTOCOL_VERSION, 12);
   assert.equal(SDK_SCHEMA_VERSION, 2);
-  assert.equal(Object.keys(COMMAND_METADATA).length, 97);
-  assert.equal(Object.keys(EVENT_METADATA).length, 45);
+  assert.equal(Object.keys(COMMAND_METADATA).length, 103);
+  assert.equal(Object.keys(EVENT_METADATA).length, 46);
   assert.equal(SDK_IR_SHA256.length, 64);
   assert.deepEqual(Object.keys(PROFILES).sort(), [
     "control",
@@ -27,7 +27,7 @@ test("generated active events exclude serialized-only shapes", () => {
   const emitted = Object.entries(EVENT_METADATA)
     .filter(([, metadata]) => metadata.emission === "emitted")
     .map(([name]) => name);
-  assert.equal(emitted.length, 44);
+  assert.equal(emitted.length, 45);
   assert.equal(EVENT_METADATA["client-list-invalidated"].emission, "serialized-never-emitted");
   assert.equal(emitted.includes("client-list-invalidated"), false);
 });

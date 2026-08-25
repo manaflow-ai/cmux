@@ -5,6 +5,8 @@ import CmuxControlSocket
 import CmuxNotifications
 import CmuxTerminal
 import Foundation
+import Observation
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -15,7 +17,7 @@ import Testing
 
 @MainActor
 private final class DockRuntimeParityPanel: Panel, ObservableObject {
-    let id = UUID()
+    let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .terminal
     let displayTitle: String
@@ -25,7 +27,8 @@ private final class DockRuntimeParityPanel: Panel, ObservableObject {
     private(set) var flashReasons: [WorkspaceAttentionFlashReason] = []
     private(set) var closeCount = 0
 
-    init(title: String) {
+    init(id: UUID = UUID(), title: String) {
+        self.id = id
         displayTitle = title
     }
 
@@ -38,6 +41,12 @@ private final class DockRuntimeParityPanel: Panel, ObservableObject {
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         flashReasons.append(reason)
     }
+}
+
+@MainActor
+private final class DockRuntimeParityUnreadObserver {
+    var publicationCount = 0
+    var totalUnreadCounts: [Int] = []
 }
 
 @MainActor
@@ -55,7 +64,8 @@ private extension DockSplitStore {
                 inPane: pane
             )
         )
-        surfaceIdToPanelId[tabID] = panel.id
+        bindSurface(tabID, toPanelId: panel.id)
+        installAttentionRouting(for: panel)
         return pane
     }
 }
@@ -80,13 +90,71 @@ struct DockRuntimeParityTests {
                 inPane: paneID
             )
         )
+        // Seed only the stale forward alias; the live tab must remain the
+        // authoritative reverse mapping for this fixture.
         dock.surfaceIdToPanelId[staleAliasID] = panel.id
 
         #expect(dock.bonsplitController.closeTab(staleAliasID))
 
         #expect(dock.panel(for: liveTabID) === panel)
+        #expect(dock.surfaceId(forPanelId: panel.id) == liveTabID)
         #expect(dock.surfaceIdToPanelId[staleAliasID] == nil)
         #expect(panel.closeCount == 0)
+    }
+
+    @Test("Dock pane ownership follows split, close, and implicit move closure")
+    func dockPaneOwnershipFollowsBonsplitLifecycle() throws {
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let otherDock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
+
+        #expect(dock.containsPane(rootPane.id))
+        #expect(!otherDock.containsPane(rootPane.id))
+        #expect(DockSplitStore.liveStore(containingPane: rootPane.id) === dock)
+
+        let closingTab = Bonsplit.Tab(title: "Closing tab")
+        let closedPane = try #require(
+            dock.bonsplitController.splitPane(
+                rootPane,
+                orientation: .horizontal,
+                withTab: closingTab
+            )
+        )
+        #expect(dock.containsPane(closedPane.id))
+        #expect(DockSplitStore.liveStore(containingPane: closedPane.id) === dock)
+
+        #expect(dock.bonsplitController.closeTab(closingTab.id))
+        #expect(!dock.containsPane(closedPane.id))
+        #expect(DockSplitStore.liveStore(containingPane: closedPane.id) == nil)
+
+        let explicitlyClosedPane = try #require(
+            dock.bonsplitController.splitPane(
+                rootPane,
+                orientation: .horizontal,
+                withTab: Bonsplit.Tab(title: "Explicitly closed pane")
+            )
+        )
+        #expect(dock.bonsplitController.closePane(explicitlyClosedPane))
+        #expect(!dock.containsPane(explicitlyClosedPane.id))
+
+        let movingTab = try #require(
+            dock.bonsplitController.createTab(
+                title: "Moving tab",
+                inPane: rootPane
+            )
+        )
+        let destinationPane = try #require(
+            dock.bonsplitController.splitPane(
+                rootPane,
+                orientation: .vertical,
+                withTab: Bonsplit.Tab(title: "Destination tab")
+            )
+        )
+        #expect(dock.bonsplitController.moveTab(movingTab, toPane: destinationPane))
+
+        #expect(!dock.containsPane(rootPane.id))
+        #expect(dock.containsPane(destinationPane.id))
+        #expect(DockSplitStore.liveStore(containingPane: destinationPane.id) === dock)
     }
 
     private func socketEnvelope(
@@ -150,13 +218,18 @@ struct DockRuntimeParityTests {
     }
 
     private func withAppContext(
+        fileExplorerState: FileExplorerState? = FileExplorerState(),
         _ body: @MainActor (AppDelegate, TabManager, Workspace, UUID) async throws -> Void
     ) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let previousAppDelegate = AppDelegate.shared
             let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let defaults = UserDefaults.standard
+            let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
+            let previousDockEnabled = defaults.object(forKey: dockEnabledKey)
             let appDelegate = AppDelegate()
             let manager = TabManager(autoWelcomeIfNeeded: false)
+            defaults.set(true, forKey: dockEnabledKey)
             AppDelegate.shared = appDelegate
             appDelegate.tabManager = manager
             TerminalController.shared.setActiveTabManager(manager)
@@ -174,7 +247,8 @@ struct DockRuntimeParityTests {
                 windowId: windowID,
                 tabManager: manager,
                 sidebarState: SidebarState(),
-                sidebarSelectionState: SidebarSelectionState()
+                sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: fileExplorerState
             )
             defer {
                 TerminalController.shared.setActiveTabManager(previousManager)
@@ -184,6 +258,11 @@ struct DockRuntimeParityTests {
                 window.orderOut(nil)
                 window.close()
                 AppDelegate.shared = previousAppDelegate
+                if let previousDockEnabled {
+                    defaults.set(previousDockEnabled, forKey: dockEnabledKey)
+                } else {
+                    defaults.removeObject(forKey: dockEnabledKey)
+                }
             }
 
             let workspace = try #require(manager.tabs.first)
@@ -191,8 +270,314 @@ struct DockRuntimeParityTests {
         }
     }
 
-    @Test("Notification attention routes to both Dock scopes")
-    func notificationAttentionRoutesToBothDockScopes() async throws {
+    @Test("Workspace panel unread invalidates only its keyed state")
+    func workspacePanelUnreadInvalidatesOnlyItsKeyedState() async throws {
+        try await withAppContext { _, _, workspace, _ in
+            let panelID = try #require(workspace.focusedPanelId)
+            let workspaceObserver = DockRuntimeParityUnreadObserver()
+            let workspaceObservation = workspace.objectWillChange.sink {
+                workspaceObserver.publicationCount += 1
+            }
+            let keyedInvalidationCount = OSAllocatedUnfairLock(initialState: 0)
+            withObservationTracking {
+                _ = workspace.manualUnreadPanelIds
+            } onChange: {
+                keyedInvalidationCount.withLock { $0 += 1 }
+            }
+            defer {
+                workspaceObservation.cancel()
+                workspace.clearManualUnread(panelId: panelID)
+            }
+
+            workspace.markPanelUnread(panelID)
+
+            #expect(workspace.manualUnreadPanelIds == [panelID])
+            #expect(keyedInvalidationCount.withLock { $0 } == 1)
+            #expect(workspaceObserver.publicationCount == 0)
+        }
+    }
+
+    @Test("Failed window Dock unread jump does not reveal its owner window")
+    func failedWindowDockUnreadJumpDoesNotRevealOwnerWindow() async throws {
+        try await withAppContext(fileExplorerState: nil) { appDelegate, _, _, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let window = try #require(appDelegate.windowForMainWindowId(windowID))
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let panel = DockRuntimeParityPanel(title: "Unavailable Dock unread")
+            try dock.seedRuntimeParityPanel(panel)
+            notificationStore.markRead(forTabId: windowID)
+            appDelegate.notificationStore = notificationStore
+            defer {
+                notificationStore.markRead(forTabId: windowID)
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            #expect(!window.isVisible)
+            #expect(notificationStore.markWindowDockSurfaceUnread(
+                windowId: windowID,
+                surfaceId: panel.id
+            ))
+
+            _ = appDelegate.jumpToLatestUnread()
+
+            #expect(!window.isVisible)
+            #expect(notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: panel.id
+            ))
+        }
+    }
+
+    @Test("Unavailable workspace Dock focus preserves window and workspace selection")
+    func unavailableWorkspaceDockFocusPreservesWindowAndSelection() async throws {
+        try await withAppContext { appDelegate, manager, selectedWorkspace, windowID in
+            let targetWorkspace = manager.addWorkspace(title: "Dock focus target", select: false)
+            let targetDock = targetWorkspace.dockSplit
+            let initiallyFocusedPanel = DockRuntimeParityPanel(title: "Initially focused")
+            let targetPanel = DockRuntimeParityPanel(title: "Focus target")
+            try targetDock.seedRuntimeParityPanel(initiallyFocusedPanel)
+            try targetDock.seedRuntimeParityPanel(targetPanel)
+            targetDock.focusPanel(initiallyFocusedPanel.id)
+
+            let window = try #require(appDelegate.windowForMainWindowId(windowID))
+            window.orderOut(nil)
+            #expect(manager.selectedTabId == selectedWorkspace.id)
+            #expect(targetDock.focusedPanelId == initiallyFocusedPanel.id)
+            #expect(!window.isVisible)
+
+            let defaults = UserDefaults.standard
+            let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
+            defaults.set(false, forKey: dockEnabledKey)
+            defer { defaults.set(true, forKey: dockEnabledKey) }
+
+            let envelope = try socketEnvelope(method: "surface.focus", params: [
+                "workspace_id": targetWorkspace.id.uuidString,
+                "surface_id": targetPanel.id.uuidString,
+            ])
+
+            #expect(envelope["ok"] as? Bool == false)
+            let error = try #require(envelope["error"] as? [String: Any])
+            #expect(error["code"] as? String == "unavailable")
+            #expect(manager.selectedTabId == selectedWorkspace.id)
+            #expect(targetDock.focusedPanelId == initiallyFocusedPanel.id)
+            #expect(!window.isVisible)
+        }
+    }
+
+    @Test("Toggle Unread mutates only the focused window Dock surface")
+    func toggleUnreadMutatesOnlyFocusedWindowDockSurface() async throws {
+        try await withAppContext { appDelegate, _, workspace, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let window = try #require(appDelegate.windowForMainWindowId(windowID))
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let panel = DockRuntimeParityPanel(title: "Focused Dock unread")
+            let otherPanel = DockRuntimeParityPanel(title: "Other Dock unread")
+            try dock.seedRuntimeParityPanel(panel)
+            try dock.seedRuntimeParityPanel(otherPanel)
+            notificationStore.markRead(forTabId: windowID)
+            notificationStore.replaceNotificationsForTesting([
+                TerminalNotification(
+                    id: UUID(),
+                    tabId: windowID,
+                    surfaceId: panel.id,
+                    title: "Focused Dock notification",
+                    subtitle: "",
+                    body: "Focused",
+                    createdAt: .now,
+                    isRead: false
+                ),
+                TerminalNotification(
+                    id: UUID(),
+                    tabId: windowID,
+                    surfaceId: otherPanel.id,
+                    title: "Other Dock notification",
+                    subtitle: "",
+                    body: "Other",
+                    createdAt: .now,
+                    isRead: false
+                ),
+            ])
+            appDelegate.notificationStore = notificationStore
+            dock.focusPanel(panel.id)
+            appDelegate.keyboardFocusCoordinator(for: window)?
+                .noteRightSidebarInteraction(mode: .dock)
+            defer {
+                notificationStore.replaceNotificationsForTesting([])
+                notificationStore.markRead(forTabId: windowID)
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            #expect(workspace.manualUnreadPanelIds.isEmpty)
+            #expect(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
+            #expect(!notificationStore.hasUnreadNotification(
+                forTabId: windowID,
+                surfaceId: panel.id
+            ))
+            #expect(!notificationStore.hasVisibleNotificationIndicator(
+                forTabId: windowID,
+                surfaceId: panel.id
+            ))
+            #expect(notificationStore.hasUnreadNotification(
+                forTabId: windowID,
+                surfaceId: otherPanel.id
+            ))
+            #expect(!notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: panel.id
+            ))
+
+            #expect(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
+            #expect(notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: panel.id
+            ))
+            #expect(workspace.manualUnreadPanelIds.isEmpty)
+
+            #expect(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
+            #expect(!notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: panel.id
+            ))
+            #expect(notificationStore.hasUnreadNotification(
+                forTabId: windowID,
+                surfaceId: otherPanel.id
+            ))
+            #expect(workspace.manualUnreadPanelIds.isEmpty)
+        }
+    }
+
+    @Test("Mark Oldest skips only the focused Dock surface when jumping")
+    func markOldestSkipsOnlyFocusedDockSurfaceWhenJumping() async throws {
+        try await withAppContext(fileExplorerState: FileExplorerState()) {
+            appDelegate, _, workspace, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let window = try #require(appDelegate.windowForMainWindowId(windowID))
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let focusedPanel = DockRuntimeParityPanel(title: "Focused Dock surface")
+            let otherUnreadPanel = DockRuntimeParityPanel(title: "Other Dock unread")
+            try dock.seedRuntimeParityPanel(focusedPanel)
+            try dock.seedRuntimeParityPanel(otherUnreadPanel)
+            notificationStore.markRead(forTabId: windowID)
+            appDelegate.notificationStore = notificationStore
+            dock.focusPanel(focusedPanel.id)
+            appDelegate.keyboardFocusCoordinator(for: window)?
+                .noteRightSidebarInteraction(mode: .dock)
+            #expect(notificationStore.markWindowDockSurfaceUnread(
+                windowId: windowID,
+                surfaceId: otherUnreadPanel.id
+            ))
+            defer {
+                notificationStore.markRead(forTabId: windowID)
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            _ = appDelegate.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(
+                preferredWindow: window
+            )
+
+            #expect(notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: focusedPanel.id
+            ))
+            #expect(!notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: otherUnreadPanel.id
+            ))
+            #expect(dock.focusedPanelId == otherUnreadPanel.id)
+            #expect(workspace.manualUnreadPanelIds.isEmpty)
+        }
+    }
+
+    @Test("Mark Oldest ignores notifications on sibling Dock surfaces")
+    func markOldestIgnoresSiblingDockSurfaceNotification() async throws {
+        try await withAppContext { appDelegate, _, workspace, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let window = try #require(appDelegate.windowForMainWindowId(windowID))
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let focusedPanel = DockRuntimeParityPanel(title: "Focused Dock surface")
+            let siblingPanel = DockRuntimeParityPanel(title: "Sibling Dock notification")
+            try dock.seedRuntimeParityPanel(focusedPanel)
+            try dock.seedRuntimeParityPanel(siblingPanel)
+            notificationStore.markRead(forTabId: windowID)
+            notificationStore.replaceNotificationsForTesting([
+                TerminalNotification(
+                    id: UUID(),
+                    tabId: windowID,
+                    surfaceId: siblingPanel.id,
+                    title: "Sibling Dock notification",
+                    subtitle: "",
+                    body: "Sibling",
+                    createdAt: .now,
+                    isRead: false
+                ),
+            ])
+            appDelegate.notificationStore = notificationStore
+            dock.focusPanel(focusedPanel.id)
+            appDelegate.keyboardFocusCoordinator(for: window)?
+                .noteRightSidebarInteraction(mode: .dock)
+            defer {
+                notificationStore.replaceNotificationsForTesting([])
+                notificationStore.markRead(forTabId: windowID)
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            _ = appDelegate.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(
+                preferredWindow: window
+            )
+
+            #expect(notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: focusedPanel.id
+            ))
+            #expect(!notificationStore.hasUnreadNotification(
+                forTabId: windowID,
+                surfaceId: siblingPanel.id
+            ))
+            #expect(dock.focusedPanelId == siblingPanel.id)
+            #expect(workspace.manualUnreadPanelIds.isEmpty)
+        }
+    }
+
+    @Test("Window Dock unread changes the session autosave fingerprint")
+    func windowDockUnreadChangesSessionAutosaveFingerprint() async throws {
+        try await withAppContext { appDelegate, _, _, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let panel = DockRuntimeParityPanel(title: "Persisted Dock unread")
+            try dock.seedRuntimeParityPanel(panel)
+            notificationStore.markRead(forTabId: windowID)
+            appDelegate.notificationStore = notificationStore
+            defer {
+                notificationStore.markRead(forTabId: windowID)
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            let cleanFingerprint = try #require(appDelegate.sessionAutosaveFingerprint(
+                includeScrollback: false,
+                restorableAgentIndex: .empty,
+                surfaceResumeBindingIndex: .empty
+            ))
+            #expect(notificationStore.markWindowDockSurfaceUnread(
+                windowId: windowID,
+                surfaceId: panel.id
+            ))
+            let unreadFingerprint = try #require(appDelegate.sessionAutosaveFingerprint(
+                includeScrollback: false,
+                restorableAgentIndex: .empty,
+                surfaceResumeBindingIndex: .empty
+            ))
+
+            #expect(unreadFingerprint != cleanFingerprint)
+        }
+    }
+
+    @Test("Notification delivery excludes hidden workspace Docks without breaking scoped flashes")
+    func notificationDeliveryExcludesHiddenWorkspaceDocks() async throws {
         try await withAppContext { appDelegate, manager, workspace, windowID in
             let workspaceDock = workspace.requiredDockSplitForTesting
             let globalDock = appDelegate.windowDock(forWindowId: windowID)
@@ -205,8 +590,7 @@ struct DockRuntimeParityTests {
                 claimedTabId: workspace.id,
                 surfaceId: workspacePanel.id
             )
-            #expect(workspaceDelivery?.tabId == workspace.id)
-            #expect(workspaceDelivery?.surfaceId == workspacePanel.id)
+            #expect(workspaceDelivery == nil)
             let globalDelivery = appDelegate.agentNotificationDeliveryTarget(
                 claimedTabId: workspace.id,
                 surfaceId: globalPanel.id
@@ -251,6 +635,85 @@ struct DockRuntimeParityTests {
         }
     }
 
+    @Test("Notification opens fail closed for hidden workspace Docks")
+    func notificationOpensOnlyRenderedWindowDockPanels() async throws {
+        let sidebarState = FileExplorerState()
+        let previousSidebarVisibility = sidebarState.isVisible
+        let previousSidebarMode = sidebarState.mode
+        sidebarState.setVisible(false)
+        sidebarState.mode = .files
+        defer {
+            sidebarState.mode = previousSidebarMode
+            sidebarState.setVisible(previousSidebarVisibility)
+        }
+
+        try await withAppContext(fileExplorerState: sidebarState) { appDelegate, _, workspace, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let workspaceDock = workspace.dockSplit
+            let globalDock = appDelegate.windowDock(forWindowId: windowID)
+            let workspacePanel = DockRuntimeParityPanel(title: "Workspace Dock")
+            let initiallyFocusedGlobalPanel = DockRuntimeParityPanel(title: "Initially focused")
+            let globalPanel = DockRuntimeParityPanel(title: "Global Dock")
+            try workspaceDock.seedRuntimeParityPanel(workspacePanel)
+            try globalDock.seedRuntimeParityPanel(initiallyFocusedGlobalPanel)
+            try globalDock.seedRuntimeParityPanel(globalPanel)
+            globalDock.focusPanel(initiallyFocusedGlobalPanel.id)
+
+            let workspaceNotification = TerminalNotification(
+                id: UUID(),
+                tabId: workspace.id,
+                surfaceId: workspacePanel.id,
+                title: "Workspace Dock",
+                subtitle: "",
+                body: "Unread",
+                createdAt: .now,
+                isRead: false
+            )
+            let globalNotification = TerminalNotification(
+                id: UUID(),
+                tabId: globalDock.workspaceId,
+                surfaceId: globalPanel.id,
+                title: "Global Dock",
+                subtitle: "",
+                body: "Unread",
+                createdAt: .now,
+                isRead: false
+            )
+            notificationStore.replaceNotificationsForTesting([
+                workspaceNotification,
+                globalNotification,
+            ])
+            appDelegate.notificationStore = notificationStore
+            defer {
+                notificationStore.replaceNotificationsForTesting([])
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            #expect(!appDelegate.openTerminalNotification(workspaceNotification))
+            #expect(notificationStore.hasUnreadNotification(
+                forTabId: workspace.id,
+                surfaceId: workspacePanel.id
+            ))
+            #expect(!sidebarState.isVisible)
+            #expect(sidebarState.mode == .files)
+            #expect(globalDock.focusedPanelId == initiallyFocusedGlobalPanel.id)
+
+            #expect(appDelegate.openTerminalNotification(globalNotification))
+            #expect(globalDock.focusedPanelId == globalPanel.id)
+            #expect(sidebarState.isVisible)
+            #expect(sidebarState.mode == .dock)
+            #expect(notificationStore.hasUnreadNotification(
+                forTabId: workspace.id,
+                surfaceId: workspacePanel.id
+            ))
+            #expect(!notificationStore.hasUnreadNotification(
+                forTabId: globalDock.workspaceId,
+                surfaceId: globalPanel.id
+            ))
+        }
+    }
+
     @Test("Focusing a window Dock panel dismisses its unread notification")
     func focusingWindowDockPanelDismissesUnreadNotification() async throws {
         try await withAppContext { appDelegate, _, _, windowID in
@@ -270,7 +733,8 @@ struct DockRuntimeParityTests {
                 source: notificationStore.sidebarUnread,
                 workspaceID: dock.workspaceId,
                 panelIDs: [panel.id],
-                isActive: true
+                isActive: true,
+                agentAttentionSource: dock.agentNeedsInputAttention
             )
             notificationStore.replaceNotificationsForTesting([
                 TerminalNotification(
@@ -308,6 +772,685 @@ struct DockRuntimeParityTests {
                 isEnabled: true
             ) == nil)
             #expect(panel.flashReasons == [.notificationDismiss])
+        }
+    }
+
+    @Test("Opening a window Dock notification clears its focused indicator and restores scroll")
+    func openingWindowDockNotificationClearsFocusedIndicatorAndRestoresScroll() async throws {
+        try await withAppContext { appDelegate, _, _, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let terminal = TerminalPanel(
+                workspaceId: windowID,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            defer { terminal.surface.releaseSurfaceForTesting() }
+            try dock.seedRuntimeParityPanel(terminal)
+
+            let scrollPosition = TerminalNotificationScrollPosition(
+                row: 120,
+                totalRows: 500,
+                rowSpaceRevision: 7
+            )
+            terminal.hostedView.notificationScrollRestoreState = NotificationScrollRestoreState(
+                replay: .replaying(expectedEndBoundary: "dock-notification-open"),
+                request: .idle
+            )
+            let notification = TerminalNotification(
+                id: UUID(),
+                tabId: windowID,
+                surfaceId: terminal.id,
+                title: "Dock terminal",
+                subtitle: "",
+                body: "Restore this transcript position",
+                createdAt: .now,
+                isRead: false,
+                scrollPosition: scrollPosition
+            )
+            notificationStore.replaceNotificationsForTesting([notification])
+            notificationStore.setFocusedReadIndicator(
+                forTabId: windowID,
+                surfaceId: terminal.id
+            )
+            appDelegate.notificationStore = notificationStore
+            defer {
+                notificationStore.replaceNotificationsForTesting([])
+                notificationStore.clearFocusedReadIndicator(forTabId: windowID)
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            #expect(
+                notificationStore.focusedReadIndicatorSurfaceId(forTabId: windowID)
+                    == terminal.id
+            )
+            #expect(!terminal.hostedView.hasPendingNotificationScrollRestore)
+
+            #expect(appDelegate.openTerminalNotification(notification))
+
+            #expect(
+                notificationStore.focusedReadIndicatorSurfaceId(forTabId: windowID) == nil
+            )
+            #expect(
+                terminal.hostedView.notificationScrollRestoreState.pendingPosition
+                    == scrollPosition
+            )
+        }
+    }
+
+    @Test("Clearing workspace manual unread preserves window Dock pane unread")
+    func clearingWorkspaceManualUnreadPreservesWindowDockPaneUnread() {
+        let notificationStore = TerminalNotificationStore.shared
+        let ownerID = UUID()
+        let firstSurfaceID = UUID()
+        let secondSurfaceID = UUID()
+        defer { notificationStore.markRead(forTabId: ownerID) }
+
+        notificationStore.markUnread(forTabId: ownerID)
+        notificationStore.markUnread(forTabId: ownerID, surfaceId: firstSurfaceID)
+        notificationStore.markUnread(forTabId: ownerID, surfaceId: secondSurfaceID)
+
+        #expect(notificationStore.clearManualUnread(forTabId: ownerID))
+        #expect(!notificationStore.hasManualUnread(forTabId: ownerID))
+        #expect(notificationStore.hasManualUnread(
+            forTabId: ownerID,
+            surfaceId: firstSurfaceID
+        ))
+        #expect(notificationStore.hasManualUnread(
+            forTabId: ownerID,
+            surfaceId: secondSurfaceID
+        ))
+    }
+
+    @Test("Whole-owner mark read clears every window Dock pane unread")
+    func wholeOwnerMarkReadClearsEveryWindowDockPaneUnread() {
+        let notificationStore = TerminalNotificationStore.shared
+        let ownerID = UUID()
+        let firstSurfaceID = UUID()
+        let secondSurfaceID = UUID()
+        defer { notificationStore.markRead(forTabId: ownerID) }
+
+        notificationStore.markUnread(forTabId: ownerID)
+        notificationStore.markUnread(forTabId: ownerID, surfaceId: firstSurfaceID)
+        notificationStore.markUnread(forTabId: ownerID, surfaceId: secondSurfaceID)
+
+        notificationStore.markRead(forTabId: ownerID)
+
+        #expect(!notificationStore.hasManualUnread(forTabId: ownerID))
+        #expect(!notificationStore.hasManualUnread(
+            forTabId: ownerID,
+            surfaceId: firstSurfaceID
+        ))
+        #expect(!notificationStore.hasManualUnread(
+            forTabId: ownerID,
+            surfaceId: secondSurfaceID
+        ))
+    }
+
+    @Test("Jump to unread focuses the exact window Dock pane")
+    func jumpToUnreadFocusesExactWindowDockPane() async throws {
+        try await withAppContext { appDelegate, _, _, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            notificationStore.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = notificationStore
+            defer {
+                notificationStore.markRead(forTabId: windowID)
+                notificationStore.replaceNotificationsForTesting([])
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let initiallyFocusedPanel = DockRuntimeParityPanel(title: "Initially focused")
+            let unreadPanel = DockRuntimeParityPanel(title: "Unread")
+            try dock.seedRuntimeParityPanel(initiallyFocusedPanel)
+            try dock.seedRuntimeParityPanel(unreadPanel)
+            dock.focusPanel(initiallyFocusedPanel.id)
+            notificationStore.markUnread(
+                forTabId: windowID,
+                surfaceId: unreadPanel.id
+            )
+
+            _ = appDelegate.jumpToLatestUnread()
+
+            #expect(dock.focusedPanelId == unreadPanel.id)
+            #expect(notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: unreadPanel.id
+            ) == false)
+        }
+    }
+
+    @Test("Jump to unread opens the most recently marked window Dock pane")
+    func jumpToUnreadPrefersMostRecentlyMarkedWindowDockPane() async throws {
+        try await withAppContext { appDelegate, _, _, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            notificationStore.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = notificationStore
+            defer {
+                notificationStore.markRead(forTabId: windowID)
+                notificationStore.replaceNotificationsForTesting([])
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let olderPanel = DockRuntimeParityPanel(
+                id: try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001")),
+                title: "Older unread"
+            )
+            let newerPanel = DockRuntimeParityPanel(
+                id: try #require(UUID(uuidString: "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFE")),
+                title: "Newer unread"
+            )
+            try dock.seedRuntimeParityPanel(olderPanel)
+            try dock.seedRuntimeParityPanel(newerPanel)
+            notificationStore.markUnread(
+                forTabId: windowID,
+                surfaceId: olderPanel.id
+            )
+            notificationStore.markUnread(
+                forTabId: windowID,
+                surfaceId: newerPanel.id
+            )
+
+            _ = appDelegate.jumpToLatestUnread()
+
+            #expect(dock.focusedPanelId == newerPanel.id)
+            #expect(notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: olderPanel.id
+            ))
+            #expect(!notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: newerPanel.id
+            ))
+        }
+    }
+
+    @Test("Unavailable window Dock remains unread and jump falls through to workspace")
+    func unavailableWindowDockUnreadFallsThroughToWorkspace() async throws {
+        try await withAppContext(fileExplorerState: nil) { appDelegate, manager, workspace, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            notificationStore.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = notificationStore
+            defer {
+                notificationStore.markRead(forTabId: windowID)
+                notificationStore.replaceNotificationsForTesting([])
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let initiallyFocusedPanel = DockRuntimeParityPanel(title: "Initially focused")
+            let dockPanel = DockRuntimeParityPanel(title: "Unavailable Dock unread")
+            try dock.seedRuntimeParityPanel(initiallyFocusedPanel)
+            try dock.seedRuntimeParityPanel(dockPanel)
+            dock.focusPanel(initiallyFocusedPanel.id)
+            notificationStore.markUnread(
+                forTabId: windowID,
+                surfaceId: dockPanel.id
+            )
+            let workspacePanelID = try #require(workspace.focusedPanelId)
+            workspace.markPanelUnread(workspacePanelID)
+
+            _ = appDelegate.jumpToLatestUnread()
+
+            #expect(manager.selectedTabId == workspace.id)
+            #expect(workspace.manualUnreadPanelIds.isEmpty)
+            #expect(notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: dockPanel.id
+            ))
+            #expect(dock.focusedPanelId == initiallyFocusedPanel.id)
+        }
+    }
+
+    @Test("Terminal bell attention targets only the rendered window Dock")
+    func terminalBellAttentionTargetsOnlyRenderedWindowDock() async throws {
+        try await withAppContext { appDelegate, manager, workspace, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let previousFocusOverride = AppFocusState.overrideIsFocused
+            let defaults = UserDefaults.standard
+            let paneFlashHadValue = defaults.object(
+                forKey: NotificationPaneFlashSettings.enabledKey
+            ) != nil
+            let previousPaneFlashEnabled = defaults.bool(
+                forKey: NotificationPaneFlashSettings.enabledKey
+            )
+            notificationStore.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = notificationStore
+            AppFocusState.overrideIsFocused = false
+            defer {
+                if paneFlashHadValue {
+                    defaults.set(
+                        previousPaneFlashEnabled,
+                        forKey: NotificationPaneFlashSettings.enabledKey
+                    )
+                } else {
+                    defaults.removeObject(
+                        forKey: NotificationPaneFlashSettings.enabledKey
+                    )
+                }
+                AppFocusState.overrideIsFocused = previousFocusOverride
+                notificationStore.replaceNotificationsForTesting([])
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            let workspaceDock = workspace.dockSplit
+            let globalDock = appDelegate.windowDock(forWindowId: windowID)
+            let workspacePanel = TerminalPanel(
+                workspaceId: workspace.id,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            let globalPanel = TerminalPanel(
+                workspaceId: windowID,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            try workspaceDock.seedRuntimeParityPanel(workspacePanel)
+            try globalDock.seedRuntimeParityPanel(globalPanel)
+            let workspaceProjection = DockUnreadPanelProjection(
+                source: notificationStore.sidebarUnread,
+                workspaceID: workspaceDock.workspaceId,
+                panelIDs: [workspacePanel.id],
+                isActive: true,
+                agentAttentionSource: workspaceDock.agentNeedsInputAttention
+            )
+            let globalProjection = DockUnreadPanelProjection(
+                source: notificationStore.sidebarUnread,
+                workspaceID: globalDock.workspaceId,
+                panelIDs: [globalPanel.id],
+                isActive: true,
+                agentAttentionSource: globalDock.agentNeedsInputAttention
+            )
+            let selectedWorkspace = manager.addWorkspace(select: true)
+            let unreadObserver = DockRuntimeParityUnreadObserver()
+            let unreadObservation = notificationStore.sidebarUnread.observeChanges(
+                owner: unreadObserver
+            ) { owner, _ in
+                owner.publicationCount += 1
+            }
+            defer { unreadObservation.cancel() }
+
+            #expect(workspacePanel.surface.onVisualBell == nil)
+            let globalVisualBell = try #require(globalPanel.surface.onVisualBell)
+            GhosttySurfaceScrollView.resetFlashCounts()
+            defaults.set(false, forKey: NotificationPaneFlashSettings.enabledKey)
+            globalVisualBell()
+            let publicationCountAfterFirstBell = unreadObserver.publicationCount
+            defaults.set(true, forKey: NotificationPaneFlashSettings.enabledKey)
+            globalVisualBell()
+
+            #expect(workspaceProjection.unreadPanelIDs.isEmpty)
+            #expect(globalProjection.unreadPanelIDs == [globalPanel.id])
+            #expect(notificationStore.unreadCount == 1)
+            #expect(publicationCountAfterFirstBell == 1)
+            #expect(unreadObserver.publicationCount == publicationCountAfterFirstBell)
+            #expect(GhosttySurfaceScrollView.flashCount(for: globalPanel.id) == 1)
+            #expect(TerminalNotificationStore.dockBadgeLabel(
+                unreadCount: notificationStore.unreadCount,
+                isEnabled: true
+            ) == "1")
+            #expect(manager.selectedTabId == selectedWorkspace.id)
+            #expect(TerminalController.shared.activeTabManagerForCallerNotification() === manager)
+
+            globalDock.focusPanel(globalPanel.id)
+            #expect(manager.dismissNotificationOnTerminalInteraction(
+                tabId: globalDock.workspaceId,
+                surfaceId: globalPanel.id
+            ))
+            #expect(globalProjection.unreadPanelIDs.isEmpty)
+            #expect(notificationStore.unreadCount == 0)
+            #expect(TerminalNotificationStore.dockBadgeLabel(
+                unreadCount: notificationStore.unreadCount,
+                isEnabled: true
+            ) == nil)
+        }
+    }
+
+    @Test("A real notification atomically replaces window Dock visual-BEL unread")
+    func realNotificationAtomicallyReplacesWindowDockVisualBellUnread() async throws {
+        try await withAppContext { appDelegate, _, _, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let previousFocusOverride = AppFocusState.overrideIsFocused
+            notificationStore.replaceNotificationsForTesting([])
+            notificationStore.configureNotificationDeliveryHandlerForTesting { _, _ in }
+            appDelegate.notificationStore = notificationStore
+            AppFocusState.overrideIsFocused = false
+            defer {
+                AppFocusState.overrideIsFocused = previousFocusOverride
+                notificationStore.markRead(forTabId: windowID)
+                notificationStore.replaceNotificationsForTesting([])
+                notificationStore.resetNotificationDeliveryHandlerForTesting()
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let terminal = TerminalPanel(
+                workspaceId: windowID,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            try dock.seedRuntimeParityPanel(terminal)
+            let unreadProjection = DockUnreadPanelProjection(
+                source: notificationStore.sidebarUnread,
+                workspaceID: windowID,
+                panelIDs: [terminal.id],
+                isActive: true,
+                agentAttentionSource: dock.agentNeedsInputAttention
+            )
+
+            let visualBell = try #require(terminal.surface.onVisualBell)
+            visualBell()
+            #expect(notificationStore.unreadCount == 1)
+            #expect(unreadProjection.unreadPanelIDs == [terminal.id])
+
+            let observer = DockRuntimeParityUnreadObserver()
+            let observation = notificationStore.sidebarUnread.observeChanges(
+                owner: observer
+            ) { owner, snapshot in
+                owner.publicationCount += 1
+                owner.totalUnreadCounts.append(snapshot.totalUnreadCount)
+            }
+            defer { observation.cancel() }
+
+            notificationStore.addNotification(
+                tabId: windowID,
+                surfaceId: terminal.id,
+                title: "Agent needs input",
+                subtitle: "",
+                body: "Review the pending request",
+                resolvedHooks: []
+            )
+
+            #expect(observer.publicationCount == 1)
+            #expect(observer.totalUnreadCounts == [1])
+            #expect(unreadProjection.unreadPanelIDs == [terminal.id])
+            #expect(!notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: terminal.id
+            ))
+            #expect(notificationStore.hasUnreadNotification(
+                forTabId: windowID,
+                surfaceId: terminal.id
+            ))
+        }
+    }
+
+    @Test("Unread notification mutations atomically replace window Dock visual-BEL unread")
+    func unreadNotificationMutationsAtomicallyReplaceWindowDockVisualBellUnread() async throws {
+        try await withAppContext { appDelegate, _, _, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let panel = DockRuntimeParityPanel(title: "Atomic Mark Oldest")
+            try dock.seedRuntimeParityPanel(panel)
+            let notificationID = UUID()
+            notificationStore.replaceNotificationsForTesting([
+                TerminalNotification(
+                    id: notificationID,
+                    tabId: windowID,
+                    surfaceId: panel.id,
+                    title: "Read notification",
+                    subtitle: "",
+                    body: "Ready to become unread",
+                    createdAt: .now,
+                    isRead: true
+                ),
+            ])
+            appDelegate.notificationStore = notificationStore
+            #expect(notificationStore.markWindowDockSurfaceUnread(
+                windowId: windowID,
+                surfaceId: panel.id
+            ))
+            defer {
+                notificationStore.markRead(forTabId: windowID)
+                notificationStore.replaceNotificationsForTesting([])
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            let unreadProjection = DockUnreadPanelProjection(
+                source: notificationStore.sidebarUnread,
+                workspaceID: windowID,
+                panelIDs: [panel.id],
+                isActive: true,
+                agentAttentionSource: dock.agentNeedsInputAttention
+            )
+            let observer = DockRuntimeParityUnreadObserver()
+            let observation = notificationStore.sidebarUnread.observeChanges(
+                owner: observer
+            ) { owner, snapshot in
+                owner.publicationCount += 1
+                owner.totalUnreadCounts.append(snapshot.totalUnreadCount)
+            }
+            defer { observation.cancel() }
+
+            #expect(
+                notificationStore.markLatestWindowDockNotificationAsOldestUnread(
+                    windowId: windowID,
+                    surfaceId: panel.id
+                ) == notificationID
+            )
+
+            #expect(observer.publicationCount == 1)
+            #expect(observer.totalUnreadCounts == [1])
+            #expect(unreadProjection.unreadPanelIDs == [panel.id])
+            #expect(!notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: panel.id
+            ))
+            #expect(notificationStore.hasUnreadNotification(
+                forTabId: windowID,
+                surfaceId: panel.id
+            ))
+
+            notificationStore.markRead(id: notificationID)
+            #expect(notificationStore.markWindowDockSurfaceUnread(
+                windowId: windowID,
+                surfaceId: panel.id
+            ))
+            observer.publicationCount = 0
+            observer.totalUnreadCounts = []
+
+            notificationStore.markUnread(id: notificationID)
+
+            #expect(observer.publicationCount == 1)
+            #expect(observer.totalUnreadCounts == [1])
+            #expect(unreadProjection.unreadPanelIDs == [panel.id])
+            #expect(!notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: panel.id
+            ))
+            #expect(notificationStore.hasUnreadNotification(
+                forTabId: windowID,
+                surfaceId: panel.id
+            ))
+        }
+    }
+
+    @Test("Terminal bell in a non-key cmux window marks its Dock pane unread")
+    func terminalBellInNonKeyCmuxWindowMarksDockPaneUnread() async throws {
+        try await withAppContext { appDelegate, _, _, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let previousFocusOverride = AppFocusState.overrideIsFocused
+            let ownerWindow = try #require(
+                appDelegate.windowForMainWindowId(windowID)
+            )
+            appDelegate.notificationStore = notificationStore
+            AppFocusState.overrideIsFocused = true
+            defer {
+                notificationStore.markRead(forTabId: windowID)
+                appDelegate.notificationStore = previousNotificationStore
+                AppFocusState.overrideIsFocused = previousFocusOverride
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let terminal = TerminalPanel(
+                workspaceId: windowID,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            try dock.seedRuntimeParityPanel(terminal)
+            dock.setVisibleInUI(true)
+            defer { dock.setVisibleInUI(false) }
+            dock.focusPanel(terminal.id)
+            appDelegate.keyboardFocusCoordinator(for: ownerWindow)?
+                .noteRightSidebarInteraction(mode: .dock)
+            ownerWindow.contentView?.addSubview(terminal.hostedView)
+            // CI app hosts cannot reliably make a programmatic peer window key.
+            // The routing contract only requires this terminal's owner to be non-key.
+            ownerWindow.orderOut(nil)
+
+            #expect(terminal.surface.uiWindow === ownerWindow)
+            #expect(
+                appDelegate.focusedDockStoreForShortcut(
+                    preferredWindow: ownerWindow
+                ) === dock
+            )
+            #expect(NSApp.keyWindow !== ownerWindow)
+
+            let visualBell = try #require(terminal.surface.onVisualBell)
+            visualBell()
+
+            #expect(notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: terminal.id
+            ))
+            #expect(NSApp.keyWindow !== ownerWindow)
+        }
+    }
+
+    @Test("Physical key input clears visual-BEL unread in a secondary window Dock")
+    func physicalKeyInputClearsVisualBellUnreadInSecondaryWindowDock() async throws {
+        try await withAppContext { appDelegate, primaryManager, _, _ in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let secondaryManager = TabManager(autoWelcomeIfNeeded: false)
+            let secondaryWindowID = appDelegate.registerMainWindowContextForTesting(
+                tabManager: secondaryManager
+            )
+            appDelegate.notificationStore = notificationStore
+            defer {
+                notificationStore.markRead(forTabId: secondaryWindowID)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: secondaryWindowID)
+                secondaryManager.tabs.forEach { $0.teardownAllPanels() }
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: secondaryWindowID)
+            let terminal = TerminalPanel(
+                workspaceId: secondaryWindowID,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            try dock.seedRuntimeParityPanel(terminal)
+            dock.focusPanel(terminal.id)
+
+            let visualBell = try #require(terminal.surface.onVisualBell)
+            visualBell()
+            #expect(notificationStore.hasManualUnread(
+                forTabId: secondaryWindowID,
+                surfaceId: terminal.id
+            ))
+            #expect(appDelegate.tabManager === primaryManager)
+            #expect(appDelegate.dockReferenceTabManager(for: dock) === secondaryManager)
+
+            terminal.surface.requestInputDemandSurfaceStartIfNeeded()
+            await waitForLiveSurface(terminal.surface)
+            let event = try #require(NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: "a",
+                charactersIgnoringModifiers: "a",
+                isARepeat: false,
+                keyCode: 0
+            ))
+            terminal.hostedView.surfaceView.keyDown(with: event)
+
+            #expect(!notificationStore.hasManualUnread(
+                forTabId: secondaryWindowID,
+                surfaceId: terminal.id
+            ))
+        }
+    }
+
+    @Test("Window Dock unread follows a surface transfer exactly once")
+    func windowDockUnreadFollowsSurfaceTransferExactlyOnce() async throws {
+        try await withAppContext { appDelegate, _, _, sourceWindowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let destinationWindowID = UUID()
+            notificationStore.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = notificationStore
+            defer {
+                notificationStore.markRead(forTabId: sourceWindowID)
+                notificationStore.markRead(forTabId: destinationWindowID)
+                notificationStore.replaceNotificationsForTesting([])
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            let sourceDock = appDelegate.windowDock(forWindowId: sourceWindowID)
+            let destinationDock = DockSplitStore(
+                workspaceId: destinationWindowID,
+                scope: .global,
+                baseDirectoryProvider: { nil }
+            )
+            let panel = DockRuntimeParityPanel(title: "Transferred unread")
+            try sourceDock.seedRuntimeParityPanel(panel)
+            notificationStore.markWindowDockSurfaceUnread(
+                windowId: sourceWindowID,
+                surfaceId: panel.id
+            )
+
+            let detached = try #require(sourceDock.detachSurface(panelId: panel.id))
+
+            #expect(detached.manuallyUnread)
+            #expect(!notificationStore.hasManualUnread(
+                forTabId: sourceWindowID,
+                surfaceId: panel.id
+            ))
+            let destinationPane = try #require(
+                destinationDock.bonsplitController.allPaneIds.first
+            )
+            #expect(destinationDock.attachDetachedSurface(
+                detached,
+                inPane: destinationPane,
+                focus: false
+            ) == panel.id)
+            #expect(notificationStore.hasManualUnread(
+                forTabId: destinationWindowID,
+                surfaceId: panel.id
+            ))
+
+            #expect(notificationStore.clearWindowDockSurfaceUnread(
+                windowId: destinationWindowID,
+                surfaceId: panel.id
+            ))
+            let detachedAfterClear = try #require(
+                destinationDock.detachSurface(panelId: panel.id)
+            )
+            #expect(!detachedAfterClear.manuallyUnread)
+            let sourcePane = try #require(
+                sourceDock.bonsplitController.allPaneIds.first
+            )
+            #expect(sourceDock.attachDetachedSurface(
+                detachedAfterClear,
+                inPane: sourcePane,
+                focus: false
+            ) == panel.id)
+            #expect(!notificationStore.hasManualUnread(
+                forTabId: sourceWindowID,
+                surfaceId: panel.id
+            ))
+            #expect(sourceDock.closePanel(panel.id, force: true))
+            #expect(!notificationStore.hasManualUnread(
+                forTabId: destinationWindowID,
+                surfaceId: panel.id
+            ))
         }
     }
 
@@ -500,11 +1643,13 @@ struct DockNotificationAttentionTests {
         let secondPanelID = UUID()
         let foreignPanelID = UUID()
         let unread = SidebarUnreadModel()
+        let agentAttention = SurfaceAttentionModel()
         let projection = DockUnreadPanelProjection(
             source: unread,
             workspaceID: workspaceID,
             panelIDs: [firstPanelID, secondPanelID],
-            isActive: true
+            isActive: true,
+            agentAttentionSource: agentAttention
         )
 
         unread.apply(
@@ -526,6 +1671,11 @@ struct DockNotificationAttentionTests {
             focusedReadIndicatorByWorkspaceId: [workspaceID: secondPanelID],
             manualUnreadWorkspaceIds: []
         )
+        #expect(projection.unreadPanelIDs == [secondPanelID])
+
+        agentAttention.setAttention(true, forSurfaceId: firstPanelID)
+        #expect(projection.unreadPanelIDs == [firstPanelID, secondPanelID])
+        agentAttention.setAttention(false, forSurfaceId: firstPanelID)
         #expect(projection.unreadPanelIDs == [secondPanelID])
 
         projection.updateContext(

@@ -528,6 +528,30 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func sidebarNoncontiguousBlockCoalescesAtDraggedRowsOwnGap() {
+        let (model, host, _, reorder) = makeWorld()
+        _ = host
+        let a = CoordinatorStubTab()
+        let b = CoordinatorStubTab()
+        let c = CoordinatorStubTab()
+        let d = CoordinatorStubTab()
+        let e = CoordinatorStubTab()
+        model.tabs = [a, b, c, d, e]
+
+        // Grabbed b with {b, d} selected and dropped at b's own lower gap
+        // (index 1 in [a, c, d, e]): b stays put and d coalesces up to it.
+        // This gap paints an indicator only for noncontiguous blocks
+        // (SidebarWorkspaceDragBlockResolver.blockOccupiesNoncontiguousRows).
+        #expect(reorder.reorderSidebarWorkspaces(
+            tabIds: [b.id, d.id],
+            draggedTabId: b.id,
+            toIndex: 1,
+            isDragOperation: true
+        ))
+        #expect(model.tabs.map(\.id) == [a.id, b.id, d.id, c.id, e.id])
+    }
+
+    @Test
     func sidebarBlockClampsMixedPinTiersAndKeepsEachContiguous() {
         let (model, host, _, reorder) = makeWorld()
         _ = host
