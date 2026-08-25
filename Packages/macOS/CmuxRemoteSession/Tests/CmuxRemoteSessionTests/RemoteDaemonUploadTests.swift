@@ -102,7 +102,7 @@ struct RemoteDaemonUploadTests {
         try input.fileHandleForWriting.close()
         process.waitUntilExit()
         #expect(process.terminationStatus == 0)
-        #expect(!fileManager.fileExists(atPath: markerURL.path))
+        #expect(fileManager.fileExists(atPath: markerURL.path))
     }
 
     @Test("Upload succeeds through SSH exec when SCP's SFTP transport is unavailable")

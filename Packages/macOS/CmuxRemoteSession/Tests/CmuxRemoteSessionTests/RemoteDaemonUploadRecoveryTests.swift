@@ -67,14 +67,24 @@ extension RemoteDaemonUploadTests {
         let temporaryFiles = try fileManager.contentsOfDirectory(
             at: remoteDirectory,
             includingPropertiesForKeys: nil
-        ).filter { $0.lastPathComponent.contains(".tmp-") }
+        ).filter { $0.lastPathComponent.contains(".tmp-") && $0.pathExtension != "pid" }
         let temporaryFile = try #require(temporaryFiles.first)
         #expect(temporaryFiles.count == 1)
         #expect(try Data(contentsOf: temporaryFile) == payload)
-        #expect(
-            !fileManager.fileExists(atPath: "\(temporaryFile.path).pid"),
-            "The upload writer marker must be removed after the stream closes"
+        let markerPath = "\(temporaryFile.path).pid"
+        #expect(fileManager.fileExists(atPath: markerPath))
+
+        let finalURL = remoteDirectory.appendingPathComponent("cmuxd-remote")
+        let hash = SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
+        let finalize = RemoteSessionCoordinator.remoteDaemonFinalizeScript(
+            remoteTempPath: temporaryFile.path,
+            remotePath: finalURL.path,
+            expectedByteCount: Int64(payload.count),
+            expectedSHA256: hash
         )
+        #expect(try Self.runShell(finalize) == 0)
+        #expect(try Data(contentsOf: finalURL) == payload)
+        #expect(!fileManager.fileExists(atPath: markerPath))
     }
 
     @Test("Finalize script promotes only a byte-and-hash-matching payload")

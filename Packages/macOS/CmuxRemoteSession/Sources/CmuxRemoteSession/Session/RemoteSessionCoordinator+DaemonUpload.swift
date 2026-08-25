@@ -151,7 +151,6 @@ extension RemoteSessionCoordinator {
         exec 4>&-
         if [ -n "$watchdog_pid" ]; then kill "$watchdog_pid" 2>/dev/null || true; wait "$watchdog_pid" 2>/dev/null || true; fi
         watchdog_pid=
-        rm -f -- "$pid_path"
         if [ "$cat_status" -ne 0 ]; then rm -f -- "$temp_path"; fi
         trap - HUP INT TERM
         exit "$cat_status"
@@ -249,8 +248,10 @@ extension RemoteSessionCoordinator {
         expectedSHA256: String
     ) -> String {
         let expectedSize = String(max(0, expectedByteCount))
+        let remoteTempPIDPath = "\(remoteTempPath).pid"
         return """
         temp_path=\(remoteTempPath.shellSingleQuoted)
+        pid_path=\(remoteTempPIDPath.shellSingleQuoted)
         final_path=\(remotePath.shellSingleQuoted)
         expected_size=\(expectedSize.shellSingleQuoted)
         expected_sha=\(expectedSHA256.shellSingleQuoted)
@@ -285,7 +286,14 @@ extension RemoteSessionCoordinator {
           printf 'cmux daemon verification failed: SHA-256 mismatch expected=%s actual=%s\\n' "$expected_sha" "${actual_sha:-missing}" >&2
           exit 74
         fi
-        chmod 755 "$temp_path" && mv -f "$temp_path" "$final_path"
+        if chmod 755 "$temp_path" && mv -f "$temp_path" "$final_path"; then
+          # Keep the marker until promotion succeeds. If this shell is
+          # interrupted before this point, age-based recovery can reclaim the
+          # payload instead of leaving an unmarked temporary file.
+          rm -f -- "$pid_path" || true
+        else
+          exit 1
+        fi
         """
     }
 
