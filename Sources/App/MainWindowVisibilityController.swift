@@ -124,6 +124,7 @@ final class MainWindowVisibilityController {
 
     private var dependencies: Dependencies
     private let committedClosedWindows = NSHashTable<NSWindow>.weakObjects()
+    private let workspaceSwitchSignposts = WorkspaceSwitchSignposts()
     var appHiddenWindowRestoreTargets: [NSWindow] = []
     var dismissedWindowRestoreTargets: [NSWindow] = []
     var pendingApplicationActivationKeyRestoreTarget: NSWindow?
@@ -152,7 +153,7 @@ final class MainWindowVisibilityController {
         unhide: Bool = true,
         respectActivationSuppression: Bool = true
     ) -> Bool {
-        let switchInterval = WorkspaceSwitchSignposts.begin(
+        let switchInterval = workspaceSwitchSignposts.begin(
             "ws.switch.window-focus",
             "window=\(window.identifier?.rawValue ?? "unknown") reason=\(reason.rawValue)"
         )
@@ -160,7 +161,7 @@ final class MainWindowVisibilityController {
             log("focus.closed", reason: reason, windows: [window])
             return false
         }
-        defer { WorkspaceSwitchSignposts.end(switchInterval) }
+        defer { workspaceSwitchSignposts.end(switchInterval) }
         if respectActivationSuppression, dependencies.isActivationSuppressed() {
             dependencies.setActiveMainWindow(window)
             log("focus.suppressed", reason: reason, windows: [window])
@@ -211,7 +212,7 @@ final class MainWindowVisibilityController {
     }
 
     func focusForInWindowCommand(_ window: NSWindow, reason: Reason) {
-        let switchInterval = WorkspaceSwitchSignposts.begin(
+        let switchInterval = workspaceSwitchSignposts.begin(
             "ws.switch.window-focus",
             "window=\(window.identifier?.rawValue ?? "unknown") reason=\(reason.rawValue)"
         )
@@ -219,7 +220,7 @@ final class MainWindowVisibilityController {
             log("focus.inWindow.closed", reason: reason, windows: [window])
             return
         }
-        defer { WorkspaceSwitchSignposts.end(switchInterval) }
+        defer { workspaceSwitchSignposts.end(switchInterval) }
         dependencies.setActiveMainWindow(window)
         guard !dependencies.windowOperations.isKeyWindow(window) else {
             log("focus.inWindow.key", reason: reason, windows: [window])

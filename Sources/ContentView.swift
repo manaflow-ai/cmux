@@ -920,6 +920,7 @@ struct ContentView: View {
     @State private var isFullScreen: Bool = false
     @State private var observedWindowReference = WeakWindowReference()
     private var observedWindow: NSWindow? { observedWindowReference.window }
+    @State private var workspaceSwitchPortalSignalRouter = WorkspaceSwitchPortalSignalRouter()
     @State private var sidebarRenderWorkerClient: RenderWorkerClient?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
@@ -3004,28 +3005,28 @@ struct ContentView: View {
             attemptCommandPaletteFocusRestoreIfNeeded()
         })
 
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(
+        view = AnyView(view.onReceive(workspaceSwitchPortalSignalRouter.publisher(
             for: .terminalPortalVisibilityDidChange
         )) { notification in
             guard let hostedView = notification.object as? GhosttySurfaceScrollView else { return }
             noteTerminalPortalPresentedIfReady(hostedView)
         })
 
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(
+        view = AnyView(view.onReceive(workspaceSwitchPortalSignalRouter.publisher(
             for: .terminalSurfaceHostedViewDidMoveToWindow
         )) { notification in
             guard let surface = notification.object as? TerminalSurface else { return }
             noteTerminalPortalPresentedIfReady(surface.hostedView)
         })
 
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(
+        view = AnyView(view.onReceive(workspaceSwitchPortalSignalRouter.publisher(
             for: .terminalPortalDidBecomePresentable
         )) { notification in
             guard let hostedView = notification.object as? GhosttySurfaceScrollView else { return }
             noteTerminalPortalPresentedIfReady(hostedView)
         })
 
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(
+        view = AnyView(view.onReceive(workspaceSwitchPortalSignalRouter.publisher(
             for: .browserPortalRegistryDidChange
         )) { notification in
             guard tabManager.workspaceSwitchCoordinator.isMeasuringSwitch,
@@ -3475,6 +3476,7 @@ struct ContentView: View {
         window.styleMask.insert(.fullSizeContentView)
 
         // Track this window for fullscreen notifications
+        workspaceSwitchPortalSignalRouter.attach(to: window)
         if observedWindow !== window {
             DispatchQueue.main.async {
                 observedWindowReference = WeakWindowReference(window)
