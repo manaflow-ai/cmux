@@ -5,7 +5,11 @@ extension DockSplitStore {
     func setSurfaceResumeBinding(_ binding: SurfaceResumeBindingSnapshot, panelId: UUID) -> Bool {
         guard panels[panelId] is TerminalPanel,
               let startupInput = binding.inlineStartupInput(repairPortableAgentExecutable: false),
-              !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+              !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              restoredAgentLifecycle.canActivateAgentRuntimeBinding(
+                  binding,
+                  panelId: panelId
+              ) else {
             return false
         }
         let cachedManagedBinding =
@@ -47,13 +51,17 @@ extension DockSplitStore {
             }
         }
         if binding.isAgentHookBinding,
-           let previous = managedAgentResumeBinding(panelId: panelId),
-           !previous.isSameManagedSession(as: binding) {
+           let previous = restoredAgentLifecycle.recordAgentRuntimeReplacementIfNeeded(
+               currentBinding: managedAgentResumeBinding(panelId: panelId),
+               replacement: binding,
+               panelId: panelId
+           ) {
             clearAgentRestoreStateOwned(
                 by: previous,
                 panelId: panelId,
                 preserveCompletedTombstone: false
             )
+            clearAgentRuntimeOwned(by: previous, panelId: panelId)
         }
         if binding.hasCompleteManagedSessionIdentity {
             managedAgentResumeBindingsByPanelId[panelId] = binding
@@ -61,6 +69,7 @@ extension DockSplitStore {
             managedAgentResumeBindingsByPanelId.removeValue(forKey: panelId)
         }
         surfaceResumeBindingsByPanelId[panelId] = binding
+        restoredAgentLifecycle.activateAgentRuntimeBinding(binding, panelId: panelId)
         return true
     }
 
@@ -95,18 +104,27 @@ extension DockSplitStore {
         let binding = requestedBinding
             ?? (agentSessionEnded
                 ? managedBinding
+                    ?? restoredAgentLifecycle.eligibleRetiredAgentRuntimeBinding(
+                        panelId: panelId
+                    )
                 : surfaceResumeBindingsByPanelId[panelId])
         guard let binding else {
             return false
         }
 
         let clearsManagedBinding = managedBinding.map {
-            Self.dockResumeBindingsRepresentSameManagedSession($0, binding)
+            $0 == binding || $0.acceptsAgentRuntimeCleanup(from: binding)
         } == true
         if clearsManagedBinding {
+            restoredAgentLifecycle.recordAgentRuntimeRetirement(
+                binding,
+                panelId: panelId,
+                agentSessionEnded: agentSessionEnded
+            )
             managedAgentResumeBindingsByPanelId.removeValue(forKey: panelId)
             if let effectiveBinding = surfaceResumeBindingsByPanelId[panelId],
-               Self.dockResumeBindingsRepresentSameManagedSession(effectiveBinding, binding) {
+               effectiveBinding == binding
+                || effectiveBinding.acceptsAgentRuntimeCleanup(from: binding) {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
             }
             if cachedTransferContainsManagedSession(
@@ -124,10 +142,23 @@ extension DockSplitStore {
             return true
         }
 
+        if agentSessionEnded,
+           restoredAgentLifecycle.endRetiredAgentRuntimeBinding(
+               binding,
+               panelId: panelId
+           ) {
+            return true
+        }
+
         guard let effectiveBinding = surfaceResumeBindingsByPanelId[panelId],
               effectiveBinding == binding else {
             return false
         }
+        restoredAgentLifecycle.recordAgentRuntimeRetirement(
+            binding,
+            panelId: panelId,
+            agentSessionEnded: agentSessionEnded
+        )
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
         clearAgentRestoreStateOwned(
             by: binding,
@@ -152,16 +183,6 @@ extension DockSplitStore {
             managedAgentResumeBindingsByPanelId[panelId] = effectiveBinding
         }
         return effectiveBinding
-    }
-
-    private static func dockResumeBindingsRepresentSameManagedSession(
-        _ lhs: SurfaceResumeBindingSnapshot,
-        _ rhs: SurfaceResumeBindingSnapshot
-    ) -> Bool {
-        lhs == rhs ||
-            (lhs.isAgentHookBinding &&
-                rhs.isAgentHookBinding &&
-                lhs.isSameManagedSession(as: rhs))
     }
 
     private func cachedTransferContainsManagedSession(

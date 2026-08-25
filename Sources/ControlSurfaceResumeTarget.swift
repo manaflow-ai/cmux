@@ -63,6 +63,22 @@ enum ControlSurfaceResumeTarget {
         }
     }
 
+    func runtimeGenerationFloor(statusKey: String?) -> TimeInterval? {
+        guard let statusKey else { return nil }
+        switch self {
+        case .workspace(_, let workspace, let surfaceID):
+            return workspace.restoredAgentLifecycle.agentRuntimeGenerationFloor(
+                statusKey: statusKey,
+                panelId: surfaceID
+            )
+        case .dock(_, let dock, let surfaceID):
+            return dock.restoredAgentLifecycle.agentRuntimeGenerationFloor(
+                statusKey: statusKey,
+                panelId: surfaceID
+            )
+        }
+    }
+
     @discardableResult
     func setBinding(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
         switch self {
@@ -74,33 +90,93 @@ enum ControlSurfaceResumeTarget {
     }
 
     func bindingForClear(
+        expectedCheckpointID: String?,
         expectedSource: String?,
+        runtimeStatusKey: String?,
+        runtimeGeneration: TimeInterval?,
         agentSessionEnded: Bool
     ) -> SurfaceResumeBindingSnapshot? {
+        // A generation has meaning only within its kind-scoped runtime
+        // authority. Reject generation-only clears instead of allowing a
+        // legacy/manual binding with no stored generation to match.
+        guard runtimeGeneration == nil || runtimeStatusKey != nil else {
+            return nil
+        }
+        let currentBinding: SurfaceResumeBindingSnapshot?
         switch self {
         case .workspace:
-            return binding
+            currentBinding = binding
         case .dock(_, let dock, let surfaceID):
             if expectedSource == "agent-hook" || agentSessionEnded {
-                return dock.managedAgentResumeBinding(panelId: surfaceID)
+                currentBinding = dock.managedAgentResumeBinding(panelId: surfaceID)
+            } else {
+                currentBinding = binding
             }
-            return binding
+        }
+        let currentMatchesRequest = currentBinding.map {
+            (expectedCheckpointID == nil || $0.checkpointId == expectedCheckpointID)
+                && (expectedSource == nil || $0.source == expectedSource)
+                && (runtimeStatusKey == nil
+                    || $0.agentRuntimeStatusKey == runtimeStatusKey)
+                && AgentRuntimeGenerationPolicy.authorizesCleanup(
+                    stored: $0.runtimeGeneration,
+                    incoming: runtimeGeneration
+                )
+        } == true
+        if currentMatchesRequest {
+            return currentBinding
+        }
+        guard agentSessionEnded else { return nil }
+        switch self {
+        case .workspace(_, let workspace, let surfaceID):
+            return workspace.restoredAgentLifecycle.retiredAgentRuntimeBinding(
+                panelId: surfaceID,
+                checkpointID: expectedCheckpointID,
+                source: expectedSource,
+                runtimeStatusKey: runtimeStatusKey,
+                runtimeGeneration: runtimeGeneration
+            )
+        case .dock(_, let dock, let surfaceID):
+            return dock.restoredAgentLifecycle.retiredAgentRuntimeBinding(
+                panelId: surfaceID,
+                checkpointID: expectedCheckpointID,
+                source: expectedSource,
+                runtimeStatusKey: runtimeStatusKey,
+                runtimeGeneration: runtimeGeneration
+            )
         }
     }
 
+    @discardableResult
     func clearBinding(
-        _ binding: SurfaceResumeBindingSnapshot?,
+        _ binding: SurfaceResumeBindingSnapshot,
         agentSessionEnded: Bool
-    ) {
+    ) -> Bool {
         switch self {
         case .workspace(_, let workspace, let surfaceID):
-            _ = workspace.clearSurfaceResumeBinding(panelId: surfaceID)
-        case .dock(_, let dock, let surfaceID):
-            _ = dock.clearSurfaceResumeBinding(
+            return workspace.clearSurfaceResumeBinding(
                 panelId: surfaceID,
                 binding: binding,
                 agentSessionEnded: agentSessionEnded
             )
+        case .dock(_, let dock, let surfaceID):
+            return dock.clearSurfaceResumeBinding(
+                panelId: surfaceID,
+                binding: binding,
+                agentSessionEnded: agentSessionEnded
+            )
+        }
+    }
+
+    /// Preserves the legacy unguarded clear contract without representing a
+    /// failed guarded lookup as an optional binding.
+    @discardableResult
+    func clearCurrentBinding() -> Bool {
+        switch self {
+        case .workspace(_, let workspace, let surfaceID):
+            return workspace.clearSurfaceResumeBinding(panelId: surfaceID)
+        case .dock(_, let dock, let surfaceID):
+            return dock.clearSurfaceResumeBinding(panelId: surfaceID)
         }
     }
 
@@ -250,7 +326,8 @@ extension TerminalController {
     private func surfaceResumeSnapshot(
         target: ControlSurfaceResumeTarget,
         binding: SurfaceResumeBindingSnapshot?,
-        cleared: Bool
+        cleared: Bool,
+        runtimeGenerationFloor: TimeInterval? = nil
     ) -> ControlSurfaceResumeSnapshot {
         ControlSurfaceResumeSnapshot(
             windowID: target.windowID(using: self),
@@ -261,7 +338,8 @@ extension TerminalController {
             binding: controlResumeBinding(from: binding),
             restoreRecord: cleared
                 ? nil
-                : controlSurfaceRestoreRecord(target: target, binding: binding)
+                : controlSurfaceRestoreRecord(target: target, binding: binding),
+            runtimeGenerationFloor: runtimeGenerationFloor
         )
     }
 
@@ -515,6 +593,7 @@ extension TerminalController {
             },
             permissionMode: inputs.permissionMode,
             autoResume: inputs.autoResume,
+            runtimeGeneration: inputs.runtimeGeneration,
             updatedAt: Date.now.timeIntervalSince1970
         )
         guard let target = resolveSurfaceResumeTarget(
@@ -544,7 +623,8 @@ extension TerminalController {
     func controlSurfaceResumeGet(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
-        hasResolvedWindowID: Bool
+        hasResolvedWindowID: Bool,
+        runtimeStatusKey: String?
     ) -> ControlSurfaceResumeResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .windowUnavailable
@@ -559,9 +639,26 @@ extension TerminalController {
         }
         if let binding = target.binding,
            case .pendingSigningSecret = SurfaceResumeApprovalStore.applyingStoredApprovalLookup(to: binding) {
-            return .approvalPending(message: surfaceResumeApprovalPendingMessage)
+            guard runtimeStatusKey != nil else {
+                return .approvalPending(message: surfaceResumeApprovalPendingMessage)
+            }
+            return .result(surfaceResumeSnapshot(
+                target: target,
+                binding: nil,
+                cleared: false,
+                runtimeGenerationFloor: target.runtimeGenerationFloor(
+                    statusKey: runtimeStatusKey
+                )
+            ))
         }
-        return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
+        return .result(surfaceResumeSnapshot(
+            target: target,
+            binding: target.binding,
+            cleared: false,
+            runtimeGenerationFloor: target.runtimeGenerationFloor(
+                statusKey: runtimeStatusKey
+            )
+        ))
     }
 
     func controlSurfaceResumeClear(
@@ -570,6 +667,8 @@ extension TerminalController {
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
         expectedSource: String?,
+        runtimeStatusKey: String?,
+        runtimeGeneration: TimeInterval?,
         agentSessionEnded: Bool
     ) -> ControlSurfaceResumeResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
@@ -584,7 +683,10 @@ extension TerminalController {
             return .surfaceNotFound
         }
         let bindingForClear = target.bindingForClear(
+            expectedCheckpointID: expectedCheckpointID,
             expectedSource: expectedSource,
+            runtimeStatusKey: runtimeStatusKey,
+            runtimeGeneration: runtimeGeneration,
             agentSessionEnded: agentSessionEnded
         )
         if let expectedCheckpointID, bindingForClear?.checkpointId != expectedCheckpointID {
@@ -593,8 +695,26 @@ extension TerminalController {
         if let expectedSource, bindingForClear?.source != expectedSource {
             return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
         }
-        target.clearBinding(bindingForClear, agentSessionEnded: agentSessionEnded)
-        return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: true))
+        if let runtimeStatusKey,
+           bindingForClear?.agentRuntimeStatusKey != runtimeStatusKey {
+            return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
+        }
+        let cleared: Bool
+        if let bindingForClear {
+            cleared = target.clearBinding(
+                bindingForClear,
+                agentSessionEnded: agentSessionEnded
+            )
+        } else if expectedCheckpointID == nil,
+                  expectedSource == nil,
+                  runtimeStatusKey == nil,
+                  runtimeGeneration == nil,
+                  !agentSessionEnded {
+            cleared = target.clearCurrentBinding()
+        } else {
+            cleared = false
+        }
+        return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: cleared))
     }
 }
 

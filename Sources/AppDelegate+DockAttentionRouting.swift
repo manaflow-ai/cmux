@@ -1,8 +1,88 @@
 import AppKit
+import CMUXAgentLaunch
 import Foundation
 
 @MainActor
 extension AppDelegate {
+    /// Authorizes a hook notification against the panel's live runtime owner.
+    /// Resolution happens at the final main-actor mutation boundary so a pane
+    /// move cannot redirect stale authority onto its destination.
+    func allowsAgentNotificationRuntimeMutation(
+        claimedTabID: UUID,
+        surfaceID: UUID,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval?
+    ) -> Bool {
+        guard let runtimeKey else { return true }
+        guard let authority = agentNotificationRuntimeAuthority(
+            claimedTabID: claimedTabID,
+            surfaceID: surfaceID,
+            runtimeKey: runtimeKey
+        ) else {
+            return false
+        }
+        return authority.owner.allowsAgentRuntimeMutation(
+            statusKey: authority.sessionKey.statusKey,
+            runtimeKey: runtimeKey,
+            runtimeGeneration: runtimeGeneration,
+            panelId: authority.surfaceID
+        )
+    }
+
+    /// Authorizes a panel-scoped notification clear against either the current
+    /// runtime or a just-retired runtime when no replacement is current.
+    func allowsAgentNotificationRuntimeCleanup(
+        claimedTabID: UUID,
+        surfaceID: UUID,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval?
+    ) -> Bool {
+        guard let runtimeKey else { return true }
+        guard let authority = agentNotificationRuntimeAuthority(
+            claimedTabID: claimedTabID,
+            surfaceID: surfaceID,
+            runtimeKey: runtimeKey
+        ) else {
+            return false
+        }
+        return authority.owner.allowsAgentNotificationCleanup(
+            statusKey: authority.sessionKey.statusKey,
+            runtimeKey: runtimeKey,
+            runtimeGeneration: runtimeGeneration,
+            panelId: authority.surfaceID
+        )
+    }
+
+    private func agentNotificationRuntimeAuthority(
+        claimedTabID: UUID,
+        surfaceID: UUID,
+        runtimeKey: String
+    ) -> (
+        owner: ControlSidebarPanelOwner,
+        sessionKey: AgentRuntimeSessionKey,
+        surfaceID: UUID
+    )? {
+        guard let sessionKey = AgentRuntimeSessionKey(rawValue: runtimeKey),
+              let target = notificationSurfaceOwner(
+                  surfaceID: surfaceID,
+                  preferredTabID: claimedTabID
+              ) else {
+            return nil
+        }
+        let owner: ControlSidebarPanelOwner
+        if let dock = DockSplitStore.liveStores.first(where: {
+            $0.containsPanel(target.surfaceID)
+        }) {
+            owner = .dock(dock)
+        } else if let workspace = target.tabManager.workspacesById[target.tabID],
+                  workspace.panels.keys.contains(target.surfaceID) {
+            owner = .workspace(workspace)
+        } else {
+            return nil
+        }
+        return (owner, sessionKey, target.surfaceID)
+    }
+
     /// Resolves the current notification owner for a surface across every
     /// container. Dock IDs are stable notification namespaces (`workspaceId`
     /// is the workspace ID for a workspace Dock and the window ID for a global

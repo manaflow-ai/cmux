@@ -29,7 +29,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "OK\n")
         XCTAssertTrue(
-            context.state.commands.contains { $0 == "clear_notifications --tab=\(context.workspaceId) --panel=\(context.surfaceId)" },
+            context.state.commands.contains {
+                self.isRuntimeAuthorizedPanelClear(
+                    $0,
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId
+                )
+            },
             "Expected clear SessionStart to clear only the current pane, saw \(context.state.commands)"
         )
         XCTAssertTrue(
@@ -342,7 +348,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(stop.status, 0, stop.stderr)
         XCTAssertTrue(
             context.state.commands.contains { command in
-                command.contains("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|Error|Codex ended before sending a final response")
+                self.isRuntimeAuthorizedNotification(
+                    command,
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    payloadFragment: "Codex|Error|Codex ended before sending a final response"
+                )
             },
             "Expected Codex to parse the oversized final transcript line, saw \(context.state.commands)"
         )
@@ -1594,7 +1605,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "Expected stale SessionEnd not to clear the consumed workspace PID, saw \(context.state.commands)"
         )
         XCTAssertFalse(
-            context.state.commands.contains { $0 == "clear_notifications --tab=\(staleWorkspaceId)" },
+            context.state.commands.contains { $0.hasPrefix("clear_notifications --tab=\(staleWorkspaceId)") },
             "Expected stale SessionEnd not to clear the consumed workspace notifications, saw \(context.state.commands)"
         )
     }
@@ -1642,7 +1653,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "Expected stale same-session turn not to clear current PID, saw \(context.state.commands)"
         )
         XCTAssertFalse(
-            context.state.commands.contains { $0 == "clear_notifications --tab=\(context.workspaceId)" },
+            context.state.commands.contains { $0.hasPrefix("clear_notifications --tab=\(context.workspaceId)") },
             "Expected stale same-session turn not to clear current notifications, saw \(context.state.commands)"
         )
 
@@ -1780,7 +1791,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "Parent Codex Stop should still refresh the resume binding, saw \(parentStopCommands)"
         )
         XCTAssertTrue(
-            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            parentStopCommands.contains {
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    payloadFragment: "Codex|"
+                )
+            },
             "Parent Codex Stop should still notify, saw \(parentStopCommands)"
         )
         XCTAssertTrue(
@@ -2018,7 +2036,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
         let parentStopCommands = Array(context.state.commands.dropFirst(parentStopStart))
         XCTAssertTrue(
-            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            parentStopCommands.contains {
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    payloadFragment: "Codex|"
+                )
+            },
             "The parent Stop must still notify after a legacy child Stop without a turn_id, saw \(parentStopCommands)"
         )
         XCTAssertTrue(
@@ -2093,7 +2118,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
         let parentStopCommands = Array(context.state.commands.dropFirst(parentStopStart))
         XCTAssertTrue(
-            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Gemini|") },
+            parentStopCommands.contains {
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    payloadFragment: "Gemini|"
+                )
+            },
             "The generic parent Stop must still notify after its nested child, saw \(parentStopCommands)"
         )
         XCTAssertTrue(
@@ -2198,7 +2230,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
         let parentStopCommands = Array(context.state.commands.dropFirst(parentStopStart))
         XCTAssertTrue(
-            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            parentStopCommands.contains {
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    payloadFragment: "Codex|"
+                )
+            },
             "The parent Stop must still notify after mixed anonymous depth, saw \(parentStopCommands)"
         )
         XCTAssertTrue(
@@ -2259,7 +2298,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
         let parentStopCommands = Array(context.state.commands.dropFirst(parentStopStart))
         XCTAssertTrue(
-            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            parentStopCommands.contains {
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    payloadFragment: "Codex|"
+                )
+            },
             "The parent Stop must still notify after a child Stop supplies a new turn_id, saw \(parentStopCommands)"
         )
         XCTAssertTrue(
@@ -2312,7 +2358,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let stopCommands = Array(context.state.commands.dropFirst(stopStart))
 
         XCTAssertTrue(
-            stopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            stopCommands.contains {
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    payloadFragment: "Codex|"
+                )
+            },
             "A stale prompt depth from an interrupted prior turn must not suppress the current top-level completion notification, saw \(stopCommands)"
         )
         XCTAssertTrue(
@@ -2378,7 +2431,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
 
         XCTAssertTrue(
-            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            currentStopCommands.contains {
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    payloadFragment: "Codex|"
+                )
+            },
             "A late terminal prior turn must not suppress the current top-level completion notification, saw \(currentStopCommands)"
         )
         XCTAssertTrue(
@@ -2479,7 +2539,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
         let parentStopCommands = Array(context.state.commands.dropFirst(parentStopStart))
         XCTAssertTrue(
-            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            parentStopCommands.contains {
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    payloadFragment: "Codex|"
+                )
+            },
             "The parent Stop should still notify after terminal nested children, saw \(parentStopCommands)"
         )
     }
@@ -2543,7 +2610,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(currentStop.status, 0, currentStop.stderr)
         let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
         XCTAssertTrue(
-            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            currentStopCommands.contains {
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    payloadFragment: "Codex|"
+                )
+            },
             "A current Stop after a fully terminal interrupted stack must notify, saw \(currentStopCommands)"
         )
     }
@@ -2815,7 +2889,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
         let parentStopCommands = Array(context.state.commands.dropFirst(parentStopStart))
         XCTAssertTrue(
-            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            parentStopCommands.contains {
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    payloadFragment: "Codex|"
+                )
+            },
             "The depth-only parent Stop must notify after its child turn stops, saw \(parentStopCommands)"
         )
         XCTAssertTrue(
@@ -3042,7 +3123,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
 
         XCTAssertTrue(
-            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            currentStopCommands.contains {
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    payloadFragment: "Codex|"
+                )
+            },
             "The current turn should still notify after a stale older Stop, saw \(currentStopCommands)"
         )
     }
@@ -3090,7 +3178,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(currentStop.status, 0, currentStop.stderr)
         let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
         XCTAssertTrue(
-            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            currentStopCommands.contains {
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    payloadFragment: "Codex|"
+                )
+            },
             "The current turn should notify before a late stale Stop arrives, saw \(currentStopCommands)"
         )
 
@@ -3146,7 +3241,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
 
         XCTAssertTrue(
-            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            currentStopCommands.contains {
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    payloadFragment: "Codex|"
+                )
+            },
             "A Stop after a missed prompt-submit must clear terminal stale turns and notify, saw \(currentStopCommands)"
         )
         XCTAssertTrue(
@@ -3209,7 +3311,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
 
         XCTAssertTrue(
-            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            currentStopCommands.contains {
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    payloadFragment: "Codex|"
+                )
+            },
             "A missed prompt-submit Stop must clear a fully terminal stored stack and notify, saw \(currentStopCommands)"
         )
         XCTAssertTrue(
@@ -3256,7 +3365,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let unseenStopCommands = Array(context.state.commands.dropFirst(unseenStopStart))
 
         XCTAssertTrue(
-            unseenStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            unseenStopCommands.contains {
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    payloadFragment: "Codex|"
+                )
+            },
             "A Stop with a missed prompt-submit must still notify at idle depth, saw \(unseenStopCommands)"
         )
         XCTAssertTrue(
@@ -3336,7 +3452,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let stopCommands = Array(context.state.commands.dropFirst(stopStart))
         XCTAssertTrue(
-            stopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            stopCommands.contains {
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    payloadFragment: "Codex|"
+                )
+            },
             "Stale completed-turn subagent relay should not suppress the parent completion notification, saw \(stopCommands)"
         )
     }

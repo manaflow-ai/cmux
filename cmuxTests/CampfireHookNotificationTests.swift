@@ -40,7 +40,11 @@ struct CampfireHookNotificationTests {
         let notificationCommands = Array(context.state.snapshot().dropFirst(notificationStart))
         #expect(
             notificationCommands.contains {
-                $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Campfire|Permission|Alice asked for permission to run a shell command|c=needs-permission;p=0")
+                $0.hasPrefix(
+                    "notify_target_async \(context.workspaceId) \(context.surfaceId) --runtime-key="
+                ) && $0.contains(
+                    " -- Campfire|Permission|Alice asked for permission to run a shell command|c=needs-permission;p=0"
+                )
             },
             "Campfire permission notification should be localized and notification-gated in Swift, saw \(notificationCommands)"
         )
@@ -241,7 +245,15 @@ struct CampfireHookNotificationTests {
                             pending.removeSubrange(0...newlineRange.lowerBound)
                             guard let line = String(data: lineData, encoding: .utf8) else { continue }
                             context.state.append(line)
-                            let response = agentHookMockResponse(line: line, context: context) + "\n"
+                            let responsePayload: String
+                            if line.hasPrefix("notify_target_authorized ") {
+                                responsePayload = "ERROR: Unknown command 'notify_target_authorized'. Use 'help' for available commands."
+                            } else if line.hasPrefix("notify_target_async_authorized ") {
+                                responsePayload = "ERROR: Unknown command 'notify_target_async_authorized'. Use 'help' for available commands."
+                            } else {
+                                responsePayload = agentHookMockResponse(line: line, context: context)
+                            }
+                            let response = responsePayload + "\n"
                             _ = response.withCString { ptr in
                                 Darwin.write(clientFD, ptr, strlen(ptr))
                             }

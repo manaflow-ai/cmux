@@ -154,6 +154,10 @@ struct ClaudeHookSessionRecord: Codable {
     var activePromptTurnIds: [String]?
     var lastPromptTurnId: String?
     var terminalPromptTurnIds: [String]?
+    /// Immutable store-owned authority for this accepted runtime boundary.
+    /// Kept separate from `startedAt`, which remains wall-clock metadata for
+    /// session listing, expiry, and diagnostics.
+    var runtimeGeneration: TimeInterval? = nil
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
     /// Immutable age anchor for a demoted record awaiting external cleanup.
@@ -231,8 +235,194 @@ final class ClaudeHookSessionStore {
     func lookup(sessionId: String) throws -> ClaudeHookSessionRecord? {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return nil }
-        return try withLockedState { state in
+        return try withLockedSnapshot { state in
             state.sessions[normalized]
+        }
+    }
+
+    /// Resolves the immutable authority carried by the hook's originating
+    /// process. Explicit monitor/replay authority wins. Otherwise an exact live
+    /// PID-matched record wins over the inherited restore bootstrap value.
+    /// Inherited authority bridges only a dead recorded owner for the same
+    /// session and exact generation; it cannot create or crown a missing record.
+    func originatingRuntimeGeneration(
+        sessionId: String?,
+        record: ClaudeHookSessionRecord?,
+        agentPID: Int?,
+        explicitGeneration: TimeInterval? = nil,
+        inheritedGeneration: TimeInterval? = nil,
+        allowMissingRecordGeneration: Bool = true,
+        processIsRemote: Bool = false
+    ) -> TimeInterval? {
+        if let explicitGeneration = normalizedRuntimeGeneration(explicitGeneration) {
+            return explicitGeneration
+        }
+        if record == nil {
+            // Preserve fail-open support for an agent whose first observed hook
+            // is not SessionStart, but never let a stale inherited restore value
+            // crown a missing/unrelated session.
+            guard let agentPID,
+                  processIsRemote || Self.processExists(agentPID),
+                  allowMissingRecordGeneration,
+                  normalizedRuntimeGeneration(inheritedGeneration) == nil,
+                  let sessionId = normalizeOptional(sessionId) else {
+                return nil
+            }
+            return try? withLockedState { state in
+                if var current = state.sessions[sessionId] {
+                    guard current.pid == agentPID,
+                          Self.recordedProcessIsLive(current) else {
+                        return nil
+                    }
+                    if let generation = normalizedRuntimeGeneration(current.runtimeGeneration) {
+                        return generation
+                    }
+                    guard let generation = mintRuntimeGeneration(in: &state) else {
+                        return nil
+                    }
+                    current.runtimeGeneration = generation
+                    state.sessions[sessionId] = current
+                    return generation
+                }
+                return mintRuntimeGeneration(in: &state)
+            }
+        }
+        guard let record else { return nil }
+        if !(processIsRemote || Self.recordedProcessIsLive(record)),
+           let inheritedGeneration = normalizedRuntimeGeneration(inheritedGeneration),
+           inheritedGeneration == normalizedRuntimeGeneration(record.runtimeGeneration) {
+            return inheritedGeneration
+        }
+        if normalizedRuntimeGeneration(record.runtimeGeneration) == nil,
+           allowMissingRecordGeneration,
+           let agentPID,
+           processIsRemote || Self.processExists(agentPID) {
+            // Mixed-version/minimal placeholder records carry no authority.
+            // Treat one like an unobserved boundary, but persist the minted
+            // generation before any ordinary mutation can use it.
+            return try? withLockedState { state in
+                guard var current = state.sessions[record.sessionId],
+                      normalizedRuntimeGeneration(current.runtimeGeneration) == nil,
+                      (processIsRemote || !Self.recordedProcessIsLive(current)),
+                      let generation = mintRuntimeGeneration(
+                          in: &state,
+                          floor: inheritedGeneration
+                      ) else {
+                    return nil
+                }
+                current.runtimeGeneration = generation
+                state.sessions[current.sessionId] = current
+                return generation
+            }
+        }
+        guard let agentPID, processIsRemote || Self.processExists(agentPID) else {
+            return nil
+        }
+        if record.pid == agentPID,
+           processIsRemote || Self.recordedProcessIsLive(record) {
+            if let runtimeGeneration = normalizedRuntimeGeneration(record.runtimeGeneration) {
+                return runtimeGeneration
+            }
+            // SessionStart must let acceptedSessionStartRuntimeGeneration()
+            // consult the app-owned panel floor before upgrading a legacy live
+            // record. Minting here would persist generation 1 and make the
+            // later floor reconciliation look like an already-authorized
+            // runtime, so defer the upgrade when this is the startup path.
+            guard allowMissingRecordGeneration else { return nil }
+            // Mixed-version upgrade: the live PID is the strongest available
+            // evidence, so allocate and persist authority before this hook can
+            // mutate the record or publish runtime state.
+            return try? withLockedState { state in
+                guard var current = state.sessions[record.sessionId],
+                      current.pid == agentPID,
+                      Self.recordedProcessIsLive(current) else {
+                    return nil
+                }
+                if let generation = normalizedRuntimeGeneration(current.runtimeGeneration) {
+                    rememberRuntimeGeneration(generation, in: &state)
+                    return generation
+                }
+                guard let generation = mintRuntimeGeneration(
+                    in: &state,
+                    floor: inheritedGeneration
+                ) else {
+                    return nil
+                }
+                current.runtimeGeneration = generation
+                state.sessions[current.sessionId] = current
+                return generation
+            }
+        }
+        return nil
+    }
+
+    /// Reserves a monotonic session boundary after routing has accepted a
+    /// SessionStart. The sequence is advanced while holding the store lock.
+    /// A live exact PID or the initial dead-owner restore bridge reuses its
+    /// existing boundary; every genuinely new conversation advances it.
+    func acceptedSessionStartRuntimeGeneration(
+        sessionId: String,
+        agentPID: Int?,
+        originatingGeneration: TimeInterval?,
+        inheritedGeneration: TimeInterval?,
+        processIsRemote: Bool = false
+    ) throws -> TimeInterval? {
+        let normalizedSessionId = normalizeSessionId(sessionId)
+        guard !normalizedSessionId.isEmpty else { return nil }
+        return try withLockedState { state in
+            let record = state.sessions[normalizedSessionId]
+            let originatingGeneration = normalizedRuntimeGeneration(originatingGeneration)
+            let inheritedGeneration = normalizedRuntimeGeneration(inheritedGeneration)
+
+            let recordProcessIsLive: (ClaudeHookSessionRecord) -> Bool = { record in
+                guard let pid = record.pid, pid > 0 else { return false }
+                return processIsRemote || Self.recordedProcessIsLive(record)
+            }
+
+            if let record,
+               let agentPID,
+               record.pid == agentPID,
+               recordProcessIsLive(record) {
+                if let stored = normalizedRuntimeGeneration(record.runtimeGeneration) {
+                    guard originatingGeneration == nil || originatingGeneration == stored else {
+                        return nil
+                    }
+                    rememberRuntimeGeneration(stored, in: &state)
+                    return stored
+                }
+                guard let generation = mintRuntimeGeneration(
+                    in: &state,
+                    floor: inheritedGeneration
+                ) else {
+                    return nil
+                }
+                var upgraded = record
+                upgraded.runtimeGeneration = generation
+                state.sessions[normalizedSessionId] = upgraded
+                return generation
+            }
+
+            if let record, recordProcessIsLive(record) {
+                // Another live process still owns this exact conversation.
+                return nil
+            }
+
+            if let record,
+               let inheritedGeneration,
+               inheritedGeneration == normalizedRuntimeGeneration(record.runtimeGeneration),
+               originatingGeneration == inheritedGeneration,
+               agentPID.map({ processIsRemote || Self.processExists($0) }) == true {
+                rememberRuntimeGeneration(inheritedGeneration, in: &state)
+                return inheritedGeneration
+            }
+
+            // Explicit authority identifies a previously accepted runtime; it
+            // may replay that runtime, but must never mint a different boundary
+            // or crown a missing record.
+            if originatingGeneration != nil {
+                return nil
+            }
+            return mintRuntimeGeneration(in: &state, floor: inheritedGeneration)
         }
     }
 
@@ -241,12 +431,22 @@ final class ClaudeHookSessionStore {
     /// can race an overlapping hook's write and skip persisting the newest mode,
     /// leaving restore on a stale (possibly more permissive) mode. Unknown
     /// sessions are left alone (the session-start upsert owns record creation).
-    func updateLastPermissionMode(sessionId: String, permissionMode: String) throws {
+    func updateLastPermissionMode(
+        sessionId: String,
+        permissionMode: String,
+        runtimeGeneration: TimeInterval? = nil,
+        requiresRuntimeGeneration: Bool = false
+    ) throws {
         let normalized = normalizeSessionId(sessionId)
         let mode = permissionMode.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty, !mode.isEmpty else { return }
         try withLockedState { state in
             guard var record = state.sessions[normalized],
+                  runtimeGenerationAllowsMutation(
+                      existing: record,
+                      incoming: runtimeGeneration,
+                      requiresRuntimeGeneration: requiresRuntimeGeneration
+                  ),
                   record.lastPermissionMode != mode else { return }
             record.lastPermissionMode = mode
             state.sessions[normalized] = record
@@ -392,18 +592,29 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
         autoNameMessages: [AutoNamingTranscriptMessage] = [],
-        rejectTerminalTurn: Bool = false
+        rejectTerminalTurn: Bool = false,
+        runtimeGeneration: TimeInterval? = nil,
+        requiresRuntimeGeneration: Bool = false
     ) throws -> (staleTerminalTurn: Bool, nested: Bool) {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return (staleTerminalTurn: false, nested: false) }
         return try withLockedState { state in
             let now = Date().timeIntervalSince1970
+            let existing = state.sessions[normalized]
+            guard runtimeGenerationAllowsMutation(
+                existing: existing,
+                incoming: runtimeGeneration,
+                requiresRuntimeGeneration: requiresRuntimeGeneration
+            ) else {
+                return (staleTerminalTurn: true, nested: false)
+            }
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalized,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                now: now
+                now: now,
+                runtimeGeneration: runtimeGeneration
             )
             let normalizedTurnId = normalizeOptional(turnId)
             if rejectTerminalTurn,
@@ -501,18 +712,29 @@ final class ClaudeHookSessionStore {
         updateLastNotificationStatus: Bool = false,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
-        autoNameMessages: [AutoNamingTranscriptMessage] = []
-    ) throws -> Bool {
+        autoNameMessages: [AutoNamingTranscriptMessage] = [],
+        runtimeGeneration: TimeInterval? = nil,
+        requiresRuntimeGeneration: Bool = false
+    ) throws -> (accepted: Bool, nested: Bool) {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return false }
+        guard !normalized.isEmpty else { return (false, false) }
         return try withLockedState { state in
             let now = Date().timeIntervalSince1970
+            let existing = state.sessions[normalized]
+            guard runtimeGenerationAllowsMutation(
+                existing: existing,
+                incoming: runtimeGeneration,
+                requiresRuntimeGeneration: requiresRuntimeGeneration
+            ) else {
+                return (false, false)
+            }
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalized,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                now: now
+                now: now,
+                runtimeGeneration: runtimeGeneration
             )
             let depthBeforeStop = max(0, record.activePromptDepth ?? 0)
             let depthAfterStop = max(0, depthBeforeStop - 1)
@@ -566,7 +788,7 @@ final class ClaudeHookSessionStore {
                         )
                         markPromptTurnTerminal(normalizedTurnId, on: &record)
                         state.sessions[normalized] = record
-                        return nested
+                        return (true, nested)
                     }
                     if let staleIndex = turnStack.lastIndex(of: normalizedTurnId) {
                         turnStack.remove(at: staleIndex)
@@ -585,16 +807,16 @@ final class ClaudeHookSessionStore {
                         markPromptTurnTerminal(normalizedTurnId, on: &record)
                     }
                     state.sessions[normalized] = record
-                    return true
+                    return (true, true)
                 }
                 if totalDepthBeforeStop == 0, terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
                     state.sessions[normalized] = record
-                    return true
+                    return (true, true)
                 }
                 markPromptTurnTerminal(normalizedTurnId, on: &record)
                 if totalDepthBeforeStop == 0 {
                     state.sessions[normalized] = record
-                    return false
+                    return (true, false)
                 }
                 let depthAfterTurnStop = max(0, totalDepthBeforeStop - 1)
                 if depthAfterTurnStop == 0 {
@@ -605,7 +827,7 @@ final class ClaudeHookSessionStore {
                 record.activePromptTurnId = nil
                 record.activePromptTurnIds = nil
                 state.sessions[normalized] = record
-                return totalDepthBeforeStop > 1
+                return (true, totalDepthBeforeStop > 1)
             }
             if depthAfterStop == 0 {
                 record.activePromptDepth = nil
@@ -628,7 +850,7 @@ final class ClaudeHookSessionStore {
                 }
             }
             state.sessions[normalized] = record
-            return depthBeforeStop > 1
+            return (true, depthBeforeStop > 1)
         }
     }
 
@@ -653,13 +875,25 @@ final class ClaudeHookSessionStore {
         markActive: Bool = false,
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false,
-        supersedesSameProcessSession: Bool = false
-    ) throws -> [ClaudeHookSessionRecord] {
+        supersedesSameProcessSession: Bool = false,
+        runtimeGeneration: TimeInterval? = nil,
+        requiresRuntimeGeneration: Bool = false,
+        allowsRuntimeGenerationAdvance: Bool = false
+    ) throws -> (superseded: [ClaudeHookSessionRecord], runtimeGeneration: TimeInterval?) {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return [] }
+        guard !normalized.isEmpty else { return ([], nil) }
         return try withLockedState { state in
             let now = Date().timeIntervalSince1970
-            var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
+            let existing = state.sessions[normalized]
+            guard runtimeGenerationAllowsMutation(
+                existing: existing,
+                incoming: runtimeGeneration,
+                requiresRuntimeGeneration: requiresRuntimeGeneration,
+                allowsAdvance: allowsRuntimeGenerationAdvance
+            ) else {
+                return ([], nil)
+            }
+            var record = existing ?? ClaudeHookSessionRecord(
                 sessionId: normalized,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
@@ -680,9 +914,18 @@ final class ClaudeHookSessionStore {
                 activePromptTurnIds: nil,
                 lastPromptTurnId: nil,
                 terminalPromptTurnIds: nil,
+                runtimeGeneration: normalizedRuntimeGeneration(runtimeGeneration),
                 startedAt: now,
                 updatedAt: now
             )
+            if let runtimeGeneration = normalizedRuntimeGeneration(runtimeGeneration),
+               existing == nil || record.runtimeGeneration == nil || (
+                   allowsRuntimeGenerationAdvance
+                    && runtimeGeneration >= (record.runtimeGeneration ?? 0)
+               ) {
+                record.runtimeGeneration = runtimeGeneration
+                rememberRuntimeGeneration(runtimeGeneration, in: &state)
+            }
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -727,7 +970,7 @@ final class ClaudeHookSessionStore {
                     state.activeSessionsBySurface[normalizedSurface] = activeRecord
                 }
             }
-            return superseded
+            return (superseded, record.runtimeGeneration)
         }
     }
 
@@ -742,21 +985,39 @@ final class ClaudeHookSessionStore {
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
-        updateRuntimeStatus: Bool = false
-    ) throws -> Bool {
+        updateRuntimeStatus: Bool = false,
+        runtimeGeneration: TimeInterval? = nil,
+        requiresRuntimeGeneration: Bool = false
+    ) throws -> TimeInterval? {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return false }
+        guard !normalized.isEmpty else { return nil }
         return try withLockedState { state in
             let now = Date().timeIntervalSince1970
+            let existing = state.sessions[normalized]
+            guard runtimeGenerationAllowsMutation(
+                existing: existing,
+                incoming: runtimeGeneration,
+                requiresRuntimeGeneration: requiresRuntimeGeneration,
+                allowsAdvance: true
+            ) else {
+                return nil
+            }
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalized,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                now: now
+                now: now,
+                runtimeGeneration: runtimeGeneration
             )
             if codexSessionStartIsStale(record, incomingPID: pid) {
-                return false
+                return nil
+            }
+            if let runtimeGeneration = normalizedRuntimeGeneration(runtimeGeneration),
+               existing == nil || record.runtimeGeneration == nil
+                || runtimeGeneration >= (record.runtimeGeneration ?? 0) {
+                record.runtimeGeneration = runtimeGeneration
+                rememberRuntimeGeneration(runtimeGeneration, in: &state)
             }
             clearCodexSessionStartTurnState(on: &record)
             update(
@@ -778,7 +1039,7 @@ final class ClaudeHookSessionStore {
                 now: now
             )
             state.sessions[normalized] = record
-            return true
+            return record.runtimeGeneration
         }
     }
 
@@ -791,18 +1052,29 @@ final class ClaudeHookSessionStore {
         transcriptPath: String? = nil,
         turnId: String? = nil,
         pid: Int? = nil,
-        launchCommand: AgentHookLaunchCommandRecord? = nil
+        launchCommand: AgentHookLaunchCommandRecord? = nil,
+        runtimeGeneration: TimeInterval? = nil,
+        requiresRuntimeGeneration: Bool = false
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
         return try withLockedState { state in
             let now = Date().timeIntervalSince1970
+            let existing = state.sessions[normalized]
+            guard runtimeGenerationAllowsMutation(
+                existing: existing,
+                incoming: runtimeGeneration,
+                requiresRuntimeGeneration: requiresRuntimeGeneration
+            ) else {
+                return false
+            }
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalized,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                now: now
+                now: now,
+                runtimeGeneration: runtimeGeneration
             )
             if let normalizedTurnId = normalizeOptional(turnId),
                terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
@@ -866,18 +1138,29 @@ final class ClaudeHookSessionStore {
         pid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
-        runtimeStatus: AgentHookRuntimeStatus? = nil
+        runtimeStatus: AgentHookRuntimeStatus? = nil,
+        runtimeGeneration: TimeInterval? = nil,
+        requiresRuntimeGeneration: Bool = false
     ) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
         try withLockedState { state in
             let now = Date().timeIntervalSince1970
+            let existing = state.sessions[normalized]
+            guard runtimeGenerationAllowsMutation(
+                existing: existing,
+                incoming: runtimeGeneration,
+                requiresRuntimeGeneration: requiresRuntimeGeneration
+            ) else {
+                return
+            }
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalized,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                now: now
+                now: now,
+                runtimeGeneration: runtimeGeneration
             )
             update(
                 &record,
@@ -909,7 +1192,8 @@ final class ClaudeHookSessionStore {
         sessionId: String,
         workspaceId: String,
         surfaceId: String,
-        now: TimeInterval
+        now: TimeInterval,
+        runtimeGeneration: TimeInterval? = nil
     ) -> ClaudeHookSessionRecord {
         state.sessions[sessionId] ?? ClaudeHookSessionRecord(
             sessionId: sessionId,
@@ -932,9 +1216,79 @@ final class ClaudeHookSessionStore {
             activePromptTurnIds: nil,
             lastPromptTurnId: nil,
             terminalPromptTurnIds: nil,
+            runtimeGeneration: normalizedRuntimeGeneration(runtimeGeneration),
             startedAt: now,
             updatedAt: now
         )
+    }
+
+    private func normalizedRuntimeGeneration(
+        _ generation: TimeInterval?
+    ) -> TimeInterval? {
+        guard let generation,
+              generation.isFinite,
+              generation > 0 else {
+            return nil
+        }
+        return generation
+    }
+
+    private func rememberRuntimeGeneration(
+        _ generation: TimeInterval,
+        in state: inout ClaudeHookSessionStoreFile
+    ) {
+        guard let generation = normalizedRuntimeGeneration(generation) else { return }
+        state.runtimeGenerationHighWaterMark = max(
+            state.runtimeGenerationHighWaterMark ?? 0,
+            generation
+        )
+    }
+
+    /// Allocates the next authority from durable store state. Existing record
+    /// generations seed migration, and an inherited restore generation may
+    /// raise the floor without itself authorizing any record mutation.
+    private func mintRuntimeGeneration(
+        in state: inout ClaudeHookSessionStoreFile,
+        floor: TimeInterval? = nil
+    ) -> TimeInterval? {
+        let recordedGenerations = state.sessions.values.compactMap {
+            normalizedRuntimeGeneration($0.runtimeGeneration)
+        } + state.pendingSupersededSessionCleanup.values.compactMap {
+            normalizedRuntimeGeneration($0.runtimeGeneration)
+        }
+        let highWaterMark = ([
+            normalizedRuntimeGeneration(state.runtimeGenerationHighWaterMark),
+            normalizedRuntimeGeneration(floor),
+            recordedGenerations.max(),
+        ].compactMap { $0 }).max() ?? 0
+        let integerSuccessor = highWaterMark.rounded(.down) + 1
+        let generation = integerSuccessor > highWaterMark
+            ? integerSuccessor
+            : highWaterMark.nextUp
+        guard generation.isFinite, generation > highWaterMark else { return nil }
+        state.runtimeGenerationHighWaterMark = generation
+        return generation
+    }
+
+    /// Ordinary hook events may mutate only the runtime that created them.
+    /// SessionStart is the sole caller allowed to advance the boundary.
+    private func runtimeGenerationAllowsMutation(
+        existing: ClaudeHookSessionRecord?,
+        incoming: TimeInterval?,
+        requiresRuntimeGeneration: Bool,
+        allowsAdvance: Bool = false
+    ) -> Bool {
+        let incoming = normalizedRuntimeGeneration(incoming)
+        if requiresRuntimeGeneration, incoming == nil {
+            return false
+        }
+        guard let existing, let incoming else {
+            return true
+        }
+        guard let stored = normalizedRuntimeGeneration(existing.runtimeGeneration) else {
+            return true
+        }
+        return allowsAdvance ? incoming >= stored : incoming == stored
     }
 
     private func activePromptTurnStack(from record: ClaudeHookSessionRecord) -> [String] {
@@ -1097,7 +1451,7 @@ final class ClaudeHookSessionStore {
         if let pid {
             let previousPID = record.pid
             record.pid = pid
-            if let identity = processStartIdentity(pid: pid) {
+            if let identity = Self.processStartIdentity(pid: pid) {
                 record.pidStartSeconds = identity.seconds
                 record.pidStartMicroseconds = identity.microseconds
             } else if previousPID != pid {
@@ -1146,7 +1500,7 @@ final class ClaudeHookSessionStore {
         record.updatedAt = now
     }
 
-    private func processStartIdentity(pid: Int) -> (seconds: Int64, microseconds: Int64)? {
+    private static func processStartIdentity(pid: Int) -> (seconds: Int64, microseconds: Int64)? {
         guard pid > 0, pid <= Int(Int32.max) else { return nil }
         var info = proc_bsdinfo()
         let expectedSize = MemoryLayout<proc_bsdinfo>.stride
@@ -1158,11 +1512,30 @@ final class ClaudeHookSessionStore {
         )
     }
 
-    func clearNotificationEmission(sessionId: String) throws {
+    private static func recordedProcessIsLive(_ record: ClaudeHookSessionRecord) -> Bool {
+        guard let pid = record.pid, processExists(pid) else { return false }
+        let hasPersistedIdentity = record.pidStartSeconds != nil
+            || record.pidStartMicroseconds != nil
+        guard hasPersistedIdentity else { return true }
+        guard let identity = processStartIdentity(pid: pid) else { return false }
+        return record.pidStartSeconds == identity.seconds
+            && record.pidStartMicroseconds == identity.microseconds
+    }
+
+    func clearNotificationEmission(
+        sessionId: String,
+        runtimeGeneration: TimeInterval? = nil,
+        requiresRuntimeGeneration: Bool = false
+    ) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
         try withLockedState { state in
-            guard var record = state.sessions[normalized] else { return }
+            guard var record = state.sessions[normalized],
+                  runtimeGenerationAllowsMutation(
+                      existing: record,
+                      incoming: runtimeGeneration,
+                      requiresRuntimeGeneration: requiresRuntimeGeneration
+                  ) else { return }
             let now = Date().timeIntervalSince1970
             record.lastEmittedNotificationFingerprint = nil
             record.lastEmittedNotificationAt = nil
@@ -1196,13 +1569,23 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    func markNotificationEmitted(sessionId: String, fingerprint: String) throws {
+    func markNotificationEmitted(
+        sessionId: String,
+        fingerprint: String,
+        runtimeGeneration: TimeInterval? = nil,
+        requiresRuntimeGeneration: Bool = false
+    ) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
         let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedFingerprint.isEmpty else { return }
         try withLockedState { state in
-            guard var record = state.sessions[normalized] else { return }
+            guard var record = state.sessions[normalized],
+                  runtimeGenerationAllowsMutation(
+                      existing: record,
+                      incoming: runtimeGeneration,
+                      requiresRuntimeGeneration: requiresRuntimeGeneration
+                  ) else { return }
             let now = Date().timeIntervalSince1970
             record.lastEmittedNotificationFingerprint = normalizedFingerprint
             record.lastEmittedNotificationAt = now
@@ -1392,7 +1775,9 @@ final class ClaudeHookSessionStore {
         sessionId: String?,
         workspaceId: String?,
         surfaceId: String?,
-        turnId: String? = nil
+        turnId: String? = nil,
+        runtimeGeneration: TimeInterval? = nil,
+        requiresRuntimeGeneration: Bool = false
     ) throws -> ClaudeHookSessionRecord? {
         let normalizedSessionId = normalizeOptional(sessionId)
         let normalizedWorkspace = normalizeOptional(workspaceId)
@@ -1400,6 +1785,13 @@ final class ClaudeHookSessionStore {
         return try withLockedState { state in
             if let normalizedSessionId,
                let existing = state.sessions[normalizedSessionId] {
+                guard runtimeGenerationAllowsMutation(
+                    existing: existing,
+                    incoming: runtimeGeneration,
+                    requiresRuntimeGeneration: requiresRuntimeGeneration
+                ) else {
+                    return nil
+                }
                 guard !hasActiveTurnMismatch(state, record: existing, turnId: turnId) else {
                     return nil
                 }
@@ -1412,6 +1804,13 @@ final class ClaudeHookSessionStore {
                 sessions: Array(state.sessions.values),
                 workspaceId: normalizedWorkspace,
                 surfaceId: normalizedSurface
+            ) else {
+                return nil
+            }
+            guard runtimeGenerationAllowsMutation(
+                existing: fallback,
+                incoming: runtimeGeneration,
+                requiresRuntimeGeneration: requiresRuntimeGeneration
             ) else {
                 return nil
             }
@@ -1516,6 +1915,28 @@ final class ClaudeHookSessionStore {
         let result = try body(&state)
         try saveUnlocked(state)
         return result
+    }
+
+    /// Read-only store access. Lookups share the lock and never rewrite the
+    /// entire JSON file; mutation transactions retain the exclusive path above.
+    private func withLockedSnapshot<T>(
+        _ body: (ClaudeHookSessionStoreFile) throws -> T
+    ) throws -> T {
+        let lockPath = statePath + ".lock"
+        let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
+        if fd < 0 {
+            throw CLIError(message: "Failed to open Claude hook state lock: \(lockPath)")
+        }
+        defer { Darwin.close(fd) }
+
+        if flock(fd, LOCK_SH) != 0 {
+            throw CLIError(message: "Failed to lock Claude hook state: \(lockPath)")
+        }
+        defer { _ = flock(fd, LOCK_UN) }
+
+        var state = loadUnlocked()
+        pruneExpired(&state)
+        return try body(state)
     }
 
     private func loadUnlocked() -> ClaudeHookSessionStoreFile {
@@ -6375,6 +6796,19 @@ struct CMUXCLI {
     func sendV1Command(_ command: String, client: SocketClient) throws -> String {
         let response = try client.send(command: command)
         if response.hasPrefix("ERROR:") {
+            // Runtime-authority notification verbs were added after the legacy
+            // V1 protocol. An older app must never receive their option-bearing
+            // payload, because it would display the options as notification
+            // text; retry the exact legacy command only for an explicit
+            // unknown-command response.
+            if response.localizedCaseInsensitiveContains("Unknown command"),
+               let legacyCommand = legacyAgentRuntimeNotificationCommand(for: command) {
+                let legacyResponse = try client.send(command: legacyCommand)
+                if legacyResponse.hasPrefix("ERROR:") {
+                    throw CLIError(message: legacyResponse)
+                }
+                return legacyResponse
+            }
             throw CLIError(message: response)
         }
         return response
@@ -24657,6 +25091,42 @@ struct CMUXCLI {
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
+        let originatingClaudePID = claudeAgentPID(from: ProcessInfo.processInfo.environment)
+        let initialSessionRecord = parsedInput.sessionId.flatMap {
+            try? sessionStore.lookup(sessionId: $0)
+        }
+        let explicitRuntimeGeneration = optionValue(
+            hookArgs,
+            name: "--runtime-generation"
+        ).flatMap { rawValue -> TimeInterval? in
+            guard let generation = TimeInterval(rawValue),
+                  generation.isFinite,
+                  generation > 0 else {
+                return nil
+            }
+            return generation
+        }
+        let inheritedRuntimeGeneration = AgentRuntimeSessionKey.inheritedRuntimeGeneration(
+            from: ProcessInfo.processInfo.environment
+        )
+        var runtimeGeneration = sessionStore.originatingRuntimeGeneration(
+            sessionId: parsedInput.sessionId,
+            record: initialSessionRecord,
+            agentPID: originatingClaudePID,
+            explicitGeneration: explicitRuntimeGeneration,
+            inheritedGeneration: inheritedRuntimeGeneration,
+            allowMissingRecordGeneration: subcommand != "session-start"
+                && subcommand != "active",
+            processIsRemote: client.isRelayBacked
+        )
+        // A first/legacy hook may have neither a persisted record nor a local
+        // PID. Preserve its unguarded delivery contract; once either side has
+        // a generation, every mutation must carry and match that authority.
+        var requiresClaudeRuntimeGeneration = runtimeGeneration != nil
+            || initialSessionRecord?.runtimeGeneration != nil
+        var visibleClaudeRuntimeSessionID: String? = requiresClaudeRuntimeGeneration
+            ? parsedInput.sessionId
+            : nil
         // Record the hook-observed permission mode (shift+tab auto-accept, plan
         // mode, bypass toggle): it is runtime state that never appears in the
         // captured launch argv, and session restore re-applies it as
@@ -24669,7 +25139,9 @@ struct CMUXCLI {
            let observedHookPermissionMode {
             try? sessionStore.updateLastPermissionMode(
                 sessionId: hookSessionId,
-                permissionMode: observedHookPermissionMode
+                permissionMode: observedHookPermissionMode,
+                runtimeGeneration: runtimeGeneration,
+                requiresRuntimeGeneration: requiresClaudeRuntimeGeneration
             )
         }
         telemetry.breadcrumb(
@@ -24716,7 +25188,7 @@ struct CMUXCLI {
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
             sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
-            let claudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let claudePid = originatingClaudePID
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
@@ -24751,7 +25223,28 @@ struct CMUXCLI {
                 // Non-clear SessionStart can arrive late from startup/resume/compact
                 // after /clear, so only /clear or replacement of a stopped owner
                 // establishes a new active boundary.
-                _ = try? sessionStore.upsert(
+                let requestedRuntimeGeneration: TimeInterval?
+                if shouldPromoteActiveSession {
+                    let runtimeGenerationFloor = [
+                        inheritedRuntimeGeneration,
+                        agentRuntimeGenerationFloor(
+                            client: client,
+                            workspaceID: workspaceId,
+                            surfaceID: surfaceId,
+                            statusKey: Self.claudeCodeStatusKey
+                        ),
+                    ].compactMap { $0 }.max()
+                    requestedRuntimeGeneration = try? sessionStore.acceptedSessionStartRuntimeGeneration(
+                        sessionId: sessionId,
+                        agentPID: claudePid,
+                        originatingGeneration: runtimeGeneration,
+                        inheritedGeneration: runtimeGenerationFloor,
+                        processIsRemote: client.isRelayBacked
+                    )
+                } else {
+                    requestedRuntimeGeneration = runtimeGeneration
+                }
+                let upsertOutcome = try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -24762,16 +25255,30 @@ struct CMUXCLI {
                     isRestorable: false,
                     agentLifecycle: shouldPromoteActiveSession ? .running : .unknown,
                     markActive: shouldPromoteActiveSession,
-                    turnId: parsedInput.turnId
+                    turnId: parsedInput.turnId,
+                    runtimeGeneration: requestedRuntimeGeneration,
+                    requiresRuntimeGeneration: shouldPromoteActiveSession
+                        || requiresClaudeRuntimeGeneration,
+                    allowsRuntimeGenerationAdvance: shouldPromoteActiveSession
                 )
                 if shouldPromoteActiveSession {
+                    guard let acceptedRuntimeGeneration = upsertOutcome?.runtimeGeneration else {
+                        telemetry.breadcrumb("claude-hook.session-start.runtime-rejected")
+                        printClaudeHookAck()
+                        return
+                    }
+                    runtimeGeneration = acceptedRuntimeGeneration
+                    requiresClaudeRuntimeGeneration = true
+                    visibleClaudeRuntimeSessionID = sessionId
                     publishAgentSurfaceResumeBinding(
                         client: client,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         kind: "claude",
+                        runtimeStatusKey: Self.claudeCodeStatusKey,
                         displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                         sessionId: sessionId,
+                        runtimeGeneration: runtimeGeneration,
                         cwd: parsedInput.cwd,
                         launchCommand: launchCommand,
                         observedPermissionMode: observedHookPermissionMode
@@ -24799,25 +25306,42 @@ struct CMUXCLI {
                         telemetry: telemetry
                     )
             if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
-                try? recordClaudeAgentPID(
+                try? publishAgentRuntimePID(
                     client: client,
-                    sessionId: isForkSessionLaunch ? nil : parsedInput.sessionId,
+                    statusKey: Self.claudeCodeStatusKey,
+                    sessionID: isForkSessionLaunch ? nil : parsedInput.sessionId,
+                    runtimeGeneration: isForkSessionLaunch
+                        ? nil
+                        : runtimeGeneration,
                     pid: claudePid,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId
                 )
             }
             if isClearSessionStart, !suppressVisibleMutations {
-                _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
+                _ = try? sendV1Command(
+                    agentRuntimeNotificationClearCommand(
+                        workspaceID: workspaceId,
+                        surfaceID: surfaceId,
+                        statusKey: Self.claudeCodeStatusKey,
+                        sessionID: visibleClaudeRuntimeSessionID,
+                        runtimeGeneration: runtimeGeneration
+                    ),
+                    client: client
+                )
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
                     lifecycle: .running,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    runtimeSessionID: visibleClaudeRuntimeSessionID,
+                    runtimeGeneration: runtimeGeneration
                 )
                 try setClaudeStatus(
                     client: client,
+                    sessionId: visibleClaudeRuntimeSessionID,
+                    runtimeGeneration: runtimeGeneration,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     value: "Running",
@@ -24832,7 +25356,7 @@ struct CMUXCLI {
             do {
                 // Turn ended. Don't consume session or clear PID — Claude is still alive.
                 // Notification hook handles user-facing notifications; SessionEnd handles cleanup.
-                let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+                let mappedSession = initialSessionRecord
                 guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(
                     mappedSession: mappedSession,
                     routing: hookRouting,
@@ -24846,7 +25370,7 @@ struct CMUXCLI {
                 let workspaceId = resolvedTarget.workspaceId
                 let resolvedSurface = resolvedTarget
                 let surfaceId = resolvedSurface.surfaceId
-                let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+                let claudePid = originatingClaudePID ?? mappedSession?.pid
                 let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                     currentAgentPID: claudePid,
                     env: ProcessInfo.processInfo.environment
@@ -24883,7 +25407,7 @@ struct CMUXCLI {
                     sessionRecord: mappedSession
                 )
                 if let sessionId = parsedInput.sessionId {
-                    _ = try? sessionStore.upsert(
+                    let upsertOutcome = try? sessionStore.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -24898,15 +25422,25 @@ struct CMUXCLI {
                         lastBody: completion?.body,
                         hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
                         markActive: true,
-                        allowsNewSessionReplacement: true
+                        allowsNewSessionReplacement: true,
+                        runtimeGeneration: runtimeGeneration,
+                        requiresRuntimeGeneration: requiresClaudeRuntimeGeneration
                     )
+                    guard upsertOutcome?.runtimeGeneration != nil
+                            || !requiresClaudeRuntimeGeneration else {
+                        telemetry.breadcrumb("claude-hook.stop.runtime-rejected")
+                        printClaudeHookAck()
+                        return
+                    }
                     publishAgentSurfaceResumeBinding(
                         client: client,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         kind: "claude",
+                        runtimeStatusKey: Self.claudeCodeStatusKey,
                         displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                         sessionId: sessionId,
+                        runtimeGeneration: runtimeGeneration,
                         cwd: parsedInput.cwd ?? mappedSession?.cwd,
                         launchCommand: mappedSession?.launchCommand,
                         observedPermissionMode: observedHookPermissionMode
@@ -24919,7 +25453,9 @@ struct CMUXCLI {
                     key: Self.claudeCodeStatusKey,
                     lifecycle: hasPendingBackgroundWork ? .running : .idle,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    runtimeSessionID: visibleClaudeRuntimeSessionID,
+                    runtimeGeneration: runtimeGeneration
                 )
                 if hasPendingBackgroundWork {
                     // The turn ended but a background task or scheduled wakeup is
@@ -24928,6 +25464,8 @@ struct CMUXCLI {
                     // generic-agent status strings so the pill stays localized.
                     try? setClaudeStatus(
                         client: client,
+                        sessionId: visibleClaudeRuntimeSessionID,
+                        runtimeGeneration: runtimeGeneration,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
@@ -24937,6 +25475,8 @@ struct CMUXCLI {
                 } else {
                     try? setClaudeStatus(
                         client: client,
+                        sessionId: visibleClaudeRuntimeSessionID,
+                        runtimeGeneration: runtimeGeneration,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
@@ -24955,7 +25495,18 @@ struct CMUXCLI {
                         body: completion.body,
                         meta: AgentHookNotifyCategory.turnComplete.metaSegment(pending: hasPendingBackgroundWork)
                     )
-                    _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+                    _ = try? sendV1Command(
+                        agentRuntimeNotificationCommand(
+                            queued: true,
+                            workspaceID: workspaceId,
+                            surfaceID: surfaceId,
+                            payload: payload,
+                            statusKey: Self.claudeCodeStatusKey,
+                            sessionID: visibleClaudeRuntimeSessionID,
+                            runtimeGeneration: runtimeGeneration
+                        ),
+                        client: client
+                    )
                 }
                 printClaudeHookAck()
             } catch {
@@ -24969,7 +25520,7 @@ struct CMUXCLI {
 
         case "prompt-submit":
             telemetry.breadcrumb("claude-hook.prompt-submit")
-            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            let mappedSession = initialSessionRecord
             guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(
                 mappedSession: mappedSession,
                 routing: hookRouting,
@@ -24983,7 +25534,7 @@ struct CMUXCLI {
             let workspaceId = resolvedTarget.workspaceId
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
-            let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let claudePid = originatingClaudePID ?? mappedSession?.pid
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
@@ -25029,7 +25580,7 @@ struct CMUXCLI {
                         cwd: parsedInput.cwd
                     )
                     : nil
-                _ = try? sessionStore.upsert(
+                let upsertOutcome = try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -25040,25 +25591,45 @@ struct CMUXCLI {
                     isRestorable: true,
                     agentLifecycle: .running,
                     markActive: true,
-                    turnId: parsedInput.turnId
+                    turnId: parsedInput.turnId,
+                    runtimeGeneration: runtimeGeneration,
+                    requiresRuntimeGeneration: requiresClaudeRuntimeGeneration
                 )
+                guard upsertOutcome?.runtimeGeneration != nil
+                        || !requiresClaudeRuntimeGeneration else {
+                    telemetry.breadcrumb("claude-hook.prompt-submit.runtime-rejected")
+                    printClaudeHookAck()
+                    return
+                }
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     kind: "claude",
+                    runtimeStatusKey: Self.claudeCodeStatusKey,
                     displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                     sessionId: sessionId,
+                    runtimeGeneration: runtimeGeneration,
                     cwd: parsedInput.cwd ?? mappedSession?.cwd,
                     launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand,
                     observedPermissionMode: observedHookPermissionMode
                         ?? mappedSession?.lastPermissionMode
                 )
             }
-            _ = try sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
+            _ = try sendV1Command(
+                agentRuntimeNotificationClearCommand(
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId,
+                    statusKey: Self.claudeCodeStatusKey,
+                    sessionID: visibleClaudeRuntimeSessionID,
+                    runtimeGeneration: runtimeGeneration
+                ),
+                client: client
+            )
             setClaudeAgentLifecycle(
                 client: client,
-                sessionId: parsedInput.sessionId,
+                sessionId: visibleClaudeRuntimeSessionID,
+                runtimeGeneration: runtimeGeneration,
                 pid: claudePid,
                 lifecycle: .running,
                 workspaceId: workspaceId,
@@ -25066,6 +25637,8 @@ struct CMUXCLI {
             )
             try setClaudeStatus(
                 client: client,
+                sessionId: visibleClaudeRuntimeSessionID,
+                runtimeGeneration: runtimeGeneration,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 value: "Running",
@@ -25080,7 +25653,7 @@ struct CMUXCLI {
             // already covers turn telemetry for this turn.
             didSendFeedTelemetry = true
             do {
-                let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+                let mappedSession = initialSessionRecord
                 guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                     preferred: mappedSession?.workspaceId,
                     fallback: workspaceArg,
@@ -25124,7 +25697,7 @@ struct CMUXCLI {
             // clients, nested payloads) can still gate under the right setting.
             let classifiedSubtitle = summary.subtitle
 
-            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            let mappedSession = initialSessionRecord
             guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(
                 mappedSession: mappedSession,
                 routing: hookRouting,
@@ -25136,7 +25709,7 @@ struct CMUXCLI {
                 return
             }
             let workspaceId = resolvedTarget.workspaceId
-            let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let claudePid = originatingClaudePID ?? mappedSession?.pid
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
@@ -25233,7 +25806,7 @@ struct CMUXCLI {
             )
 
             if let sessionId = parsedInput.sessionId, !suppressNeedsInputState {
-                _ = try? sessionStore.upsert(
+                let upsertOutcome = try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -25241,14 +25814,23 @@ struct CMUXCLI {
                     transcriptPath: parsedInput.transcriptPath,
                     agentLifecycle: .needsInput,
                     lastSubtitle: summary.subtitle,
-                    lastBody: summary.body
+                    lastBody: summary.body,
+                    runtimeGeneration: runtimeGeneration,
+                    requiresRuntimeGeneration: requiresClaudeRuntimeGeneration
                 )
+                guard upsertOutcome?.runtimeGeneration != nil
+                        || !requiresClaudeRuntimeGeneration else {
+                    telemetry.breadcrumb("claude-hook.notification.runtime-rejected")
+                    printClaudeHookAck()
+                    return
+                }
             }
 
             if !suppressNeedsInputState {
                 setClaudeAgentLifecycle(
                     client: client,
-                    sessionId: parsedInput.sessionId,
+                    sessionId: visibleClaudeRuntimeSessionID,
+                    runtimeGeneration: runtimeGeneration,
                     pid: claudePid,
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
@@ -25256,6 +25838,8 @@ struct CMUXCLI {
                 )
                 _ = try? setClaudeStatus(
                     client: client,
+                    sessionId: visibleClaudeRuntimeSessionID,
+                    runtimeGeneration: runtimeGeneration,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     value: "Needs input",
@@ -25263,9 +25847,30 @@ struct CMUXCLI {
                     color: "#4C8DFF"
                 )
             }
-            _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+            _ = try sendV1Command(
+                agentRuntimeNotificationCommand(
+                    queued: true,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId,
+                    payload: payload,
+                    statusKey: Self.claudeCodeStatusKey,
+                    sessionID: visibleClaudeRuntimeSessionID,
+                    runtimeGeneration: runtimeGeneration
+                ),
+                client: client
+            )
             printClaudeHookAck()
-        case "push-notification": try runClaudePushNotificationHook(client: client, telemetry: telemetry, parsedInput: parsedInput, sessionStore: sessionStore, routing: hookRouting, markFeedTelemetryHandled: { didSendFeedTelemetry = true }, sendFeedTelemetry: sendClaudeFeedTelemetry)
+        case "push-notification": try runClaudePushNotificationHook(
+            client: client,
+            telemetry: telemetry,
+            parsedInput: parsedInput,
+            mappedSession: initialSessionRecord,
+            runtimeGeneration: runtimeGeneration,
+            sessionStore: sessionStore,
+            routing: hookRouting,
+            markFeedTelemetryHandled: { didSendFeedTelemetry = true },
+            sendFeedTelemetry: sendClaudeFeedTelemetry
+        )
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
             // A fork launch that exits before its first prompt fires SessionEnd
@@ -25316,7 +25921,7 @@ struct CMUXCLI {
             // Only clear when we are the primary cleanup path (Stop didn't fire first).
             // If Stop already consumed the session, consumedSession is nil and we skip
             // to avoid wiping the completion notification that Stop just delivered.
-            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            let mappedSession = initialSessionRecord
             // Resolve the pane's CURRENT owner before consuming the record:
             // SessionEnd can be the only hook after a pane move (Ctrl-C exit
             // with no later Stop/Notification to heal the record), and cleanup
@@ -25340,7 +25945,9 @@ struct CMUXCLI {
                 sessionId: parsedInput.sessionId,
                 workspaceId: liveEndTarget.workspaceId,
                 surfaceId: liveEndTarget.surfaceId,
-                turnId: parsedInput.turnId
+                turnId: parsedInput.turnId,
+                runtimeGeneration: runtimeGeneration,
+                requiresRuntimeGeneration: requiresClaudeRuntimeGeneration
             )
             // consume() calls clearActiveSessionIfMatching before returning
             // consumedSession, so isCurrent can treat consumedSession.sessionId
@@ -25364,6 +25971,8 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: cleanupSurfaceId,
                     sessionId: consumedSession.sessionId,
+                    runtimeStatusKey: Self.claudeCodeStatusKey,
+                    runtimeGeneration: consumedSession.runtimeGeneration,
                     sessionDidEnd: true
                 ) {
                     telemetry.breadcrumb("claude-hook.session-end.live-resume-clear-failed")
@@ -25374,6 +25983,8 @@ struct CMUXCLI {
                         workspaceId: consumedSession.workspaceId,
                         surfaceId: consumedSession.surfaceId,
                         sessionId: consumedSession.sessionId,
+                        runtimeStatusKey: Self.claudeCodeStatusKey,
+                        runtimeGeneration: consumedSession.runtimeGeneration,
                         sessionDidEnd: true
                     ) {
                         telemetry.breadcrumb("claude-hook.session-end.recorded-resume-clear-failed")
@@ -25391,7 +26002,7 @@ struct CMUXCLI {
                     surfaceId: cleanupSurfaceId,
                     telemetry: telemetry
                 )
-                let claudePid = consumedSession.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+                let claudePid = originatingClaudePID ?? consumedSession.pid
                 let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                     currentAgentPID: claudePid,
                     env: ProcessInfo.processInfo.environment
@@ -25400,6 +26011,7 @@ struct CMUXCLI {
                     clearClaudeAgentPID(
                         client: client,
                         sessionId: consumedSession.sessionId,
+                        runtimeGeneration: consumedSession.runtimeGeneration,
                         workspaceId: workspaceId,
                         surfaceId: cleanupSurfaceId
                     )
@@ -25411,7 +26023,13 @@ struct CMUXCLI {
                     // Lifecycle cleanup is always pane-scoped: a workspace can
                     // host multiple agents whose notifications are independent.
                     _ = try? sendV1Command(
-                        "clear_notifications --tab=\(workspaceId)\(socketPanelOption(cleanupSurfaceId))",
+                        agentRuntimeNotificationClearCommand(
+                            workspaceID: workspaceId,
+                            surfaceID: cleanupSurfaceId,
+                            statusKey: Self.claudeCodeStatusKey,
+                            sessionID: consumedSession.sessionId,
+                            runtimeGeneration: consumedSession.runtimeGeneration
+                        ),
                         client: client
                     )
                 } else {
@@ -25431,7 +26049,7 @@ struct CMUXCLI {
             telemetry.breadcrumb("claude-hook.pre-tool-use")
             // Clears "Needs input" status and notification when Claude resumes work
             // (e.g. after permission grant). Runs async so it doesn't block tool execution.
-            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            let mappedSession = initialSessionRecord
             // Skip only the pid/tty scan per tool call; the cheap
             // `{surface_id}` re-home probe stays enabled so a mid-turn pane
             // move cannot make this hook mutate (and re-record) the old
@@ -25452,7 +26070,7 @@ struct CMUXCLI {
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
             sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
-            let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let claudePid = originatingClaudePID ?? mappedSession?.pid
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
@@ -25513,7 +26131,7 @@ struct CMUXCLI {
                 let existingSurfaceId = resolvedSurface.isAuthoritative
                     ? surfaceId
                     : (nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId)
-                _ = try? sessionStore.upsert(
+                let upsertOutcome = try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: existingSurfaceId,
@@ -25521,11 +26139,20 @@ struct CMUXCLI {
                     transcriptPath: parsedInput.transcriptPath,
                     agentLifecycle: .needsInput,
                     lastSubtitle: waitingSubtitle,
-                    lastBody: needsInputBody
+                    lastBody: needsInputBody,
+                    runtimeGeneration: runtimeGeneration,
+                    requiresRuntimeGeneration: requiresClaudeRuntimeGeneration
                 )
+                guard upsertOutcome?.runtimeGeneration != nil
+                        || !requiresClaudeRuntimeGeneration else {
+                    telemetry.breadcrumb("claude-hook.permission-request.runtime-rejected")
+                    printClaudeHookAck()
+                    return
+                }
                 setClaudeAgentLifecycle(
                     client: client,
-                    sessionId: parsedInput.sessionId,
+                    sessionId: visibleClaudeRuntimeSessionID,
+                    runtimeGeneration: runtimeGeneration,
                     pid: nil,
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
@@ -25549,6 +26176,8 @@ struct CMUXCLI {
                     // needs-input paths stay locale-consistent.
                     _ = try? setClaudeStatus(
                         client: client,
+                    sessionId: visibleClaudeRuntimeSessionID,
+                        runtimeGeneration: runtimeGeneration,
                         workspaceId: workspaceId,
                         surfaceId: existingSurfaceId,
                         value: String(localized: "feed.status.needsInput", defaultValue: "Needs input"),
@@ -25569,7 +26198,15 @@ struct CMUXCLI {
                         meta: AgentHookNotifyCategory.needsPermission.metaSegment(pending: false)
                     )
                     _ = try? sendV1Command(
-                        "notify_target_async \(workspaceId) \(existingSurfaceId) \(payload)",
+                        agentRuntimeNotificationCommand(
+                            queued: true,
+                            workspaceID: workspaceId,
+                            surfaceID: existingSurfaceId,
+                            payload: payload,
+                            statusKey: Self.claudeCodeStatusKey,
+                            sessionID: visibleClaudeRuntimeSessionID,
+                            runtimeGeneration: runtimeGeneration
+                        ),
                         client: client
                     )
                 }
@@ -25584,13 +26221,25 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .running
+                    agentLifecycle: .running,
+                    runtimeGeneration: runtimeGeneration,
+                    requiresRuntimeGeneration: requiresClaudeRuntimeGeneration
                 )
             }
-            _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
+            _ = try? sendV1Command(
+                agentRuntimeNotificationClearCommand(
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId,
+                    statusKey: Self.claudeCodeStatusKey,
+                    sessionID: visibleClaudeRuntimeSessionID,
+                    runtimeGeneration: runtimeGeneration
+                ),
+                client: client
+            )
             setClaudeAgentLifecycle(
                 client: client,
-                sessionId: parsedInput.sessionId,
+                sessionId: visibleClaudeRuntimeSessionID,
+                runtimeGeneration: runtimeGeneration,
                 pid: nil,
                 lifecycle: .running,
                 workspaceId: workspaceId,
@@ -25606,6 +26255,8 @@ struct CMUXCLI {
             }
             try setClaudeStatus(
                 client: client,
+                sessionId: visibleClaudeRuntimeSessionID,
+                runtimeGeneration: runtimeGeneration,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 value: statusValue,
@@ -25664,30 +26315,16 @@ struct CMUXCLI {
 
     private func setClaudeStatus(
         client: SocketClient,
+        sessionId: String?,
+        runtimeGeneration: TimeInterval? = nil,
         workspaceId: String,
         surfaceId: String? = nil,
         value: String,
         icon: String,
         color: String
     ) throws {
-        let command = "set_status \(Self.claudeCodeStatusKey) \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+        let command = "set_status \(Self.claudeCodeStatusKey) \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(agentRuntimeMutationOption(statusKey: Self.claudeCodeStatusKey, sessionID: sessionId, runtimeGeneration: runtimeGeneration))"
         _ = try client.send(command: command)
-    }
-
-    /// Claude's status slot is kind-scoped, but remote restore liveness must
-    /// bind PID ownership to the exact conversation that published it.
-    private func recordClaudeAgentPID(
-        client: SocketClient,
-        sessionId: String?,
-        pid: Int,
-        workspaceId: String,
-        surfaceId: String?
-    ) throws {
-        let key = claudeAgentPIDKey(sessionId: sessionId)
-        _ = try sendV1Command(
-            "set_agent_pid \(key) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-            client: client
-        )
     }
 
     /// Updates exact-session PID ownership before the kind-scoped lifecycle so
@@ -25695,18 +26332,21 @@ struct CMUXCLI {
     private func setClaudeAgentLifecycle(
         client: SocketClient,
         sessionId: String?,
+        runtimeGeneration: TimeInterval? = nil,
         pid: Int?,
         lifecycle: AgentHibernationLifecycleState,
         workspaceId: String,
         surfaceId: String?
     ) {
         if let pid {
-            try? recordClaudeAgentPID(
+            try? publishAgentRuntimePID(
                 client: client,
-                sessionId: sessionId,
+                statusKey: Self.claudeCodeStatusKey,
+                sessionID: sessionId,
+                runtimeGeneration: runtimeGeneration,
                 pid: pid,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId
+                workspaceID: workspaceId,
+                surfaceID: surfaceId
             )
         }
         setAgentLifecycle(
@@ -25714,7 +26354,9 @@ struct CMUXCLI {
             key: Self.claudeCodeStatusKey,
             lifecycle: lifecycle,
             workspaceId: workspaceId,
-            surfaceId: surfaceId
+            surfaceId: surfaceId,
+            runtimeSessionID: sessionId,
+            runtimeGeneration: runtimeGeneration
         )
     }
 
@@ -25723,27 +26365,32 @@ struct CMUXCLI {
     private func clearClaudeAgentPID(
         client: SocketClient,
         sessionId: String?,
+        runtimeGeneration: TimeInterval? = nil,
         workspaceId: String,
         surfaceId: String?
     ) {
-        let sessionKey = claudeAgentPIDKey(sessionId: sessionId)
-        let keys = sessionKey == Self.claudeCodeStatusKey
-            ? [sessionKey]
-            : [sessionKey, Self.claudeCodeStatusKey]
+        let normalizedSessionID = sessionId?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let keys: [String]
+        if let normalizedSessionID, !normalizedSessionID.isEmpty {
+            keys = agentRuntimePIDKeys(
+                statusKey: Self.claudeCodeStatusKey,
+                sessionID: normalizedSessionID
+            ) + [Self.claudeCodeStatusKey]
+        } else {
+            keys = [Self.claudeCodeStatusKey]
+        }
+        let runtimeMutationOption = agentRuntimeMutationOption(
+            statusKey: Self.claudeCodeStatusKey,
+            sessionID: normalizedSessionID,
+            runtimeGeneration: runtimeGeneration
+        )
         for key in keys {
             _ = try? sendV1Command(
-                "clear_agent_pid \(key) --tab=\(workspaceId)\(socketPanelOption(surfaceId)) --clear-status",
+                "clear_agent_pid \(key) --tab=\(workspaceId)\(socketPanelOption(surfaceId)) --clear-status\(runtimeMutationOption)",
                 client: client
             )
         }
-    }
-
-    private func claudeAgentPIDKey(sessionId: String?) -> String {
-        guard let sessionId = sessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !sessionId.isEmpty else {
-            return Self.claudeCodeStatusKey
-        }
-        return "\(Self.claudeCodeStatusKey).\(sessionId)"
     }
 
     private func setAgentLifecycle(
@@ -25751,7 +26398,9 @@ struct CMUXCLI {
         key: String,
         lifecycle: AgentHibernationLifecycleState,
         workspaceId: String,
-        surfaceId: String?
+        surfaceId: String?,
+        runtimeSessionID: String? = nil,
+        runtimeGeneration: TimeInterval? = nil
     ) {
         guard Self.allowedAgentLifecycleStatusKeys.contains(key) else {
             cliWriteStderr("Warning: unsupported agent lifecycle key\n")
@@ -25759,7 +26408,7 @@ struct CMUXCLI {
         }
         do {
             _ = try sendV1Command(
-                "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(agentRuntimeMutationOption(statusKey: key, sessionID: runtimeSessionID, runtimeGeneration: runtimeGeneration))",
                 client: client
             )
         } catch {
@@ -27490,6 +28139,7 @@ struct CMUXCLI {
 
     private func startCodexTranscriptMonitor(
         sessionId: String,
+        runtimeGeneration: TimeInterval?,
         turnId: String?,
         transcriptPath: String?,
         cwd: String?,
@@ -27525,6 +28175,11 @@ struct CMUXCLI {
         ]
         if let surfaceId, !surfaceId.isEmpty {
             monitorArgs += ["--surface", surfaceId]
+        }
+        if let runtimeGeneration,
+           runtimeGeneration.isFinite,
+           runtimeGeneration > 0 {
+            monitorArgs += ["--runtime-generation", String(runtimeGeneration)]
         }
         if let turnId, !turnId.isEmpty {
             monitorArgs += ["--turn", turnId]
@@ -27565,6 +28220,11 @@ struct CMUXCLI {
             ?? env["CMUX_AGENT_SESSION_ID"]
             ?? ""
         let turnId = optionValue(commandArgs, name: "--turn")
+        let runtimeGeneration = optionValue(commandArgs, name: "--runtime-generation")
+            .flatMap(TimeInterval.init)
+            .flatMap { generation in
+                generation.isFinite && generation > 0 ? generation : nil
+            }
         var transcriptPath = optionValue(commandArgs, name: "--transcript")
         let leasePath = optionValue(commandArgs, name: "--lease")
 
@@ -27602,6 +28262,8 @@ struct CMUXCLI {
                     publishedUserInputCallIds.insert(userInput.callId)
                     publishCodexMonitorUserInput(
                         userInput,
+                        sessionId: sessionId,
+                        runtimeGeneration: runtimeGeneration,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         client: client
@@ -27616,6 +28278,8 @@ struct CMUXCLI {
                 case .failure(let failure):
                     publishCodexMonitorFailure(
                         failure,
+                        sessionId: sessionId,
+                        runtimeGeneration: runtimeGeneration,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         client: client
@@ -27628,6 +28292,7 @@ struct CMUXCLI {
                         transcriptPath: currentTranscriptPath,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
+                        runtimeGeneration: runtimeGeneration,
                         lastAssistantMessage: lastAssistantMessage
                     ) {
                         try replayStop(replay)
@@ -27655,6 +28320,8 @@ struct CMUXCLI {
 
     private func publishCodexMonitorUserInput(
         _ userInput: CodexHookUserInputCandidate,
+        sessionId: String,
+        runtimeGeneration: TimeInterval?,
         workspaceId: String,
         surfaceId: String?,
         client: SocketClient
@@ -27666,17 +28333,30 @@ struct CMUXCLI {
         )
         if let surfaceId, !surfaceId.isEmpty {
             let payload = "Codex|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
-            _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
+            _ = try? sendV1Command(
+                agentRuntimeNotificationCommand(
+                    queued: false,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId,
+                    payload: payload,
+                    statusKey: "codex",
+                    sessionID: sessionId,
+                    runtimeGeneration: runtimeGeneration
+                ),
+                client: client
+            )
         }
         let statusValue = String(localized: "agent.codex.input.status.needsInput", defaultValue: "Codex needs input")
         _ = try? sendV1Command(
-            "set_status codex \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+            "set_status codex \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(agentRuntimeMutationOption(statusKey: "codex", sessionID: sessionId, runtimeGeneration: runtimeGeneration))",
             client: client
         )
     }
 
     private func publishCodexMonitorFailure(
         _ failure: CodexHookFailureCandidate,
+        sessionId: String,
+        runtimeGeneration: TimeInterval?,
         workspaceId: String,
         surfaceId: String?,
         client: SocketClient
@@ -27684,10 +28364,21 @@ struct CMUXCLI {
         let summary = summarizeCodexHookFailureCandidate(failure)
         if let surfaceId, !surfaceId.isEmpty {
             let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
-            _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
+            _ = try? sendV1Command(
+                agentRuntimeNotificationCommand(
+                    queued: false,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId,
+                    payload: payload,
+                    statusKey: "codex",
+                    sessionID: sessionId,
+                    runtimeGeneration: runtimeGeneration
+                ),
+                client: client
+            )
         }
         _ = try? sendV1Command(
-            "set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+            "set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(agentRuntimeMutationOption(statusKey: "codex", sessionID: sessionId, runtimeGeneration: runtimeGeneration))",
             client: client
         )
     }
@@ -28594,17 +29285,36 @@ struct CMUXCLI {
         workspaceId: String,
         surfaceId: String,
         kind: String,
+        runtimeStatusKey: String,
         displayName: String,
         sessionId: String,
+        runtimeGeneration: TimeInterval? = nil,
         cwd: String?,
         launchCommand: AgentHookLaunchCommandRecord?,
         observedPermissionMode: String? = nil
     ) {
         if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
-            clearAgentSurfaceResumeBinding(client: client, workspaceId: workspaceId, surfaceId: surfaceId, sessionId: sessionId)
+            clearAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: sessionId,
+                runtimeStatusKey: runtimeStatusKey,
+                runtimeGeneration: runtimeGeneration
+            )
             return
         }
-        let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment)
+        var resumeEnvironment = agentSurfaceResumeEnvironment(
+            kind: kind,
+            environment: launchCommand?.environment
+        ) ?? [:]
+        if let runtimeGeneration,
+           runtimeGeneration.isFinite,
+           runtimeGeneration > 0 {
+            resumeEnvironment[
+                AgentRuntimeSessionKey.runtimeGenerationEnvironmentKey
+            ] = String(runtimeGeneration)
+        }
         // Pin to the launch directory, not drift-prone runtime cwd.
         let resumeWorkingDirectory = AgentResumeWorkingDirectory().resolve(
             kind: kind,
@@ -28623,7 +29333,9 @@ struct CMUXCLI {
                 client: client,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                sessionId: sessionId
+                sessionId: sessionId,
+                runtimeStatusKey: runtimeStatusKey,
+                runtimeGeneration: runtimeGeneration
             )
             return
         }
@@ -28640,7 +29352,7 @@ struct CMUXCLI {
         if let resumeWorkingDirectory {
             params["cwd"] = resumeWorkingDirectory
         }
-        if let resumeEnvironment, !resumeEnvironment.isEmpty {
+        if !resumeEnvironment.isEmpty {
             params["environment"] = resumeEnvironment
         }
         if let launchCommand {
@@ -28648,6 +29360,11 @@ struct CMUXCLI {
         }
         if let observedPermissionMode {
             params["permission_mode"] = observedPermissionMode
+        }
+        if let runtimeGeneration,
+           runtimeGeneration.isFinite,
+           runtimeGeneration > 0 {
+            params["runtime_generation"] = runtimeGeneration
         }
         _ = try? client.sendV2(method: "surface.resume.set", params: params)
     }
@@ -28658,6 +29375,8 @@ struct CMUXCLI {
         workspaceId: String,
         surfaceId: String,
         sessionId: String?,
+        runtimeStatusKey: String,
+        runtimeGeneration: TimeInterval? = nil,
         sessionDidEnd: Bool = false
     ) -> Bool {
         clearAgentSurfaceResumeBindingOutcome(
@@ -28665,6 +29384,8 @@ struct CMUXCLI {
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             sessionId: sessionId,
+            runtimeStatusKey: runtimeStatusKey,
+            runtimeGeneration: runtimeGeneration,
             sessionDidEnd: sessionDidEnd
         ) != .failed
     }
@@ -31168,31 +31889,82 @@ export default CMUXSessionRestore;
             env: env
         )
 #endif
-        let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
+        let runtimeSessionID = sessionId.isEmpty ? "default" : sessionId
+        let initialMappedSession = sessionId.isEmpty
+            ? nil
+            : (try? store.lookup(sessionId: sessionId))
+        let explicitRuntimeGeneration = optionValue(
+            hookArgs,
+            name: "--runtime-generation"
+        ).flatMap { rawValue -> TimeInterval? in
+            guard let generation = TimeInterval(rawValue),
+                  generation.isFinite,
+                  generation > 0 else {
+                return nil
+            }
+            return generation
+        }
+        let inheritedRuntimeGeneration = AgentRuntimeSessionKey.inheritedRuntimeGeneration(
+            from: env
+        )
+        var runtimeGeneration = store.originatingRuntimeGeneration(
+            sessionId: sessionId,
+            record: initialMappedSession,
+            agentPID: inferredPID,
+            explicitGeneration: explicitRuntimeGeneration,
+            inheritedGeneration: inheritedRuntimeGeneration,
+            allowMissingRecordGeneration: action != .sessionStart,
+            processIsRemote: client.isRelayBacked
+        )
+        func currentRuntimeMutationOption() -> String {
+            agentRuntimeMutationOption(
+                statusKey: def.statusKey,
+                sessionID: runtimeSessionID,
+                runtimeGeneration: runtimeGeneration
+            )
+        }
         var didSendFeedTelemetry = false
         // Destructive session teardown shared by a genuine (non-turn-boundary)
         // `session-end` and the dedicated `session-finalize` action: consume the
         // restore record, clear the surface resume binding, and clear PID routing.
         func performAgentSessionTeardown() {
-            guard let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) else { return }
+            guard let mapped = initialMappedSession else { return }
             sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)
             if suppressVisibleMutations {
                 telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
-            } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
+            } else if let consumed = try? store.consume(
+                sessionId: sessionId,
+                workspaceId: nil,
+                surfaceId: nil,
+                runtimeGeneration: runtimeGeneration,
+                requiresRuntimeGeneration: true
+            ) {
                 if !clearAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: consumed.workspaceId,
                     surfaceId: consumed.surfaceId,
                     sessionId: consumed.sessionId,
+                    runtimeStatusKey: def.statusKey,
+                    runtimeGeneration: consumed.runtimeGeneration,
                     sessionDidEnd: true
                 ) {
                     telemetry.breadcrumb("\(def.name)-hook.session-end.resume-clear-failed")
                 }
-                _ = try? sendV1Command(
-                    "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status",
-                    client: client
-                )
+                for runtimeKey in agentRuntimePIDKeys(
+                    statusKey: def.statusKey,
+                    sessionID: runtimeSessionID
+                ) {
+                    let cleanupRuntimeMutationOption = agentRuntimeMutationOption(
+                        statusKey: def.statusKey,
+                        sessionID: runtimeSessionID,
+                        runtimeGeneration: consumed.runtimeGeneration
+                    )
+                    _ = try? sendV1Command(
+                        "clear_agent_pid \(runtimeKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status\(cleanupRuntimeMutationOption)",
+                        client: client
+                    )
+                }
             }
         }
         func runtimeStatus(for notificationStatus: AgentHookNotificationStatus?) -> AgentHookRuntimeStatus? {
@@ -31247,7 +32019,7 @@ export default CMUXSessionRestore;
             }
             let idleStatus = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
             _ = try? sendV1Command(
-                "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(currentRuntimeMutationOption())",
                 client: client
             )
         }
@@ -31325,7 +32097,12 @@ export default CMUXSessionRestore;
         }
         func markNotificationSent(fingerprint: String?) {
             guard let fingerprint else { return }
-            try? store.markNotificationEmitted(sessionId: sessionId, fingerprint: fingerprint)
+            try? store.markNotificationEmitted(
+                sessionId: sessionId,
+                fingerprint: fingerprint,
+                runtimeGeneration: runtimeGeneration,
+                requiresRuntimeGeneration: true
+            )
         }
         func reportTargetResolutionFailure() {
             reportAgentHookFailure(
@@ -31467,7 +32244,7 @@ export default CMUXSessionRestore;
 
         switch action {
         case .sessionStart:
-            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            let mapped = initialMappedSession
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 reportTargetResolutionFailure()
                 didSendFeedTelemetry = true
@@ -31497,22 +32274,25 @@ export default CMUXSessionRestore;
                 )) == true)
             }
             if !sessionId.isEmpty {
-                let acceptedSessionStart: Bool
+                let runtimeGenerationFloor = [
+                    inheritedRuntimeGeneration,
+                    agentRuntimeGenerationFloor(
+                        client: client,
+                        workspaceID: workspaceId,
+                        surfaceID: surfaceId,
+                        statusKey: def.statusKey
+                    ),
+                ].compactMap { $0 }.max()
+                let requestedRuntimeGeneration = try? store.acceptedSessionStartRuntimeGeneration(
+                    sessionId: sessionId,
+                    agentPID: pid,
+                    originatingGeneration: runtimeGeneration,
+                    inheritedGeneration: runtimeGenerationFloor,
+                    processIsRemote: client.isRelayBacked
+                )
+                let acceptedRuntimeGeneration: TimeInterval?
                 if def.name == "codex" {
-                    acceptedSessionStart = (try? store.upsertCodexSessionStartIfFresh(
-                        sessionId: sessionId,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
-                        pid: pid,
-                        launchCommand: resumeLaunchCommand,
-                        agentLifecycle: .unknown,
-                        runtimeStatus: suppressVisibleMutations ? nil : .running,
-                        updateRuntimeStatus: !suppressVisibleMutations
-                    )) ?? false
-                } else {
-                    supersededOMPRecords = (try? store.upsert(
+                    acceptedRuntimeGeneration = try? store.upsertCodexSessionStartIfFresh(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -31523,16 +32303,36 @@ export default CMUXSessionRestore;
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations,
-                        supersedesSameProcessSession: def.name == "omp"
-                    )) ?? []
-                    acceptedSessionStart = true
+                        runtimeGeneration: requestedRuntimeGeneration,
+                        requiresRuntimeGeneration: true
+                    )
+                } else {
+                    let outcome = try? store.upsert(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
+                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        pid: pid,
+                        launchCommand: resumeLaunchCommand,
+                        agentLifecycle: .unknown,
+                        runtimeStatus: suppressVisibleMutations ? nil : .running,
+                        updateRuntimeStatus: !suppressVisibleMutations,
+                        supersedesSameProcessSession: def.name == "omp",
+                        runtimeGeneration: requestedRuntimeGeneration,
+                        requiresRuntimeGeneration: true,
+                        allowsRuntimeGenerationAdvance: true
+                    )
+                    supersededOMPRecords = outcome?.superseded ?? []
+                    acceptedRuntimeGeneration = outcome?.runtimeGeneration
                 }
-                if !acceptedSessionStart {
+                guard let acceptedRuntimeGeneration else {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
                     didSendFeedTelemetry = true
                     print("{}")
                     return
                 }
+                runtimeGeneration = acceptedRuntimeGeneration
             }
             if codexSessionStartWentStaleAfterAccept() {
                 telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
@@ -31570,15 +32370,21 @@ export default CMUXSessionRestore;
                         return
                     }
                     if !AgentHookNotificationPolicy.preservesDedupeAcrossSessionStart(agentName: def.name) {
-                        try? store.clearNotificationEmission(sessionId: sessionId)
+                        try? store.clearNotificationEmission(
+                            sessionId: sessionId,
+                            runtimeGeneration: runtimeGeneration,
+                            requiresRuntimeGeneration: true
+                        )
                     }
                     publishAgentSurfaceResumeBinding(
                         client: client,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         kind: def.name,
+                        runtimeStatusKey: def.statusKey,
                         displayName: def.displayName,
                         sessionId: sessionId,
+                        runtimeGeneration: runtimeGeneration,
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         launchCommand: resumeLaunchCommand
                     )
@@ -31591,9 +32397,14 @@ export default CMUXSessionRestore;
                 return
             }
             if let pid, !suppressVisibleMutations {
-                _ = try? sendV1Command(
-                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
+                try? publishAgentRuntimePID(
+                    client: client,
+                    statusKey: def.statusKey,
+                    sessionID: runtimeSessionID,
+                    runtimeGeneration: runtimeGeneration,
+                    pid: pid,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId
                 )
             }
             setAgentLifecycle(
@@ -31601,7 +32412,9 @@ export default CMUXSessionRestore;
                 key: def.statusKey,
                 lifecycle: .unknown,
                 workspaceId: workspaceId,
-                surfaceId: surfaceId
+                surfaceId: surfaceId,
+                runtimeSessionID: runtimeSessionID,
+                runtimeGeneration: runtimeGeneration
             )
             if !suppressVisibleMutations {
                 if let owner = try? store.lookup(sessionId: sessionId) {
@@ -31616,7 +32429,7 @@ export default CMUXSessionRestore;
             }
 
         case .promptSubmit:
-            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            let mapped = initialMappedSession
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 reportTargetResolutionFailure()
                 didSendFeedTelemetry = true
@@ -31664,8 +32477,10 @@ export default CMUXSessionRestore;
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     kind: def.name,
+                    runtimeStatusKey: def.statusKey,
                     displayName: def.displayName,
                     sessionId: sessionId,
+                    runtimeGeneration: runtimeGeneration,
                     cwd: latest.cwd,
                     launchCommand: latest.launchCommand
                 )
@@ -31675,7 +32490,9 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: lifecycle,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        runtimeSessionID: runtimeSessionID,
+                        runtimeGeneration: runtimeGeneration
                     )
                 }
                 switch latest.runtimeStatus {
@@ -31685,11 +32502,13 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .running,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        runtimeSessionID: runtimeSessionID,
+                        runtimeGeneration: runtimeGeneration
                     )
                     let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
                     _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(currentRuntimeMutationOption())",
                         client: client
                     )
                 case .idle?:
@@ -31699,7 +32518,9 @@ export default CMUXSessionRestore;
                             key: def.statusKey,
                             lifecycle: .idle,
                             workspaceId: workspaceId,
-                            surfaceId: surfaceId
+                            surfaceId: surfaceId,
+                            runtimeSessionID: runtimeSessionID,
+                            runtimeGeneration: runtimeGeneration
                         )
                     }
                     setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
@@ -31709,14 +32530,16 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        runtimeSessionID: runtimeSessionID,
+                        runtimeGeneration: runtimeGeneration
                     )
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
                         def.displayName
                     )
                     _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(currentRuntimeMutationOption())",
                         client: client
                     )
                 case .error?:
@@ -31725,14 +32548,16 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        runtimeSessionID: runtimeSessionID,
+                        runtimeGeneration: runtimeGeneration
                     )
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
                         def.displayName
                     )
                     _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(currentRuntimeMutationOption())",
                         client: client
                     )
                 case nil:
@@ -31788,7 +32613,9 @@ export default CMUXSessionRestore;
                             client: client,
                             workspaceId: workspaceId
                         ),
-                        rejectTerminalTurn: def.name == "codex"
+                        rejectTerminalTurn: def.name == "codex",
+                        runtimeGeneration: runtimeGeneration,
+                        requiresRuntimeGeneration: true
                     )) ?? (staleTerminalTurn: false, nested: false)
                     if recordResult.staleTerminalTurn {
                         stopStaleCodexPromptSubmit()
@@ -31837,10 +32664,12 @@ export default CMUXSessionRestore;
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         turnId: input.turnId,
                         pid: pid,
-                        launchCommand: resumeLaunchCommand
+                        launchCommand: resumeLaunchCommand,
+                        runtimeGeneration: runtimeGeneration,
+                        requiresRuntimeGeneration: true
                     )) ?? false
                 } else {
-                    _ = try? store.upsert(
+                    let outcome = try? store.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -31850,22 +32679,30 @@ export default CMUXSessionRestore;
                         launchCommand: resumeLaunchCommand,
                         agentLifecycle: .running,
                         runtimeStatus: .running,
-                        updateRuntimeStatus: true
+                        updateRuntimeStatus: true,
+                        runtimeGeneration: runtimeGeneration,
+                        requiresRuntimeGeneration: true
                     )
-                    acceptedRunningUpdate = true
+                    acceptedRunningUpdate = outcome?.runtimeGeneration != nil
                 }
                 if !acceptedRunningUpdate || codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit()
                     return
                 }
-                try? store.clearNotificationEmission(sessionId: sessionId)
+                try? store.clearNotificationEmission(
+                    sessionId: sessionId,
+                    runtimeGeneration: runtimeGeneration,
+                    requiresRuntimeGeneration: true
+                )
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     kind: def.name,
+                    runtimeStatusKey: def.statusKey,
                     displayName: def.displayName,
                     sessionId: sessionId,
+                    runtimeGeneration: runtimeGeneration,
                     cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                     launchCommand: resumeLaunchCommand
                 )
@@ -31879,9 +32716,14 @@ export default CMUXSessionRestore;
                 return
             }
             if let pid, !suppressVisibleMutations {
-                _ = try? sendV1Command(
-                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
+                try? publishAgentRuntimePID(
+                    client: client,
+                    statusKey: def.statusKey,
+                    sessionID: runtimeSessionID,
+                    runtimeGeneration: runtimeGeneration,
+                    pid: pid,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId
                 )
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
@@ -31898,19 +32740,27 @@ export default CMUXSessionRestore;
                     key: def.statusKey,
                     lifecycle: .running,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    runtimeSessionID: runtimeSessionID,
+                    runtimeGeneration: runtimeGeneration
                 )
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
                     return
                 }
                 _ = try? sendV1Command(
-                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    agentRuntimeNotificationClearCommand(
+                        workspaceID: workspaceId,
+                        surfaceID: surfaceId,
+                        statusKey: def.statusKey,
+                        sessionID: runtimeSessionID,
+                        runtimeGeneration: runtimeGeneration
+                    ),
                     client: client
                 )
                 let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
                 _ = try sendV1Command(
-                    "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(currentRuntimeMutationOption())",
                     client: client
                 )
                 if codexPromptTurnWentTerminal() {
@@ -31947,6 +32797,7 @@ export default CMUXSessionRestore;
                 }
                 startCodexTranscriptMonitor(
                     sessionId: sessionId,
+                    runtimeGeneration: runtimeGeneration,
                     turnId: input.turnId,
                     transcriptPath: normalizedHookValue(input.transcriptPath),
                     cwd: hookCwd ?? mapped?.cwd,
@@ -31965,7 +32816,7 @@ export default CMUXSessionRestore;
                     retireCodexMonitorLeases(sessionId: sessionId, turnId: stopTurnId, env: env)
                 }
             }
-            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            let mapped = initialMappedSession
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 reportTargetResolutionFailure()
                 didSendFeedTelemetry = true
@@ -32099,7 +32950,7 @@ export default CMUXSessionRestore;
             }
             let nestedPromptStop: Bool
             if !sessionId.isEmpty, !staleIdleStopHasNewerRunningSession {
-                nestedPromptStop = (try? store.recordPromptStop(
+                let stopOutcome = (try? store.recordPromptStop(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -32117,8 +32968,17 @@ export default CMUXSessionRestore;
                         parsedInput: input,
                         client: client,
                         workspaceId: workspaceId
-                    )
-                )) ?? false
+                    ),
+                    runtimeGeneration: runtimeGeneration,
+                    requiresRuntimeGeneration: true
+                )) ?? (accepted: false, nested: false)
+                guard stopOutcome.accepted else {
+                    telemetry.breadcrumb("\(def.name)-hook.stop.runtime-rejected")
+                    didSendFeedTelemetry = true
+                    print("{}")
+                    return
+                }
+                nestedPromptStop = stopOutcome.nested
             } else {
                 nestedPromptStop = false
             }
@@ -32142,22 +33002,31 @@ export default CMUXSessionRestore;
                                   lastNotificationStatus: stopNotificationStatus,
                                   updateLastNotificationStatus: true,
                                   runtimeStatus: (antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle) ? .running : runtimeStatus(for: stopNotificationStatus),
-                                  updateRuntimeStatus: true)
+                                  updateRuntimeStatus: true,
+                                  runtimeGeneration: runtimeGeneration,
+                                  requiresRuntimeGeneration: true)
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     kind: def.name,
+                    runtimeStatusKey: def.statusKey,
                     displayName: def.displayName,
                     sessionId: sessionId,
+                    runtimeGeneration: runtimeGeneration,
                     cwd: cwd,
                     launchCommand: resumeLaunchCommand
                 )
             }
             if let pid, !suppressVisibleMutations {
-                _ = try? sendV1Command(
-                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
+                try? publishAgentRuntimePID(
+                    client: client,
+                    statusKey: def.statusKey,
+                    sessionID: runtimeSessionID,
+                    runtimeGeneration: runtimeGeneration,
+                    pid: pid,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId
                 )
             }
 
@@ -32202,7 +33071,15 @@ export default CMUXSessionRestore;
                     body: body,
                     meta: stopMeta
                 )
-                let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
+                let notifyCommand = agentRuntimeNotificationCommand(
+                    queued: true,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId,
+                    payload: payload,
+                    statusKey: def.statusKey,
+                    sessionID: runtimeSessionID,
+                    runtimeGeneration: runtimeGeneration
+                )
 #if DEBUG
                 agentHookDebugLog(
                     "agentHook.stop.notify agent=\(def.name) session=\(agentHookDebugShort(sessionId)) resumed=\(env["CMUX_AGENT_RESUME_LAUNCH"] == "1" ? 1 : 0) fallback=\(shouldPublishGrokStopFallbackNotification ? 1 : 0) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId)) subtitleLen=\(subtitle.count) bodyLen=\(body.count)",
@@ -32247,10 +33124,12 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        runtimeSessionID: runtimeSessionID,
+                        runtimeGeneration: runtimeGeneration
                     )
                     _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(currentRuntimeMutationOption())",
                         client: client
                     )
                 } else if antigravityFailure != nil {
@@ -32259,14 +33138,16 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        runtimeSessionID: runtimeSessionID,
+                        runtimeGeneration: runtimeGeneration
                     )
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
                         def.displayName
                     )
                     _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(currentRuntimeMutationOption())",
                         client: client
                     )
                 } else if antigravityHasActiveBackgroundWork {
@@ -32275,11 +33156,13 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .running,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        runtimeSessionID: runtimeSessionID,
+                        runtimeGeneration: runtimeGeneration
                     )
                     let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
                     _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(currentRuntimeMutationOption())",
                         client: client
                     )
                 } else {
@@ -32288,7 +33171,9 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .idle,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        runtimeSessionID: runtimeSessionID,
+                        runtimeGeneration: runtimeGeneration
                     )
                     setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
                 }
@@ -32319,7 +33204,7 @@ export default CMUXSessionRestore;
             }
 
         case .approvalResponse:
-            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            let mapped = initialMappedSession
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 reportTargetResolutionFailure()
                 didSendFeedTelemetry = true
@@ -32351,23 +33236,32 @@ export default CMUXSessionRestore;
                     pid: pid,
                     launchCommand: resumeLaunchCommand,
                     agentLifecycle: .running,
-                    runtimeStatus: .running
+                    runtimeStatus: .running,
+                    runtimeGeneration: runtimeGeneration,
+                    requiresRuntimeGeneration: true
                 )
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     kind: def.name,
+                    runtimeStatusKey: def.statusKey,
                     displayName: def.displayName,
                     sessionId: sessionId,
+                    runtimeGeneration: runtimeGeneration,
                     cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                     launchCommand: resumeLaunchCommand
                 )
             }
             if let pid, !suppressVisibleMutations {
-                _ = try? sendV1Command(
-                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
+                try? publishAgentRuntimePID(
+                    client: client,
+                    statusKey: def.statusKey,
+                    sessionID: runtimeSessionID,
+                    runtimeGeneration: runtimeGeneration,
+                    pid: pid,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId
                 )
             }
             if !suppressVisibleMutations {
@@ -32376,15 +33270,23 @@ export default CMUXSessionRestore;
                     key: def.statusKey,
                     lifecycle: .running,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    runtimeSessionID: runtimeSessionID,
+                    runtimeGeneration: runtimeGeneration
                 )
                 _ = try? sendV1Command(
-                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    agentRuntimeNotificationClearCommand(
+                        workspaceID: workspaceId,
+                        surfaceID: surfaceId,
+                        statusKey: def.statusKey,
+                        sessionID: runtimeSessionID,
+                        runtimeGeneration: runtimeGeneration
+                    ),
                     client: client
                 )
                 let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
                 _ = try? sendV1Command(
-                    "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(currentRuntimeMutationOption())",
                     client: client
                 )
             } else {
@@ -32392,7 +33294,7 @@ export default CMUXSessionRestore;
             }
 
         case .notification:
-            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            let mapped = initialMappedSession
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 reportTargetResolutionFailure()
                 didSendFeedTelemetry = true
@@ -32533,6 +33435,40 @@ export default CMUXSessionRestore;
                     fallbackKind: def.name,
                     cwd: hookCwd ?? mapped?.cwd
                 )
+                // A notification can be the first hook observed for a generic
+                // agent. Establish the runtime owner before sending the
+                // authority-bearing notification; otherwise the app correctly
+                // rejects the event because no binding/PID authority exists.
+                var notificationRuntimeGeneration = runtimeGeneration
+                var notificationSessionID: String? = runtimeSessionID
+                if initialMappedSession == nil, !suppressVisibleMutations {
+                    if let runtimeGeneration, let pid {
+                        do {
+                            try publishAgentRuntimePID(
+                                client: client,
+                                statusKey: def.statusKey,
+                                sessionID: runtimeSessionID,
+                                runtimeGeneration: runtimeGeneration,
+                                pid: pid,
+                                workspaceID: workspaceId,
+                                surfaceID: surfaceId
+                            )
+                        } catch {
+                            // Do not persist a generation that the app never
+                            // accepted. Leaving the session absent lets the
+                            // next hook retry establishment instead of
+                            // permanently poisoning it with an authority the
+                            // app cannot validate.
+                            telemetry.breadcrumb("\(def.name)-hook.notification.runtime-establish-failed")
+                            didSendFeedTelemetry = true
+                            print("{}")
+                            return
+                        }
+                    } else {
+                        notificationRuntimeGeneration = nil
+                        notificationSessionID = nil
+                    }
+                }
                 let lifecycle = suppressPendingWaitingState ? .running : agentLifecycle(for: summary.status)
                 let storedRuntimeStatus: AgentHookRuntimeStatus? = suppressPendingWaitingState ? .running : runtimeStatus(for: summary.status)
                 // These agents use completion notifications as turn boundaries;
@@ -32559,7 +33495,9 @@ export default CMUXSessionRestore;
                             parsedInput: input,
                             client: client,
                             workspaceId: workspaceId
-                        )
+                        ),
+                        runtimeGeneration: runtimeGeneration,
+                        requiresRuntimeGeneration: true
                     )
                 } else {
                     _ = try? store.upsert(
@@ -32576,7 +33514,9 @@ export default CMUXSessionRestore;
                         lastNotificationStatus: summary.status,
                         updateLastNotificationStatus: true,
                         runtimeStatus: storedRuntimeStatus,
-                        updateRuntimeStatus: summary.status != nil
+                        updateRuntimeStatus: summary.status != nil,
+                        runtimeGeneration: runtimeGeneration,
+                        requiresRuntimeGeneration: true
                     )
                 }
             }
@@ -32606,7 +33546,15 @@ export default CMUXSessionRestore;
                     body: summary.body,
                     meta: notificationMeta
                 )
-                let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
+                let notifyCommand = agentRuntimeNotificationCommand(
+                    queued: true,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId,
+                    payload: payload,
+                    statusKey: def.statusKey,
+                    sessionID: notificationSessionID,
+                    runtimeGeneration: notificationRuntimeGeneration
+                )
 #if DEBUG
                 agentHookDebugLog(
                     "agentHook.notification.notify agent=\(def.name) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId))",
@@ -32654,14 +33602,16 @@ export default CMUXSessionRestore;
                     key: def.statusKey,
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    runtimeSessionID: runtimeSessionID,
+                    runtimeGeneration: runtimeGeneration
                 )
                 let statusValue = String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
                     def.displayName
                 )
                 _ = try? sendV1Command(
-                    "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(currentRuntimeMutationOption())",
                     client: client
                 )
             case .error?:
@@ -32670,14 +33620,16 @@ export default CMUXSessionRestore;
                     key: def.statusKey,
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    runtimeSessionID: runtimeSessionID,
+                    runtimeGeneration: runtimeGeneration
                 )
                 let statusValue = String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
                     def.displayName
                 )
                 _ = try? sendV1Command(
-                    "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(currentRuntimeMutationOption())",
                     client: client
                 )
             case .idle?:
@@ -32687,7 +33639,9 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .idle,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        runtimeSessionID: runtimeSessionID,
+                        runtimeGeneration: runtimeGeneration
                     )
                 }
                 setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
@@ -32701,7 +33655,7 @@ export default CMUXSessionRestore;
                 retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
             }
             if def.sessionEndIsTurnBoundary {
-                if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
+                if let mapped = initialMappedSession {
                     sendAgentFeedTelemetry(workspaceId: mapped.workspaceId, surfaceId: mapped.surfaceId)
                     _ = try? store.recordPromptStop(
                         sessionId: sessionId,
@@ -32718,7 +33672,9 @@ export default CMUXSessionRestore;
                             parsedInput: input,
                             client: client,
                             workspaceId: mapped.workspaceId
-                        )
+                        ),
+                        runtimeGeneration: runtimeGeneration,
+                        requiresRuntimeGeneration: true
                     )
                 }
 #if DEBUG

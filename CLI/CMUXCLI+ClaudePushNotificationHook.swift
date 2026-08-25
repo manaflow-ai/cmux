@@ -5,6 +5,8 @@ extension CMUXCLI {
         client: SocketClient,
         telemetry: CLISocketSentryTelemetry,
         parsedInput: ClaudeHookParsedInput,
+        mappedSession: ClaudeHookSessionRecord?,
+        runtimeGeneration: TimeInterval?,
         sessionStore: ClaudeHookSessionStore,
         routing: ClaudeHookRoutingContext,
         markFeedTelemetryHandled: () -> Void,
@@ -31,7 +33,6 @@ extension CMUXCLI {
             printClaudeHookAck()
             return
         }
-        let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
         guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(
             mappedSession: mappedSession,
             routing: routing,
@@ -75,7 +76,24 @@ extension CMUXCLI {
         // change: the agent is usually still running when it fires, and a
         // push must not flip a running pane to "Needs input".
         let payload = notificationPayload(title: title, subtitle: "", body: pushMessage)
-        _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+        // PushNotification can be the first hook observed for a session. In
+        // that case there is no persisted binding or generation to authorize
+        // against yet, so keep the legacy unguarded delivery path; otherwise
+        // the app would acknowledge and then discard the alert at drain time.
+        let notificationSessionID = mappedSession != nil ? parsedInput.sessionId : nil
+        let notificationRuntimeGeneration = mappedSession != nil ? runtimeGeneration : nil
+        _ = try sendV1Command(
+            agentRuntimeNotificationCommand(
+                queued: true,
+                workspaceID: workspaceId,
+                surfaceID: surfaceId,
+                payload: payload,
+                statusKey: Self.claudeCodeStatusKey,
+                sessionID: notificationSessionID,
+                runtimeGeneration: notificationRuntimeGeneration
+            ),
+            client: client
+        )
         printClaudeHookAck()
     }
 

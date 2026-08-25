@@ -1,5 +1,6 @@
 import Darwin
 import Combine
+import CMUXAgentLaunch
 import XCTest
 import os
 import CmuxControlSocket
@@ -3420,6 +3421,21 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         super.tearDown()
     }
 
+    private func targetedNotificationPayload(
+        _ command: String,
+        workspaceID: String,
+        surfaceID: String,
+        queued: Bool = false
+    ) -> Substring? {
+        let verb = queued ? "notify_target_async" : "notify_target"
+        let targetPrefix = "\(verb) \(workspaceID) \(surfaceID) "
+        guard command.hasPrefix(targetPrefix) else { return nil }
+        let remainder = command.dropFirst(targetPrefix.count)
+        guard remainder.hasPrefix("--runtime-key=") else { return remainder }
+        guard let delimiter = remainder.range(of: " -- ") else { return nil }
+        return remainder[delimiter.upperBound...]
+    }
+
     private struct ProcessRunResult {
         let status: Int32
         let stdout: String
@@ -3956,7 +3972,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Rate limit|")
+                self.targetedNotificationPayload(
+                    command,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId
+                )?.contains("Codex|Rate limit|") == true
             },
             "Expected Codex failure notification, saw \(state.commands)"
         )
@@ -4030,7 +4050,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Try again later.")
+                self.targetedNotificationPayload(
+                    command,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId
+                )?.contains("Codex|Error|Try again later.") == true
             },
             "Expected typed Codex error notification, saw \(state.commands)"
         )
@@ -4108,7 +4132,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
+                self.targetedNotificationPayload(
+                    command,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId
+                )?.contains("Codex|Network error|Stream disconnected before completion.") == true
             },
             "Expected discovered transcript failure notification, saw \(state.commands)"
         )
@@ -4497,7 +4525,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|quota exceeded")
+                self.targetedNotificationPayload(
+                    command,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId
+                )?.contains("Codex|Error|quota exceeded") == true
             },
             "Expected explicit error field notification, saw \(state.commands)"
         )
@@ -4649,7 +4681,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Try again later.")
+                self.targetedNotificationPayload(
+                    command,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId
+                )?.contains("Codex|Error|Try again later.") == true
             },
             "Expected payload error notification to beat healthy transcript, saw \(state.commands)"
         )
@@ -4723,7 +4759,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
+                self.targetedNotificationPayload(
+                    command,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId
+                )?.contains("Codex|Error|Codex ended before sending a final response") == true
             },
             "Expected no-final-response notification, saw \(state.commands)"
         )
@@ -4945,7 +4985,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
+                self.targetedNotificationPayload(
+                    command,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId
+                )?.contains("Codex|Error|Codex ended before sending a final response") == true
             },
             "Expected monitor to send no-final-response notification, saw \(state.commands)"
         )
@@ -4971,6 +5015,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-session-monitor-stream-error"
+        let runtimeGeneration: TimeInterval = 123.5
+        let runtimeKey = AgentRuntimeSessionKey(
+            statusKey: "codex",
+            sessionID: sessionId
+        ).rawValue
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -5010,6 +5059,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 surfaceId,
                 "--session",
                 sessionId,
+                "--runtime-generation",
+                String(runtimeGeneration),
                 "--turn",
                 "turn-monitor-stream-error",
                 "--transcript",
@@ -5025,7 +5076,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
+                self.targetedNotificationPayload(
+                    command,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId
+                )?.contains("Codex|Network error|Stream disconnected before completion.") == true
             },
             "Expected monitor to send stream error notification before terminal completion, saw \(state.commands)"
         )
@@ -5035,7 +5090,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                     command.contains("--icon=exclamationmark.triangle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
-                    command.contains("--tab=\(workspaceId)")
+                    command.contains("--tab=\(workspaceId)") &&
+                    command.contains("--runtime-key=\(runtimeKey)") &&
+                    command.contains("--runtime-generation=\(runtimeGeneration)")
             },
             "Expected monitor to publish high-priority Codex network error status, saw \(state.commands)"
         )
@@ -5124,7 +5181,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
         XCTAssertTrue(
             waitForSocketCommand(state: state, timeout: 5) { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Waiting|Which demo path should I use?")
+                self.targetedNotificationPayload(
+                    command,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId
+                )?.contains("Codex|Waiting|Which demo path should I use?") == true
             },
             "Expected monitor to send Codex input notification, saw \(state.snapshot())"
         )
@@ -5224,7 +5285,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
         XCTAssertTrue(
             waitForSocketCommand(state: state, timeout: 5) { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Waiting|What kind of demo plan should I create?")
+                self.targetedNotificationPayload(
+                    command,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId
+                )?.contains("Codex|Waiting|What kind of demo plan should I create?") == true
             },
             "Expected monitor to send Codex input notification from response_item, saw \(state.snapshot())"
         )
@@ -5309,7 +5374,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
+                self.targetedNotificationPayload(
+                    command,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId
+                )?.contains("Codex|Error|Codex ended before sending a final response") == true
             },
             "Expected monitor to recover from stale transcript path, saw \(state.commands)"
         )
@@ -5426,7 +5495,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(stdout, "")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
+                self.targetedNotificationPayload(
+                    command,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId
+                )?.contains("Codex|Network error|Stream disconnected before completion.") == true
             },
             "Expected monitor to ignore old unscoped terminal event and report scoped stream error, saw \(state.commands)"
         )

@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Darwin
 import Dispatch
 import Foundation
@@ -7,6 +8,28 @@ import Foundation
 /// `agent.resolve_delivery_target` probes, plus process/session-store
 /// helpers. Kept out of the test suite file for the 500-line file budget.
 enum ClaudeHookLiveDeliveryHarness {
+    static func runtimeKey(statusKey: String = "claude_code", sessionID: String) -> String {
+        AgentRuntimeSessionKey(statusKey: statusKey, sessionID: sessionID).rawValue
+    }
+
+    static func legacyRuntimeKey(statusKey: String = "claude_code", sessionID: String) -> String {
+        "\(statusKey).\(sessionID)"
+    }
+
+    static func hasRuntimeAuthorizedPanelClear(
+        in commands: [String],
+        workspaceID: String,
+        surfaceID: String,
+        sessionID: String,
+        statusKey: String = "claude_code"
+    ) -> Bool {
+        let runtimeKey = runtimeKey(statusKey: statusKey, sessionID: sessionID)
+        return commands.contains {
+            $0.hasPrefix("clear_notifications --tab=\(workspaceID) --panel=\(surfaceID) ")
+                && $0.contains("--runtime-key=\(runtimeKey)")
+        }
+    }
+
     struct Context {
         let cliPath: String
         let socketPath: String
@@ -66,7 +89,7 @@ enum ClaudeHookLiveDeliveryHarness {
     }
 
     static func hookEnvironment(context: Context) -> [String: String] {
-        [
+        var environment = [
             "HOME": context.root.path,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "CMUX_SOCKET_PATH": context.socketPath,
@@ -74,6 +97,16 @@ enum ClaudeHookLiveDeliveryHarness {
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
         ]
+        if let saved = try? JSONSerialization.jsonObject(
+            with: Data(contentsOf: context.storeURL)
+        ) as? [String: Any],
+           let sessions = saved["sessions"] as? [String: Any],
+           sessions.count == 1,
+           let record = sessions.values.first as? [String: Any],
+           let generation = record["runtimeGeneration"] as? TimeInterval {
+            environment[AgentRuntimeSessionKey.runtimeGenerationEnvironmentKey] = String(generation)
+        }
+        return environment
     }
 
     /// Mock control server. `pidTarget` answers the `{pid}` probe;
@@ -190,6 +223,7 @@ enum ClaudeHookLiveDeliveryHarness {
             "surfaceId": surfaceId,
             "cwd": cwd,
             "isRestorable": true,
+            "runtimeGeneration": now,
             "startedAt": now,
             "updatedAt": now,
         ]
@@ -343,7 +377,15 @@ enum ClaudeHookLiveDeliveryHarness {
                             pending.removeSubrange(0...newlineRange.lowerBound)
                             guard let line = String(data: lineData, encoding: .utf8) else { continue }
                             state.append(line)
-                            writeResponse(handler(line))
+                            let response: String
+                            if line.hasPrefix("notify_target_authorized ") {
+                                response = "ERROR: Unknown command 'notify_target_authorized'. Use 'help' for available commands."
+                            } else if line.hasPrefix("notify_target_async_authorized ") {
+                                response = "ERROR: Unknown command 'notify_target_async_authorized'. Use 'help' for available commands."
+                            } else {
+                                response = handler(line)
+                            }
+                            writeResponse(response)
                         }
                     }
                 }

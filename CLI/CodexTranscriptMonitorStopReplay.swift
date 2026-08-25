@@ -11,6 +11,7 @@ struct CodexTranscriptMonitorStopReplay {
         transcriptPath: String?,
         workspaceId: String,
         surfaceId: String?,
+        runtimeGeneration: TimeInterval?,
         lastAssistantMessage: String?
     ) {
         guard !sessionId.isEmpty, !workspaceId.isEmpty else { return nil }
@@ -37,6 +38,11 @@ struct CodexTranscriptMonitorStopReplay {
         var commandArguments = ["stop", "--workspace", workspaceId]
         if let surfaceId, !surfaceId.isEmpty {
             commandArguments += ["--surface", surfaceId]
+        }
+        if let runtimeGeneration,
+           runtimeGeneration.isFinite,
+           runtimeGeneration > 0 {
+            commandArguments += ["--runtime-generation", String(runtimeGeneration)]
         }
         self.commandArguments = commandArguments
         self.payload = payload

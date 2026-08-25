@@ -212,6 +212,7 @@ extension Workspace {
         restoredAgentSnapshotsByPanelId.removeAll(keepingCapacity: false)
         restoredAgentResumeStatesByPanelId.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
+        restoredAgentLifecycle.clearAllAgentRuntimeReplacementTracking()
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
         restoredGuardedWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
@@ -614,7 +615,9 @@ extension Workspace {
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
-                wasAgentRunning: agentWasRunning
+                wasAgentRunning: agentWasRunning,
+                runtimeGenerationHighWaterMarksByStatusKey:
+                    restoredAgentLifecycle.agentRuntimeGenerationFloors(panelId: panelId)
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -1284,6 +1287,11 @@ extension Workspace {
                     panelId: panelId,
                     restorableAgentIndex: restorableAgentIndex
                 ) {
+                    restoredAgentLifecycle.recordAgentRuntimeRetirement(
+                        storedBinding,
+                        panelId: panelId,
+                        agentSessionEnded: true
+                    )
                     // Preserve explicit restore for the exited session, but
                     // prevent the stale binding from replaying automatically
                     // on the next relaunch (#8446).
@@ -1296,7 +1304,27 @@ extension Workspace {
                     by: detectedBinding,
                     panelId: panelId
                 )
-                surfaceResumeBindingsByPanelId[panelId] = detectedBinding
+                if detectedBinding.isAgentHookBinding {
+                    // Route hook replacements through the same authority
+                    // transition as live `surface.resume.set` events. A
+                    // process-detected binding has no runtime identity, so it
+                    // retires the old authority explicitly before replacing it.
+                    if !setSurfaceResumeBinding(detectedBinding, panelId: panelId) {
+                        restoredAgentLifecycle.recordAgentRuntimeRetirement(
+                            storedBinding,
+                            panelId: panelId,
+                            agentSessionEnded: true
+                        )
+                        surfaceResumeBindingsByPanelId[panelId] = detectedBinding
+                    }
+                } else {
+                    restoredAgentLifecycle.recordAgentRuntimeRetirement(
+                        storedBinding,
+                        panelId: panelId,
+                        agentSessionEnded: true
+                    )
+                    surfaceResumeBindingsByPanelId[panelId] = detectedBinding
+                }
             } else if storedBinding.isProcessDetected {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
             }
@@ -1682,14 +1710,25 @@ extension Workspace {
                     restoredPanelId: terminalPanel.id
                 )
             }
+            restoredAgentLifecycle.seedAgentRuntimeGenerationFloors(
+                terminalSnapshot.runtimeGenerationHighWaterMarksByStatusKey,
+                panelId: terminalPanel.id
+            )
             if let storedResumeBinding = effectiveResumeBindingForStartup ?? resumeBinding {
-                surfaceResumeBindingsByPanelId[terminalPanel.id] = storedResumeBinding.retargetingRemoteOwner(
+                let restoredBinding = storedResumeBinding.retargetingRemoteOwner(
                     expectedWorkspaceID: restoredResumeSnapshotWorkspaceID,
                     expectedSurfaceID: snapshot.id,
                     workspaceID: id,
                     surfaceID: terminalPanel.id,
                     persistentPTYSessionID: restoredRemotePTYSessionID
                 )
+                surfaceResumeBindingsByPanelId[terminalPanel.id] = restoredBinding
+                if restoredBinding.isAgentHookBinding {
+                    restoredAgentLifecycle.activateAgentRuntimeBinding(
+                        restoredBinding,
+                        panelId: terminalPanel.id
+                    )
+                }
             } else {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
             }
@@ -5153,17 +5192,30 @@ final class Workspace: Identifiable, ObservableObject {
     func setSurfaceResumeBinding(_ binding: SurfaceResumeBindingSnapshot, panelId: UUID) -> Bool {
         guard terminalPanel(for: panelId) != nil,
               let startupInput = binding.inlineStartupInput(repairPortableAgentExecutable: false),
-              !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+              !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              restoredAgentLifecycle.canActivateAgentRuntimeBinding(
+                  binding,
+                  panelId: panelId
+              ) else {
             return false
         }
+        let previousBinding = surfaceResumeBindingsByPanelId[panelId]
         invalidateRestoredAgentLifecycleIfBindingIsReplaced(
             by: binding,
             panelId: panelId
         )
+        if let replacedRuntimeBinding = restoredAgentLifecycle
+            .recordAgentRuntimeReplacementIfNeeded(
+                currentBinding: previousBinding,
+                replacement: binding,
+                panelId: panelId
+            ) {
+            clearAgentRuntimeOwned(by: replacedRuntimeBinding, panelId: panelId)
+        }
         // This transient cwd belongs to the binding restored at launch. Let a
         // same-session hook refresh keep its cwd rescue, but never let it
         // override a replacement session's structured restore record.
-        if let previous = surfaceResumeBindingsByPanelId[panelId],
+        if let previous = previousBinding,
            previous.kind != binding.kind
             || previous.checkpointId != binding.checkpointId
             || previous.cwd != binding.cwd
@@ -5173,12 +5225,40 @@ final class Workspace: Identifiable, ObservableObject {
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         }
         surfaceResumeBindingsByPanelId[panelId] = binding
+        restoredAgentLifecycle.activateAgentRuntimeBinding(binding, panelId: panelId)
         return true
     }
 
     @discardableResult
-    func clearSurfaceResumeBinding(panelId: UUID) -> Bool {
-        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) != nil
+    func clearSurfaceResumeBinding(
+        panelId: UUID,
+        binding requestedBinding: SurfaceResumeBindingSnapshot? = nil,
+        agentSessionEnded: Bool = false
+    ) -> Bool {
+        if let currentBinding = surfaceResumeBindingsByPanelId[panelId] {
+            let clearsCurrentBinding = requestedBinding.map {
+                $0 == currentBinding || currentBinding.acceptsAgentRuntimeCleanup(from: $0)
+            } ?? true
+            if clearsCurrentBinding {
+                surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                restoredAgentLifecycle.recordAgentRuntimeRetirement(
+                    currentBinding,
+                    panelId: panelId,
+                    agentSessionEnded: agentSessionEnded
+                )
+                return true
+            }
+        }
+        guard agentSessionEnded else { return false }
+        let retiredBinding = requestedBinding
+            ?? restoredAgentLifecycle.eligibleRetiredAgentRuntimeBinding(
+                panelId: panelId
+            )
+        guard let retiredBinding else { return false }
+        return restoredAgentLifecycle.endRetiredAgentRuntimeBinding(
+            retiredBinding,
+            panelId: panelId
+        )
     }
 
     func surfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
@@ -5453,6 +5533,7 @@ final class Workspace: Identifiable, ObservableObject {
         invalidatedRestoredAgentFingerprintsByPanelId = invalidatedRestoredAgentFingerprintsByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
+        restoredAgentLifecycle.retainAgentRuntimeReplacementTracking(panelIds: validSurfaceIds)
         syncRemotePortScanTTYs()
         recomputeListeningPorts()
     }
@@ -9858,6 +9939,10 @@ final class Workspace: Identifiable, ObservableObject {
             surfaceId: detached.panelId
         )
         seedDetachedRestoredAgentState(from: detached)
+        restoredAgentLifecycle.seedAgentRuntimeReplacementTracking(
+            detached.agentRuntimeReplacementTracking,
+            panelId: detached.panelId
+        )
         if let resumeSessionWorkingDirectory = detached.restoredResumeSessionWorkingDirectory {
             restoredResumeSessionWorkingDirectoriesByPanelId[detached.panelId] = resumeSessionWorkingDirectory
         } else {
@@ -9872,6 +9957,12 @@ final class Workspace: Identifiable, ObservableObject {
         }()
         if let transferredResumeBinding {
             surfaceResumeBindingsByPanelId[detached.panelId] = transferredResumeBinding
+            if transferredResumeBinding.isAgentHookBinding {
+                restoredAgentLifecycle.activateAgentRuntimeBinding(
+                    transferredResumeBinding,
+                    panelId: detached.panelId
+                )
+            }
         } else {
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
         }
@@ -12651,6 +12742,10 @@ extension Workspace: BonsplitDelegate {
                     $0.hasCompleteManagedSessionIdentity ? $0 : nil
                 },
                 agentRuntime: agentRuntime,
+                agentRuntimeReplacementTracking:
+                    restoredAgentLifecycle.agentRuntimeReplacementTrackingState(
+                        panelId: panelId
+                    ),
                 isRemoteTerminal: isRemoteTerminal,
                 remoteTerminalSessionPhase: remoteTerminalSessionStatesBySurfaceId[panelId]?.phase,
                 remoteTerminalAuthority: remoteTerminalSessionStatesBySurfaceId[panelId]?.authority,

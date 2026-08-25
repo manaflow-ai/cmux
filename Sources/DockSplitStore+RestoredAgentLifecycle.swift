@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxWorkspaces
 import CmuxSidebar
 import Darwin
@@ -9,6 +10,7 @@ extension DockSplitStore {
         restoredAgentLifecycle.snapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentLifecycle.resumeStatesByPanelId.removeValue(forKey: panelId)
         restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
+        restoredAgentLifecycle.clearAgentRuntimeReplacementTracking(panelId: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
         managedAgentResumeBindingsByPanelId.removeValue(forKey: panelId)
         invalidatedCachedTransferAgentSessionPanelIds.remove(panelId)
@@ -60,10 +62,38 @@ extension DockSplitStore {
         guard detachedSurfaceTransfersByPanelId[panelId]?.isRemoteTerminal == true else {
             return
         }
-        guard let binding = managedAgentResumeBinding(panelId: panelId)
-            ?? detachedSurfaceTransfersByPanelId[panelId]?.resolvedManagedAgentResumeBinding else {
+        guard let binding = authoritativeAgentRuntimeBinding(panelId: panelId) else {
             return
         }
+        clearAgentRuntimeOwned(by: binding, panelId: panelId)
+    }
+
+    /// Returns active or eligible-retired authority, falling back to cached
+    /// transfer metadata only while that cache remains valid.
+    func authoritativeAgentRuntimeBinding(
+        panelId: UUID
+    ) -> SurfaceResumeBindingSnapshot? {
+        if let binding = managedAgentResumeBinding(panelId: panelId) {
+            return binding
+        }
+        if let binding = restoredAgentLifecycle
+            .eligibleRetiredAgentRuntimeBinding(panelId: panelId) {
+            return binding
+        }
+        guard !invalidatedCachedTransferAgentSessionPanelIds.contains(panelId),
+              !replacedCachedTransferAgentSessionPanelIds.contains(panelId) else {
+            return nil
+        }
+        return detachedSurfaceTransfersByPanelId[panelId]?
+            .resolvedManagedAgentResumeBinding
+    }
+
+    /// Clears only runtime state whose kind-scoped key belongs to `binding`.
+    func clearAgentRuntimeOwned(
+        by binding: SurfaceResumeBindingSnapshot,
+        panelId: UUID
+    ) {
+        guard let statusKey = binding.agentRuntimeStatusKey else { return }
         mutateAgentRuntime(panelId: panelId) { runtime in
             let keys = runtime.agentPIDKeys.filter {
                 binding.matchesAgentRuntimeKeyForCleanup($0)
@@ -72,8 +102,16 @@ extension DockSplitStore {
                 Self.clearAgentPID(
                     key: key,
                     clearStatus: true,
+                    statusKeyOverride: statusKey,
+                    managedBinding: binding,
                     runtime: &runtime
                 )
+            }
+            runtime.agentLifecycleStates.removeValue(forKey: statusKey)
+            if !runtime.agentPIDKeys.contains(where: {
+                binding.matchesAgentRuntimeKeyForCleanup($0)
+            }) {
+                runtime.statusEntries.removeValue(forKey: statusKey)
             }
         }
     }
@@ -103,12 +141,22 @@ extension DockSplitStore {
             resumeState: detached.restorableAgentResumeState,
             completedGeneration: detached.restoredAgentCompletedGeneration
         )
+        restoredAgentLifecycle.seedAgentRuntimeReplacementTracking(
+            detached.agentRuntimeReplacementTracking,
+            panelId: detached.panelId
+        )
         managedAgentResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
         if let resumeBinding = detached.resumeBinding {
             surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
         }
         if let transferredManagedBinding = detached.resolvedManagedAgentResumeBinding {
             managedAgentResumeBindingsByPanelId[detached.panelId] = transferredManagedBinding
+            if transferredManagedBinding.isAgentHookBinding {
+                restoredAgentLifecycle.activateAgentRuntimeBinding(
+                    transferredManagedBinding,
+                    panelId: detached.panelId
+                )
+            }
         }
         if let directory = detached.restoredResumeSessionWorkingDirectory {
             restoredResumeSessionWorkingDirectoriesByPanelId[detached.panelId] = directory
@@ -223,15 +271,42 @@ extension DockSplitStore {
     func recordAgentPID(key: String, pid: pid_t, panelId: UUID) -> Bool {
         var didReplaceRuntime = false
         let storesLocalProcess = detachedSurfaceTransfersByPanelId[panelId]?.isRemoteTerminal != true
+        let managedBinding = authoritativeAgentRuntimeBinding(panelId: panelId)
+        let lifecycle = restoredAgentLifecycle
+        if managedBinding?.rejectsMismatchedAgentRuntimeKey(key) == true
+            || restoredAgentLifecycle.rejectsSupersededAgentRuntimeKey(
+                key,
+                panelId: panelId
+            ) {
+            return false
+        }
+        let recordsCurrentBinding = managedBinding?.matchesExactAgentRuntimeKey(key) == true
         mutateAgentRuntime(panelId: panelId) { runtime in
-            if Self.isStructuredAgentHookPIDKey(key, runtime: runtime) {
+            if Self.isStructuredAgentHookPIDKey(
+                key,
+                runtime: runtime,
+                managedBinding: managedBinding
+            ) {
                 let staleKeys = runtime.agentPIDKeys.filter {
-                    $0 != key && Self.isStructuredAgentHookPIDKey($0, runtime: runtime)
+                    $0 != key && Self.isStructuredAgentHookPIDKey(
+                        $0,
+                        runtime: runtime,
+                        managedBinding: managedBinding
+                    ) && !(managedBinding?.matchesExactAgentRuntimeKey(key) == true
+                        && managedBinding?.matchesExactAgentRuntimeKey($0) == true)
                 }
                 for staleKey in staleKeys {
                     Self.clearAgentPID(
                         key: staleKey,
                         clearStatus: true,
+                        managedBinding: managedBinding,
+                        protectsCurrentRuntimeStatus: { statusKey, clearingKey in
+                            lifecycle.protectsCurrentAgentRuntimeStatus(
+                                statusKey,
+                                clearingKey: clearingKey,
+                                panelId: panelId
+                            )
+                        },
                         runtime: &runtime
                     )
                 }
@@ -250,7 +325,14 @@ extension DockSplitStore {
             }
             runtime.agentPIDKeys.insert(key)
         }
-        return didReplaceRuntime
+        let carriesBindingReplacement = recordsCurrentBinding
+            && managedBinding.map {
+                restoredAgentLifecycle.consumePendingAgentRuntimeReplacement(
+                    for: $0,
+                    panelId: panelId
+                )
+            } == true
+        return didReplaceRuntime || carriesBindingReplacement
     }
 
     func setAgentLifecycle(
@@ -275,10 +357,27 @@ extension DockSplitStore {
             return false
         }
         var didChange = false
+        let managedBinding = authoritativeAgentRuntimeBinding(panelId: panelId)
+        let lifecycle = restoredAgentLifecycle
+        let retiredStatusKeyForRuntimeKey: (String) -> String? = { runtimeKey in
+            lifecycle.retiredAgentRuntimeStatusKey(
+                for: runtimeKey,
+                panelId: panelId
+            )
+        }
         mutateAgentRuntime(panelId: panelId) {
             didChange = Self.clearAgentPID(
                 key: key,
                 clearStatus: clearStatus,
+                managedBinding: managedBinding,
+                retiredStatusKeyForRuntimeKey: retiredStatusKeyForRuntimeKey,
+                protectsCurrentRuntimeStatus: { statusKey, clearingKey in
+                    lifecycle.protectsCurrentAgentRuntimeStatus(
+                        statusKey,
+                        clearingKey: clearingKey,
+                        panelId: panelId
+                    )
+                },
                 runtime: &$0
             )
         }
@@ -317,20 +416,43 @@ extension DockSplitStore {
     private static func clearAgentPID(
         key: String,
         clearStatus: Bool,
+        statusKeyOverride: String? = nil,
+        managedBinding: SurfaceResumeBindingSnapshot? = nil,
+        retiredStatusKeyForRuntimeKey: (String) -> String? = { _ in nil },
+        protectsCurrentRuntimeStatus: (String, String) -> Bool = { _, _ in false },
         runtime: inout Workspace.DetachedAgentRuntimeState
     ) -> Bool {
-        let statusKey = agentStatusKey(forAgentPIDKey: key, runtime: runtime)
+        let statusKey = statusKeyOverride ?? agentStatusKey(
+            forAgentPIDKey: key,
+            runtime: runtime,
+            managedBinding: managedBinding,
+            retiredStatusKey: retiredStatusKeyForRuntimeKey(key)
+        )
+        let protectsCurrentBinding = managedBinding?.agentRuntimeStatusKey == statusKey
+            && managedBinding?.matchesExactAgentRuntimeKey(key) != true
+            && key != statusKey
+        let protectsCurrentAuthority = protectsCurrentRuntimeStatus(statusKey, key)
+        let protectsCurrentRuntime = protectsCurrentBinding || protectsCurrentAuthority
         var didChange = false
         if runtime.agentPIDs.removeValue(forKey: key) != nil { didChange = true }
         if runtime.agentPIDProcessIdentities.removeValue(forKey: key) != nil { didChange = true }
         if runtime.agentPIDKeys.remove(key) != nil { didChange = true }
-        if runtime.agentLifecycleStates.removeValue(forKey: statusKey) != nil {
+        let hasRemainingRuntime = runtime.agentPIDKeys.contains {
+            agentStatusKey(
+                forAgentPIDKey: $0,
+                runtime: runtime,
+                managedBinding: managedBinding,
+                retiredStatusKey: retiredStatusKeyForRuntimeKey($0)
+            ) == statusKey
+        }
+        if !protectsCurrentRuntime,
+           !hasRemainingRuntime,
+           runtime.agentLifecycleStates.removeValue(forKey: statusKey) != nil {
             didChange = true
         }
         if clearStatus,
-           !runtime.agentPIDKeys.contains(where: {
-               agentStatusKey(forAgentPIDKey: $0, runtime: runtime) == statusKey
-           }),
+           !protectsCurrentRuntime,
+           !hasRemainingRuntime,
            runtime.statusEntries.removeValue(forKey: statusKey) != nil {
             didChange = true
         }
@@ -339,17 +461,55 @@ extension DockSplitStore {
 
     private static func isStructuredAgentHookPIDKey(
         _ key: String,
-        runtime: Workspace.DetachedAgentRuntimeState
+        runtime: Workspace.DetachedAgentRuntimeState,
+        managedBinding: SurfaceResumeBindingSnapshot?
     ) -> Bool {
-        AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(
-            agentStatusKey(forAgentPIDKey: key, runtime: runtime)
+        if AgentRuntimeSessionKey(rawValue: key) != nil {
+            return true
+        }
+        if let managedBinding,
+           managedBinding.matchesAgentRuntimeKeyForCleanup(key) {
+            return managedBinding.matchesExactAgentRuntimeKey(key)
+        }
+        if let managedBinding,
+           managedBinding.isLegacyAgentRuntimeReplacementCandidate(key) {
+            return true
+        }
+        if let managedBinding,
+           let statusKey = managedBinding.agentRuntimeStatusKey,
+           agentStatusKey(
+               forAgentPIDKey: key,
+               runtime: runtime,
+               managedBinding: managedBinding
+           ) == statusKey {
+            return false
+        }
+        return AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(
+            agentStatusKey(
+                forAgentPIDKey: key,
+                runtime: runtime,
+                managedBinding: managedBinding
+            )
         )
     }
 
     private static func agentStatusKey(
         forAgentPIDKey key: String,
-        runtime: Workspace.DetachedAgentRuntimeState
+        runtime: Workspace.DetachedAgentRuntimeState,
+        managedBinding: SurfaceResumeBindingSnapshot? = nil,
+        retiredStatusKey: String? = nil
     ) -> String {
+        if let structuredKey = AgentRuntimeSessionKey(rawValue: key) {
+            return structuredKey.statusKey
+        }
+        if let managedBinding,
+           let statusKey = managedBinding.agentRuntimeStatusKey,
+           managedBinding.matchesAgentRuntimeKeyForCleanup(key) {
+            return statusKey
+        }
+        if let retiredStatusKey {
+            return retiredStatusKey
+        }
         if runtime.statusEntries[key] != nil {
             return key
         }

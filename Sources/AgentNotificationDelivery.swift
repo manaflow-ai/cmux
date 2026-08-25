@@ -26,7 +26,9 @@ struct AgentNotificationDelivery: Sendable {
         body: String,
         category: AgentNotifyCategory?,
         pending: Bool,
-        coalesces: Bool = false
+        coalesces: Bool = false,
+        runtimeKey: String? = nil,
+        runtimeGeneration: TimeInterval? = nil
     ) -> Bool {
         if let category,
            !agentNotificationShouldDeliver(
@@ -44,7 +46,9 @@ struct AgentNotificationDelivery: Sendable {
             title: title,
             subtitle: subtitle,
             body: body,
-            coalesces: coalesces
+            coalesces: coalesces,
+            runtimeKey: runtimeKey,
+            runtimeGeneration: runtimeGeneration
         )
         return true
     }

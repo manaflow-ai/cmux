@@ -1,4 +1,5 @@
 import Dispatch
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -17,11 +18,12 @@ struct ClaudeNotificationStatusLifecycleTests {
             ttySurfaceId: context.surfaceId
         )
 
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
         var environment = harness.claudeHookEnvironment(
             context: context,
             surfaceId: context.surfaceId,
             ttyName: "ttys-claude-notify-pid",
-            storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
+            storeURL: storeURL
         )
         environment["CMUX_CLAUDE_PID"] = "\(claudePID)"
 
@@ -37,7 +39,7 @@ struct ClaudeNotificationStatusLifecycleTests {
         harness.assertSuccessfulHook(result)
 
         let commands = context.state.snapshot()
-        _ = try #require(
+        let statusCommand = try #require(
             commands.first {
                 $0.hasPrefix("set_status claude_code Needs input ")
                     && $0.contains("--tab=\(context.workspaceId)")
@@ -45,12 +47,37 @@ struct ClaudeNotificationStatusLifecycleTests {
             },
             "Expected Claude notification to set a Needs input status, saw \(commands)"
         )
-        #expect(
-            commands.contains {
-                $0 == "set_agent_pid claude_code.claude-notify-pid-session \(claudePID) " +
-                    "--tab=\(context.workspaceId) --panel=\(context.surfaceId)"
-            },
-            "Claude notification must bind PID ownership to its exact session so stale cleanup cannot revive another conversation; commands=\(commands)"
+        let runtimeKeys = AgentRuntimeSessionKey(
+            statusKey: "claude_code",
+            sessionID: "claude-notify-pid-session"
+        ).compatibleRawValues
+        let record = try #require(
+            ClaudeHookLiveDeliveryHarness.sessionRecord(
+                in: storeURL,
+                sessionId: "claude-notify-pid-session"
+            )
         )
+        let runtimeGeneration = try #require(record["runtimeGeneration"] as? Double)
+        let encodedPIDIndex = try #require(commands.firstIndex {
+            $0.hasPrefix("set_agent_pid \(runtimeKeys[0]) \(claudePID) ")
+        })
+        let legacyPIDIndex = try #require(commands.firstIndex {
+            $0.hasPrefix("set_agent_pid \(runtimeKeys[1]) \(claudePID) ")
+        })
+        let lifecycleIndex = try #require(commands.firstIndex {
+            $0.hasPrefix("set_agent_lifecycle claude_code ")
+        })
+        let runtimeAuthority = "--runtime-key=\(runtimeKeys[0])"
+        let generationAuthority = "--runtime-generation=\(runtimeGeneration)"
+        #expect(encodedPIDIndex < legacyPIDIndex)
+        #expect(legacyPIDIndex < lifecycleIndex)
+        #expect(commands[encodedPIDIndex].contains(runtimeAuthority))
+        #expect(commands[encodedPIDIndex].contains(generationAuthority))
+        #expect(commands[legacyPIDIndex].contains(runtimeAuthority))
+        #expect(commands[legacyPIDIndex].contains(generationAuthority))
+        #expect(commands[lifecycleIndex].contains(runtimeAuthority))
+        #expect(commands[lifecycleIndex].contains(generationAuthority))
+        #expect(statusCommand.contains(runtimeAuthority))
+        #expect(statusCommand.contains(generationAuthority))
     }
 }

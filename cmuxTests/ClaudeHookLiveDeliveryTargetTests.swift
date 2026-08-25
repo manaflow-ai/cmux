@@ -133,7 +133,7 @@ struct ClaudeHookLiveDeliveryTargetTests {
             "Notification must follow the moved pane to its current workspace; saw \(commands)"
         )
         #expect(
-            !commands.contains { $0.contains("notify_target_async \(Self.liveWorkspaceId) \(Self.fallbackSurfaceId)") },
+            !commands.contains { $0.hasPrefix("notify_target_async \(Self.liveWorkspaceId) \(Self.fallbackSurfaceId) ") },
             "Notification must not land on the old workspace's focused surface; saw \(commands)"
         )
         let record = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
@@ -185,7 +185,7 @@ struct ClaudeHookLiveDeliveryTargetTests {
             "Notification must land on the identity surface confirmed by the app, not the focused-surface fallback; saw \(commands)"
         )
         #expect(
-            !commands.contains { $0.contains("notify_target_async \(Self.liveWorkspaceId) \(Self.fallbackSurfaceId)") },
+            !commands.contains { $0.hasPrefix("notify_target_async \(Self.liveWorkspaceId) \(Self.fallbackSurfaceId) ") },
             "Notification must not land on the focused-surface fallback when the app confirms the identity surface; saw \(commands)"
         )
     }

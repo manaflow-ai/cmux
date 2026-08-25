@@ -190,6 +190,10 @@ struct TerminalNotificationPolicyRequest: Sendable {
     let panelId: UUID?
     let retargetsToLiveSurfaceOwner: Bool
     let correlationKey: String?
+    /// Immutable agent-runtime authority carried across asynchronous policy
+    /// evaluation and rechecked at the final MainActor apply boundary.
+    let runtimeKey: String?
+    let runtimeGeneration: TimeInterval?
     let title: String
     let subtitle: String
     let body: String
@@ -202,6 +206,8 @@ struct TerminalNotificationPolicyRequest: Sendable {
         panelId: UUID? = nil,
         retargetsToLiveSurfaceOwner: Bool = false,
         correlationKey: String? = nil,
+        runtimeKey: String? = nil,
+        runtimeGeneration: TimeInterval? = nil,
         title: String,
         subtitle: String,
         body: String,
@@ -214,6 +220,8 @@ struct TerminalNotificationPolicyRequest: Sendable {
         self.panelId = panelId
         self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
         self.correlationKey = correlationKey
+        self.runtimeKey = runtimeKey
+        self.runtimeGeneration = runtimeGeneration
         self.title = title
         self.subtitle = subtitle
         self.body = body

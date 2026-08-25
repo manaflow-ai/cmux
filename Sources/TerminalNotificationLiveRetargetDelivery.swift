@@ -14,7 +14,9 @@ extension TerminalController {
         title: String,
         subtitle: String,
         body: String,
-        retargetsToLiveSurfaceOwner: Bool = true
+        retargetsToLiveSurfaceOwner: Bool = true,
+        runtimeKey: String? = nil,
+        runtimeGeneration: TimeInterval? = nil
     ) {
         let target: (tabId: UUID, surfaceId: UUID?)
         if retargetsToLiveSurfaceOwner {
@@ -55,7 +57,9 @@ extension TerminalController {
             title: title,
             subtitle: subtitle,
             body: body,
-            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            runtimeKey: runtimeKey,
+            runtimeGeneration: runtimeGeneration
         )
     }
 }
@@ -72,8 +76,21 @@ extension TerminalNotificationStore {
         title: String,
         subtitle: String,
         body: String,
-        notificationGeneration: UInt64
+        notificationGeneration: UInt64,
+        runtimeKey: String? = nil,
+        runtimeGeneration: TimeInterval? = nil
     ) {
+        if let runtimeKey {
+            guard let surfaceId,
+                  AppDelegate.shared?.allowsAgentNotificationRuntimeMutation(
+                      claimedTabID: claimedTabId,
+                      surfaceID: surfaceId,
+                      runtimeKey: runtimeKey,
+                      runtimeGeneration: runtimeGeneration
+                  ) == true else {
+                return
+            }
+        }
         guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
             claimedTabId: claimedTabId,
             surfaceId: surfaceId
@@ -97,7 +114,9 @@ extension TerminalNotificationStore {
             subtitle: subtitle,
             body: body,
             retargetsToLiveSurfaceOwner: true,
-            notificationGeneration: notificationGeneration
+            notificationGeneration: notificationGeneration,
+            runtimeKey: runtimeKey,
+            runtimeGeneration: runtimeGeneration
         )
     }
 
@@ -117,6 +136,8 @@ extension TerminalNotificationStore {
             panelId: request.panelId,
             retargetsToLiveSurfaceOwner: true,
             correlationKey: request.correlationKey,
+            runtimeKey: request.runtimeKey,
+            runtimeGeneration: request.runtimeGeneration,
             title: request.title,
             subtitle: request.subtitle,
             body: request.body,

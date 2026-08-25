@@ -13,6 +13,26 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let expectedEnvironment: [String: String]?
     }
 
+    func isRuntimeAuthorizedNotification(
+        _ command: String,
+        workspaceId: String,
+        surfaceId: String,
+        payloadFragment: String
+    ) -> Bool {
+        (command.hasPrefix("notify_target_async \(workspaceId) \(surfaceId) --runtime-key=")
+            || command.hasPrefix("notify_target_async_authorized \(workspaceId) \(surfaceId) --runtime-key="))
+            && command.contains(" -- \(payloadFragment)")
+    }
+
+    func isRuntimeAuthorizedPanelClear(
+        _ command: String,
+        workspaceId: String,
+        surfaceId: String
+    ) -> Bool {
+        command.hasPrefix("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId) ")
+            && command.contains("--runtime-key=")
+    }
+
     func testGenericHookAgentsPersistSanitizedLaunchCommandsForSessionRestore() throws {
         let scenarios: [GenericHookPersistenceScenario] = [
             GenericHookPersistenceScenario(
@@ -441,7 +461,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let stopCommands = Array(state.commands.dropFirst(stopCommandStart))
         XCTAssertTrue(
             stopCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Antigravity|Completed in ")
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    payloadFragment: "Antigravity|Completed in "
+                )
                     && $0.contains(stopMessage)
             },
             "Expected Antigravity stop to publish a turn-completion notification, saw \(stopCommands)"
@@ -498,7 +523,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let permissionCommands = Array(state.commands.dropFirst(permissionCommandStart))
         XCTAssertTrue(
             permissionCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Antigravity|Permission|\(permissionMessage)")
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    payloadFragment: "Antigravity|Permission|\(permissionMessage)"
+                )
             },
             "Expected Antigravity permission notifications to publish through cmux, saw \(permissionCommands)"
         )
@@ -520,7 +550,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let stopErrorCommands = Array(state.commands.dropFirst(stopErrorCommandStart))
         XCTAssertTrue(
             stopErrorCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Antigravity|Error|\(stopErrorMessage)")
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    payloadFragment: "Antigravity|Error|\(stopErrorMessage)"
+                )
             },
             "Expected Antigravity Stop errors to publish through cmux, saw \(stopErrorCommands)"
         )
@@ -542,7 +577,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let errorCommands = Array(state.commands.dropFirst(errorCommandStart))
         XCTAssertTrue(
             errorCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Antigravity|Error|\(errorMessage)")
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    payloadFragment: "Antigravity|Error|\(errorMessage)"
+                )
             },
             "Expected Antigravity error notifications to publish through cmux, saw \(errorCommands)"
         )
@@ -622,7 +662,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let stopCommands = Array(state.commands.dropFirst(stopCommandStart))
         XCTAssertTrue(
             stopCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Hermes Agent|Completed in ")
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    payloadFragment: "Hermes Agent|Completed in "
+                )
                     && $0.contains("|\(assistantResponse)")
             },
             "Expected Hermes completion notification to use extra.assistant_response, saw \(stopCommands)"
@@ -644,7 +689,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let approvalCommands = Array(state.commands.dropFirst(approvalCommandStart))
         XCTAssertTrue(
             approvalCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Hermes Agent|Permission|recursive delete: rm -rf build")
+                self.isRuntimeAuthorizedNotification(
+                    $0,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    payloadFragment: "Hermes Agent|Permission|recursive delete: rm -rf build"
+                )
             },
             "Expected Hermes approval notification to include description and command, saw \(approvalCommands)"
         )
@@ -673,7 +723,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let responseCommands = Array(state.commands.dropFirst(responseCommandStart))
         XCTAssertTrue(
-            responseCommands.contains { $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)") },
+            responseCommands.contains {
+                self.isRuntimeAuthorizedPanelClear(
+                    $0,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+            },
             "Expected Hermes approval response to clear the approval notification, saw \(responseCommands)"
         )
         XCTAssertTrue(
@@ -1425,7 +1481,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let notificationCommands = Array(state.commands.dropFirst(notificationCommandStart))
         XCTAssertTrue(
             notificationCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|Grok finished updating docs")
+                self.isRuntimeAuthorizedNotification($0, workspaceId: workspaceId, surfaceId: surfaceId, payloadFragment: "Grok|Completed|Grok finished updating docs")
             },
             "Expected Grok Notification to forward the payload message, saw \(notificationCommands)"
         )
@@ -1469,7 +1525,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let preAssistantGenericCommands = Array(state.commands.dropFirst(preAssistantGenericCommandStart))
         XCTAssertTrue(
             preAssistantGenericCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|Task completed")
+                self.isRuntimeAuthorizedNotification($0, workspaceId: workspaceId, surfaceId: surfaceId, payloadFragment: "Grok|Completed|Task completed")
             },
             "Grok generic completion notifications should still fire before there is an assistant response, saw \(preAssistantGenericCommands)"
         )
@@ -1511,7 +1567,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let enrichedStopCommands = Array(state.commands.dropFirst(enrichedStopCommandStart))
         XCTAssertTrue(
             enrichedStopCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed in ")
+                self.isRuntimeAuthorizedNotification($0, workspaceId: workspaceId, surfaceId: surfaceId, payloadFragment: "Grok|Completed in ")
                     && $0.contains(assistantMessage)
             },
             "Expected Grok Stop fallback to publish the cwd-scoped assistant response when Grok only emits internal Notification events, saw \(enrichedStopCommands)"
@@ -1557,7 +1613,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let oversizedStopCommands = Array(state.commands.dropFirst(oversizedStopCommandStart))
         XCTAssertTrue(
             oversizedStopCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed in ")
+                self.isRuntimeAuthorizedNotification($0, workspaceId: workspaceId, surfaceId: surfaceId, payloadFragment: "Grok|Completed in ")
                     && $0.contains("Oversized Grok assistant response")
             },
             "Expected Grok Stop fallback to parse the oversized final chat-history line, saw \(oversizedStopCommands)"
@@ -1617,7 +1673,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let multibyteStopCommands = Array(state.commands.dropFirst(multibyteStopCommandStart))
         XCTAssertTrue(
             multibyteStopCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed in ")
+                self.isRuntimeAuthorizedNotification($0, workspaceId: workspaceId, surfaceId: surfaceId, payloadFragment: "Grok|Completed in ")
                     && $0.contains(multibyteAssistantMessage)
             },
             "Expected Grok Stop fallback to skip the partial multibyte leading line, saw \(multibyteStopCommands)"
@@ -1655,7 +1711,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let sameCwdMissingCommands = Array(state.commands.dropFirst(sameCwdMissingCommandStart))
         XCTAssertTrue(
             sameCwdMissingCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|Task completed")
+                self.isRuntimeAuthorizedNotification($0, workspaceId: workspaceId, surfaceId: surfaceId, payloadFragment: "Grok|Completed|Task completed")
             },
             "Grok completion without a matching session transcript should still fire a generic completion notification, saw \(sameCwdMissingCommands)"
         )
@@ -1699,7 +1755,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let envResolvedCommands = Array(state.commands.dropFirst(envResolvedCommandStart))
         XCTAssertTrue(
             envResolvedCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|\(envResolvedMessage)")
+                self.isRuntimeAuthorizedNotification($0, workspaceId: workspaceId, surfaceId: surfaceId, payloadFragment: "Grok|Completed|\(envResolvedMessage)")
             },
             "Grok completion without a payload session id should use the resolved hook session id, saw \(envResolvedCommands)"
         )
@@ -1746,7 +1802,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let scopedMissCommands = Array(state.commands.dropFirst(scopedMissCommandStart))
         XCTAssertTrue(
             scopedMissCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|Task completed")
+                self.isRuntimeAuthorizedNotification($0, workspaceId: workspaceId, surfaceId: surfaceId, payloadFragment: "Grok|Completed|Task completed")
             },
             "Grok completion without a cwd-scoped transcript should still fire a generic completion notification, saw \(scopedMissCommands)"
         )
@@ -1772,7 +1828,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let waitingCommands = Array(state.commands.dropFirst(waitingCommandStart))
         XCTAssertTrue(
             waitingCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(waitingMessage)")
+                self.isRuntimeAuthorizedNotification($0, workspaceId: workspaceId, surfaceId: surfaceId, payloadFragment: "Grok|Waiting|\(waitingMessage)")
             },
             "Expected waiting notification to forward the payload message, saw \(waitingCommands)"
         )
@@ -1793,7 +1849,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let fallbackCommands = Array(state.commands.dropFirst(fallbackCommandStart))
         XCTAssertFalse(
             fallbackCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(waitingMessage)")
+                self.isRuntimeAuthorizedNotification($0, workspaceId: workspaceId, surfaceId: surfaceId, payloadFragment: "Grok|Waiting|\(waitingMessage)")
             },
             "Expected the saved-message fallback to dedupe the notification already delivered for that message, saw \(fallbackCommands)"
         )
@@ -1843,7 +1899,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let incompleteWaitingCommands = Array(state.commands.dropFirst(incompleteWaitingCommandStart))
         XCTAssertTrue(
             incompleteWaitingCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(incompleteWaitingMessage)")
+                self.isRuntimeAuthorizedNotification($0, workspaceId: workspaceId, surfaceId: surfaceId, payloadFragment: "Grok|Waiting|\(incompleteWaitingMessage)")
             },
             "Incomplete/undone waiting text should not be classified as a completion, saw \(incompleteWaitingCommands)"
         )
@@ -1891,7 +1947,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let neutralFallbackCommands = Array(state.commands.dropFirst(neutralFallbackCommandStart))
         XCTAssertFalse(
             neutralFallbackCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(incompleteWaitingMessage)")
+                self.isRuntimeAuthorizedNotification($0, workspaceId: workspaceId, surfaceId: surfaceId, payloadFragment: "Grok|Waiting|\(incompleteWaitingMessage)")
             },
             "Expected the saved-message fallback to dedupe the notification already delivered for that message, saw \(neutralFallbackCommands)"
         )
@@ -2043,7 +2099,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let stopCommands = Array(state.commands.dropFirst(stopCommandStart))
             XCTAssertTrue(
                 stopCommands.contains {
-                    $0.contains("notify_target_async \(workspaceId) \(thread.surfaceId) Grok|Completed in ")
+                    self.isRuntimeAuthorizedNotification($0, workspaceId: workspaceId, surfaceId: thread.surfaceId, payloadFragment: "Grok|Completed in ")
                         && $0.contains(thread.assistantMessage)
                 },
                 "Expected Grok Stop fallback to notify for thread \(thread.index), saw \(stopCommands)"
@@ -2156,7 +2212,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let stopCommands = Array(state.commands.dropFirst(stopCommandStart))
         XCTAssertTrue(
             stopCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|Grok session completed")
+                self.isRuntimeAuthorizedNotification($0, workspaceId: workspaceId, surfaceId: surfaceId, payloadFragment: "Grok|Completed|Grok session completed")
             },
             "Expected Grok Stop without cwd to notify with a generic completion body, saw \(stopCommands)"
         )
@@ -2268,7 +2324,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let notificationCommands = Array(state.commands.dropFirst(commandStart))
             XCTAssertTrue(
                 notificationCommands.contains {
-                    $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|Task completed")
+                    self.isRuntimeAuthorizedNotification($0, workspaceId: workspaceId, surfaceId: surfaceId, payloadFragment: "Grok|Completed|Task completed")
                 },
                 "Expected Grok completion notification for prompt \(index), saw \(notificationCommands)"
             )
@@ -2367,7 +2423,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "Expected Grok prompt \(index) to reuse the saved target without CMUX env, saw \(promptCommands)"
             )
             XCTAssertTrue(
-                promptCommands.contains { $0 == "clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)" },
+                promptCommands.contains {
+                    self.isRuntimeAuthorizedPanelClear($0, workspaceId: workspaceId, surfaceId: surfaceId)
+                },
                 "Expected Grok prompt \(index) to clear only its own surface notifications, saw \(promptCommands)"
             )
             XCTAssertFalse(
@@ -2417,7 +2475,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let notificationCommands = Array(state.commands.dropFirst(notificationCommandStart))
             XCTAssertTrue(
                 notificationCommands.contains {
-                    $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|Task completed")
+                    self.isRuntimeAuthorizedNotification($0, workspaceId: workspaceId, surfaceId: surfaceId, payloadFragment: "Grok|Completed|Task completed")
                 },
                 "Expected Grok completion notification for chat message \(index), saw \(notificationCommands)"
             )
@@ -2566,7 +2624,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let promptCommands = Array(state.commands.dropFirst(promptCommandStart))
         XCTAssertTrue(
-            promptCommands.contains { $0 == "clear_notifications --tab=\(workspaceId) --panel=\(runningSurfaceId)" },
+            promptCommands.contains {
+                self.isRuntimeAuthorizedPanelClear($0, workspaceId: workspaceId, surfaceId: runningSurfaceId)
+            },
             "Expected running Grok prompt to clear only its own surface notifications, saw \(promptCommands)"
         )
         XCTAssertTrue(
@@ -2586,7 +2646,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let completionCommands = Array(state.commands.dropFirst(completionCommandStart))
         XCTAssertTrue(
             completionCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(completingSurfaceId) Grok|Completed|Task completed")
+                self.isRuntimeAuthorizedNotification($0, workspaceId: workspaceId, surfaceId: completingSurfaceId, payloadFragment: "Grok|Completed|Task completed")
             },
             "Expected completing Grok session to notify its own surface, saw \(completionCommands)"
         )

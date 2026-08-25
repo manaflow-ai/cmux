@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxControlSocket
 import CmuxCore
 import Darwin
@@ -281,6 +282,459 @@ extension AgentNotificationRegressionTests {
             fixture.destination.agentLifecycleStatesByPanelId[fixture.panelId]?["omp"]
                 == nil
         )
+    }
+
+    @Test("Older generated hook mutations cannot crown a Workspace runtime without a binding")
+    func olderGeneratedHookMutationsCannotCrownWorkspaceRuntimeWithoutBinding() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let bus = TerminalMutationBus.shared
+        defer { bus.drainForTesting() }
+        let statusKey = "omp"
+        let currentGeneration: TimeInterval = 200
+        let staleGeneration: TimeInterval = 100
+        let currentRuntimeKey = AgentRuntimeSessionKey(
+            statusKey: statusKey,
+            sessionID: "session-b"
+        ).rawValue
+        let staleRuntimeKey = AgentRuntimeSessionKey(
+            statusKey: statusKey,
+            sessionID: "session-a"
+        ).rawValue
+        TerminalController.shared.controlSidebarScheduleStatusUpsert(
+            target: .workspace(fixture.source.id),
+            key: "codex",
+            value: "Mismatched",
+            icon: nil,
+            color: nil,
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelID: fixture.panelId,
+            pid: getpid(),
+            runtimeKey: currentRuntimeKey,
+            runtimeGeneration: currentGeneration
+        )
+        TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
+            target: .workspace(fixture.source.id),
+            key: staleRuntimeKey,
+            pid: getpid(),
+            panelID: fixture.panelId,
+            runtimeKey: currentRuntimeKey,
+            runtimeGeneration: currentGeneration
+        )
+        bus.drainForTesting()
+        #expect(fixture.source.statusEntries["codex"] == nil)
+        #expect(fixture.source.agentPIDKeysByPanelId[fixture.panelId]?.contains(currentRuntimeKey) != true)
+        #expect(fixture.source.agentPIDKeysByPanelId[fixture.panelId]?.contains(staleRuntimeKey) != true)
+
+        TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
+            target: .workspace(fixture.source.id),
+            key: currentRuntimeKey,
+            pid: getpid(),
+            panelID: fixture.panelId,
+            runtimeKey: currentRuntimeKey,
+            runtimeGeneration: currentGeneration
+        )
+        TerminalController.shared.controlSidebarScheduleStatusUpsert(
+            target: .workspace(fixture.source.id),
+            key: statusKey,
+            value: "Current",
+            icon: nil,
+            color: nil,
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelID: fixture.panelId,
+            pid: nil,
+            runtimeKey: currentRuntimeKey,
+            runtimeGeneration: currentGeneration
+        )
+        TerminalController.shared.controlSidebarScheduleAgentLifecycle(
+            target: .workspace(fixture.source.id),
+            key: statusKey,
+            lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
+            panelID: fixture.panelId,
+            runtimeKey: currentRuntimeKey,
+            runtimeGeneration: currentGeneration
+        )
+        bus.drainForTesting()
+
+        TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
+            target: .workspace(fixture.source.id),
+            key: currentRuntimeKey,
+            pid: getpid() + 1,
+            panelID: fixture.panelId,
+            runtimeKey: currentRuntimeKey
+        )
+        TerminalController.shared.controlSidebarScheduleAgentLifecycle(
+            target: .workspace(fixture.source.id),
+            key: statusKey,
+            lifecycleRawValue: AgentHibernationLifecycleState.needsInput.rawValue,
+            panelID: fixture.panelId,
+            runtimeKey: currentRuntimeKey
+        )
+        TerminalController.shared.controlSidebarScheduleStatusUpsert(
+            target: .workspace(fixture.source.id),
+            key: statusKey,
+            value: "Legacy",
+            icon: nil,
+            color: nil,
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelID: fixture.panelId,
+            pid: nil,
+            runtimeKey: currentRuntimeKey
+        )
+        bus.drainForTesting()
+        #expect(fixture.source.agentPIDs[currentRuntimeKey] == getpid())
+        #expect(fixture.source.statusEntries[statusKey]?.value == "Current")
+        #expect(fixture.source.agentLifecycleStatesByPanelId[fixture.panelId]?[statusKey] == .running)
+
+        TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
+            target: .workspace(fixture.source.id),
+            key: staleRuntimeKey,
+            pid: getpid(),
+            panelID: fixture.panelId,
+            runtimeKey: staleRuntimeKey,
+            runtimeGeneration: staleGeneration
+        )
+        TerminalController.shared.controlSidebarScheduleAgentLifecycle(
+            target: .workspace(fixture.source.id),
+            key: statusKey,
+            lifecycleRawValue: AgentHibernationLifecycleState.needsInput.rawValue,
+            panelID: fixture.panelId,
+            runtimeKey: staleRuntimeKey,
+            runtimeGeneration: staleGeneration
+        )
+        TerminalController.shared.controlSidebarScheduleStatusUpsert(
+            target: .workspace(fixture.source.id),
+            key: statusKey,
+            value: "Stale",
+            icon: nil,
+            color: nil,
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelID: fixture.panelId,
+            pid: nil,
+            runtimeKey: staleRuntimeKey,
+            runtimeGeneration: staleGeneration
+        )
+        bus.drainForTesting()
+
+        #expect(fixture.source.agentPIDKeysByPanelId[fixture.panelId]?.contains(currentRuntimeKey) == true)
+        #expect(fixture.source.agentPIDKeysByPanelId[fixture.panelId]?.contains(staleRuntimeKey) != true)
+        #expect(fixture.source.statusEntries[statusKey]?.value == "Current")
+        #expect(fixture.source.agentLifecycleStatesByPanelId[fixture.panelId]?[statusKey] == .running)
+    }
+
+    @Test("Stale generated notifications cannot replace or clear a current runtime notification")
+    func staleGeneratedNotificationsPreserveCurrentRuntimeNotification() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            bus.setDrainsSuspendedForTesting(false)
+            bus.discardPendingNotifications()
+        }
+
+        let statusKey = "codex"
+        let currentGeneration: TimeInterval = 200
+        let staleGeneration: TimeInterval = 100
+        let currentRuntimeKey = AgentRuntimeSessionKey(
+            statusKey: statusKey,
+            sessionID: "notification-current"
+        ).rawValue
+        let staleRuntimeKey = AgentRuntimeSessionKey(
+            statusKey: statusKey,
+            sessionID: "notification-stale"
+        ).rawValue
+        TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
+            target: .workspace(fixture.source.id),
+            key: currentRuntimeKey,
+            pid: getpid(),
+            panelID: fixture.panelId,
+            runtimeKey: currentRuntimeKey,
+            runtimeGeneration: currentGeneration
+        )
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Codex",
+            subtitle: "Completed",
+            body: "Current runtime",
+            coalesces: true,
+            runtimeKey: currentRuntimeKey,
+            runtimeGeneration: currentGeneration
+        )
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Codex",
+            subtitle: "Completed",
+            body: "Stale runtime",
+            coalesces: true,
+            runtimeKey: staleRuntimeKey,
+            runtimeGeneration: staleGeneration
+        )
+        bus.setDrainsSuspendedForTesting(false)
+        bus.drainForTesting()
+
+        #expect(fixture.store.notifications.map(\.body) == ["Current runtime"])
+
+        bus.enqueueClearNotifications(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            runtimeKey: staleRuntimeKey,
+            runtimeGeneration: staleGeneration
+        )
+        bus.drainForTesting()
+        #expect(fixture.store.notifications.map(\.body) == ["Current runtime"])
+
+        bus.enqueueClearNotifications(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            runtimeKey: currentRuntimeKey,
+            runtimeGeneration: currentGeneration
+        )
+        bus.drainForTesting()
+        #expect(fixture.store.notifications.isEmpty)
+    }
+
+    @Test("An unestablished future generation cannot crown itself through ordinary mutations")
+    func futureGeneratedMutationsCannotCrownCurrentRuntime() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let bus = TerminalMutationBus.shared
+        defer {
+            bus.setDrainsSuspendedForTesting(false)
+            bus.discardPendingNotifications()
+        }
+
+        let statusKey = "codex"
+        let currentGeneration: TimeInterval = 200
+        let futureGeneration: TimeInterval = 300
+        let currentRuntimeKey = AgentRuntimeSessionKey(
+            statusKey: statusKey,
+            sessionID: "future-crown-current"
+        ).rawValue
+        let futureRuntimeKey = AgentRuntimeSessionKey(
+            statusKey: statusKey,
+            sessionID: "future-crown-unestablished"
+        ).rawValue
+
+        TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
+            target: .workspace(fixture.source.id),
+            key: currentRuntimeKey,
+            pid: getpid(),
+            panelID: fixture.panelId,
+            runtimeKey: currentRuntimeKey,
+            runtimeGeneration: currentGeneration
+        )
+        TerminalController.shared.controlSidebarScheduleStatusUpsert(
+            target: .workspace(fixture.source.id),
+            key: statusKey,
+            value: "Current",
+            icon: nil,
+            color: nil,
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelID: fixture.panelId,
+            pid: nil,
+            runtimeKey: currentRuntimeKey,
+            runtimeGeneration: currentGeneration
+        )
+        TerminalController.shared.controlSidebarScheduleAgentLifecycle(
+            target: .workspace(fixture.source.id),
+            key: statusKey,
+            lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
+            panelID: fixture.panelId,
+            runtimeKey: currentRuntimeKey,
+            runtimeGeneration: currentGeneration
+        )
+        bus.drainForTesting()
+
+        TerminalController.shared.controlSidebarScheduleStatusUpsert(
+            target: .workspace(fixture.source.id),
+            key: statusKey,
+            value: "Future",
+            icon: nil,
+            color: nil,
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelID: fixture.panelId,
+            pid: nil,
+            runtimeKey: futureRuntimeKey,
+            runtimeGeneration: futureGeneration
+        )
+        TerminalController.shared.controlSidebarScheduleAgentLifecycle(
+            target: .workspace(fixture.source.id),
+            key: statusKey,
+            lifecycleRawValue: AgentHibernationLifecycleState.needsInput.rawValue,
+            panelID: fixture.panelId,
+            runtimeKey: futureRuntimeKey,
+            runtimeGeneration: futureGeneration
+        )
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Codex",
+            subtitle: "Completed",
+            body: "Unestablished future runtime",
+            coalesces: true,
+            runtimeKey: futureRuntimeKey,
+            runtimeGeneration: futureGeneration
+        )
+        bus.drainForTesting()
+
+        #expect(fixture.source.statusEntries[statusKey]?.value == "Current")
+        #expect(fixture.source.agentLifecycleStatesByPanelId[fixture.panelId]?[statusKey] == .running)
+        #expect(fixture.store.notifications.isEmpty)
+
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Codex",
+            subtitle: "Completed",
+            body: "Established current runtime",
+            coalesces: true,
+            runtimeKey: currentRuntimeKey,
+            runtimeGeneration: currentGeneration
+        )
+        bus.drainForTesting()
+        #expect(fixture.store.notifications.map(\.body) == ["Established current runtime"])
+    }
+
+    @Test("Older generated hook mutations cannot crown a Dock runtime without a binding")
+    func olderGeneratedHookMutationsCannotCrownDockRuntimeWithoutBinding() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let bus = TerminalMutationBus.shared
+        defer { bus.drainForTesting() }
+        let dockOwnerID = UUID()
+        let dock = DockSplitStore(workspaceId: dockOwnerID, baseDirectoryProvider: { nil })
+        let transfer = try #require(fixture.source.detachSurface(panelId: fixture.panelId))
+        let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(dock.attachDetachedSurface(transfer, inPane: rootPane, focus: false) == fixture.panelId)
+
+        let statusKey = "omp"
+        let currentGeneration: TimeInterval = 200
+        let staleGeneration: TimeInterval = 100
+        let currentRuntimeKey = AgentRuntimeSessionKey(
+            statusKey: statusKey,
+            sessionID: "dock-session-b"
+        ).rawValue
+        let staleRuntimeKey = AgentRuntimeSessionKey(
+            statusKey: statusKey,
+            sessionID: "dock-session-a"
+        ).rawValue
+        TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
+            target: .workspace(dockOwnerID),
+            key: currentRuntimeKey,
+            pid: getpid(),
+            panelID: fixture.panelId,
+            runtimeKey: currentRuntimeKey,
+            runtimeGeneration: currentGeneration
+        )
+        TerminalController.shared.controlSidebarScheduleStatusUpsert(
+            target: .workspace(dockOwnerID),
+            key: statusKey,
+            value: "Current",
+            icon: nil,
+            color: nil,
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelID: fixture.panelId,
+            pid: nil,
+            runtimeKey: currentRuntimeKey,
+            runtimeGeneration: currentGeneration
+        )
+        TerminalController.shared.controlSidebarScheduleAgentLifecycle(
+            target: .workspace(dockOwnerID),
+            key: statusKey,
+            lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
+            panelID: fixture.panelId,
+            runtimeKey: currentRuntimeKey,
+            runtimeGeneration: currentGeneration
+        )
+        bus.drainForTesting()
+
+        TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
+            target: .workspace(dockOwnerID),
+            key: currentRuntimeKey,
+            pid: getpid() + 1,
+            panelID: fixture.panelId,
+            runtimeKey: currentRuntimeKey
+        )
+        TerminalController.shared.controlSidebarScheduleAgentLifecycle(
+            target: .workspace(dockOwnerID),
+            key: statusKey,
+            lifecycleRawValue: AgentHibernationLifecycleState.needsInput.rawValue,
+            panelID: fixture.panelId,
+            runtimeKey: currentRuntimeKey
+        )
+        TerminalController.shared.controlSidebarScheduleStatusUpsert(
+            target: .workspace(dockOwnerID),
+            key: statusKey,
+            value: "Legacy",
+            icon: nil,
+            color: nil,
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelID: fixture.panelId,
+            pid: nil,
+            runtimeKey: currentRuntimeKey
+        )
+        bus.drainForTesting()
+        #expect(dock.agentRuntimeByPanelId[fixture.panelId]?.agentPIDs[currentRuntimeKey] == getpid())
+        #expect(dock.agentRuntimeByPanelId[fixture.panelId]?.statusEntries[statusKey]?.value == "Current")
+        #expect(dock.agentRuntimeByPanelId[fixture.panelId]?.agentLifecycleStates[statusKey] == .running)
+
+        TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
+            target: .workspace(dockOwnerID),
+            key: staleRuntimeKey,
+            pid: getpid(),
+            panelID: fixture.panelId,
+            runtimeKey: staleRuntimeKey,
+            runtimeGeneration: staleGeneration
+        )
+        TerminalController.shared.controlSidebarScheduleAgentLifecycle(
+            target: .workspace(dockOwnerID),
+            key: statusKey,
+            lifecycleRawValue: AgentHibernationLifecycleState.needsInput.rawValue,
+            panelID: fixture.panelId,
+            runtimeKey: staleRuntimeKey,
+            runtimeGeneration: staleGeneration
+        )
+        TerminalController.shared.controlSidebarScheduleStatusUpsert(
+            target: .workspace(dockOwnerID),
+            key: statusKey,
+            value: "Stale",
+            icon: nil,
+            color: nil,
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelID: fixture.panelId,
+            pid: nil,
+            runtimeKey: staleRuntimeKey,
+            runtimeGeneration: staleGeneration
+        )
+        bus.drainForTesting()
+
+        let runtime = try #require(dock.agentRuntimeByPanelId[fixture.panelId])
+        #expect(runtime.agentPIDKeys.contains(currentRuntimeKey))
+        #expect(!runtime.agentPIDKeys.contains(staleRuntimeKey))
+        #expect(runtime.statusEntries[statusKey]?.value == "Current")
+        #expect(runtime.agentLifecycleStates[statusKey] == .running)
     }
 
     @Test("A stale source clear preserves a destination-confined stored notification")

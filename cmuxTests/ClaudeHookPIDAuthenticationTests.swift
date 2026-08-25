@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -148,13 +149,36 @@ struct ClaudeHookPIDAuthenticationTests {
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
         let commands = context.state.snapshot()
-        #expect(
-            commands.contains {
-                $0 == "set_agent_pid claude_code.\(sessionId) \(pid) " +
-                    "--tab=\(Self.liveWorkspaceId) --panel=\(Self.liveSurfaceId)"
-            },
-            "SessionStart must bind Claude PID ownership to its exact conversation; commands=\(commands)"
-        )
+        let runtimeKeys = AgentRuntimeSessionKey(
+            statusKey: "claude_code",
+            sessionID: sessionId
+        ).compatibleRawValues
+        let record = try #require(Harness.sessionRecord(in: context.storeURL, sessionId: sessionId))
+        let runtimeGeneration = try #require(record["runtimeGeneration"] as? Double)
+        let encodedPIDIndex = try #require(commands.firstIndex {
+            $0.hasPrefix("set_agent_pid \(runtimeKeys[0]) \(pid) ")
+        })
+        let legacyPIDIndex = try #require(commands.firstIndex {
+            $0.hasPrefix("set_agent_pid \(runtimeKeys[1]) \(pid) ")
+        })
+        let lifecycleIndex = try #require(commands.firstIndex {
+            $0.hasPrefix("set_agent_lifecycle claude_code ")
+        })
+        let runtimeAuthority = "--runtime-key=\(runtimeKeys[0])"
+        let generationAuthority = "--runtime-generation=\(runtimeGeneration)"
+        #expect(encodedPIDIndex < legacyPIDIndex)
+        #expect(legacyPIDIndex < lifecycleIndex)
+        #expect(commands[encodedPIDIndex].contains(runtimeAuthority))
+        #expect(commands[encodedPIDIndex].contains(generationAuthority))
+        #expect(commands[legacyPIDIndex].contains(runtimeAuthority))
+        #expect(commands[legacyPIDIndex].contains(generationAuthority))
+        #expect(commands[lifecycleIndex].contains(runtimeAuthority))
+        #expect(commands[lifecycleIndex].contains(generationAuthority))
+        #expect(commands.contains {
+            $0.hasPrefix("set_status claude_code Running ")
+                && $0.contains(runtimeAuthority)
+                && $0.contains(generationAuthority)
+        })
         #expect(!commands.contains { $0.hasPrefix("set_agent_pid claude_code \(pid) ") })
     }
 

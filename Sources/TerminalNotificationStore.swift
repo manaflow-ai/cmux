@@ -869,6 +869,8 @@ final class TerminalNotificationStore: ObservableObject {
             body: body,
             retargetsToLiveSurfaceOwner: true,
             correlationKey: nil,
+            runtimeKey: nil,
+            runtimeGeneration: nil,
             resolvedHooks: []
         )
         return inFlightPolicyRequests.register(
@@ -894,7 +896,9 @@ final class TerminalNotificationStore: ObservableObject {
         cooldownInterval: TimeInterval? = nil,
         clickAction: TerminalNotificationClickAction? = nil, notificationGeneration: UInt64? = nil,
         resolvedHooks: [CmuxResolvedNotificationHook]? = nil,
-        preRegisteredPolicyRequestId: UUID? = nil
+        preRegisteredPolicyRequestId: UUID? = nil,
+        runtimeKey: String? = nil,
+        runtimeGeneration: TimeInterval? = nil
     ) {
 #if DEBUG
         cmuxDebugLog(
@@ -937,6 +941,8 @@ final class TerminalNotificationStore: ObservableObject {
             body: body,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             correlationKey: cooldownKey,
+            runtimeKey: runtimeKey,
+            runtimeGeneration: runtimeGeneration,
             resolvedHooks: resolvedHooks
         )
         if policyContext.hooks.isEmpty, preRegisteredPolicyRequestId == nil {
@@ -1104,6 +1110,8 @@ final class TerminalNotificationStore: ObservableObject {
         body: String,
         retargetsToLiveSurfaceOwner: Bool,
         correlationKey: String?,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval?,
         resolvedHooks: [CmuxResolvedNotificationHook]?
     ) -> NotificationPolicyContext {
         let appDelegate = AppDelegate.shared
@@ -1140,6 +1148,8 @@ final class TerminalNotificationStore: ObservableObject {
                 panelId: panelId,
                 retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
                 correlationKey: correlationKey,
+                runtimeKey: runtimeKey,
+                runtimeGeneration: runtimeGeneration,
                 title: title,
                 subtitle: subtitle,
                 body: body,
@@ -1170,6 +1180,8 @@ final class TerminalNotificationStore: ObservableObject {
                 panelId: request.panelId,
                 retargetsToLiveSurfaceOwner: request.retargetsToLiveSurfaceOwner,
                 correlationKey: request.correlationKey,
+                runtimeKey: request.runtimeKey,
+                runtimeGeneration: request.runtimeGeneration,
                 title: payload.title,
                 subtitle: payload.subtitle,
                 body: payload.body,
@@ -1195,6 +1207,18 @@ final class TerminalNotificationStore: ObservableObject {
     ) {
         guard inFlightPolicyRequests.claim(policyRequestId) else { return }
         guard let request = notificationPolicyRequestAtLiveOwner(request) else { restoreCooldownReservation(cooldownReservation); return }
+        if let runtimeKey = request.runtimeKey {
+            guard let surfaceId = request.surfaceId,
+                  AppDelegate.shared?.allowsAgentNotificationRuntimeMutation(
+                      claimedTabID: request.tabId,
+                      surfaceID: surfaceId,
+                      runtimeKey: runtimeKey,
+                      runtimeGeneration: request.runtimeGeneration
+                  ) == true else {
+                restoreCooldownReservation(cooldownReservation)
+                return
+            }
+        }
         let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
             tabId: request.tabId,
             surfaceId: request.surfaceId

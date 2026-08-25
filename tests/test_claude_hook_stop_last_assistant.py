@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import base64
 import glob
 import json
 import os
@@ -13,6 +14,11 @@ import tempfile
 import threading
 import time
 import uuid
+
+
+def agent_runtime_session_key(status_key: str, session_id: str) -> str:
+    encoded_session = base64.urlsafe_b64encode(session_id.encode()).decode().rstrip("=")
+    return f"{status_key}.~cmux-session-v1~.{encoded_session}"
 
 
 def resolve_cmux_cli() -> str:
@@ -246,7 +252,12 @@ def main() -> int:
             print(f"commands={server.commands!r}")
             return 1
 
-        notify_commands = [line for line in server.commands if line.startswith("notify_target_async ")]
+        notify_commands = [
+            line
+            for line in server.commands
+            if line.startswith("notify_target_async ")
+            or line.startswith("notify_target_async_authorized ")
+        ]
         if not notify_commands:
             print("FAIL: expected notify_target_async command")
             print(f"commands={server.commands!r}")

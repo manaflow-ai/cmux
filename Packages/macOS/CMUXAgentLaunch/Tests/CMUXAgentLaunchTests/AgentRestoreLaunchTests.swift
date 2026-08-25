@@ -77,7 +77,9 @@ import Testing
             checkpointID: sessionID,
             source: "agent-hook",
             workingDirectory: workingDirectory,
-            environment: [:],
+            environment: [
+                AgentRuntimeSessionKey.runtimeGenerationEnvironmentKey: "123.5",
+            ],
             launchCommand: launch,
             preparedArguments: nil,
             observedPermissionMode: nil
@@ -99,6 +101,10 @@ import Testing
         #expect(invocation.arguments.contains(capturedWorkingDirectory) == false)
         #expect(invocation.environment["CODEX_HOME"] == "/tmp/配置")
         #expect(invocation.environment["CMUX_CUSTOM_CODEX_PATH"] == "/opt/company bin/codex")
+        #expect(
+            invocation.environment[AgentRuntimeSessionKey.runtimeGenerationEnvironmentKey]
+                == "123.5"
+        )
         #expect(
             invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"]
                 == "codex:\(sessionID)"

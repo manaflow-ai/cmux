@@ -93,7 +93,9 @@ extension CMUXCLI {
                 client: client,
                 workspaceId: record.workspaceId,
                 surfaceId: record.surfaceId,
-                sessionId: record.sessionId
+                sessionId: record.sessionId,
+                runtimeStatusKey: statusKey,
+                runtimeGeneration: record.runtimeGeneration
             )
             guard resumeClearOutcome != .failed else {
                 continue
@@ -106,12 +108,17 @@ extension CMUXCLI {
                 clearedRecords.append(record)
                 continue
             }
-            let pidKey = "\(statusKey).\(record.sessionId)"
+            let pidKeys = agentRuntimePIDKeys(
+                statusKey: statusKey,
+                sessionID: record.sessionId
+            )
             do {
-                _ = try sendV1Command(
-                    "clear_agent_pid \(pidKey) --tab=\(record.workspaceId)\(socketPanelOption(record.surfaceId)) --clear-status --require-owned-key",
-                    client: client
-                )
+                for pidKey in pidKeys {
+                    _ = try sendV1Command(
+                        "clear_agent_pid \(pidKey) --tab=\(record.workspaceId)\(socketPanelOption(record.surfaceId)) --clear-status --require-owned-key\(agentRuntimeMutationOption(statusKey: statusKey, sessionID: record.sessionId, runtimeGeneration: record.runtimeGeneration))",
+                        client: client
+                    )
+                }
                 clearedRecords.append(record)
             } catch {
                 continue

@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxWorkspaces
 import Foundation
 
@@ -29,6 +30,14 @@ extension SurfaceResumeBindingSnapshot {
     /// Matches the exact session-scoped runtime ownership key for this binding.
     func matchesExactAgentRuntimeKey(_ key: String) -> Bool {
         guard let identity = managedAgentRuntimeIdentity else { return false }
+        if let structuredKey = AgentRuntimeSessionKey(rawValue: key) {
+            return structuredKey.statusKey == identity.kind.lifecycleStatusKey
+                && ManagedAgentSessionIdentity.sessionIDsMatch(
+                    kind: identity.kind.rawValue,
+                    lhs: structuredKey.sessionID,
+                    rhs: identity.checkpointID
+                )
+        }
         return Self.runtimeAgentKey(
             key,
             matches: identity.kind,
@@ -36,14 +45,86 @@ extension SurfaceResumeBindingSnapshot {
         )
     }
 
-    /// Matches runtime state this binding owns, including its legacy kind slot.
+    /// Rejects an agent-runtime event that cannot belong to this binding.
+    func rejectsMismatchedAgentRuntimeKey(_ key: String) -> Bool {
+        guard let identity = managedAgentRuntimeIdentity else {
+            return false
+        }
+        if let structuredKey = AgentRuntimeSessionKey(rawValue: key) {
+            return structuredKey.statusKey != identity.kind.lifecycleStatusKey
+                || !ManagedAgentSessionIdentity.sessionIDsMatch(
+                kind: identity.kind.rawValue,
+                lhs: structuredKey.sessionID,
+                rhs: identity.checkpointID
+                )
+        }
+        if isLegacyAgentRuntimeReplacementCandidate(key) {
+            return !matchesExactAgentRuntimeKey(key)
+        }
+        let legacyStatusKey = key.firstIndex(of: ".").map {
+            String(key[..<$0])
+        } ?? key
+        return AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(
+            legacyStatusKey
+        )
+    }
+
+    /// Whether a legacy kind-only or dotted key competes during replacement.
+    ///
+    /// This deliberately does not assign status ownership: a shorter dotted
+    /// custom agent id could also parse the key. Either interpretation is a
+    /// competing structured runtime on this single-agent panel, so replacement
+    /// may reject or evict it while status cleanup continues to use exact keys.
+    func isLegacyAgentRuntimeReplacementCandidate(_ key: String) -> Bool {
+        guard AgentRuntimeSessionKey(rawValue: key) == nil,
+              let statusKey = agentRuntimeStatusKey else {
+            return false
+        }
+        return key == statusKey || key.hasPrefix("\(statusKey).")
+    }
+
+    /// Matches this binding's exact session key or its legacy kind-only slot.
     ///
     /// The kind-only representation cannot prove liveness, but prompt/end
     /// cleanup still consumes it so mixed-version hooks do not leave status or
     /// lifecycle state behind.
     func matchesAgentRuntimeKeyForCleanup(_ key: String) -> Bool {
-        guard let identity = managedAgentRuntimeIdentity else { return false }
-        return key == identity.kind.lifecycleStatusKey || matchesExactAgentRuntimeKey(key)
+        guard let statusKey = agentRuntimeStatusKey else { return false }
+        return key == statusKey || matchesExactAgentRuntimeKey(key)
+    }
+
+    /// The kind-scoped status/lifecycle slot owned by this managed binding.
+    var agentRuntimeStatusKey: String? {
+        managedAgentRuntimeIdentity?.kind.lifecycleStatusKey
+    }
+
+    /// The exact session key used by hook runtime mutations for this binding.
+    var agentRuntimeSessionKey: AgentRuntimeSessionKey? {
+        guard let identity = managedAgentRuntimeIdentity else { return nil }
+        return AgentRuntimeSessionKey(
+            statusKey: identity.kind.lifecycleStatusKey,
+            sessionID: identity.checkpointID
+        )
+    }
+
+    /// Compares the runtime instance while preserving mixed-version upgrades.
+    func isSameManagedAgentRuntime(as other: SurfaceResumeBindingSnapshot) -> Bool {
+        isSameManagedSession(as: other)
+            && AgentRuntimeGenerationPolicy.identifiesSameRuntime(
+                runtimeGeneration,
+                other.runtimeGeneration
+            )
+    }
+
+    /// Whether this stored binding may be removed by an incoming teardown.
+    func acceptsAgentRuntimeCleanup(
+        from request: SurfaceResumeBindingSnapshot
+    ) -> Bool {
+        isSameManagedSession(as: request)
+            && AgentRuntimeGenerationPolicy.authorizesCleanup(
+                stored: runtimeGeneration,
+                incoming: request.runtimeGeneration
+            )
     }
 
     private var managedAgentRuntimeIdentity: (

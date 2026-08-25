@@ -26,10 +26,32 @@ extension TerminalController: ControlSidebarContext {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        runtimeKey: String? = nil,
+        runtimeGeneration: TimeInterval? = nil
     ) {
         let appFormat = SidebarMetadataFormat(rawValue: format.rawValue) ?? .plain
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
+            // A PID-bearing status publication is also an establishment event.
+            // Record it first; the following read-only check then authorizes
+            // the status against the authority that PID publication established.
+            if let pid {
+                owner.recordAgentPID(
+                    key: runtimeKey ?? key,
+                    pid: pid,
+                    panelId: panelID,
+                    runtimeKey: runtimeKey,
+                    runtimeGeneration: runtimeGeneration
+                )
+            }
+            guard owner.allowsAgentRuntimeMutation(
+                statusKey: key,
+                runtimeKey: runtimeKey,
+                runtimeGeneration: runtimeGeneration,
+                panelId: panelID
+            ) else {
+                return
+            }
             guard Self.shouldReplaceStatusEntry(
                 current: owner.statusEntry(key: key, panelId: panelID),
                 key: key,
@@ -40,10 +62,6 @@ extension TerminalController: ControlSidebarContext {
                 priority: priority,
                 format: appFormat
             ) else {
-                // Still update PID tracking even if the status display hasn't changed.
-                if let pid {
-                    owner.recordAgentPID(key: key, pid: pid, panelId: panelID)
-                }
                 return
             }
             owner.setStatusEntry(SidebarStatusEntry(
@@ -56,9 +74,6 @@ extension TerminalController: ControlSidebarContext {
                 format: appFormat,
                 timestamp: Date()
             ), key: key, panelId: panelID)
-            if let pid {
-                owner.recordAgentPID(key: key, pid: pid, panelId: panelID)
-            }
         }
     }
 
@@ -77,13 +92,17 @@ extension TerminalController: ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
-        panelID: UUID?
+        panelID: UUID?,
+        runtimeKey: String? = nil,
+        runtimeGeneration: TimeInterval? = nil
     ) {
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
             let didReplaceAgentRuntime = owner.recordAgentPID(
                 key: key,
                 pid: pid,
-                panelId: panelID
+                panelId: panelID,
+                runtimeKey: runtimeKey,
+                runtimeGeneration: runtimeGeneration
             )
             if didReplaceAgentRuntime, let panelID {
                 TerminalNotificationStore.shared.clearNotifications(
@@ -140,14 +159,22 @@ extension TerminalController: ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        runtimeKey: String? = nil,
+        runtimeGeneration: TimeInterval? = nil
     ) {
         guard let lifecycle = AgentHibernationLifecycleState(rawValue: lifecycleRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
-            owner.setAgentLifecycle(key: key, panelId: panelID, lifecycle: lifecycle)
+            owner.setAgentLifecycle(
+                key: key,
+                panelId: panelID,
+                lifecycle: lifecycle,
+                runtimeKey: runtimeKey,
+                runtimeGeneration: runtimeGeneration
+            )
         }
     }
 
@@ -206,14 +233,18 @@ extension TerminalController: ControlSidebarContext {
         key: String,
         panelID: UUID?,
         clearStatus: Bool,
-        requireOwnedKey: Bool = false
+        requireOwnedKey: Bool = false,
+        runtimeKey: String? = nil,
+        runtimeGeneration: TimeInterval? = nil
     ) {
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
             owner.clearAgentPID(
                 key: key,
                 panelId: panelID,
                 clearStatus: clearStatus,
-                requireOwnedKey: requireOwnedKey
+                requireOwnedKey: requireOwnedKey,
+                runtimeKey: runtimeKey,
+                runtimeGeneration: runtimeGeneration
             )
         }
     }

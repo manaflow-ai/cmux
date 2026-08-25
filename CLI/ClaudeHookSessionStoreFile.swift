@@ -2,6 +2,10 @@ import Foundation
 
 struct ClaudeHookSessionStoreFile: Codable {
     var version: Int = 1
+    /// Store-owned monotonic authority sequence. Hook-session stores are
+    /// agent/status-key scoped, so this counter advances independently for
+    /// each agent without depending on wall-clock or process-start time.
+    var runtimeGenerationHighWaterMark: TimeInterval?
     var sessions: [String: ClaudeHookSessionRecord] = [:]
     // Superseded records stay durable for retry without remaining visible to
     // store consumers as simultaneously live session claimants.
@@ -17,6 +21,7 @@ struct ClaudeHookSessionStoreFile: Codable {
 
     enum CodingKeys: String, CodingKey {
         case version
+        case runtimeGenerationHighWaterMark
         case sessions
         case pendingSupersededSessionCleanup
         case activeSessionsByWorkspace
@@ -29,6 +34,10 @@ struct ClaudeHookSessionStoreFile: Codable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        runtimeGenerationHighWaterMark = try container.decodeIfPresent(
+            TimeInterval.self,
+            forKey: .runtimeGenerationHighWaterMark
+        )
         sessions = try container.decodeIfPresent([String: ClaudeHookSessionRecord].self, forKey: .sessions) ?? [:]
         pendingSupersededSessionCleanup = try container.decodeIfPresent(
             [String: ClaudeHookSessionRecord].self,
@@ -51,6 +60,10 @@ struct ClaudeHookSessionStoreFile: Codable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(version, forKey: .version)
+        try container.encodeIfPresent(
+            runtimeGenerationHighWaterMark,
+            forKey: .runtimeGenerationHighWaterMark
+        )
         try container.encode(sessions, forKey: .sessions)
         if !pendingSupersededSessionCleanup.isEmpty {
             try container.encode(pendingSupersededSessionCleanup, forKey: .pendingSupersededSessionCleanup)

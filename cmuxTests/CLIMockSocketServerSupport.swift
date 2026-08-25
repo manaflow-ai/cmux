@@ -49,7 +49,19 @@ func cliMockServeLineFramedConnection(
             let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
             pending.removeSubrange(0...newlineRange.lowerBound)
             guard let line = String(data: lineData, encoding: .utf8) else { continue }
-            guard let responsePayload = respond(line) else { continue }
+            // The shared hook fixtures model an older app unless a test owns a
+            // real TerminalController socket. This exercises the CLI's
+            // compatibility fallback for the newer authority-bearing verbs
+            // instead of silently recording an impossible successful response.
+            let responsePayload: String?
+            if line.hasPrefix("notify_target_authorized ") {
+                responsePayload = "ERROR: Unknown command 'notify_target_authorized'. Use 'help' for available commands."
+            } else if line.hasPrefix("notify_target_async_authorized ") {
+                responsePayload = "ERROR: Unknown command 'notify_target_async_authorized'. Use 'help' for available commands."
+            } else {
+                responsePayload = respond(line)
+            }
+            guard let responsePayload else { continue }
             guard cliMockWriteAll(responsePayload + "\n", to: clientFD) else { return }
         }
     }

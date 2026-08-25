@@ -1169,6 +1169,10 @@ class TerminalController {
                 return (true, notifyTarget(args))
             case "notify_target_async":
                 return (true, notifyTargetQueued(args))
+            case "notify_target_authorized":
+                return (true, notifyTarget(args, authorized: true))
+            case "notify_target_async_authorized":
+                return (true, notifyTargetQueued(args, authorized: true))
             case "list_notifications":
                 return (true, listNotifications())
             case "clear_notifications":
@@ -2130,6 +2134,12 @@ class TerminalController {
 
         case "notify_target_async":
             return notifyTargetQueued(args)
+
+        case "notify_target_authorized":
+            return notifyTarget(args, authorized: true)
+
+        case "notify_target_async_authorized":
+            return notifyTargetQueued(args, authorized: true)
 
         case "list_notifications":
             return listNotifications()
@@ -3329,9 +3339,10 @@ class TerminalController {
     private func v2TopTagNodes(for workspace: Workspace) -> [[String: Any]] {
         var tags: [[String: Any]] = []
         var seenKeys = Set<String>()
+        let logicalAgentPIDs = workspace.logicalAgentPIDs()
 
         for (index, entry) in workspace.sidebarStatusEntriesInDisplayOrder().enumerated() {
-            let pid = workspace.agentPIDs[entry.key].flatMap { $0 > 0 ? Int($0) : nil }
+            let pid = logicalAgentPIDs[entry.key].flatMap { $0 > 0 ? Int($0) : nil }
             tags.append([
                 "kind": "tag",
                 "id": v2TopTagIdentifier(workspaceId: workspace.id, key: entry.key),
@@ -3350,8 +3361,8 @@ class TerminalController {
             seenKeys.insert(entry.key)
         }
 
-        for key in workspace.agentPIDs.keys.sorted() where !seenKeys.contains(key) {
-            let pid = workspace.agentPIDs[key].flatMap { $0 > 0 ? Int($0) : nil }
+        for key in logicalAgentPIDs.keys.sorted() where !seenKeys.contains(key) {
+            let pid = logicalAgentPIDs[key].flatMap { $0 > 0 ? Int($0) : nil }
             tags.append([
                 "kind": "tag",
                 "id": v2TopTagIdentifier(workspaceId: workspace.id, key: key),
@@ -12297,6 +12308,93 @@ class TerminalController {
         }
     }
 
+    private nonisolated func agentRuntimeMutationAuthority(
+        options: [String: String]
+    ) -> (runtimeKey: String?, runtimeGeneration: TimeInterval?)? {
+        let supportedOptions: Set<String> = ["runtime-key", "runtime-generation"]
+        guard Set(options.keys).isSubset(of: supportedOptions) else { return nil }
+
+        let runtimeKey = options["runtime-key"].flatMap { value -> String? in
+            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return normalized.isEmpty ? nil : normalized
+        }
+        if options["runtime-key"] != nil,
+           runtimeKey.flatMap({ AgentRuntimeSessionKey(rawValue: $0) }) == nil {
+            return nil
+        }
+        let runtimeGeneration: TimeInterval?
+        if let rawGeneration = options["runtime-generation"] {
+            guard let value = TimeInterval(rawGeneration),
+                  value.isFinite,
+                  value > 0 else {
+                return nil
+            }
+            runtimeGeneration = value
+        } else {
+            runtimeGeneration = nil
+        }
+        guard runtimeGeneration == nil || runtimeKey != nil else { return nil }
+        return (runtimeKey, runtimeGeneration)
+    }
+
+    private struct TargetNotificationArguments {
+        let tabArg: String
+        let panelArg: String
+        let payload: String
+        let runtimeKey: String?
+        let runtimeGeneration: TimeInterval?
+    }
+
+    private nonisolated func targetNotificationArguments(
+        _ args: String
+    ) -> TargetNotificationArguments? {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", maxSplits: 2).map(String.init)
+        guard parts.count == 3 else { return nil }
+
+        let payload = parts[2].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !payload.isEmpty else { return nil }
+        return TargetNotificationArguments(
+            tabArg: parts[0],
+            panelArg: parts[1],
+            payload: payload,
+            runtimeKey: nil,
+            runtimeGeneration: nil
+        )
+    }
+
+    /// Parses the authority-bearing notification verb. Keeping the authority
+    /// in a distinct verb leaves legacy notification payloads entirely
+    /// free-form; an older app rejects this verb and the CLI retries the
+    /// byte-identical legacy command.
+    private nonisolated func targetNotificationAuthorizedArguments(
+        _ args: String
+    ) -> TargetNotificationArguments? {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", maxSplits: 2).map(String.init)
+        guard parts.count == 3,
+              let separator = parts[2].range(of: " -- ") else {
+            return nil
+        }
+        let optionText = String(parts[2][..<separator.lowerBound])
+        let parsed = parseOptions(optionText)
+        guard (parsed.positional.isEmpty || parsed.positional == [parts[1]]),
+              let authority = agentRuntimeMutationAuthority(options: parsed.options),
+              authority.runtimeKey != nil else {
+            return nil
+        }
+        let payload = String(parts[2][separator.upperBound...])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !payload.isEmpty else { return nil }
+        return TargetNotificationArguments(
+            tabArg: parts[0],
+            panelArg: parts[1],
+            payload: payload,
+            runtimeKey: authority.runtimeKey,
+            runtimeGeneration: authority.runtimeGeneration
+        )
+    }
+
     /// `notify_target` — worker-lane body: split/UUID/payload parse and the
     /// settings-gate read on the calling thread; the legacy guard order
     /// (TabManager, then the usage errors, then the gate verdict, then the
@@ -12305,13 +12403,17 @@ class TerminalController {
     /// branches were mutually exclusive per request). The gate applies
     /// BEFORE target resolution — a gated request replies OK without
     /// reporting tab/panel lookup errors, exactly like the main lane.
-    private nonisolated func notifyTarget(_ args: String) -> String {
+    private nonisolated func notifyTarget(
+        _ args: String,
+        authorized: Bool = false
+    ) -> String {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        let parts = trimmed.split(separator: " ", maxSplits: 2).map(String.init)
-        let tabArg = parts.count > 0 ? parts[0] : ""
-        let panelArg = parts.count > 1 ? parts[1] : ""
-        let payload = parts.count > 2 ? parts[2] : ""
-        let (title, subtitle, body, meta) = parseNotificationPayload(payload)
+        let arguments = authorized
+            ? targetNotificationAuthorizedArguments(args)
+            : targetNotificationArguments(args)
+        let tabArg = arguments?.tabArg ?? ""
+        let panelArg = arguments?.panelArg ?? ""
+        let (title, subtitle, body, meta) = parseNotificationPayload(arguments?.payload ?? "")
         let deliver = shouldDeliverAgentNotification(meta)
         let fastPath: (workspaceId: UUID, panelId: UUID)?
         if let workspaceId = UUID(uuidString: tabArg), let panelId = UUID(uuidString: panelArg) {
@@ -12323,21 +12425,36 @@ class TerminalController {
         return v2MainSync {
             guard let tabManager = self.tabManager else { return "ERROR: TabManager not available" }
             guard !trimmed.isEmpty else { return "ERROR: Usage: notify_target <workspace_id> <surface_id> <title>|<subtitle>|<body>" }
-            guard parts.count >= 2 else { return "ERROR: Usage: notify_target <workspace_id> <surface_id> <title>|<subtitle>|<body>" }
+            guard let arguments else { return "ERROR: Usage: notify_target <workspace_id> <surface_id> <title>|<subtitle>|<body>" }
             guard deliver else { return "OK" }
 
             if let fastPath {
                 // The surface's current workspace wins over the claimed one (the
                 // sync deliverer retargets); only a target gone everywhere errors.
-                guard AppDelegate.shared?.agentNotificationDeliveryTarget(claimedTabId: fastPath.workspaceId, surfaceId: fastPath.panelId) != nil else {
+                guard let appDelegate = AppDelegate.shared,
+                      appDelegate.agentNotificationDeliveryTarget(
+                          claimedTabId: fastPath.workspaceId,
+                          surfaceId: fastPath.panelId
+                      ) != nil else {
                     return "ERROR: Panel not found"
+                }
+                if arguments.runtimeKey != nil,
+                   !appDelegate.allowsAgentNotificationRuntimeMutation(
+                       claimedTabID: fastPath.workspaceId,
+                       surfaceID: fastPath.panelId,
+                       runtimeKey: arguments.runtimeKey,
+                       runtimeGeneration: arguments.runtimeGeneration
+                   ) {
+                    return "OK"
                 }
                 self.deliverNotificationSynchronously(
                     tabId: fastPath.workspaceId,
                     surfaceId: fastPath.panelId,
                     title: title,
                     subtitle: subtitle,
-                    body: body
+                    body: body,
+                    runtimeKey: arguments.runtimeKey,
+                    runtimeGeneration: arguments.runtimeGeneration
                 )
                 return "OK"
             }
@@ -12355,12 +12472,23 @@ class TerminalController {
                   AppDelegate.shared?.agentNotificationDeliveryTarget(claimedTabId: tab.id, surfaceId: panelId) != nil else {
                 return "ERROR: Panel not found"
             }
+            if arguments.runtimeKey != nil,
+               AppDelegate.shared?.allowsAgentNotificationRuntimeMutation(
+                   claimedTabID: tab.id,
+                   surfaceID: panelId,
+                   runtimeKey: arguments.runtimeKey,
+                   runtimeGeneration: arguments.runtimeGeneration
+               ) != true {
+                return "OK"
+            }
             self.deliverNotificationSynchronously(
                 tabId: tab.id,
                 surfaceId: panelId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                runtimeKey: arguments.runtimeKey,
+                runtimeGeneration: arguments.runtimeGeneration
             )
             return "OK"
         }
@@ -12371,28 +12499,29 @@ class TerminalController {
     /// drains on the main actor). Explicitly fire-and-forget: hooks nohup it
     /// and discard the reply; existence checks are deferred to bus delivery
     /// by design.
-    private nonisolated func notifyTargetQueued(_ args: String) -> String {
+    private nonisolated func notifyTargetQueued(
+        _ args: String,
+        authorized: Bool = false
+    ) -> String {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
         }
 
-        let parts = trimmed.split(separator: " ", maxSplits: 2).map(String.init)
-        guard parts.count == 3 else {
+        let arguments = authorized
+            ? targetNotificationAuthorizedArguments(args)
+            : targetNotificationArguments(args)
+        guard let arguments else {
             return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
         }
-        guard let tabId = UUID(uuidString: parts[0]) else {
+        guard let tabId = UUID(uuidString: arguments.tabArg) else {
             return "ERROR: notify_target_async requires workspace_uuid to be a UUID"
         }
-        guard let surfaceId = UUID(uuidString: parts[1]) else {
+        guard let surfaceId = UUID(uuidString: arguments.panelArg) else {
             return "ERROR: notify_target_async requires surface_uuid to be a UUID"
         }
 
-        let payload = parts[2].trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !payload.isEmpty else {
-            return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
-        }
-        let (title, subtitle, body, meta) = parseNotificationPayload(payload)
+        let (title, subtitle, body, meta) = parseNotificationPayload(arguments.payload)
 
         // Hook and PTY-derived agent notifications share one gate + mutation-bus path.
         guard AgentNotificationDelivery().enqueue(
@@ -12402,7 +12531,9 @@ class TerminalController {
             subtitle: subtitle,
             body: body,
             category: meta?.category,
-            pending: meta?.pending ?? false
+            pending: meta?.pending ?? false,
+            runtimeKey: arguments.runtimeKey,
+            runtimeGeneration: arguments.runtimeGeneration
         ) else {
 #if DEBUG
             if let meta {
@@ -12473,9 +12604,26 @@ class TerminalController {
         if let error = panelResolution.error {
             return error
         }
+        let runtimeOptions = parsed.options.filter {
+            $0.key == "runtime-key" || $0.key == "runtime-generation"
+        }
+        guard let runtimeAuthority = agentRuntimeMutationAuthority(
+            options: runtimeOptions
+        ) else {
+            return "ERROR: Usage: \(usage)"
+        }
+        if runtimeAuthority.runtimeKey != nil,
+           panelResolution.panelId == nil {
+            return "ERROR: Usage: \(usage)"
+        }
         if case .workspace(let tabId) = target {
             if let panelId = panelResolution.panelId {
-                TerminalMutationBus.shared.enqueueClearNotifications(forTabId: tabId, surfaceId: panelId)
+                TerminalMutationBus.shared.enqueueClearNotifications(
+                    forTabId: tabId,
+                    surfaceId: panelId,
+                    runtimeKey: runtimeAuthority.runtimeKey,
+                    runtimeGeneration: runtimeAuthority.runtimeGeneration
+                )
             } else {
                 TerminalMutationBus.shared.enqueueClearNotifications(forTabId: tabId)
             }
@@ -12485,9 +12633,17 @@ class TerminalController {
                 guard let self, let tab = self.resolveSidebarMutationTab(target) else { return }
                 if let panelId = panelResolution.panelId {
                     guard tab.panels.keys.contains(panelId) else { return }
+                    if runtimeAuthority.runtimeKey != nil,
+                       AppDelegate.shared?.allowsAgentNotificationRuntimeCleanup(
+                           claimedTabID: tab.id,
+                           surfaceID: panelId,
+                           runtimeKey: runtimeAuthority.runtimeKey,
+                           runtimeGeneration: runtimeAuthority.runtimeGeneration
+                       ) != true {
+                        return
+                    }
                     TerminalMutationBus.shared.discardPendingNotifications(
-                        forTabId: tab.id,
-                        surfaceId: panelId,
+                        forSurfaceId: panelId,
                         through: clearBoundary
                     )
                     TerminalNotificationStore.shared.clearNotifications(

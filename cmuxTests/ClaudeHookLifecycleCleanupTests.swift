@@ -35,6 +35,7 @@ struct ClaudeHookLifecycleCleanupTests {
                     "surfaceId": Self.otherSurfaceId,
                     "cwd": context.root.path,
                     "isRestorable": true,
+                    "runtimeGeneration": now,
                     "startedAt": now,
                     "updatedAt": now,
                 ],
@@ -56,6 +57,7 @@ struct ClaudeHookLifecycleCleanupTests {
         )
 
         var environment = Harness.hookEnvironment(context: context)
+        environment[AgentRuntimeSessionKey.runtimeGenerationEnvironmentKey] = String(now)
         environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
         environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
         environment["CMUX_CLAUDE_PID"] = "43218"
@@ -71,19 +73,35 @@ struct ClaudeHookLifecycleCleanupTests {
         assertSuccessfulHook(result)
 
         let commands = context.state.snapshot()
+        let runtimeKey = Harness.runtimeKey(sessionID: sessionId)
+        let legacyRuntimeKey = Harness.legacyRuntimeKey(sessionID: sessionId)
+        let generationAuthority = "--runtime-generation=\(now)"
         #expect(
             commands.contains {
-                $0.hasPrefix("clear_agent_pid claude_code.\(sessionId) ")
+                $0.hasPrefix("clear_agent_pid \(runtimeKey) ")
                     && $0.contains("--tab=\(Self.liveWorkspaceId)")
                     && $0.contains("--panel=\(Self.liveSurfaceId)")
+                    && $0.contains("--runtime-key=\(runtimeKey)")
+                    && $0.contains(generationAuthority)
             },
             "SessionEnd must clear exact-session Claude PID ownership on the live pane; saw \(commands)"
+        )
+        #expect(
+            commands.contains {
+                $0.hasPrefix("clear_agent_pid \(legacyRuntimeKey) ")
+                    && $0.contains("--tab=\(Self.liveWorkspaceId)")
+                    && $0.contains("--panel=\(Self.liveSurfaceId)")
+                    && $0.contains(generationAuthority)
+            },
+            "SessionEnd must clear mixed-version Claude PID ownership; saw \(commands)"
         )
         #expect(
             commands.contains {
                 $0.hasPrefix("clear_agent_pid claude_code ")
                     && $0.contains("--tab=\(Self.liveWorkspaceId)")
                     && $0.contains("--panel=\(Self.liveSurfaceId)")
+                    && $0.contains("--runtime-key=\(runtimeKey)")
+                    && $0.contains(generationAuthority)
             },
             "SessionEnd must clear the live pane despite the polluted record surface; saw \(commands)"
         )
@@ -92,7 +110,7 @@ struct ClaudeHookLifecycleCleanupTests {
             "SessionEnd must not clear the foreign pane the polluted record named; saw \(commands)"
         )
         #expect(
-            commands.contains("clear_notifications --tab=\(Self.liveWorkspaceId) --panel=\(Self.liveSurfaceId)"),
+            Harness.hasRuntimeAuthorizedPanelClear(in: commands, workspaceID: Self.liveWorkspaceId, surfaceID: Self.liveSurfaceId, sessionID: sessionId),
             "A same-workspace live retarget must clear only the real pane; saw \(commands)"
         )
         #expect(
@@ -119,6 +137,10 @@ struct ClaudeHookLifecycleCleanupTests {
             surfaceId: Self.liveSurfaceId,
             cwd: context.root.path
         )
+        let persistedRecord = try #require(
+            Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        )
+        let runtimeGeneration = try #require(persistedRecord["runtimeGeneration"] as? Double)
         let serverHandled = Harness.startDeliveryTargetServer(
             context: context,
             surfacesByWorkspace: [
@@ -145,24 +167,40 @@ struct ClaudeHookLifecycleCleanupTests {
         assertSuccessfulHook(result)
 
         let commands = context.state.snapshot()
+        let runtimeKey = Harness.runtimeKey(sessionID: sessionId)
+        let legacyRuntimeKey = Harness.legacyRuntimeKey(sessionID: sessionId)
+        let generationAuthority = "--runtime-generation=\(runtimeGeneration)"
         #expect(
             commands.contains {
-                $0.hasPrefix("clear_agent_pid claude_code.\(sessionId) ")
+                $0.hasPrefix("clear_agent_pid \(runtimeKey) ")
                     && $0.contains("--tab=\(newWorkspaceId)")
                     && $0.contains("--panel=\(Self.liveSurfaceId)")
+                    && $0.contains("--runtime-key=\(runtimeKey)")
+                    && $0.contains(generationAuthority)
             },
             "SessionEnd must clear exact-session Claude PID ownership after the pane moves; saw \(commands)"
+        )
+        #expect(
+            commands.contains {
+                $0.hasPrefix("clear_agent_pid \(legacyRuntimeKey) ")
+                    && $0.contains("--tab=\(newWorkspaceId)")
+                    && $0.contains("--panel=\(Self.liveSurfaceId)")
+                    && $0.contains(generationAuthority)
+            },
+            "Moved SessionEnd must clear mixed-version Claude PID ownership; saw \(commands)"
         )
         #expect(
             commands.contains {
                 $0.hasPrefix("clear_agent_pid claude_code ")
                     && $0.contains("--tab=\(newWorkspaceId)")
                     && $0.contains("--panel=\(Self.liveSurfaceId)")
+                    && $0.contains("--runtime-key=\(runtimeKey)")
+                    && $0.contains(generationAuthority)
             },
             "SessionEnd must clear agent pid/status on the pane's current workspace; saw \(commands)"
         )
         #expect(
-            commands.contains("clear_notifications --tab=\(newWorkspaceId) --panel=\(Self.liveSurfaceId)"),
+            Harness.hasRuntimeAuthorizedPanelClear(in: commands, workspaceID: newWorkspaceId, surfaceID: Self.liveSurfaceId, sessionID: sessionId),
             "A re-homed SessionEnd clear must be scoped to the moved pane, not wipe sibling panes in the destination workspace; saw \(commands)"
         )
         #expect(
@@ -207,7 +245,7 @@ struct ClaudeHookLifecycleCleanupTests {
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
         let commands = context.state.snapshot()
-        #expect(commands.contains("clear_notifications --tab=\(Self.liveWorkspaceId) --panel=\(Self.liveSurfaceId)"))
+        #expect(Harness.hasRuntimeAuthorizedPanelClear(in: commands, workspaceID: Self.liveWorkspaceId, surfaceID: Self.liveSurfaceId, sessionID: sessionId))
         #expect(!commands.contains("clear_notifications --tab=\(Self.liveWorkspaceId)"))
     }
 
@@ -244,7 +282,7 @@ struct ClaudeHookLifecycleCleanupTests {
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
         let commands = context.state.snapshot()
-        #expect(commands.contains("clear_notifications --tab=\(newWorkspaceId) --panel=\(Self.liveSurfaceId)"))
+        #expect(Harness.hasRuntimeAuthorizedPanelClear(in: commands, workspaceID: newWorkspaceId, surfaceID: Self.liveSurfaceId, sessionID: sessionId))
         #expect(!commands.contains("clear_notifications --tab=\(newWorkspaceId)"))
     }
 
@@ -307,7 +345,7 @@ struct ClaudeHookLifecycleCleanupTests {
             !commands.contains { $0.contains("--panel=\(Self.fallbackSurfaceId)") },
             "PreToolUse must not mutate the old workspace's focused pane; saw \(commands)"
         )
-        #expect(commands.contains("clear_notifications --tab=\(newWorkspaceId) --panel=\(Self.liveSurfaceId)"))
+        #expect(Harness.hasRuntimeAuthorizedPanelClear(in: commands, workspaceID: newWorkspaceId, surfaceID: Self.liveSurfaceId, sessionID: sessionId))
         #expect(!commands.contains("clear_notifications --tab=\(newWorkspaceId)"))
         let record = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
         #expect(record?["workspaceId"] as? String == newWorkspaceId, "Session record must re-home, not re-pollute")

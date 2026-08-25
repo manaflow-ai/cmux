@@ -37,7 +37,7 @@ final class SleepyAgentCensus: SleepyAgentCensusing {
         var counts = SleepyAgentCounts()
         let workspaces = app.openWorkspacesForPetCensus()
         for workspace in workspaces {
-            for (key, pid) in workspace.agentPIDs where pid > 0 {
+            for (key, pid) in workspace.logicalAgentPIDs() where pid > 0 {
                 switch bucket(forStatusKey: key) {
                 case .claude:
                     counts.claude += 1

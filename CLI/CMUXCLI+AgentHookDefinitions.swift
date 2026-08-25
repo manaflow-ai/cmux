@@ -4,6 +4,163 @@ import Foundation
 extension CMUXCLI {
     // MARK: - Generic agent hook system
 
+    /// Both exact-session representations accepted during the hook migration.
+    func agentRuntimePIDKeys(statusKey: String, sessionID: String) -> [String] {
+        AgentRuntimeSessionKey(
+            statusKey: statusKey,
+            sessionID: sessionID
+        ).compatibleRawValues
+    }
+
+    /// Reads the app-owned generation floor for a panel and agent. Older app
+    /// versions omit the field, so failure remains a compatibility fallback
+    /// rather than preventing the hook from processing its event.
+    func agentRuntimeGenerationFloor(
+        client: SocketClient,
+        workspaceID: String,
+        surfaceID: String,
+        statusKey: String
+    ) -> TimeInterval? {
+        guard let payload = try? client.sendV2(
+            method: "surface.resume.get",
+            params: [
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+                "runtime_status_key": statusKey,
+            ]
+        ),
+        let number = payload["runtime_generation_floor"] as? NSNumber else {
+            return nil
+        }
+        let generation = number.doubleValue
+        guard generation.isFinite, generation > 0 else { return nil }
+        return generation
+    }
+
+    /// Exact-session authority attached to kind-scoped status and lifecycle
+    /// mutations. Older app versions ignore the option; current versions use
+    /// it to reject delayed events from a superseded session.
+    func agentRuntimeMutationOption(
+        statusKey: String,
+        sessionID: String?,
+        runtimeGeneration: TimeInterval? = nil
+    ) -> String {
+        guard let sessionID = sessionID?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionID.isEmpty else {
+            return ""
+        }
+        let runtimeKey = AgentRuntimeSessionKey(
+            statusKey: statusKey,
+            sessionID: sessionID
+        ).rawValue
+        var option = " --runtime-key=\(runtimeKey)"
+        if let runtimeGeneration,
+           runtimeGeneration.isFinite,
+           runtimeGeneration > 0 {
+            option += " --runtime-generation=\(runtimeGeneration)"
+        }
+        return option
+    }
+
+    /// Builds a panel-targeted notification carrying the same immutable
+    /// runtime authority as status, lifecycle, and PID mutations. Authority
+    /// notifications use a distinct verb so legacy apps cannot mistake the
+    /// options for part of the free-form title/subtitle/body payload.
+    func agentRuntimeNotificationCommand(
+        queued: Bool,
+        workspaceID: String,
+        surfaceID: String,
+        payload: String,
+        statusKey: String,
+        sessionID: String?,
+        runtimeGeneration: TimeInterval?
+    ) -> String {
+        let runtimeOption = agentRuntimeMutationOption(
+            statusKey: statusKey,
+            sessionID: sessionID,
+            runtimeGeneration: runtimeGeneration
+        )
+        let command: String
+        if runtimeOption.isEmpty {
+            command = queued ? "notify_target_async" : "notify_target"
+            return "\(command) \(workspaceID) \(surfaceID) \(payload)"
+        }
+        command = queued ? "notify_target_async_authorized" : "notify_target_authorized"
+        return "\(command) \(workspaceID) \(surfaceID)\(runtimeOption) -- \(payload)"
+    }
+
+    /// Converts an authority command to the byte-identical legacy command for
+    /// an older app that reports the new verb as unknown.
+    func legacyAgentRuntimeNotificationCommand(for command: String) -> String? {
+        let parts = command.split(separator: " ", maxSplits: 2).map(String.init)
+        guard parts.count == 3 else { return nil }
+        let legacyVerb: String
+        switch parts[0] {
+        case "notify_target_authorized": legacyVerb = "notify_target"
+        case "notify_target_async_authorized": legacyVerb = "notify_target_async"
+        default: return nil
+        }
+        let targetParts = parts[2].split(separator: " ", maxSplits: 1).map(String.init)
+        guard targetParts.count == 2,
+              let separator = targetParts[1].range(of: " -- ") else {
+            return nil
+        }
+        let payload = String(targetParts[1][separator.upperBound...])
+        guard !payload.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return "\(legacyVerb) \(parts[1]) \(targetParts[0]) \(payload)"
+    }
+
+    /// Builds a panel-scoped clear carrying hook runtime authority.
+    func agentRuntimeNotificationClearCommand(
+        workspaceID: String,
+        surfaceID: String?,
+        statusKey: String,
+        sessionID: String?,
+        runtimeGeneration: TimeInterval?
+    ) -> String {
+        "clear_notifications --tab=\(workspaceID)\(socketPanelOption(surfaceID))"
+            + agentRuntimeMutationOption(
+                statusKey: statusKey,
+                sessionID: sessionID,
+                runtimeGeneration: runtimeGeneration
+            )
+    }
+
+    /// Publishes the versioned key first and its legacy alias last so hooks work
+    /// with both current and pre-codec app versions during the rollout.
+    func publishAgentRuntimePID(
+        client: SocketClient,
+        statusKey: String,
+        sessionID: String?,
+        runtimeGeneration: TimeInterval? = nil,
+        pid: Int,
+        workspaceID: String,
+        surfaceID: String?
+    ) throws {
+        let normalizedSessionID = sessionID?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let keys = if let normalizedSessionID, !normalizedSessionID.isEmpty {
+            agentRuntimePIDKeys(
+                statusKey: statusKey,
+                sessionID: normalizedSessionID
+            )
+        } else {
+            [statusKey]
+        }
+        let runtimeMutationOption = agentRuntimeMutationOption(
+            statusKey: statusKey,
+            sessionID: normalizedSessionID,
+            runtimeGeneration: runtimeGeneration
+        )
+        for key in keys {
+            _ = try sendV1Command(
+                "set_agent_pid \(key) \(pid) --tab=\(workspaceID)\(socketPanelOption(surfaceID))\(runtimeMutationOption)",
+                client: client
+            )
+        }
+    }
+
     // The client deadline must fire before the generated agent-hook timeout.
     static let feedHookProcessTimeoutMilliseconds = 120_000
     static let feedHookClientDeadlineSeconds = Double(feedHookProcessTimeoutMilliseconds) / 1_000 - 2

@@ -264,7 +264,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case name, kind, command, cwd, checkpointId, source
         case environment, autoResume, approvalPolicy, approvalRecordId
-        case launchCommand, permissionMode, launchFlavor, updatedAt
+        case launchCommand, permissionMode, launchFlavor, runtimeGeneration, updatedAt
     }
 
     var name: String?
@@ -280,6 +280,8 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     var approvalPolicy: SurfaceResumeApprovalPolicy?
     var approvalRecordId: String?
     var launchFlavor: SurfaceResumeLaunchFlavor
+    /// Immutable hook-session start time used to order runtime ownership.
+    var runtimeGeneration: TimeInterval?
     /// Whether decoding observed a legacy binding without an execution location.
     private(set) var wasDecodedWithoutLaunchFlavor = false
     var updatedAt: TimeInterval
@@ -298,6 +300,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         approvalPolicy: SurfaceResumeApprovalPolicy? = nil,
         approvalRecordId: String? = nil,
         launchFlavor: SurfaceResumeLaunchFlavor = .local,
+        runtimeGeneration: TimeInterval? = nil,
         updatedAt: TimeInterval = Date().timeIntervalSince1970
     ) {
         let normalizedCwd = Self.normalized(cwd)
@@ -320,6 +323,9 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         self.approvalPolicy = approvalPolicy
         self.approvalRecordId = Self.normalized(approvalRecordId)
         self.launchFlavor = launchFlavor
+        self.runtimeGeneration = runtimeGeneration.flatMap {
+            $0.isFinite && $0 > 0 ? $0 : nil
+        }
         self.updatedAt = updatedAt
     }
 
@@ -343,6 +349,10 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             approvalPolicy: try container.decodeIfPresent(SurfaceResumeApprovalPolicy.self, forKey: .approvalPolicy),
             approvalRecordId: try container.decodeIfPresent(String.self, forKey: .approvalRecordId),
             launchFlavor: decodedLaunchFlavor ?? .local,
+            runtimeGeneration: try container.decodeIfPresent(
+                TimeInterval.self,
+                forKey: .runtimeGeneration
+            ),
             updatedAt: try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt)
                 ?? Date().timeIntervalSince1970
         )
@@ -1433,6 +1443,9 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
     var wasAgentRunning: Bool?
+    /// App-owned runtime generation floors retained after a binding is cleared.
+    /// Optional for snapshots written before runtime-authority tracking existed.
+    var runtimeGenerationHighWaterMarksByStatusKey: [String: TimeInterval]?
 
     init(
         workingDirectory: String? = nil,
@@ -1447,7 +1460,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
         isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
-        wasAgentRunning: Bool? = nil
+        wasAgentRunning: Bool? = nil,
+        runtimeGenerationHighWaterMarksByStatusKey: [String: TimeInterval]? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.fontSize = fontSize
@@ -1462,6 +1476,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.isRemoteTerminal = isRemoteTerminal
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
+        self.runtimeGenerationHighWaterMarksByStatusKey =
+            runtimeGenerationHighWaterMarksByStatusKey
     }
 }
 

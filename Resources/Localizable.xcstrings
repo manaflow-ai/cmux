@@ -231983,6 +231983,23 @@
         }
       }
     },
+    "socket.agentRuntime.error.invalidGeneration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid runtime generation; expected a finite positive number"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ランタイム世代が無効です。有限の正の数を指定してください"
+          }
+        }
+      }
+    },
     "socket.client.accessDenied": {
       "extractionState": "manual",
       "localizations": {

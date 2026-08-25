@@ -33,7 +33,8 @@ import Testing
                 capturedAt: 123,
                 source: "process"
             ),
-            autoResume: true
+            autoResume: true,
+            runtimeGeneration: 123.5
         )
 
         let decoded = try JSONDecoder().decode(
@@ -44,6 +45,7 @@ import Testing
         #expect(decoded == binding)
         #expect(decoded.launchCommand?.arguments == binding.launchCommand?.arguments)
         #expect(decoded.command.contains("codex resume legacy-display-command"))
+        #expect(decoded.runtimeGeneration == 123.5)
     }
 
     @Test func v06420CommandOnlyBindingStillProducesRestoreVerb() throws {
@@ -71,6 +73,7 @@ import Testing
         #expect(binding.permissionMode == nil)
         #expect(binding.launchFlavor == .local)
         #expect(binding.wasDecodedWithoutLaunchFlavor)
+        #expect(binding.runtimeGeneration == nil)
         #expect(binding.environment == ["LEGACY_VALUE": "preserved"])
         #expect(
             binding.restoreStartupInput()

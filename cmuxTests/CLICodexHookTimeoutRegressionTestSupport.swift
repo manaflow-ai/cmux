@@ -119,7 +119,8 @@ func startCodexHookMockSocketServerAccepting(
     listenerFD: Int32,
     commands: CodexHookCapturedSocketCommands,
     surfaceId: String,
-    connectionLimit: Int
+    connectionLimit: Int,
+    runtimeGenerationFloor: TimeInterval? = nil
 ) {
     DispatchQueue.global(qos: .userInitiated).async {
         var accepted = 0
@@ -137,7 +138,12 @@ func startCodexHookMockSocketServerAccepting(
             }
             accepted += 1
             DispatchQueue.global(qos: .userInitiated).async {
-                handleCodexHookMockSocketClient(fd: clientFD, commands: commands, surfaceId: surfaceId)
+                handleCodexHookMockSocketClient(
+                    fd: clientFD,
+                    commands: commands,
+                    surfaceId: surfaceId,
+                    runtimeGenerationFloor: runtimeGenerationFloor
+                )
             }
         }
     }
@@ -146,7 +152,8 @@ func startCodexHookMockSocketServerAccepting(
 func handleCodexHookMockSocketClient(
     fd clientFD: Int32,
     commands: CodexHookCapturedSocketCommands,
-    surfaceId: String
+    surfaceId: String,
+    runtimeGenerationFloor: TimeInterval?
 ) {
     defer { Darwin.close(clientFD) }
     var pending = Data()
@@ -164,7 +171,19 @@ func handleCodexHookMockSocketClient(
             pending.removeSubrange(0...newlineRange.lowerBound)
             guard let line = String(data: lineData, encoding: .utf8) else { continue }
             commands.append(line)
-            let response = codexHookMockSocketResponse(for: line, surfaceId: surfaceId) + "\n"
+            let responsePayload: String
+            if line.hasPrefix("notify_target_authorized ") {
+                responsePayload = "ERROR: Unknown command 'notify_target_authorized'. Use 'help' for available commands."
+            } else if line.hasPrefix("notify_target_async_authorized ") {
+                responsePayload = "ERROR: Unknown command 'notify_target_async_authorized'. Use 'help' for available commands."
+            } else {
+                responsePayload = codexHookMockSocketResponse(
+                    for: line,
+                    surfaceId: surfaceId,
+                    runtimeGenerationFloor: runtimeGenerationFloor
+                )
+            }
+            let response = responsePayload + "\n"
             _ = response.withCString { ptr in
                 Darwin.write(clientFD, ptr, strlen(ptr))
             }
@@ -172,7 +191,11 @@ func handleCodexHookMockSocketClient(
     }
 }
 
-func codexHookMockSocketResponse(for line: String, surfaceId: String) -> String {
+func codexHookMockSocketResponse(
+    for line: String,
+    surfaceId: String,
+    runtimeGenerationFloor: TimeInterval? = nil
+) -> String {
     guard let payload = codexHookJSONObject(line),
           let id = payload["id"] as? String else {
         return "OK"
@@ -183,6 +206,13 @@ func codexHookMockSocketResponse(for line: String, surfaceId: String) -> String 
             ok: true,
             result: ["surfaces": [["id": surfaceId, "ref": surfaceId, "focused": true]]]
         )
+    }
+    if payload["method"] as? String == "surface.resume.get" {
+        var result: [String: Any] = [:]
+        if let runtimeGenerationFloor {
+            result["runtime_generation_floor"] = runtimeGenerationFloor
+        }
+        return codexHookV2Response(id: id, ok: true, result: result)
     }
     return codexHookV2Response(id: id, ok: true, result: [:])
 }

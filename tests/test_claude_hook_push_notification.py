@@ -12,6 +12,7 @@ missing.
 
 from __future__ import annotations
 
+import base64
 import glob
 import json
 import os
@@ -22,6 +23,38 @@ import tempfile
 import threading
 import time
 import uuid
+
+
+def agent_runtime_session_key(status_key: str, session_id: str) -> str:
+    encoded_session = base64.urlsafe_b64encode(session_id.encode()).decode().rstrip("=")
+    return f"{status_key}.~cmux-session-v1~.{encoded_session}"
+
+
+def authorized_notification_command(
+    workspace_id: str,
+    surface_id: str,
+    session_id: str,
+    payload: str,
+) -> str:
+    runtime_key = agent_runtime_session_key("claude_code", session_id)
+    return (
+        f"notify_target_async_authorized {workspace_id} {surface_id} "
+        f"--runtime-key={runtime_key} -- {payload}"
+    )
+
+
+def is_notify_command(line: str) -> bool:
+    return line.startswith("notify_target_async ") or line.startswith(
+        "notify_target_async_authorized "
+    )
+
+
+def legacy_notification_command(
+    workspace_id: str,
+    surface_id: str,
+    payload: str,
+) -> str:
+    return f"notify_target_async {workspace_id} {surface_id} {payload}"
 
 
 def resolve_cmux_cli() -> str:
@@ -154,7 +187,7 @@ class CapturingSocketServer:
 def run_push_notification_hook(
     cli_path: str,
     payload: dict,
-) -> tuple[subprocess.CompletedProcess, list[str], str, str]:
+) -> tuple[subprocess.CompletedProcess, list[str], str, str, str]:
     workspace_id = str(uuid.uuid4()).upper()
     surface_id = str(uuid.uuid4()).upper()
     with CapturingSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
@@ -176,7 +209,7 @@ def run_push_notification_hook(
             check=False,
         )
         commands = list(server.commands)
-    return proc, commands, workspace_id, surface_id
+    return proc, commands, workspace_id, surface_id, str(payload["session_id"])
 
 
 def push_payload(message: str, tool_response: object) -> dict:
@@ -201,7 +234,7 @@ def main() -> int:
 
     # 1. localSent true -> bridged into a cmux notification, no lifecycle flip.
     message = "build failed: 2 auth tests"
-    proc, commands, workspace_id, surface_id = run_push_notification_hook(
+    proc, commands, workspace_id, surface_id, session_id = run_push_notification_hook(
         cli_path,
         push_payload(
             message,
@@ -212,8 +245,14 @@ def main() -> int:
         print("FAIL: push-notification (sent) hook exited nonzero")
         print(f"stdout={proc.stdout!r} stderr={proc.stderr!r} commands={commands!r}")
         return 1
-    notify_commands = [line for line in commands if line.startswith("notify_target_async ")]
-    expected = f"notify_target_async {workspace_id} {surface_id} Claude Code||{message}"
+    notify_commands = [line for line in commands if is_notify_command(line)]
+    # PushNotification may be the first hook observed, so no runtime authority
+    # exists yet and the CLI must preserve the legacy visible delivery path.
+    expected = legacy_notification_command(
+        workspace_id,
+        surface_id,
+        f"Claude Code||{message}",
+    )
     if notify_commands != [expected]:
         print("FAIL: expected exactly one bridged notification for localSent=true")
         print(f"expected={expected!r}")
@@ -226,7 +265,7 @@ def main() -> int:
         return 1
 
     # 2. Tool skipped delivery (user present) -> no cmux notification.
-    proc, commands, _, _ = run_push_notification_hook(
+    proc, commands, _, _, _ = run_push_notification_hook(
         cli_path,
         push_payload(
             "should not surface",
@@ -237,13 +276,13 @@ def main() -> int:
         print("FAIL: push-notification (skipped) hook exited nonzero")
         print(f"stdout={proc.stdout!r} stderr={proc.stderr!r} commands={commands!r}")
         return 1
-    if any(line.startswith("notify_target_async ") for line in commands):
+    if any(is_notify_command(line) for line in commands):
         print("FAIL: skipped PushNotification must not create a cmux notification")
         print(f"commands={commands!r}")
         return 1
 
     # 3. No structured tool_response (older client) -> fail open and bridge.
-    proc, commands, workspace_id, surface_id = run_push_notification_hook(
+    proc, commands, workspace_id, surface_id, session_id = run_push_notification_hook(
         cli_path,
         push_payload("fallback delivery", None),
     )
@@ -251,8 +290,12 @@ def main() -> int:
         print("FAIL: push-notification (fail-open) hook exited nonzero")
         print(f"stdout={proc.stdout!r} stderr={proc.stderr!r} commands={commands!r}")
         return 1
-    expected = f"notify_target_async {workspace_id} {surface_id} Claude Code||fallback delivery"
-    if [line for line in commands if line.startswith("notify_target_async ")] != [expected]:
+    expected = legacy_notification_command(
+        workspace_id,
+        surface_id,
+        "Claude Code||fallback delivery",
+    )
+    if [line for line in commands if is_notify_command(line)] != [expected]:
         print("FAIL: missing tool_response should fail open and bridge the message")
         print(f"expected={expected!r} commands={commands!r}")
         return 1
@@ -260,7 +303,7 @@ def main() -> int:
     # 4. Explicit JSON-null disabledReason with localSent absent -> fail open.
     #    JSONSerialization maps JSON null to NSNull, which is not Swift nil; a
     #    naive `response["disabledReason"] == nil` check would suppress here.
-    proc, commands, workspace_id, surface_id = run_push_notification_hook(
+    proc, commands, workspace_id, surface_id, session_id = run_push_notification_hook(
         cli_path,
         push_payload(
             "null reason delivery",
@@ -271,8 +314,12 @@ def main() -> int:
         print("FAIL: push-notification (null disabledReason) hook exited nonzero")
         print(f"stdout={proc.stdout!r} stderr={proc.stderr!r} commands={commands!r}")
         return 1
-    expected = f"notify_target_async {workspace_id} {surface_id} Claude Code||null reason delivery"
-    if [line for line in commands if line.startswith("notify_target_async ")] != [expected]:
+    expected = legacy_notification_command(
+        workspace_id,
+        surface_id,
+        "Claude Code||null reason delivery",
+    )
+    if [line for line in commands if is_notify_command(line)] != [expected]:
         print("FAIL: JSON-null disabledReason should fail open and bridge the message")
         print(f"expected={expected!r} commands={commands!r}")
         return 1
@@ -282,7 +329,7 @@ def main() -> int:
     #    cmux notification is the only Mac-visible surface in that state, so
     #    the gate must not key on localSent; only explicit user-facing skip
     #    reasons (user_present, config_off) suppress the bridge.
-    proc, commands, workspace_id, surface_id = run_push_notification_hook(
+    proc, commands, workspace_id, surface_id, session_id = run_push_notification_hook(
         cli_path,
         push_payload(
             "local channel unavailable",
@@ -293,14 +340,18 @@ def main() -> int:
         print("FAIL: push-notification (localSent=false, no reason) hook exited nonzero")
         print(f"stdout={proc.stdout!r} stderr={proc.stderr!r} commands={commands!r}")
         return 1
-    expected = f"notify_target_async {workspace_id} {surface_id} Claude Code||local channel unavailable"
-    if [line for line in commands if line.startswith("notify_target_async ")] != [expected]:
+    expected = legacy_notification_command(
+        workspace_id,
+        surface_id,
+        "Claude Code||local channel unavailable",
+    )
+    if [line for line in commands if is_notify_command(line)] != [expected]:
         print("FAIL: localSent=false without a skip reason should still bridge")
         print(f"expected={expected!r} commands={commands!r}")
         return 1
 
     # 6. config_off is a deliberate user setting -> no cmux notification.
-    proc, commands, _, _ = run_push_notification_hook(
+    proc, commands, _, _, _ = run_push_notification_hook(
         cli_path,
         push_payload(
             "config off must not surface",
@@ -311,7 +362,7 @@ def main() -> int:
         print("FAIL: push-notification (config_off) hook exited nonzero")
         print(f"stdout={proc.stdout!r} stderr={proc.stderr!r} commands={commands!r}")
         return 1
-    if any(line.startswith("notify_target_async ") for line in commands):
+    if any(is_notify_command(line) for line in commands):
         print("FAIL: config_off PushNotification must not create a cmux notification")
         print(f"commands={commands!r}")
         return 1
@@ -320,7 +371,7 @@ def main() -> int:
     #    notification body (240-char cap with a trailing ellipsis), so a model
     #    cannot grow the notification store/UI with arbitrarily large pushes.
     oversized = "x" * 5000
-    proc, commands, workspace_id, surface_id = run_push_notification_hook(
+    proc, commands, workspace_id, surface_id, session_id = run_push_notification_hook(
         cli_path,
         push_payload(oversized, {"message": oversized, "localSent": True}),
     )
@@ -329,10 +380,14 @@ def main() -> int:
         print(f"stdout={proc.stdout!r} stderr={proc.stderr!r} commands={commands!r}")
         return 1
     expected_body = "x" * 239 + "…"
-    expected = f"notify_target_async {workspace_id} {surface_id} Claude Code||{expected_body}"
-    if [line for line in commands if line.startswith("notify_target_async ")] != [expected]:
+    expected = legacy_notification_command(
+        workspace_id,
+        surface_id,
+        f"Claude Code||{expected_body}",
+    )
+    if [line for line in commands if is_notify_command(line)] != [expected]:
         print("FAIL: oversized PushNotification body should be truncated to 240 chars")
-        actual = [line for line in commands if line.startswith("notify_target_async ")]
+        actual = [line for line in commands if is_notify_command(line)]
         print(f"expected len={len(expected)} got={[len(a) for a in actual]}")
         return 1
 

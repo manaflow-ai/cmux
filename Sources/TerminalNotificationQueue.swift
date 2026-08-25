@@ -11,13 +11,21 @@ fileprivate struct QueuedTerminalNotification: Sendable {
     let title: String
     let subtitle: String
     let body: String
+    let runtimeKey: String?
+    let runtimeGeneration: TimeInterval?
 }
 
 fileprivate enum TerminalSocketMutation {
     case deliverNotification(QueuedTerminalNotification)
     case clearAllNotifications(through: UInt64)
     case clearNotificationsForTab(UUID, through: UInt64)
-    case clearNotificationsForSurface(UUID, UUID, through: UInt64)
+    case clearNotificationsForSurface(
+        UUID,
+        UUID,
+        through: UInt64,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval?
+    )
     case perform(@MainActor () -> Void)
 }
 
@@ -46,6 +54,8 @@ struct TerminalMutationReplaceKey: Hashable, Sendable {
 fileprivate struct TerminalNotificationCoalescingKey: Hashable {
     let generation: UInt64
     let notificationKey: QueuedTerminalNotificationKey
+    let runtimeKey: String?
+    let runtimeGeneration: TimeInterval?
 }
 
 final class TerminalMutationBus: @unchecked Sendable {
@@ -67,13 +77,17 @@ final class TerminalMutationBus: @unchecked Sendable {
         title: String,
         subtitle: String,
         body: String,
-        coalesces: Bool = true
+        coalesces: Bool = true,
+        runtimeKey: String? = nil,
+        runtimeGeneration: TimeInterval? = nil
     ) {
         enqueueNotification(QueuedTerminalNotification(
             key: QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId),
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            runtimeKey: runtimeKey,
+            runtimeGeneration: runtimeGeneration
         ), coalesces: coalesces)
     }
 
@@ -89,11 +103,29 @@ final class TerminalMutationBus: @unchecked Sendable {
         }
     }
 
-    nonisolated func enqueueClearNotifications(forTabId tabId: UUID, surfaceId: UUID) {
+    nonisolated func enqueueClearNotifications(
+        forTabId tabId: UUID,
+        surfaceId: UUID,
+        runtimeKey: String? = nil,
+        runtimeGeneration: TimeInterval? = nil
+    ) {
         // Canonical surface identity: a stale-keyed entry would retarget here at drain.
-        enqueueClear({ .clearNotificationsForSurface(tabId, surfaceId, through: $0) }) { notification in
-            notification.key.surfaceId == surfaceId
-        }
+        // Runtime-authorized clears cannot discard anything until their authority
+        // is checked against the live panel owner at drain time.
+        enqueueClear(
+            {
+                .clearNotificationsForSurface(
+                    tabId,
+                    surfaceId,
+                    through: $0,
+                    runtimeKey: runtimeKey,
+                    runtimeGeneration: runtimeGeneration
+                )
+            },
+            dropping: runtimeKey == nil ? { notification in
+                notification.key.surfaceId == surfaceId
+            } : nil
+        )
     }
 
     nonisolated func enqueueMainActorMutation(_ mutation: @escaping @MainActor () -> Void) {
@@ -153,6 +185,16 @@ final class TerminalMutationBus: @unchecked Sendable {
         }
     }
 
+    /// Canonical surface discard bounded by a clear's notification generation.
+    nonisolated func discardPendingNotifications(
+        forSurfaceId surfaceId: UUID,
+        through boundary: UInt64
+    ) {
+        discardPendingNotifications { notification, generation in
+            notification.key.surfaceId == surfaceId && generation <= boundary
+        }
+    }
+
     /// Clear-scoped discard: canonical surface identity when surface-scoped;
     /// live destination workspace when workspace-scoped.
     @MainActor
@@ -196,7 +238,9 @@ final class TerminalMutationBus: @unchecked Sendable {
         let coalescingKey = coalesces
             ? TerminalNotificationCoalescingKey(
                 generation: generation,
-                notificationKey: notification.key
+                notificationKey: notification.key,
+                runtimeKey: notification.runtimeKey,
+                runtimeGeneration: notification.runtimeGeneration
             )
             : nil
         let beforeCount = pending.count
@@ -234,17 +278,19 @@ final class TerminalMutationBus: @unchecked Sendable {
 
     private func enqueueClear(
         _ mutation: (UInt64) -> TerminalSocketMutation,
-        dropping shouldDrop: (QueuedTerminalNotification) -> Bool
+        dropping shouldDrop: ((QueuedTerminalNotification) -> Bool)?
     ) {
         let shouldScheduleDrain: Bool
         lock.lock()
         let boundary = currentNotificationGeneration
         currentNotificationGeneration &+= 1
-        pending.removeAll { entry in
-            if case .deliverNotification(let notification) = entry.mutation {
-                return shouldDrop(notification)
+        if let shouldDrop {
+            pending.removeAll { entry in
+                if case .deliverNotification(let notification) = entry.mutation {
+                    return shouldDrop(notification)
+                }
+                return false
             }
-            return false
         }
         nextSequence &+= 1
         pending.append(TerminalSocketMutationEntry(
@@ -439,7 +485,9 @@ final class TerminalMutationBus: @unchecked Sendable {
                     title: notification.title,
                     subtitle: notification.subtitle,
                     body: notification.body,
-                    notificationGeneration: entry.notificationGeneration ?? 0
+                    notificationGeneration: entry.notificationGeneration ?? 0,
+                    runtimeKey: notification.runtimeKey,
+                    runtimeGeneration: notification.runtimeGeneration
                 )
             case .clearAllNotifications(let boundary):
                 TerminalNotificationStore.shared.clearAll(discardQueuedNotifications: false, throughNotificationGeneration: boundary)
@@ -449,7 +497,25 @@ final class TerminalMutationBus: @unchecked Sendable {
                     discardQueuedNotifications: false,
                     throughNotificationGeneration: boundary
                 )
-            case .clearNotificationsForSurface(let tabId, let surfaceId, let boundary):
+            case .clearNotificationsForSurface(
+                let tabId,
+                let surfaceId,
+                let boundary,
+                let runtimeKey,
+                let runtimeGeneration
+            ):
+                guard AppDelegate.shared?.allowsAgentNotificationRuntimeCleanup(
+                    claimedTabID: tabId,
+                    surfaceID: surfaceId,
+                    runtimeKey: runtimeKey,
+                    runtimeGeneration: runtimeGeneration
+                ) == true else {
+                    continue
+                }
+                discardPendingNotifications(
+                    forSurfaceId: surfaceId,
+                    through: boundary
+                )
                 TerminalNotificationStore.shared.clearNotifications(
                     forTabId: tabId,
                     surfaceId: surfaceId,

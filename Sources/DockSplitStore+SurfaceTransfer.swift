@@ -299,6 +299,10 @@ extension DockSplitStore {
             resumeBinding: resumeBinding,
             managedAgentResumeBinding: managedResumeBinding,
             agentRuntime: agentProvenExited ? nil : cachedRuntime,
+            agentRuntimeReplacementTracking:
+                restoredAgentLifecycle.agentRuntimeReplacementTrackingState(
+                    panelId: panelId
+                ),
             isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
             remoteTerminalSessionPhase: preservedTransfer?.remoteTerminalSessionPhase,
             remoteTerminalAuthority: preservedTransfer?.remoteTerminalAuthority,

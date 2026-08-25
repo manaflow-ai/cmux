@@ -162,6 +162,13 @@ public struct AgentRestorePlanner: Sendable {
             from: captured,
             kind: kind
         )
+        if let runtimeGeneration = AgentRuntimeSessionKey.inheritedRuntimeGeneration(
+            from: captured
+        ) {
+            selected[AgentRuntimeSessionKey.runtimeGenerationEnvironmentKey] = String(
+                runtimeGeneration
+            )
+        }
         if kind == "claude" {
             let keys = selected.keys.sorted().filter {
                 Self.claudeAuthSelectionEnvironmentKeys.contains($0)

@@ -1,4 +1,5 @@
 import Bonsplit
+import CMUXAgentLaunch
 import CmuxWorkspaces
 import Darwin
 import Foundation
@@ -282,7 +283,9 @@ extension DockSplitStore {
                 textBoxDraft: terminal.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: transfer?.isRemoteTerminal ?? false,
                 remotePTYSessionID: transfer?.remotePTYSessionID,
-                wasAgentRunning: agentWasRunning
+                wasAgentRunning: agentWasRunning,
+                runtimeGenerationHighWaterMarksByStatusKey:
+                    restoredAgentLifecycle.agentRuntimeGenerationFloors(panelId: panelId)
             )
             browserSnapshot = nil
         case .browser:
@@ -491,12 +494,17 @@ extension DockSplitStore {
                   let runtime = agentRuntimeByPanelId[terminal.id] ?? transfer?.agentRuntime else {
                 return []
             }
-            let key = "\(expectedKind.rawValue).\(expectedSessionId)"
-            guard let recordedIdentity = runtime.agentPIDProcessIdentities[key],
-                  currentAgentProcessIdentity(Int(recordedIdentity.pid)) == recordedIdentity else {
-                return []
-            }
-            return [recordedIdentity]
+            let compatibleKeys = AgentRuntimeSessionKey(
+                statusKey: expectedKind.lifecycleStatusKey,
+                sessionID: expectedSessionId
+            ).compatibleRawValues
+            return Set(compatibleKeys.compactMap { key -> AgentPIDProcessIdentity? in
+                guard let recordedIdentity = runtime.agentPIDProcessIdentities[key],
+                      currentAgentProcessIdentity(Int(recordedIdentity.pid)) == recordedIdentity else {
+                    return nil
+                }
+                return recordedIdentity
+            })
         }()
         if managedBinding != nil,
            relevantObservation == nil,

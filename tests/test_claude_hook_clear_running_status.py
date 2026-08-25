@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import shutil
@@ -13,6 +14,11 @@ import threading
 import time
 import uuid
 from pathlib import Path
+
+
+def agent_runtime_session_key(status_key: str, session_id: str) -> str:
+    encoded_session = base64.urlsafe_b64encode(session_id.encode()).decode().rstrip("=")
+    return f"{status_key}.~cmux-session-v1~.{encoded_session}"
 
 
 def resolve_cmux_cli() -> str:
@@ -285,7 +291,7 @@ def main() -> int:
             return 1
         if not has_command(
             clear_commands,
-            f"set_agent_pid claude_code.{new_session_id} 22222",
+            f"set_agent_pid {agent_runtime_session_key('claude_code', new_session_id)} 22222",
         ):
             print("FAIL: expected clear SessionStart to register exact-session Claude PID ownership")
             print(f"clear_commands={clear_commands!r}")

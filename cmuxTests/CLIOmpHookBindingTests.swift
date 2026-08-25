@@ -1,4 +1,5 @@
 import Darwin
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -173,6 +174,12 @@ struct CLIOmpHookBindingTests {
         let resumeParams = try #require(resumeRequest["params"] as? [String: Any])
         #expect(resumeParams["workspace_id"] as? String == Self.liveWorkspaceId)
         #expect(resumeParams["surface_id"] as? String == Self.liveSurfaceId)
+        let runtimeGeneration = try #require(resumeParams["runtime_generation"] as? Double)
+        let resumeEnvironment = try #require(resumeParams["environment"] as? [String: Any])
+        #expect(
+            resumeEnvironment[AgentRuntimeSessionKey.runtimeGenerationEnvironmentKey] as? String
+                == String(runtimeGeneration)
+        )
         let clearRequest = try #require(requests.first {
             $0["method"] as? String == "surface.resume.clear"
         })
@@ -182,8 +189,15 @@ struct CLIOmpHookBindingTests {
         let resumeIndex = try #require(commands.firstIndex {
             Self.jsonObject($0)?["method"] as? String == "surface.resume.set"
         })
-        let pidIndex = try #require(commands.firstIndex {
-            $0.hasPrefix("set_agent_pid omp.\(resumedSessionId) ")
+        let runtimeKeys = AgentRuntimeSessionKey(
+            statusKey: "omp",
+            sessionID: resumedSessionId
+        ).compatibleRawValues
+        let encodedPIDIndex = try #require(commands.firstIndex {
+            $0.hasPrefix("set_agent_pid \(runtimeKeys[0]) ")
+        })
+        let legacyPIDIndex = try #require(commands.firstIndex {
+            $0.hasPrefix("set_agent_pid \(runtimeKeys[1]) ")
         })
         let lifecycleIndex = try #require(commands.firstIndex {
             $0.hasPrefix("set_agent_lifecycle omp ")
@@ -192,7 +206,12 @@ struct CLIOmpHookBindingTests {
             Self.jsonObject($0)?["method"] as? String == "surface.resume.clear"
         })
         #expect(resumeIndex < clearIndex)
-        #expect(pidIndex < clearIndex)
+        #expect(encodedPIDIndex < legacyPIDIndex)
+        #expect(legacyPIDIndex < lifecycleIndex)
+        #expect(commands[lifecycleIndex].contains("--runtime-key=\(runtimeKeys[0])"))
+        #expect(commands[encodedPIDIndex].contains("--runtime-generation=\(runtimeGeneration)"))
+        #expect(commands[legacyPIDIndex].contains("--runtime-generation=\(runtimeGeneration)"))
+        #expect(commands[lifecycleIndex].contains("--runtime-generation=\(runtimeGeneration)"))
         #expect(lifecycleIndex < clearIndex)
 
         let store = try #require(

@@ -13,6 +13,8 @@ extension CMUXCLI {
         workspaceId: String,
         surfaceId: String,
         sessionId: String?,
+        runtimeStatusKey: String,
+        runtimeGeneration: TimeInterval? = nil,
         sessionDidEnd: Bool = false
     ) -> AgentSurfaceResumeBindingClearOutcome {
         let normalizedSessionId = normalizedHookValue(sessionId)
@@ -22,6 +24,14 @@ extension CMUXCLI {
         ]
         if let normalizedSessionId {
             params["checkpoint_id"] = normalizedSessionId
+        }
+        if let runtimeStatusKey = normalizedHookValue(runtimeStatusKey) {
+            params["runtime_status_key"] = runtimeStatusKey
+        }
+        if let runtimeGeneration,
+           runtimeGeneration.isFinite,
+           runtimeGeneration > 0 {
+            params["runtime_generation"] = runtimeGeneration
         }
         if sessionDidEnd, normalizedSessionId != nil {
             params["agent_session_ended"] = true

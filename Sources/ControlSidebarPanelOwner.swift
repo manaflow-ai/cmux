@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxSidebar
 import Darwin
 import Foundation
@@ -49,6 +50,120 @@ enum ControlSidebarPanelOwner {
         }
     }
 
+    /// Validates an exact-session hook mutation against the panel's current
+    /// binding, falling back to recorded PID ownership for integrations that
+    /// do not publish a resume binding. A missing runtime key preserves the
+    /// legacy command contract for older hooks.
+    func allowsAgentRuntimeMutation(
+        statusKey: String,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval? = nil,
+        panelId: UUID?,
+        allowsRetiredCleanup: Bool = false
+    ) -> Bool {
+        guard let runtimeKey else { return true }
+        guard let panelId,
+              let sessionKey = AgentRuntimeSessionKey(rawValue: runtimeKey),
+              sessionKey.statusKey == statusKey else {
+            return false
+        }
+
+        let binding: SurfaceResumeBindingSnapshot?
+        let lifecycle: RestoredAgentLifecycleCoordinator
+        switch self {
+        case .workspace(let workspace):
+            binding = workspace.authoritativeAgentRuntimeBinding(panelId: panelId)
+            lifecycle = workspace.restoredAgentLifecycle
+        case .dock(let dock):
+            binding = dock.authoritativeAgentRuntimeBinding(panelId: panelId)
+            lifecycle = dock.restoredAgentLifecycle
+        }
+
+        if allowsRetiredCleanup {
+            return lifecycle.consumeAgentRuntimeCleanupAuthority(
+                sessionKey: sessionKey,
+                generation: runtimeGeneration,
+                panelId: panelId
+            )
+        }
+        if binding?.agentRuntimeStatusKey != nil,
+           binding?.matchesExactAgentRuntimeKey(runtimeKey) != true {
+            return false
+        }
+        return lifecycle.allowsAgentRuntimeMutation(
+            sessionKey: sessionKey,
+            generation: runtimeGeneration,
+            panelId: panelId
+        )
+    }
+
+    /// Authorizes panel-scoped notification teardown without consuming runtime
+    /// authority. This is deliberately separate from ordinary delivery and
+    /// status mutation authorization because SessionEnd retires the runtime
+    /// before its queued notification clear reaches the main actor.
+    func allowsAgentNotificationCleanup(
+        statusKey: String,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval? = nil,
+        panelId: UUID?
+    ) -> Bool {
+        guard let runtimeKey else { return true }
+        guard let panelId,
+              let sessionKey = AgentRuntimeSessionKey(rawValue: runtimeKey),
+              sessionKey.statusKey == statusKey else {
+            return false
+        }
+
+        let lifecycle: RestoredAgentLifecycleCoordinator
+        switch self {
+        case .workspace(let workspace):
+            lifecycle = workspace.restoredAgentLifecycle
+        case .dock(let dock):
+            lifecycle = dock.restoredAgentLifecycle
+        }
+        return lifecycle.allowsAgentRuntimeNotificationCleanup(
+            sessionKey: sessionKey,
+            generation: runtimeGeneration,
+            panelId: panelId
+        )
+    }
+
+    /// Establishes exact-session authority only from a binding-compatible PID
+    /// publication. Ordinary status/lifecycle/notification mutations use the
+    /// read-only authorization path above.
+    private func establishesAgentRuntimeAuthority(
+        statusKey: String,
+        runtimeKey: String,
+        runtimeGeneration: TimeInterval?,
+        panelId: UUID?
+    ) -> Bool {
+        guard let panelId,
+              let sessionKey = AgentRuntimeSessionKey(rawValue: runtimeKey),
+              sessionKey.statusKey == statusKey else {
+            return false
+        }
+
+        let binding: SurfaceResumeBindingSnapshot?
+        let lifecycle: RestoredAgentLifecycleCoordinator
+        switch self {
+        case .workspace(let workspace):
+            binding = workspace.authoritativeAgentRuntimeBinding(panelId: panelId)
+            lifecycle = workspace.restoredAgentLifecycle
+        case .dock(let dock):
+            binding = dock.authoritativeAgentRuntimeBinding(panelId: panelId)
+            lifecycle = dock.restoredAgentLifecycle
+        }
+        if binding?.agentRuntimeStatusKey != nil,
+           binding?.matchesExactAgentRuntimeKey(runtimeKey) != true {
+            return false
+        }
+        return lifecycle.establishAgentRuntimeAuthority(
+            sessionKey: sessionKey,
+            generation: runtimeGeneration,
+            panelId: panelId
+        )
+    }
+
     func clearStatusEntry(key: String, panelId: UUID?) {
         switch self {
         case .workspace(let workspace):
@@ -60,7 +175,25 @@ enum ControlSidebarPanelOwner {
     }
 
     @discardableResult
-    func recordAgentPID(key: String, pid: pid_t, panelId: UUID?) -> Bool {
+    func recordAgentPID(
+        key: String,
+        pid: pid_t,
+        panelId: UUID?,
+        runtimeKey: String? = nil,
+        runtimeGeneration: TimeInterval? = nil
+    ) -> Bool {
+        if let runtimeKey {
+            guard let sessionKey = AgentRuntimeSessionKey(rawValue: runtimeKey),
+                  sessionKey.compatibleRawValues.contains(key),
+                  establishesAgentRuntimeAuthority(
+                      statusKey: sessionKey.statusKey,
+                      runtimeKey: runtimeKey,
+                      runtimeGeneration: runtimeGeneration,
+                      panelId: panelId
+                  ) else {
+                return false
+            }
+        }
         switch self {
         case .workspace(let workspace):
             return workspace.recordAgentPID(key: key, pid: pid, panelId: panelId)
@@ -73,8 +206,18 @@ enum ControlSidebarPanelOwner {
     func setAgentLifecycle(
         key: String,
         panelId: UUID?,
-        lifecycle: AgentHibernationLifecycleState
+        lifecycle: AgentHibernationLifecycleState,
+        runtimeKey: String? = nil,
+        runtimeGeneration: TimeInterval? = nil
     ) {
+        guard allowsAgentRuntimeMutation(
+            statusKey: key,
+            runtimeKey: runtimeKey,
+            runtimeGeneration: runtimeGeneration,
+            panelId: panelId
+        ) else {
+            return
+        }
         switch self {
         case .workspace(let workspace):
             workspace.setAgentLifecycle(key: key, panelId: panelId, lifecycle: lifecycle)
@@ -88,8 +231,27 @@ enum ControlSidebarPanelOwner {
         key: String,
         panelId: UUID?,
         clearStatus: Bool,
-        requireOwnedKey: Bool = false
+        requireOwnedKey: Bool = false,
+        runtimeKey: String? = nil,
+        runtimeGeneration: TimeInterval? = nil
     ) {
+        if requireOwnedKey, !ownsAgentPIDKey(key, panelId: panelId) {
+            return
+        }
+        if let runtimeKey {
+            guard let sessionKey = AgentRuntimeSessionKey(rawValue: runtimeKey),
+                  key == sessionKey.statusKey
+                    || sessionKey.compatibleRawValues.contains(key),
+                  allowsAgentRuntimeMutation(
+                      statusKey: sessionKey.statusKey,
+                      runtimeKey: runtimeKey,
+                      runtimeGeneration: runtimeGeneration,
+                      panelId: panelId,
+                      allowsRetiredCleanup: true
+                  ) else {
+                return
+            }
+        }
         switch self {
         case .workspace(let workspace):
             workspace.clearAgentPID(
@@ -106,6 +268,19 @@ enum ControlSidebarPanelOwner {
                 clearStatus: clearStatus,
                 requireOwnedKey: requireOwnedKey
             )
+        }
+    }
+
+    private func ownsAgentPIDKey(_ key: String, panelId: UUID?) -> Bool {
+        switch self {
+        case .workspace(let workspace):
+            guard let ownedPanelId = workspace.agentPIDPanelIdsByKey[key] else {
+                return false
+            }
+            return panelId == nil || panelId == ownedPanelId
+        case .dock(let dock):
+            guard let panelId else { return false }
+            return dock.agentRuntimeByPanelId[panelId]?.agentPIDKeys.contains(key) == true
         }
     }
 

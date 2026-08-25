@@ -1,4 +1,5 @@
 import Bonsplit
+import CMUXAgentLaunch
 import CmuxSettings
 import CmuxCore
 import Darwin
@@ -33,6 +34,49 @@ extension Workspace {
     var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] {
         get { sidebarAgentRuntimeObservation.agentLifecycleStatesByPanelId }
         set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
+    }
+
+    /// Returns the active binding or the metadata-cleared binding that still
+    /// owns runtime delivery until a replacement or authoritative end arrives.
+    func authoritativeAgentRuntimeBinding(
+        panelId: UUID
+    ) -> SurfaceResumeBindingSnapshot? {
+        surfaceResumeBindingsByPanelId[panelId]
+            ?? restoredAgentLifecycle.eligibleRetiredAgentRuntimeBinding(
+                panelId: panelId
+            )
+    }
+
+    /// Coalesces mixed-version transport aliases into one logical runtime.
+    func logicalAgentPIDs() -> [String: pid_t] {
+        let recordedPIDs = agentPIDs
+        var aliasesToCanonicalKeys: [String: String] = [:]
+        for key in recordedPIDs.keys {
+            guard let structuredKey = AgentRuntimeSessionKey(rawValue: key) else {
+                continue
+            }
+            for alias in structuredKey.compatibleRawValues {
+                aliasesToCanonicalKeys[alias] = structuredKey.rawValue
+            }
+        }
+        var logicalPIDs: [String: pid_t] = [:]
+        // Prefer the legacy alias when both exist: an older hook may refresh it
+        // alone after a process restart, while new hooks update both in order.
+        let keysInAliasPreferenceOrder = recordedPIDs.keys.sorted { lhs, rhs in
+            let lhsIsStructured = AgentRuntimeSessionKey(rawValue: lhs) != nil
+            let rhsIsStructured = AgentRuntimeSessionKey(rawValue: rhs) != nil
+            if lhsIsStructured != rhsIsStructured {
+                return !lhsIsStructured
+            }
+            return lhs < rhs
+        }
+        for key in keysInAliasPreferenceOrder {
+            let logicalKey = aliasesToCanonicalKeys[key] ?? key
+            if logicalPIDs[logicalKey] == nil {
+                logicalPIDs[logicalKey] = recordedPIDs[key]
+            }
+        }
+        return logicalPIDs
     }
 
     /// Remote hook PIDs remain opaque after a panel moves into a workspace
@@ -70,16 +114,22 @@ extension Workspace {
         // Claude's `claude_code` key identifies only a panel, not a session, so it
         // cannot prove that a live process supersedes this cached session generation.
         guard kind != .claude else { return [] }
-        let key = "\(kind.rawValue).\(sessionId)"
-        guard agentPIDKeysByPanelId[panelId]?.contains(key) == true,
-              let pid = agentPIDs[key],
-              pid > 0,
-              let recordedIdentity = agentPIDProcessIdentitiesByKey[key],
-              recordedIdentity.pid == pid,
-              currentProcessIdentity(Int(pid)) == recordedIdentity else {
-            return []
-        }
-        return [recordedIdentity]
+        let compatibleKeys = AgentRuntimeSessionKey(
+            statusKey: kind.lifecycleStatusKey,
+            sessionID: sessionId
+        ).compatibleRawValues
+        let ownedKeys = agentPIDKeysByPanelId[panelId] ?? []
+        return Set(compatibleKeys.compactMap { key -> AgentPIDProcessIdentity? in
+            guard ownedKeys.contains(key),
+                  let pid = agentPIDs[key],
+                  pid > 0,
+                  let recordedIdentity = agentPIDProcessIdentitiesByKey[key],
+                  recordedIdentity.pid == pid,
+                  currentProcessIdentity(Int(pid)) == recordedIdentity else {
+                return nil
+            }
+            return recordedIdentity
+        })
     }
 
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
@@ -96,7 +146,7 @@ extension Workspace {
                 agentPIDsForPanel[key] = pid
                 agentPIDIdentitiesForPanel[key] = agentPIDProcessIdentitiesByKey[key]
             }
-            let statusKey = agentStatusKey(forAgentPIDKey: key)
+            let statusKey = agentStatusKey(forAgentPIDKey: key, panelId: panelId)
             if let statusEntry = statusEntries[statusKey] {
                 statusEntriesForPanel[statusKey] = statusEntry
             }
@@ -117,7 +167,23 @@ extension Workspace {
         )
     }
 
-    func agentStatusKey(forAgentPIDKey key: String) -> String {
+    func agentStatusKey(forAgentPIDKey key: String, panelId: UUID? = nil) -> String {
+        if let structuredKey = AgentRuntimeSessionKey(rawValue: key) {
+            return structuredKey.statusKey
+        }
+        if let panelId,
+           let binding = authoritativeAgentRuntimeBinding(panelId: panelId),
+           let statusKey = binding.agentRuntimeStatusKey,
+           binding.matchesAgentRuntimeKeyForCleanup(key) {
+            return statusKey
+        }
+        if let panelId,
+           let retiredStatusKey = restoredAgentLifecycle.retiredAgentRuntimeStatusKey(
+               for: key,
+               panelId: panelId
+           ) {
+            return retiredStatusKey
+        }
         if statusEntries[key] != nil {
             return key
         }
@@ -128,13 +194,24 @@ extension Workspace {
     }
 
     private func hasAgentRuntime(forStatusKey statusKey: String) -> Bool {
-        for key in agentPIDs.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
+        for key in agentPIDs.keys
+        where agentStatusKey(
+            forAgentPIDKey: key,
+            panelId: agentPIDPanelIdsByKey[key]
+        ) == statusKey {
             return true
         }
-        for key in agentPIDPanelIdsByKey.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
+        for (key, panelId) in agentPIDPanelIdsByKey
+        where agentStatusKey(forAgentPIDKey: key, panelId: panelId) == statusKey {
             return true
         }
         return false
+    }
+
+    private func hasAgentRuntime(forStatusKey statusKey: String, onPanel panelId: UUID) -> Bool {
+        (agentPIDKeysByPanelId[panelId] ?? []).contains {
+            agentStatusKey(forAgentPIDKey: $0, panelId: panelId) == statusKey
+        }
     }
 
     private func removeAgentPIDOwnership(key: String) {
@@ -151,12 +228,20 @@ extension Workspace {
         if let previousPanelId = agentPIDPanelIdsByKey[key], previousPanelId != panelId {
             removeAgentPIDOwnership(key: key)
         }
-        if isStructuredAgentHookPIDKey(key) {
-            let statusKey = agentStatusKey(forAgentPIDKey: key)
+        if isStructuredAgentHookPIDKey(
+            key,
+            panelId: panelId,
+            requiresCurrentSessionMatch: true
+        ) {
+            let statusKey = agentStatusKey(forAgentPIDKey: key, panelId: panelId)
             let stalePanelKeys = agentPIDKeysByPanelId[panelId]?.filter {
                 $0 != key &&
-                isStructuredAgentHookPIDKey($0) &&
-                agentStatusKey(forAgentPIDKey: $0) != statusKey
+                isStructuredAgentHookPIDKey(
+                    $0,
+                    panelId: panelId,
+                    requiresCurrentSessionMatch: true
+                ) &&
+                agentStatusKey(forAgentPIDKey: $0, panelId: panelId) != statusKey
             } ?? []
             for staleKey in stalePanelKeys {
                 _ = clearAgentPID(key: staleKey, panelId: panelId, clearStatus: true, refreshPorts: false)
@@ -168,10 +253,22 @@ extension Workspace {
 
     @discardableResult
     private func clearOtherStructuredAgentRuntimes(onPanel panelId: UUID, keeping retainedKey: String) -> Bool {
-        guard isStructuredAgentHookPIDKey(retainedKey) else { return false }
+        guard isStructuredAgentHookPIDKey(
+            retainedKey,
+            panelId: panelId,
+            requiresCurrentSessionMatch: true
+        ) else { return false }
         let staleKeys = agentPIDKeysByPanelId[panelId] ?? []
+        let currentBinding = authoritativeAgentRuntimeBinding(panelId: panelId)
+        let retainedKeyMatchesCurrentBinding = currentBinding?
+            .matchesExactAgentRuntimeKey(retainedKey) == true
         var didChange = false
-        for staleKey in staleKeys where staleKey != retainedKey && isStructuredAgentHookPIDKey(staleKey) {
+        for staleKey in staleKeys where staleKey != retainedKey && isStructuredAgentHookPIDKey(
+            staleKey,
+            panelId: panelId,
+            requiresCurrentSessionMatch: true
+        ) && !(retainedKeyMatchesCurrentBinding
+            && currentBinding?.matchesExactAgentRuntimeKey(staleKey) == true) {
             if clearAgentPID(key: staleKey, panelId: panelId, clearStatus: true, refreshPorts: false) {
                 didChange = true
             }
@@ -180,6 +277,19 @@ extension Workspace {
     }
     @discardableResult
     func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) -> Bool {
+        let currentBinding = panelId.flatMap {
+            authoritativeAgentRuntimeBinding(panelId: $0)
+        }
+        if currentBinding?.rejectsMismatchedAgentRuntimeKey(key) == true
+            || panelId.map({
+                restoredAgentLifecycle.rejectsSupersededAgentRuntimeKey(
+                    key,
+                    panelId: $0
+                )
+            }) == true {
+            return false
+        }
+        let recordsCurrentBinding = currentBinding?.matchesExactAgentRuntimeKey(key) == true
         let previous = (
             panelId: agentPIDPanelIdsByKey[key],
             pid: agentPIDs[key],
@@ -201,7 +311,16 @@ extension Workspace {
             }
         }
         if refreshPorts { refreshTrackedAgentPorts() }
-        return didClearOtherStructuredAgentRuntime
+        let carriesBindingReplacement = recordsCurrentBinding
+            && currentBinding.flatMap { binding in
+                panelId.map {
+                    restoredAgentLifecycle.consumePendingAgentRuntimeReplacement(
+                        for: binding,
+                        panelId: $0
+                    )
+                }
+            } == true
+        return didClearOtherStructuredAgentRuntime || carriesBindingReplacement
     }
 
     @discardableResult
@@ -267,7 +386,16 @@ extension Workspace {
     /// Consumes structured remote-agent runtime after its prompt or terminal
     /// lifecycle ends, without touching unrelated panel runtime state.
     func clearRemoteAgentRuntime(panelId: UUID) {
-        guard let binding = surfaceResumeBindingsByPanelId[panelId] else { return }
+        guard let binding = authoritativeAgentRuntimeBinding(panelId: panelId) else { return }
+        clearAgentRuntimeOwned(by: binding, panelId: panelId)
+    }
+
+    /// Clears only runtime state whose kind-scoped key belongs to `binding`.
+    func clearAgentRuntimeOwned(
+        by binding: SurfaceResumeBindingSnapshot,
+        panelId: UUID
+    ) {
+        guard let statusKey = binding.agentRuntimeStatusKey else { return }
         let keys = (agentPIDKeysByPanelId[panelId] ?? []).filter {
             binding.matchesAgentRuntimeKeyForCleanup($0)
         }
@@ -277,10 +405,18 @@ extension Workspace {
                 key: key,
                 panelId: panelId,
                 clearStatus: true,
+                agentStatusKeyOverride: statusKey,
                 refreshPorts: false
             ) {
                 didChange = true
             }
+        }
+        if clearAgentLifecycle(key: statusKey, panelId: panelId) {
+            didChange = true
+        }
+        if !hasAgentRuntime(forStatusKey: statusKey),
+           statusEntries.removeValue(forKey: statusKey) != nil {
+            didChange = true
         }
         if didChange {
             refreshTrackedAgentPorts()
@@ -317,7 +453,9 @@ extension Workspace {
         }
 
         let panelKeys = agentPIDKeysByPanelId[panelId] ?? []
-        return panelKeys.contains { isStructuredAgentHookPIDKey($0) }
+        return panelKeys.contains {
+            isStructuredAgentHookPIDKey($0, panelId: panelId)
+        }
     }
 
     private func terminalPanelHasManagedSubagentStartupEnvironment(panelId: UUID) -> Bool {
@@ -331,8 +469,36 @@ extension Workspace {
         return Self.truthyStartupEnvironmentValues.contains(rawValue)
     }
 
-    private func isStructuredAgentHookPIDKey(_ key: String) -> Bool {
-        Self.structuredAgentHookStatusKeys.contains(agentStatusKey(forAgentPIDKey: key))
+    private func isStructuredAgentHookPIDKey(
+        _ key: String,
+        panelId: UUID? = nil,
+        requiresCurrentSessionMatch: Bool = false
+    ) -> Bool {
+        if AgentRuntimeSessionKey(rawValue: key) != nil {
+            return true
+        }
+        if let panelId,
+           let binding = authoritativeAgentRuntimeBinding(panelId: panelId),
+           binding.matchesAgentRuntimeKeyForCleanup(key) {
+            return requiresCurrentSessionMatch
+                ? binding.matchesExactAgentRuntimeKey(key)
+                : true
+        }
+        if let panelId,
+           let binding = authoritativeAgentRuntimeBinding(panelId: panelId),
+           binding.isLegacyAgentRuntimeReplacementCandidate(key) {
+            return true
+        }
+        if requiresCurrentSessionMatch,
+           let panelId,
+           let binding = authoritativeAgentRuntimeBinding(panelId: panelId),
+           let statusKey = binding.agentRuntimeStatusKey,
+           agentStatusKey(forAgentPIDKey: key, panelId: panelId) == statusKey {
+            return false
+        }
+        return Self.structuredAgentHookStatusKeys.contains(
+            agentStatusKey(forAgentPIDKey: key, panelId: panelId)
+        )
     }
 
     @discardableResult
@@ -341,6 +507,7 @@ extension Workspace {
         panelId: UUID? = nil,
         clearStatus: Bool = false,
         requireOwnedKey: Bool = false,
+        agentStatusKeyOverride: String? = nil,
         refreshPorts: Bool = true
     ) -> Bool {
         let ownedPanelId = agentPIDPanelIdsByKey[key]
@@ -350,7 +517,24 @@ extension Workspace {
         if let panelId, let ownedPanelId, ownedPanelId != panelId {
             return false
         }
-        let statusKeyToClear = clearStatus ? agentStatusKey(forAgentPIDKey: key) : nil
+        let lifecyclePanelId = ownedPanelId ?? panelId
+        let resolvedStatusKey = agentStatusKeyOverride
+            ?? agentStatusKey(forAgentPIDKey: key, panelId: lifecyclePanelId)
+        let currentBinding = lifecyclePanelId.flatMap {
+            authoritativeAgentRuntimeBinding(panelId: $0)
+        }
+        let protectsCurrentBinding = currentBinding?.agentRuntimeStatusKey == resolvedStatusKey
+            && currentBinding?.matchesExactAgentRuntimeKey(key) != true
+            && key != resolvedStatusKey
+        let protectsCurrentAuthority = lifecyclePanelId.map {
+            restoredAgentLifecycle.protectsCurrentAgentRuntimeStatus(
+                resolvedStatusKey,
+                clearingKey: key,
+                panelId: $0
+            )
+        } == true
+        let protectsCurrentRuntime = protectsCurrentBinding || protectsCurrentAuthority
+        let statusKeyToClear = clearStatus ? resolvedStatusKey : nil
 
         var didChange = false
         if agentPIDs.removeValue(forKey: key) != nil {
@@ -364,13 +548,18 @@ extension Workspace {
             didChange = true
         }
         if let changedPanelId = ownedPanelId ?? panelId, didChange { AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId) }
-        if let lifecyclePanelId = ownedPanelId ?? panelId {
-            let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
-            if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
+        if !protectsCurrentRuntime,
+           let lifecyclePanelId,
+           !hasAgentRuntime(
+               forStatusKey: resolvedStatusKey,
+               onPanel: lifecyclePanelId
+           ) {
+            if clearAgentLifecycle(key: resolvedStatusKey, panelId: lifecyclePanelId) {
                 didChange = true
             }
         }
         if let statusKeyToClear,
+           !protectsCurrentRuntime,
            !hasAgentRuntime(forStatusKey: statusKeyToClear),
            statusEntries.removeValue(forKey: statusKeyToClear) != nil {
             didChange = true
@@ -572,6 +761,7 @@ extension Workspace {
         discardAgentRuntimeState(closedAgentRuntimeState)
         clearRestoredAgentSnapshot(panelId: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+        restoredAgentLifecycle.clearAgentRuntimeReplacementTracking(panelId: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
         removeTerminalConfigInheritanceSource(panelId: panelId)
         if clearSurfaceNotifications {

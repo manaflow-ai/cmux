@@ -1,4 +1,5 @@
 import AppKit
+import CMUXAgentLaunch
 import CmuxCore
 import CmuxSidebar
 import Darwin
@@ -712,6 +713,541 @@ struct RemoteResumeBindingTests {
         #expect(destination.agentPIDKeysByPanelId[destinationPanelID]?.contains(runtimeKey) == true)
     }
 
+    @Test(arguments: ["codex", "acme.agent"])
+    func structuredReplacementKeepsCurrentAliasesAndEvictsLegacyRuntime(
+        agentKind: String
+    ) throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let staleRuntimeKey = "\(agentKind).legacy-session"
+        #expect(!workspace.recordAgentPID(
+            key: staleRuntimeKey,
+            pid: .max,
+            panelId: panelID,
+            refreshPorts: false
+        ))
+        let status = SidebarStatusEntry(
+            key: agentKind,
+            value: "Running",
+            icon: "bolt.fill",
+            color: nil,
+            timestamp: .distantPast
+        )
+        workspace.statusEntries[agentKind] = status
+        workspace.setAgentLifecycle(
+            key: agentKind,
+            panelId: panelID,
+            lifecycle: .running
+        )
+
+        let activeSessionID = "structured-session"
+        let binding = SurfaceResumeBindingSnapshot(
+            name: agentKind,
+            kind: agentKind,
+            command: "\(agentKind) resume \(activeSessionID)",
+            cwd: "/srv/project",
+            checkpointId: activeSessionID,
+            source: "agent-hook",
+            autoResume: true
+        )
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelID))
+        let activeRuntimeKeys = AgentRuntimeSessionKey(
+            statusKey: agentKind,
+            sessionID: activeSessionID
+        ).compatibleRawValues
+        #expect(workspace.recordAgentPID(
+            key: activeRuntimeKeys[0],
+            pid: .max,
+            panelId: panelID,
+            refreshPorts: false
+        ))
+        _ = workspace.recordAgentPID(
+            key: activeRuntimeKeys[1],
+            pid: .max,
+            panelId: panelID,
+            refreshPorts: false
+        )
+
+        #expect(workspace.agentPIDKeysByPanelId[panelID]?.contains(staleRuntimeKey) == false)
+        #expect(activeRuntimeKeys.allSatisfy {
+            workspace.agentPIDKeysByPanelId[panelID]?.contains($0) == true
+        })
+        #expect(workspace.statusEntries[agentKind] == status)
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?[agentKind] == .running)
+        #expect(workspace.logicalAgentPIDs() == [activeRuntimeKeys[0]: .max])
+
+        let otherAgentKind = agentKind == "codex" ? "grok" : "codex"
+        let otherLegacyRuntimeKey = "\(otherAgentKind).delayed-session"
+        #expect(!workspace.recordAgentPID(
+            key: otherLegacyRuntimeKey,
+            pid: .max,
+            panelId: panelID,
+            refreshPorts: false
+        ))
+        #expect(workspace.agentPIDKeysByPanelId[panelID]?.contains(otherLegacyRuntimeKey) != true)
+        #expect(activeRuntimeKeys.allSatisfy {
+            workspace.agentPIDKeysByPanelId[panelID]?.contains($0) == true
+        })
+        #expect(workspace.statusEntries[agentKind] == status)
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?[agentKind] == .running)
+    }
+
+    @Test
+    func compatibleRuntimeAliasesValidateEveryCurrentProcessIdentity() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let sessionID = "compatible-runtime-identities"
+        let runtimeKeys = AgentRuntimeSessionKey(
+            statusKey: "codex",
+            sessionID: sessionID
+        ).compatibleRawValues
+        let encodedIdentity = AgentPIDProcessIdentity(
+            pid: 41_001,
+            startSeconds: 101,
+            startMicroseconds: 1
+        )
+        let legacyIdentity = AgentPIDProcessIdentity(
+            pid: 41_002,
+            startSeconds: 102,
+            startMicroseconds: 2
+        )
+        workspace.agentPIDKeysByPanelId[panelID] = Set(runtimeKeys)
+        workspace.agentPIDs[runtimeKeys[0]] = encodedIdentity.pid
+        workspace.agentPIDs[runtimeKeys[1]] = legacyIdentity.pid
+        workspace.agentPIDProcessIdentitiesByKey[runtimeKeys[0]] = encodedIdentity
+        workspace.agentPIDProcessIdentitiesByKey[runtimeKeys[1]] = legacyIdentity
+
+        let identities = workspace.confirmedRuntimeAgentProcessIdentities(
+            kind: .codex,
+            sessionId: sessionID,
+            panelId: panelID,
+            currentProcessIdentity: { pid in
+                switch pid {
+                case Int(encodedIdentity.pid): return encodedIdentity
+                case Int(legacyIdentity.pid): return legacyIdentity
+                default: return nil
+                }
+            }
+        )
+
+        #expect(identities == Set([encodedIdentity, legacyIdentity]))
+    }
+
+    @Test
+    func retiredDottedBindingResolvesLegacyRuntimeCleanup() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let agentKind = "acme.agent"
+        let sessionID = "legacy-session"
+        let runtimeKey = "\(agentKind).\(sessionID)"
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Acme Agent",
+            kind: agentKind,
+            command: "acme-agent resume \(sessionID)",
+            cwd: "/srv/project",
+            checkpointId: sessionID,
+            source: "agent-hook",
+            autoResume: true
+        )
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelID))
+        workspace.recordAgentPID(
+            key: runtimeKey,
+            pid: .max,
+            panelId: panelID,
+            refreshPorts: false
+        )
+        workspace.statusEntries[agentKind] = SidebarStatusEntry(
+            key: agentKind,
+            value: "Running"
+        )
+        workspace.setAgentLifecycle(
+            key: agentKind,
+            panelId: panelID,
+            lifecycle: .running
+        )
+
+        #expect(workspace.clearSurfaceResumeBinding(panelId: panelID))
+        #expect(workspace.clearAgentPID(
+            key: runtimeKey,
+            panelId: panelID,
+            clearStatus: true,
+            requireOwnedKey: true,
+            refreshPorts: false
+        ))
+        #expect(workspace.agentPIDKeysByPanelId[panelID]?.contains(runtimeKey) != true)
+        #expect(workspace.statusEntries[agentKind] == nil)
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?[agentKind] == nil)
+    }
+
+    @Test(arguments: ["codex", "acme.agent"])
+    func metadataOnlyBindingClearAllowsLiveSessionPIDPublication(
+        agentKind: String
+    ) throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let sessionID = "live-after-resume-clear"
+        let binding = SurfaceResumeBindingSnapshot(
+            name: agentKind,
+            kind: agentKind,
+            command: "\(agentKind) resume \(sessionID)",
+            cwd: "/srv/project",
+            checkpointId: sessionID,
+            source: "agent-hook",
+            autoResume: true
+        )
+        let runtimeKeys = AgentRuntimeSessionKey(
+            statusKey: agentKind,
+            sessionID: sessionID
+        ).compatibleRawValues
+
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelID))
+        #expect(workspace.clearSurfaceResumeBinding(panelId: panelID))
+        for runtimeKey in runtimeKeys {
+            _ = workspace.recordAgentPID(
+                key: runtimeKey,
+                pid: .max,
+                panelId: panelID,
+                refreshPorts: false
+            )
+        }
+        #expect(runtimeKeys.allSatisfy {
+            workspace.agentPIDKeysByPanelId[panelID]?.contains($0) == true
+        })
+
+        let mismatchedRuntimeKey = AgentRuntimeSessionKey(
+            statusKey: agentKind,
+            sessionID: "unexpected-session"
+        ).rawValue
+        _ = workspace.recordAgentPID(
+            key: mismatchedRuntimeKey,
+            pid: .max,
+            panelId: panelID,
+            refreshPorts: false
+        )
+        #expect(workspace.agentPIDKeysByPanelId[panelID]?.contains(mismatchedRuntimeKey) != true)
+        #expect(runtimeKeys.allSatisfy {
+            workspace.agentPIDKeysByPanelId[panelID]?.contains($0) == true
+        })
+
+        #expect(workspace.clearSurfaceResumeBinding(
+            panelId: panelID,
+            agentSessionEnded: true
+        ))
+        for runtimeKey in runtimeKeys {
+            _ = workspace.clearAgentPID(
+                key: runtimeKey,
+                panelId: panelID,
+                clearStatus: true,
+                requireOwnedKey: true,
+                refreshPorts: false
+            )
+        }
+        _ = workspace.recordAgentPID(
+            key: runtimeKeys[0],
+            pid: .max,
+            panelId: panelID,
+            refreshPorts: false
+        )
+        #expect(workspace.agentPIDKeysByPanelId[panelID]?.contains(runtimeKeys[0]) != true)
+    }
+
+    @Test
+    func controlSurfaceEndRevokesMetadataClearedBinding() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.tabs.first)
+        let panelID = try #require(workspace.focusedPanelId)
+        let sessionID = "control-retired-session-end"
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Codex",
+            kind: "codex",
+            command: "codex resume \(sessionID)",
+            cwd: "/srv/project",
+            checkpointId: sessionID,
+            source: "agent-hook",
+            autoResume: true
+        )
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelID))
+        #expect(workspace.clearSurfaceResumeBinding(panelId: panelID))
+
+        let target = ControlSurfaceResumeTarget.workspace(
+            tabManager: manager,
+            workspace: workspace,
+            surfaceID: panelID
+        )
+        let retiredBinding = try #require(target.bindingForClear(
+            expectedCheckpointID: sessionID,
+            expectedSource: "agent-hook",
+            runtimeStatusKey: nil,
+            runtimeGeneration: nil,
+            agentSessionEnded: true
+        ))
+        target.clearBinding(retiredBinding, agentSessionEnded: true)
+
+        let runtimeKey = AgentRuntimeSessionKey(
+            statusKey: "codex",
+            sessionID: sessionID
+        ).rawValue
+        _ = workspace.recordAgentPID(
+            key: runtimeKey,
+            pid: .max,
+            panelId: panelID,
+            refreshPorts: false
+        )
+        #expect(workspace.agentPIDKeysByPanelId[panelID]?.contains(runtimeKey) != true)
+    }
+
+    @Test
+    func staleGeneratedMetadataClearPreservesCurrentBinding() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.tabs.first)
+        let panelID = try #require(workspace.focusedPanelId)
+        let sessionID = "generated-metadata-clear"
+        let currentGeneration: TimeInterval = 200
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Codex",
+            kind: "codex",
+            command: "codex resume \(sessionID)",
+            cwd: "/srv/project",
+            checkpointId: sessionID,
+            source: "agent-hook",
+            autoResume: true,
+            runtimeGeneration: currentGeneration
+        )
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelID))
+
+        let target = ControlSurfaceResumeTarget.workspace(
+            tabManager: manager,
+            workspace: workspace,
+            surfaceID: panelID
+        )
+        #expect(target.bindingForClear(
+            expectedCheckpointID: sessionID,
+            expectedSource: "agent-hook",
+            runtimeStatusKey: nil,
+            runtimeGeneration: 100,
+            agentSessionEnded: false
+        ) == nil)
+        #expect(target.binding == binding)
+
+        let authorized = try #require(target.bindingForClear(
+            expectedCheckpointID: sessionID,
+            expectedSource: "agent-hook",
+            runtimeStatusKey: nil,
+            runtimeGeneration: currentGeneration,
+            agentSessionEnded: false
+        ))
+        #expect(target.clearBinding(authorized, agentSessionEnded: false))
+        #expect(target.binding == nil)
+    }
+
+    @Test
+    func generationOnlyClearCannotConsumeLegacyBinding() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.tabs.first)
+        let panelID = try #require(workspace.focusedPanelId)
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Manual",
+            kind: "codex",
+            command: "codex resume legacy-clear",
+            cwd: "/srv/project",
+            checkpointId: "legacy-clear",
+            source: "manual",
+            autoResume: false
+        )
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelID))
+
+        let target = ControlSurfaceResumeTarget.workspace(
+            tabManager: manager,
+            workspace: workspace,
+            surfaceID: panelID
+        )
+        #expect(target.bindingForClear(
+            expectedCheckpointID: "legacy-clear",
+            expectedSource: "manual",
+            runtimeStatusKey: nil,
+            runtimeGeneration: 500,
+            agentSessionEnded: false
+        ) == nil)
+        #expect(target.binding == binding)
+    }
+
+    @Test
+    func controllerRejectsGeneratedClearWithoutMatchingGeneration() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        let windowID = UUID()
+        let window = makeMainWindow(id: windowID)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowID)
+            AppDelegate.shared = previousAppDelegate
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let surfaceID = try #require(workspace.focusedPanelId)
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Codex",
+            kind: "codex",
+            command: "codex resume controller-generation-clear",
+            cwd: "/srv/project",
+            checkpointId: "controller-generation-clear",
+            source: "agent-hook",
+            autoResume: true,
+            runtimeGeneration: 200
+        )
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: surfaceID))
+
+        let result = try v2Result(request: [
+            "id": "stale-generated-resume-clear",
+            "method": "surface.resume.clear",
+            "params": [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "runtime_generation": 100,
+            ],
+        ])
+
+        #expect(result["cleared"] as? Bool == false)
+        let returnedBinding = try #require(result["resume_binding"] as? [String: Any])
+        #expect(returnedBinding["checkpoint_id"] as? String == binding.checkpointId)
+        #expect(workspace.surfaceResumeBinding(panelId: surfaceID) == binding)
+    }
+
+    @Test
+    func metadataRetiredReplacementClearsRuntimeAndRejectsSupersededPublication() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let agentKind = "acme.agent"
+        let makeBinding: (String) -> SurfaceResumeBindingSnapshot = { sessionID in
+            SurfaceResumeBindingSnapshot(
+                name: agentKind,
+                kind: agentKind,
+                command: "\(agentKind) resume \(sessionID)",
+                cwd: "/srv/project",
+                checkpointId: sessionID,
+                source: "agent-hook",
+                autoResume: true
+            )
+        }
+        let firstSessionID = "live-after-resume-clear-a"
+        let firstRuntimeKey = "\(agentKind).\(firstSessionID)"
+        let secondSessionID = "live-after-resume-clear-b"
+        let secondRuntimeKey = "\(agentKind).\(secondSessionID)"
+        let firstBinding = makeBinding(firstSessionID)
+        let secondBinding = makeBinding(secondSessionID)
+
+        #expect(workspace.setSurfaceResumeBinding(firstBinding, panelId: panelID))
+        #expect(workspace.clearSurfaceResumeBinding(panelId: panelID))
+        _ = workspace.recordAgentPID(
+            key: firstRuntimeKey,
+            pid: .max,
+            panelId: panelID,
+            refreshPorts: false
+        )
+        workspace.statusEntries[agentKind] = SidebarStatusEntry(
+            key: agentKind,
+            value: "Running"
+        )
+        workspace.setAgentLifecycle(
+            key: agentKind,
+            panelId: panelID,
+            lifecycle: .running
+        )
+
+        #expect(workspace.setSurfaceResumeBinding(secondBinding, panelId: panelID))
+        #expect(workspace.agentPIDKeysByPanelId[panelID]?.contains(firstRuntimeKey) != true)
+        #expect(workspace.statusEntries[agentKind] == nil)
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?[agentKind] == nil)
+        #expect(workspace.clearSurfaceResumeBinding(panelId: panelID))
+        #expect(workspace.recordAgentPID(
+            key: secondRuntimeKey,
+            pid: .max,
+            panelId: panelID,
+            refreshPorts: false
+        ))
+        workspace.statusEntries[agentKind] = SidebarStatusEntry(
+            key: agentKind,
+            value: "Running"
+        )
+        workspace.setAgentLifecycle(
+            key: agentKind,
+            panelId: panelID,
+            lifecycle: .running
+        )
+
+        _ = workspace.recordAgentPID(
+            key: firstRuntimeKey,
+            pid: .max,
+            panelId: panelID,
+            refreshPorts: false
+        )
+        #expect(workspace.agentPIDKeysByPanelId[panelID]?.contains(firstRuntimeKey) != true)
+        #expect(workspace.agentPIDKeysByPanelId[panelID]?.contains(secondRuntimeKey) == true)
+        #expect(workspace.statusEntries[agentKind]?.value == "Running")
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?[agentKind] == .running)
+    }
+
+    @Test
+    func metadataClearPreservesPendingReplacementDelivery() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let makeBinding: (String) -> SurfaceResumeBindingSnapshot = { sessionID in
+            SurfaceResumeBindingSnapshot(
+                name: "Codex",
+                kind: "codex",
+                command: "codex resume \(sessionID)",
+                cwd: "/srv/project",
+                checkpointId: sessionID,
+                source: "agent-hook",
+                autoResume: true
+            )
+        }
+        let firstBinding = makeBinding("pending-replacement-a")
+        let replacementBinding = makeBinding("pending-replacement-b")
+
+        #expect(workspace.setSurfaceResumeBinding(firstBinding, panelId: panelID))
+        #expect(workspace.setSurfaceResumeBinding(replacementBinding, panelId: panelID))
+        #expect(workspace.clearSurfaceResumeBinding(
+            panelId: panelID,
+            binding: firstBinding,
+            agentSessionEnded: true
+        ))
+        #expect(workspace.clearSurfaceResumeBinding(panelId: panelID))
+
+        let replacementRuntimeKey = AgentRuntimeSessionKey(
+            statusKey: "codex",
+            sessionID: "pending-replacement-b"
+        ).rawValue
+        #expect(workspace.recordAgentPID(
+            key: replacementRuntimeKey,
+            pid: .max,
+            panelId: panelID,
+            refreshPorts: false
+        ))
+    }
+
     @Test
     func customPersistentSSHAgentRuntimeEndsWithItsPrompt() throws {
         let workspace = Workspace()
@@ -735,6 +1271,13 @@ struct RemoteResumeBindingTests {
         let initialSessionID = "remote-session-a"
         let initialRuntimeKey = "\(agentKind).\(initialSessionID)"
         let unrelatedRuntimeKey = "remote-build-helper"
+        let agentStatus = SidebarStatusEntry(
+            key: agentKind,
+            value: "Running",
+            icon: "bolt.fill",
+            color: nil,
+            timestamp: .distantPast
+        )
         let makeBinding: (String) -> SurfaceResumeBindingSnapshot = { sessionID in
             SurfaceResumeBindingSnapshot(
                 name: "Acme Agent",
@@ -764,29 +1307,79 @@ struct RemoteResumeBindingTests {
             panelId: panelID,
             refreshPorts: false
         )
-        workspace.statusEntries[agentKind] = SidebarStatusEntry(
-            key: agentKind,
-            value: "Running",
-            icon: "bolt.fill",
-            color: nil,
-            timestamp: .distantPast
-        )
+        workspace.statusEntries[agentKind] = agentStatus
         workspace.setAgentLifecycle(key: agentKind, panelId: panelID, lifecycle: .running)
 
         // A same-kind replacement must consume the prior exact-session key;
         // remote PID values cannot age it out through the local process table.
-        let activeSessionID = "remote-session-b"
-        let activeRuntimeKey = "\(agentKind).\(activeSessionID)"
-        #expect(workspace.setSurfaceResumeBinding(makeBinding(activeSessionID), panelId: panelID))
+        let replacementSessionID = "remote-session-b"
+        #expect(workspace.setSurfaceResumeBinding(makeBinding(replacementSessionID), panelId: panelID))
         #expect(
             workspace.agentPIDKeysByPanelId[panelID]?.contains(initialRuntimeKey) == false
         )
-        workspace.recordAgentPID(
+
+        // A replacement also retires status/lifecycle-only state when no PID
+        // key was published for the superseded session.
+        workspace.statusEntries[agentKind] = agentStatus
+        workspace.setAgentLifecycle(key: agentKind, panelId: panelID, lifecycle: .running)
+        let activeSessionID = "remote-session-c"
+        let activeRuntimeKey = "\(agentKind).\(activeSessionID)"
+        #expect(workspace.setSurfaceResumeBinding(makeBinding(activeSessionID), panelId: panelID))
+        #expect(workspace.statusEntries[agentKind] == nil)
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?[agentKind] == nil)
+        #expect(workspace.recordAgentPID(
             key: activeRuntimeKey,
             pid: .max,
             panelId: panelID,
             refreshPorts: false
-        )
+        ))
+        workspace.statusEntries[agentKind] = agentStatus
+        workspace.setAgentLifecycle(key: agentKind, panelId: panelID, lifecycle: .running)
+
+        // A delayed PID event for session A cannot replace authoritative
+        // session C merely because both share the same custom-agent kind.
+        #expect(!workspace.recordAgentPID(
+            key: initialRuntimeKey,
+            pid: .max,
+            panelId: panelID,
+            refreshPorts: false
+        ))
+        #expect(workspace.agentPIDKeysByPanelId[panelID]?.contains(initialRuntimeKey) == false)
+        let unknownStructuredKey = AgentRuntimeSessionKey(
+            statusKey: agentKind,
+            sessionID: "remote-session-unknown"
+        ).rawValue
+        #expect(!workspace.recordAgentPID(
+            key: unknownStructuredKey,
+            pid: .max,
+            panelId: panelID,
+            refreshPorts: false
+        ))
+        #expect(workspace.agentPIDKeysByPanelId[panelID]?.contains(unknownStructuredKey) == false)
+        let otherKindStructuredKey = AgentRuntimeSessionKey(
+            statusKey: "codex",
+            sessionID: "other-agent-session"
+        ).rawValue
+        #expect(!workspace.recordAgentPID(
+            key: otherKindStructuredKey,
+            pid: .max,
+            panelId: panelID,
+            refreshPorts: false
+        ))
+        #expect(workspace.agentPIDKeysByPanelId[panelID]?.contains(otherKindStructuredKey) == false)
+        #expect(workspace.agentPIDKeysByPanelId[panelID]?.contains(activeRuntimeKey) == true)
+        #expect(workspace.statusEntries[agentKind] == agentStatus)
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?[agentKind] == .running)
+        #expect(!workspace.clearAgentPID(
+            key: initialRuntimeKey,
+            panelId: panelID,
+            clearStatus: true,
+            refreshPorts: false
+        ))
+        #expect(workspace.agentPIDKeysByPanelId[panelID]?.contains(initialRuntimeKey) == false)
+        #expect(workspace.agentPIDKeysByPanelId[panelID]?.contains(activeRuntimeKey) == true)
+        #expect(workspace.statusEntries[agentKind] == agentStatus)
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?[agentKind] == .running)
         workspace.updatePanelShellActivityState(panelId: panelID, state: .commandRunning)
         #expect(
             workspace.sessionSnapshot(includeScrollback: false)

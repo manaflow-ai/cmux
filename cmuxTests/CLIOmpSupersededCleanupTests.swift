@@ -1,4 +1,5 @@
 import Darwin
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -10,6 +11,14 @@ import Testing
 
 @Suite(.serialized)
 struct CLIOmpSupersededCleanupTests {
+    private static func runtimeKey(sessionID: String) -> String {
+        AgentRuntimeSessionKey(statusKey: "omp", sessionID: sessionID).rawValue
+    }
+
+    private static func legacyRuntimeKey(sessionID: String) -> String {
+        "omp.\(sessionID)"
+    }
+
     private typealias Harness = ClaudeHookLiveDeliveryHarness
 
     private static let staleWorkspaceId = "11111111-1111-1111-1111-111111111111"
@@ -113,7 +122,10 @@ struct CLIOmpSupersededCleanupTests {
         let retryCommands = retryContext.state.snapshot()
         let secondBatch = [priorSessionIds[4], priorSessionIds[5], priorSessionIds[0], priorSessionIds[1]]
         #expect(Self.clearedCheckpoints(in: retryCommands) == secondBatch)
-        #expect(retryCommands.filter { $0.hasPrefix("clear_agent_pid omp.") }.count == secondBatch.count)
+        #expect(
+            retryCommands.filter { $0.hasPrefix("clear_agent_pid omp.") }.count
+                == secondBatch.count * 2
+        )
 
         let savedAfterPrompt = try #require(
             JSONSerialization.jsonObject(with: Data(contentsOf: context.root.appendingPathComponent("omp-hook-sessions.json"))) as? [String: Any]
@@ -152,7 +164,10 @@ struct CLIOmpSupersededCleanupTests {
         let finalBatch = [priorSessionIds[2], priorSessionIds[3]]
         let stopCommands = stopContext.state.snapshot()
         #expect(Self.clearedCheckpoints(in: stopCommands) == finalBatch)
-        #expect(stopCommands.filter { $0.hasPrefix("clear_agent_pid omp.") }.count == finalBatch.count)
+        #expect(
+            stopCommands.filter { $0.hasPrefix("clear_agent_pid omp.") }.count
+                == finalBatch.count * 2
+        )
 
         let savedAfterStop = try #require(
             JSONSerialization.jsonObject(with: Data(contentsOf: context.root.appendingPathComponent("omp-hook-sessions.json"))) as? [String: Any]
@@ -199,7 +214,10 @@ struct CLIOmpSupersededCleanupTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         let commands = context.state.snapshot()
         #expect(Self.clearedCheckpoints(in: commands) == [priorSessionId])
-        #expect(!commands.contains { $0.hasPrefix("clear_agent_pid omp.\(priorSessionId) ") })
+        let priorRuntimeKey = Self.runtimeKey(sessionID: priorSessionId)
+        let priorLegacyRuntimeKey = Self.legacyRuntimeKey(sessionID: priorSessionId)
+        #expect(!commands.contains { $0.hasPrefix("clear_agent_pid \(priorRuntimeKey) ") })
+        #expect(!commands.contains { $0.hasPrefix("clear_agent_pid \(priorLegacyRuntimeKey) ") })
 
         let saved = try #require(
             JSONSerialization.jsonObject(
@@ -218,12 +236,17 @@ struct CLIOmpSupersededCleanupTests {
 
         let staleSessionId = "omp-cleanup-reused-stale"
         let currentSessionId = "omp-cleanup-reused-current"
+        let storeURL = context.root.appendingPathComponent("omp-hook-sessions.json")
         try Self.writePendingSessions(
-            to: context.root.appendingPathComponent("omp-hook-sessions.json"),
+            to: storeURL,
             sessionIds: [staleSessionId],
             cwd: context.root.path,
             pid: Self.ompPID,
             identity: try #require(Self.processStartIdentity(pid: Self.ompPID))
+        )
+        let staleGeneration = try Self.pendingRuntimeGeneration(
+            storeURL: storeURL,
+            sessionID: staleSessionId
         )
         let serverHandled = Harness.startDeliveryTargetServer(
             context: context,
@@ -254,13 +277,24 @@ struct CLIOmpSupersededCleanupTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         let commands = context.state.snapshot()
         #expect(Self.clearedCheckpoints(in: commands) == [staleSessionId])
+        let staleRuntimeKey = Self.runtimeKey(sessionID: staleSessionId)
+        let staleLegacyRuntimeKey = Self.legacyRuntimeKey(sessionID: staleSessionId)
+        let generationAuthority = "--runtime-generation=\(staleGeneration)"
         #expect(commands.contains {
-            $0.hasPrefix("clear_agent_pid omp.\(staleSessionId) ")
+            $0.hasPrefix("clear_agent_pid \(staleRuntimeKey) ")
                 && $0.contains("--require-owned-key")
+                && $0.contains("--runtime-key=\(staleRuntimeKey)")
+                && $0.contains(generationAuthority)
+        })
+        #expect(commands.contains {
+            $0.hasPrefix("clear_agent_pid \(staleLegacyRuntimeKey) ")
+                && $0.contains("--require-owned-key")
+                && $0.contains("--runtime-key=\(staleRuntimeKey)")
+                && $0.contains(generationAuthority)
         })
         let saved = try #require(
             JSONSerialization.jsonObject(
-                with: Data(contentsOf: context.root.appendingPathComponent("omp-hook-sessions.json"))
+                with: Data(contentsOf: storeURL)
             ) as? [String: Any]
         )
         #expect(saved["pendingSupersededSessionCleanup"] == nil)
@@ -309,7 +343,10 @@ struct CLIOmpSupersededCleanupTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         let commands = context.state.snapshot()
         #expect(Self.clearedCheckpoints(in: commands) == [staleSessionId])
-        #expect(!commands.contains { $0.hasPrefix("clear_agent_pid omp.\(staleSessionId) ") })
+        let staleRuntimeKey = Self.runtimeKey(sessionID: staleSessionId)
+        let staleLegacyRuntimeKey = Self.legacyRuntimeKey(sessionID: staleSessionId)
+        #expect(!commands.contains { $0.hasPrefix("clear_agent_pid \(staleRuntimeKey) ") })
+        #expect(!commands.contains { $0.hasPrefix("clear_agent_pid \(staleLegacyRuntimeKey) ") })
         let saved = try #require(
             JSONSerialization.jsonObject(
                 with: Data(contentsOf: context.root.appendingPathComponent("omp-hook-sessions.json"))
@@ -440,12 +477,17 @@ struct CLIOmpSupersededCleanupTests {
 
         let staleSessionId = "omp-cleanup-dead-owner"
         let currentSessionId = "omp-cleanup-live-owner"
+        let storeURL = context.root.appendingPathComponent("omp-hook-sessions.json")
         try Self.writePendingSessions(
-            to: context.root.appendingPathComponent("omp-hook-sessions.json"),
+            to: storeURL,
             sessionIds: [staleSessionId],
             cwd: context.root.path,
             pid: deadPID,
             identity: deadIdentity
+        )
+        let staleGeneration = try Self.pendingRuntimeGeneration(
+            storeURL: storeURL,
+            sessionID: staleSessionId
         )
         let serverHandled = Harness.startDeliveryTargetServer(
             context: context,
@@ -475,12 +517,36 @@ struct CLIOmpSupersededCleanupTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         let commands = context.state.snapshot()
         #expect(Self.clearedCheckpoints(in: commands) == [staleSessionId])
-        #expect(commands.contains { $0.hasPrefix("clear_agent_pid omp.\(staleSessionId) ") })
+        let staleRuntimeKey = Self.runtimeKey(sessionID: staleSessionId)
+        let staleLegacyRuntimeKey = Self.legacyRuntimeKey(sessionID: staleSessionId)
+        let generationAuthority = "--runtime-generation=\(staleGeneration)"
+        #expect(commands.contains {
+            $0.hasPrefix("clear_agent_pid \(staleRuntimeKey) ")
+                && $0.contains("--runtime-key=\(staleRuntimeKey)")
+                && $0.contains(generationAuthority)
+        })
+        #expect(commands.contains {
+            $0.hasPrefix("clear_agent_pid \(staleLegacyRuntimeKey) ")
+                && $0.contains("--runtime-key=\(staleRuntimeKey)")
+                && $0.contains(generationAuthority)
+        })
 
         let saved = try #require(
-            JSONSerialization.jsonObject(with: Data(contentsOf: context.root.appendingPathComponent("omp-hook-sessions.json"))) as? [String: Any]
+            JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
         )
         #expect(saved["pendingSupersededSessionCleanup"] == nil)
+    }
+
+    private static func pendingRuntimeGeneration(
+        storeURL: URL,
+        sessionID: String
+    ) throws -> TimeInterval {
+        let store = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
+        )
+        let pending = try #require(store["pendingSupersededSessionCleanup"] as? [String: Any])
+        let record = try #require(pending[sessionID] as? [String: Any])
+        return try #require(record["runtimeGeneration"] as? TimeInterval)
     }
 
     @discardableResult
@@ -506,6 +572,7 @@ struct CLIOmpSupersededCleanupTests {
                 "pidStartSeconds": identity.seconds,
                 "pidStartMicroseconds": identity.microseconds,
                 "isRestorable": true,
+                "runtimeGeneration": updatedAt,
                 "startedAt": updatedAt,
                 "updatedAt": updatedAt,
             ]
@@ -550,6 +617,7 @@ struct CLIOmpSupersededCleanupTests {
                 "pidStartSeconds": identity.seconds,
                 "pidStartMicroseconds": identity.microseconds,
                 "isRestorable": true,
+                "runtimeGeneration": timestamp + Double(index),
                 "startedAt": timestamp + Double(index),
                 "updatedAt": recordUpdatedAt,
                 "supersededCleanupEnqueuedAt": enqueuedAt ?? recordUpdatedAt,

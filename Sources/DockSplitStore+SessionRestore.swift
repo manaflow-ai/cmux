@@ -302,11 +302,26 @@ extension DockSplitStore {
            !excludingStableIdentities.contains(stableSurfaceId) {
             terminal.adoptStableSurfaceId(stableSurfaceId)
         }
+        restoredAgentLifecycle.seedAgentRuntimeGenerationFloors(
+            terminalSnapshot.runtimeGenerationHighWaterMarksByStatusKey,
+            panelId: terminal.id
+        )
         if let resumeBinding {
             surfaceResumeBindingsByPanelId[terminal.id] = resumeBinding
         }
         if let managedResumeBinding {
             managedAgentResumeBindingsByPanelId[terminal.id] = managedResumeBinding
+            if managedResumeBinding.isAgentHookBinding {
+                restoredAgentLifecycle.activateAgentRuntimeBinding(
+                    managedResumeBinding,
+                    panelId: terminal.id
+                )
+            }
+        } else if let resumeBinding, resumeBinding.isAgentHookBinding {
+            restoredAgentLifecycle.activateAgentRuntimeBinding(
+                resumeBinding,
+                panelId: terminal.id
+            )
         }
         if let restoredScrollback {
             restoredTerminalScrollbackByPanelId[terminal.id] = restoredScrollback
