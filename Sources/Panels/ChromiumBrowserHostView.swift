@@ -55,7 +55,6 @@ final class ChromiumBrowserHostView: NSView {
         frameTask?.cancel()
         stateTask?.cancel()
         viewportTask?.cancel()
-        inputQueue.cancel()
     }
 
     /// Fully decompresses one screencast frame into a bitmap-backed image.
@@ -143,6 +142,7 @@ final class ChromiumBrowserHostView: NSView {
         frameTask?.cancel()
         stateTask?.cancel()
         viewportTask?.cancel()
+        inputQueue.cancel()
         frameTask = nil
         stateTask = nil
         viewportTask = nil
