@@ -11688,7 +11688,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
               let paneId = paneId(forPanelId: panelId),
               let browser = browserPanel(for: panelId) else { return nil }
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        guard let newPanel = withNewTabZoomPolicy(inPane: paneId, {
+        guard let newPanel = withNewTabZoomPolicy(inPane: paneId, applyPolicy: focus, {
             newBrowserSurface(
                 inPane: paneId,
                 url: browser.currentURLForTabDuplication,
@@ -11802,14 +11802,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard let launch = entry.resumeLaunch else { return false }
         switch destination {
         case .insert(let paneId, _):
-            let panel = newTerminalSurface(
-                inPane: paneId,
-                focus: true,
-                workingDirectory: launch.workingDirectory,
-                initialInput: launch.initialInput,
-                startupRestoreAgent: launch.startupRestoreAgent
-            )
-            return panel != nil
+            return withNewTerminalTabZoomPolicy(inPane: paneId) {
+                newTerminalSurfaceOutcome(
+                    inPane: paneId,
+                    focus: true,
+                    workingDirectory: launch.workingDirectory,
+                    initialInput: launch.initialInput,
+                    startupRestoreAgent: launch.startupRestoreAgent
+                )
+            }.panel != nil
         case .split(let paneId, let orientation, let insertFirst):
             let panel = splitPaneWithNewTerminal(
                 targetPane: paneId,
