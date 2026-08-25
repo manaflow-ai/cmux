@@ -5899,6 +5899,42 @@ extension TabManager {
             hasher.combine(group.customColor ?? "")
             hasher.combine(group.iconSymbol ?? "")
         }
+        let groupById = Dictionary(
+            workspaceGroups.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let groupOrderIndexById = Dictionary(
+            workspaceGroups.enumerated().map { ($1.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var nextMemberIndexByGroupId: [UUID: Int] = [:]
+        for (sidebarIndex, workspace) in tabs.enumerated() {
+            let memberIndex: Int?
+            if let groupId = workspace.groupId {
+                memberIndex = nextMemberIndexByGroupId[groupId, default: 0]
+                nextMemberIndexByGroupId[groupId, default: 0] += 1
+            } else {
+                memberIndex = nil
+            }
+            guard workspace.isRemoteTmuxMirror,
+                  let connectionKey = workspace.remoteTmuxMirrorIdentity else { continue }
+            hasher.combine(connectionKey)
+            hasher.combine(sidebarIndex)
+            guard let groupId = workspace.groupId,
+                  let group = groupById[groupId] else {
+                hasher.combine(false)
+                continue
+            }
+            hasher.combine(true)
+            hasher.combine(group.id)
+            hasher.combine(group.name)
+            hasher.combine(group.isCollapsed)
+            hasher.combine(group.isPinned)
+            hasher.combine(group.customColor ?? "")
+            hasher.combine(group.iconSymbol ?? "")
+            hasher.combine(memberIndex)
+            hasher.combine(groupOrderIndexById[groupId])
+        }
         for workspace in tabs.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
             hasher.combine(workspace.id)
             hasher.combine(workspace.groupId)
@@ -6215,17 +6251,27 @@ extension TabManager {
         // returns each mirror to its prior group and position. Read from the
         // UNFILTERED tabs since mirrors are excluded from `restorableTabs`.
         let remoteTmuxSidebarPlacements: [RemoteTmuxSidebarPlacementSnapshot]? = {
+            let groupById = Dictionary(
+                workspaceGroups.map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
             let groupOrderIndexById = Dictionary(
                 workspaceGroups.enumerated().map { ($1.id, $0) },
                 uniquingKeysWith: { first, _ in first }
             )
+            var memberIdsByGroupId: [UUID: [UUID]] = [:]
+            for tab in tabs {
+                if let groupId = tab.groupId {
+                    memberIdsByGroupId[groupId, default: []].append(tab.id)
+                }
+            }
             var placements: [RemoteTmuxSidebarPlacementSnapshot] = []
             for (index, tab) in tabs.enumerated() where tab.isRemoteTmuxMirror {
                 guard let key = tab.remoteTmuxMirrorIdentity else { continue }
                 var group: RemoteTmuxSidebarGroupPlacementSnapshot?
                 if let gid = tab.groupId,
-                   let g = workspaceGroups.first(where: { $0.id == gid }) {
-                    let members = tabs.filter { $0.groupId == gid }.map(\.id)
+                   let g = groupById[gid] {
+                    let members = memberIdsByGroupId[gid] ?? []
                     group = RemoteTmuxSidebarGroupPlacementSnapshot(
                         id: g.id,
                         name: g.name,

@@ -659,6 +659,10 @@ final class RemoteTmuxController {
         for (key, mirror) in sessionMirrors {
             guard let workspaceId = mirror.mirroredWorkspaceId, ids.contains(workspaceId) else { continue }
             affectedHosts[mirror.host.connectionHash] = mirror.host
+            if let workspace = mirror.mirroredWorkspace,
+               let manager = workspace.owningTabManager {
+                captureSidebarPlacement(connectionKey: key, workspace: workspace, manager: manager)
+            }
             mirror.detachObserver()
             sessionMirrors.removeValue(forKey: key)
             removeCachedConnection(forKey: key)?.stop()
