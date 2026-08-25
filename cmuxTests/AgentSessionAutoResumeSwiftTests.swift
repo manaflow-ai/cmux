@@ -2372,6 +2372,9 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         #expect(retained.restoreWorkingDirectorySelection == .unavailable)
         #expect(retained.resumeCommand == nil)
         #expect(retained.forkCommand == nil)
+        #expect(
+            restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .manualResumeAvailable
+        )
         #expect(restored.surfaceResumeBinding(panelId: restoredPanelId)?.launchFlavor.remoteContext != nil)
 
         let attachCommand = try #require(restoredPanel.surface.debugInitialCommand())
@@ -2429,6 +2432,7 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             cwd: capturedDirectory,
             checkpointId: sessionId,
             source: "agent-hook",
+            environment: ["CMUX_REMOTE_FLAG": "kept"],
             launchCommand: agent.launchCommand,
             autoResume: true,
             launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
@@ -2454,6 +2458,7 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
 
         #expect(constrainedStartupInput.contains(trustedRemoteDirectory))
         #expect(!constrainedStartupInput.contains(capturedDirectory))
+        #expect(constrainedStartupInput.contains("CMUX_REMOTE_FLAG=kept"), Comment(rawValue: constrainedStartupInput))
         #expect(remoteCommand.contains(constrainedPayload), Comment(rawValue: remoteCommand))
         #expect(!remoteCommand.contains(unsafePayload), Comment(rawValue: remoteCommand))
 
@@ -2466,6 +2471,18 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             persistentPTYSessionID: persistentSessionID
         ))
         #expect(!exactNilRemoteCommand.contains(capturedDirectory), Comment(rawValue: exactNilRemoteCommand))
+
+        var exactWithoutLaunchBinding = binding
+        exactWithoutLaunchBinding.launchCommand = nil
+        exactWithoutLaunchBinding.restoreWorkingDirectorySelection = .exact(trustedRemoteDirectory)
+        let exactWithoutLaunchRemoteCommand = try #require(workspace.persistentSSHResumeCommand(
+            for: exactWithoutLaunchBinding,
+            expectedWorkspaceID: workspace.id,
+            expectedSurfaceID: panelId,
+            persistentPTYSessionID: persistentSessionID
+        ))
+        #expect(exactWithoutLaunchRemoteCommand.contains("--require-existing"))
+        #expect(!exactWithoutLaunchRemoteCommand.contains(capturedDirectory))
     }
 
     @MainActor
