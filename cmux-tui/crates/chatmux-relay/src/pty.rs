@@ -2890,10 +2890,18 @@ impl TerminalSizing {
     /// daemon has no generation token for ordering a claim from another
     /// socket, so the relay must not select an existing survivor. A later new
     /// attachment sets `claim_requested` and performs an explicit claim.
-    fn freeze_after_owner_loss(&self, target: &Arc<SizingTarget>, lost_owner: u64) -> bool {
+    fn freeze_after_owner_loss(
+        &self,
+        target: &Arc<SizingTarget>,
+        lost_owner: u64,
+        expected_generation: u64,
+    ) -> bool {
         let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
         let mut state = target.state.lock().expect("terminal sizing state lock");
-        if state.retired || state.owner != Some(lost_owner) {
+        if Self::current_generation(target) != expected_generation
+            || state.retired
+            || state.owner != Some(lost_owner)
+        {
             return false;
         }
         state.owner = None;
@@ -3112,6 +3120,12 @@ impl TerminalSizing {
             }
             OwnerResizeRequestOutcome::Reply(response) => response,
         };
+        // A response from an older generation cannot change authority or
+        // freeze the current owner. Check before every refusal path; the
+        // freeze helper repeats the check while holding the actor locks.
+        if Self::current_generation(target) != generation {
+            return;
+        }
         if resized.is_none() {
             // A timed-out owner request may still be queued in the control
             // writer. Close that endpoint before reserving a survivor so a
@@ -3119,15 +3133,12 @@ impl TerminalSizing {
             if let Some(endpoint) = owner_queue.as_ref() {
                 self.leave_endpoint(&target.key, owner_id, endpoint);
             } else {
-                self.freeze_after_owner_loss(target, owner_id);
+                self.freeze_after_owner_loss(target, owner_id, generation);
             }
             return;
         }
         if !control_response_ok(resized.as_ref()) {
-            self.freeze_after_owner_loss(target, owner_id);
-            return;
-        }
-        if Self::current_generation(target) != generation {
+            self.freeze_after_owner_loss(target, owner_id, generation);
             return;
         }
         if resized
@@ -3137,7 +3148,7 @@ impl TerminalSizing {
             .and_then(Value::as_bool)
             == Some(false)
         {
-            self.freeze_after_owner_loss(target, owner_id);
+            self.freeze_after_owner_loss(target, owner_id, generation);
             return;
         }
         // Recheck and commit under the same queue -> state fence used by
