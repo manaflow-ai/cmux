@@ -548,7 +548,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         failures,
     )
     hooks = settings.get("hooks", {})
-    expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest"}
+    expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "TaskCompleted", "PermissionRequest"}
     expect(set(hooks.keys()) == expected_hooks, f"unexpected hook keys: {hooks.keys()}, expected {expected_hooks}", failures)
     for hook_name, expected_subcommand in {
         "SessionStart": "session-start",
@@ -621,6 +621,17 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
             f"Claude task snapshot bridge should asynchronously call hooks claude task-sync, got {task_sync_hooks}",
             failures,
         )
+
+    task_completed_hooks = hooks.get("TaskCompleted", [{}])[0].get("hooks", [])
+    expect(
+        any(
+            h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude task-sync'
+            and h.get("async") is True
+            for h in task_completed_hooks
+        ),
+        f"TaskCompleted should asynchronously call hooks claude task-sync, got {task_completed_hooks}",
+        failures,
+    )
 
     # General PreToolUse telemetry should remain async to avoid blocking tool execution.
     pre_tool_use_hooks = [
