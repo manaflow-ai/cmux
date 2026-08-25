@@ -81,19 +81,27 @@ nonisolated struct WebSurfaceSelectionReader {
           return null;
         }
       };
+      const selectionObservers = new WeakMap();
+      let armSelectionObserver = (_) => {};
+      let disarmSelectionObserver = (_) => {};
       let retainedSelection = empty();
       let retainedDocument = null;
       let retainedLocation = null;
       const clear = (sourceDocument = null) => {
         if (sourceDocument && retainedDocument !== sourceDocument) return;
+        if (retainedDocument) disarmSelectionObserver(retainedDocument);
         retainedSelection = empty();
         retainedDocument = null;
         retainedLocation = null;
       };
       const retain = (live) => {
+        if (retainedDocument && retainedDocument !== live.source_document) {
+          disarmSelectionObserver(retainedDocument);
+        }
         retainedSelection = selected(live.text);
         retainedDocument = live.source_document || null;
         retainedLocation = locationForDocument(retainedDocument);
+        if (retainedDocument) armSelectionObserver(retainedDocument);
       };
       const capture = (targetWindow, clearWhenEmpty = false) => {
         const live = readLiveSelection(targetWindow);
@@ -154,6 +162,28 @@ nonisolated struct WebSurfaceSelectionReader {
           for (const frame of frames) installFrame(frame);
         } catch (_) {}
       };
+      armSelectionObserver = (targetDocument) => {
+        if (!targetDocument || selectionObservers.has(targetDocument)) return;
+        const observer = new MutationObserver(() => {
+          observer.disconnect();
+          selectionObservers.delete(targetDocument);
+          if (retainedDocument === targetDocument) {
+            clear(targetDocument);
+          } else {
+            clearIfDetachedFrame();
+          }
+        });
+        observer.observe(targetDocument, {
+          childList: true,
+          characterData: true,
+          subtree: true
+        });
+        selectionObservers.set(targetDocument, observer);
+      };
+      disarmSelectionObserver = (targetDocument) => {
+        selectionObservers.get(targetDocument)?.disconnect();
+        selectionObservers.delete(targetDocument);
+      };
       installDocument = (targetDocument) => {
         if (!targetDocument || trackedDocuments.has(targetDocument)) return;
         trackedDocuments.add(targetDocument);
@@ -197,23 +227,16 @@ nonisolated struct WebSurfaceSelectionReader {
           captureDocument();
         }, { once: true });
         scanFrames(targetDocument);
+        // This observer only discovers newly inserted frames. Content
+        // invalidation is armed lazily by `retain`, so ordinary pages do not
+        // pay for a whole-document character-data observer between reads.
         const observer = new MutationObserver((records) => {
-          if (records.length > 0) {
-            if (retainedDocument === targetDocument) {
-              clear(targetDocument);
-            } else {
-              clearIfDetachedFrame();
-            }
-          }
+          if (records.length > 0) clearIfDetachedFrame();
           for (const record of records) {
             for (const node of record.addedNodes || []) scanFrames(node);
           }
         });
-        observer.observe(targetDocument, {
-          childList: true,
-          characterData: true,
-          subtree: true
-        });
+        observer.observe(targetDocument, { childList: true, subtree: true });
         documentObservers.set(targetDocument, observer);
 
         const targetWindow = targetDocument.defaultView;
@@ -223,6 +246,7 @@ nonisolated struct WebSurfaceSelectionReader {
           } else {
             clear(targetDocument);
           }
+          disarmSelectionObserver(targetDocument);
           documentObservers.get(targetDocument)?.disconnect();
           documentObservers.delete(targetDocument);
         }, true);
