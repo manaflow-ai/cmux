@@ -153,6 +153,49 @@ struct NestedTopologyAssociationTests {
         #expect(result.panes[0].title == replacementSession.title)
     }
 
+    @Test("a superseded session heuristic cannot replay over the current session")
+    func supersededSessionHeuristicIsRejected() throws {
+        let fixture = NestedTopologyTestFixture()
+        let reducer = NestedTopologyReducer()
+        let snapshot = try fixture.snapshot(
+            tabs: [
+                fixture.tab("tab-1", order: 0),
+                fixture.tab("tab-2", order: 1),
+                fixture.tab("tab-3", order: 2),
+            ],
+            panes: [fixture.pane(
+                tabRawID: "tab-1",
+                sessionID: "session-a",
+                associationAuthority: .heuristic,
+                heuristicAlreadySatisfied: true
+            )]
+        )
+        let sessionB = fixture.pane(
+            tabRawID: "tab-2",
+            sessionID: "session-b",
+            associationAuthority: .heuristic,
+            heuristicAlreadySatisfied: true
+        )
+        let afterSessionB = try reducer.applying(
+            fixture.event(.paneUpdated(node: sessionB)),
+            to: snapshot
+        )
+        let replayedSessionA = fixture.pane(
+            tabRawID: "tab-3",
+            sessionID: "session-a",
+            associationAuthority: .heuristic,
+            heuristicAlreadySatisfied: true
+        )
+
+        let result = try reducer.applying(
+            fixture.event(.paneUpdated(node: replayedSessionA)),
+            to: afterSessionB
+        )
+
+        #expect(result.panes[0].association.key.sessionID == "session-b")
+        #expect(result.panes[0].association.tabID == fixture.id("tab-2", kind: .tab))
+    }
+
     @Test("a new session cannot downgrade provider-owned parentage to a heuristic")
     func sessionChangePreservesProviderParentage() throws {
         let fixture = NestedTopologyTestFixture()
