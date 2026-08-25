@@ -1481,9 +1481,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // Re-measure those cells at the settled width before noting the cache
         // pass so the newer pump height is not replaced by an older snapshot.
         if let table = containerView?.tableView {
-            refreshVisiblePumpHeightOverrides(
-                in: table,
-                at: IndexSet(rows.indices),
+            let visibleRange = table.rows(in: table.visibleRect)
+            let lower = max(0, visibleRange.location)
+            let upper = min(rows.count, visibleRange.location + visibleRange.length)
+            if lower < upper {
+                refreshVisiblePumpHeightOverrides(
+                    in: table,
+                    at: IndexSet(integersIn: lower..<upper),
+                    columnWidth: width,
+                    addingTo: &changed
+                )
+            }
+            releaseMismatchedPumpHeightOverrides(
+                for: rows,
                 columnWidth: width,
                 addingTo: &changed
             )
@@ -1741,6 +1751,23 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             heightRows.insert(index)
         }
         pumpHeightOverrides.removeAll(keepingCapacity: true)
+    }
+
+    /// Removes offscreen overrides that were measured at an older width after
+    /// a full settle pass has installed the cache answer for the new width.
+    private func releaseMismatchedPumpHeightOverrides(
+        for rows: [SidebarWorkspaceTableRowConfiguration],
+        columnWidth: CGFloat,
+        addingTo heightRows: inout IndexSet
+    ) {
+        for (index, row) in rows.enumerated() {
+            guard let override = pumpHeightOverrides[row.id],
+                  override.columnWidth != columnWidth else {
+                continue
+            }
+            pumpHeightOverrides.removeValue(forKey: row.id)
+            heightRows.insert(index)
+        }
     }
 
     private func noteRowHeightOverride(
