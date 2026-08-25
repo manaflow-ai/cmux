@@ -3079,9 +3079,9 @@ struct DeferredAgentResumeRestore: Sendable {
     let resumeBinding: SurfaceResumeBindingSnapshot?
     let restoresRemoteWorkspaceTerminalSnapshot: Bool
     /// The persistent-SSH owner captured for deferred admission, if any.
-    let remoteResumeContext: SurfaceResumeRemoteContext? = nil
+    let remoteResumeContext: SurfaceResumeRemoteContext?
     /// Whether the resume command is embedded in the remote PTY attach script.
-    let remoteResumeCommandEmbedded: Bool = false
+    let remoteResumeCommandEmbedded: Bool
     let workingDirectory: String?
     let resumeWorkingDirectory: String?
 
