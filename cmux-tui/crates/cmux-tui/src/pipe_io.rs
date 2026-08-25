@@ -70,7 +70,10 @@ impl PipeIoExitReason {
 #[derive(Debug, PartialEq, Eq)]
 pub enum PipeIoRequest {
     Input(Vec<u8>),
-    Resize { cols: u16, rows: u16 },
+    Resize {
+        cols: u16,
+        rows: u16,
+    },
     /// A well-formed line carrying no verb this relay knows: ignored, so a
     /// newer embedder can talk to an older relay.
     Unknown,
@@ -164,13 +167,10 @@ fn pump_events_to_stdout(
         };
         let write_result = match &event {
             PipeIoEvent::Replay { bytes } => {
-                let reset =
-                    if emitted_output { stdout.write_all(REPLAY_RESET) } else { Ok(()) };
+                let reset = if emitted_output { stdout.write_all(REPLAY_RESET) } else { Ok(()) };
                 reset.and_then(|()| stdout.write_all(bytes)).and_then(|()| stdout.flush())
             }
-            PipeIoEvent::Output(bytes) => {
-                stdout.write_all(bytes).and_then(|()| stdout.flush())
-            }
+            PipeIoEvent::Output(bytes) => stdout.write_all(bytes).and_then(|()| stdout.flush()),
             PipeIoEvent::SurfaceExited => return Ok(PipeIoExitReason::TerminalEnded),
             PipeIoEvent::TransportLost => return Ok(PipeIoExitReason::DaemonLost),
             PipeIoEvent::StdinClosed => return Ok(PipeIoExitReason::ParentClosed),
