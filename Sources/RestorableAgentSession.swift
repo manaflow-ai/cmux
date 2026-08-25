@@ -951,7 +951,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 }
 
 struct RestorableAgentSessionIndex: Sendable {
-    static let empty = RestorableAgentSessionIndex(entriesByPanel: [:])
+    static let empty = RestorableAgentSessionIndex(entriesByPanel: [:], isComplete: true)
 
     struct PanelKey: Hashable, Sendable {
         let workspaceId: UUID
@@ -1029,6 +1029,10 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     private let entriesByPanel: [PanelKey: Entry]
+    /// Whether every present hook-store file was read and decoded successfully.
+    /// Missing files are complete (the agent kind may not be installed); a
+    /// present but unreadable/invalid file is incomplete and unsafe for auto-resume.
+    let isComplete: Bool
     private let candidatesByPanelId: [UUID: [(PanelKey, Entry)]]
     private let entriesByPanelId: [UUID: Entry]
     private let ambiguousPanelIds: Set<UUID>
@@ -1068,7 +1072,8 @@ struct RestorableAgentSessionIndex: Sendable {
         processPresenceProvider: (Int) -> PIDPresence = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
             return PIDPresence.current(pid: pid_t($0))
-        }
+        },
+        revalidateProcessEvidence: Bool = true
     ) -> Bool {
         // A truncated owner history is structurally incomplete; current PID
         // probes cannot make the omitted records safe to ignore.
@@ -1076,11 +1081,13 @@ struct RestorableAgentSessionIndex: Sendable {
             return true
         }
         let evidence = (candidatesByPanelId[panelId] ?? []).map { _, entry in
-            Self.currentProcessEvidence(
-                for: entry,
-                processIdentityProvider: processIdentityProvider,
-                processPresenceProvider: processPresenceProvider
-            )
+            revalidateProcessEvidence
+                ? Self.currentProcessEvidence(
+                    for: entry,
+                    processIdentityProvider: processIdentityProvider,
+                    processPresenceProvider: processPresenceProvider
+                )
+                : Self.cachedProcessEvidence(for: entry)
         }
         return evidence.filter { $0 == .live }.count > 1 || evidence.contains { $0 == .unknown }
     }
@@ -1097,15 +1104,18 @@ struct RestorableAgentSessionIndex: Sendable {
         processPresenceProvider: (Int) -> PIDPresence = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
             return PIDPresence.current(pid: pid_t($0))
-        }
+        },
+        revalidateProcessEvidence: Bool = true
     ) -> Bool {
         let liveEntries = (candidatesByPanelId[panelId] ?? []).compactMap { _, entry -> Entry? in
-            guard
-                  Self.entryHasCurrentLiveProcess(
-                      entry,
-                      processIdentityProvider: processIdentityProvider,
-                      processPresenceProvider: processPresenceProvider
-                  ) else {
+            let isLive = revalidateProcessEvidence
+                ? Self.entryHasCurrentLiveProcess(
+                    entry,
+                    processIdentityProvider: processIdentityProvider,
+                    processPresenceProvider: processPresenceProvider
+                )
+                : Self.entryHasLiveProcess(entry)
+            guard isLive else {
                 return nil
             }
             return entry
@@ -1135,14 +1145,18 @@ struct RestorableAgentSessionIndex: Sendable {
         processPresenceProvider: (Int) -> PIDPresence = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
             return PIDPresence.current(pid: pid_t($0))
-        }
+        },
+        revalidateProcessEvidence: Bool = true
     ) -> Bool {
         (candidatesByPanelId[panelId] ?? []).contains { _, entry in
-            Self.currentProcessEvidence(
-                for: entry,
-                processIdentityProvider: processIdentityProvider,
-                processPresenceProvider: processPresenceProvider
-            ) == .unknown
+            let evidence = revalidateProcessEvidence
+                ? Self.currentProcessEvidence(
+                    for: entry,
+                    processIdentityProvider: processIdentityProvider,
+                    processPresenceProvider: processPresenceProvider
+                )
+                : Self.cachedProcessEvidence(for: entry)
+            return evidence == .unknown
         }
     }
 
@@ -1158,19 +1172,23 @@ struct RestorableAgentSessionIndex: Sendable {
         processPresenceProvider: (Int) -> PIDPresence = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
             return PIDPresence.current(pid: pid_t($0))
-        }
+        },
+        revalidateProcessEvidence: Bool = true
     ) -> Bool {
         guard let entry = entryForStablePanel(
             workspaceId: workspaceId,
             panelId: panelId,
             processIdentityProvider: processIdentityProvider,
-            processPresenceProvider: processPresenceProvider
+            processPresenceProvider: processPresenceProvider,
+            revalidateProcessEvidence: revalidateProcessEvidence
         ),
-        Self.entryHasCurrentLiveProcess(
-            entry,
-            processIdentityProvider: processIdentityProvider,
-            processPresenceProvider: processPresenceProvider
-        ) else {
+        (revalidateProcessEvidence
+            ? Self.entryHasCurrentLiveProcess(
+                entry,
+                processIdentityProvider: processIdentityProvider,
+                processPresenceProvider: processPresenceProvider
+            )
+            : Self.entryHasLiveProcess(entry)) else {
             return false
         }
         if let expectedKind, entry.snapshot.kind.rawValue != expectedKind {
@@ -1444,7 +1462,10 @@ struct RestorableAgentSessionIndex: Sendable {
             )
         }
 
-        return RestorableAgentSessionIndex(entriesByPanel: revalidatedEntries)
+        return RestorableAgentSessionIndex(
+            entriesByPanel: revalidatedEntries,
+            isComplete: self.isComplete
+        )
     }
 
     // WARNING: Expensive. This reads every agent kind's hook-store file from disk,
@@ -1529,6 +1550,7 @@ struct RestorableAgentSessionIndex: Sendable {
     ) -> RestorableAgentSessionIndex {
         let decoder = JSONDecoder()
         var resolved: [PanelKey: Entry] = [:]
+        var isComplete = true
         let claudeTranscriptLookup = ClaudeTranscriptLookupCache(
             homeDirectory: homeDirectory,
             fileManager: fileManager
@@ -1552,9 +1574,12 @@ struct RestorableAgentSessionIndex: Sendable {
                 homeDirectory: homeDirectory,
                 environment: environment
             )
-            guard fileManager.fileExists(atPath: fileURL.path),
-                  let data = try? Data(contentsOf: fileURL),
+            guard fileManager.fileExists(atPath: fileURL.path) else {
+                continue
+            }
+            guard let data = try? Data(contentsOf: fileURL),
                   let state = try? decoder.decode(RestorableAgentHookSessionStoreFile.self, from: data) else {
+                isComplete = false
                 continue
             }
 
@@ -1582,13 +1607,16 @@ struct RestorableAgentSessionIndex: Sendable {
                 let normalizedSessionId = effectiveRecord.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !normalizedSessionId.isEmpty,
                       let workspaceId = UUID(uuidString: effectiveRecord.workspaceId),
-                      let panelId = UUID(uuidString: effectiveRecord.surfaceId),
-                      hookRecordIsRestorable(
-                          effectiveRecord,
-                          kind: kind,
-                          fileManager: fileManager,
-                          claudeTranscriptLookup: claudeTranscriptLookup
-                      ) else {
+                      let panelId = UUID(uuidString: effectiveRecord.surfaceId) else {
+                    isComplete = false
+                    continue
+                }
+                guard hookRecordIsRestorable(
+                    effectiveRecord,
+                    kind: kind,
+                    fileManager: fileManager,
+                    claudeTranscriptLookup: claudeTranscriptLookup
+                ) else {
                     continue
                 }
 
@@ -1822,7 +1850,7 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         }
 
-        return RestorableAgentSessionIndex(entriesByPanel: resolved)
+        return RestorableAgentSessionIndex(entriesByPanel: resolved, isComplete: isComplete)
     }
 
     private static func matchingHookEntry(
@@ -2977,8 +3005,9 @@ struct RestorableAgentSessionIndex: Sendable {
         return rawValue
     }
 
-    private init(entriesByPanel: [PanelKey: Entry]) {
+    private init(entriesByPanel: [PanelKey: Entry], isComplete: Bool = true) {
         self.entriesByPanel = entriesByPanel
+        self.isComplete = isComplete
         // Keep only the bounded candidate prefix while indexing. Exact owner
         // lookups still use `entriesByPanel`, but stable-panel resolution must
         // never retain or sort an unbounded owner history a second time.

@@ -101,6 +101,7 @@ final class SharedLiveAgentIndex {
     // the first scan, but it must fail closed instead of waiting forever for a
     // continuously changing hook store to become quiescent.
     private static let maximumOwnershipSensitiveRefreshPasses = 2
+    private static let ownershipRefreshTimeoutNanoseconds: UInt64 = 10_000_000_000
 
     nonisolated static func forkExecutableWatchSourceCountBudget(
         softFileDescriptorLimit explicitSoftLimit: Int? = nil,
@@ -464,7 +465,11 @@ final class SharedLiveAgentIndex {
         while true {
             guard !Task.isCancelled else { return nil }
             if let refreshTask {
-                await refreshTask.value
+                guard await awaitOwnershipRefreshTask(refreshTask) else {
+                    refreshTask.cancel()
+                    preservePendingHookChangeAfterOwnershipRefreshFailure()
+                    return nil
+                }
                 guard !Task.isCancelled else { return nil }
                 completedRefreshPasses += 1
                 if self.refreshTask == nil,
@@ -474,24 +479,25 @@ final class SharedLiveAgentIndex {
                     return index
                 }
                 guard completedRefreshPasses < Self.maximumOwnershipSensitiveRefreshPasses else {
-                    let pendingHookChange = changePending || deferredReloadTimer != nil
-                    deferredReloadTimer?.cancel()
-                    deferredReloadTimer = nil
-                    if pendingHookChange {
-                        // Preserve the watcher event for the ordinary coalesced
-                        // refresh path before this ownership request fails closed.
-                        changePending = false
-                        handleHookStoreChange()
-                    }
+                    preservePendingHookChangeAfterOwnershipRefreshFailure()
                     return nil
                 }
                 continue
             }
             if let forkAvailabilityRefreshTask {
-                await forkAvailabilityRefreshTask.value
+                guard await awaitOwnershipRefreshTask(forkAvailabilityRefreshTask) else {
+                    forkAvailabilityRefreshTask.cancel()
+                    preservePendingHookChangeAfterOwnershipRefreshFailure()
+                    return nil
+                }
+                completedRefreshPasses += 1
                 // Fork availability reloads may intentionally retain an
                 // unchanged index. Ownership-sensitive callers need the full
                 // refresh task below as well.
+                guard completedRefreshPasses < Self.maximumOwnershipSensitiveRefreshPasses else {
+                    preservePendingHookChangeAfterOwnershipRefreshFailure()
+                    return nil
+                }
                 continue
             }
             if changePending || deferredReloadTimer != nil {
@@ -629,6 +635,48 @@ final class SharedLiveAgentIndex {
                 self.handleHookStoreChange()
             }
         }
+    }
+
+    /// Waits for one refresh without allowing an uncooperative loader to hold
+    /// a restored terminal behind startup admission indefinitely.
+    private func awaitOwnershipRefreshTask(_ task: Task<Void, Never>) async -> Bool {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                let gate = AgentForkTimeoutResumeGate(continuation)
+                let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+                timer.schedule(
+                    deadline: .now() + .nanoseconds(
+                        Int(Self.ownershipRefreshTimeoutNanoseconds)
+                    )
+                )
+                timer.setEventHandler {
+                    timer.setEventHandler {}
+                    timer.cancel()
+                    task.cancel()
+                    gate.resume(returning: false)
+                }
+                timer.resume()
+                Task.detached(priority: .utility) {
+                    await task.value
+                    timer.setEventHandler {}
+                    timer.cancel()
+                    gate.resume(returning: true)
+                }
+            }
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    private func preservePendingHookChangeAfterOwnershipRefreshFailure() {
+        let pendingHookChange = changePending || deferredReloadTimer != nil
+        deferredReloadTimer?.cancel()
+        deferredReloadTimer = nil
+        guard pendingHookChange else { return }
+        // Preserve the watcher event for the ordinary coalesced refresh path
+        // before this ownership request fails closed.
+        changePending = false
+        handleHookStoreChange()
     }
 
     @discardableResult
@@ -1119,7 +1167,8 @@ final class SharedLiveAgentIndex {
         if forcePublish
             || hasPendingForkValidations
             || result.liveAgentProcessFingerprint != liveAgentProcessFingerprint
-            || result.processScopeFingerprint != processScopeFingerprint {
+            || result.processScopeFingerprint != processScopeFingerprint
+            || index?.isComplete != result.index.isComplete {
             applyReloadedIndex(
                 result.index,
                 loadedAt: loadedAt,

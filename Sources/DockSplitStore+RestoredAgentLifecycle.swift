@@ -461,6 +461,10 @@ extension DockSplitStore {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
+            guard index.isComplete else {
+                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                continue
+            }
             guard deferredAgentResumeRestoreMatchesCurrentSession(
                 panelId: panelId,
                 restore: restore
@@ -475,17 +479,25 @@ extension DockSplitStore {
             // stable-panel tie, so structural ambiguity remains fail-closed even
             // after the old owners' PIDs have exited.
             let ownershipIsBlocked = index.hasAmbiguousPanel(ownershipPanelID) ||
-                index.hasCurrentAmbiguousPanel(ownershipPanelID) ||
-                index.hasUncertainStablePanelEntry(panelId: ownershipPanelID) ||
+                index.hasCurrentAmbiguousPanel(
+                    ownershipPanelID,
+                    revalidateProcessEvidence: false
+                ) ||
+                index.hasUncertainStablePanelEntry(
+                    panelId: ownershipPanelID,
+                    revalidateProcessEvidence: false
+                ) ||
                 index.hasConflictingLiveStablePanelEntry(
                     workspaceId: workspaceId,
                     panelId: ownershipPanelID,
                     expectedKind: expectedKind,
-                    expectedSessionId: expectedSessionId
+                    expectedSessionId: expectedSessionId,
+                    revalidateProcessEvidence: false
                 ) ||
                 index.hasCurrentLiveProcessForStablePanel(
                     workspaceId: workspaceId,
-                    panelId: ownershipPanelID
+                    panelId: ownershipPanelID,
+                    revalidateProcessEvidence: false
                 )
             guard !ownershipIsBlocked else {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
