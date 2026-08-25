@@ -331,7 +331,7 @@ struct DockSessionPersistenceTests {
         let store: DockSplitStore
         switch scope {
         case .workspace:
-            store = workspace.dockSplit
+            store = try #require(workspace.dockSplit)
         case .global:
             store = manager.makeWindowDockStore(windowId: UUID())
         }
@@ -394,7 +394,7 @@ struct DockSessionPersistenceTests {
 
         let destinationManager = TabManager()
         let destinationWorkspace = try #require(destinationManager.selectedWorkspace)
-        let destinationStore = destinationWorkspace.dockSplit
+        let destinationStore = try #require(destinationWorkspace.dockSplit)
         defer {
             destinationStore.closeAllPanels()
             destinationWorkspace.teardownAllPanels()

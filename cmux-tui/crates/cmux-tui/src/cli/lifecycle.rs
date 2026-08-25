@@ -37,8 +37,38 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         }
         global.session = Some(session);
     }
+    if let Some(session) = global.session.as_deref()
+        && !valid_session_name(session)
+    {
+        return usage_error(
+            crate::localization::catalog().machine_agent.invalid_session,
+            global.output,
+        );
+    }
     let expected_session = global.session.clone();
-    let socket = super::wire::resolve_socket(&global);
+    let socket = match super::wire::resolve_socket(&global) {
+        Ok(socket) => socket,
+        Err(_error) => {
+            if let Some(session) = global.session.as_deref()
+                && cmux_tui_core::server::validate_session_name(session).is_err()
+            {
+                return local_error_with_details(
+                    "usage.invalid",
+                    crate::localization::catalog().local_server.invalid_session,
+                    json!({"reason": "invalid_session"}),
+                    global.output,
+                    2,
+                );
+            }
+            return local_error_with_details(
+                "server.unavailable",
+                crate::localization::catalog().local_server.connect_failed,
+                json!({"reason": "socket_path_unavailable"}),
+                global.output,
+                3,
+            );
+        }
+    };
     let socket_output = socket.to_string_lossy().into_owned();
     let stream = match transport::connect(&socket) {
         Ok(stream) => stream,
@@ -255,6 +285,12 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     }
 }
 
+fn valid_session_name(session: &str) -> bool {
+    !session.is_empty()
+        && session.len() <= 64
+        && session.chars().all(|character| !character.is_control() && !character.is_whitespace())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ExchangeError {
     Transport,
@@ -388,8 +424,18 @@ fn usage_error(message: &str, output: OutputMode) -> i32 {
 }
 
 fn local_error(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {
+    local_error_with_details(code, message, json!({}), output, exit_code)
+}
+
+fn local_error_with_details(
+    code: &str,
+    message: &str,
+    details: Value,
+    output: OutputMode,
+    exit_code: i32,
+) -> i32 {
     super::wire::print_local_error(
-        &json!({"code":code,"message":message,"details":{},"retryable":false}),
+        &json!({"code":code,"message":message,"details":details,"retryable":false}),
         output,
         exit_code,
     )
@@ -406,6 +452,20 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
+
+    #[test]
+    fn rejects_invalid_session_names_before_socket_resolution() {
+        assert!(!valid_session_name(""));
+        assert!(!valid_session_name("bad name"));
+        assert!(!valid_session_name("bad\nname"));
+        assert!(!valid_session_name(&"x".repeat(65)));
+    }
+
+    #[test]
+    fn accepts_session_names_for_explicit_and_default_socket_routes() {
+        assert!(valid_session_name("main"));
+        assert!(valid_session_name("agent-1"));
+    }
 
     struct UnreadableStream;
 
