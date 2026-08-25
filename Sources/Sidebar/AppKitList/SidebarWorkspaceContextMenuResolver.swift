@@ -17,15 +17,10 @@ struct SidebarWorkspaceContextMenuResolver {
         // NSView.hitTest(_:) takes a point in the receiver's superview
         // coordinate system, not the receiver's local coordinates.
         let point = coordinateView.convert(event.locationInWindow, from: nil)
-        // Ask the actual coordinate-space owner to resolve the same hierarchy
-        // AppKit would hit-test for the event, then keep only descendants of
-        // this row. This avoids accidentally walking a sibling when a row is
-        // being reparented during table updates.
-        guard let hitView = coordinateView.hitTest(point),
-              hitView === rowView || hitView.isDescendant(of: rowView) else {
-            return rowView.menu(for: event)
-        }
-        var candidate: NSView? = hitView
+        // `point` is in `rowView.superview` (the coordinate view) because
+        // AppKit passes each child its parent's coordinates during hit-test.
+        // Start at the row so the walk cannot escape into a sibling view.
+        var candidate = rowView.hitTest(point)
         while let view = candidate, view !== rowView {
             // Generic AppKit controls can synthesize an empty menu even when
             // they do not own a context-menu action. Keep walking so the
