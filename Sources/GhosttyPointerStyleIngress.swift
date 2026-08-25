@@ -12,6 +12,7 @@ actor GhosttyPointerStyleIngress {
     private weak var surfaceView: GhosttyNSView?
     nonisolated private let focusGeneration = AtomicUInt64Generation()
     nonisolated private let focusState = AtomicBooleanGate(false)
+    nonisolated private let runtimeGeneration = AtomicUInt64Generation()
     private var state = GhosttyPointerStyleIngressPendingState(
         activeRuntimeLifetimeId: nil
     )
@@ -39,13 +40,23 @@ actor GhosttyPointerStyleIngress {
 
     /// Registers a native runtime before Ghostty can emit its first action.
     nonisolated func activate(runtimeLifetimeId: UUID, surfaceId: UUID) {
-        Task { await self.activateIsolated(runtimeLifetimeId: runtimeLifetimeId) }
+        let generation = runtimeGeneration.advanceRelaxed()
+        Task {
+            await self.activateIsolated(
+                runtimeLifetimeId: runtimeLifetimeId,
+                generation: generation
+            )
+        }
     }
 
     /// Retires a runtime; `nil` unconditionally retires the currently active one.
     nonisolated func retire(runtimeLifetimeId: UUID?, surfaceId: UUID) {
+        let generation = runtimeGeneration.advanceRelaxed()
         Task {
-            await self.retireIsolated(runtimeLifetimeId: runtimeLifetimeId)
+            await self.retireIsolated(
+                runtimeLifetimeId: runtimeLifetimeId,
+                generation: generation
+            )
         }
     }
 
@@ -63,26 +74,39 @@ actor GhosttyPointerStyleIngress {
     nonisolated func submit(_ request: GhosttyPointerStyleIngressRequest) {
         var request = request
         request.focusGeneration = focusGeneration.loadRelaxed()
+        request.runtimeGeneration = runtimeGeneration.loadRelaxed()
         continuation.yield(request)
     }
 
-    private func activateIsolated(runtimeLifetimeId: UUID) {
-        if state.activeRuntimeLifetimeId != runtimeLifetimeId {
+    private func activateIsolated(
+        runtimeLifetimeId: UUID,
+        generation: UInt64
+    ) {
+        guard generation >= state.activeRuntimeGeneration else { return }
+        if state.activeRuntimeLifetimeId != runtimeLifetimeId ||
+           state.activeRuntimeGeneration != generation {
             state.activeRuntimeLifetimeId = runtimeLifetimeId
+            state.activeRuntimeGeneration = generation
             state.byRuntime.removeAll(keepingCapacity: true)
         }
         state.retiredRuntimeLifetimeIds.remove(runtimeLifetimeId)
     }
 
-    private func retireIsolated(runtimeLifetimeId: UUID?) {
+    private func retireIsolated(
+        runtimeLifetimeId: UUID?,
+        generation: UInt64
+    ) {
+        guard generation >= state.activeRuntimeGeneration else { return }
         guard let runtimeLifetimeId else {
             return
         }
-        guard state.activeRuntimeLifetimeId == runtimeLifetimeId else {
+        guard state.activeRuntimeLifetimeId == runtimeLifetimeId,
+              state.activeRuntimeGeneration == generation else {
             return
         }
         let retiredID = runtimeLifetimeId
         state.activeRuntimeLifetimeId = nil
+        state.activeRuntimeGeneration = generation
         state.retiredRuntimeLifetimeIds.insert(retiredID)
         if state.retiredRuntimeLifetimeIds.count > 8,
            let oldest = state.retiredRuntimeLifetimeIds.first {
@@ -131,10 +155,13 @@ actor GhosttyPointerStyleIngress {
             ) else {
                 return
             }
-            if state.activeRuntimeLifetimeId == nil {
+            if request.runtimeGeneration > state.activeRuntimeGeneration {
                 state.activeRuntimeLifetimeId = request.runtimeLifetimeId
+                state.activeRuntimeGeneration = request.runtimeGeneration
+                state.byRuntime.removeAll(keepingCapacity: true)
             }
-            guard state.activeRuntimeLifetimeId == request.runtimeLifetimeId else {
+            guard state.activeRuntimeLifetimeId == request.runtimeLifetimeId,
+                  state.activeRuntimeGeneration == request.runtimeGeneration else {
                 return
             }
         }
@@ -202,7 +229,10 @@ actor GhosttyPointerStyleIngress {
                           ) else {
                         continue
                     }
-                    surfaceView.applyTerminalPointerStyle(event)
+                    surfaceView.applyTerminalPointerStyle(
+                        event,
+                        focusGeneration: request.focusGeneration
+                    )
                 }
             }
         }
