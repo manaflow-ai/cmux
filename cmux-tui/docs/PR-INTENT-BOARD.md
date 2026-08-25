@@ -2,11 +2,14 @@
 
 Current snapshot: 2026-08-25. The aggregate branch is
 `codex/tui-techdebt-aggregate-wave39`; its audited local tip is
-`31fc5df2b4`, based on `origin/main`
-`bd985bddcded04ed849e3484dbcb645b32a32cb6`. PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708)
-still points to remote head `f8b526ce7b5537a4bf85c0a54eb16bba6035a637` and
-must be updated. Required checks and the final exact-head autoreview are still
-pending for the audited head. A mergeable label is not acceptance proof.
+`ba16a6745e1c6791c92e44c36bd24495a75de820`, based on `origin/main`
+`bd985bddcded04ed849e3484dbcb645b32a32cb6`, 801 commits ahead and 0 behind.
+PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708) points to the exact
+pushed head and is mergeable. Focused hosted run
+[`32851303914`](https://github.com/manaflow-ai/cmux/actions/runs/32851303914)
+passed on Linux, macOS, Rust MSRV, and the release artifact. Full hosted
+verification and final exact-head autoreview are pending. A mergeable label is
+not acceptance proof.
 
 The prior 2026-08-24 values are historical. The aggregate includes the
 cross-platform hardening, PTY generation and delivery gates, bounded readers,
@@ -22,14 +25,20 @@ bounded Rust workspace reads, watcher sink termination, and preview/shell
 ownership fixes. These are documented with full commit SHAs and exact revert
 commands in `TECH-DEBT-CHANGELOG.md`.
 
+The current inventory found 105 open PRs mentioning `cmux-tui`, 64 of the
+newest 300 open PRs changing a `cmux-tui/` path, and 52 sharing a path with
+[#10708](https://github.com/manaflow-ai/cmux/pull/10708). Stacked or
+conflicting branches remain ordered work. Green inherited checks do not replace
+an exact-head review.
+
 Final aggregate commits include the merge of current main
 [`0560bae72c`](https://github.com/manaflow-ai/cmux/commit/0560bae72c17ccf2da139fdf44f1907523fc82cc),
  the PTY generation and delivery gate fixes through `77b51e368a`, the per-entry
 legacy socket scan fix `ae2fa91709`, the Go write-progress fixes through
 `4a50dd64b2`, the Java path test `3e85c7dd05`, and scoped remote-daemon upload
-cleanup through `4fffdfc128`, followed by the PID-marker, terminal-lookup, and
-wire-contract fixes recorded at the audited tip. Do not infer hosted or
-review-green status from these commits.
+cleanup through `4fffdfc128`, followed by the PID-marker, terminal-lookup,
+wire-contract, selector, and Kitty quota fixes recorded at the audited tip. Do
+not infer hosted or review-green status from commits alone.
 
 ## Live PR state
 
@@ -37,11 +46,13 @@ This table is authoritative. Older tables below preserve historical snapshots.
 
 | PR | Author | State and head on 2026-08-25 | Decision |
 | --- | --- | --- | --- |
-| [#10708](https://github.com/manaflow-ai/cmux/pull/10708) | Lawrence Chen | Open, remote head `f8b526ce7b5537a4bf85c0a54eb16bba6035a637`; local audited head `31fc5df2b4` is not pushed. | Push the audited head, run local autoreview and hosted checks, then merge. |
+| [#10708](https://github.com/manaflow-ai/cmux/pull/10708) | Lawrence Chen | Open, exact head `ba16a6745e1c6791c92e44c36bd24495a75de820`, mergeable. Focused hosted run `32851303914` passed. | Run full hosted verification and exact-head autoreview, then merge. |
+| [#10736](https://github.com/manaflow-ai/cmux/pull/10736) | Lawrence Chen | Open, mergeable independent sidebar preview feature. Current review has focus-transition and localization findings. | Keep separate; fix findings and rerun exact-head checks. |
+| [#10734](https://github.com/manaflow-ai/cmux/pull/10734) | Lawrence Chen | Open, mergeable independent detached-session-owner feature. Current review has lifecycle and localization findings. | Keep separate; fix findings and rerun exact-head checks. |
 | [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Merged as `7ddd04f2c1879cb38868292987aae1f1dfa2b139`. | Already merged. |
 | [#10604](https://github.com/manaflow-ai/cmux/pull/10604) | Lawrence Chen | Merged as `1956d7f440add80ba35e585d83697d9dae44d3e2`. | Already merged. |
-| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Open, dirty, unchanged head `67b7e6814f8355235e3930a6f3360a58dc0ba3c0`. | Close only after [#10708](https://github.com/manaflow-ai/cmux/pull/10708) merges and the head remains unchanged. |
-| [#10609](https://github.com/manaflow-ai/cmux/pull/10609) | Lawrence Chen | Open, dirty, unchanged head `bdcbb8c8049eb552a0d646cdce78d58d294b7b82`. | Close only after [#10708](https://github.com/manaflow-ai/cmux/pull/10708) merges and the head remains unchanged. |
+| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Open, conflicting, unchanged head `67b7e6814f8355235e3930a6f3360a58dc0ba3c0`; superseded. | Close after [#10708](https://github.com/manaflow-ai/cmux/pull/10708) merges, after rechecking the head. |
+| [#10609](https://github.com/manaflow-ai/cmux/pull/10609) | Lawrence Chen | Open, conflicting, unchanged head `bdcbb8c8049eb552a0d646cdce78d58d294b7b82`; superseded. | Close after [#10708](https://github.com/manaflow-ai/cmux/pull/10708) merges, after rechecking the head. |
 
 ## Aggregate
 

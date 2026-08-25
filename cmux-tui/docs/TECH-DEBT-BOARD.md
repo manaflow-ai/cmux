@@ -3,16 +3,14 @@
 Current snapshot: 2026-08-25.
 Audit base: `origin/main` at `bd985bddcded04ed849e3484dbcb645b32a32cb6`.
 Integration branch: `codex/tui-techdebt-aggregate-wave39`.
-Audited code tip before this board snapshot: `31fc5df2b4`.
-PR: [#10708](https://github.com/manaflow-ai/cmux/pull/10708), author Lawrence Chen.
-The branch was 788 commits ahead of `origin/main` at the audited tip. The board
-commit itself is documentation-only and follows that tip. The latest code tail
-adds PID-marker no-clobber creation without marker-based killing, verified
-terminal lookup classification, typed-error serialization from the generated
-enum, and protocol documentation that matches the wire. It also includes the
-current-main release-candidate npm validation fix from [#10735](https://github.com/manaflow-ai/cmux/pull/10735).
-Required hosted checks and final exact-head autoreview remain pending for the
-new aggregate head.
+Audited source tip before this board snapshot: `ba16a6745e1c6791c92e44c36bd24495a75de820`.
+PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708), author Lawrence Chen,
+points to that exact source tip. The branch is 801 commits ahead of
+`origin/main` and 0 commits behind. The focused hosted run
+[`32851303914`](https://github.com/manaflow-ai/cmux/actions/runs/32851303914)
+passed on Linux, macOS, Rust MSRV, and the release artifact. The board commit
+itself is documentation-only and follows the audited source tip. Full hosted
+verification and exact-head autoreview remain required before merge.
 
 The 2026-08-24 values below are historical snapshots. Do not use their SHAs,
 ahead counts, or review status as current evidence.
@@ -20,8 +18,8 @@ ahead counts, or review status as current evidence.
 Historical snapshot tip was `387b4185f28e8baf040207f3e7ec9ffb50f3b53b`,
 747 commits ahead of the then-current `origin/main` before its documentation
 update. The exact current tip is recorded above.
-The aggregate branch is `aggregate-final`; the review branch is
-`https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
+The old `aggregate-final` and `feat-tui-tech-debt-wave1-clean` branch names are
+historical only.
 Current-snapshot rule: the facts above and the final-tail notes below are the
 only live state in this document. Older sections preserve prior audit snapshots
 for revert history. Treat their SHAs, ahead counts, PR heads, and review status
@@ -60,12 +58,11 @@ payload-scope parsing.
 
 Latest wave follow-ups are recorded in the changelog. The prior exact-head
 autoreview found three relay retention issues, now fixed in the latest tail;
-the final review is pending. Two earlier remote-tmux findings were ignored as
-out of scope. No new session was counted for documentation-only bookkeeping;
-the ledger remains a lower bound on substantive turns, not a fabricated
-10,000-session total.
+the final review for this source tip is pending. Two earlier remote-tmux
+findings were ignored as out of scope. The ledger remains a lower bound on
+substantive turns, not a fabricated 10,000-session total.
 
-Subagent ledger: at least 244 substantive agent turns are complete in this
+Subagent ledger: at least 249 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
 reviews, conflict resolution, and merge gates. It excludes empty or duplicate
 turns. The requested 10,000-session target is not reached. I will not create
@@ -79,15 +76,17 @@ below are historical audit snapshots and may contain old heads or old labels.
 
 | PR | Author | State and head on 2026-08-25 | Decision |
 | --- | --- | --- | --- |
-| [#10708](https://github.com/manaflow-ai/cmux/pull/10708) | Lawrence Chen | Open, remote head `f8b526ce7b5537a4bf85c0a54eb16bba6035a637`; local audited head `31fc5df2b4` is not pushed. | Push the audited head, then run exact-head autoreview and hosted checks before merge. |
+| [#10708](https://github.com/manaflow-ai/cmux/pull/10708) | Lawrence Chen | Open, exact remote head `ba16a6745e1c6791c92e44c36bd24495a75de820`, mergeable. Focused hosted run `32851303914` passed. | Run full hosted verification and exact-head autoreview, then merge. |
+| [#10736](https://github.com/manaflow-ai/cmux/pull/10736) | Lawrence Chen | Open, independent sidebar preview feature, mergeable. Current review has focus-transition and localization action items. | Keep separate from [#10708](https://github.com/manaflow-ai/cmux/pull/10708); fix review items and run exact-head checks. |
+| [#10734](https://github.com/manaflow-ai/cmux/pull/10734) | Lawrence Chen | Open, independent detached-session-owner feature, mergeable. Current review has lifecycle and localization action items. | Keep separate from [#10708](https://github.com/manaflow-ai/cmux/pull/10708); fix review items and run exact-head checks. |
 | [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Merged as `7ddd04f2c1879cb38868292987aae1f1dfa2b139`. | Do not close or merge again. |
 | [#10604](https://github.com/manaflow-ai/cmux/pull/10604) | Lawrence Chen | Merged as `1956d7f440add80ba35e585d83697d9dae44d3e2`. | Do not close or merge again. |
-| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Open, dirty, head `67b7e6814f8355235e3930a6f3360a58dc0ba3c0`. | Close only after [#10708](https://github.com/manaflow-ai/cmux/pull/10708) merges and the head is unchanged. |
-| [#10609](https://github.com/manaflow-ai/cmux/pull/10609) | Lawrence Chen | Open, dirty, head `bdcbb8c8049eb552a0d646cdce78d58d294b7b82`. | Close only after [#10708](https://github.com/manaflow-ai/cmux/pull/10708) merges and the head is unchanged. |
+| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Open, conflicting, unchanged head `67b7e6814f8355235e3930a6f3360a58dc0ba3c0`; superseded by [#10708](https://github.com/manaflow-ai/cmux/pull/10708). | Close after [#10708](https://github.com/manaflow-ai/cmux/pull/10708) merges, after rechecking that the head is unchanged. |
+| [#10609](https://github.com/manaflow-ai/cmux/pull/10609) | Lawrence Chen | Open, conflicting, unchanged head `bdcbb8c8049eb552a0d646cdce78d58d294b7b82`; superseded by [#10708](https://github.com/manaflow-ai/cmux/pull/10708). | Close after [#10708](https://github.com/manaflow-ai/cmux/pull/10708) merges, after rechecking that the head is unchanged. |
 
 ## Current state
 
-The audited code tail is `31fc5df2b4`. It carries the watch compatibility,
+The audited source tail is `ba16a6745e`. It carries the watch compatibility,
 queue-ownership, fairness, timer-bound, shell-reservation, PTY overflow,
 preview saturation, SDK lifecycle, CLI grammar, capability documentation,
 credential-child reaping, journal-writer ownership/finalization, explicit
@@ -107,6 +106,12 @@ and ownership explicit, classifies only verified missing resources as
 pathname race remains a documented residual because the portable shell path has
 no descriptor-relative `fchmod`. The issues below remain open.
 
+The exact tail then adds a valid public-ID selector fixture (`663317e431`), a
+typed `selector.not_found` assertion (`42e97c05c6`), Kitty quota timeout
+admission coverage (`2597d7720d`), graceful timeout admission with disabled
+Kitty graphics (`31857f0c4c`), the corrected applied-limit assertion
+(`95fd2196df`), and the matching recovery comment (`ba16a6745e`).
+
 ### Wave 45 audit residuals
 
 | Area | Current decision | Next proof or fix |
@@ -115,6 +120,7 @@ no descriptor-relative `fchmod`. The issues below remain open.
 | Scale | Event fan-out and browser/resource selection use bounded linear scans. No measured hot-path regression proves an index is needed. | Capture an event-rate and 1,000-session profile before changing ownership or adding caches. |
 | CLI ownership docs | Detached-owner commit `01bbc358e2` is not an ancestor of this branch. | Keep the current explicit lifecycle wording until the implementation lands and has behavior proof. |
 | Same-UID remote staging | Portable shell still cannot provide descriptor-relative `fchmod` after hashing. | Keep the remote account private, or move staging to an implementation with an opened-directory and descriptor-based API. |
+| Kitty quota timeout latency | Terminal admission now succeeds with graphics disabled, but it can still wait up to the two-second control deadline before degrading. | Replace the deadline wait only after measuring pane-split latency and adding a cancellable state transition. |
 
 ### Open issue inventory
 

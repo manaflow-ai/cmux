@@ -1,13 +1,15 @@
 # cmux-tui aggregate change log
 
-Current snapshot: 2026-08-25. The audited aggregate tip before this
-documentation snapshot is [`31fc5df2b4`](https://github.com/manaflow-ai/cmux/commit/31fc5df2b4),
-788 commits ahead of `origin/main` at
+Current snapshot: 2026-08-25. The audited source tip before this
+documentation snapshot is [`ba16a6745e`](https://github.com/manaflow-ai/cmux/commit/ba16a6745e1c6791c92e44c36bd24495a75de820),
+801 commits ahead of `origin/main` at
 `bd985bddcded04ed849e3484dbcb645b32a32cb6`. PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708)
-still has remote head `f8b526ce7b5537a4bf85c0a54eb16bba6035a637`; the audited
-head is not pushed yet. Current hosted status and merge evidence belong in
-`PR-INTENT-BOARD.md`; do not claim review or hosted green until exact-head
-checks pass. The 2026-08-24 snapshot below is historical.
+points to that exact pushed head. Focused hosted run
+[`32851303914`](https://github.com/manaflow-ai/cmux/actions/runs/32851303914)
+passed on Linux, macOS, Rust MSRV, and the release artifact. Full hosted
+verification and exact-head autoreview remain pending. The documentation
+commit follows the audited source tip. The 2026-08-24 snapshot below is
+historical.
 
 This update records the current-main merge, the PyPI project-description and
 release-candidate package fixes,
@@ -25,6 +27,34 @@ proof; manual Ghostty I/O and reconnect behavior remain requested; and the
 left-sidebar `hjkl` preview, `Esc`, and `Enter` interaction needs a separate
 acceptance case. These deltas strengthen UI-01, UI-02, UI-03, UI-06, UI-13,
 UI-15, and UI-22. They do not close any row.
+
+The current PR inventory found 105 open PRs mentioning `cmux-tui`, 64 of the
+newest 300 open PRs changing a `cmux-tui/` path, and 52 sharing a path with
+[#10708](https://github.com/manaflow-ai/cmux/pull/10708). Independent features
+[#10734](https://github.com/manaflow-ai/cmux/pull/10734) and
+[#10736](https://github.com/manaflow-ai/cmux/pull/10736) stay separate until
+their current review findings are fixed. Conflicting
+[#10602](https://github.com/manaflow-ai/cmux/pull/10602) and
+[#10609](https://github.com/manaflow-ai/cmux/pull/10609) are superseded and may
+close only after [#10708](https://github.com/manaflow-ai/cmux/pull/10708) merges
+and their heads are checked.
+
+## Latest exact-head tail
+
+These commits are the source changes after the previous documentation snapshot.
+Revert each commit separately unless a revert note says otherwise.
+
+| Commit | Change | Revert |
+| --- | --- | --- |
+| [`ba16a6745e`](https://github.com/manaflow-ai/cmux/commit/ba16a6745e1c6791c92e44c36bd24495a75de820) | Clarify that the Kitty quota worker applies target limits after a timed-out update recovers. | `git revert ba16a6745e1c6791c92e44c36bd24495a75de820` |
+| [`95fd2196df`](https://github.com/manaflow-ai/cmux/commit/95fd2196df6618d0f5ba97f26e3a2196cbc0b9b0) | Assert that a timeout-admitted terminal keeps applied Kitty limits disabled before recovery. | `git revert 95fd2196df6618d0f5ba97f26e3a2196cbc0b9b0` |
+| [`31857f0c4c`](https://github.com/manaflow-ai/cmux/commit/31857f0c4c1cd52617688aa7465832fa66122f6a) | Admit terminal creation after a Kitty quota timeout with graphics disabled instead of returning an error. | `git revert 31857f0c4c1cd52617688aa7465832fa66122f6a` |
+| [`2597d7720d`](https://github.com/manaflow-ai/cmux/commit/2597d7720d9e5394c2cb7e1e0ac139adb6aa5ce5) | Add regression coverage for timeout admission and later quota recovery. | `git revert 2597d7720d9e5394c2cb7e1e0ac139adb6aa5ce5` |
+| [`42e97c05c6`](https://github.com/manaflow-ai/cmux/commit/42e97c05c6fd15f8e62bbcaf3e96be4388edb7d2) | Assert the typed `selector.not_found` error code. | `git revert 42e97c05c6fd15f8e62bbcaf3e96be4388edb7d2` |
+| [`663317e431`](https://github.com/manaflow-ai/cmux/commit/663317e43161916d4965cc412fc68589846b6360) | Use a valid public session ID in the selector fixture. | `git revert 663317e43161916d4965cc412fc68589846b6360` |
+
+Focused hosted evidence for this tail is run
+[`32851303914`](https://github.com/manaflow-ai/cmux/actions/runs/32851303914).
 
 ## Final aggregate tail
 
