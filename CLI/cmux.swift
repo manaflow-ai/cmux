@@ -389,12 +389,19 @@ final class ClaudeHookSessionStore {
                record.autoNameTitleReconciliationGeneration == nil,
                max(0, record.autoNameTitleReconciliationAttemptCount ?? 0)
                     >= Self.maxAutoNameTitleReconciliationAttempts {
-                return AutoNamingBeginOutcome(
-                    decision: decision,
-                    lastTitle: snapshot.lastTitle,
-                    observationGeneration: nil,
-                    reconciliationExhausted: true
-                )
+                let newEpoch = record.autoNameTitleReconciliationEpochLineCount.map {
+                    $0 != transcriptLineCount
+                } ?? false
+                if !newEpoch {
+                    return AutoNamingBeginOutcome(
+                        decision: decision,
+                        lastTitle: snapshot.lastTitle,
+                        observationGeneration: nil,
+                        reconciliationExhausted: true
+                    )
+                }
+                record.autoNameTitleReconciliationAttemptCount = nil
+                record.autoNameTitleReconciliationEpochLineCount = nil
             }
             let observationGeneration: String?
             switch decision {
@@ -531,6 +538,17 @@ final class ClaudeHookSessionStore {
                 return nil
             }
             let now = Date().timeIntervalSince1970
+            if record.autoNameTitleReconciliationGeneration == nil,
+               max(0, record.autoNameTitleReconciliationAttemptCount ?? 0)
+                    >= Self.maxAutoNameTitleReconciliationAttempts,
+               let epoch = record.autoNameTitleReconciliationEpochLineCount,
+               transcriptLineCount == nil || transcriptLineCount == epoch {
+                // The same compact epoch already exhausted its bounded retry
+                // budget. Do not reopen it on duplicate SessionStart delivery.
+                record.updatedAt = now
+                state.sessions[normalized] = record
+                return nil
+            }
             if let existingGeneration = record.autoNameTitleReconciliationGeneration,
                transcriptLineCount == nil
                     || record.autoNameTitleReconciliationEpochLineCount == nil
@@ -586,7 +604,6 @@ final class ClaudeHookSessionStore {
                 // `pending=true` with `exhausted=true` keeps the caller from
                 // falling through into a fresh LLM pass on this Stop.
                 record.autoNameTitleReconciliationGeneration = nil
-                record.autoNameTitleReconciliationEpochLineCount = nil
                 // Keep the maxed count as an exhausted marker. Without it,
                 // the next Stop would reopen the same transcript-shrink
                 // reconciliation through the ordinary path.

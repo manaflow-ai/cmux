@@ -53,11 +53,13 @@ extension CMUXCLI {
         )
         if max(0, session.autoNameTitleReconciliationAttemptCount ?? 0)
                 >= ClaudeHookSessionStore.maxAutoNameTitleReconciliationAttempts {
+            let exhaustedEpoch = session.autoNameTitleReconciliationEpochLineCount
+                ?? observedProgress
             // Keep an exhausted compact epoch quiet while its transcript stays
-            // at or below the observed high-water. A later growth starts a new
+            // at the same progress marker. Any later progress starts a new
             // epoch; the detached pass clears the old budget on its ordinary
             // (non-reseed) begin path.
-            return currentProgress > observedProgress
+            return currentProgress != exhaustedEpoch
         }
         return currentProgress != observedProgress
     }
@@ -310,6 +312,22 @@ extension CMUXCLI {
             telemetry.breadcrumb("\(telemetryKey).in-flight")
             return true
         }
+        guard (try? sessionStore.isCurrent(
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )) ?? false else {
+            telemetry.breadcrumb("\(telemetryKey).stale-before-apply")
+            try? sessionStore.finishAutoNamingReconciliation(
+                sessionId: sessionId,
+                compactedLineCount: claim.compactedLineCount,
+                confirmedApply: false,
+                claimedReconciliationGeneration: claim.generation,
+                observationGeneration: claim.observationGeneration,
+                clearPendingOnConfirmation: false
+            )
+            return true
+        }
         let applyOutcome = applyAutoNamingTitle(
             title,
             workspaceId: workspaceId,
@@ -362,17 +380,26 @@ extension CMUXCLI {
         if case .reseedBaseline(let compactedLineCount) = outcome.decision {
             let applyOutcome: Result<(titleApplied: Bool, targetsResolved: Bool), CLIError>
             if let lastTitle = outcome.lastTitle {
-                applyOutcome = applyAutoNamingTitle(
-                    lastTitle,
+                if (try? sessionStore.isCurrent(
+                    sessionId: sessionId,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    expectedWorkspaceTitle: lastTitle,
-                    expectedPanelTitle: lastTitle,
-                    clearStatusOnApply: false,
-                    client: client,
-                    telemetryKey: "\(telemetryKey).reconcile",
-                    telemetry: telemetry
-                )
+                    surfaceId: surfaceId
+                )) ?? false {
+                    applyOutcome = applyAutoNamingTitle(
+                        lastTitle,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        expectedWorkspaceTitle: lastTitle,
+                        expectedPanelTitle: lastTitle,
+                        clearStatusOnApply: false,
+                        client: client,
+                        telemetryKey: "\(telemetryKey).reconcile",
+                        telemetry: telemetry
+                    )
+                } else {
+                    telemetry.breadcrumb("\(telemetryKey).reconcile.stale-before-apply")
+                    applyOutcome = .success((titleApplied: false, targetsResolved: false))
+                }
             } else {
                 telemetry.breadcrumb("\(telemetryKey).throttled")
                 applyOutcome = .success((titleApplied: false, targetsResolved: false))
