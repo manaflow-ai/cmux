@@ -1,13 +1,20 @@
 # cmux-tui technical-debt board
 
-Last updated: 2026-08-24.
-Audit base: `origin/main` at `835d046fed9d339443f718ff0f6ef87813272bbb`.
-Integration branch: `aggregate-final`.
-Current integration code tip before this documentation commit: `387b4185f28e8baf040207f3e7ec9ffb50f3b53b`.
+Current snapshot: 2026-08-25.
+Audit base: `origin/main` at `7fdcfa583a3b708b523a08dfcbfac3b57ffbc627`.
+Integration branch: `codex/tui-techdebt-aggregate-wave39`.
+Current code tip: `0560bae72c17ccf2da139fdf44f1907523fc82cc`.
+PR: [#10708](https://github.com/manaflow-ai/cmux/pull/10708), author Lawrence Chen.
+The branch is 763 commits ahead of `origin/main`. It includes the current-main
+merge and the merged web determinism fix [#10718](https://github.com/manaflow-ai/cmux/pull/10718).
+Required hosted checks and final exact-head autoreview remain pending.
 
-Current exact aggregate tip is `387b4185f28e8baf040207f3e7ec9ffb50f3b53b`,
-747 commits ahead of `origin/main` before this documentation update.
-Exact worktree HEAD at audit time: `387b4185f28e8baf040207f3e7ec9ffb50f3b53b`.
+The 2026-08-24 values below are historical snapshots. Do not use their SHAs,
+ahead counts, or review status as current evidence.
+
+Historical snapshot tip was `387b4185f28e8baf040207f3e7ec9ffb50f3b53b`,
+747 commits ahead of the then-current `origin/main` before its documentation
+update. The exact current tip is recorded above.
 The aggregate branch is `aggregate-final`; the review branch is
 `https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
 Current-snapshot rule: the facts above and the final-tail notes below are the
@@ -53,24 +60,27 @@ out of scope. No new session was counted for documentation-only bookkeeping;
 the ledger remains a lower bound on substantive turns, not a fabricated
 10,000-session total.
 
-Subagent ledger: at least 205 substantive agent turns are complete in this
+Subagent ledger: at least 211 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
-reviews, and merge gates. It excludes empty or duplicate turns. The requested
-10,000-session target is not reached. I will not create empty sessions to
-inflate the count. The new intent rows do not count as completed work or extra
-sessions. New turns must have a named deliverable.
+reviews, conflict resolution, and merge gates. It excludes empty or duplicate
+turns. The requested 10,000-session target is not reached. I will not create
+empty sessions to inflate the count. The new intent rows do not count as
+completed work or extra sessions. New turns must have a named deliverable.
 
 ## Current state
 
-The latest code tail is `387b4185f28e8baf040207f3e7ec9ffb50f3b53b`. It carries the watch compatibility,
+The latest code tail is `0560bae72c17ccf2da139fdf44f1907523fc82cc`. It carries the watch compatibility,
 queue-ownership, fairness, timer-bound, shell-reservation, PTY overflow,
 preview saturation, SDK lifecycle, CLI grammar, capability documentation,
 credential-child reaping, journal-writer ownership/finalization, explicit
 socket cleanup, package-mode preservation, 8-bit C1 parser fixes, and inline
 global CLI values, bounded preview and process cleanup, safe socket fallback
 precedence, cancellation propagation, cross-platform root parsing, and SDK
-clippy cleanup after the
-25-file relay/TUI integration merge. The issues below remain open.
+clippy cleanup after the 25-file relay/TUI integration merge. The current tail
+also adds per-attachment PTY delivery gates and generation-aware replacement
+cleanup, a bounded legacy socket scan that tolerates per-entry metadata errors,
+invalid Go write-progress handling, Java traversal coverage, and the current-main
+package workflow simplification. The issues below remain open.
 
 ### Open issue inventory
 

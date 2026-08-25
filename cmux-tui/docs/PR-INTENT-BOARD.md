@@ -1,12 +1,16 @@
 # cmux TUI PR intent and merge board
 
-Audit date: 2026-08-24. This board records the GitHub search and exact check
-state used for the aggregate merge. A mergeable label is not acceptance proof.
-The aggregate branch currently includes the cross-platform hardening through
-`387b4185f28e8baf040207f3e7ec9ffb50f3b53b`. The current #10603 head is
-`49a2cc5a3776f4dc73b525e14213570acec42f59`; its app-host unit test shards
-2-4, swift-package-tests, tests, and ci-status checks are failing, so the
-branch is not green.
+Current snapshot: 2026-08-25. The aggregate branch is
+`codex/tui-techdebt-aggregate-wave39` at
+`0560bae72c17ccf2da139fdf44f1907523fc82cc`, based on `origin/main`
+`7fdcfa583a3b708b523a08dfcbfac3b57ffbc627`. PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708)
+now points to that exact head and is mergeable; required checks and the final
+exact-head autoreview are still pending. A mergeable label is not acceptance
+proof.
+
+The prior 2026-08-24 values are historical. The aggregate includes the
+cross-platform hardening, PTY generation and delivery gates, bounded readers,
+and the merged web determinism fix [#10718](https://github.com/manaflow-ai/cmux/pull/10718).
 All URLs point to `manaflow-ai/cmux`; authors are included for merge decisions.
 
 The dated snapshot recorded a clean in-scope autoreview with two remote-tmux
@@ -16,10 +20,12 @@ bounded Rust workspace reads, watcher sink termination, and preview/shell
 ownership fixes. These are documented with full commit SHAs and exact revert
 commands in `TECH-DEBT-CHANGELOG.md`.
 
-Final aggregate commits include main merge `14abca2963`, workflow and CLI
-selector work, and fixes in `52c7ca4735`, `2c73791935`, `8196bb8300`,
-`551134c765`, `909f4907e8`, `d39cba3843`, `9ae4173935`, `526b5b611d`, and
-`387b4185f2`. Do not infer hosted or review-green status from these commits.
+Final aggregate commits include the merge of current main
+[`0560bae72c`](https://github.com/manaflow-ai/cmux/commit/0560bae72c17ccf2da139fdf44f1907523fc82cc),
+the PTY generation and delivery gate fixes through `77b51e368a`, the per-entry
+legacy socket scan fix `ae2fa91709`, the Go write-progress fixes through
+`4a50dd64b2`, and the Java path test `3e85c7dd05`. Do not infer hosted or
+review-green status from these commits.
 
 ## Aggregate
 
