@@ -1052,7 +1052,7 @@ impl TerminalSizing {
         // one queue -> state critical section. Input cannot slip between
         // clearing the old fence and flushing the replacement report/claim.
         let (should_start, has_candidate) = {
-            let _queue_state = target.queue.state.lock().expect("ordered control queue lock");
+            let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
             let state = target.state.lock().expect("terminal sizing state lock");
             let generation_current = Self::current_generation(target) == generation;
             let endpoint_current = state.viewers.get(&viewer_id).is_some_and(|viewer| {
@@ -1256,7 +1256,7 @@ impl TerminalSizing {
             // shared queue fence. The worker snapshots target state under the
             // state lock, so advancing while that lock is held prevents it
             // from observing a new grid under the previous generation.
-            let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
+            let _queue_state = target.queue.state.lock().expect("ordered control queue lock");
             let mut state = target.state.lock().expect("terminal sizing state lock");
             let owner = state.owner;
             let candidate = owner.is_none() && candidate_viewer_id(&state) == Some(viewer_id);
