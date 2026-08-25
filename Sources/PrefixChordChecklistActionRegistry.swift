@@ -53,7 +53,9 @@ final class PrefixChordChecklistActionRegistry {
         resolvedWindowNumber: Int? = nil
     ) -> Bool {
         guard action == .toggleChecklistItemComplete else { return false }
-        let eventWindowNumber = resolvedWindowNumber.flatMap { $0 > 0 ? $0 : nil }
+        let eventWindowNumber = resolvedWindowNumber.flatMap { number -> Int? in
+            number > 0 ? number : nil
+        }
             ?? event.window?.windowNumber
             ?? (event.windowNumber > 0 ? event.windowNumber : nil)
         guard let eventWindowNumber, eventWindowNumber > 0 else { return false }
