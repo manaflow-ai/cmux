@@ -24,6 +24,7 @@ SPEC.loader.exec_module(VERIFY)
 class FakeResponse:
     def __init__(self, body: dict[str, object]) -> None:
         self.body = json.dumps(body).encode("utf-8")
+        self.headers: dict[str, str] = {}
 
     def __enter__(self) -> "FakeResponse":
         return self
@@ -31,7 +32,7 @@ class FakeResponse:
     def __exit__(self, *args: object) -> None:
         return None
 
-    def read(self) -> bytes:
+    def read(self, size: int = -1) -> bytes:
         return self.body
 
 
@@ -154,6 +155,27 @@ class VerifyPublishedManifestTests(TestCase):
         manifest["commit"] = "c" * 40
         with self.assertRaisesRegex(VERIFY.ManifestError, "commit mismatch"):
             self.verify(manifest)
+
+    def test_rejects_oversized_published_manifest(self) -> None:
+        class OversizedResponse(FakeResponse):
+            def __init__(self) -> None:
+                self.headers = {}
+                self.remaining = VERIFY.MAX_MANIFEST_BYTES + 1
+
+            def read(self, size: int = -1) -> bytes:
+                if self.remaining <= 0:
+                    return b""
+                count = min(size, self.remaining)
+                self.remaining -= count
+                return b"x" * count
+
+        with patch.object(VERIFY, "urlopen", return_value=OversizedResponse()):
+            with self.assertRaisesRegex(VERIFY.ManifestError, "size limit"):
+                VERIFY.verify_manifest(
+                    "https://files.example/cmux-tui/latest/manifest.json",
+                    expected_commit=self.COMMIT,
+                    required_artifacts=(self.WINDOWS,),
+                )
 
 
 if __name__ == "__main__":

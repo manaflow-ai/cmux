@@ -20,6 +20,7 @@ from typing import Any, Iterable
 
 
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+MAX_MANIFEST_BYTES = 1 << 20
 
 
 class ManifestError(ValueError):
@@ -76,7 +77,28 @@ def _read_url(url: str) -> bytes:
     )
     try:
         with urlopen(request, timeout=30) as response:
-            return response.read()
+            content_length = getattr(response, "headers", {}).get("Content-Length")
+            if content_length is not None:
+                try:
+                    if int(content_length) > MAX_MANIFEST_BYTES:
+                        raise ManifestError(
+                            f"{url} exceeds the {MAX_MANIFEST_BYTES}-byte size limit"
+                        )
+                except ValueError:
+                    raise ManifestError(f"{url} has an invalid Content-Length")
+            chunks: list[bytes] = []
+            size = 0
+            while True:
+                chunk = response.read(min(64 * 1024, MAX_MANIFEST_BYTES - size + 1))
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > MAX_MANIFEST_BYTES:
+                    raise ManifestError(
+                        f"{url} exceeds the {MAX_MANIFEST_BYTES}-byte size limit"
+                    )
+                chunks.append(chunk)
+            return b"".join(chunks)
     except (OSError, urllib.error.URLError) as error:
         raise ManifestError(f"could not fetch {url}: {error}") from error
 
