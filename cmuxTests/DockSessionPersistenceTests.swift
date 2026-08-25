@@ -481,7 +481,7 @@ struct DockSessionPersistenceTests {
                         workingDirectory: workingDirectory.path,
                         launchCommand: nil
                     ),
-                    updatedAt: 0,
+                    updatedAt: 200,
                     processIDs: [processID],
                     agentProcessIDs: [processID],
                     sessionIDSource: .explicit
@@ -501,7 +501,7 @@ struct DockSessionPersistenceTests {
             .init(workspaceId: liveOwnerID, panelId: panelID): codexProcessDetectedResumeBinding(
                 sessionID: liveSessionID,
                 workingDirectory: workingDirectory.path,
-                updatedAt: 1
+                updatedAt: 200
             ),
         ])
 
