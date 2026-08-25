@@ -625,10 +625,17 @@ jobs:
           name: cmux-tui-aarch64-unknown-linux-musl
           path: dist/binaries
 
-      - name: Download chatmux relay binaries
+      - name: Download macOS chatmux relay binaries
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          pattern: chatmux-relay-*
+          pattern: chatmux-relay-*-apple-darwin
+          path: dist/binaries
+          merge-multiple: true
+
+      - name: Download Linux chatmux relay binaries
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: chatmux-relay-*-unknown-linux-musl
           path: dist/binaries
           merge-multiple: true
 
@@ -637,6 +644,20 @@ jobs:
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-tui-x86_64-pc-windows-gnu
+          path: dist/binaries
+
+      - name: Download Windows cmux-relay binary
+        if: inputs.include_windows
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-relay-x86_64-pc-windows-gnu
+          path: dist/binaries
+
+      - name: Download Windows chatmux relay binary
+        if: inputs.include_windows
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: chatmux-relay-x86_64-pc-windows-gnu
           path: dist/binaries
 
       - name: Build npm package directories
