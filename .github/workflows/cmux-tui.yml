@@ -627,6 +627,7 @@ jobs:
     if: always()
     needs:
       - validate-inputs
+      - msrv-check
       - web-frontend
       - valgrind-leak-check
       - test
@@ -637,6 +638,7 @@ jobs:
     env:
       MODE: ${{ inputs.mode }}
       VALIDATE_RESULT: ${{ needs.validate-inputs.result }}
+      MSRV_RESULT: ${{ needs.msrv-check.result }}
       WEB_RESULT: ${{ needs.web-frontend.result }}
       VALGRIND_RESULT: ${{ needs.valgrind-leak-check.result }}
       TEST_RESULT: ${{ needs.test.result }}
@@ -656,6 +658,7 @@ jobs:
           }
 
           require_success "input validation" "$VALIDATE_RESULT"
+          require_success "Rust MSRV check" "$MSRV_RESULT"
           require_success "Rust tests" "$TEST_RESULT"
           require_success "dogfood artifact build" "$ARTIFACT_RESULT"
           if [[ "$MODE" == "full" ]]; then
