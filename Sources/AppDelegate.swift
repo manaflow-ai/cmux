@@ -4293,7 +4293,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var hasher = Hasher()
         let routes = orderedSessionRouteSnapshots(
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+            freezeWindowlessRoutes: false
         )
         let routeProjection = MainWindowRouteAutosaveProjection(
             orderedWindowIds: routes.map(\.windowId),

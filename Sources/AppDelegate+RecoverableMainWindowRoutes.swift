@@ -160,6 +160,7 @@ extension AppDelegate {
                 manager: manager
             )
         }
+        windowConfigFrames.removeValue(forKey: route.windowId)
         route.markForTeardown()
         mainWindowLifecycleCoordinator.removeRecoverableRoute(windowId: route.windowId)
     }
@@ -270,11 +271,14 @@ extension AppDelegate {
                       windowId: route.windowId
                   ) === route,
                   route.window == nil,
-                  self.windowForMainWindowId(route.windowId) == nil,
-                  self.mainWindowLifecycleCoordinator.shouldFreezeWindowlessRoute(
-                      windowId: route.windowId,
-                      availablePersistenceSlots: self.availableWindowlessPersistenceSlots()
-                  ) else {
+                  self.windowForMainWindowId(route.windowId) == nil else {
+                return
+            }
+            guard self.mainWindowLifecycleCoordinator.shouldFreezeWindowlessRoute(
+                windowId: route.windowId,
+                availablePersistenceSlots: self.availableWindowlessPersistenceSlots()
+            ) else {
+                self.retireWindowlessRecoverableMainWindowRoute(route)
                 return
             }
             defer {
@@ -415,38 +419,41 @@ extension AppDelegate {
     /// asynchronous refresh or snapshot builder supplies a complete index.
     private func mainWindowPersistenceRouteSnapshots(
         restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex?,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?,
+        freezeWindowlessRoutes: Bool
     ) -> [MainWindowPersistenceRouteSnapshot] {
         let windowsByWindowId = currentMainWindowsByWindowId()
         let maximumRecoverableRoutes = availableWindowlessPersistenceSlots()
-        var candidateOrphanedRoutes: [RecoverableMainWindowRoute] = []
-        for route in mainWindowLifecycleCoordinator.orphanedRoutes() {
-            guard let snapshot = recoverableMainWindowPersistenceRouteSnapshot(
-                for: route,
-                resolvedWindow: windowsByWindowId[route.windowId]
-            ) else {
-                continue
+        if freezeWindowlessRoutes {
+            var candidateOrphanedRoutes: [RecoverableMainWindowRoute] = []
+            for route in mainWindowLifecycleCoordinator.orphanedRoutes() {
+                guard let snapshot = recoverableMainWindowPersistenceRouteSnapshot(
+                    for: route,
+                    resolvedWindow: windowsByWindowId[route.windowId]
+                ) else {
+                    continue
+                }
+                guard snapshot.isEligibleForSessionPersistence else {
+                    retireWindowlessRecoverableMainWindowRoute(route)
+                    continue
+                }
+                guard candidateOrphanedRoutes.count < maximumRecoverableRoutes else {
+                    // The persistence cap is an explicit retention boundary. Do not
+                    // keep a live panel graph for an orphan that cannot be emitted.
+                    retireWindowlessRecoverableMainWindowRoute(route)
+                    continue
+                }
+                candidateOrphanedRoutes.append(route)
             }
-            guard snapshot.isEligibleForSessionPersistence else {
-                retireWindowlessRecoverableMainWindowRoute(route)
-                continue
-            }
-            guard candidateOrphanedRoutes.count < maximumRecoverableRoutes else {
-                // The persistence cap is an explicit retention boundary. Do not
-                // keep a live panel graph for an orphan that cannot be emitted.
-                retireWindowlessRecoverableMainWindowRoute(route)
-                continue
-            }
-            candidateOrphanedRoutes.append(route)
+            let restorableAgentIndexForFreeze = suppliedRestorableAgentIndex
+                ?? SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+            _ = freezeWindowlessRecoverableMainWindowRoutes(
+                candidateOrphanedRoutes,
+                windowsByWindowId: windowsByWindowId,
+                restorableAgentIndex: restorableAgentIndexForFreeze,
+                surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            )
         }
-        let restorableAgentIndexForFreeze = suppliedRestorableAgentIndex
-            ?? SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-        _ = freezeWindowlessRecoverableMainWindowRoutes(
-            candidateOrphanedRoutes,
-            windowsByWindowId: windowsByWindowId,
-            restorableAgentIndex: restorableAgentIndexForFreeze,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex
-        )
         let orphanedRoutes = mainWindowLifecycleCoordinator.orphanedRoutes()
             .compactMap { route in
                 recoverableMainWindowPersistenceRouteSnapshot(
@@ -480,11 +487,13 @@ extension AppDelegate {
     /// produce a restorable window.
     func orderedSessionRouteSnapshots(
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        freezeWindowlessRoutes: Bool = true
     ) -> [MainWindowPersistenceRouteSnapshot] {
         mainWindowPersistenceRouteSnapshots(
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+            freezeWindowlessRoutes: freezeWindowlessRoutes
         )
             .filter(\.isEligibleForSessionPersistence)
             .sorted { lhs, rhs in
