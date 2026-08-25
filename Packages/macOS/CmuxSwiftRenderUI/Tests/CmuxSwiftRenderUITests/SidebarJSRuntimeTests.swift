@@ -186,13 +186,14 @@ struct SidebarJSRuntimeTests {
         // lineLimit(1)/opacity(1) into booleans and silently dropped them.
         let runtime = SidebarJSRuntime()
         runtime.start(source: """
-        sidebar(() => Text("t").lineLimit(1).opacity(1).padding(0))
+        sidebar(() => Text("t").lineLimit(1).opacity(1).padding(0).rotation(90))
         """)
         let rootId = try! #require(runtime.store.rootId)
         let node = try! #require(runtime.store.node(rootId))
         #expect(node.props["lineLimit"] == .number(1))
         #expect(node.props["opacity"] == .number(1))
         #expect(node.props["padding"] == .number(0))
+        #expect(node.props["rotation"] == .number(90))
         // Booleans still decode as booleans.
         #expect(node.props["tappable"] == nil)
     }

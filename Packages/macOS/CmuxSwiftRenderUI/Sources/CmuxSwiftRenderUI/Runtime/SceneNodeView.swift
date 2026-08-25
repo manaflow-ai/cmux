@@ -409,7 +409,21 @@ private struct SceneBoxStyle: ViewModifier {
         let backgroundToken = (forcedHover || (isHovered && hoverAllowed))
             ? (node.string("hoverBackground") ?? node.string("background"))
             : node.string("background")
-        let padded = content.padding(paddingInsets)
+        // Rotation applies to the raw content INSIDE the padded box (a
+        // turning chevron spins in place; its layout box never moves) and
+        // animates with the accordion's critically damped spring so a
+        // chevron turn and a group collapse read as one motion.
+        let rotation = node.double("rotation")
+        let rotated = Group {
+            if let rotation {
+                content
+                    .rotationEffect(.degrees(rotation))
+                    .animation(.spring(response: 0.26, dampingFraction: 1.0), value: rotation)
+            } else {
+                content
+            }
+        }
+        let padded = rotated.padding(paddingInsets)
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         let backed = Group {
             if let material = sceneMaterial(backgroundToken) {

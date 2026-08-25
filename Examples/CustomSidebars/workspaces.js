@@ -487,12 +487,12 @@ function groupHeader(groupId) {
   return HStack({ spacing: 6 }, [
     // The chevron toggles collapse; clicking anywhere else selects the
     // group's anchor workspace (built-in sidebar behavior). Chevron only,
-    // no folder icon.
-    // Fixed box: chevron.right and chevron.down have different intrinsic
-    // sizes, and letting them dictate layout changed the header height on
-    // every toggle.
-    Image(() => (isCollapsed(g()) ? "chevron.right" : "chevron.down"))
+    // no folder icon. One glyph that ROTATES (right -> down on expand):
+    // rotation animates as one motion with the accordion, and the fixed box
+    // keeps the header height constant.
+    Image("chevron.right")
       .font(10).weight("semibold").color("tertiary")
+      .rotation(() => (isCollapsed(g()) ? 0 : 90))
       .frame({ width: 14, height: 16 })
       .onTap(() => toggleCollapse(g())),
     Text(() => g().name).font(12).weight("semibold").lineLimit(1).truncation("tail")
@@ -526,8 +526,9 @@ function groupHeader(groupId) {
 function groupEditRow(groupId) {
   const g = () => groupById(groupId);
   return HStack({ spacing: 6 }, [
-    Image(() => (isCollapsed(g() ?? {}) ? "chevron.right" : "chevron.down"))
+    Image("chevron.right")
       .font(10).weight("semibold").color("tertiary")
+      .rotation(() => (isCollapsed(g() ?? {}) ? 0 : 90))
       .frame({ width: 14, height: 16 }),
     TextField(() => g()?.name ?? "", {
       placeholder: "Group name",
