@@ -2245,6 +2245,7 @@ fn detached_owner_launch_applicable(
     args.should_attach_existing(ws_addr, ws_token)
         && config.server.detached_owner
         && !args.ephemeral
+        && args.agent_browser_provider.is_none()
         && !provider_owned
         && stdio_is_terminal
 }
@@ -2264,7 +2265,8 @@ fn start_detached_owner_session(
     if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline) {
         match error {
             local_owner::EnsureError::Spawn(error) => {
-                anyhow::bail!("{}", messages.owner_spawn_failed(&error))
+                eprintln!("detached session owner startup failed: {error}");
+                anyhow::bail!("{}", messages.owner_spawn_failed())
             }
             local_owner::EnsureError::NotReady => anyhow::bail!("{}", messages.owner_not_ready),
             local_owner::EnsureError::WrongOwner => anyhow::bail!("{}", messages.wrong_owner),

@@ -107,7 +107,7 @@ fn wait_while_starting(
     deadline: Instant,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     loop {
-        match attempt(socket, expected_session)? {
+        match attempt(socket, expected_session, deadline)? {
             Attempt::Ready(ready) => return Ok(Some(ready)),
             Attempt::Absent => return Ok(None),
             Attempt::Starting => {}
@@ -127,7 +127,7 @@ fn wait_until_ready(
     deadline: Instant,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     loop {
-        if let Attempt::Ready(ready) = attempt(socket, expected_session)? {
+        if let Attempt::Ready(ready) = attempt(socket, expected_session, deadline)? {
             return Ok(Some(ready));
         }
         if Instant::now() >= deadline {
@@ -137,12 +137,16 @@ fn wait_until_ready(
     }
 }
 
-fn attempt(socket: &Path, expected_session: Option<&str>) -> Result<Attempt, EnsureError> {
+fn attempt(
+    socket: &Path,
+    expected_session: Option<&str>,
+    deadline: Instant,
+) -> Result<Attempt, EnsureError> {
     let stream = match transport::connect(socket) {
         Ok(stream) => stream,
         Err(_) => return Ok(Attempt::Absent),
     };
-    let identity = match identify(stream) {
+    let identity = match identify(stream, deadline) {
         Ok(identity) => identity,
         // A timeout is a live but busy server; anything else on a fresh
         // connection is a dying or stale peer and reads as absent.
@@ -183,8 +187,9 @@ enum IdentifyError {
 }
 
 /// Run one identify exchange on a fresh connection with a bounded timeout.
-fn identify(stream: Box<dyn transport::Stream>) -> Result<Value, IdentifyError> {
-    let timeout = Some(Duration::from_secs(2));
+fn identify(stream: Box<dyn transport::Stream>, deadline: Instant) -> Result<Value, IdentifyError> {
+    let timeout =
+        Some(deadline.saturating_duration_since(Instant::now()).min(Duration::from_secs(2)));
     stream.set_read_timeout(timeout).map_err(|_| IdentifyError::Failed)?;
     stream.set_write_timeout(timeout).map_err(|_| IdentifyError::Failed)?;
     let mut connection = BufReader::new(stream);
@@ -193,6 +198,14 @@ fn identify(stream: Box<dyn transport::Stream>) -> Result<Value, IdentifyError> 
         .map_err(|_| IdentifyError::Failed)?;
     loop {
         let mut bytes = Vec::new();
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(IdentifyError::Timeout);
+        }
+        connection
+            .get_mut()
+            .set_read_timeout(Some(remaining.min(Duration::from_secs(2))))
+            .map_err(|_| IdentifyError::Failed)?;
         match connection.by_ref().take((RESPONSE_LIMIT + 2) as u64).read_until(b'\n', &mut bytes) {
             Ok(0) => return Err(IdentifyError::Failed),
             Ok(_) => {}
@@ -221,6 +234,9 @@ fn identify(stream: Box<dyn transport::Stream>) -> Result<Value, IdentifyError> 
 
 /// Spawn the headless owner detached from this process's terminal.
 fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<()> {
+    if let Some(parent) = spec.socket.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     let program = platform::self_exe_for_spawn()?;
     let mut command = Command::new(program);
     command.arg("--headless");
@@ -256,9 +272,13 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<()> {
     // The owner outlives this process. Reap it in the background so an
     // owner that exits early (for example after losing the bind race) never
     // lingers as a zombie of a long-lived interactive client.
-    std::thread::Builder::new().name("local-owner-reaper".to_string()).spawn(move || {
-        let _ = child.wait();
-    })?;
+    if let Err(error) =
+        std::thread::Builder::new().name("local-owner-reaper".to_string()).spawn(move || {
+            let _ = child.wait();
+        })
+    {
+        eprintln!("local owner reaper unavailable: {error}");
+    }
     Ok(())
 }
 
@@ -272,6 +292,9 @@ struct SpawnLock {
 
 impl SpawnLock {
     fn acquire(socket: &Path, deadline: Instant) -> io::Result<Self> {
+        if let Some(parent) = socket.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         let mut name = socket.file_name().unwrap_or_default().to_os_string();
         name.push(".spawn-lock");
         let path = socket.with_file_name(name);
