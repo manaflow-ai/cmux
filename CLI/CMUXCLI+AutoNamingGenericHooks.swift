@@ -410,6 +410,14 @@ extension CMUXCLI {
             return
         }
         guard let sanitized = engine.sanitizeResponse(generated.response, currentTitle: nil) else { return }
+        guard (try? sessionStore.isCurrent(
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )) ?? false else {
+            telemetry.breadcrumb("\(telemetryKey).stale-before-apply")
+            return
+        }
         let applyOutcome = applyAutoNamingTitle(
             sanitized,
             workspaceId: workspaceId,

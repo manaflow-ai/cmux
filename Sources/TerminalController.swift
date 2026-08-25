@@ -4187,6 +4187,15 @@ class TerminalController {
                 guard workspace.panelCustomTitleSources[resolvedPanelId] == .auto else {
                     return true
                 }
+                if expectedPanelTitle == nil,
+                   let autoTitle = workspace.panelCustomTitles[resolvedPanelId],
+                   workspace.panelTitles[resolvedPanelId] != autoTitle {
+                    // A remote `%window-renamed` changed the authoritative
+                    // base title after cmux's last auto write. A fresh title
+                    // must not reclaim that remote choice; only an explicit
+                    // reconciliation CAS may repair an owned projection.
+                    return true
+                }
                 if let expectedPanelTitle,
                    workspace.panelCustomTitles[resolvedPanelId] != expectedPanelTitle {
                     return true

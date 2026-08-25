@@ -523,6 +523,14 @@ final class ClaudeHookSessionStore {
                 return nil
             }
             let now = Date().timeIntervalSince1970
+            if let existingGeneration = record.autoNameTitleReconciliationGeneration {
+                // Duplicate compact delivery belongs to the same unresolved
+                // obligation. Keep its generation and attempt budget intact;
+                // only a later, cleared generation starts a new epoch.
+                record.updatedAt = now
+                state.sessions[normalized] = record
+                return existingGeneration
+            }
             let generation = UUID().uuidString
             record.autoNameTitleReconciliationGeneration = generation
             record.autoNameTitleReconciliationAttemptCount = 0
