@@ -679,6 +679,7 @@ import Testing
             #expect(harness.workspace.panels.count == 2)
             #expect(harness.workspace.setCustomTitle("Earlier automatic topic", source: .auto))
             #expect(harness.workspace.panelCustomTitles[panelId] == nil)
+            let workspaceTitleBeforeApply = harness.workspace.title
 
             let result = try #require(call(method: "workspace.set_auto_title", params: [
                 "workspace_id": harness.workspace.id.uuidString,
@@ -690,12 +691,17 @@ import Testing
                 "clear_status_on_apply": false,
             ])["result"] as? [String: Any])
 
-            #expect(result["workspace_applied"] as? Bool == true)
+            // A remote panel without cmux auto ownership is authoritative for
+            // the whole mirror. Do not let the sibling workspace write emit
+            // `rename-session` while the panel write is correctly rejected.
+            #expect(result["workspace_applied"] as? Bool == false)
+            #expect(result["workspace_apply_skipped"] as? Bool == true)
             #expect(result["panel_applied"] is NSNull || result["panel_applied"] == nil)
             #expect(result["panel_apply_skipped"] as? Bool == true)
+            #expect(harness.workspace.title == workspaceTitleBeforeApply)
             #expect(harness.workspace.panelCustomTitles[panelId] == nil)
             let renameCommands = try harness.finishCommands().filter {
-                $0.hasPrefix("rename-window ")
+                $0.hasPrefix("rename-session ") || $0.hasPrefix("rename-window ")
             }
             #expect(renameCommands.isEmpty)
         }
@@ -717,6 +723,7 @@ import Testing
             )
             harness.connection.handleMessageForTesting(.windowRenamed(windowId: 2, name: "Remote choice"))
             #expect(harness.workspace.panelCustomTitles[panelId] == nil)
+            let workspaceTitleBeforeApply = harness.workspace.title
 
             let envelope = try call(method: "workspace.set_auto_title", params: [
                 "workspace_id": harness.workspace.id.uuidString,
@@ -727,12 +734,14 @@ import Testing
             ])
             let result = try #require(envelope["result"] as? [String: Any])
 
-            #expect(result["workspace_applied"] as? Bool == true)
+            #expect(result["workspace_applied"] as? Bool == false)
+            #expect(result["workspace_apply_skipped"] as? Bool == true)
             #expect(result["panel_applied"] is NSNull || result["panel_applied"] == nil)
             #expect(result["panel_apply_skipped"] as? Bool == true)
+            #expect(harness.workspace.title == workspaceTitleBeforeApply)
             #expect(harness.workspace.panelCustomTitles[panelId] == nil)
             let renameCommands = try harness.finishCommands().filter {
-                $0.hasPrefix("rename-window ")
+                $0.hasPrefix("rename-session ") || $0.hasPrefix("rename-window ")
             }
             #expect(renameCommands.isEmpty)
         }
