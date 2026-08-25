@@ -634,7 +634,11 @@ extension Workspace {
             let ownershipPanelID = restore.stablePanelID
             let expectedKind = restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind
             let expectedSessionId = restore.restorableAgent?.sessionId ?? restore.resumeBinding?.checkpointId
-            let ownershipIsBlocked = index.hasCurrentAmbiguousPanel(ownershipPanelID) ||
+            // Deferred admission has no exact-owner snapshot that can override a
+            // stable-panel tie, so structural ambiguity remains fail-closed even
+            // after the old owners' PIDs have exited.
+            let ownershipIsBlocked = index.hasAmbiguousPanel(ownershipPanelID) ||
+                index.hasCurrentAmbiguousPanel(ownershipPanelID) ||
                 index.hasUncertainStablePanelEntry(panelId: ownershipPanelID) ||
                 index.hasConflictingLiveStablePanelEntry(
                     workspaceId: id,
@@ -729,6 +733,14 @@ extension Workspace {
                     workingDirectory: restore.resumeWorkingDirectory ?? restore.workingDirectory
                 )
                 deferredAgentResumeRestoresByPanelId.removeValue(forKey: panelId)
+                if let claim,
+                   let pendingClaim = deferredAgentResumeClaimsByPanelId[panelId],
+                   pendingClaim.kind == claim.kind,
+                   pendingClaim.sessionId == claim.sessionId {
+                    // After admission the guard's bounded TTL owns this claim;
+                    // do not let later panel teardown release a newer claimant.
+                    deferredAgentResumeClaimsByPanelId.removeValue(forKey: panelId)
+                }
             }
         }
     }

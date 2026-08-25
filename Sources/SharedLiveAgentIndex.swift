@@ -457,8 +457,16 @@ final class SharedLiveAgentIndex {
     func indexRefreshingNow() async -> RestorableAgentSessionIndex? {
         ensureWatchingHookStoreDirectory()
         while true {
+            guard !Task.isCancelled else { return nil }
             if let refreshTask {
                 await refreshTask.value
+                guard !Task.isCancelled else { return nil }
+                if self.refreshTask == nil,
+                   forkAvailabilityRefreshTask == nil,
+                   !changePending,
+                   deferredReloadTimer == nil {
+                    return index
+                }
                 continue
             }
             if let forkAvailabilityRefreshTask {

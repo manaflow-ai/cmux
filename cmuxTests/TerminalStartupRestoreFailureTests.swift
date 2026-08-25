@@ -226,7 +226,11 @@ struct TerminalStartupRestoreFailureTests {
 
         let restored = Workspace(
             agentSessionAutoResumeDefaults: defaults.store,
-            agentChatResumeIntentRecorder: recorder
+            agentChatResumeIntentRecorder: recorder,
+            // This test exercises cancellation of a synchronously claimed
+            // restore transaction; keep ownership lookup deterministic rather
+            // than racing the separate deferred-admission coordinator.
+            restorableAgentIndexProvider: { .empty }
         )
         defer { restored.teardownAllPanels() }
         let restoredPanelIDs = restored.restoreSessionSnapshot(
