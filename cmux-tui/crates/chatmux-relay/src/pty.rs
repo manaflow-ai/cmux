@@ -726,10 +726,22 @@ impl Inner {
         (on_data, on_exit)
     }
 
-    fn emit_output(&self, pty_id: &str, chunk: &Bytes, context: &FrameContext, control: &Arc<dyn PtyControl>) {
+    fn emit_output(
+        &self,
+        pty_id: &str,
+        chunk: &Bytes,
+        context: &FrameContext,
+        control: &Arc<dyn PtyControl>,
+    ) {
         let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
         if self.authorize_snapshot(pty_id, &auth, context, "output").is_none()
-            || self.attachments.lock().expect("attach lock").get(pty_id).is_none_or(|a| !Arc::ptr_eq(&a.control, control)) {
+            || self
+                .attachments
+                .lock()
+                .expect("attach lock")
+                .get(pty_id)
+                .is_none_or(|a| !Arc::ptr_eq(&a.control, control))
+        {
             return;
         }
         // Zero-byte chunks carry nothing and historically crashed the web
@@ -762,10 +774,22 @@ impl Inner {
         }));
     }
 
-    fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext, control: &Arc<dyn PtyControl>) {
+    fn emit_exit(
+        &self,
+        pty_id: &str,
+        code: i64,
+        context: &FrameContext,
+        control: &Arc<dyn PtyControl>,
+    ) {
         let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
         if self.authorize_snapshot(pty_id, &auth, context, "exit").is_none()
-            || self.attachments.lock().expect("attach lock").get(pty_id).is_none_or(|a| !Arc::ptr_eq(&a.control, control)) {
+            || self
+                .attachments
+                .lock()
+                .expect("attach lock")
+                .get(pty_id)
+                .is_none_or(|a| !Arc::ptr_eq(&a.control, control))
+        {
             return;
         }
         let mut attachments = self.attachments.lock().expect("attach lock");
@@ -1133,7 +1157,6 @@ impl Inner {
         let viewer_id = next_viewer_id();
         let released = Arc::new(AtomicBool::new(false));
         let closing = Arc::new(AtomicBool::new(false));
-        let (on_data, on_exit) = self.sinks(pty_id, context, Arc::clone(&proxy));
 
         // The per-attachment control proxies onto the session pty but its
         // kill() only unhooks this viewer (release), never the session.
@@ -1142,6 +1165,7 @@ impl Inner {
             viewer_id,
             released: Arc::clone(&released),
         });
+        let (on_data, on_exit) = self.sinks(pty_id, context, Arc::clone(&proxy));
 
         let start_session = Arc::clone(&shell_session);
         let start: Box<dyn FnOnce() + Send> = Box::new(move || {
