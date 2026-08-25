@@ -2055,6 +2055,62 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexStopDoesNotForkWhileManualAutoNamePassIsInFlight() throws {
+        let context = try makeClaudeHookContext(name: "codex-manual-inflight")
+        defer { context.cleanup() }
+
+        let sessionId = "codex-manual-inflight-session"
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        let transcriptURL = try writeCodexTerminalTranscript(
+            context: context,
+            name: "codex-manual-inflight.jsonl",
+            turnId: "turn-1"
+        )
+        startAgentHookMockServerAccepting(context: context)
+        let prompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"Investigate auth"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+        try updateAgentHookSession(
+            sessionId,
+            sessionStoreSuffix: "codex",
+            context: context
+        ) { session in
+            session["autoNameLastTitle"] = "Investigate auth"
+            session["autoNameLastLineCount"] = 1
+            session["autoNameLastObservedLineCount"] = 1
+            session["autoNameInFlightAt"] = Date().timeIntervalSince1970
+            session["autoNameLastNamedAt"] = Date().timeIntervalSince1970 - 600
+        }
+
+        let unexpectedDetachedProbe = expectation(description: "in-flight detached auto-name probe")
+        unexpectedDetachedProbe.isInverted = true
+        let commandStart = startManualWorkspaceAutoNamingProbeServer(
+            context: context,
+            expectedProbeCount: 2,
+            expectation: unexpectedDetachedProbe
+        )
+        let stop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"Done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        wait(for: [unexpectedDetachedProbe], timeout: 1)
+        let commands = Array(context.state.snapshot().dropFirst(commandStart))
+        XCTAssertEqual(
+            autoNamingProbeRequestCount(in: commands),
+            1,
+            "An existing in-flight auto-name owner must coalesce overlapping Stops"
+        )
+    }
+
     func testCodexStopKeepsDetachedAutoNameForManualWorkspaceWithReplayableTitle() throws {
         let context = try makeClaudeHookContext(name: "codex-manual-auto-title")
         defer { context.cleanup() }
@@ -2360,6 +2416,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             2,
             "The parent Stop must discover the same Codex transcript as the detached worker"
         )
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["transcriptPath"] as? String, transcriptURL.path)
     }
 
     func testCodexPromptSubmitDoesNotRefreshTerminalLastTurnDiffBaseline() throws {
