@@ -1540,6 +1540,15 @@ impl GitProcessGuard {
         GitProcessGuard(child.id())
     }
 
+    fn kill_group(&self) {
+        #[cfg(unix)]
+        if let Some(pid) = self.0 {
+            unsafe {
+                let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+            }
+        }
+    }
+
     fn disarm(&mut self) {
         self.0 = None;
     }
@@ -1760,6 +1769,11 @@ async fn run_git_status_until(
         stop_git(&mut child).await;
     }
     let status = wait_git_until(&mut child, deadline).await?;
+    // The leader is reaped at this point. Kill helpers which may still own an
+    // inherited pipe while the process-group identity is fresh, then disarm
+    // the numeric-PID guard before awaiting the bounded stderr drain.
+    process_guard.kill_group();
+    process_guard.disarm();
     let stderr = match stderr_task {
         Some(task) => {
             let result = task.finish().await?;
@@ -1773,7 +1787,6 @@ async fn run_git_status_until(
         }
         None => Vec::new(),
     };
-    process_guard.disarm();
     if !status.success() {
         return Err(git_refusal("git status failed", &stderr));
     }
@@ -1985,6 +1998,11 @@ async fn run_git_diff_until(
         }
     }
     let status = wait_git_until(&mut child, deadline).await?;
+    // The leader is reaped at this point. Kill helpers which may still own an
+    // inherited pipe while the process-group identity is fresh, then disarm
+    // the numeric-PID guard before awaiting the bounded stderr drain.
+    process_guard.kill_group();
+    process_guard.disarm();
     let stderr = match stderr_task {
         Some(task) => {
             let result = task.finish().await?;
@@ -1997,7 +2015,6 @@ async fn run_git_diff_until(
         }
         None => Vec::new(),
     };
-    process_guard.disarm();
     if !status.success() {
         return Err(git_refusal("git diff failed", &stderr));
     }
