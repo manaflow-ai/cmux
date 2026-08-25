@@ -610,18 +610,17 @@ struct OrderedControlCommand {
     kind: OrderedControlCommandKind,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DispatchReservation {
+    id: u64,
+    generation: u64,
+    endpoint_ptr: usize,
+}
+
 enum OrderedControlCommandKind {
     Send { command: String, params: Value },
     Request { command: String, params: Value, reply: oneshot::Sender<Option<Value>> },
     Close { reply: oneshot::Sender<bool> },
-}
-
-impl OrderedControlCommand {
-    fn reject_request(self) {
-        if let OrderedControlCommandKind::Request { reply, .. } = self.kind {
-            let _ = reply.send(None);
-        }
-    }
 }
 
 struct OrderedControlQueueState {
@@ -638,6 +637,24 @@ struct OrderedControlQueueState {
     /// daemon. A new explicit claim must wait for every old transport's
     /// ordered close barrier before it can write authority commands.
     closing: Vec<Arc<OrderedControlEndpoint>>,
+    /// Close commands are inserted at detach time, before later input or
+    /// sizing commands. Keep their replies here so the close worker can clear
+    /// the barrier after the daemon acknowledges each FIFO close.
+    closing_waiters: Vec<(usize, oneshot::Receiver<bool>)>,
+    /// A failed close barrier permanently freezes this target generation.
+    /// The daemon gave no proof that old-socket writes are ordered before a
+    /// later command, so new input/claims must fail until the target is
+    /// retired and recreated.
+    closing_failed: bool,
+    /// Close replies removed by the barrier worker but not yet completed.
+    /// Input may be queued behind these already-enqueued FIFO closes.
+    closing_inflight: Vec<usize>,
+    /// The command currently reserved by the wire actor. The reservation is
+    /// the linearization point for a daemon mutation: a leave/update that
+    /// acquires the queue state lock after this point is ordered after the
+    /// reserved command, even if the control call itself awaits a reply.
+    dispatching: Option<DispatchReservation>,
+    next_dispatch_id: u64,
     next_claim_token: u64,
     worker_running: bool,
     closed: bool,
@@ -656,6 +673,11 @@ impl OrderedControlQueue {
                 last_resize: None,
                 claim_fence: None,
                 closing: Vec::new(),
+                closing_waiters: Vec::new(),
+                closing_failed: false,
+                closing_inflight: Vec::new(),
+                dispatching: None,
+                next_dispatch_id: 0,
                 next_claim_token: 0,
                 worker_running: false,
                 closed: false,
@@ -677,6 +699,19 @@ impl OrderedControlQueue {
 
     fn current_generation(&self) -> u64 {
         self.generation.load(Ordering::Acquire)
+    }
+
+    /// Return whether every detached endpoint already has a FIFO close
+    /// command registered with the wire actor. A queued or in-flight close is
+    /// enough: later commands are appended after that command, while a close
+    /// that could not fit in the bounded queue must block new mutations until
+    /// it can be retried.
+    fn close_barrier_ready_locked(&self, state: &OrderedControlQueueState) -> bool {
+        state.closing.iter().all(|endpoint| {
+            let pointer = endpoint_ptr(endpoint);
+            state.closing_waiters.iter().any(|(current, _)| *current == pointer)
+                || state.closing_inflight.contains(&pointer)
+        })
     }
 
     fn endpoint(
@@ -704,7 +739,11 @@ impl OrderedControlQueue {
         grid: SizingGrid,
         claim: bool,
     ) -> bool {
-        if state.closed || !endpoint.is_active() {
+        if state.closed
+            || state.closing_failed
+            || !self.close_barrier_ready_locked(state)
+            || !endpoint.is_active()
+        {
             return false;
         }
         // A survivor claim is an ownership reservation, not a best-effort
@@ -815,20 +854,24 @@ impl OrderedControlQueue {
                 let OrderedControlCommandKind::Close { reply } = command.kind else {
                     unreachable!("close command kind changed")
                 };
-                endpoint.active.store(false, Ordering::Release);
+                self.deactivate_endpoint(&endpoint);
                 endpoint.control.end();
                 let _ = reply.send(true);
                 continue;
             }
-            let current = self.command_is_current(&command);
+            let reservation = self.reserve_command(&command);
             match command.kind {
                 OrderedControlCommandKind::Send { command, params } => {
-                    if current && endpoint.is_active() {
+                    // `reservation` is the actor linearization point. The
+                    // endpoint may be marked inactive by a later leave while
+                    // this command is in flight, but that leave is ordered
+                    // after this already-reserved mutation.
+                    if reservation.is_some() {
                         endpoint.control.send(&command, params);
                     }
                 }
                 OrderedControlCommandKind::Request { command, params, reply } => {
-                    if current && endpoint.is_active() {
+                    if reservation.is_some() {
                         endpoint.control.send(&command, params);
                     } else {
                         let _ = reply.send(None);
@@ -836,34 +879,71 @@ impl OrderedControlQueue {
                 }
                 OrderedControlCommandKind::Close { .. } => unreachable!("close handled above"),
             }
+            self.clear_dispatch_reservation(reservation);
         }
     }
 
-    /// Validate a queued mutation at the last possible point before it is
-    /// written. The coordinator advances both generation counters while it
-    /// holds queue/state locks. A command from an older transition is
-    /// discarded, so a late worker cannot regain sizing authority after a
-    /// leave or explicit update.
-    fn command_is_current(&self, command: &OrderedControlCommand) -> bool {
+    /// Reserve a queued mutation at the last possible point before it is
+    /// written. The queue-state lock is the actor gate: every coordinator
+    /// mutation takes it before target state, so the final generation/owner/
+    /// endpoint check and this reservation are one linearized transition.
+    /// Once reserved, a later leave/update is ordered after this command; the
+    /// worker must therefore dispatch the reserved command before clearing the
+    /// reservation, even if the endpoint has since been marked inactive.
+    fn reserve_command(&self, command: &OrderedControlCommand) -> Option<DispatchReservation> {
         let Some(generation) = command.generation else {
-            return true;
+            return None;
         };
-        if self.current_generation() != generation || !command.endpoint.is_active() {
-            return false;
+        let mut queue_state = self.state.lock().expect("ordered control queue lock");
+        if queue_state.closed
+            || queue_state.closing_failed
+            || queue_state.dispatching.is_some()
+            || self.current_generation() != generation
+            || !command.endpoint.is_active()
+        {
+            return None;
         }
-        let Some(target) = self.target.get().and_then(Weak::upgrade) else {
-            return true;
+        let reservation = DispatchReservation {
+            id: queue_state.next_dispatch_id,
+            generation,
+            endpoint_ptr: endpoint_ptr(&command.endpoint),
         };
-        if target.generation.load(Ordering::Acquire) != generation {
-            return false;
-        }
+        let Some(target_slot) = self.target.get() else {
+            // Unbound queues are used only by synchronous test controls.
+            queue_state.next_dispatch_id = queue_state.next_dispatch_id.wrapping_add(1);
+            queue_state.dispatching = Some(reservation);
+            return Some(reservation);
+        };
+        let Some(target) = target_slot.upgrade() else {
+            // A bound queue whose target was retired cannot write a late
+            // mutation. Reject it instead of treating a dropped target as a
+            // valid test queue.
+            return None;
+        };
         let state = target.state.lock().expect("terminal sizing state lock");
-        !state.retired
+        let current = self.current_generation() == generation
+            && target.generation.load(Ordering::Acquire) == generation
+            && !state.retired
             && command.expected_owner.is_none_or(|owner| state.owner == Some(owner))
             && (!command.requires_unowned || state.owner.is_none())
             && state.viewers.get(&command.endpoint.viewer_id).is_some_and(|viewer| {
                 Arc::ptr_eq(&viewer.endpoint, &command.endpoint) && viewer.endpoint.is_active()
-            })
+            });
+        if current {
+            queue_state.next_dispatch_id = queue_state.next_dispatch_id.wrapping_add(1);
+            queue_state.dispatching = Some(reservation);
+            Some(reservation)
+        } else {
+            None
+        }
+    }
+
+    fn clear_dispatch_reservation(&self, reservation: Option<DispatchReservation>) {
+        let Some(reservation) = reservation else { return };
+        let mut state = self.state.lock().expect("ordered control queue lock");
+        if state.dispatching == Some(reservation) {
+            state.dispatching = None;
+        }
     }
 
     async fn drain_wire(self: Arc<Self>) {
@@ -883,13 +963,10 @@ impl OrderedControlQueue {
             };
             let endpoint = Arc::clone(&command.endpoint);
             let is_close = matches!(&command.kind, OrderedControlCommandKind::Close { .. });
-            if !endpoint.is_active() && !is_close {
-                command.reject_request();
-                continue;
-            }
-            let failed = {
+            let (failed, reservation) = {
                 let _gate = self.wire_gate.lock().await;
-                let current = is_close || self.command_is_current(&command);
+                let reservation = if is_close { None } else { self.reserve_command(&command) };
+                let current = is_close || reservation.is_some();
                 let kind = command.kind;
                 if !current {
                     match kind {
@@ -899,22 +976,9 @@ impl OrderedControlQueue {
                         OrderedControlCommandKind::Send { .. }
                         | OrderedControlCommandKind::Close { .. } => {}
                     }
-                    false
-                } else if !endpoint.is_active() {
-                    match kind {
-                        OrderedControlCommandKind::Request { reply, .. } => {
-                            let _ = reply.send(None);
-                        }
-                        OrderedControlCommandKind::Close { reply } => {
-                            let result = endpoint.control.end_and_wait().await;
-                            endpoint.active.store(false, Ordering::Release);
-                            let _ = reply.send(result);
-                        }
-                        OrderedControlCommandKind::Send { .. } => {}
-                    }
-                    false
+                    (false, reservation)
                 } else {
-                    match kind {
+                    let failed = match kind {
                         OrderedControlCommandKind::Send { command, params } => {
                             !endpoint.control.ordered_send(&command, params).await
                         }
@@ -925,20 +989,29 @@ impl OrderedControlQueue {
                             failed
                         }
                         OrderedControlCommandKind::Close { reply } => {
+                            self.deactivate_endpoint(&endpoint);
                             let result = endpoint.control.end_and_wait().await;
-                            endpoint.active.store(false, Ordering::Release);
+                            if !result {
+                                // Set the fail-closed bit before the worker
+                                // can pop any later command. The close reply
+                                // and this state transition are one actor
+                                // step; a missing daemon barrier must reject
+                                // every following mutation.
+                                self.state
+                                    .lock()
+                                    .expect("ordered control queue lock")
+                                    .closing_failed = true;
+                            }
                             let _ = reply.send(result);
-                            false
+                            !result
                         }
-                    }
+                    };
+                    (failed, reservation)
                 }
             };
+            self.clear_dispatch_reservation(reservation);
             if failed {
-                endpoint.active.store(false, Ordering::Release);
-                endpoint.control.end();
-                if let Some(handler) = endpoint.failure_handler() {
-                    handler();
-                }
+                self.fail_endpoint(&endpoint);
             }
         }
     }
@@ -961,7 +1034,10 @@ impl OrderedControlQueue {
         // between this check and the wire enqueue; the worker repeats the
         // check immediately before dispatch as a second fence.
         let _queue_state = self.state.lock().expect("ordered control queue lock");
-        if self.current_generation() != generation {
+        if self.current_generation() != generation
+            || !_queue_state.closing.is_empty()
+            || _queue_state.closing_failed
+        {
             return None;
         }
         if let Some(target) = self.target.get().and_then(Weak::upgrade) {
@@ -1004,7 +1080,11 @@ impl OrderedControlQueue {
         grid: SizingGrid,
         generation: u64,
     ) -> bool {
-        if state.closed || !endpoint.is_active() {
+        if state.closed
+            || state.closing_failed
+            || !self.close_barrier_ready_locked(state)
+            || !endpoint.is_active()
+        {
             return false;
         }
         {
@@ -1132,14 +1212,29 @@ impl OrderedControlQueue {
             if state.closed || !endpoint.is_active() {
                 return;
             }
-            let flushed = self.flush_resize_locked(&mut state);
-            let accepted = flushed
-                && self.enqueue_ordered_locked(
-                    endpoint,
-                    "send",
-                    json!({ "surface": self.surface_id, "bytes": BASE64.encode(data) }),
-                );
-            (flushed, accepted)
+            let close_ready = state.closing.iter().all(|closing| {
+                state.closing_waiters.iter().any(|(pointer, _)| *pointer == endpoint_ptr(closing))
+                    || state.closing_inflight.contains(&endpoint_ptr(closing))
+            });
+            // An explicit replacement claim must have a durable queue fence
+            // before input is admitted. If the bounded queue rejected the
+            // report/claim pair, fail this attachment instead of letting
+            // bytes overtake an authority transition that can never run.
+            let claim_without_fence = state.claim_requested.is_some()
+                && state.claim_fence.is_none()
+                && !state.pending_resize.as_ref().is_some_and(|(_, _, claim)| *claim);
+            if state.closing_failed || !close_ready || claim_without_fence {
+                (false, false)
+            } else {
+                let flushed = self.flush_resize_locked(&mut state);
+                let accepted = flushed
+                    && self.enqueue_ordered_locked(
+                        endpoint,
+                        "send",
+                        json!({ "surface": self.surface_id, "bytes": BASE64.encode(data) }),
+                    );
+                (flushed, accepted)
+            }
         };
         // The queue lock is not held while starting a synchronous fallback or
         // spawning the async wire worker. This keeps the actor lock order
@@ -1156,12 +1251,65 @@ impl OrderedControlQueue {
     }
 
     fn fail_endpoint(&self, endpoint: &Arc<OrderedControlEndpoint>) {
-        if !endpoint.active.swap(false, Ordering::AcqRel) {
+        let became_inactive = {
+            // Endpoint invalidation is part of the same actor transition as
+            // reserve_command. A failure cannot flip `active` between the
+            // worker's final validation and its reserved dispatch.
+            let _state = self.state.lock().expect("ordered control queue lock");
+            endpoint.active.swap(false, Ordering::AcqRel)
+        };
+        if !became_inactive {
             return;
         }
         if let Some(handler) = endpoint.failure_handler() {
             handler();
         }
+    }
+
+    /// Mark an endpoint inactive under the queue actor lock. Close commands
+    /// are already ordered after all preceding mutations; this helper keeps
+    /// their invalidation visible to the same reservation gate.
+    fn deactivate_endpoint(&self, endpoint: &Arc<OrderedControlEndpoint>) {
+        let _state = self.state.lock().expect("ordered control queue lock");
+        endpoint.active.store(false, Ordering::Release);
+    }
+
+    /// Insert one FIFO close command while the queue actor lock is held. A
+    /// full wire queue leaves the endpoint in `closing` without a waiter; the
+    /// close worker retries it later, and input remains ordered behind the
+    /// barrier rather than overtaking it.
+    fn enqueue_close_locked(
+        &self,
+        state: &mut OrderedControlQueueState,
+        endpoint: &Arc<OrderedControlEndpoint>,
+    ) -> bool {
+        let pointer = endpoint_ptr(endpoint);
+        if state.closing_waiters.iter().any(|(current, _)| *current == pointer) {
+            return true;
+        }
+        let mut pending = self.wire_pending.lock().expect("ordered control pending lock");
+        if pending.len() >= MAX_ORDERED_CONTROL_COMMANDS {
+            return false;
+        }
+        let (reply, response) = oneshot::channel();
+        pending.push_back(OrderedControlCommand {
+            endpoint: Arc::clone(endpoint),
+            generation: None,
+            expected_owner: None,
+            requires_unowned: false,
+            kind: OrderedControlCommandKind::Close { reply },
+        });
+        state.closing_waiters.push((pointer, response));
+        true
+    }
+
+    /// Retry a close that could not fit in the bounded wire queue at detach.
+    fn enqueue_close_for_retry(&self, endpoint: &Arc<OrderedControlEndpoint>) -> bool {
+        let mut state = self.state.lock().expect("ordered control queue lock");
+        if state.closed || !state.closing.iter().any(|current| Arc::ptr_eq(current, endpoint)) {
+            return false;
+        }
+        self.enqueue_close_locked(&mut state, endpoint)
     }
 
     /// Remove one endpoint while the caller already owns the queue lock. The
@@ -1174,7 +1322,8 @@ impl OrderedControlQueue {
     ) {
         // Invalidate the transport before removing its viewer state. This
         // closes the ingress race where a caller passes the active check just
-        // as leave commits; the queued close is still sent by drain_closing.
+        // as leave commits; the close command is inserted in FIFO before any
+        // later input, and drain_closing waits for its acknowledgement.
         endpoint.active.store(false, Ordering::Release);
         if state
             .pending_resize
@@ -1191,6 +1340,7 @@ impl OrderedControlQueue {
         if !state.closing.iter().any(|current| Arc::ptr_eq(current, endpoint)) {
             state.closing.push(Arc::clone(endpoint));
         }
+        let _ = self.enqueue_close_locked(state, endpoint);
     }
 
     fn close_locked(&self, state: &mut OrderedControlQueueState) {
@@ -1198,12 +1348,18 @@ impl OrderedControlQueue {
         state.pending_resize = None;
         state.claim_fence = None;
         state.closing.clear();
+        state.closing_waiters.clear();
+        state.closing_inflight.clear();
+        state.closing_failed = false;
     }
 
     /// Wait for the daemon-acknowledged close barrier of every endpoint that
     /// was removed from this target. The queue lock is never held while an
     /// endpoint sends its identify barrier or waits for the response.
     async fn wait_for_closing(&self) -> bool {
+        if self.state.lock().expect("ordered control queue lock").closing_failed {
+            return false;
+        }
         let notified = self.closing_notify.notified();
         if self
             .closing_running
@@ -1211,7 +1367,8 @@ impl OrderedControlQueue {
             .is_err()
         {
             notified.await;
-            return self.state.lock().expect("ordered control queue lock").closing.is_empty();
+            let state = self.state.lock().expect("ordered control queue lock");
+            return state.closing.is_empty() && !state.closing_failed;
         }
         let completed = self.drain_closing().await;
         self.closing_running.store(false, Ordering::Release);
@@ -1246,45 +1403,44 @@ impl OrderedControlQueue {
     }
 
     async fn drain_closing(&self) -> bool {
-        let endpoints = { self.state.lock().expect("ordered control queue lock").closing.clone() };
-        if endpoints.is_empty() {
-            return true;
-        }
-        let mut completed = true;
-        for endpoint in &endpoints {
-            let (reply, response) = oneshot::channel();
-            let accepted = {
-                let mut pending = self.wire_pending.lock().expect("ordered control pending lock");
-                if pending.len() >= MAX_ORDERED_CONTROL_COMMANDS {
-                    false
+        loop {
+            let next_waiter = {
+                let mut state = self.state.lock().expect("ordered control queue lock");
+                if state.closing.is_empty() {
+                    return true;
+                }
+                if let Some(waiter) = state.closing_waiters.pop() {
+                    state.closing_inflight.push(waiter.0);
+                    Some(waiter)
                 } else {
-                    pending.push_back(OrderedControlCommand {
-                        endpoint: Arc::clone(endpoint),
-                        generation: None,
-                        expected_owner: None,
-                        requires_unowned: false,
-                        kind: OrderedControlCommandKind::Close { reply },
-                    });
-                    true
+                    let endpoint = state.closing.first().cloned();
+                    drop(state);
+                    let Some(endpoint) = endpoint else { return true };
+                    if !self.enqueue_close_for_retry(&endpoint) {
+                        // The bounded wire queue is full or the target was
+                        // retired. Keep `closing` non-empty so authority
+                        // remains frozen. A later explicit event retries the
+                        // close once the bounded queue has drained.
+                        return false;
+                    }
+                    self.start_wire_drain();
+                    continue;
                 }
             };
-            if !accepted {
-                completed = false;
-                break;
-            }
+            let Some((pointer, response)) = next_waiter else { continue };
             self.start_wire_drain();
             if !response.await.unwrap_or(false) {
-                completed = false;
-                break;
+                // No daemon-observed barrier means no later authority command
+                // is safe. Leave this endpoint in `closing` and freeze.
+                let mut state = self.state.lock().expect("ordered control queue lock");
+                state.closing_inflight.retain(|current| *current != pointer);
+                state.closing_failed = true;
+                return false;
             }
+            let mut state = self.state.lock().expect("ordered control queue lock");
+            state.closing_inflight.retain(|current| *current != pointer);
+            state.closing.retain(|endpoint| endpoint_ptr(endpoint) != pointer);
         }
-        let mut state = self.state.lock().expect("ordered control queue lock");
-        if completed {
-            state
-                .closing
-                .retain(|current| !endpoints.iter().any(|endpoint| Arc::ptr_eq(endpoint, current)));
-        }
-        completed
     }
 
     fn drain_sync(&self) {
@@ -1631,15 +1787,7 @@ impl TerminalSizing {
         control: Arc<dyn ControlHandle>,
         grid: SizingGrid,
     ) -> Option<(oneshot::Receiver<()>, Arc<OrderedControlEndpoint>)> {
-        let (
-            target,
-            generation,
-            joined_endpoint,
-            immediate_endpoint,
-            owner_endpoint,
-            owner_id,
-            owner_grid,
-        ) = {
+        let (target, joined_endpoint, should_start) = {
             let mut targets = self.targets.lock().expect("terminal sizing targets lock");
             let target_key = key.clone();
             let target = targets.entry(key).or_insert_with(|| {
@@ -1670,6 +1818,17 @@ impl TerminalSizing {
             // retired target.
             let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
             let mut state = target.state.lock().expect("terminal sizing state lock");
+            if queue_state.closing_failed
+                || (state.retired && !target.queue.close_barrier_ready_locked(&queue_state))
+            {
+                // The old daemon transport did not acknowledge its close.
+                // Do not resurrect this target or attach a new socket to an
+                // authority whose cross-socket order is unknown. A queued or
+                // in-flight close is safe to join behind; a close that could
+                // not fit in the bounded queue must be retried before any
+                // replacement can enter the target.
+                return None;
+            }
             state.retired = false;
             if let Some(previous) = state.viewers.remove(&viewer_id) {
                 target.queue.detach_locked(&mut queue_state, &previous.endpoint);
@@ -1697,47 +1856,55 @@ impl TerminalSizing {
             // owner loss or refusal.
             let immediate_claim = state.owner.is_none();
             state.claim_requested = immediate_claim.then_some((viewer_id, endpoint_ptr(&endpoint)));
-            let immediate_endpoint = immediate_claim
-                .then(|| state.viewers.get(&viewer_id).map(|viewer| Arc::clone(&viewer.endpoint)))
-                .flatten();
             let owner_grid = smallest_sizing_grid(&state.viewers);
             let owner_id =
                 if !immediate_claim && state.applied != owner_grid { state.owner } else { None };
             let owner_endpoint = owner_id
                 .and_then(|id| state.viewers.get(&id).map(|viewer| Arc::clone(&viewer.endpoint)));
-            (
-                target,
-                generation,
-                Arc::clone(&endpoint),
-                immediate_endpoint,
-                owner_endpoint,
-                owner_id,
-                owner_grid,
-            )
+            let mut should_start = false;
+            // Reserve the canonical command while the join mutation still
+            // holds queue -> target-state. A later input cannot enter the
+            // queue between the generation bump and this enqueue. If an old
+            // endpoint is closing, the FIFO close is already in the wire
+            // queue; append the new report/claim after it, so replacement
+            // input cannot overtake the authority command.
+            if let (Some(endpoint), Some(owner_id), Some(grid)) =
+                (owner_endpoint.as_ref(), owner_id, owner_grid)
+            {
+                let (_, start) = self.enqueue_update_locked(
+                    &target,
+                    &mut queue_state,
+                    &state,
+                    owner_id,
+                    Some(owner_id),
+                    endpoint,
+                    grid,
+                    false,
+                    generation,
+                );
+                should_start |= start;
+            }
+            if immediate_claim {
+                if let Some(grid) = owner_grid {
+                    let (_, start) = self.enqueue_update_locked(
+                        &target,
+                        &mut queue_state,
+                        &state,
+                        viewer_id,
+                        None,
+                        &endpoint,
+                        grid,
+                        true,
+                        generation,
+                    );
+                    should_start |= start;
+                }
+            }
+            (target, Arc::clone(&endpoint), should_start)
         };
-        if let (Some(endpoint), Some(owner_id), Some(grid)) = (owner_endpoint, owner_id, owner_grid)
-        {
-            // A newly joined non-owner can lower the canonical grid. Establish
-            // the owner's FIFO resize fence before the join can send input.
-            self.enqueue_update_if_current(
-                &target,
-                owner_id,
-                Some(owner_id),
-                &endpoint,
-                grid,
-                false,
-                generation,
-            );
-        }
-        if let Some(endpoint) = immediate_endpoint {
-            // Keep the control FIFO ordered for input that follows an open.
-            // The worker repeats these commands with request/response
-            // verification; these fire-and-forget copies are only the
-            // non-blocking wire fence that prevents input overtaking the
-            // initial geometry claim.
-            self.enqueue_update_if_current(
-                &target, viewer_id, None, &endpoint, grid, true, generation,
-            );
+        if should_start {
+            target.queue.start_wire_drain();
+            target.queue.start_drain(true);
         }
         target.queue.schedule_closing();
         Some((self.request_reconcile_wait(target), joined_endpoint))
@@ -1776,21 +1943,16 @@ impl TerminalSizing {
     ) {
         let target = self.targets.lock().expect("terminal sizing targets lock").get(key).cloned();
         let Some(target) = target else { return };
-        let (
-            endpoint,
-            endpoint_viewer_id,
-            expected_owner,
-            claim,
-            effective_grid,
-            should_enqueue,
-            generation,
-        ) = {
+        let (target, should_start) = {
             // Serialize the state mutation and generation bump with the
             // shared queue fence. The worker snapshots target state under the
             // state lock, so advancing while that lock is held prevents it
             // from observing a new grid under the previous generation.
-            let _queue_state = target.queue.state.lock().expect("ordered control queue lock");
+            let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
             let mut state = target.state.lock().expect("terminal sizing state lock");
+            if queue_state.closing_failed {
+                return;
+            }
             let owner = state.owner;
             let candidate = owner.is_none() && candidate_viewer_id(&state) == Some(viewer_id);
             let endpoint_matches = state.viewers.get(&viewer_id).is_some_and(|viewer| {
@@ -1804,17 +1966,11 @@ impl TerminalSizing {
             let Some(effective_grid) = smallest_sizing_grid(&state.viewers) else { return };
             let claim = owner.is_none() && candidate;
             let should_enqueue = claim || state.applied != Some(effective_grid);
-            let (endpoint_viewer_id, endpoint) = if should_enqueue {
+            let endpoint = if should_enqueue {
                 if let Some(owner_id) = owner {
-                    state
-                        .viewers
-                        .get(&owner_id)
-                        .map(|viewer| (owner_id, Arc::clone(&viewer.endpoint)))
+                    state.viewers.get(&owner_id).map(|viewer| Arc::clone(&viewer.endpoint))
                 } else if candidate {
-                    state
-                        .viewers
-                        .get(&viewer_id)
-                        .map(|viewer| (viewer_id, Arc::clone(&viewer.endpoint)))
+                    state.viewers.get(&viewer_id).map(|viewer| Arc::clone(&viewer.endpoint))
                 } else {
                     None
                 }
@@ -1822,18 +1978,26 @@ impl TerminalSizing {
                 None
             };
             let generation = self.advance_generation(&target);
-            (endpoint, endpoint_viewer_id, owner, claim, effective_grid, should_enqueue, generation)
+            let endpoint_viewer_id = owner.unwrap_or(viewer_id);
+            let should_start = endpoint.map_or(false, |endpoint| {
+                self.enqueue_update_locked(
+                    &target,
+                    &mut queue_state,
+                    &state,
+                    endpoint_viewer_id,
+                    owner,
+                    &endpoint,
+                    effective_grid,
+                    claim,
+                    generation,
+                )
+                .1
+            });
+            (target, should_start)
         };
-        if should_enqueue && let Some((endpoint_viewer_id, endpoint)) = endpoint {
-            self.enqueue_update_if_current(
-                &target,
-                endpoint_viewer_id,
-                expected_owner,
-                &endpoint,
-                effective_grid,
-                claim,
-                generation,
-            );
+        if should_start {
+            target.queue.start_wire_drain();
+            target.queue.start_drain(true);
         }
         self.request_reconcile(target);
     }
@@ -1904,7 +2068,11 @@ impl TerminalSizing {
             } else {
                 let grid = smallest_sizing_grid(&state.viewers);
                 target.queue.clear_stale_claim_fence_locked(&mut queue_state, None);
-                let should_start = if let (Some(owner_id), Some(grid)) = (state.owner, grid) {
+                let should_start = if !target.queue.close_barrier_ready_locked(&queue_state)
+                    || queue_state.closing_failed
+                {
+                    false
+                } else if let (Some(owner_id), Some(grid)) = (state.owner, grid) {
                     if let Some(owner) = state.viewers.get(&owner_id)
                         && owner.endpoint.is_active()
                         && state.applied != Some(grid)
@@ -2016,6 +2184,12 @@ impl TerminalSizing {
     }
 
     fn remove_retired_target(&self, target: &Arc<SizingTarget>) {
+        // A failed close is permanent for this target. Keep the retired entry
+        // in the map so a later join cannot create a new socket generation
+        // beside an old transport whose daemon ordering is unknown. The
+        // entry is removed only after a successful close and after every wire
+        // command/worker has quiesced; process restart is the recovery path
+        // for a permanently failed transport.
         let mut targets = self.targets.lock().expect("terminal sizing targets lock");
         let Some(current) = targets.get(&target.key) else { return };
         if !Arc::ptr_eq(current, target) {
@@ -2026,11 +2200,18 @@ impl TerminalSizing {
         // concurrent input path deadlock against a concurrent close.
         let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
         let state = target.state.lock().expect("terminal sizing state lock");
+        let wire_pending_empty =
+            target.queue.wire_pending.lock().expect("ordered control pending lock").is_empty();
         if state.retired
             && state.viewers.is_empty()
             && !target.worker_running.load(Ordering::Acquire)
             && !target.queue.closing_running.load(Ordering::Acquire)
+            && !target.queue.wire_running.load(Ordering::Acquire)
+            && wire_pending_empty
             && state.closing.is_empty()
+            && state.closing_waiters.is_empty()
+            && state.closing_inflight.is_empty()
+            && state.dispatching.is_none()
         {
             target.queue.close_locked(&mut queue_state);
             targets.remove(&target.key);
@@ -2053,62 +2234,20 @@ impl TerminalSizing {
         if Self::current_generation(target) != generation {
             return false;
         }
-        let (should_start, current) = {
+        let (current, should_start) = {
             let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
             let state = target.state.lock().expect("terminal sizing state lock");
-            if Self::current_generation(target) != generation
-                || state.retired
-                || state.owner != expected_owner
-            {
-                (false, false)
-            } else {
-                let candidate = if state.owner.is_none() {
-                    smallest_sizing_grid(&state.viewers).and_then(|current_grid| {
-                        candidate_viewer_id(&state).map(|id| (id, current_grid))
-                    })
-                } else {
-                    None
-                };
-                target.queue.clear_stale_claim_fence_locked(
-                    &mut queue_state,
-                    candidate.and_then(|(candidate_id, candidate_grid)| {
-                        state.viewers.get(&candidate_id).map(|viewer| {
-                            (
-                                generation,
-                                candidate_id,
-                                candidate_grid,
-                                endpoint_ptr(&viewer.endpoint),
-                            )
-                        })
-                    }),
-                );
-                let endpoint_current = state.viewers.get(&viewer_id).is_some_and(|viewer| {
-                    viewer.endpoint.is_active() && Arc::ptr_eq(&viewer.endpoint, endpoint)
-                });
-                let grid_current = smallest_sizing_grid(&state.viewers) == Some(grid);
-                let candidate_current =
-                    expected_owner.is_none() && candidate_viewer_id(&state) == Some(viewer_id);
-                let queue_reserved_for_candidate = !claim && queue_state.claim_fence.is_some();
-                let valid = endpoint_current
-                    && grid_current
-                    && (claim == candidate_current)
-                    && !queue_reserved_for_candidate;
-                if !valid {
-                    (false, false)
-                } else {
-                    let should_start = if claim {
-                        target.queue.reserve_resize_locked(
-                            &mut queue_state,
-                            endpoint,
-                            grid,
-                            generation,
-                        )
-                    } else {
-                        target.queue.enqueue_resize_locked(&mut queue_state, endpoint, grid, false)
-                    };
-                    (should_start, true)
-                }
-            }
+            self.enqueue_update_locked(
+                target,
+                &mut queue_state,
+                &state,
+                viewer_id,
+                expected_owner,
+                endpoint,
+                grid,
+                claim,
+                generation,
+            )
         };
         if current && should_start {
             // `flush_resize_locked` only appends while the coordinator locks
@@ -2117,6 +2256,69 @@ impl TerminalSizing {
         }
         target.queue.start_drain(should_start);
         current
+    }
+
+    /// Validate and reserve a canonical resize while the caller already holds
+    /// the queue-state then target-state locks. Keeping the state mutation and
+    /// this enqueue in one actor transition prevents input from entering the
+    /// wire queue in the generation gap between them.
+    fn enqueue_update_locked(
+        &self,
+        target: &Arc<SizingTarget>,
+        queue_state: &mut OrderedControlQueueState,
+        state: &SizingTargetState,
+        viewer_id: u64,
+        expected_owner: Option<u64>,
+        endpoint: &Arc<OrderedControlEndpoint>,
+        grid: SizingGrid,
+        claim: bool,
+        generation: u64,
+    ) -> (bool, bool) {
+        if Self::current_generation(target) != generation
+            || state.retired
+            || state.owner != expected_owner
+            || !target.queue.close_barrier_ready_locked(queue_state)
+            || queue_state.closing_failed
+        {
+            // A closing transport is a daemon-order barrier. The caller
+            // leaves the state changed but lets the reconcile worker retry
+            // after `wait_for_closing` completes; no command may overtake it.
+            return (false, false);
+        }
+        let candidate = if state.owner.is_none() {
+            smallest_sizing_grid(&state.viewers)
+                .and_then(|current_grid| candidate_viewer_id(state).map(|id| (id, current_grid)))
+        } else {
+            None
+        };
+        target.queue.clear_stale_claim_fence_locked(
+            queue_state,
+            candidate.and_then(|(candidate_id, candidate_grid)| {
+                state.viewers.get(&candidate_id).map(|viewer| {
+                    (generation, candidate_id, candidate_grid, endpoint_ptr(&viewer.endpoint))
+                })
+            }),
+        );
+        let endpoint_current = state.viewers.get(&viewer_id).is_some_and(|viewer| {
+            viewer.endpoint.is_active() && Arc::ptr_eq(&viewer.endpoint, endpoint)
+        });
+        let grid_current = smallest_sizing_grid(&state.viewers) == Some(grid);
+        let candidate_current =
+            expected_owner.is_none() && candidate_viewer_id(state) == Some(viewer_id);
+        let queue_reserved_for_candidate = !claim && queue_state.claim_fence.is_some();
+        let valid = endpoint_current
+            && grid_current
+            && (claim == candidate_current)
+            && !queue_reserved_for_candidate;
+        if !valid {
+            return (false, false);
+        }
+        let should_start = if claim {
+            target.queue.reserve_resize_locked(queue_state, endpoint, grid, generation)
+        } else {
+            target.queue.enqueue_resize_locked(queue_state, endpoint, grid, false)
+        };
+        (true, should_start)
     }
 
     /// Enqueue the canonical owner resize and its verified request as one
@@ -2149,10 +2351,12 @@ impl TerminalSizing {
             });
             if Self::current_generation(target) != generation
                 || queue_state.closed
+                || queue_state.closing_failed
                 || state.retired
                 || state.owner != Some(owner_id)
                 || !endpoint_current
                 || smallest_sizing_grid(&state.viewers) != Some(grid)
+                || !queue_state.closing.is_empty()
                 || queue_state.claim_fence.is_some()
             {
                 Err(OwnerResizeRequestOutcome::Stale)
@@ -2245,7 +2449,12 @@ impl TerminalSizing {
                 })
                 && smallest_sizing_grid(&state.viewers) == Some(grid)
                 && !state.retired;
-            if !generation_current || !endpoint_current || queue_state.closed {
+            if !generation_current
+                || !endpoint_current
+                || queue_state.closed
+                || queue_state.closing_failed
+                || !queue_state.closing.is_empty()
+            {
                 (false, CandidatePrepareOutcome::Stale, false)
             } else {
                 target.queue.clear_stale_claim_fence_locked(
@@ -2393,6 +2602,22 @@ impl TerminalSizing {
     }
 
     async fn apply_target(self: &Arc<Self>, target: &Arc<SizingTarget>) {
+        // A detached socket is a daemon-order barrier for every later
+        // mutation, not only for a replacement claim. Join/update paths may
+        // have changed the state while the close worker was still draining;
+        // wait before snapshotting the command owner or canonical grid.
+        if !target.queue.wait_for_closing().await {
+            let failed =
+                target.queue.state.lock().expect("ordered control queue lock").closing_failed;
+            if failed {
+                let mut state = target.state.lock().expect("terminal sizing state lock");
+                // A failed daemon barrier cannot be retried from the same
+                // attachment. Clear its explicit claim marker and keep
+                // geometry frozen until a new authenticated attachment.
+                state.claim_requested = None;
+            }
+            return;
+        }
         let (surface_id, grid, owner, owner_queue, candidate) = {
             let state = target.state.lock().expect("terminal sizing state lock");
             if state.retired || state.viewers.is_empty() {
@@ -2422,21 +2647,6 @@ impl TerminalSizing {
         };
 
         if let Some((viewer_id, _control, endpoint)) = candidate {
-            // A replacement claim is allowed only after every removed socket
-            // has reached the daemon-observed identify barrier. If the old
-            // transport cannot be fenced, keep authority frozen and reject
-            // this explicit attempt; a later authenticated attachment may
-            // try again.
-            if !target.queue.wait_for_closing().await {
-                let mut state = target.state.lock().expect("terminal sizing state lock");
-                if state
-                    .claim_requested
-                    .is_some_and(|(id, ptr)| id == viewer_id && ptr == endpoint_ptr(&endpoint))
-                {
-                    state.claim_requested = None;
-                }
-                return;
-            }
             let generation = Self::current_generation(target);
             // Only a newly attached viewer reaches this path. Existing
             // survivors are intentionally not elected after owner loss.
@@ -6055,8 +6265,13 @@ mod tests {
         state: TestArc<StdMutex<SizingControlState>>,
         notify: TestArc<TestNotify>,
         sizing_release: TestArc<TestNotify>,
+        ordered_send_started: TestArc<TestNotify>,
+        ordered_send_release: TestArc<TestNotify>,
+        end_started: TestArc<TestNotify>,
+        end_release: TestArc<TestNotify>,
         claim_dispatch_started: TestArc<TestNotify>,
         claim_dispatch_release: TestArc<TestNotify>,
+        ended_notify: TestArc<TestNotify>,
         settled: TestArc<TestNotify>,
     }
 
@@ -6066,6 +6281,11 @@ mod tests {
         claim_ok: bool,
         reject_next_resize: bool,
         block_sizing: bool,
+        block_ordered_send: bool,
+        ordered_send_started: bool,
+        block_end: bool,
+        end_started: bool,
+        end_ok: bool,
         block_claim_dispatch: bool,
         ended: bool,
         requests: Vec<(String, Value)>,
@@ -6082,6 +6302,11 @@ mod tests {
                     claim_ok: true,
                     reject_next_resize: false,
                     block_sizing: false,
+                    block_ordered_send: false,
+                    ordered_send_started: false,
+                    block_end: false,
+                    end_started: false,
+                    end_ok: true,
                     block_claim_dispatch: false,
                     ended: false,
                     requests: Vec::new(),
@@ -6090,8 +6315,13 @@ mod tests {
                 })),
                 notify: TestArc::new(TestNotify::new()),
                 sizing_release: TestArc::new(TestNotify::new()),
+                ordered_send_started: TestArc::new(TestNotify::new()),
+                ordered_send_release: TestArc::new(TestNotify::new()),
+                end_started: TestArc::new(TestNotify::new()),
+                end_release: TestArc::new(TestNotify::new()),
                 claim_dispatch_started: TestArc::new(TestNotify::new()),
                 claim_dispatch_release: TestArc::new(TestNotify::new()),
+                ended_notify: TestArc::new(TestNotify::new()),
                 settled: TestArc::new(TestNotify::new()),
             }
         }
@@ -6111,6 +6341,28 @@ mod tests {
         fn release_sizing(&self) {
             self.state.lock().unwrap().block_sizing = false;
             self.sizing_release.notify_waiters();
+        }
+
+        fn block_ordered_send(&self) {
+            self.state.lock().unwrap().block_ordered_send = true;
+        }
+
+        fn release_ordered_send(&self) {
+            self.state.lock().unwrap().block_ordered_send = false;
+            self.ordered_send_release.notify_waiters();
+        }
+
+        fn block_end(&self) {
+            self.state.lock().unwrap().block_end = true;
+        }
+
+        fn release_end(&self) {
+            self.state.lock().unwrap().block_end = false;
+            self.end_release.notify_waiters();
+        }
+
+        fn set_end_ok(&self, value: bool) {
+            self.state.lock().unwrap().end_ok = value;
         }
 
         fn block_claim_dispatch(&self) {
@@ -6180,6 +6432,51 @@ mod tests {
             tokio::time::timeout(Duration::from_secs(2), wait)
                 .await
                 .expect("terminal sizing claim did not reach dispatch gate");
+        }
+
+        async fn wait_for_ordered_send(&self) {
+            let wait = async {
+                loop {
+                    let notified = self.ordered_send_started.notified();
+                    if self.state.lock().unwrap().ordered_send_started {
+                        return;
+                    }
+                    notified.await;
+                }
+            };
+            tokio::time::timeout(Duration::from_secs(2), wait)
+                .await
+                .expect("terminal sizing ordered send did not reach dispatch gate");
+        }
+
+        async fn wait_for_end(&self) {
+            let wait = async {
+                loop {
+                    let notified = self.ended_notify.notified();
+                    if self.ended() {
+                        return;
+                    }
+                    notified.await;
+                }
+            };
+            tokio::time::timeout(Duration::from_secs(2), wait)
+                .await
+                .expect("terminal sizing close did not settle");
+        }
+
+        async fn wait_for_end_started(&self) {
+            let wait = async {
+                loop {
+                    let notified = self.end_started.notified();
+                    if self.state.lock().unwrap().end_started {
+                        return;
+                    }
+                    notified.await;
+                }
+            };
+            tokio::time::timeout(Duration::from_secs(2), wait)
+                .await
+                .expect("terminal sizing close did not reach dispatch gate");
         }
     }
 
@@ -6257,12 +6554,54 @@ mod tests {
             self.notify.notify_waiters();
         }
 
+        fn ordered_send(
+            &self,
+            cmd: &str,
+            params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+            let blocked = {
+                let state = self.state.lock().unwrap();
+                state.block_ordered_send && cmd == "resize-surface"
+            };
+            let started = TestArc::clone(&self.ordered_send_started);
+            let release = TestArc::clone(&self.ordered_send_release);
+            let cmd = cmd.to_owned();
+            Box::pin(async move {
+                if blocked {
+                    self.state.lock().unwrap().ordered_send_started = true;
+                    started.notify_waiters();
+                    release.notified().await;
+                }
+                self.send(&cmd, params);
+                true
+            })
+        }
+
         fn on_event(&self, _handler: EventHandler) {}
         fn on_close(&self, _handler: CloseHandler) {}
         fn pause(&self) {}
         fn resume(&self) {}
         fn end(&self) {
-            self.state.lock().unwrap().ended = true;
+            let mut state = self.state.lock().unwrap();
+            state.ended = true;
+            state.events.push("end".to_owned());
+            self.ended_notify.notify_waiters();
+        }
+
+        fn end_and_wait(&self) -> std::pin::Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+            let blocked = self.state.lock().unwrap().block_end;
+            let end_ok = self.state.lock().unwrap().end_ok;
+            let started = TestArc::clone(&self.end_started);
+            let release = TestArc::clone(&self.end_release);
+            Box::pin(async move {
+                if blocked {
+                    self.state.lock().unwrap().end_started = true;
+                    started.notify_waiters();
+                    release.notified().await;
+                }
+                self.end();
+                end_ok
+            })
         }
     }
 
@@ -6344,6 +6683,68 @@ mod tests {
         );
         coordinator.leave(&key, 1);
         coordinator.leave(&key, 2);
+    }
+
+    #[tokio::test]
+    async fn failed_close_permanently_freezes_retired_target_without_revival() {
+        let control = SizingControl::new(12, &[]);
+        control.set_end_ok(false);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-close-failure.sock"),
+            surface_id: 40,
+        };
+
+        coordinator
+            .join(key.clone(), 1, 40, Arc::new(control.clone()), SizingGrid { cols: 80, rows: 24 })
+            .expect("initial sizing barrier")
+            .await
+            .expect("initial sizing worker");
+        let target = coordinator.targets.lock().unwrap().get(&key).cloned().unwrap();
+
+        // The close response is false: the daemon did not prove that all
+        // old-socket writes were processed. The target must remain retained
+        // and fail closed, because recreating it would allow a new socket to
+        // race an unknown old transport generation.
+        coordinator.leave(&key, 1);
+        control.wait_for_end().await;
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if target.queue.state.lock().unwrap().closing_failed {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("failed close did not freeze the target");
+        coordinator.remove_retired_target(&target);
+
+        {
+            let queue_state = target.queue.state.lock().unwrap();
+            assert!(queue_state.closing_failed);
+            assert!(!queue_state.closing.is_empty());
+            assert!(target.queue.wire_pending.lock().unwrap().is_empty());
+            assert!(!target.queue.wire_running.load(Ordering::Acquire));
+        }
+        assert!(target.state.lock().unwrap().retired);
+        assert!(coordinator.targets.lock().unwrap().contains_key(&key));
+
+        // A failed close is permanent for this target. A join must not clear
+        // `retired` or attach a replacement to the un-ordered transport.
+        assert!(
+            coordinator
+                .join(
+                    key.clone(),
+                    2,
+                    40,
+                    Arc::new(SizingControl::new(12, &[])),
+                    SizingGrid { cols: 80, rows: 24 },
+                )
+                .is_none(),
+            "failed close must not revive a retired target"
+        );
+        assert!(target.state.lock().unwrap().viewers.is_empty());
     }
 
     #[tokio::test]
@@ -7050,6 +7451,80 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reserved_resize_precedes_generation_update_and_leave() {
+        let control = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-dispatch-reservation.sock"),
+            surface_id: 35,
+        };
+        coordinator
+            .join(key.clone(), 1, 35, Arc::new(control.clone()), SizingGrid { cols: 80, rows: 24 })
+            .expect("initial sizing barrier")
+            .await
+            .expect("initial sizing worker");
+        let endpoint = coordinator.queue_for(&key, 1).expect("owner endpoint");
+        let before = control.events().len();
+        let before_sends = control.sends().len();
+        control.block_ordered_send();
+
+        // The worker reserves the resize while the old generation is still
+        // current, then pauses immediately before the control write.
+        coordinator.update(&key, 1, SizingGrid { cols: 100, rows: 30 });
+        control.wait_for_ordered_send().await;
+
+        // Both mutations acquire the queue actor lock after the reservation.
+        // They must advance/freeze the state, but they cannot retract the
+        // already-reserved resize or let a later close overtake it.
+        coordinator.update(&key, 1, SizingGrid { cols: 120, rows: 40 });
+        coordinator.leave_endpoint(&key, 1, &endpoint);
+        assert!(!endpoint.is_active());
+
+        control.release_ordered_send();
+        control.wait_for_sends(before_sends + 1).await;
+        control.wait_for_end().await;
+        let events = control.events();
+        assert_eq!(events[before], "send:resize-surface");
+        assert!(control.ended());
+    }
+
+    #[tokio::test]
+    async fn reserved_resize_precedes_failure_invalidation_and_close() {
+        let control = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-dispatch-failure.sock"),
+            surface_id: 36,
+        };
+        coordinator
+            .join(key.clone(), 1, 36, Arc::new(control.clone()), SizingGrid { cols: 80, rows: 24 })
+            .expect("initial sizing barrier")
+            .await
+            .expect("initial sizing worker");
+        let endpoint = coordinator.queue_for(&key, 1).expect("owner endpoint");
+        let queue = endpoint.queue.upgrade().expect("sizing queue");
+        let before = control.events().len();
+        let before_sends = control.sends().len();
+        control.block_ordered_send();
+
+        coordinator.update(&key, 1, SizingGrid { cols: 100, rows: 30 });
+        control.wait_for_ordered_send().await;
+
+        // A transport failure uses the same actor lock as reserve_command.
+        // It invalidates the endpoint and queues its close, but cannot cancel
+        // the resize that was already reserved before the failure.
+        queue.fail_endpoint(&endpoint);
+        assert!(!endpoint.is_active());
+        control.release_ordered_send();
+        control.wait_for_sends(before_sends + 1).await;
+        control.wait_for_end().await;
+
+        let events = control.events();
+        assert_eq!(events[before], "send:resize-surface");
+        assert!(control.ended());
+    }
+
+    #[tokio::test]
     async fn busy_queue_flushes_resize_before_verified_request() {
         let control = SizingControl::new(12, &[]);
         let queue = OrderedControlQueue::new(19);
@@ -7122,6 +7597,100 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn update_enqueues_resize_before_owner_input() {
+        let control = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-update-input-order.sock"),
+            surface_id: 37,
+        };
+        coordinator
+            .join(key.clone(), 1, 37, Arc::new(control.clone()), SizingGrid { cols: 80, rows: 24 })
+            .expect("initial sizing barrier")
+            .await
+            .expect("initial sizing worker");
+        let endpoint = coordinator.queue_for(&key, 1).expect("owner endpoint");
+        let before = control.events().len();
+        coordinator.update(&key, 1, SizingGrid { cols: 100, rows: 30 });
+        endpoint.enqueue_input(b"ordered-update-input");
+        control.wait_for_sends(2).await;
+        let events = control.events();
+        let suffix: Vec<&str> = events[before..before + 2].iter().map(String::as_str).collect();
+        assert_eq!(suffix, vec!["send:resize-surface", "send:send"]);
+        coordinator.leave(&key, 1);
+    }
+
+    #[tokio::test]
+    async fn join_enqueues_owner_resize_before_owner_input() {
+        let owner = SizingControl::new(12, &[]);
+        let viewer = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-join-input-order.sock"),
+            surface_id: 38,
+        };
+        coordinator
+            .join(key.clone(), 1, 38, Arc::new(owner.clone()), SizingGrid { cols: 120, rows: 40 })
+            .expect("initial sizing barrier")
+            .await
+            .expect("initial sizing worker");
+        let before = owner.events().len();
+        coordinator
+            .join(key.clone(), 2, 38, Arc::new(viewer.clone()), SizingGrid { cols: 80, rows: 24 })
+            .expect("viewer sizing barrier")
+            .await
+            .expect("viewer sizing worker");
+        let endpoint = coordinator.queue_for(&key, 1).expect("owner endpoint");
+        endpoint.enqueue_input(b"ordered-join-input");
+        owner.wait_for_sends(2).await;
+        let events = owner.events();
+        let suffix: Vec<&str> = events[before..before + 2].iter().map(String::as_str).collect();
+        assert_eq!(suffix, vec!["send:resize-surface", "send:send"]);
+        coordinator.leave(&key, 2);
+        coordinator.leave(&key, 1);
+    }
+
+    #[tokio::test]
+    async fn reconnect_input_waits_behind_fifo_close_barrier() {
+        let old = SizingControl::new(12, &[]);
+        let new = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-close-fifo.sock"),
+            surface_id: 39,
+        };
+        coordinator
+            .join(key.clone(), 1, 39, Arc::new(old.clone()), SizingGrid { cols: 80, rows: 24 })
+            .expect("initial sizing barrier")
+            .await
+            .expect("initial sizing worker");
+        let old_endpoint = coordinator.queue_for(&key, 1).expect("old endpoint");
+        old.block_end();
+        let replacement_waiter = coordinator
+            .join(key.clone(), 1, 39, Arc::new(new.clone()), SizingGrid { cols: 80, rows: 24 })
+            .expect("replacement sizing barrier");
+        let replacement = coordinator.queue_for(&key, 1).expect("replacement endpoint");
+        old.wait_for_end_started().await;
+
+        // The replacement can enqueue input while the old close is waiting,
+        // but the close command was inserted first under the queue actor. No
+        // replacement frame may reach its control before the old barrier.
+        replacement.enqueue_input(b"after-reconnect");
+        assert!(new.sends().is_empty());
+
+        old.release_end();
+        old.wait_for_end().await;
+        replacement_waiter.await.expect("replacement sizing worker");
+        new.wait_for_sends(3).await;
+        let events = new.events();
+        let input_index = events.iter().position(|event| event == "send:send");
+        let claim_index = events.iter().position(|event| event == "send:set-client-sizing");
+        assert!(input_index > claim_index, "input overtook replacement claim: {events:?}");
+        assert!(!old_endpoint.is_active());
+        coordinator.leave(&key, 1);
+    }
+
+    #[tokio::test]
     async fn owner_resize_batch_queue_full_freezes_without_partial_commands() {
         let control = SizingControl::new(12, &[]);
         let coordinator = TerminalSizing::new();
@@ -7187,6 +7756,19 @@ mod tests {
         assert_eq!(state.owner, None);
         assert_eq!(state.applied, Some(SizingGrid { cols: 80, rows: 24 }));
         assert!(state.viewers.is_empty());
+        drop(state);
+        assert!(
+            coordinator
+                .join(
+                    key,
+                    2,
+                    34,
+                    Arc::new(SizingControl::new(12, &[])),
+                    SizingGrid { cols: 80, rows: 24 },
+                )
+                .is_none(),
+            "a retired target with an unqueued close must not be revived"
+        );
     }
 
     #[test]
