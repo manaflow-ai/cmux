@@ -11629,6 +11629,28 @@ struct VerticalTabsSidebar: View, Equatable {
             guard isPresented, !Task.isCancelled else { return }
             refreshWorkspaceSnapshots()
         }
+        .task(id: isPresented && renderContext.showsAgentActivity) {
+            guard isPresented,
+                  renderContext.showsAgentActivity,
+                  CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
+                      effectiveProviderId: effectiveExtensionSidebarProviderId
+                  ) else {
+                return
+            }
+            // The shared index is event-driven, but a crashed agent may emit
+            // no hook-store event. Keep one lifecycle-owned freshness lease;
+            // the cache TTL gate makes these checks cheap and notifications
+            // still carry the affected panel scope. AppKit rows receive the
+            // keyed cache refresh without a full workspace projection.
+            while !Task.isCancelled {
+                _ = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+                do {
+                    try await ContinuousClock().sleep(for: .seconds(15))
+                } catch {
+                    return
+                }
+            }
+        }
         .onChange(of: isPresented) { _, presented in
             if !presented {
                 workspaceSnapshotRefreshCoalescer.cancel()
