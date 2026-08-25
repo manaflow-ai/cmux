@@ -42,6 +42,8 @@ extension LocalArtifactRepository: NoteStoring {
             )
         }
         let paths = ArtifactStorePaths(projectRoot: context.projectRoot)
+        let expectedFilesystemRootPath = ArtifactPathResolver(fileManager: fileManager)
+            .canonicalPath(paths.filesystemRoot)
         try prepareForMutation(paths: paths)
         let preflightPlan = try makeNoteWritePlan(
             name: name,
@@ -50,7 +52,10 @@ extension LocalArtifactRepository: NoteStoring {
         )
         try await validateNoteWritePrivacy(plan: preflightPlan, paths: paths)
 
-        let lease = try ArtifactStoreMutationLease(directory: paths.filesystemRoot)
+        let lease = try ArtifactStoreMutationLease(
+            directory: paths.filesystemRoot,
+            expectedCanonicalPath: expectedFilesystemRootPath
+        )
         defer { lease.finish() }
         let plan = try makeNoteWritePlan(name: name, context: context, paths: paths)
         guard plan.privacyDestinations.map(\.standardizedFileURL.path)
@@ -140,6 +145,8 @@ extension LocalArtifactRepository: NoteStoring {
     public func deleteNote(projectRoot: URL, name: String) throws -> CmuxProjectNote {
         let paths = ArtifactStorePaths(projectRoot: projectRoot)
         let resolver = noteResolver
+        let expectedFilesystemRootPath = ArtifactPathResolver(fileManager: fileManager)
+            .canonicalPath(paths.filesystemRoot)
         let note = try resolver.resolveExact(
             notes: resolver.notes(snapshot: completeSnapshot(paths: paths)),
             rawName: name
@@ -148,7 +155,10 @@ extension LocalArtifactRepository: NoteStoring {
             throw CmuxNoteStoreError.pathOutsideStore(note.absolutePath)
         }
         try prepareForMutation(paths: paths)
-        let lease = try ArtifactStoreMutationLease(directory: paths.filesystemRoot)
+        let lease = try ArtifactStoreMutationLease(
+            directory: paths.filesystemRoot,
+            expectedCanonicalPath: expectedFilesystemRootPath
+        )
         defer { lease.finish() }
         do {
             try lease.unlink(

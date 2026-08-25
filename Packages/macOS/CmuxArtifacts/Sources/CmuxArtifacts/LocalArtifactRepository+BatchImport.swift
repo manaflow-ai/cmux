@@ -12,6 +12,8 @@ extension LocalArtifactRepository {
         guard !candidates.isEmpty else { return [] }
         let paths = ArtifactStorePaths(projectRoot: context.projectRoot)
         let sourcePathResolver = ArtifactPathResolver(fileManager: fileManager)
+        let expectedFilesystemRootPath = sourcePathResolver.canonicalPath(paths.filesystemRoot)
+        let expectedStagingRootPath = sourcePathResolver.canonicalPath(paths.importStagingRoot)
         do {
             try prepareForMutation(paths: paths)
         } catch let error as ArtifactStoreError {
@@ -25,7 +27,8 @@ extension LocalArtifactRepository {
         do {
             stagingLease = try ArtifactImportStagingLease(
                 root: paths.importStagingRoot,
-                fileManager: fileManager
+                fileManager: fileManager,
+                expectedCanonicalPath: expectedStagingRootPath
             )
         } catch {
             return candidates.map { _ in .rejected(.pathOutsideStore(paths.importStagingRoot.path)) }
@@ -163,7 +166,10 @@ extension LocalArtifactRepository {
 
         let mutationLease: ArtifactStoreMutationLease
         do {
-            mutationLease = try ArtifactStoreMutationLease(directory: paths.filesystemRoot)
+            mutationLease = try ArtifactStoreMutationLease(
+                directory: paths.filesystemRoot,
+                expectedCanonicalPath: expectedFilesystemRootPath
+            )
         } catch let error as ArtifactStoreError {
             for (index, _) in orderedPrepared { attempts[index] = .rejected(error) }
             return finalizedAttempts(attempts, candidates: candidates)

@@ -37,6 +37,8 @@ struct ArtifactProvenanceRecorder {
         event: ArtifactProvenanceEvent,
         mutationLease: ArtifactStoreMutationLease? = nil
     ) throws {
+        let expectedFilesystemRootPath = ArtifactPathResolver(fileManager: fileManager)
+            .canonicalPath(paths.filesystemRoot)
         try rejectSymbolicLink(at: paths.filesystemRoot)
         try rejectSymbolicLink(at: paths.metadataRoot)
         try rejectSymbolicLink(at: paths.provenanceRoot)
@@ -78,7 +80,10 @@ struct ArtifactProvenanceRecorder {
                 toRelativePath: ".metadata/provenance/\(digest).json"
             )
         } else {
-            let ownedLease = try ArtifactStoreMutationLease(directory: paths.filesystemRoot)
+            let ownedLease = try ArtifactStoreMutationLease(
+                directory: paths.filesystemRoot,
+                expectedCanonicalPath: expectedFilesystemRootPath
+            )
             defer { ownedLease.finish() }
             try ownedLease.writeData(
                 data,

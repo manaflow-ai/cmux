@@ -127,7 +127,7 @@ actor AgentArtifactCaptureCoordinator {
               inFlightRevisionBySession[record.sessionID] == snapshot.revision else {
             return .blocked
         }
-        let processedCount = outcomes.prefix { !isRetryableBlocker($0) }.count
+        let processedCount = outcomes.prefix { isSuccessfullyProcessed($0) }.count
         var updatedCheckpoint = checkpoint
         if processedCount > 0 {
             for artifact in pending.prefix(processedCount) {
@@ -268,11 +268,11 @@ actor AgentArtifactCaptureCoordinator {
         return authorization
     }
 
-    private func isRetryableBlocker(_ outcome: ArtifactImportOutcome) -> Bool {
+    private func isSuccessfullyProcessed(_ outcome: ArtifactImportOutcome) -> Bool {
         switch outcome {
-        case .skipped(.candidateLimitReached), .skipped(.gitPrivacyUnavailable), .skipped(.storeBusy):
+        case .copied, .deduplicated, .alreadyStored:
             return true
-        case .copied, .deduplicated, .alreadyStored, .skipped:
+        case .skipped:
             return false
         }
     }

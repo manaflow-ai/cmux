@@ -8,7 +8,6 @@ final class ArtifactImportStagingLease {
     static let claimSuffix = ".artifact-import-claim"
 
     let directory: URL
-    private let fileManager: FileManager
     private var descriptor: Int32
     private let directoryDescriptor: Int32
     private let rootDescriptor: Int32
@@ -17,72 +16,108 @@ final class ArtifactImportStagingLease {
 
     private init(
         directory: URL,
-        fileManager: FileManager,
         descriptor: Int32,
         directoryDescriptor: Int32,
         rootDescriptor: Int32,
         directoryName: String
     ) {
         self.directory = directory
-        self.fileManager = fileManager
         self.descriptor = descriptor
         self.directoryDescriptor = directoryDescriptor
         self.rootDescriptor = rootDescriptor
         self.directoryName = directoryName
     }
 
-    convenience init(root: URL, fileManager: FileManager) throws {
+    convenience init(
+        root: URL,
+        fileManager: FileManager,
+        expectedCanonicalPath: String? = nil
+    ) throws {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         let identity = UUID().uuidString
-        let claim = root.appendingPathComponent(".\(identity)\(Self.claimSuffix)", isDirectory: true)
-        let directory = root.appendingPathComponent("\(identity)\(Self.batchSuffix)", isDirectory: true)
-        try fileManager.createDirectory(at: claim, withIntermediateDirectories: false)
-        let leasePath = claim.appendingPathComponent(Self.leaseFilename, isDirectory: false).path
-        let descriptor = Darwin.open(
-            leasePath,
-            O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
-            S_IRUSR | S_IWUSR
-        )
-        guard descriptor >= 0 else {
-            try? fileManager.removeItem(at: claim)
-            throw CocoaError(.fileWriteUnknown)
-        }
-        var keepsLease = false
-        defer {
-            if !keepsLease {
-                _ = flock(descriptor, LOCK_UN)
-                _ = close(descriptor)
-                try? fileManager.removeItem(at: claim)
-                try? fileManager.removeItem(at: directory)
-            }
-        }
-        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        try fileManager.moveItem(at: claim, to: directory)
+        let claimName = ".\(identity)\(Self.claimSuffix)"
+        let directoryName = "\(identity)\(Self.batchSuffix)"
+        let directory = root.appendingPathComponent(directoryName, isDirectory: true)
         let rootDescriptor = Darwin.open(
             root.path,
             O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
         )
-        guard rootDescriptor >= 0 else {
+        guard rootDescriptor >= 0,
+              Self.openedPath(for: rootDescriptor) ==
+                (expectedCanonicalPath ?? Self.canonicalPath(root)) else {
+            if rootDescriptor >= 0 { _ = Darwin.close(rootDescriptor) }
             throw CocoaError(.fileWriteUnknown)
         }
-        let directoryDescriptor = Darwin.open(
-            directory.path,
-            O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
-        )
-        guard directoryDescriptor >= 0 else {
-            _ = Darwin.close(rootDescriptor)
+        var claimDescriptor: Int32 = -1
+        var descriptor: Int32 = -1
+        var keepsLease = false
+        defer {
+            if !keepsLease {
+                if descriptor >= 0 {
+                    _ = flock(descriptor, LOCK_UN)
+                    _ = close(descriptor)
+                }
+                if claimDescriptor >= 0 {
+                    _ = Self.leaseFilename.withCString { pointer in
+                        Darwin.unlinkat(claimDescriptor, pointer, 0)
+                    }
+                    _ = Darwin.close(claimDescriptor)
+                }
+                _ = directoryName.withCString { pointer in
+                    Darwin.unlinkat(rootDescriptor, pointer, AT_REMOVEDIR)
+                }
+                _ = claimName.withCString { pointer in
+                    Darwin.unlinkat(rootDescriptor, pointer, AT_REMOVEDIR)
+                }
+                _ = Darwin.close(rootDescriptor)
+            }
+        }
+        guard claimName.withCString({ pointer in
+            Darwin.mkdirat(rootDescriptor, pointer, S_IRWXU)
+        }) == 0 else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        claimDescriptor = claimName.withCString { pointer in
+            Darwin.openat(
+                rootDescriptor,
+                pointer,
+                O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+            )
+        }
+        guard claimDescriptor >= 0 else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        descriptor = Self.leaseFilename.withCString { pointer in
+            Darwin.openat(
+                claimDescriptor,
+                pointer,
+                O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+                S_IRUSR | S_IWUSR
+            )
+        }
+        guard descriptor >= 0,
+              flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        guard claimName.withCString({ claimPointer in
+            directoryName.withCString { directoryPointer in
+                Darwin.renameat(
+                    rootDescriptor,
+                    claimPointer,
+                    rootDescriptor,
+                    directoryPointer
+                )
+            }
+        }) == 0 else {
             throw CocoaError(.fileWriteUnknown)
         }
         keepsLease = true
         self.init(
             directory: directory,
-            fileManager: fileManager,
             descriptor: descriptor,
-            directoryDescriptor: directoryDescriptor,
+            directoryDescriptor: claimDescriptor,
             rootDescriptor: rootDescriptor,
-            directoryName: directory.lastPathComponent
+            directoryName: directoryName
         )
     }
 
@@ -137,5 +172,21 @@ final class ArtifactImportStagingLease {
 
     deinit {
         finish()
+    }
+
+    private static func canonicalPath(_ url: URL) -> String {
+        url.resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
+    private static func openedPath(for descriptor: Int32) -> String? {
+        var buffer = [UInt8](repeating: 0, count: Int(PATH_MAX))
+        let result = buffer.withUnsafeMutableBytes { bytes in
+            fcntl(descriptor, F_GETPATH, bytes.baseAddress)
+        }
+        guard result == 0 else { return nil }
+        return canonicalPath(URL(fileURLWithPath: String(
+            decoding: buffer.prefix { $0 != 0 },
+            as: UTF8.self
+        )))
     }
 }
