@@ -37,6 +37,20 @@ private enum ComputerVisibilityRowItem: Identifiable {
     }
 }
 
+/// Insertion/removal phase for a row copy crossing sections: a transitioning
+/// copy is invisible AND untouchable until the phase ends. SwiftUI still hit
+/// tests zero-opacity views, so a bare opacity transition would leave an
+/// invisible, enabled switch tappable during the sequenced fade-in delay.
+private struct ComputerRowTransitionPhase: ViewModifier {
+    let shown: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(shown ? 1 : 0)
+            .allowsHitTesting(shown)
+    }
+}
+
 /// A stable computer row whose trailing visibility switch survives transitions
 /// between visible and hidden content.
 ///
@@ -49,6 +63,7 @@ private struct ComputerVisibilityRow: View {
     var style: MacComputerRow.Style
     let connect: @MainActor (MacComputerSnapshot) -> Void
     let isConnecting: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var isBusy: Bool { isVisibilityMutating }
 
     var body: some View {
@@ -69,10 +84,17 @@ private struct ComputerVisibilityRow: View {
         // copy gone before the incoming copy appears) keeps the two switches
         // from blending into one malformed half-on ghost. Within a single
         // ForEach (disconnected shell) toggles reorder in place, so this
-        // transition never fires there.
-        .transition(.asymmetric(
-            insertion: .opacity.animation(.easeIn(duration: 0.15).delay(0.25)),
-            removal: .opacity.animation(.easeOut(duration: 0.12))
+        // transition never fires there. Reduce Motion swaps rows instantly,
+        // matching the owning lists' nil animation.
+        .transition(reduceMotion ? .identity : .asymmetric(
+            insertion: AnyTransition.modifier(
+                active: ComputerRowTransitionPhase(shown: false),
+                identity: ComputerRowTransitionPhase(shown: true)
+            ).animation(.easeIn(duration: 0.15).delay(0.25)),
+            removal: AnyTransition.modifier(
+                active: ComputerRowTransitionPhase(shown: false),
+                identity: ComputerRowTransitionPhase(shown: true)
+            ).animation(.easeOut(duration: 0.12))
         ))
     }
 
