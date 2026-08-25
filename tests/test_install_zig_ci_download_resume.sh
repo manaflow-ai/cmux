@@ -43,8 +43,13 @@ RESUME_CURL_LOG="$TMP_DIR/resume-curl.log"
 RANGE_RUNNER_TEMP="$TMP_DIR/range-runner-temp"
 RANGE_OUTPUT_FILE="$TMP_DIR/range-output"
 RANGE_CURL_LOG="$TMP_DIR/range-curl.log"
+BUDGET_RUNNER_TEMP="$TMP_DIR/budget-runner-temp"
+BUDGET_OUTPUT_FILE="$TMP_DIR/budget-output"
+BUDGET_CURL_LOG="$TMP_DIR/budget-curl.log"
+BUDGET_CLOCK_FILE="$TMP_DIR/budget-clock"
+MINISIGN_BIN_DIR="$TMP_DIR/minisign-bin"
 
-mkdir -p "$FIXTURE_ROOT/$ZIG_NAME/lib/compiler" "$BIN_DIR"
+mkdir -p "$FIXTURE_ROOT/$ZIG_NAME/lib/compiler" "$BIN_DIR" "$MINISIGN_BIN_DIR"
 cat > "$FIXTURE_ROOT/$ZIG_NAME/zig" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
@@ -83,6 +88,7 @@ set -euo pipefail
 url=""
 output=""
 continue_at=""
+max_time=""
 state_file="${CURL_LOG:?}.state"
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -90,11 +96,15 @@ while [ "$#" -gt 0 ]; do
       continue_at="$2"
       shift 2
       ;;
+    --max-time)
+      max_time="$2"
+      shift 2
+      ;;
     --output)
       output="$2"
       shift 2
       ;;
-    http://primary.invalid/*|https://primary.invalid/*|http://secondary.invalid/*|https://secondary.invalid/*|http://official.invalid/*|https://official.invalid/*)
+    http://primary.invalid/*|https://primary.invalid/*|http://secondary.invalid/*|https://secondary.invalid/*|http://tertiary.invalid/*|https://tertiary.invalid/*|http://official.invalid/*|https://official.invalid/*)
       url="$1"
       shift
       ;;
@@ -116,12 +126,25 @@ done
   echo "curl stub did not receive an output path" >&2
   exit 2
 }
+[ -n "$max_time" ] || {
+  echo "curl stub did not receive --max-time" >&2
+  exit 2
+}
 
 resume_offset=0
 if [ -f "$output" ]; then
   resume_offset="$(wc -c < "$output" | tr -d ' ')"
 fi
-  printf '%s\t%s\tcontinue-at=%s\tresume-offset=%s\n' "$url" "$output" "$continue_at" "$resume_offset" >> "${CURL_LOG:?}"
+  printf '%s\t%s\tcontinue-at=%s\tresume-offset=%s\tmax-time=%s\n' "$url" "$output" "$continue_at" "$resume_offset" "$max_time" >> "${CURL_LOG:?}"
+
+  if [ -n "${FAKE_CURL_CLOCK_FILE:-}" ]; then
+    elapsed=6
+    if [ "$max_time" -lt "$elapsed" ]; then
+      elapsed="$max_time"
+    fi
+    now="$(cat "$FAKE_CURL_CLOCK_FILE")"
+    printf '%s\n' "$((now + elapsed))" > "$FAKE_CURL_CLOCK_FILE"
+  fi
 
 case "$url" in
   *primary.invalid*)
@@ -152,24 +175,84 @@ exit 1
 EOF
 chmod +x "$BIN_DIR/sudo"
 
+cat > "$MINISIGN_BIN_DIR/minisign" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod +x "$MINISIGN_BIN_DIR/minisign"
+
 run_install() {
   local mode="$1"
   local runner_temp="$2"
   local output_file="$3"
   local curl_log="$4"
-  PATH="$BIN_DIR:/usr/bin:/bin" \
+  local budget_seconds="${5:-480}"
+  local clock_file="${6:-}"
+  local include_minisign="${7:-0}"
+  local path_prefix="$BIN_DIR"
+  if [ "$include_minisign" = "1" ]; then
+    path_prefix="$MINISIGN_BIN_DIR:$path_prefix"
+  fi
+  PATH="$path_prefix:/usr/bin:/bin" \
     RUNNER_TEMP="$runner_temp" \
     FAKE_CURL_MODE="$mode" \
+    ZIG_DOWNLOAD_BUDGET_SECONDS="$budget_seconds" \
     ZIG_DOWNLOAD_RETRY_DELAY=0 \
     FAKE_ZIG_ARCHIVE="$ARCHIVE" \
     CURL_LOG="$curl_log" \
+    FAKE_CURL_CLOCK_FILE="$clock_file" \
+    ZIG_DOWNLOAD_TEST_CLOCK_FILE="$clock_file" \
     ZIG_REQUIRED="$ZIG_REQUIRED" \
     ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
     ZIG_MIRROR_URL="https://primary.invalid/$ZIG_NAME.tar.xz" \
     ZIG_SECONDARY_MIRROR_URL="https://secondary.invalid/$ZIG_NAME.tar.xz" \
+    ZIG_TERTIARY_MIRROR_URL="https://tertiary.invalid/$ZIG_NAME.tar.xz" \
     ZIG_OFFICIAL_URL="https://official.invalid/$ZIG_NAME.tar.xz" \
     "$SCRIPT" > "$output_file" 2>&1
 }
+
+if ! grep -Fq 'zig-mirror.tsimnet.eu/zig/' "$SCRIPT"; then
+  echo "FAIL: installer does not use the verified Tsimnet mirror by default" >&2
+  exit 1
+fi
+
+printf '0\n' > "$BUDGET_CLOCK_FILE"
+run_install resume "$BUDGET_RUNNER_TEMP" "$BUDGET_OUTPUT_FILE" "$BUDGET_CURL_LOG" 42 "$BUDGET_CLOCK_FILE" 1
+if [ "$(cat "$BUDGET_CLOCK_FILE")" -ne 18 ]; then
+  cat "$BUDGET_OUTPUT_FILE"
+  cat "$BUDGET_CURL_LOG"
+  echo "FAIL: resumable download exceeded its virtual invocation deadline" >&2
+  exit 1
+fi
+if ! awk -F '\t' '{ split($5, timeout, "="); if (timeout[2] > 42) { invalid = 1 } } END { exit(invalid ? 1 : 0) }' "$BUDGET_CURL_LOG"; then
+  cat "$BUDGET_OUTPUT_FILE"
+  cat "$BUDGET_CURL_LOG"
+  echo "FAIL: curl attempt timeouts exceeded the invocation budget" >&2
+  exit 1
+fi
+if ! awk -F '\t' '$1 ~ /primary\.invalid/ && $2 !~ /\.minisig/ && $5 == "max-time=42" { found = 1 } END { exit(found ? 0 : 1) }' "$BUDGET_CURL_LOG"; then
+  cat "$BUDGET_OUTPUT_FILE"
+  cat "$BUDGET_CURL_LOG"
+  echo "FAIL: first curl process was not clamped to the remaining budget" >&2
+  exit 1
+fi
+if ! awk -F '\t' '$1 ~ /primary\.invalid/ && $2 !~ /\.minisig/ && $4 == "resume-offset=32" && $5 == "max-time=36" { found = 1 } END { exit(found ? 0 : 1) }' "$BUDGET_CURL_LOG"; then
+  cat "$BUDGET_OUTPUT_FILE"
+  cat "$BUDGET_CURL_LOG"
+  echo "FAIL: retry did not resume with the deadline-clamped timeout" >&2
+  exit 1
+fi
+if ! awk -F '\t' '$1 ~ /primary\.invalid/ && $2 ~ /\.minisig\.primary\.part/ && $5 == "max-time=30" { found = 1 } END { exit(found ? 0 : 1) }' "$BUDGET_CURL_LOG"; then
+  cat "$BUDGET_OUTPUT_FILE"
+  cat "$BUDGET_CURL_LOG"
+  echo "FAIL: signature download did not receive its remaining invocation budget" >&2
+  exit 1
+fi
+if [ ! -x "$BUDGET_RUNNER_TEMP/$ZIG_NAME/zig" ]; then
+  cat "$BUDGET_OUTPUT_FILE"
+  echo "FAIL: budgeted resumable transfer did not install Zig" >&2
+  exit 1
+fi
 
 run_install resume "$RESUME_RUNNER_TEMP" "$RESUME_OUTPUT_FILE" "$RESUME_CURL_LOG"
 if [ ! -x "$RESUME_RUNNER_TEMP/$ZIG_NAME/zig" ]; then
@@ -250,4 +333,4 @@ if [ ! -x "$RUNNER_TEMP/$ZIG_NAME/zig" ]; then
   exit 1
 fi
 
-echo "PASS: Zig downloads resume on one mirror and use isolated partial files for fallback mirrors"
+echo "PASS: Zig downloads honor the invocation budget, resume on one mirror, and use isolated partial files for fallback mirrors"

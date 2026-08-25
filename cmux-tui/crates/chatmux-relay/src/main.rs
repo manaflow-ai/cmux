@@ -306,7 +306,16 @@ async fn run_online(config: Config, config_path: &Path, state: SessionState) {
         shutdown_signal().await;
         signal_cancellation.cancel();
     });
-    let result = stay_online(config, config_path, state, cancellation).await;
+    let journal_task = config.events.clone().map(|events| {
+        // The journal forwarder owns a separate child task and cancellation
+        // path. Its retries can never block or fail the relay WebSocket.
+        chatmux_relay::journal_forwarder::start(events, cancellation.child_token())
+    });
+    let result = stay_online(config, config_path, state, cancellation.clone()).await;
+    cancellation.cancel();
+    if let Some(task) = journal_task {
+        let _ = task.await;
+    }
     if !signal_task.is_finished() {
         signal_task.abort();
     }

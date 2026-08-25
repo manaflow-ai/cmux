@@ -655,10 +655,12 @@ jobs:
             aarch64|arm64) install_target=cmux-tui-linux-arm64 ;;
             *) echo "unsupported package runner architecture: $(uname -m)" >&2; exit 1 ;;
           esac
+          relay_install_target="${install_target/cmux-tui/cmux-relay}"
           contract_args=(
             --npm-packages dist/npm-packages
             --version "$NPM_VERSION"
             --install-npm-package "$install_target"
+            --install-npm-relay-package "$relay_install_target"
           )
           if [[ "$INCLUDE_WINDOWS" == "true" ]]; then
             contract_args+=(--include-windows)

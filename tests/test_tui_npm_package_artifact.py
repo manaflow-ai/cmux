@@ -210,6 +210,19 @@ def test_publish_workflows_restore_the_mode_preserving_archive() -> None:
         assert "--archive dist/npm-packages.tar.gz" in workflow
 
 
+def test_publish_workflows_smoke_install_machine_relay() -> None:
+    workflows = (
+        ROOT / ".github/workflows/cmux-tui-build-package.yml",
+        ROOT / ".github/workflows/tui-publish-npm.yml",
+        ROOT / ".github/workflows/cmux-tui-nightly.yml",
+    )
+    for workflow_path in workflows:
+        workflow = workflow_path.read_text()
+        assert "--install-npm-relay-package cmux-relay-linux-x64" in workflow or (
+            "--install-npm-relay-package \"$relay_install_target\"" in workflow
+        ), workflow_path
+
+
 def test_pypi_build_runs_full_wheel_contract_before_smoke() -> None:
     build = (ROOT / ".github/workflows/cmux-tui-build-package.yml").read_text()
     validator = "python3 cmux-tui/dist/scripts/validate_package_contract.py"
@@ -226,6 +239,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as directory:
         test_extract_rejects_paths_outside_package_root(Path(directory))
     test_publish_workflows_restore_the_mode_preserving_archive()
+    test_publish_workflows_smoke_install_machine_relay()
 
 
 if __name__ == "__main__":
