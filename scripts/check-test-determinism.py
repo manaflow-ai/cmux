@@ -1675,6 +1675,60 @@ def _shell_word_value_and_bounds(
     return line[start:end], (start, end)
 
 
+def _shell_env_split_source_bounds(
+    line: str,
+    offset: int,
+) -> Optional[tuple[int, int]]:
+    """Return the command range consumed by a shell-form ``env -S`` wrapper."""
+    statement_start, statement_end = _shell_command_region_bounds(line, offset)
+    words = _shell_word_bounds(line, statement_start, statement_end)
+    index = 0
+    while index < len(words):
+        if (next_index := _shell_redirection_next_index(line, words, index)) is not None:
+            index = next_index
+            continue
+        raw = line[words[index][0] : words[index][1]]
+        value, _ = _shell_word_value_and_bounds(line, words[index])
+        if raw[:1] not in ("'", '"') and _SHELL_ASSIGNMENT_WORD.match(raw):
+            index += 1
+            continue
+        if value.rsplit("/", 1)[-1] != "env":
+            return None
+        index += 1
+        break
+    if index == 0 or index >= len(words):
+        return None
+
+    while index < len(words):
+        value, bounds = _shell_word_value_and_bounds(line, words[index])
+        if value in ("-S", "--split-string"):
+            if index + 1 >= len(words):
+                return None
+            source_word = words[index + 1]
+            _source_value, source_bounds = _shell_word_value_and_bounds(
+                line,
+                source_word,
+            )
+            source_end = (
+                source_bounds[1]
+                if line[source_word[0] : source_word[1]].startswith(("'", '"'))
+                else statement_end
+            )
+            return (source_bounds[0], source_end)
+        if value.startswith("-S") and len(value) > 2:
+            return (bounds[0] + 2, bounds[1])
+        if value.startswith("--split-string="):
+            return (bounds[0] + len("--split-string="), bounds[1])
+        if value in ("-C", "--chdir", "-u", "--unset"):
+            index += 2
+            continue
+        if value.startswith("-") or _SHELL_ASSIGNMENT_WORD.match(value):
+            index += 1
+            continue
+        return None
+    return None
+
+
 def _evaluated_source_argument_bounds(
     line: str,
     arguments: list[tuple[int, int]],
@@ -1861,6 +1915,84 @@ def _interpreter_source_suffix(spec: _InterpreterSourceSpec) -> str:
     return ".ts"
 
 
+def _nested_network_source_target_ranges(
+    line: str,
+    source_bounds: tuple[int, int],
+    verb_start: int,
+    path_suffix: str,
+) -> list[tuple[int, int]]:
+    """Resolve a network verb inside a command string using that language's rules."""
+    if not _bounds_contain_offset(source_bounds, verb_start):
+        return []
+    source_start, source_end = source_bounds
+    source = line[source_start:source_end]
+    relative_verb_start = verb_start - source_start
+    nested_match = next(
+        (
+            nested
+            for nested in _NETWORK_VERB.finditer(source)
+            if nested.start() <= relative_verb_start < nested.end()
+        ),
+        None,
+    )
+    if nested_match is None:
+        return []
+    nested_ranges = _network_target_ranges(source, nested_match, path_suffix)
+    if not any(
+        _contains_public_network_url(source[start:end])
+        for start, end in nested_ranges
+    ):
+        return []
+    return [
+        (source_start + start, source_start + end)
+        for start, end in nested_ranges
+    ]
+
+
+def _argv_env_split_source_bounds(
+    line: str,
+    opening_paren: int,
+    path_suffix: str,
+    object_command_labels: frozenset[str],
+) -> Optional[tuple[int, int]]:
+    """Return the command string consumed by an argv-form ``env -S`` wrapper."""
+    elements = _argv_elements(
+        line,
+        opening_paren,
+        path_suffix,
+        object_command_labels,
+    )
+    if not elements or elements[0].literal is None:
+        return None
+    if elements[0].literal.rsplit("/", 1)[-1] != "env":
+        return None
+
+    index = 1
+    while index < len(elements):
+        value = elements[index].literal
+        if value is None:
+            return None
+        bounds = elements[index].value_bounds
+        if value in ("-S", "--split-string"):
+            return (
+                elements[index + 1].value_bounds
+                if index + 1 < len(elements)
+                else None
+            )
+        if value.startswith("-S") and len(value) > 2:
+            return (bounds[0] + 2, bounds[1])
+        if value.startswith("--split-string="):
+            return (bounds[0] + len("--split-string="), bounds[1])
+        if value in ("-C", "--chdir", "-u", "--unset"):
+            index += 2
+            continue
+        if value.startswith("-") or _SHELL_ASSIGNMENT_WORD.match(value):
+            index += 1
+            continue
+        return None
+    return None
+
+
 def _argv_executable_index(
     elements: list[_ArgvElement],
 ) -> Optional[int]:
@@ -1907,32 +2039,29 @@ def _argv_execution_target_ranges(
     if interpreter_context is not None:
         evaluated_source, source_spec = interpreter_context
         if _bounds_contain_offset(evaluated_source, verb_start):
-            source_start, source_end = evaluated_source
-            source = line[source_start:source_end]
-            source_suffix = _interpreter_source_suffix(source_spec)
-            relative_verb_start = verb_start - source_start
-            nested_match = next(
-                (
-                    nested
-                    for nested in _NETWORK_VERB.finditer(source)
-                    if nested.start() <= relative_verb_start < nested.end()
-                ),
-                None,
+            return _nested_network_source_target_ranges(
+                line,
+                evaluated_source,
+                verb_start,
+                _interpreter_source_suffix(source_spec),
             )
-            if nested_match is not None:
-                nested_ranges = _network_target_ranges(
-                    source,
-                    nested_match,
-                    source_suffix,
-                )
-                if any(
-                    _contains_public_network_url(source[start:end])
-                    for start, end in nested_ranges
-                ):
-                    return [
-                        (source_start + start, source_start + end)
-                        for start, end in nested_ranges
-                    ]
+
+    env_split_source = _argv_env_split_source_bounds(
+        line,
+        opening_paren,
+        path_suffix,
+        object_command_labels,
+    )
+    if env_split_source is not None:
+        env_split_ranges = _nested_network_source_target_ranges(
+            line,
+            env_split_source,
+            verb_start,
+            ".sh",
+        )
+        if env_split_ranges:
+            return env_split_ranges
+        if _bounds_contain_offset(env_split_source, verb_start):
             return []
 
     executable_bounds = _argv_executable_bounds(
@@ -2776,6 +2905,19 @@ def _network_target_ranges(
     path_suffix: str,
 ) -> list[tuple[int, int]]:
     verb_start = match.start()
+    if path_suffix == ".sh":
+        env_split_source = _shell_env_split_source_bounds(line, verb_start)
+        if env_split_source is not None:
+            env_split_ranges = _nested_network_source_target_ranges(
+                line,
+                env_split_source,
+                verb_start,
+                ".sh",
+            )
+            if env_split_ranges:
+                return env_split_ranges
+            if _bounds_contain_offset(env_split_source, verb_start):
+                return []
     if path_suffix == ".sh" and match.group(0).lower().strip() == "curl":
         direct_ranges = _direct_network_target_ranges(line, match, path_suffix)
         if direct_ranges:
