@@ -398,6 +398,10 @@ extension CmxIrohHostRuntime {
             registrationRefreshPending = true
             return
         }
+        // A cached activation already owns a forced registration retry. The
+        // retry re-reads the endpoint, so starting another round here would
+        // race that owner and arm duplicate renewal deadlines.
+        guard !registrationRetryScheduled else { return }
         scheduleRegistrationRefresh(revision: revision)
     }
 
@@ -432,6 +436,7 @@ extension CmxIrohHostRuntime {
     ) {
         registrationRenewalTask?.cancel()
         registrationRenewalTask = nil
+        registrationRetryScheduled = false
         guard lifecyclePhase.ownsNetworkOperation,
               lifecycleRevision == revision,
               let deadline = Self.registrationRenewalDeadline(
@@ -455,6 +460,7 @@ extension CmxIrohHostRuntime {
         } catch {
             return
         }
+        registrationRetryScheduled = false
         guard lifecyclePhase == .active,
               lifecycleRevision == revision,
               !Task.isCancelled else { return }
@@ -482,6 +488,7 @@ extension CmxIrohHostRuntime {
         )
         registrationRenewalTask?.cancel()
         let deadline = registrationClock.now().addingTimeInterval(delay)
+        registrationRetryScheduled = true
         registrationRenewalTask = Task { [weak self] in
             await self?.runRegistrationRenewal(
                 revision: revision,
