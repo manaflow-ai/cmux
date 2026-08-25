@@ -36,7 +36,7 @@ actor LivenessHostRouter {
 
     private var recorded: [RecordedRequest] = []
     private var attachTicketFailuresRemaining = 0
-    private var countWaiters: [(
+    var countWaiters: [(
         id: UUID,
         method: String,
         expectedCount: Int,
@@ -169,109 +169,6 @@ actor LivenessHostRouter {
 
     func replayResponsesServed() -> Int {
         replayResponseCount
-    }
-
-    @discardableResult
-    func waitForCount(
-        of method: String,
-        atLeast expectedCount: Int,
-        timeoutNanoseconds: UInt64 = MobileShellWallClockWaitPolicy.defaultWaitTimeoutNanoseconds,
-        recordIssueOnTimeout: Bool = true
-    ) async -> Bool {
-        let effectiveTimeoutNanoseconds = MobileShellWallClockWaitPolicy
-            .timeoutNanoseconds(for: timeoutNanoseconds)
-        let operation: @Sendable () async throws -> Bool = {
-            try Task.checkCancellation()
-            return await withTaskGroup(of: Bool.self) { group in
-                group.addTask {
-                    await self.waitUntilCountReached(of: method, atLeast: expectedCount)
-                    return true
-                }
-                group.addTask {
-                    // Test assertion deadline only; request arrival is signaled by record().
-                    try? await Task.sleep(nanoseconds: effectiveTimeoutNanoseconds)
-                    return false
-                }
-                let reached = await group.next() ?? false
-                group.cancelAll()
-                return reached
-            }
-        }
-        let reached: Bool
-        if MobileShellWallClockWaitPolicy.shouldSerializeWait(
-            timeoutNanoseconds: timeoutNanoseconds
-        ) {
-            reached = (try? await MobileShellWallClockWaitGate.processWide.withLock(operation)) ?? false
-        } else {
-            reached = (try? await operation()) ?? false
-        }
-        if !reached, recordIssueOnTimeout {
-            Issue.record("timed out waiting for \(method) count >= \(expectedCount)")
-        }
-        return reached
-    }
-
-    /// Waits for the transport's real replay-request admission signal. This
-    /// is used by tests that need to distinguish an already-started request
-    /// from one that must wait for an output acknowledgement.
-    @discardableResult
-    func waitForReplayRequestStart(
-        after existingCount: Int,
-        timeoutNanoseconds: UInt64 = 250_000_000
-    ) async -> Bool {
-        await waitForCount(
-            of: "mobile.terminal.replay",
-            atLeast: existingCount + 1,
-            timeoutNanoseconds: timeoutNanoseconds,
-            recordIssueOnTimeout: false
-        )
-    }
-
-    private func waitUntilCountReached(of method: String, atLeast expectedCount: Int) async {
-        guard count(of: method) < expectedCount else { return }
-        let waiterID = UUID()
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                countWaiters.append((
-                    id: waiterID,
-                    method: method,
-                    expectedCount: expectedCount,
-                    continuation: continuation
-                ))
-                resumeSatisfiedCountWaiters()
-            }
-        } onCancel: {
-            Task { await self.cancelCountWaiter(id: waiterID) }
-        }
-    }
-
-    private func resumeSatisfiedCountWaiters() {
-        var remaining: [(
-            id: UUID,
-            method: String,
-            expectedCount: Int,
-            continuation: CheckedContinuation<Void, Never>
-        )] = []
-        var satisfied: [CheckedContinuation<Void, Never>] = []
-        for waiter in countWaiters {
-            if count(of: waiter.method) >= waiter.expectedCount {
-                satisfied.append(waiter.continuation)
-            } else {
-                remaining.append(waiter)
-            }
-        }
-        countWaiters = remaining
-        for continuation in satisfied {
-            continuation.resume()
-        }
-    }
-
-    private func cancelCountWaiter(id: UUID) {
-        guard let index = countWaiters.firstIndex(where: { $0.id == id }) else {
-            return
-        }
-        let waiter = countWaiters.remove(at: index)
-        waiter.continuation.resume()
     }
 
     func topics(for method: String) -> [[String]] {
@@ -984,31 +881,6 @@ func attachURL(for ticket: CmxAttachTicket) throws -> String {
         .replacingOccurrences(of: "/", with: "_")
         .replacingOccurrences(of: "=", with: "")
     return "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)"
-}
-
-/// Poll until `condition` is true, bounded at `attempts` x 10ms. The default
-/// budget is intentionally generous for whole-suite scheduling; callers that
-/// assert bounded absence can keep an explicit shorter attempt count. Returns
-/// the final value so tests can assert both presence and (bounded) absence.
-@MainActor
-func pollUntil(
-    attempts: Int = MobileShellWallClockWaitPolicy.defaultPollAttempts,
-    _ condition: @MainActor () async -> Bool
-) async throws -> Bool {
-    let operation: @Sendable () async throws -> Bool = {
-        try Task.checkCancellation()
-        for _ in 0..<attempts {
-            if await condition() {
-                return true
-            }
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
-        return await condition()
-    }
-    if MobileShellWallClockWaitPolicy.shouldSerializePoll(attempts: attempts) {
-        return try await MobileShellWallClockWaitGate.processWide.withLock(operation)
-    }
-    return try await operation()
 }
 
 @MainActor
