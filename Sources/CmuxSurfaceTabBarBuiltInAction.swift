@@ -9,6 +9,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
     case newTerminal = "cmux.newTerminal"
     case newBrowser = "cmux.newBrowser"
     case newSimulator = "cmux.newSimulator"
+    case newMacApp = "cmux.newMacApp"
     case splitRight = "cmux.splitRight"
     case splitDown = "cmux.splitDown"
 
@@ -31,6 +32,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             self = .newBrowser
         case "cmux.newSimulator", "newSimulator", "new-simulator", "simulator":
             self = .newSimulator
+        case "cmux.newMacApp", "newMacApp", "new-mac-app", "macapp":
+            self = .newMacApp
         case "cmux.splitRight", "splitRight":
             self = .splitRight
         case "cmux.splitDown", "splitDown":
@@ -63,6 +66,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return (String(localized: "command.newBrowserTab.title", defaultValue: "New Browser Tab"), ["new", "browser", "tab", "surface"])
         case .newSimulator:
             return (String(localized: "command.newSimulatorPane.title", defaultValue: "New Simulator Pane"), ["new", "simulator", "iphone", "ipad", "ios", "surface"])
+        case .newMacApp:
+            return (String(localized: "command.newMacAppPane.title", defaultValue: "New Mac App Pane"), ["new", "mac", "app", "window", "mirror", "surface"])
         case .splitRight:
             return (String(localized: "command.terminalSplitRight.title", defaultValue: "Split Right"), ["terminal", "split", "right"])
         case .splitDown:
@@ -86,6 +91,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return "globe"
         case .newSimulator:
             return "iphone.gen3"
+        case .newMacApp:
+            return "macwindow"
         case .splitRight:
             return "square.split.2x1"
         case .splitDown:
@@ -95,7 +102,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
 
     var bonsplitAction: BonsplitConfiguration.SplitActionButton.Action? {
         switch self {
-        case .newWorkspace, .newAgentChat, .cloudVM, .mobileConnect, .newSimulator:
+        case .newWorkspace, .newAgentChat, .cloudVM, .mobileConnect, .newSimulator, .newMacApp:
             return nil
         case .newTerminal:
             return .newTerminal

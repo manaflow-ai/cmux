@@ -7161,6 +7161,7 @@ struct ContentView: View {
         if CmuxFeatureFlags.shared.isSimulatorEnabled {
             contributions.append(.newSimulatorPane)
         }
+        contributions.append(.newMacAppPane)
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.closeTab",
@@ -8417,6 +8418,7 @@ struct ContentView: View {
             }
         }
         registry.registerNewSimulatorPane(tabManager: tabManager, windowId: windowId)
+        registry.registerNewMacAppPane(tabManager: tabManager, windowId: windowId)
         registry.register(commandId: "palette.closeTab") {
             if let dockBrowserStore, let browserTarget {
                 guard dockBrowserStore.containsPanel(

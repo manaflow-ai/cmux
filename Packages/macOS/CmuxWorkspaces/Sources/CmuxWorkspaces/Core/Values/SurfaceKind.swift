@@ -29,6 +29,8 @@ public struct SurfaceKind: RawRepresentable, Hashable, Sendable {
     public static let customSidebar = SurfaceKind(rawValue: "customSidebar")
     /// A native Apple Simulator pane.
     public static let simulator = SurfaceKind(rawValue: "simulator")
+    /// A pane that mirrors an open macOS application window.
+    public static let macApp = SurfaceKind(rawValue: "macapp")
     /// An agent-session pane.
     public static let agentSession = SurfaceKind(rawValue: "agentSession")
     /// A project pane.

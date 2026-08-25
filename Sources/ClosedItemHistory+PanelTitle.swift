@@ -29,6 +29,8 @@ extension ClosedItemHistoryStore {
             return String(localized: "menu.history.recentlyClosed.panel.customSidebar", defaultValue: "Custom Sidebar")
         case .simulator:
             return String(localized: "menu.history.recentlyClosed.panel.simulator", defaultValue: "Simulator")
+        case .macApp:
+            return String(localized: "menu.history.recentlyClosed.panel.macApp", defaultValue: "Mac App")
         case .agentSession:
             return String(localized: "menu.history.recentlyClosed.panel.agentSession", defaultValue: "Agent")
         case .project:

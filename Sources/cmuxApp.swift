@@ -769,6 +769,10 @@ struct cmuxApp: App {
                     }
                 }
 
+                Button(String(localized: "menu.file.newMacAppPane", defaultValue: "New Mac App Pane")) {
+                    performNewMacAppPaneFromMenu()
+                }
+
                 splitCommandButton(title: String(localized: "menu.file.newWorkspaceGroup", defaultValue: "New Workspace Group"), shortcut: menuShortcut(for: .newWorkspaceGroup)) {
                     _ = AppDelegate.shared?.createEmptyWorkspaceGroup(
                         tabManager: activeTabManager,

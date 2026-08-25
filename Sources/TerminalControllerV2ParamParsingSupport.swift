@@ -200,6 +200,8 @@ extension TerminalController {
             return .rightSidebarTool
         case "simulator", "iossimulator":
             return .simulator
+        case "macapp", "macapplication", "appwindow":
+            return .macApp
         case "agentsession":
             return .agentSession
         default:

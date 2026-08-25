@@ -197,6 +197,8 @@ extension Workspace {
             return SurfaceKind.customSidebar.rawValue
         case .simulator:
             return SurfaceKind.simulator.rawValue
+        case .macApp:
+            return SurfaceKind.macApp.rawValue
         case .agentSession:
             return SurfaceKind.agentSession.rawValue
         case .project:

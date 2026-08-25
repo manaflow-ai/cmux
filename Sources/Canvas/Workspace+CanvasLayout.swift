@@ -221,6 +221,7 @@ enum CanvasNewPaneType {
     case terminal
     case browser
     case simulator
+    case macApp
 }
 
 extension Workspace {
@@ -255,6 +256,11 @@ extension Workspace {
             newPanelId = panel.id
         case .simulator:
             guard let panel = newSimulatorSurface(inPane: focusedPaneId, focus: focus) else {
+                return nil
+            }
+            newPanelId = panel.id
+        case .macApp:
+            guard let panel = newMacAppSurface(inPane: focusedPaneId, focus: focus) else {
                 return nil
             }
             newPanelId = panel.id

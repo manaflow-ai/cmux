@@ -720,6 +720,10 @@ extension Workspace {
             guard let snapshot = simulatorSessionSnapshot(for: panel) else { return nil }
             terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil; rightSidebarToolSnapshot = nil
             simulatorSnapshot = snapshot; agentSessionSnapshot = nil; projectSnapshot = nil
+        case .macApp:
+            // App windows are process-owned and their identifiers are not stable
+            // across launches, so the pane intentionally reopens at the picker.
+            return nil
         case .agentSession:
             guard let agentPanel = panel as? AgentSessionPanel else { return nil }
             terminalSnapshot = nil
@@ -1853,6 +1857,7 @@ extension Workspace {
             return toolPanel.id
         case .customSidebar: return restoreCustomSidebarPanel(from: snapshot, inPane: paneId)
         case .simulator: return restoreSimulatorPanel(from: snapshot, inPane: paneId)
+        case .macApp: return nil
         case .agentSession:
             guard let agentSession = snapshot.agentSession,
                   let agentPanel = newAgentSessionSurface(
@@ -3806,6 +3811,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             if builtInAction == .mobileConnect { return CmuxFeatureFlags.shared.isMobileConnectButtonEnabled }
             if builtInAction == .newAgentChat { return CmuxFeatureFlags.shared.isAgentChatUIEnabled }
             if builtInAction == .newSimulator { return CmuxFeatureFlags.shared.isSimulatorEnabled }
+            if builtInAction == .newMacApp { return true }
             return true
         }
         let executableButtons = Dictionary(
@@ -13543,6 +13549,8 @@ extension Workspace: BonsplitDelegate {
                 }
             case .newSimulator:
                 _ = newSimulatorSurface(inPane: pane, focus: true)
+            case .newMacApp:
+                _ = newMacAppSurface(inPane: pane, focus: true)
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }
