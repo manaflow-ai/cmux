@@ -2614,7 +2614,7 @@ mod tests {
             exit_seen.lock().unwrap().push(format!("exit:{code}"));
         });
         let delivery = ViewerDelivery::with_overflow(on_data, on_exit, TestArc::new(|| {}));
-        assert!(!delivery.finish(9));
+        assert!(matches!(delivery.finish(9), ViewerDeliveryAction::None));
         delivery.seed(Some(Bytes::from_static(b"banner")), Some(Bytes::from_static(b"replay")));
         assert!(delivery.activate());
         delivery.drain();
