@@ -6,7 +6,7 @@
 // trustworthy; this side only decides whether that endpoint is admitted.
 
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { irohEndpointBindings } from "../../db/schema";
@@ -55,6 +55,16 @@ export function verifyRelayAllowSignature(
 }
 
 /**
+ * Server-side execution bound for the admission queries. Postgres cancels a
+ * query that exceeds it and returns the pooled connection, so a stalled
+ * lookup cannot accumulate in-flight work while the route's own deadline
+ * (slightly longer, see the route) bounds the response. Kept below that
+ * deadline so the database usually cancels first and the route answers its
+ * clean fail-closed 503 through the ordinary error path.
+ */
+export const RELAY_ALLOW_STATEMENT_TIMEOUT_MS = 2_500;
+
+/**
  * Admitted iff the endpoint has an active (non-revoked) binding whose account
  * has no blocking deletion tombstone. The partial unique index
  * `iroh_endpoint_bindings_active_endpoint_unique` guarantees at most one
@@ -64,17 +74,30 @@ export async function relayAllowAdmission(
   endpointId: string,
 ): Promise<RelayAllowAdmission> {
   const db = cloudDb();
-  const [binding] = await db
-    .select({ userId: irohEndpointBindings.userId })
-    .from(irohEndpointBindings)
-    .where(and(
-      eq(irohEndpointBindings.endpointId, endpointId),
-      isNull(irohEndpointBindings.revokedAt),
-    ))
-    .limit(1);
-  if (!binding) return "deny";
-  if (await hasBlockingAccountDeletionIdentity(db, [binding.userId])) {
-    return "deny";
-  }
-  return "allow";
+  return await db.transaction(async (tx) => {
+    // SET LOCAL via set_config: scoped to this transaction, cancels the
+    // statement server-side on expiry (error 57014 -> the route's 503).
+    await tx.execute(sql`
+      select set_config(
+        'statement_timeout',
+        ${String(RELAY_ALLOW_STATEMENT_TIMEOUT_MS)},
+        true
+      )
+    `);
+    const [binding] = await tx
+      .select({ userId: irohEndpointBindings.userId })
+      .from(irohEndpointBindings)
+      .where(and(
+        eq(irohEndpointBindings.endpointId, endpointId),
+        isNull(irohEndpointBindings.revokedAt),
+      ))
+      .limit(1);
+    if (!binding) return "deny" as const;
+    // Reads through the same transaction so the tombstone check shares this
+    // transaction's statement_timeout.
+    if (await hasBlockingAccountDeletionIdentity(tx, [binding.userId])) {
+      return "deny" as const;
+    }
+    return "allow" as const;
+  });
 }

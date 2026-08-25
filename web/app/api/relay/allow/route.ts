@@ -23,9 +23,14 @@ import {
 } from "../../../../services/relay/allow";
 
 const MAX_BODY_BYTES = 4 * 1_024;
-// Bound the admission lookup so a stalled database query cannot hold the
-// relay's per-connection access check (and with it every new endpoint
-// admission) until some external timeout. Expiry fails closed to 503.
+// Response-latency bound for the admission lookup, so a stalled database
+// query cannot hold the relay's per-connection access check (and with it
+// every new endpoint admission) until some external timeout. Expiry fails
+// closed to 503. The real resource bound is server-side: the admission
+// transaction sets a shorter statement_timeout
+// (RELAY_ALLOW_STATEMENT_TIMEOUT_MS), so Postgres cancels a stalled query
+// and frees the pooled connection instead of leaving abandoned work in
+// flight behind this deadline.
 const ADMISSION_TIMEOUT_MS = 3_000;
 // iroh-relay 1.0.3 sends the hex EndpointId in this header (constant
 // X_IROH_ENDPOINT_ID = "X-Iroh-NodeId" in its src/main.rs).
@@ -75,9 +80,14 @@ async function admissionWithDeadline(
   endpointId: string,
 ): Promise<RelayAllowAdmission> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const admission = deps.admission(endpointId);
+  // A lookup that settles (typically rejecting on the database-side
+  // statement_timeout) after losing the race must not surface as an
+  // unhandled rejection.
+  admission.catch(() => undefined);
   try {
     return await Promise.race([
-      deps.admission(endpointId),
+      admission,
       new Promise<never>((_, reject) => {
         timer = setTimeout(
           () => reject(new Error("relay_allow_admission_timeout")),

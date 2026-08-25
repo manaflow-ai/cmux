@@ -75,7 +75,7 @@ export function isBlockingAccountDeletionTombstone(
 }
 
 export async function hasBlockingAccountDeletionIdentity(
-  db: ReturnType<typeof cloudDb>,
+  db: AccountDeletionQueryExecutor,
   userIds: readonly string[],
 ): Promise<boolean> {
   const userIdHashes = uniqueAccountDeletionIdentityHashes(userIds);
