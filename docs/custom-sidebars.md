@@ -67,7 +67,9 @@ keys and `cmux(...)` actions as the left sidebar and hot-reloads the same way.
 `panel-sessions` (every session with live search and a this-workspace/all
 scope toggle), `panel-todo` (an interactive scratch checklist),
 `panel-subagents` (every coding-agent session grouped by workspace with live
-status, elapsed time, and jump-to-terminal), and
+status, elapsed time, and jump-to-terminal), five agent-roster variations
+(`agents-board` by status, `agents-cards`, `agents-timeline`, `agents-focus`
+hero+queue, `agents-dense` monospace), and
 `kitchen-sink` (every runtime feature on one panel) are right-panel-shaped
 examples.
 
