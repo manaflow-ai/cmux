@@ -11,16 +11,23 @@ struct ArtifactPathResolver: Sendable {
         self.fileManager = fileManager
     }
 
-    func isEphemeral(_ url: URL, prefixes: [String], temporaryDirectory: URL) -> Bool {
+    func isEphemeral(_ url: URL, prefixes: [String]) -> Bool {
         let path = canonicalPath(url)
-        let temporary = canonicalPath(temporaryDirectory)
+        let trustedRoots = ArtifactCaptureConfiguration.defaultValue.ephemeralPathPrefixes.map {
+            canonicalPath(URL(fileURLWithPath: $0, isDirectory: true))
+        }
         return prefixes.contains {
-            contains(
+            let prefix = canonicalPath(URL(fileURLWithPath: $0, isDirectory: true))
+            guard trustedRoots.contains(where: { trustedRoot in
+                contains(path: prefix, under: trustedRoot)
+            }) else {
+                return false
+            }
+            return contains(
                 path: path,
-                under: canonicalPath(URL(fileURLWithPath: $0, isDirectory: true))
+                under: prefix
             )
         }
-            || contains(path: path, under: temporary)
     }
 
     func isInsideStore(_ url: URL, paths: ArtifactStorePaths) -> Bool {

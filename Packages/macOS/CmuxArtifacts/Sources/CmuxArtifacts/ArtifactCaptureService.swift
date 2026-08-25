@@ -148,11 +148,16 @@ public actor ArtifactCaptureService: ArtifactCapturing {
         case .created, .attached:
             return configuration.captureCreatedAndAttached
         case .referenced:
+            let pathResolver = ArtifactPathResolver(fileManager: fileManager)
             return configuration.captureReferencedEphemeral
-                && ArtifactPathResolver(fileManager: fileManager).relativePath(
+                && pathResolver.relativePath(
                     candidate.sourceURL,
                     root: context.projectRoot
                 ) != nil
+                && pathResolver.isEphemeral(
+                    candidate.sourceURL,
+                    prefixes: configuration.ephemeralPathPrefixes
+                )
         case .manual:
             return true
         }

@@ -41,3 +41,8 @@ Projects can override the conservative defaults with a partial
 `contentSearchTotalMaximumBytes`, `maximumSearchResults`, `allowedExtensions`, and
 `ephemeralPathPrefixes`; omitted keys inherit the defaults in
 `ArtifactCaptureConfiguration`.
+
+Unstructured referenced paths must remain inside the project and beneath one of
+the normalized `ephemeralPathPrefixes`. Structured created and attached paths
+use their authoritative provenance instead; external references require a
+manual add.

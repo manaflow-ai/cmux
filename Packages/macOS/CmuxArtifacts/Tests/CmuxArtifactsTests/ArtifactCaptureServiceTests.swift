@@ -227,8 +227,7 @@ struct ArtifactCaptureServiceTests {
 
         let isEphemeral = ArtifactPathResolver(fileManager: .default).isEphemeral(
             privateAlias.appendingPathComponent("preview.md"),
-            prefixes: [temporary.path],
-            temporaryDirectory: URL(fileURLWithPath: "/tmp", isDirectory: true)
+            prefixes: [temporary.path]
         )
 
         #expect(isEphemeral)

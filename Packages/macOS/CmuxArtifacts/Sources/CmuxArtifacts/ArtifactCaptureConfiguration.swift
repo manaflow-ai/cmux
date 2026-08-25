@@ -6,8 +6,8 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
     public var automaticCaptureEnabled: Bool
     /// Whether structured created and attached paths are copied from outside the store.
     public var captureCreatedAndAttached: Bool
-    /// Whether unstructured project-local references are copied automatically.
-    /// External references always require an explicit manual add.
+    /// Whether unstructured project-local references under a trusted ephemeral root
+    /// are copied automatically. External references always require an explicit manual add.
     public var captureReferencedEphemeral: Bool
     /// Maximum bytes for image, video, markdown, HTML, and patch imports.
     public var maximumFileBytes: Int64
@@ -31,7 +31,7 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
     public var maximumSearchResults: Int
     /// Filename extensions eligible for automatic and manual import.
     public var allowedExtensions: Set<String>
-    /// Trusted ephemeral prefixes retained for compatible path classification.
+    /// Trusted ephemeral prefixes used to narrow project-local referenced capture.
     /// Project configuration may narrow these roots but cannot expand them.
     public var ephemeralPathPrefixes: [String]
 
@@ -64,7 +64,7 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
     /// - Parameters:
     ///   - automaticCaptureEnabled: Whether automatic transcript capture is enabled.
     ///   - captureCreatedAndAttached: Whether structured created and attached paths are eligible.
-    ///   - captureReferencedEphemeral: Whether project-local unstructured references are eligible.
+    ///   - captureReferencedEphemeral: Whether project-local ephemeral references are eligible.
     ///   - maximumFileBytes: Maximum bytes for rich-media and document imports.
     ///   - maximumTextFileBytes: Maximum bytes for plain and structured text imports.
     ///   - maximumTranscriptScanBytes: Maximum transcript bytes parsed per automatic scan.
