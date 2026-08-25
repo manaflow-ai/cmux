@@ -117,6 +117,23 @@ extension AppDelegate {
     ) -> [SurfaceResumeBindingIndex.PanelKey: Int64] {
         guard let manager = route.tabManager else { return [:] }
         var bindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
+
+        func appendBindings(from dock: DockSplitStore) {
+            for (panelID, panel) in dock.panels {
+                guard let terminal = panel as? TerminalPanel,
+                      let device = terminal.surface.controllingTTYDeviceIdentifier,
+                      device > 0 else {
+                    continue
+                }
+                bindings[
+                    SurfaceResumeBindingIndex.PanelKey(
+                        workspaceId: dock.workspaceId,
+                        panelId: panelID
+                    )
+                ] = device
+            }
+        }
+
         for workspace in manager.tabs {
             for (panelID, panel) in workspace.panels {
                 guard let terminal = panel as? TerminalPanel else { continue }
@@ -130,6 +147,12 @@ extension AppDelegate {
                     )
                 ] = device
             }
+            if let dock = workspace._dockSplit {
+                appendBindings(from: dock)
+            }
+        }
+        if case .live(let dock)? = route.windowDock {
+            appendBindings(from: dock)
         }
         return bindings
     }

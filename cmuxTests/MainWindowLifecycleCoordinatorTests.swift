@@ -208,6 +208,7 @@ struct MainWindowLifecycleCoordinatorTests {
         #expect(registered === original)
         #expect(coordinator.registeredContext(windowId: windowId) === original)
         #expect(coordinator.orphanedRoute(windowId: windowId) == nil)
+        #expect(originalWindow.identifier == nil)
     }
 
     @Test("Frozen orphan retention keeps only the newest configured records")
