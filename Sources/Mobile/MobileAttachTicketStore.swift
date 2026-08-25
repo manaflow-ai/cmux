@@ -228,6 +228,11 @@ final class MobileAttachTicketStore {
                 pairingURLScheme: pairingURLScheme
             )
         case .physicalDevice:
+            guard ticket.routes.contains(where: {
+                $0.kind == .iroh || $0.kind == .tailscale
+            }) else {
+                throw MobileAttachTicketStoreError.routeUnavailable
+            }
             // A mixed Iroh/Tailscale ticket must retain an encrypted Iroh
             // bootstrap for a phone that selected LAN Only or iroh Only before
             // scanning. Use the compact grammar with LAN removed: released

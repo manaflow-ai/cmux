@@ -30,6 +30,12 @@ enum MobileAttachTarget: String, Sendable {
             let irohRoutes = try Self.identityOnlyIrohRoutes(from: routes)
             let tailscaleRoutes = try Self.canonicalTailscaleRoutes(from: routes)
             let lanRoutes = try Self.canonicalLANRoutes(from: routes)
+            guard !irohRoutes.isEmpty || !tailscaleRoutes.isEmpty else {
+                // A raw LAN route cannot bootstrap an authenticated phone
+                // session by itself; require Iroh identity or Tailscale
+                // compatibility before minting a physical-device payload.
+                throw MobileAttachTicketStoreError.routeUnavailable
+            }
             // Keep every explicitly advertised network class alongside the
             // identity-only Iroh route. The iPhone's pinned mode filters this
             // set after pairing; dropping LAN/Tailscale here would make those

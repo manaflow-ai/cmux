@@ -363,21 +363,6 @@ struct MacComputerDetailView: View {
                 }
                 .accessibilityIdentifier("MobileComputerAddTailscaleConnectionButton")
             }
-            if (pendingConnectionMethod ?? selectedMethod) == .lan,
-               !computerHasUsableLANBootstrap {
-                Label {
-                    Text(L10n.string(
-                        "mobile.connections.lanUnavailableWarning",
-                        defaultValue: "No LAN route is advertised for this computer — it stays disconnected until both devices share a local network."
-                    ))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                } icon: {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                }
-                .accessibilityIdentifier("MobileComputerLANUnavailableWarning")
-            }
             if (pendingConnectionMethod ?? selectedMethod) == .iroh,
                !computerHasUsableIrohRoute {
                 Label {
@@ -626,18 +611,6 @@ struct MacComputerDetailView: View {
     private var computerHasUsableTailscaleAuthorization: Bool {
         guard let pairedMac else { return false }
         return MobileShellComposite.hasUsableTailscaleAuthorization(in: [pairedMac])
-    }
-
-    /// Whether this Computer has the encrypted Iroh bootstrap LAN Only uses.
-    private var computerHasUsableLANBootstrap: Bool {
-        guard let pairedMac else { return false }
-        return pairedMac.routes.contains { route in
-            guard route.kind == .iroh,
-                  case let .peer(_, pathHints) = route.endpoint else {
-                return false
-            }
-            return pathHints.contains { $0.source == .lan }
-        }
     }
 
     /// Whether this Computer currently advertises an authenticated Iroh peer.
