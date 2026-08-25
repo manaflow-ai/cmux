@@ -14,7 +14,10 @@ extension AgentChatTranscriptService {
         guard hasSubscribers || observesTranscriptsForAutomaticArtifactCapture else { return }
         ensureTailer(
             for: record,
-            ownership: hasSubscribers ? .mobileSubscriber : .automaticArtifactCapture,
+            // A global chat.message subscriber does not identify this session;
+            // keep eager observation in the bounded pool. Explicit history
+            // requests promote only the requested session below.
+            ownership: .automaticArtifactCapture,
             resolvePath: { resolver.boundedTranscriptPath(for: record) }
         )
     }
@@ -95,22 +98,24 @@ extension AgentChatTranscriptService {
     func reconcileTranscriptTailerOwnership() {
         let hasSubscribers = hasEventSubscribers()
         if hasSubscribers {
-            for sessionID in tailers.keys {
-                guard let record = registry.record(sessionID: sessionID), record.state != .ended else {
-                    continue
-                }
-                noteTailerUse(sessionID: sessionID, ownership: .mobileSubscriber)
-            }
+            // Presence is global to the topic, not scoped to every session.
+            // Do not promote the entire tailer inventory just because one
+            // phone is connected; explicit history requests own their session.
+            enforceArtifactTailerLimit()
             return
         }
 
         if observesTranscriptsForAutomaticArtifactCapture {
             for sessionID in tailers.keys {
+                if tailerOwnership[sessionID] == .mobileSubscriber {
+                    tailerOwnership[sessionID] = nil
+                }
                 noteTailerUse(sessionID: sessionID, ownership: .automaticArtifactCapture)
             }
             enforceArtifactTailerLimit()
         } else {
             for sessionID in Array(tailers.keys) {
+                guard tailerOwnership[sessionID] != .mobileSubscriber else { continue }
                 removeTailer(sessionID: sessionID)
             }
         }

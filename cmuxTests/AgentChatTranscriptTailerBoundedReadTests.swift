@@ -114,7 +114,14 @@ struct AgentChatTranscriptTailerOwnershipTests {
     func automaticCaptureTailersAreCappedAndEvictedByRecency() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
-        let service = makeArtifactCaptureService()
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            hasEventSubscribers: { true },
+            artifactCaptureCoordinator: AgentArtifactCaptureCoordinator(
+                captureService: ArtifactCaptureService(store: LocalArtifactRepository())
+            ),
+            isAutomaticArtifactCaptureEnabled: { true }
+        )
         let expectedCap = 32
         let total = expectedCap + 1
 
@@ -140,8 +147,8 @@ struct AgentChatTranscriptTailerOwnershipTests {
         await stopRemainingTailers(in: service)
     }
 
-    @Test("Subscriber-owned tailers survive the artifact-only cap and setting disable")
-    func subscriberTailersAreNotEvictedOrReleasedWithCapture() async throws {
+    @Test("Explicit mobile tailers stay outside the artifact-only cap")
+    func explicitMobileTailersStayOutsideArtifactCap() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         var hasSubscribers = true
@@ -157,6 +164,9 @@ struct AgentChatTranscriptTailerOwnershipTests {
 
         try makeTranscript(at: root, index: 0)
         noteSession(index: 0, root: root, service: service)
+        if let record = service.registry.record(sessionID: sessionID(index: 0)) {
+            _ = service.ensureTailer(for: record)
+        }
         hasSubscribers = false
         for index in 1...32 {
             try makeTranscript(at: root, index: index)
@@ -173,6 +183,31 @@ struct AgentChatTranscriptTailerOwnershipTests {
 
         await stopRemainingTailers(in: service)
     }
+
+    @Test("A global subscriber does not promote unrelated eager tailers")
+    func globalSubscriberDoesNotPromoteUnrelatedTailers() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            hasEventSubscribers: { true },
+            artifactCaptureCoordinator: AgentArtifactCaptureCoordinator(
+                captureService: ArtifactCaptureService(store: LocalArtifactRepository())
+            ),
+            isAutomaticArtifactCaptureEnabled: { true }
+        )
+        for index in 0...Self.artifactTailerCap {
+            try makeTranscript(at: root, index: index)
+            noteSession(index: index, root: root, service: service)
+        }
+
+        #expect(service.tailers.count == Self.artifactTailerCap)
+        #expect(service.tailerOwnership.values.allSatisfy { $0 == .automaticArtifactCapture })
+
+        await stopRemainingTailers(in: service)
+    }
+
+    private static let artifactTailerCap = 32
 
     @Test("Ending a session removes its tailer ownership")
     func endingSessionReleasesTailer() async throws {

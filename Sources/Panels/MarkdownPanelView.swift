@@ -143,7 +143,7 @@ struct MarkdownPanelView: View {
             )
             FileExternalOpenMenu(
                 fileURL: URL(fileURLWithPath: panel.filePath),
-                isDisabled: panel.isFileUnavailable
+                isDisabled: panel.isFileUnavailable || panel.isReadOnly
             )
         }
     }

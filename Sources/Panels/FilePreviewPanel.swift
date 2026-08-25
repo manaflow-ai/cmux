@@ -1464,7 +1464,10 @@ struct FilePreviewPanelView: View {
                 action: { panel.reloadFromDisk() }
             )
 
-            FileExternalOpenMenu(fileURL: panel.fileURL, isDisabled: panel.isFileUnavailable)
+            FileExternalOpenMenu(
+                fileURL: panel.fileURL,
+                isDisabled: panel.isFileUnavailable || panel.isReadOnly
+            )
         }
     }
 

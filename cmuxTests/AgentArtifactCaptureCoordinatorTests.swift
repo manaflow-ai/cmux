@@ -65,6 +65,45 @@ struct AgentArtifactCaptureCoordinatorTests {
         #expect(await store.importedPaths == [oldPath, newPath])
     }
 
+    @Test func sameSizeTranscriptRewriteResetsCaptureCursor() async throws {
+        let projectRoot = try temporaryProjectRoot()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let oldPath = projectRoot.appendingPathComponent("z-old.md").path
+        let rewrittenPath = projectRoot.appendingPathComponent("a-new.md").path
+        let store = OutOfOrderCaptureStore(suspendsFirstImport: false)
+        let coordinator = AgentArtifactCaptureCoordinator(
+            captureService: ArtifactCaptureService(store: store)
+        )
+        let record = captureRecord(projectRoot: projectRoot)
+        let first = AgentChatArtifactIndex.Snapshot(
+            referencedPaths: [oldPath],
+            artifacts: [ChatArtifactIndexedReference(
+                path: oldPath,
+                provenance: .created,
+                lastReferencedSeq: 1
+            )],
+            generation: "generation-1",
+            revision: 1,
+            transcriptExtent: 100
+        )
+        let rewritten = AgentChatArtifactIndex.Snapshot(
+            referencedPaths: [rewrittenPath],
+            artifacts: [ChatArtifactIndexedReference(
+                path: rewrittenPath,
+                provenance: .created,
+                lastReferencedSeq: 1
+            )],
+            generation: "generation-2",
+            revision: 2,
+            transcriptExtent: 100
+        )
+
+        await coordinator.capture(record: record, snapshot: first)
+        await coordinator.capture(record: record, snapshot: rewritten)
+
+        #expect(await store.importedPaths == [oldPath, rewrittenPath])
+    }
+
     @Test func busyStoreDoesNotCheckpointAnAutomaticArtifact() async throws {
         let projectRoot = try temporaryProjectRoot()
         defer { try? FileManager.default.removeItem(at: projectRoot) }

@@ -168,4 +168,17 @@ struct TerminalArtifactPathDetectorTests {
             "./relative/note.md",
         ])
     }
+
+    @Test("bounded extraction stops before retaining an unbounded path set")
+    func boundedExtraction() {
+        let text = (0..<2_000)
+            .map { "/tmp/generated/path-\($0).txt" }
+            .joined(separator: " ")
+
+        let paths = TerminalArtifactPathDetector().paths(in: text, maximumCount: 1_024)
+
+        #expect(paths.count == 1_024)
+        #expect(paths.first == "/tmp/generated/path-0.txt")
+        #expect(paths.last == "/tmp/generated/path-1023.txt")
+    }
 }

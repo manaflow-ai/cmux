@@ -56,10 +56,15 @@ actor AgentArtifactCaptureCoordinator {
         }
 
         let checkpoint = completedState?.checkpoint
-        let transcriptReset = checkpoint.map {
+        let sameExtentRewrite = checkpoint.map {
+            !$0.transcriptGeneration.isEmpty
+                && $0.transcriptGeneration != snapshot.generation
+                && $0.transcriptExtent == snapshot.transcriptExtent
+        } ?? false
+        let transcriptReset = (checkpoint.map {
             $0.transcriptLineage != snapshot.transcriptLineage
                 || snapshot.transcriptExtent < $0.transcriptExtent
-        } ?? false
+        } ?? false) || sameExtentRewrite
         let completedCursor = transcriptReset ? nil : checkpoint?.referenceCursor
         let currentPaths = Set(snapshot.artifacts.map(\.path))
         // Reference order can differ from authorization order, so consume authority per path.
@@ -93,6 +98,7 @@ actor AgentArtifactCaptureCoordinator {
                 AgentArtifactCompletedCaptureState(
                     revision: snapshot.revision,
                     checkpoint: AgentArtifactCaptureCheckpoint(
+                        transcriptGeneration: snapshot.generation,
                         transcriptLineage: snapshot.transcriptLineage,
                         transcriptExtent: snapshot.transcriptExtent,
                         referenceCursor: completedCursor,
@@ -133,6 +139,7 @@ actor AgentArtifactCaptureCoordinator {
             }
             let last = pending[processedCount - 1]
             updatedCheckpoint = AgentArtifactCaptureCheckpoint(
+                transcriptGeneration: snapshot.generation,
                 transcriptLineage: snapshot.transcriptLineage,
                 transcriptExtent: snapshot.transcriptExtent,
                 referenceCursor: AgentArtifactReferenceCursor(
