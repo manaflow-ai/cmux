@@ -25853,6 +25853,20 @@ struct CMUXCLI {
                         observedPermissionMode: observedHookPermissionMode
                     )
                 }
+                emitAgentJournalEvent(
+                    client: client,
+                    kind: .sessionStarted,
+                    source: "claude",
+                    agentKey: Self.claudeCodeStatusKey,
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    isSubagent: suppressVisibleMutations,
+                    nativeEvent: reportedHookEventName(from: parsedInput) ?? "SessionStart",
+                    detail: isClearSessionStart ? "clear-session-start" : nil,
+                    store: sessionStore,
+                    telemetry: telemetry
+                )
             }
             // Register PID for stale-session detection and OSC suppression.
             // Startup/resume SessionStart remains non-visible; /clear is a
