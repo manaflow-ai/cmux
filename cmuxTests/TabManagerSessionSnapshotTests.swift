@@ -1,7 +1,7 @@
 import CmuxWorkspaces
-import Combine
 import Darwin
 import CmuxCore
+import Observation
 import XCTest
 import CmuxTerminal
 
@@ -380,33 +380,69 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertGreaterThan(notificationCount, 0)
     }
 
-    func testFocusHistoryMenuInvalidatorSuppressesIdenticalProjection() {
+    func testHistoryMenuCoordinatorSuppressesIdenticalProjection() {
         let center = NotificationCenter()
         let manager = TabManager()
         let closedHistory = ClosedItemHistoryStore(
             fileURL: nil,
             loadPersisted: false
         )
-        let invalidator = FocusHistoryMenuInvalidator(
+        let coordinator = HistoryMenuCoordinator(
             center: center,
             closedItemHistoryStore: closedHistory,
-            managerProvider: { manager }
+            managerProvider: { manager },
+            actions: .unavailable
         )
-        var stateEmissionCount = 0
-        let cancellable = invalidator.$state.sink { _ in
-            stateEmissionCount += 1
+        coordinator.refreshIfNeeded()
+        let firstState = coordinator.state
+        var publicationCount = 0
+        withObservationTracking {
+            _ = coordinator.state
+        } onChange: {
+            publicationCount += 1
         }
-        defer { cancellable.cancel() }
+        coordinator.refreshIfNeeded()
 
-        invalidator.refreshIfNeeded()
-        let countAfterFirstRefresh = stateEmissionCount
-        invalidator.refreshIfNeeded()
+        XCTAssertEqual(coordinator.state, firstState)
+        XCTAssertEqual(publicationCount, 0)
 
-        XCTAssertEqual(stateEmissionCount, countAfterFirstRefresh)
-
+        withObservationTracking {
+            _ = coordinator.state
+        } onChange: {
+            publicationCount += 1
+        }
         _ = manager.addWorkspace(select: true)
         center.post(name: .tabManagerFocusHistoryRevisionDidChange, object: manager)
-        XCTAssertGreaterThan(stateEmissionCount, countAfterFirstRefresh)
+        XCTAssertNotEqual(coordinator.state, firstState)
+        XCTAssertEqual(publicationCount, 1)
+    }
+
+    func testHistoryMenuCoordinatorRefreshesTitlesWhenMenuAppears() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(firstWorkspace.focusedPanelId)
+        firstWorkspace.setCustomTitle("Before Workspace")
+        firstWorkspace.setPanelCustomTitle(panelId: panelId, title: "Before Pane")
+        _ = manager.addWorkspace(select: true)
+
+        let coordinator = HistoryMenuCoordinator(
+            closedItemHistoryStore: ClosedItemHistoryStore(fileURL: nil, loadPersisted: false),
+            managerProvider: { manager },
+            actions: .unavailable
+        )
+        coordinator.refreshIfNeeded()
+        XCTAssertEqual(coordinator.state.recentlyFocusedItems.first?.workspaceTitle, "Before Workspace")
+
+        let revisionBeforeRename = manager.focusHistoryRevision
+        firstWorkspace.setCustomTitle("After Workspace")
+        firstWorkspace.setPanelCustomTitle(panelId: panelId, title: "After Pane")
+        XCTAssertEqual(manager.focusHistoryRevision, revisionBeforeRename)
+        XCTAssertEqual(coordinator.state.recentlyFocusedItems.first?.workspaceTitle, "Before Workspace")
+
+        coordinator.menuWillAppear()
+
+        XCTAssertEqual(coordinator.state.recentlyFocusedItems.first?.workspaceTitle, "After Workspace")
+        XCTAssertEqual(coordinator.state.recentlyFocusedItems.first?.panelTitle, "After Pane")
     }
 
     func testFocusHistoryNavigationNotificationSeesUpdatedDirectionState() throws {

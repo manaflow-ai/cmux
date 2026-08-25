@@ -292,6 +292,45 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
         return FocusHistoryEntry(workspaceId: entry.workspaceId, panelId: nil)
     }
 
+    private func focusHistoryMenuItem(
+        record: FocusHistoryRecord,
+        historyIndex: Int,
+        direction: FocusHistoryMenuDirection,
+        scope: FocusHistoryNavigationScope,
+        currentEntry: FocusHistoryEntry?
+    ) -> FocusHistoryMenuItem? {
+        let entry = record.entry
+        let scopedEntry = scope == .workspacesOnly
+            ? FocusHistoryEntry(workspaceId: entry.workspaceId, panelId: nil)
+            : entry
+        guard let resolvedEntry = resolvedFocusHistoryEntry(for: scopedEntry),
+              let rawWorkspaceTitle = host?.workspaceTitle(resolvedEntry.workspaceId),
+              focusHistoryEntryIsNavigable(
+                  entry: scopedEntry,
+                  resolvedEntry: resolvedEntry,
+                  scope: scope,
+                  currentEntry: currentEntry
+              ) else {
+            return nil
+        }
+
+        let workspaceTitle = rawWorkspaceTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let panelTitle = scope == .workspacesOnly
+            ? nil
+            : resolvedEntry.panelId
+                .flatMap { host?.panelTitle(workspaceId: resolvedEntry.workspaceId, panelId: $0) }?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        return FocusHistoryMenuItem(
+            historyIndex: historyIndex,
+            entry: scopedEntry,
+            workspaceTitle: workspaceTitle,
+            panelTitle: panelTitle?.isEmpty == true ? nil : panelTitle,
+            position: direction == .back ? .older : .newer,
+            focusedAt: record.focusedAt,
+            isNavigable: true
+        )
+    }
+
     // MARK: - Menu snapshots
 
     public func focusHistoryMenuSnapshot(
@@ -316,40 +355,18 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
         var previousWorkspaceId: UUID?
         let items = historyIndices.compactMap { index -> FocusHistoryMenuItem? in
             let record = focusHistory[index]
-            let entry = record.entry
-            let scopedEntry = navigationEntry(for: entry)
-            guard let resolvedEntry = resolvedFocusHistoryEntry(for: scopedEntry),
-                  let rawWorkspaceTitle = host?.workspaceTitle(resolvedEntry.workspaceId),
-                  focusHistoryEntryIsNavigable(
-                      entry: scopedEntry,
-                      resolvedEntry: resolvedEntry,
-                      scope: scope,
-                      currentEntry: currentEntry
-                  ) else {
-                return nil
-            }
-            if scope == .workspacesOnly, previousWorkspaceId == entry.workspaceId {
-                return nil
-            }
-            previousWorkspaceId = entry.workspaceId
-
-            let workspaceTitle = rawWorkspaceTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-            let panelTitle = scope == .workspacesOnly
-                ? nil
-                : resolvedEntry.panelId
-                    .flatMap { host?.panelTitle(workspaceId: resolvedEntry.workspaceId, panelId: $0) }?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-            let position: FocusHistoryMenuPosition = direction == .back ? .older : .newer
-
-            return FocusHistoryMenuItem(
+            guard let item = focusHistoryMenuItem(
+                record: record,
                 historyIndex: index,
-                entry: scopedEntry,
-                workspaceTitle: workspaceTitle,
-                panelTitle: panelTitle?.isEmpty == true ? nil : panelTitle,
-                position: position,
-                focusedAt: record.focusedAt,
-                isNavigable: true
-            )
+                direction: direction,
+                scope: scope,
+                currentEntry: currentEntry
+            ) else { return nil }
+            if scope == .workspacesOnly, previousWorkspaceId == record.entry.workspaceId {
+                return nil
+            }
+            previousWorkspaceId = record.entry.workspaceId
+            return item
         }
         if let maxItemCount, maxItemCount >= 0, items.count > maxItemCount {
             return FocusHistoryMenuSnapshot(
@@ -423,35 +440,16 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
         var items: [FocusHistoryMenuItem] = []
         items.reserveCapacity(limit)
         for candidate in candidates {
-            let entry = candidate.record.entry
-            let scopedEntry = navigationEntry(for: entry)
-            guard let resolvedEntry = resolvedFocusHistoryEntry(for: scopedEntry),
-                  let rawWorkspaceTitle = host?.workspaceTitle(resolvedEntry.workspaceId),
-                  focusHistoryEntryIsNavigable(
-                      entry: scopedEntry,
-                      resolvedEntry: resolvedEntry,
-                      scope: scope,
-                      currentEntry: currentEntry
-                  ) else {
+            guard let item = focusHistoryMenuItem(
+                record: candidate.record,
+                historyIndex: candidate.index,
+                direction: candidate.direction,
+                scope: scope,
+                currentEntry: currentEntry
+            ) else {
                 continue
             }
-
-            let workspaceTitle = rawWorkspaceTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-            let panelTitle = scope == .workspacesOnly
-                ? nil
-                : resolvedEntry.panelId
-                    .flatMap { host?.panelTitle(workspaceId: resolvedEntry.workspaceId, panelId: $0) }?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-            let position: FocusHistoryMenuPosition = candidate.direction == .back ? .older : .newer
-            items.append(FocusHistoryMenuItem(
-                historyIndex: candidate.index,
-                entry: scopedEntry,
-                workspaceTitle: workspaceTitle,
-                panelTitle: panelTitle?.isEmpty == true ? nil : panelTitle,
-                position: position,
-                focusedAt: candidate.record.focusedAt,
-                isNavigable: true
-            ))
+            items.append(item)
             if items.count == limit {
                 break
             }

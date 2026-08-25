@@ -67,7 +67,7 @@ struct cmuxApp: App {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
     @State private var browserFocusModeMenuRevision = 0
-    @StateObject var focusHistoryMenuInvalidator: FocusHistoryMenuInvalidator
+    @State var historyMenuCoordinator: HistoryMenuCoordinator
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     private var browserToolbarAccessorySpacing: Int {
         BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
@@ -198,18 +198,33 @@ struct cmuxApp: App {
             workspaceCustomizationStore: workspaceCustomizationStore,
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
         )
-        let focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator(
+        let historyMenuCoordinator = HistoryMenuCoordinator(
+            closedItemHistoryStore: closedItemHistoryStore,
             managerProvider: {
                 AppDelegate.shared?.activeTabManagerForCommands(
                     preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
                 ) ?? tabManager
-            }
+            },
+            actions: HistoryMenuCoordinator.Actions(
+                reopenMostRecentlyClosedWorkspace: { manager in
+                    AppDelegate.shared?.reopenMostRecentlyClosedWorkspace(preferredTabManager: manager) == true
+                },
+                reopenMostRecentlyClosedItem: { manager in
+                    AppDelegate.shared?.reopenMostRecentlyClosedItem(preferredTabManager: manager) == true
+                },
+                reopenClosedHistoryItem: { id, manager in
+                    AppDelegate.shared?.reopenClosedHistoryItem(id: id, preferredTabManager: manager) == true
+                },
+                reopenPreviousSession: {
+                    AppDelegate.shared?.reopenPreviousSession() == true
+                }
+            )
         )
         _tabManager = StateObject(wrappedValue: tabManager)
         _notificationStore = StateObject(wrappedValue: notificationStore)
         _closedItemHistoryStore = StateObject(wrappedValue: closedItemHistoryStore)
         _sidebarState = StateObject(wrappedValue: sidebarState)
-        _focusHistoryMenuInvalidator = StateObject(wrappedValue: focusHistoryMenuInvalidator)
+        _historyMenuCoordinator = State(initialValue: historyMenuCoordinator)
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
         // Migrate legacy and old-format socket mode values to the new enum.
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
@@ -245,7 +260,7 @@ struct cmuxApp: App {
             settingsRuntime: settingsRuntime,
             auth: authComposition
         )
-        focusHistoryMenuInvalidator.refreshIfNeeded()
+        historyMenuCoordinator.refreshIfNeeded()
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }
 
