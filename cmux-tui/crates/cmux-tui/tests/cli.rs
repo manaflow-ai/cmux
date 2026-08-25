@@ -4126,6 +4126,29 @@ fn drain_into(mut source: impl Read, sink: std::sync::Arc<std::sync::Mutex<Vec<u
     }
 }
 
+/// Reaps the adoptable terminal hosts a deliberate daemon SIGKILL leaves
+/// behind. The fixture's Drop treats any surviving host as a leak, but this
+/// test kills the daemon on purpose (host adoption after a daemon death is
+/// covered elsewhere); the orphaned hosts are part of the arranged scene.
+#[cfg(unix)]
+fn reap_orphaned_hosts_after_daemon_kill(server: &HeadlessServer) {
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
+    for pid in terminal_host_pids(&host_root) {
+        if let Ok(pid) = libc::pid_t::try_from(pid) {
+            // SAFETY: terminating a test-owned child process group member.
+            unsafe {
+                libc::kill(pid, libc::SIGKILL);
+            }
+        }
+    }
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while terminal_host_pids(&host_root).iter().any(|pid| process_exists(*pid)) {
+        assert!(Instant::now() < deadline, "orphaned terminal hosts survived SIGKILL");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let _ = fs::remove_dir_all(&host_root);
+}
+
 #[cfg(unix)]
 fn pipe_io_terminal(server: &HeadlessServer) -> String {
     let created = json_cli(server, &["workspace", "create", "--name", "pipe-io"]);
@@ -4207,6 +4230,7 @@ fn pipe_io_exit_distinguishes_terminal_end_from_daemon_loss() {
     let (code, exit) = survivor.wait_for_exit();
     assert_eq!(code, 2, "daemon loss must exit 2, got {exit}");
     assert_eq!(exit["exit"]["reason"], "daemon-lost");
+    reap_orphaned_hosts_after_daemon_kill(&server);
 }
 
 #[cfg(unix)]

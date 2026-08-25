@@ -118,6 +118,16 @@ pub fn run(
         }
         SurfaceAttach::Deferred => anyhow::bail!("terminal attach was deferred by the server"),
     };
+    // The daemon resizes a terminal's PTY only for its geometry-authority
+    // client (the full TUI client claims this for its active surface). The
+    // relay is the embedder's only viewer of this terminal, so claim the
+    // authority or every embedder resize is recorded but never applied.
+    if let Err(error) = session.claim_terminal_geometry(surface) {
+        eprintln!(
+            "{}",
+            serde_json::json!({"diag": {"claim-terminal-geometry": {"error": error.to_string()}}})
+        );
+    }
     spawn_stdin_pump(handle, sender);
     let reason = pump_events_to_stdout(&receiver, &mut std::io::stdout().lock())?;
     if reason == PipeIoExitReason::DaemonLost {
