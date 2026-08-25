@@ -95,13 +95,8 @@ extension VerticalTabsSidebar {
     @ViewBuilder
     func sidebarDividerRow(
         divider: WorkspaceSidebarDivider,
-        renderContext: WorkspaceListRenderContext
+        shouldCollectWorkspaceDropTargets: Bool
     ) -> some View {
-        let shouldCollect = SidebarDropPlanner().shouldCollectWorkspaceDropTargets(
-            draggedTabId: dragState.draggedTabId,
-            isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropTargetCollectionActive
-                || isWorkspaceReorderDropTargetCollectionActive
-        )
         SidebarDividerRowView(
             dividerId: divider.id,
             onRemove: { [weak tabManager] in
@@ -115,7 +110,7 @@ extension VerticalTabsSidebar {
                 return SidebarTabDragPayload(tabId: divider.id).provider()
             }
         )
-        .sidebarWorkspaceFrameAnchor(id: divider.id, isEnabled: shouldCollect)
+        .sidebarWorkspaceFrameAnchor(id: divider.id, isEnabled: shouldCollectWorkspaceDropTargets)
     }
 
     /// Builds the divider's hosted AppKit-table configuration. Keeping it a

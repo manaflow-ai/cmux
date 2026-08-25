@@ -13667,7 +13667,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 case .divider(let divider):
                     sidebarDividerRow(
                         divider: divider,
-                        renderContext: renderContext
+                        shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
                     )
                 }
             }
