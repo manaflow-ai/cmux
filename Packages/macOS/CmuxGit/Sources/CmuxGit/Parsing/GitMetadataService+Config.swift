@@ -177,6 +177,7 @@ extension GitMetadataService {
             commonConfigURL: commonConfigURL
         )
         for configURL in gitRootConfigURLs(repository: repository, environment: environment) {
+            let isCommonConfigScope = budget.isCommonConfig(configURL)
             appendGitRemoteVLines(
                 fromConfigURL: configURL,
                 repository: repository,
@@ -184,7 +185,8 @@ extension GitMetadataService {
                 configURLs: &configURLs,
                 lines: &lines,
                 budget: &budget,
-                depth: 0
+                depth: 0,
+                isCommonConfigScope: isCommonConfigScope
             )
         }
         if budget.worktreeConfigEnabled {
@@ -195,7 +197,8 @@ extension GitMetadataService {
                 configURLs: &configURLs,
                 lines: &lines,
                 budget: &budget,
-                depth: 0
+                depth: 0,
+                isCommonConfigScope: false
             )
         }
         return GitRemoteConfigSnapshot(
@@ -226,26 +229,123 @@ extension GitMetadataService {
     private nonisolated static func gitGlobalConfigURLs(
         environment: [String: String]
     ) -> [URL] {
-        var urls: [URL] = []
-        if environment["GIT_CONFIG_NOSYSTEM"] == nil {
-            let systemPath = environment["GIT_CONFIG_SYSTEM"] ?? "/etc/gitconfig"
-            if systemPath != "/dev/null" {
-                urls.append(URL(fileURLWithPath: systemPath))
-            }
-        }
-        if let global = environment["GIT_CONFIG_GLOBAL"] {
+        var urls = gitSystemConfigURLs(environment: environment)
+        if let global = environment["GIT_CONFIG_GLOBAL"], !global.isEmpty {
             if global != "/dev/null" {
                 urls.append(URL(fileURLWithPath: global))
             }
         } else {
-            let home = FileManager.default.homeDirectoryForCurrentUser
-            urls.append(home.appendingPathComponent(".gitconfig"))
-            let xdgHome = environment["XDG_CONFIG_HOME"]
-                .map(URL.init(fileURLWithPath:))
-                ?? home.appendingPathComponent(".config", isDirectory: true)
+            let home = gitHomeDirectory(environment: environment)
+            let xdgHome: URL
+            if let configuredXDGHome = environment["XDG_CONFIG_HOME"],
+               !configuredXDGHome.isEmpty {
+                xdgHome = URL(fileURLWithPath: configuredXDGHome)
+            } else {
+                xdgHome = home.appendingPathComponent(".config", isDirectory: true)
+            }
             urls.append(xdgHome.appendingPathComponent("git/config"))
+            urls.append(home.appendingPathComponent(".gitconfig"))
         }
         return urls
+    }
+
+    /// Resolves the system config path using Git's installation prefix.
+    private nonisolated static func gitSystemConfigURLs(
+        environment: [String: String]
+    ) -> [URL] {
+        let noSystemConfig = environment["GIT_CONFIG_NOSYSTEM"].map {
+            !$0.isEmpty && $0 != "0"
+        } ?? false
+        guard !noSystemConfig else { return [] }
+
+        if let configured = environment["GIT_CONFIG_SYSTEM"],
+           !configured.isEmpty {
+            guard configured != "/dev/null" else { return [] }
+            return [URL(fileURLWithPath: configured)]
+        }
+
+        var candidates: [URL] = []
+        var seenPaths: Set<String> = []
+
+        if let execPath = environment["GIT_EXEC_PATH"],
+           let prefix = gitInstallationPrefix(from: execPath) {
+            appendGitSystemConfigCandidate(
+                URL(fileURLWithPath: prefix).appendingPathComponent("etc/gitconfig").path,
+                candidates: &candidates,
+                seenPaths: &seenPaths
+            )
+        }
+
+        if let path = environment["PATH"] {
+            for component in path.split(separator: ":", omittingEmptySubsequences: true) {
+                let executable = URL(fileURLWithPath: String(component))
+                    .appendingPathComponent("git")
+                guard FileManager.default.isExecutableFile(atPath: executable.path) else {
+                    continue
+                }
+                for candidatePath in [executable.path, executable.resolvingSymlinksInPath().path] {
+                    if let prefix = gitInstallationPrefix(from: candidatePath) {
+                        appendGitSystemConfigCandidate(
+                            URL(fileURLWithPath: prefix).appendingPathComponent("etc/gitconfig").path,
+                            candidates: &candidates,
+                            seenPaths: &seenPaths
+                        )
+                    }
+                }
+                break
+            }
+        }
+
+        appendGitSystemConfigCandidate(
+            "/etc/gitconfig",
+            candidates: &candidates,
+            seenPaths: &seenPaths
+        )
+        if let existing = candidates.first(where: {
+            FileManager.default.fileExists(atPath: $0.path)
+        }) {
+            return [existing]
+        }
+        return candidates.first.map { [$0] } ?? []
+    }
+
+    private nonisolated static func appendGitSystemConfigCandidate(
+        _ path: String,
+        candidates: inout [URL],
+        seenPaths: inout Set<String>
+    ) {
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        guard seenPaths.insert(url.path).inserted else { return }
+        candidates.append(url)
+    }
+
+    /// Resolves Git's effective home directory for an environment snapshot.
+    private nonisolated static func gitHomeDirectory(
+        environment: [String: String]
+    ) -> URL {
+        if let configuredHome = environment["HOME"], !configuredHome.isEmpty {
+            return URL(fileURLWithPath: configuredHome).standardizedFileURL
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
+    }
+
+    /// Derives an installation prefix from Git's executable or exec-root path.
+    private nonisolated static func gitInstallationPrefix(from path: String) -> String? {
+        let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
+        for suffix in ["/libexec/git-core", "/git-core"] {
+            guard normalized.hasSuffix(suffix) else { continue }
+            let prefix = String(normalized.dropLast(suffix.count))
+            return prefix.isEmpty ? "/" : prefix
+        }
+
+        let executableURL = URL(fileURLWithPath: normalized)
+        guard executableURL.lastPathComponent == "git",
+              executableURL.deletingLastPathComponent().lastPathComponent == "bin" else {
+            return nil
+        }
+        return executableURL.deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .path
     }
 
     /// Returns the per-worktree config path for a resolved checkout.
@@ -291,13 +391,26 @@ extension GitMetadataService {
                 continue
             }
             let remoteURL = gitConfigUnquotedValue(parts[1])
-            guard !remoteURL.isEmpty else {
+            if remoteURL.isEmpty {
+                removeRemoteVLines(named: currentRemoteName, from: &lines)
                 continue
             }
             lines.append("\(currentRemoteName)\t\(remoteURL) (fetch)\n")
         }
 
         return lines
+    }
+
+    /// Removes all inherited fetch URLs for one remote after an empty reset.
+    private nonisolated static func removeRemoteVLines(
+        named remoteName: String,
+        from lines: inout [String]
+    ) {
+        lines.removeAll { line in
+            line.split(whereSeparator: \.isWhitespace)
+                .first
+                .map(String.init) == remoteName
+        }
     }
 
     /// Appends `git remote -v` fetch lines from a config file (and its matching
@@ -310,7 +423,8 @@ extension GitMetadataService {
         configURLs: inout [URL],
         lines: inout [String],
         budget: inout GitConfigTraversalBudget,
-        depth: Int
+        depth: Int,
+        isCommonConfigScope: Bool
     ) {
         guard depth <= GitConfigTraversalBudget.maximumIncludeDepth,
               !budget.exceeded else {
@@ -345,7 +459,7 @@ extension GitMetadataService {
                 currentURLRewriteReplacement = gitConfigURLRewriteReplacement(
                     fromSectionHeader: line
                 )
-                currentSectionIsExtensions = budget.isCommonConfig(configURL)
+                currentSectionIsExtensions = isCommonConfigScope
                     && line.lowercased() == "[extensions]"
                 if line.lowercased() == "[include]" {
                     currentSectionAllowsIncludePath = true
@@ -374,7 +488,8 @@ extension GitMetadataService {
                parts.count == 2,
                parts[0].lowercased() == "url" {
                 let remoteURL = gitConfigUnquotedValue(parts[1])
-                guard !remoteURL.isEmpty else {
+                if remoteURL.isEmpty {
+                    removeRemoteVLines(named: currentRemoteName, from: &lines)
                     continue
                 }
                 let line = "\(currentRemoteName)\t\(remoteURL) (fetch)\n"
@@ -411,7 +526,8 @@ extension GitMetadataService {
                 configURLs: &configURLs,
                 lines: &lines,
                 budget: &budget,
-                depth: depth + 1
+                depth: depth + 1,
+                isCommonConfigScope: isCommonConfigScope
             )
         }
     }
