@@ -63,6 +63,17 @@ extension AppDelegate {
             }
             return true
         }
+        for movement in PaneOuterSplitMovement.allCases
+        where matchesPaneOuterSplitMovementShortcut(event: event, movement: movement) {
+            if !performPaneOuterSplitMovement(
+                movement,
+                tabManager: routedTabs,
+                preferredWindow: event.window
+            ) {
+                NSSound.beep()
+            }
+            return true
+        }
         if matchConfiguredShortcut(event: event, action: .moveWorkspaceUp) {
             routedTabs?.moveSelectedWorkspace(by: -1)
             return true
@@ -101,9 +112,52 @@ extension AppDelegate {
         ) == true
     }
 
+    /// Runs the shared whole-pane root-promotion mutation for the focused
+    /// Dock or workspace.
+    @discardableResult
+    func performPaneOuterSplitMovement(
+        _ movement: PaneOuterSplitMovement,
+        tabManager: TabManager?,
+        preferredWindow: NSWindow?
+    ) -> Bool {
+        if let dock = focusedDockStoreForShortcut(
+            action: movement.shortcutAction,
+            preferredWindow: preferredWindow
+        ) {
+            return dock.performShortcutCommand(
+                .movePaneToNewOuterSplit(movement)
+            )
+        }
+        return tabManager?.selectedWorkspace?.moveFocusedPane(to: movement) == true
+    }
+
     private func matchesSurfacePaneMovementShortcut(
         event: NSEvent,
         movement: SurfacePaneMovement
+    ) -> Bool {
+        let configuredShortcut = KeyboardShortcutSettings.shortcut(
+            for: movement.shortcutAction
+        )
+        let configuredKey =
+            configuredShortcut.secondStroke?.key ??
+            configuredShortcut.firstStroke.key
+        let arrowRoute: (glyph: String, keyCode: UInt16) = switch configuredKey {
+        case "→": ("→", 124)
+        case "↑": ("↑", 126)
+        case "↓": ("↓", 125)
+        default: ("←", 123)
+        }
+        return matchConfiguredDirectionalShortcut(
+            event: event,
+            action: movement.shortcutAction,
+            arrowGlyph: arrowRoute.glyph,
+            arrowKeyCode: arrowRoute.keyCode
+        )
+    }
+
+    private func matchesPaneOuterSplitMovementShortcut(
+        event: NSEvent,
+        movement: PaneOuterSplitMovement
     ) -> Bool {
         let configuredShortcut = KeyboardShortcutSettings.shortcut(
             for: movement.shortcutAction

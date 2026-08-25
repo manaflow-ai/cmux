@@ -8,6 +8,9 @@ extension ContentView {
         if let movement = SurfacePaneMovement(commandID: commandId) {
             return movement.shortcutAction
         }
+        if let movement = PaneOuterSplitMovement(commandID: commandId) {
+            return movement.shortcutAction
+        }
         if let rightSidebarModeAction = commandPaletteRightSidebarModeShortcutAction(forCommandID: commandId) {
             return rightSidebarModeAction
         }

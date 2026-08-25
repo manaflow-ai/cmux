@@ -69378,6 +69378,23 @@
         }
       }
     },
+    "command.paneNavigation.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane Navigation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインナビゲーション"
+          }
+        }
+      }
+    },
     "command.switchExtensionSidebar.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -212613,6 +212630,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "サーフェスを上のペインへ移動"
+          }
+        }
+      }
+    },
+    "shortcut.movePaneToNewOuterSplitAbove.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Pane to New Outer Split Above"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインを上側の新しい外側分割へ移動"
+          }
+        }
+      }
+    },
+    "shortcut.movePaneToNewOuterSplitBelow.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Pane to New Outer Split Below"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインを下側の新しい外側分割へ移動"
+          }
+        }
+      }
+    },
+    "shortcut.movePaneToNewOuterSplitLeft.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Pane to New Outer Split on Left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインを左側の新しい外側分割へ移動"
+          }
+        }
+      }
+    },
+    "shortcut.movePaneToNewOuterSplitRight.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Pane to New Outer Split on Right"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインを右側の新しい外側分割へ移動"
           }
         }
       }

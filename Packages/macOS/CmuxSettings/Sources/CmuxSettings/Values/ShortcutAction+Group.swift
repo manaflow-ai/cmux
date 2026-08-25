@@ -32,7 +32,9 @@ extension ShortcutAction {
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown,
              .focusPreviousPane, .focusNextPane, .splitRight, .splitDown,
-             .toggleSplitZoom, .increaseWorkspaceTerminalFontSize,
+             .toggleSplitZoom, .movePaneToNewOuterSplitLeft,
+             .movePaneToNewOuterSplitRight, .movePaneToNewOuterSplitAbove,
+             .movePaneToNewOuterSplitBelow, .increaseWorkspaceTerminalFontSize,
              .decreaseWorkspaceTerminalFontSize, .resetWorkspaceTerminalFontSize,
              .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
              .toggleRightSidebar, .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,

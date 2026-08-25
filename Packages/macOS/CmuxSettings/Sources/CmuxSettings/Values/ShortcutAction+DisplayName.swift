@@ -104,6 +104,14 @@ extension ShortcutAction {
         case .splitRight: return "Split Right"
         case .splitDown: return "Split Down"
         case .toggleSplitZoom: return "Toggle Pane Zoom"
+        case .movePaneToNewOuterSplitLeft:
+            return String(localized: "shortcut.movePaneToNewOuterSplitLeft.label", defaultValue: "Move Pane to New Outer Split on Left")
+        case .movePaneToNewOuterSplitRight:
+            return String(localized: "shortcut.movePaneToNewOuterSplitRight.label", defaultValue: "Move Pane to New Outer Split on Right")
+        case .movePaneToNewOuterSplitAbove:
+            return String(localized: "shortcut.movePaneToNewOuterSplitAbove.label", defaultValue: "Move Pane to New Outer Split Above")
+        case .movePaneToNewOuterSplitBelow:
+            return String(localized: "shortcut.movePaneToNewOuterSplitBelow.label", defaultValue: "Move Pane to New Outer Split Below")
         case .increaseWorkspaceTerminalFontSize:
             return String(
                 localized: "shortcut.increaseWorkspaceTerminalFontSize.label",

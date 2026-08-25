@@ -10,6 +10,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 ROUTING_SOURCE = REPO_ROOT / "Sources" / "AppDelegate+DockShortcutRouting.swift"
 ACTION_SOURCE = REPO_ROOT / "Sources" / "KeyboardShortcutSettings.swift"
 MOVEMENT_SOURCE = REPO_ROOT / "Sources" / "SurfacePaneMovement.swift"
+OUTER_MOVEMENT_SOURCE = REPO_ROOT / "Sources" / "PaneOuterSplitMovement.swift"
 DISPATCH_SOURCES = tuple((REPO_ROOT / "Sources").glob("AppDelegate*.swift")) + (
     REPO_ROOT / "Sources" / "Workspace+DockBrowserLookup.swift",
 )
@@ -141,13 +142,13 @@ def balanced_call_bodies(source: str, call_name: str) -> list[str]:
     return bodies
 
 
-def movement_shortcut_actions() -> set[str]:
-    source = MOVEMENT_SOURCE.read_text(encoding="utf-8")
+def movement_shortcut_actions(path: Path) -> set[str]:
+    source = path.read_text(encoding="utf-8")
     property_body = source_between(
         source,
         "var shortcutAction: KeyboardShortcutSettings.Action {",
         "init?(shortcutAction:",
-        MOVEMENT_SOURCE.name,
+        path.name,
     )
     return set(
         re.findall(
@@ -177,7 +178,8 @@ def explicitly_gated_actions() -> set[str]:
                 ):
                     has_movement_gate = True
     if has_movement_gate:
-        actions.update(movement_shortcut_actions())
+        actions.update(movement_shortcut_actions(MOVEMENT_SOURCE))
+        actions.update(movement_shortcut_actions(OUTER_MOVEMENT_SOURCE))
     return actions
 
 

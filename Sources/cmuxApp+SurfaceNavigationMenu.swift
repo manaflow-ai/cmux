@@ -79,5 +79,19 @@ extension cmuxApp {
                 }
             }
         }
+        ForEach(PaneOuterSplitMovement.allCases, id: \.self) { movement in
+            splitCommandButton(
+                title: movement.title,
+                shortcut: menuShortcut(for: movement.shortcutAction)
+            ) {
+                if AppDelegate.shared?.performPaneOuterSplitMovement(
+                    movement,
+                    tabManager: activeTabManager,
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                ) != true {
+                    NSSound.beep()
+                }
+            }
+        }
     }
 }

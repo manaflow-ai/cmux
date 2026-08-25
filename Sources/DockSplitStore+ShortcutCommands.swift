@@ -15,6 +15,7 @@ enum DockShortcutCommand {
         SurfacePaneMovement,
         allowMissingDestinationSplit: Bool
     )
+    case movePaneToNewOuterSplit(PaneOuterSplitMovement)
     case focusPane(NavigationDirection)
     case cyclePaneFocus(forward: Bool)
     case togglePaneZoom
@@ -75,6 +76,8 @@ extension DockSplitStore {
                 allowMissingDestinationSplit:
                     allowMissingDestinationSplit
             )
+        case .movePaneToNewOuterSplit(let movement):
+            return moveFocusedPane(to: movement)
         case .focusPane(let direction):
             bonsplitController.navigateFocus(direction: direction)
             applyFocusedShortcutSelection()
