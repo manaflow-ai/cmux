@@ -201,10 +201,11 @@ struct ClaudeHookSessionRecord: Codable {
         }
 
         private static func redactedPreview(for value: String) -> String {
-            let redacted = AgentHookNotificationPolicy.redactSensitiveCommand(
-                value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            _ = value
+            return String(
+                localized: "agent.generic.notification.body.approvalNeeded",
+                defaultValue: "Approval needed"
             )
-            return String(redacted.prefix(180))
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -29475,11 +29476,10 @@ struct CMUXCLI {
         }
 
         if def.name == "cursor", cursorApprovalRequested {
-            let command = parsedInput.rawObject.flatMap {
-                firstString(in: $0, keys: ["command"])
-            }
-            let body = command.map { redactClaudeSensitiveSpans(normalizedSingleLine($0)) }
-                ?? String(localized: "agent.generic.notification.body.approvalNeeded", defaultValue: "Approval needed")
+            let body = String(
+                localized: "agent.generic.notification.body.approvalNeeded",
+                defaultValue: "Approval needed"
+            )
             return classifyAgentHookNotification(
                 def: def,
                 signal: "permission approval",
@@ -33327,11 +33327,10 @@ export default CMUXSessionRestore;
                         localized: "agent.generic.notification.subtitle.permission",
                         defaultValue: "Permission"
                     )
-                    let pendingBody = resolution.remainingDisplayCommand
-                        ?? String(
-                            localized: "agent.generic.notification.body.approvalNeeded",
-                            defaultValue: "Approval needed"
-                        )
+                    let pendingBody = String(
+                        localized: "agent.generic.notification.body.approvalNeeded",
+                        defaultValue: "Approval needed"
+                    )
                     let pendingMeta = AgentHookNotifyCategory.needsPermission.metaSegment(
                         pending: false,
                         agentKind: def.name,
@@ -33352,6 +33351,7 @@ export default CMUXSessionRestore;
                 guard resolution.matched || (resolution.expired && !resolution.hasRemaining) else {
                     return
                 }
+                guard cursorApprovalNotificationIsCurrent() else { return }
                 sendCursorCriticalCommand(
                     "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
                 )
@@ -33359,6 +33359,21 @@ export default CMUXSessionRestore;
                 sendCursorCriticalCommand(
                     "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
                 )
+            }
+
+            func cursorApprovalNotificationIsCurrent() -> Bool {
+                guard let response = try? client.send(
+                    command: "list_notifications",
+                    responseTimeout: cursorCriticalTimeout(),
+                    deadline: cursorShellDeadline
+                ) else { return false }
+                return response.split(separator: "\n", omittingEmptySubsequences: true).contains { line in
+                    let fields = line.split(separator: "|", omittingEmptySubsequences: false)
+                    guard fields.count >= 7 else { return false }
+                    return String(fields[2]) == surfaceId
+                        && fields[5] == "Permission"
+                        && fields[6] == "Approval needed"
+                }
             }
 
             // Hold the session-scoped lease through resume publication and
@@ -35152,7 +35167,7 @@ export default CMUXSessionRestore;
                 : toolInput
         } else if let cursorShellCommand {
             event["tool_input"] = [
-                "command": redactClaudeSensitiveSpans(normalizedSingleLine(cursorShellCommand))
+                "command": "<redacted>"
             ]
         }
         if let context = feedContextForEvent(
@@ -35198,12 +35213,8 @@ export default CMUXSessionRestore;
         guard var toolInput = value as? [String: Any] else { return value }
         for key in ["command", "cmd"] {
             guard let command = toolInput[key] as? String else { continue }
-            toolInput[key] = redactClaudeSensitiveSpans(
-                truncate(
-                    normalizedSingleLine(String(decoding: command.utf8.prefix(8_192), as: UTF8.self)),
-                    maxLength: 8_192
-                )
-            )
+            _ = command
+            toolInput[key] = "<redacted>"
         }
         return toolInput
     }
