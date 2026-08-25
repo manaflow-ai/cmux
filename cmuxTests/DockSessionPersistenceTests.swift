@@ -579,10 +579,7 @@ struct DockSessionPersistenceTests {
         )
         #expect(agentIndex.entry(panelId: panelID) == nil)
         #expect(agentIndex.entry(workspaceId: UUID(), panelId: panelID) == nil)
-        #expect(
-            agentIndex.entryForStablePanel(workspaceId: firstOwnerID, panelId: panelID)?
-                .snapshot.sessionId == firstSessionID
-        )
+        #expect(agentIndex.entryForStablePanel(workspaceId: firstOwnerID, panelId: panelID) == nil)
 
         let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
             .init(workspaceId: firstOwnerID, panelId: panelID): codexResumeBinding(
@@ -598,10 +595,7 @@ struct DockSessionPersistenceTests {
         ])
         #expect(bindingIndex.binding(panelId: panelID) == nil)
         #expect(bindingIndex.binding(workspaceId: UUID(), panelId: panelID) == nil)
-        #expect(
-            bindingIndex.bindingForStablePanel(workspaceId: firstOwnerID, panelId: panelID)?
-                .checkpointId == firstSessionID
-        )
+        #expect(bindingIndex.bindingForStablePanel(workspaceId: firstOwnerID, panelId: panelID) == nil)
 
         let newestOwnerID = UUID()
         let newestSessionID = UUID().uuidString
