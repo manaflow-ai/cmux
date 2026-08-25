@@ -11,6 +11,7 @@ import Foundation
 actor GhosttyPointerStyleIngress {
     private weak var surfaceView: GhosttyNSView?
     nonisolated private let focusGeneration = AtomicUInt64Generation()
+    nonisolated private let focusState = AtomicBooleanGate(false)
     private var state = GhosttyPointerStyleIngressPendingState(
         activeRuntimeLifetimeId: nil
     )
@@ -50,7 +51,11 @@ actor GhosttyPointerStyleIngress {
 
     /// Advances the focus epoch so queued transient hover events cannot be
     /// replayed after a focus transition.
-    nonisolated func focusChanged() {
+    nonisolated func focusChanged(_ focused: Bool) {
+        let expected = focused ? false : true
+        guard focusState.compareExchange(expected: expected, desired: focused) else {
+            return
+        }
         _ = focusGeneration.advanceRelaxed()
     }
 
@@ -70,18 +75,13 @@ actor GhosttyPointerStyleIngress {
     }
 
     private func retireIsolated(runtimeLifetimeId: UUID?) {
-        let retiredID: UUID
-        if let runtimeLifetimeId {
-            guard state.activeRuntimeLifetimeId == runtimeLifetimeId else {
-                return
-            }
-            retiredID = runtimeLifetimeId
-        } else {
-            guard let activeRuntimeLifetimeId = state.activeRuntimeLifetimeId else {
-                return
-            }
-            retiredID = activeRuntimeLifetimeId
+        guard let runtimeLifetimeId else {
+            return
         }
+        guard state.activeRuntimeLifetimeId == runtimeLifetimeId else {
+            return
+        }
+        let retiredID = runtimeLifetimeId
         state.activeRuntimeLifetimeId = nil
         state.retiredRuntimeLifetimeIds.insert(retiredID)
         if state.retiredRuntimeLifetimeIds.count > 8,
