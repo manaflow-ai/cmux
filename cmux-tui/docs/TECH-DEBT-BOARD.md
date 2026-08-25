@@ -1,18 +1,18 @@
 # cmux-tui technical-debt board
 
 Current snapshot: 2026-08-25.
-Audit base: `origin/main` at `f78182c0a11c5728f7e0a6dd6fd48605fd856ae5`.
+Audit base: `origin/main` at `bd985bddcded04ed849e3484dbcb645b32a32cb6`.
 Integration branch: `codex/tui-techdebt-aggregate-wave39`.
-Current code tip: `4fffdfc1280c56c05fc77af3b1ad71cc1fc2e07c`.
+Audited code tip before this board snapshot: `31fc5df2b4`.
 PR: [#10708](https://github.com/manaflow-ai/cmux/pull/10708), author Lawrence Chen.
-The branch is 777 commits ahead of `origin/main`. It includes the current-main
-merge and the merged web determinism fix [#10718](https://github.com/manaflow-ai/cmux/pull/10718).
-The latest tail adds stale-close identity removal, owned no-clobber SSH staging cleanup,
-the dedicated relay publish workflow from current `main`, trait-object
-coercion fixes found by hosted compilation, the PyPI project-description
-metadata fix from current `main`, scoped remote-daemon cleanup, and
-descriptor-backed no-clobber upload writes. Required hosted checks and final exact-head
-autoreview remain pending for this merge tip.
+The branch was 787 commits ahead of `origin/main` at the audited tip. The board
+commit itself is documentation-only and follows that tip. The latest code tail
+adds PID-marker no-clobber creation without marker-based killing, verified
+terminal lookup classification, typed-error serialization from the generated
+enum, and protocol documentation that matches the wire. It also includes the
+current-main release-candidate npm validation fix from [#10735](https://github.com/manaflow-ai/cmux/pull/10735).
+Required hosted checks and final exact-head autoreview remain pending for the
+new aggregate head.
 
 The 2026-08-24 values below are historical snapshots. Do not use their SHAs,
 ahead counts, or review status as current evidence.
@@ -65,7 +65,7 @@ out of scope. No new session was counted for documentation-only bookkeeping;
 the ledger remains a lower bound on substantive turns, not a fabricated
 10,000-session total.
 
-Subagent ledger: at least 231 substantive agent turns are complete in this
+Subagent ledger: at least 244 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
 reviews, conflict resolution, and merge gates. It excludes empty or duplicate
 turns. The requested 10,000-session target is not reached. I will not create
@@ -79,7 +79,7 @@ below are historical audit snapshots and may contain old heads or old labels.
 
 | PR | Author | State and head on 2026-08-25 | Decision |
 | --- | --- | --- | --- |
-| [#10708](https://github.com/manaflow-ai/cmux/pull/10708) | Lawrence Chen | Open, aggregate head `4fffdfc1280c56c05fc77af3b1ad71cc1fc2e07c`, not pushed yet. | Push this exact head, then run exact-head autoreview and hosted checks before merge. |
+| [#10708](https://github.com/manaflow-ai/cmux/pull/10708) | Lawrence Chen | Open, remote head `f8b526ce7b5537a4bf85c0a54eb16bba6035a637`; local audited head `31fc5df2b4` is not pushed. | Push the audited head, then run exact-head autoreview and hosted checks before merge. |
 | [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Merged as `7ddd04f2c1879cb38868292987aae1f1dfa2b139`. | Do not close or merge again. |
 | [#10604](https://github.com/manaflow-ai/cmux/pull/10604) | Lawrence Chen | Merged as `1956d7f440add80ba35e585d83697d9dae44d3e2`. | Do not close or merge again. |
 | [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Open, dirty, head `67b7e6814f8355235e3930a6f3360a58dc0ba3c0`. | Close only after [#10708](https://github.com/manaflow-ai/cmux/pull/10708) merges and the head is unchanged. |
@@ -87,7 +87,7 @@ below are historical audit snapshots and may contain old heads or old labels.
 
 ## Current state
 
-The latest code tail is `4fffdfc1280c56c05fc77af3b1ad71cc1fc2e07c`. It carries the watch compatibility,
+The audited code tail is `31fc5df2b4`. It carries the watch compatibility,
 queue-ownership, fairness, timer-bound, shell-reservation, PTY overflow,
 preview saturation, SDK lifecycle, CLI grammar, capability documentation,
 credential-child reaping, journal-writer ownership/finalization, explicit
@@ -98,13 +98,23 @@ clippy cleanup after the 25-file relay/TUI integration merge. The current tail
 also adds per-attachment PTY delivery gates and generation-aware replacement
 cleanup, a bounded legacy socket scan that tolerates per-entry metadata errors,
 invalid Go write-progress handling, Java traversal coverage, and the current-main
-package workflow simplification plus PyPI project-description metadata. The latest tail also scopes remote-daemon
-cleanup to the failed writer and makes upload creation descriptor-backed. It makes close generation-
-aware, makes SSH upload staging no-clobber and ownership explicit, simplifies
-the Rust global-flag parser, and documents the interactive/headless CLI split.
-The same-user pathname `chmod` race remains a documented residual because the
-portable shell path has no descriptor-relative `fchmod`. The issues below remain
-open.
+package workflow simplification plus PyPI project-description metadata. The
+latest tail also scopes remote-daemon cleanup to the failed writer, makes upload
+creation descriptor-backed, and avoids signaling a numeric PID marker during
+recovery. It makes close generation-aware, makes SSH upload staging no-clobber
+and ownership explicit, classifies only verified missing resources as
+`terminal_gone`, and documents the interactive/headless CLI split. A same-user
+pathname race remains a documented residual because the portable shell path has
+no descriptor-relative `fchmod`. The issues below remain open.
+
+### Wave 45 audit residuals
+
+| Area | Current decision | Next proof or fix |
+| --- | --- | --- |
+| R2 binary provenance | Raw R2 binaries still have SHA-256 manifests but no GitHub build attestation. npm and PyPI lanes have provenance checks. | Add an opt-in attestation path only after R2 consumers can verify the signer and subject digest. Do not grant broad OIDC permissions to the shared workflow before that contract exists. |
+| Scale | Event fan-out and browser/resource selection use bounded linear scans. No measured hot-path regression proves an index is needed. | Capture an event-rate and 1,000-session profile before changing ownership or adding caches. |
+| CLI ownership docs | Detached-owner commit `01bbc358e2` is not an ancestor of this branch. | Keep the current explicit lifecycle wording until the implementation lands and has behavior proof. |
+| Same-UID remote staging | Portable shell still cannot provide descriptor-relative `fchmod` after hashing. | Keep the remote account private, or move staging to an implementation with an opened-directory and descriptor-based API. |
 
 ### Open issue inventory
 

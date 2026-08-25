@@ -1,14 +1,16 @@
 # cmux-tui aggregate change log
 
-Current snapshot: 2026-08-25. Exact aggregate HEAD is
-[`4fffdfc128`](https://github.com/manaflow-ai/cmux/commit/4fffdfc1280c56c05fc77af3b1ad71cc1fc2e07c),
-777 commits ahead of `origin/main` at
-`f78182c0a11c5728f7e0a6dd6fd48605fd856ae5`. PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708)
-is not pushed yet. Current hosted status and merge evidence belong in
+Current snapshot: 2026-08-25. The audited aggregate tip before this
+documentation snapshot is [`31fc5df2b4`](https://github.com/manaflow-ai/cmux/commit/31fc5df2b4),
+787 commits ahead of `origin/main` at
+`bd985bddcded04ed849e3484dbcb645b32a32cb6`. PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708)
+still has remote head `f8b526ce7b5537a4bf85c0a54eb16bba6035a637`; the audited
+head is not pushed yet. Current hosted status and merge evidence belong in
 `PR-INTENT-BOARD.md`; do not claim review or hosted green until exact-head
 checks pass. The 2026-08-24 snapshot below is historical.
 
-This update records the current-main merge, the PyPI project-description fix,
+This update records the current-main merge, the PyPI project-description and
+release-candidate package fixes,
 web determinism merge
 [#10718](https://github.com/manaflow-ai/cmux/pull/10718), and the final PTY,
 socket, Go, Java, workflow, and package-test hardening tail. Each entry names
@@ -16,10 +18,25 @@ the commit and a direct revert command.
 
 Intent-audit delta: local history added two deduplicated requests after the prior board snapshot, sandbox-scoped agent spawning with lifecycle/provider proof (UI-23), and isolated product sessions plus a bounded Firstmate feasibility slice (UI-24). Current open cmux-tui PRs, including [PR 9783](https://github.com/manaflow-ai/cmux/pull/9783), [PR 10321](https://github.com/manaflow-ai/cmux/pull/10321), and [PR 9933](https://github.com/manaflow-ai/cmux/pull/9933), do not provide the stated end-to-end acceptance evidence.
 
+The 2026-08-25 session audit adds concrete evidence, not completed work: fresh
+`uvx cmux` runs reported a missing `machine-provider` executable and a missing
+surface reference; repeated resize and peer-death reports require isolation
+proof; manual Ghostty I/O and reconnect behavior remain requested; and the
+left-sidebar `hjkl` preview, `Esc`, and `Enter` interaction needs a separate
+acceptance case. These deltas strengthen UI-01, UI-02, UI-03, UI-06, UI-13,
+UI-15, and UI-22. They do not close any row.
+
 ## Final aggregate tail
 
 | Commit | Change | Revert |
 | --- | --- | --- |
+| [`31fc5df2b4`](https://github.com/manaflow-ai/cmux/commit/31fc5df2b4) | Merge current `main` at `bd985bddcd`, including the release-candidate npm version validator and test. | `git revert -m 1 31fc5df2b4`; retain the current-main package fix when rebasing. |
+| [`f398f6d103`](https://github.com/manaflow-ai/cmux/commit/f398f6d103) | Match the protocol summary to the actual `pty_error` envelope and verified `terminal_gone` lookup rule. | `git revert f398f6d103`; restore the prior summary only with a matching wire change. |
+| [`8cfe70f5e9`](https://github.com/manaflow-ai/cmux/commit/8cfe70f5e9) | Serialize typed relay error codes from the generated enum and test every typed variant. | `git revert 8cfe70f5e9` |
+| [`79182c532c`](https://github.com/manaflow-ai/cmux/commit/79182c532c) | Return `failed` for unavailable or malformed workspace listings; reserve `terminal_gone` for a valid missing-resource result. | `git revert 79182c532c` |
+| [`2c7fb75887`](https://github.com/manaflow-ai/cmux/commit/2c7fb75887) | Create upload PID markers with noclobber and stop signaling numeric marker PIDs during recovery. | `git revert 2c7fb75887`; this restores the PID-reuse hazard. |
+| [`b0bfbd29cd`](https://github.com/manaflow-ai/cmux/commit/b0bfbd29cd) | Clarify that upload PID markers are for stale-file detection, not process identity. | `git revert b0bfbd29cd` |
+| [`ad4ab3f6e5`](https://github.com/manaflow-ai/cmux/commit/ad4ab3f6e5cde50406393f13220478ef45f4f660), [`d998f308a6`](https://github.com/manaflow-ai/cmux/commit/d998f308a6) | Add and then correct the PTY lifecycle documentation so it matches the implemented wire fields and codes. | Revert both documentation commits together. |
 | [`14abca2963`](https://github.com/manaflow-ai/cmux/commit/14abca2963) | Normal merge of the current `main` tip `835d046fed`. | `git revert -m 1 14abca2963` |
 | [`52c7ca4735`](https://github.com/manaflow-ai/cmux/commit/52c7ca4735) | Normalize standalone C1 DCS, SOS, and PM introducers while preserving UTF-8 continuation bytes. | `git revert 52c7ca4735` |
 | [`2c73791935`](https://github.com/manaflow-ai/cmux/commit/2c73791935) | Drain relay `git diff` stderr to completion while retaining a bounded diagnostic prefix. | `git revert 2c73791935` |

@@ -2,8 +2,8 @@
 
 Current audit snapshot: 2026-08-25.
 
-Audit base: `codex/tui-techdebt-aggregate-wave39` at
-`4fffdfc1280c56c05fc77af3b1ad71cc1fc2e07c`. This document records explicit user requests found in local
+Audit base: `codex/tui-techdebt-aggregate-wave39` at audited tip
+`31fc5df2b4`. This document records explicit user requests found in local
 session history. It does not claim that an implementation is complete. For the
 aggregate change and risk ledger, see [`TECH-DEBT-BOARD.md`](TECH-DEBT-BOARD.md).
 
@@ -12,8 +12,34 @@ The current merge adds PTY delivery-gate and generation cleanup, bounded socket
 metadata handling, Go write-progress checks, Java traversal coverage, and the
 current package workflow, stale-close identity checks, and owned SSH staging
 cleanup, plus the PyPI project-description metadata fix and scoped remote-daemon
-cleanup. These changes move no request to complete without
-end-to-end evidence.
+cleanup. The latest tail also makes PID-marker recovery non-signaling,
+distinguishes verified missing terminals from control failures, and aligns the
+protocol summary with the wire. These changes move no request to complete
+without end-to-end evidence.
+
+## 2026-08-25 intent-audit delta
+
+The session audit found no new independent product row, but it added concrete
+acceptance evidence for existing rows:
+
+- `~/.claude/history.jsonl:90357` records fresh `uvx cmux` failures because the
+  `machine-provider` executable is missing. This keeps UI-06 open.
+- `~/.codex/history.jsonl:18517-18518` and the same-day Claude records report a
+  missing pane surface reference. This keeps UI-13 open and is a fresh-package
+  repro requirement.
+- Repeated resize and peer-death reports require proof that one client's
+  resize or exit cannot kill another client. This strengthens UI-03 and UI-15.
+- The user explicitly requests Ghostty manual-I/O ownership, reconnect state,
+  and remote-process recovery, and rejects attach-command workarounds. This
+  strengthens UI-01, UI-02, UI-04, and UI-07.
+- A new interaction acceptance asks for left-sidebar `hjkl` preview, `Esc`
+  return, and `Enter` focus. This strengthens UI-22.
+- Fresh-install checks must stop any old daemon before testing `uvx cmux`, and
+  standalone cross-platform runs must not require `bun install` or provider
+  PTYs. These are constraints on UI-05 and UI-06, not completion evidence.
+
+The audit also found that detached-owner commit `01bbc358e2` is not an ancestor
+of this branch, so its create-or-attach behavior is not documented as current.
 
 ## Status key
 
@@ -27,7 +53,7 @@ end-to-end evidence.
 
 ## Deduplicated requests
 
-| ID | Explicit ask and evidence | Status at `4fffdfc128` | Acceptance test |
+| ID | Explicit ask and evidence | Status at audited tip `31fc5df2b4` | Acceptance test |
 | --- | --- | --- | --- |
 | UI-01 | Make every cmux terminal use a separate cmux-tui owner, keep the CLI path coherent, preserve terminals across Swift restart, and define the Swift layout projection. Evidence: `~/.claude/history.jsonl:89411,89422-89442`, 2026-08-19T03:49:41Z to 04:29:21Z UTC; follow-up `~/.claude/history.jsonl:89568`, 2026-08-20T02:57:08Z UTC. | Partial. The aggregate has relay/TUI integration, but the technical-debt board says manual-IO replacement, full restore, and layout ownership remain open. | Start a terminal, quit and reopen the Swift shell, and prove the same PTY, scrollback, cwd, and session ID remain. Exercise the CLI and a right-sidebar projection without creating a second owner. |
 | UI-02 | Use journal-first recovery for both a normal cmux restart and a host reboot, with explicit recovery intent and outcome. Evidence: `~/.claude/history.jsonl:89427,89568`, 2026-08-19T04:04:18Z and 2026-08-20T02:57:08Z UTC; `~/.codex/history.jsonl:17612-17614`, 2026-08-07T07:58:12Z to 08:00:03Z UTC. | Open. The aggregate explicitly says reboot checkpoints, full agent restore, and policy-controlled resume are not implemented. | Run clean mux restart with a live host, then host-crash/reboot simulation. The first preserves the live PTY; the second classifies the session interrupted and records one journaled recovery intent and outcome. No secrets or live capabilities enter the journal. |
@@ -50,7 +76,7 @@ end-to-end evidence.
 | UI-19 | Keep the cmux-relay and cmux-tui boundary narrow while deciding where machine event monitoring belongs. Evidence: `~/.claude/history.jsonl:90021`, 2026-08-21T09:50:13Z UTC; the request explicitly raises attack-surface risk. | Open. No documented threat model or ownership decision records which event, alarm, and monitoring capabilities belong in relay versus TUI. | Write the capability boundary and threat model. Prove that untrusted machine events cannot gain TUI control-plane or PTY authority, and that relay authentication and authorization remain enforced. |
 | UI-20 | Support diffs.com and trees.software-style editing and tree workflows in the cmux ecosystem, while deciding what belongs in snapshots, cmux-tui, or cmux-relay. Evidence: `~/.claude/history.jsonl:90028`, 2026-08-21T10:08:43Z UTC; related cmux-tui ownership question at `90036`. | Open. This is a broad product request with no scoped feature contract, snapshot inventory, or security review. | Define a smallest feature slice and ownership matrix first. Reject arbitrary snapshot software and relay capabilities until trust boundaries, package provenance, and PTY ownership are specified and tested. |
 | UI-21 | Provide secure `tui-use` tools for Pi and codemode to talk to only the sandboxes returned by the list-sandbox capability, using cmux-tui instead of tmux and reusing cmux journal hooks where appropriate. Evidence: `~/.codex/history.jsonl:18183`, 2026-08-12T07:50:27Z UTC (embedded session transcript request). | Open. No scoped tool contract, sandbox capability binding, cmux-tui transport proof, or journal-hook readiness evidence is recorded. | Enumerate sandboxes through an authenticated capability, bind each tool call to an allowlisted sandbox and cmux-tui session, reject arbitrary targets and tmux fallbacks, and prove Pi and codemode attach/input/exit behavior plus journal hook privacy and reconnect semantics. |
-| UI-22 | Fix terminal resize, show an empty/action screen instead of forcing a new conversation when opening an empty space, and clarify libghostty-web/Atlas renderer use and direct cmux-tui connectivity. Evidence: `~/.codex/sessions/2026/08/24/rollout-2026-08-24T15-02-29-01a035cb-e2ca-7c42-9fb0-421942de9005.jsonl`, 2026-08-24T22:02:35.904Z UTC. | Open. No end-to-end resize proof, empty-space state contract, renderer ownership statement, or direct transport proof is recorded. | Resize both directions repeatedly, open an empty space and verify only the intended actions or existing content, then document and test the renderer and cmux-tui transport path. |
+| UI-22 | Fix terminal resize, show an empty/action screen instead of forcing a new conversation when opening an empty space, clarify libghostty-web/Atlas renderer use and direct cmux-tui connectivity, and support left-sidebar `hjkl` preview with `Esc` return and `Enter` focus. Evidence: `~/.codex/sessions/2026/08/24/rollout-2026-08-24T15-02-29-01a035cb-e2ca-7c42-9fb0-421942de9005.jsonl`, 2026-08-24T22:02:35.904Z UTC; `~/.codex/history.jsonl:18749`, 2026-08-24 UTC. | Open. No end-to-end resize proof, empty-space state contract, renderer ownership statement, direct transport proof, or keyboard-preview proof is recorded. | Resize both directions repeatedly, open an empty space and verify only the intended actions or existing content, exercise `hjkl` preview, `Esc`, and `Enter`, then document and test the renderer and cmux-tui transport path. |
 | UI-23 | Let Chatmux spawn isolated sandboxes and start Claude Code or Codex inside cmux-tui, with lifecycle hooks, stop detection, and provider authentication. Evidence: `~/.claude/history.jsonl:90216`, 2026-08-24T22:13:18Z UTC. | Open. No sandbox-to-session binding, agent launch contract, stop hook, or Bedrock/CodeRouter authentication proof is recorded. | Create two isolated sandboxes, launch Claude Code and Codex with their approved providers, observe start/stop events, and prove each TUI session maps to its sandbox without cross-target access or orphan processes. |
 | UI-24 | Give products built on cmux-tui their own isolated TUI sessions, and evaluate rebuilding Firstmate on the cmux-tui primitives. Evidence: `~/.claude/history.jsonl:90220`, 2026-08-24T22:19:40Z UTC. | Open. No product-session namespace, isolation policy, or Firstmate feasibility scope is documented. | Launch two product sessions with independent IDs, layouts, PTYs, and auth capabilities. Write a bounded Firstmate feasibility slice and reject any design that shares a PTY owner or bypasses the cmux-tui control boundary. |
 
