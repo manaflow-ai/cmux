@@ -6176,6 +6176,9 @@ class TerminalController {
                        in: workspace,
                        event: event
                    ) {
+                    // The submitted prompt starts an agent turn; addressed
+                    // delivery queues behind it until the stop hook.
+                    workspace.recordAgentTurnStart(panelId: terminalPanel.id)
                     let origin = terminalPanel.surface
                         .confirmPromptSubmission(
                             message: event.submittedPromptMessage
@@ -6222,15 +6225,30 @@ class TerminalController {
             }
         case .stop:
             let assistantFinalMessage = event.assistantFinalMessage
-            Task { @MainActor [weak self, rawWorkspaceId, assistantFinalMessage, iMessageModeEnabled] in
+            Task { @MainActor [weak self, rawWorkspaceId, assistantFinalMessage, iMessageModeEnabled, event] in
                 guard let self,
                       let workspaceId = self.v2UUIDAny(rawWorkspaceId) else { return }
                 guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
+                if let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) {
+                    // A stop hook ends the turn. When it cannot be routed to
+                    // one agent terminal, clear the whole workspace so a
+                    // routing gap cannot wedge addressed delivery.
+                    let panel = self.agentPromptConfirmationPanel(
+                        in: workspace,
+                        event: event
+                    )
+                    workspace.recordAgentTurnEnd(panelId: panel?.id)
+                }
                 _ = tabManager.handleAssistantFinalMessage(
                     workspaceId: workspaceId,
                     message: assistantFinalMessage,
                     iMessageModeEnabled: iMessageModeEnabled
                 )
+                // Give the agent TUI a moment to settle after its stop hook:
+                // a paste-plus-submit delivered while it is still finishing
+                // the turn can coalesce into one stdin read that swallows
+                // the submit key.
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
                 self.drainAgentPromptQueue(workspaceID: workspaceId)
             }
         default:

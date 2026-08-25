@@ -31,12 +31,13 @@ extension TerminalController {
             return failure
         }
 
-        // A running agent owns the foreground turn. Holding the request in the
-        // app FIFO avoids writing into a composer that the agent may redraw or
-        // consume mid-turn; the idle hook/shell-state transition drains it.
-        let shellState = workspace.panelShellActivityStates[target.surfaceID]
+        // A hook-observed agent turn owns the composer. Shell activity cannot
+        // gate this: a TUI agent keeps the shell in `commandRunning` even
+        // while its composer sits idle, so the hook-derived turn state is the
+        // busy signal. The stop hook (and the confirmation-timeout fallback)
+        // drains the queue afterwards.
         if !target.panel.isAgentHibernated,
-           shellState != .some(.promptIdle) {
+           workspace.hasActiveAgentTurn(panelId: target.surfaceID) {
             return .agentBusy(
                 workspaceID: workspaceID,
                 surfaceID: target.surfaceID
@@ -44,15 +45,18 @@ extension TerminalController {
         }
         if target.panel.isAgentHibernated {
             // Wake without focus and keep the message in the app FIFO until
-            // the resumed runtime reports an authoritative idle prompt.
+            // the resumed agent process identity is rebound.
             _ = target.panel.prepareAgentHibernationResume()
-            return .agentBusy(
+            return .agentScopeUnavailable(
                 workspaceID: workspaceID,
                 surfaceID: target.surfaceID
             )
         }
         guard target.panel.surface.surface != nil else {
-            return .agentBusy(
+            // A cold surface means the agent runtime is not up yet; the
+            // request stays in the app FIFO instead of the terminal input
+            // queue so it cannot flush into a starting shell.
+            return .agentScopeUnavailable(
                 workspaceID: workspaceID,
                 surfaceID: target.surfaceID
             )
@@ -144,6 +148,18 @@ extension TerminalController {
         ) {
             return sessionPanel
         }
+        // A hook that names a session unknown to every recorded same-kind
+        // agent session in this workspace belongs to another process — e.g.
+        // a cmux-spawned headless utility run that inherited the workspace
+        // environment. Attributing it to the interactive terminal would
+        // consume a human draft boundary and flap the turn state.
+        if agentPromptHookNamesForeignSession(
+            in: workspace,
+            hookSource: event.source,
+            hookSessionID: event.sessionId
+        ) {
+            return nil
+        }
         guard case .success(let target) = agentPromptTerminalTarget(
             in: workspace,
             requestedSurfaceID: nil
@@ -151,6 +167,42 @@ extension TerminalController {
             return nil
         }
         return target.panel
+    }
+
+    /// Whether a surface-less hook names a session that no recorded
+    /// same-kind agent session in the workspace matches. Returns false when
+    /// the workspace has no recorded same-kind session to compare against,
+    /// so early-startup hooks keep the single-agent fallback.
+    private func agentPromptHookNamesForeignSession(
+        in workspace: Workspace,
+        hookSource: String,
+        hookSessionID: String
+    ) -> Bool {
+        let normalizedSource = hookSource.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let normalizedSessionID = hookSessionID.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !normalizedSource.isEmpty, !normalizedSessionID.isEmpty else {
+            return false
+        }
+        let sourceContext = "agentPIDKey:\(normalizedSource)"
+        var sawSameKindSessionKey = false
+        for keys in workspace.agentPIDKeysByPanelId.values {
+            for key in keys {
+                guard let separator = key.firstIndex(of: "."),
+                      TextBoxAgentDetection.representsSameAgentKind(
+                          "agentPIDKey:\(key)",
+                          sourceContext
+                      ) else { continue }
+                sawSameKindSessionKey = true
+                if key[key.index(after: separator)...] == normalizedSessionID {
+                    return false
+                }
+            }
+        }
+        return sawSameKindSessionKey
     }
 
     /// Resolves a surface-less hook through the exact agent session token that
@@ -273,11 +325,14 @@ extension TerminalController {
         let liveAgent = workspace.agentPIDKeysByPanelId[panel.id]?.contains(where: {
             workspace.isPromptCapableAgentPIDKey($0)
         }) == true
+        let hibernatedAgentKind: String? =
+            panel.agentHibernationState?.agent.kind.rawValue
         let hibernatedAgent = panel.isAgentHibernated
-            && panel.agentHibernationState?.agent.kind.rawValue
-                .map { TextBoxAgentDetection.supportsActiveAgentPrefixes(
-                    context: "agentPIDKey:\($0)"
-                ) } == true
+            && hibernatedAgentKind.map { kind in
+                TextBoxAgentDetection.supportsActiveAgentPrefixes(
+                    context: "agentPIDKey:\(kind)"
+                )
+            } == true
         guard liveAgent || hibernatedAgent else {
             return nil
         }

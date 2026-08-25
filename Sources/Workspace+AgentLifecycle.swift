@@ -600,3 +600,37 @@ extension Workspace {
         )
     }
 }
+
+extension Workspace {
+    /// Bounds a hook-observed turn so one missed stop hook cannot block
+    /// addressed prompt delivery indefinitely.
+    static let activeAgentTurnMaximumAge: TimeInterval = 2 * 60 * 60
+
+    /// Records a hook-observed agent turn start for the panel.
+    func recordAgentTurnStart(panelId: UUID) {
+        activeAgentTurnStartsByPanelId[panelId] = Date()
+    }
+
+    /// Clears the turn for one panel, or every panel in the workspace when
+    /// the stop hook cannot be routed to a specific agent terminal.
+    func recordAgentTurnEnd(panelId: UUID?) {
+        if let panelId {
+            activeAgentTurnStartsByPanelId.removeValue(forKey: panelId)
+        } else {
+            activeAgentTurnStartsByPanelId.removeAll()
+        }
+    }
+
+    /// Whether a hook-observed agent turn currently owns the panel's
+    /// composer. Stale entries expire in place.
+    func hasActiveAgentTurn(panelId: UUID, now: Date = Date()) -> Bool {
+        guard let startedAt = activeAgentTurnStartsByPanelId[panelId] else {
+            return false
+        }
+        guard now.timeIntervalSince(startedAt) < Self.activeAgentTurnMaximumAge else {
+            activeAgentTurnStartsByPanelId.removeValue(forKey: panelId)
+            return false
+        }
+        return true
+    }
+}

@@ -2673,6 +2673,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         get { surfaceRegistry.panelShellActivityStates }
         set { surfaceRegistry.panelShellActivityStates = newValue }
     }
+    /// Hook-observed agent turns in flight, by panel id. Shell activity
+    /// cannot express this: a TUI agent keeps the shell in `commandRunning`
+    /// even while its composer sits idle, so addressed prompt delivery gates
+    /// on this hook-derived state instead. Entries are bounded by
+    /// `activeAgentTurnMaximumAge` so a missed stop hook cannot wedge the
+    /// addressed-prompt queue forever.
+    var activeAgentTurnStartsByPanelId: [UUID: Date] = [:]
     /// Per-panel admission state preventing restored PTY startup noise from
     /// taking ownership of the persisted title.
     var restoredPanelTitleBoundariesByPanelId: [UUID: RestoredPanelTitleBoundary] = [:]
