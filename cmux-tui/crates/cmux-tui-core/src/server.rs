@@ -114,6 +114,39 @@ pub const TERMINAL_LIFECYCLE_PROTOCOL_VERSION: u32 = 11;
 pub const LIFECYCLE_READINESS_PROTOCOL_VERSION: u32 = 12;
 pub const PROTOCOL_VERSION: u32 = LIFECYCLE_READINESS_PROTOCOL_VERSION;
 const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = CLEAR_HISTORY_KEY_TEXT_MAX_BYTES;
+const UNIX_INBOUND_MESSAGE_MAX_BYTES: usize = RENDER_ATTACH_MAX_BYTES;
+
+fn read_line_bounded<R: BufRead>(reader: &mut R, line: &mut String) -> std::io::Result<usize> {
+    line.clear();
+    let mut total = 0;
+    loop {
+        let buffer = reader.fill_buf()?;
+        if buffer.is_empty() {
+            return Ok(total);
+        }
+        let chunk_len = buffer
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(buffer.len(), |position| position + 1);
+        if total + chunk_len > UNIX_INBOUND_MESSAGE_MAX_BYTES {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Unix control message exceeds maximum size",
+            ));
+        }
+        line.push_str(std::str::from_utf8(&buffer[..chunk_len]).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Unix control message is not UTF-8",
+            )
+        })?);
+        reader.consume(chunk_len);
+        total += chunk_len;
+        if line.ends_with('\n') {
+            return Ok(total);
+        }
+    }
+}
 
 fn validate_client_focus_id(client_id: &str) -> anyhow::Result<()> {
     if client_id.is_empty()
@@ -4922,16 +4955,18 @@ fn handle_connection_with_permit(
         mux.surface_operation_admission.clone(),
         connection_permit.clone(),
     ));
-    let reader = BufReader::new(stream);
+    let mut reader = BufReader::new(stream);
     let mut drain_accepted = true;
-    for line in reader.lines() {
-        let mut line = match line {
-            Ok(line) => line,
+    loop {
+        let mut line = String::new();
+        match read_line_bounded(&mut reader, &mut line) {
+            Ok(0) => break,
+            Ok(_) => {}
             Err(_) => {
                 drain_accepted = false;
                 break;
             }
-        };
+        }
         if line.trim().is_empty() {
             zeroize_string(&mut line);
             continue;
@@ -12965,6 +13000,24 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn bounded_line_reader_preserves_next_message() {
+        let mut reader = BufReader::new(std::io::Cursor::new(b"first\nsecond\n"));
+        let mut line = String::new();
+        assert_eq!(read_line_bounded(&mut reader, &mut line).unwrap(), 6);
+        assert_eq!(line, "first\n");
+        assert_eq!(read_line_bounded(&mut reader, &mut line).unwrap(), 7);
+        assert_eq!(line, "second\n");
+    }
+
+    #[test]
+    fn bounded_line_reader_rejects_oversized_message() {
+        let input = vec![b'x'; UNIX_INBOUND_MESSAGE_MAX_BYTES + 1];
+        let mut reader = BufReader::new(std::io::Cursor::new(input));
+        let error = read_line_bounded(&mut reader, &mut String::new()).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
     }
 
     #[test]
