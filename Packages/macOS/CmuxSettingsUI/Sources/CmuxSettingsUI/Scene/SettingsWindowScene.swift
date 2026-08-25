@@ -73,11 +73,21 @@ public struct SettingsWindowRoot: View {
     private var hostActions: SettingsHostActions { runtime.hostActions }
     private var accountFlow: AccountFlow? { runtime.accountFlow }
 
+    /// Whether the Cloud section's surfaces are real for this user: the host
+    /// folds in the remote rollout flag, the @AppStorage mirror keeps the
+    /// sidebar live when the Beta Features toggle flips.
+    private var isCloudSectionAvailable: Bool {
+        hostActions.isCloudMachinesAvailable || cloudMachinesBetaEnabled
+    }
+
     /// Resolves the selected section pane from the persisted raw value,
     /// defaulting to ``SettingsSectionID/account`` when the stored value
-    /// is unrecognized (e.g., after dropping a case).
+    /// is unrecognized (e.g., after dropping a case) or points at the Cloud
+    /// section from a session where the feature was still enabled.
     private var selectedSection: SettingsSectionID {
-        SettingsSectionID(rawValue: selectedSectionRaw) ?? .account
+        let resolved = SettingsSectionID(rawValue: selectedSectionRaw) ?? .account
+        if resolved == .cloudMachines, !isCloudSectionAvailable { return .account }
+        return resolved
     }
 
     /// Whether the user currently has a non-empty search query. When
@@ -126,6 +136,12 @@ public struct SettingsWindowRoot: View {
             // menu command here when the Settings window is key.
             columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
         }
+        .onAppear {
+            normalizeSelectionIfCloudHidden()
+        }
+        .onChange(of: cloudMachinesBetaEnabled) { _, _ in
+            normalizeSelectionIfCloudHidden()
+        }
         .onChange(of: searchText) { _, newValue in
             // Legacy SettingsRootView resyncs the sidebar entry to the
             // section row whenever the search text is cleared, so
@@ -165,12 +181,23 @@ public struct SettingsWindowRoot: View {
         navigate(to: target, preferSectionSelection: !shouldPreserveSearchSelection)
     }
 
+    /// A persisted Cloud selection from a session where the feature was on
+    /// must not strand the window on a hidden section: fall back to Account
+    /// for both the section pane and the highlighted sidebar row.
+    private func normalizeSelectionIfCloudHidden() {
+        guard !isCloudSectionAvailable else { return }
+        let selectionPointsAtCloud = SettingsSectionID(rawValue: selectedSectionRaw) == .cloudMachines
+            || parentSection(for: selectedSidebarEntryID) == .cloudMachines
+        guard selectionPointsAtCloud else { return }
+        selectedSectionRaw = SettingsSectionID.account.rawValue
+        selectedSidebarEntryID = sectionEntryID(for: .account)
+    }
+
     /// The Cloud section stays out of the sidebar (and search) until the
     /// remote rollout flag or the Beta Features opt-in makes its surfaces
     /// real; its pane already renders nothing while unavailable.
     private func isEntryVisible(_ entry: SettingsSearchIndex.Entry) -> Bool {
-        let cloudAvailable = hostActions.isCloudMachinesAvailable || cloudMachinesBetaEnabled
-        guard !cloudAvailable else { return true }
+        guard !isCloudSectionAvailable else { return true }
         switch entry.kind {
         case .section:
             return entry.id != "section:\(SettingsSectionID.cloudMachines.rawValue)"
