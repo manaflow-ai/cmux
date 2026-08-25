@@ -154,6 +154,8 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
   printf 'cwd=%s\n' "${CMUX_AGENT_LAUNCH_CWD-}"
   printf 'argv=%s\n' "${CMUX_AGENT_LAUNCH_ARGV_B64-}"
   printf 'amp_api_key=%s\n' "${AMP_API_KEY-}"
+  printf 'socket_password=%s\n' "${CMUX_SOCKET_PASSWORD-}"
+  printf 'socket_capability=%s\n' "${CMUX_SOCKET_CAPABILITY-}"
 } >> "$FAKE_CMUX_ENV_LOG"
 """,
         )
@@ -170,6 +172,8 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
         )
         check_env["CMUX_AMP_CMUX_BIN"] = str(fake_cmux)
         check_env["AMP_API_KEY"] = "secret-should-not-propagate"
+        check_env["CMUX_SOCKET_PASSWORD"] = "socket-password-should-not-propagate"
+        check_env["CMUX_SOCKET_CAPABILITY"] = "socket-capability-should-not-propagate"
         check_env["FAKE_CMUX_ARGS_LOG"] = str(fake_args_log)
         check_env["FAKE_CMUX_STDIN_LOG"] = str(fake_stdin_log)
         check_env["FAKE_CMUX_ENV_LOG"] = str(fake_env_log)
@@ -444,7 +448,12 @@ const waitFor = async (predicate, description, timeout = 4000) => {
 if (globalThis.__cmuxAmpSpawnCalls.length !== 0) {
   throw new Error("Amp synchronously spawned cmux while loading the plugin");
 }
-const makeThread = (id, initialState = "running", deferInitialGet = false) => {
+const makeThread = (
+  id,
+  initialState = "running",
+  deferInitialGet = false,
+  failures = { get: false, subscribe: false },
+) => {
   let currentState = initialState;
   const observers = new Set();
   let resolveInitialGet = null;
@@ -457,9 +466,13 @@ const makeThread = (id, initialState = "running", deferInitialGet = false) => {
     id,
     state: {
       async get() {
+        if (failures.get) throw new Error("native thread state get failed");
         return initialGet ?? currentState;
       },
       subscribe(observer) {
+        if (failures.subscribe) {
+          throw new Error("native thread state subscribe failed");
+        }
         observers.add(observer);
         return {
           unsubscribe() {
@@ -948,6 +961,44 @@ if (raceSettled.cmux_turn_boundary !== "settled") {
     `Amp native-state race did not settle: ${JSON.stringify(raceSettled)}`
   );
 }
+for (const failure of ["get", "subscribe"]) {
+  const failedNativeThread = makeThread(
+    `T-amp-native-state-failure-${failure}`,
+    "running",
+    false,
+    { get: failure === "get", subscribe: failure === "subscribe" },
+  );
+  const failedNativeCtx = { thread: failedNativeThread };
+  await handlers.get("agent.start")({
+    thread: failedNativeThread,
+    message: `native state ${failure} failure`,
+    id: `msg-failure-${failure}`
+  }, failedNativeCtx);
+  const beforeFailedNativeEnd = stopCalls().length;
+  await handlers.get("agent.end")({
+    thread: failedNativeThread,
+    message: `native state ${failure} failure`,
+    id: `msg-failure-${failure}`,
+    status: "done",
+    messages: []
+  }, failedNativeCtx);
+  if (stopCalls().length !== beforeFailedNativeEnd + 1) {
+    throw new Error(
+      `Amp native-state ${failure} failure wedged the pending turn`
+    );
+  }
+  const failedNativeSettlement = JSON.parse(stopCalls().at(-1).stdin);
+  if (failedNativeSettlement.cmux_turn_boundary !== "settled") {
+    throw new Error(
+      `Amp native-state ${failure} failure did not use structured fallback`
+    );
+  }
+  if (failedNativeThread.observerCount() !== 0) {
+    throw new Error(
+      `Amp native-state ${failure} failure retained a failed observer`
+    );
+  }
+}
 try {
   const hangingThread = makeThread(
     "T-amp-native-state-hang",
@@ -1283,6 +1334,12 @@ try {
             return 1
         if "amp_api_key=secret-should-not-propagate" in env_log:
             print(f"FAIL: plugin propagated AMP_API_KEY into hook subprocess, got {env_log!r}")
+            return 1
+        if "socket_password=socket-password-should-not-propagate" in env_log:
+            print(f"FAIL: plugin propagated CMUX_SOCKET_PASSWORD into child, got {env_log!r}")
+            return 1
+        if "socket_capability=socket-capability-should-not-propagate" in env_log:
+            print(f"FAIL: plugin propagated CMUX_SOCKET_CAPABILITY into child, got {env_log!r}")
             return 1
         argv_line = next(
             (
