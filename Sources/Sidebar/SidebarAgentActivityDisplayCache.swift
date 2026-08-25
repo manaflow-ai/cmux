@@ -6,11 +6,7 @@ import Foundation
 /// while rows that share a bucket reuse the same localized string payload.
 @MainActor
 final class SidebarAgentActivityDisplayCache {
-    private struct Key: Hashable {
-        let state: String
-        let bucket: Int64
-        let localeIdentifier: String
-    }
+    private typealias Key = String
 
     private static let maximumEntries = 128
     private var values: [Key: SidebarAgentActivityDisplayPayload] = [:]
@@ -25,11 +21,11 @@ final class SidebarAgentActivityDisplayCache {
             return SidebarAgentActivityDisplayPayload(activity: activity, at: now)
         }
 
-        let key = Key(
-            state: SidebarAgentResolvedState.running.rawValue,
-            bucket: SidebarWorkspaceAgentActivity.compactElapsedDisplayBucket(elapsed),
-            localeIdentifier: Locale.current.identifier
-        )
+        let key = [
+            SidebarAgentResolvedState.running.rawValue,
+            String(SidebarWorkspaceAgentActivity.compactElapsedDisplayBucket(elapsed)),
+            Locale.current.identifier,
+        ].joined(separator: "|")
         if let cached = values[key] {
             return cached
         }

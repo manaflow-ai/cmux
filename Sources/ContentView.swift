@@ -11579,8 +11579,17 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         .onReceive(NotificationCenter.default.publisher(for: .sharedLiveAgentIndexDidChange)) { notification in
             guard isPresented else { return }
-            armSidebarProcessExitWatchersForCurrentPanels()
-            if let panelIdsByWorkspaceId = notification.userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>] {
+            if let panelIdsByWorkspaceId = notification.userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>],
+               !panelIdsByWorkspaceId.isEmpty {
+                // Scoped index events carry the exact panel keys whose
+                // process bindings changed. Resolve only those live workspace
+                // owners here; a full owner traversal is reserved for the
+                // legacy/unscoped notification below.
+                let ownerByPanelID = sidebarPanelOwnership(
+                    in: renderContext,
+                    scopedTo: panelIdsByWorkspaceId
+                )
+                armSidebarProcessExitWatchers(for: ownerByPanelID)
                 var panelIdsWithoutCurrentWorkspace = Set<UUID>()
                 for (workspaceId, panelIds) in panelIdsByWorkspaceId {
                     if renderContext.workspaceById[workspaceId] != nil {
@@ -11598,13 +11607,18 @@ struct VerticalTabsSidebar: View, Equatable {
                     scheduleWorkspaceSnapshotRefresh(workspaceId: workspace.id)
                 }
             } else if let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
-                      renderContext.workspaceById[workspaceId] != nil {
+                      let workspace = renderContext.workspaceById[workspaceId] {
+                let ownerByPanelID = sidebarPanelOwnership(
+                    in: renderContext,
+                    scopedTo: [workspaceId: Set(workspace.panels.keys)]
+                )
+                armSidebarProcessExitWatchers(for: ownerByPanelID)
                 scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
             } else {
                 // A scoped index reload always carries its affected panel map.
                 // An empty/legacy notification has no authoritative workspace
-                // scope, so do not rebuild every row on the main actor.
-                return
+                // scope, so re-arm all current owners before returning.
+                armSidebarProcessExitWatchersForCurrentPanels(renderContext: renderContext)
             }
         }
         .onAppear {
@@ -11628,7 +11642,20 @@ struct VerticalTabsSidebar: View, Equatable {
                 _ = await SharedLiveAgentIndex.shared.indexRefreshingNow()
             }
             guard isPresented, !Task.isCancelled else { return }
-            armSidebarProcessExitWatchersForCurrentPanels()
+            let ownerByPanelID = armSidebarProcessExitWatchersForCurrentPanels(
+                renderContext: renderContext
+            )
+            if SharedLiveAgentIndex.shared.hasCachedProcessLivenessEntries() {
+                // A hidden sidebar may have missed a process exit before its
+                // kernel source was armed. Revalidate the cached generations
+                // once on activation so persisted Running state cannot survive
+                // until the normal index TTL expires.
+                SharedLiveAgentIndex.shared.refreshCachedProcessLivenessForSidebar(
+                    panelIDs: Set(ownerByPanelID.keys),
+                    currentWorkspaceIDByPanelID: ownerByPanelID,
+                    force: true
+                )
+            }
             if !featureFlags.isAppKitSidebarListEnabled {
                 refreshWorkspaceSnapshots()
             }
@@ -12605,28 +12632,67 @@ struct VerticalTabsSidebar: View, Equatable {
         }
     }
 
-    private func armSidebarProcessExitWatchersForCurrentPanels() {
+    private func sidebarPanelOwnership(
+        in renderContext: WorkspaceListRenderContext,
+        scopedTo panelIdsByWorkspaceId: [UUID: Set<UUID>]? = nil
+    ) -> [UUID: UUID] {
         guard CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
             effectiveProviderId: effectiveExtensionSidebarProviderId
-        ) else { return }
+        ) else { return [:] }
         var ownerByPanelID: [UUID: UUID] = [:]
         var ambiguousPanelIDs = Set<UUID>()
-        for workspace in tabManager.tabs {
-            for panelID in workspace.panels.keys {
-                if let previousOwner = ownerByPanelID[panelID], previousOwner != workspace.id {
-                    ambiguousPanelIDs.insert(panelID)
-                } else {
-                    ownerByPanelID[panelID] = workspace.id
+
+        if let panelIdsByWorkspaceId {
+            // The common scoped path performs dictionary lookups for only the
+            // changed workspace/panel keys. If a workspace identity was
+            // rotated during restore, its lifecycle registration will arm the
+            // current owner; resolving that alias here would require an
+            // all-sidebar panel scan on every index event.
+            for (workspaceID, panelIDs) in panelIdsByWorkspaceId {
+                guard let workspace = renderContext.workspaceById[workspaceID] else { continue }
+                for panelID in panelIDs where workspace.panels[panelID] != nil {
+                    guard !ambiguousPanelIDs.contains(panelID) else { continue }
+                    if let previousOwner = ownerByPanelID[panelID], previousOwner != workspaceID {
+                        ownerByPanelID.removeValue(forKey: panelID)
+                        ambiguousPanelIDs.insert(panelID)
+                    } else {
+                        ownerByPanelID[panelID] = workspaceID
+                    }
+                }
+            }
+        } else {
+            // Only unscoped/legacy notifications pay the full owner traversal.
+            for workspace in renderContext.tabs {
+                for panelID in workspace.panels.keys {
+                    guard !ambiguousPanelIDs.contains(panelID) else { continue }
+                    if let previousOwner = ownerByPanelID[panelID], previousOwner != workspace.id {
+                        ownerByPanelID.removeValue(forKey: panelID)
+                        ambiguousPanelIDs.insert(panelID)
+                    } else {
+                        ownerByPanelID[panelID] = workspace.id
+                    }
                 }
             }
         }
-        for panelID in ambiguousPanelIDs {
-            ownerByPanelID.removeValue(forKey: panelID)
-        }
+
+        return ownerByPanelID
+    }
+
+    private func armSidebarProcessExitWatchers(for ownerByPanelID: [UUID: UUID]) {
+        guard !ownerByPanelID.isEmpty else { return }
         SharedLiveAgentIndex.shared.armSidebarProcessExitWatchers(
             panelIDs: Set(ownerByPanelID.keys),
             workspaceIDByPanelID: ownerByPanelID
         )
+    }
+
+    @discardableResult
+    private func armSidebarProcessExitWatchersForCurrentPanels(
+        renderContext: WorkspaceListRenderContext
+    ) -> [UUID: UUID] {
+        let ownerByPanelID = sidebarPanelOwnership(in: renderContext)
+        armSidebarProcessExitWatchers(for: ownerByPanelID)
+        return ownerByPanelID
     }
 
     private func refreshWorkspaceSnapshots(workspaceIds: Set<UUID>) {

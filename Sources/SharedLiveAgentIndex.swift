@@ -55,10 +55,10 @@ final class SharedLiveAgentIndex {
         continuation: CheckedContinuation<Void, Never>
     )
 
-    private struct SidebarProcessExitWatcher {
-        let identity: AgentPIDProcessIdentity
-        let source: DispatchSourceProcess
-    }
+    private typealias SidebarProcessExitWatcher = (
+        identity: AgentPIDProcessIdentity,
+        source: DispatchSourceProcess
+    )
 
     private(set) var index: RestorableAgentSessionIndex?
     private var indexGeneration: UInt64 = 0
@@ -670,10 +670,7 @@ final class SharedLiveAgentIndex {
                 }
             }
         }
-        sidebarProcessExitWatchers[pid] = SidebarProcessExitWatcher(
-            identity: identity,
-            source: source
-        )
+        sidebarProcessExitWatchers[pid] = (identity: identity, source: source)
         source.resume()
     }
 
