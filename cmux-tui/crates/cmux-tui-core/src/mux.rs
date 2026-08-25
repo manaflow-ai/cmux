@@ -8604,7 +8604,11 @@ impl Mux {
             }
             return;
         }
-        let surfaces = unique_surface_runtimes(&self.state.lock().unwrap());
+        // Finalization can run while unwinding from a failed operation. A
+        // panic while holding the state lock poisons it, but cleanup must not
+        // panic again (for example, when a test simulates a daemon crash).
+        let surfaces =
+            unique_surface_runtimes(&self.state.lock().unwrap_or_else(PoisonError::into_inner));
         let terminal_reader_deadline = Instant::now() + TERMINAL_READER_SHUTDOWN_TIMEOUT;
         let mut terminal_gaps = surfaces
             .iter()
