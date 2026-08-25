@@ -116,6 +116,9 @@ that the current 11 shared fixtures cover every command in the inventory.
 Fixture coverage becomes a required per-command field when deterministic
 schema-driven generation replaces the current prompt-based binding script.
 
-## Pending protocol heads
+## Protocol head history
 
-The inventory is based on `main`. [PR 8698](https://github.com/manaflow-ai/cmux/pull/8698) adds clear-history and structured shortcut work and remains `pending` in `inventory.json`. Per-surface client sizing landed with protocol 10 and is part of the implemented inventory.
+The inventory is based on `main`. [PR 8698](https://github.com/manaflow-ai/cmux/pull/8698)
+merged on 2026-07-27 and its clear-history and structured shortcut work is now
+represented in the implemented command and action inventory. Per-surface client
+sizing landed with protocol 10 and remains part of the implemented inventory.
