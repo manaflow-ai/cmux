@@ -149,6 +149,41 @@ def main() -> int:
                     ):
                         failures.append(f"default scan included home-level cmux.json: {default_result.stdout}")
 
+        config_path.write_text(
+            """
+            {
+              "actions": {
+                "good-one": { "type": "command", "command": "echo good" },
+                "bad-one": {
+                  "type": "workspace",
+                  "workspace": {
+                    "layout": {
+                      "direction": "horizontal",
+                      "children": [{ "pane": { "surfaces": [{ "type": "terminal" }] } }]
+                    }
+                  }
+                }
+              }
+            }
+            """,
+            encoding="utf-8",
+        )
+        invalid_structure_result = run_cli(
+            cli_path, ["--json", "config", "doctor", "--path", str(config_path)], home
+        )
+        if invalid_structure_result.returncode == 0:
+            failures.append("invalid layout returned success")
+        else:
+            payload = parse_json_output(
+                invalid_structure_result.stdout, "invalid layout", failures
+            )
+            if payload is not None:
+                finding = first_finding(payload, "invalid layout", invalid_structure_result.stdout, failures)
+                if finding is not None:
+                    message = finding.get("message", "")
+                    if finding.get("status") != "error" or "actions.bad-one.workspace.layout" not in message:
+                        failures.append(f"invalid layout did not identify the bad action: {invalid_structure_result.stdout}")
+
         config_path.write_text('{"agent": true,,}\n', encoding="utf-8")
         bad_result = run_cli(cli_path, ["--json", "config", "doctor", "--path", str(config_path)], home)
         if bad_result.returncode == 0:
@@ -188,7 +223,7 @@ def main() -> int:
             print(f"FAIL: {failure}")
         return 1
 
-    print("PASS: cmux config doctor validates JSONC and reports syntax errors")
+    print("PASS: cmux config doctor validates JSONC and config structure")
     return 0
 
 
