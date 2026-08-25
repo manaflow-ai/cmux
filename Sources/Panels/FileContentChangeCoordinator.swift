@@ -3,8 +3,8 @@ import Foundation
 
 /// Multiplexes file-content invalidations for file-backed panels.
 ///
-/// Each canonical path owns one filesystem watcher regardless of how many
-/// panels display it. Successful in-app writes also enter through this service,
+/// Each canonical target owns a stable-path watcher plus one watcher for every
+/// presented alias. Successful in-app writes also enter through this service,
 /// giving viewers a commit-boundary signal that does not depend on vnode event
 /// timing. Filesystem events remain the fallback for external editors.
 @MainActor
@@ -17,18 +17,20 @@ final class FileContentChangeCoordinator {
         String.Encoding
     ) async -> FilePreviewTextSaver.Result
 
+    private typealias WatchRegistration = (
+        watcher: FileWatcher?,
+        task: Task<Void, Never>?
+    )
+
     /// Private storage for one canonical path; it has no independent lifecycle
     /// or consumer, so keeping it nested preserves the coordinator's ownership
     /// boundary instead of introducing another app-target type.
     private struct Entry {
-        var lastObservedState: FilePreviewFileState
-        /// The path supplied by the panel, standardized but not symlink-resolved.
-        /// The canonical path remains the dictionary key, while this path keeps
-        /// the watcher attached to an alias that may be replaced or retargeted.
-        let watchedPath: String
-        let watcher: FileWatcher?
-        let watchTask: Task<Void, Never>?
-        var observers: [UUID: ChangeHandler]
+        /// Fingerprints are tracked per watched path because an alias can be
+        /// retargeted while a panel opened through the real path remains valid.
+        var lastObservedStates: [String: FilePreviewFileState] = [:]
+        var watches: [String: WatchRegistration] = [:]
+        var observers: [UUID: ChangeHandler] = [:]
     }
 
     private let makeFileWatcher: FileWatcherFactory
@@ -57,7 +59,23 @@ final class FileContentChangeCoordinator {
         let watchedPath = Self.standardizedPath(path)
         let observationID = UUID()
         var entry = entriesByPath[canonicalPath]
-            ?? makeEntry(for: canonicalPath, watchedPath: watchedPath)
+            ?? Entry()
+        installWatch(
+            for: watchedPath,
+            canonicalPath: canonicalPath,
+            in: &entry
+        )
+        if watchedPath != canonicalPath {
+            // Keep the original target alive even if the first alias is
+            // replaced or retargeted. Alias events still refresh panels that
+            // resolve through the alias, while real-path panels keep watching
+            // the inode they opened.
+            installWatch(
+                for: canonicalPath,
+                canonicalPath: canonicalPath,
+                in: &entry
+            )
+        }
         entry.observers[observationID] = onChange
         entriesByPath[canonicalPath] = entry
         pathsByObservationID[observationID] = canonicalPath
@@ -65,7 +83,10 @@ final class FileContentChangeCoordinator {
         // Close the capture/attachment gap: the first fingerprint is sampled
         // before watcher construction and this second sample happens after the
         // observer is installed. Changes after attachment arrive on the stream.
-        let publishedChange = publishFilesystemChangeIfNeeded(at: canonicalPath)
+        let publishedChange = publishFilesystemChangeIfNeeded(
+            at: canonicalPath,
+            watchedPath: watchedPath
+        )
         if !publishedChange {
             onChange()
         }
@@ -84,7 +105,9 @@ final class FileContentChangeCoordinator {
             return
         }
         entriesByPath.removeValue(forKey: canonicalPath)
-        entry.watchTask?.cancel()
+        for registration in entry.watches.values {
+            registration.task?.cancel()
+        }
     }
 
     /// Publishes only after an in-app writer has successfully committed bytes.
@@ -96,16 +119,29 @@ final class FileContentChangeCoordinator {
     ) {
         let canonicalPath = Self.canonicalPath(path)
         let watchedPath = Self.standardizedPath(path)
-        let entryKey = entriesByPath.first(where: { $0.value.watchedPath == watchedPath })?.key
-            ?? (entriesByPath[canonicalPath] != nil ? canonicalPath : nil)
-        guard let entryKey, var entry = entriesByPath[entryKey] else { return }
-        entry.lastObservedState = .capture(path: entry.watchedPath)
-        let handlers = entry.observers.compactMap { observationID, handler in
-            observationID == excludedObservationID ? nil : handler
+        let matchingEntryKeys = entriesByPath.compactMap { entryKey, entry in
+            guard entryKey == canonicalPath
+                || entry.lastObservedStates[watchedPath] != nil
+                || entry.lastObservedStates[canonicalPath] != nil
+                || entry.lastObservedStates.keys.contains(where: {
+                    Self.canonicalPath($0) == canonicalPath
+                }) else {
+                return nil
+            }
+            return entryKey
         }
-        entriesByPath[entryKey] = entry
-        for handler in handlers {
-            handler()
+        for entryKey in matchingEntryKeys {
+            guard var entry = entriesByPath[entryKey] else { continue }
+            for watchPath in Array(entry.lastObservedStates.keys) {
+                entry.lastObservedStates[watchPath] = .capture(path: watchPath)
+            }
+            let handlers = entry.observers.compactMap { observationID, handler in
+                observationID == excludedObservationID ? nil : handler
+            }
+            entriesByPath[entryKey] = entry
+            for handler in handlers {
+                handler()
+            }
         }
     }
 
@@ -167,36 +203,56 @@ final class FileContentChangeCoordinator {
 
     deinit {
         for entry in entriesByPath.values {
-            entry.watchTask?.cancel()
+            for registration in entry.watches.values {
+                registration.task?.cancel()
+            }
         }
     }
 
-    private func makeEntry(for canonicalPath: String, watchedPath: String) -> Entry {
-        let initialState = FilePreviewFileState.capture(path: watchedPath)
+    private func installWatch(
+        for watchedPath: String,
+        canonicalPath: String,
+        in entry: inout Entry
+    ) {
+        guard entry.watches[watchedPath] == nil else { return }
+        entry.lastObservedStates[watchedPath] = .capture(path: watchedPath)
+        entry.watches[watchedPath] = makeWatchRegistration(
+            for: watchedPath,
+            canonicalPath: canonicalPath
+        )
+    }
+
+    private func makeWatchRegistration(
+        for watchedPath: String,
+        canonicalPath: String
+    ) -> WatchRegistration {
         let watcher = makeFileWatcher(watchedPath)
         let watchTask = watcher.map { watcher in
             Task { @MainActor [weak self] in
                 for await _ in watcher.events {
                     guard !Task.isCancelled else { return }
-                    self?.publishFilesystemChangeIfNeeded(at: canonicalPath)
+                    self?.publishFilesystemChangeIfNeeded(
+                        at: canonicalPath,
+                        watchedPath: watchedPath
+                    )
                 }
             }
         }
-        return Entry(
-            lastObservedState: initialState,
-            watchedPath: watchedPath,
-            watcher: watcher,
-            watchTask: watchTask,
-            observers: [:]
-        )
+        return (watcher: watcher, task: watchTask)
     }
 
     @discardableResult
-    private func publishFilesystemChangeIfNeeded(at canonicalPath: String) -> Bool {
-        guard var entry = entriesByPath[canonicalPath] else { return false }
-        let nextState = FilePreviewFileState.capture(path: entry.watchedPath)
-        guard nextState != entry.lastObservedState else { return false }
-        entry.lastObservedState = nextState
+    private func publishFilesystemChangeIfNeeded(
+        at canonicalPath: String,
+        watchedPath: String
+    ) -> Bool {
+        guard var entry = entriesByPath[canonicalPath],
+              let lastObservedState = entry.lastObservedStates[watchedPath] else {
+            return false
+        }
+        let nextState = FilePreviewFileState.capture(path: watchedPath)
+        guard nextState != lastObservedState else { return false }
+        entry.lastObservedStates[watchedPath] = nextState
         let handlers = Array(entry.observers.values)
         entriesByPath[canonicalPath] = entry
         for handler in handlers {
