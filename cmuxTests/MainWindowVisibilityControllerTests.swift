@@ -81,7 +81,7 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         XCTAssertEqual(activationCount, 0)
     }
 
-    func testHotkeyRestoreUsesCapturedVisibleTargetsWithoutDeminiaturizingMiniaturizedWindows() {
+    func testBackgroundHotkeyShowsVisibleTargetsWithoutDeminiaturizingMiniaturizedWindows() {
         let visibleWindow = makeWindow()
         let miniaturizedWindow = makeWindow()
         defer {
@@ -91,10 +91,6 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
 
         let visibleIds: Set<ObjectIdentifier> = [ObjectIdentifier(visibleWindow)]
         var miniaturizedIds: Set<ObjectIdentifier> = [ObjectIdentifier(miniaturizedWindow)]
-        var isAppActive = true
-        var isAppHidden = false
-        var hideCount = 0
-        var unhideCount = 0
         var deminiaturizedWindows: [NSWindow] = [], madeKeyWindows: [NSWindow] = []
         var activationCount = 0
 
@@ -102,17 +98,8 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
             dependencies: .init(
                 isActivationSuppressed: { false },
                 setActiveMainWindow: { _ in },
-                isApplicationActive: { isAppActive },
-                isApplicationHidden: { isAppHidden },
-                hideApplication: {
-                    hideCount += 1
-                    isAppActive = false
-                    isAppHidden = true
-                },
-                unhideApplication: {
-                    unhideCount += 1
-                    isAppHidden = false
-                },
+                isApplicationActive: { false },
+                isApplicationHidden: { false },
                 activateRunningApplication: { _ in activationCount += 1 },
                 windowOperations: makeWindowOperations(
                     isVisible: { visibleIds.contains(ObjectIdentifier($0)) },
@@ -130,20 +117,13 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
             windows: [visibleWindow, miniaturizedWindow],
             reason: .globalHotkey
         )
-        XCTAssertEqual(hideCount, 1)
 
-        controller.toggleApplicationVisibility(
-            windows: [visibleWindow, miniaturizedWindow],
-            reason: .globalHotkey
-        )
-
-        XCTAssertEqual(unhideCount, 1)
         XCTAssertEqual(activationCount, 1)
         XCTAssertTrue(madeKeyWindows.contains { $0 === visibleWindow })
         XCTAssertFalse(deminiaturizedWindows.contains { $0 === miniaturizedWindow })
     }
 
-    func testShowApplicationWindowsStillRestoresMiniaturizedWindowsWhenNoHiddenTargetsWereCaptured() {
+    func testHiddenApplicationStillRestoresMiniaturizedWindowsWhenNoTargetsWereCaptured() {
         let miniaturizedWindow = makeWindow()
         defer { miniaturizedWindow.orderOut(nil) }
 
@@ -156,7 +136,8 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
             dependencies: .init(
                 isActivationSuppressed: { false },
                 setActiveMainWindow: { _ in },
-                isApplicationHidden: { false },
+                isApplicationHidden: { true },
+                unhideApplication: {},
                 activateRunningApplication: { _ in activationCount += 1 },
                 windowOperations: makeWindowOperations(
                     isMiniaturized: { miniaturizedIds.contains(ObjectIdentifier($0)) },
