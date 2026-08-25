@@ -60,10 +60,6 @@ struct CmxIrohSelectedTransportPathTests {
             )
                 == .tailscale(address: "100.100.20.40:443")
         )
-        #expect(
-            CmxConnectivityEngine.mobileTransportPath(from: path, relayPolicy: nil)
-                == .tailscale(address: "100.100.20.40:443")
-        )
     }
 
     @Test

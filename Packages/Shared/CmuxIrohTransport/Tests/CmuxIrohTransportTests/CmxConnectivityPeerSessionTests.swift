@@ -996,7 +996,7 @@ private actor TestConnectivitySession: CmxConnectivitySession {
         return pair.stream
     }
 
-    func pathIsAllowed(_ path: CmxIrohObservedConnectionPath) -> Bool {
+    func pathIsAllowed(_ path: CmxIrohObservedConnectionPath) async -> Bool {
         guard rejectsRelayPaths else { return true }
         if case .relay = path { return false }
         return true
