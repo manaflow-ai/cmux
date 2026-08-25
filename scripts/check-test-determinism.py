@@ -352,7 +352,7 @@ _FLUENT_CLIENT_ASSIGNMENT = re.compile(
     )
     [!?]?
     (?:\s*:\s*[^=\n;]+)?
-    \s*=\s*\Z
+    \s*=\s*(?:\(\s*)*\Z
     """
 )
 
@@ -1792,7 +1792,14 @@ def _call_uses_explicit_shell(
         return False
 
     start, end = shell_mode.value_bounds
-    if line[start:end] in ("True", "true"):
+    raw_value = line[start:end].strip()
+    if raw_value in ("True", "true"):
+        return True
+
+    # Python accepts any truthy value for ``shell``.  Keep the detector
+    # conservative, but recognize numeric literals whose truthiness is known
+    # without evaluating arbitrary test code (for example ``shell=1``).
+    if re.fullmatch(r"[+-]?(?:[1-9]\d*|0[xX][0-9a-fA-F]+)", raw_value):
         return True
 
     quoted = _quoted_argument_bounds(line, start)
