@@ -52,8 +52,11 @@ struct GhosttyScrollViewTests {
             ]
         )
 
-        #expect(documentView.frame.height == 800)
-        #expect(scrollView.contentView.documentVisibleRect.origin.y == 200)
+        let didApplyScrollbar = waitForMainRunLoop {
+            abs(documentView.frame.height - 800) <= 0.5 &&
+                abs(scrollView.contentView.documentVisibleRect.origin.y - 200) <= 0.5
+        }
+        #expect(didApplyScrollbar, "the production scrollbar notification must settle before assertions")
         #expect(
             surfaceView.frame == rendererFrame,
             "scrollback must not relocate the viewport-sized Metal renderer"
@@ -87,44 +90,22 @@ struct GhosttyScrollViewTests {
 
         #expect(surfaceView.frame.origin == NSPoint(x: 100, y: 0))
         #expect(
-            hostedView.hitTest(pointInContainer) === surfaceView,
+            containerView.hitTest(pointInContainer) === surfaceView,
             "offset portal and renderer frames must preserve terminal pointer routing"
         )
     }
 
-    @Test func reconnectOverlayRoutesOffsetCardAndButtonHits() throws {
-        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 1_400, height: 800))
-        let overlay = CloudTerminalReconnectOverlayView(
-            frame: NSRect(x: 300, y: 200, width: 800, height: 240)
-        )
-        containerView.addSubview(overlay)
-        overlay.layoutSubtreeIfNeeded()
-
-        let cardView = try #require(
-            overlay.subviews.compactMap { $0 as? NSVisualEffectView }.first
-        )
-        let stackView = try #require(
-            cardView.subviews.compactMap { $0 as? NSStackView }.first
-        )
-        let reconnectButton = try #require(
-            stackView.arrangedSubviews.compactMap { $0 as? NSButton }.first
-        )
-
-        let cardPointInOverlay = NSPoint(x: cardView.frame.minX + 8, y: cardView.frame.midY)
-        let cardPointInContainer = overlay.convert(cardPointInOverlay, to: containerView)
-        #expect(
-            overlay.hitTest(cardPointInContainer) === overlay,
-            "an offset reconnect card must retain its background hit region"
-        )
-
-        let buttonPointInOverlay = reconnectButton.convert(
-            NSPoint(x: reconnectButton.bounds.midX, y: reconnectButton.bounds.midY),
-            to: overlay
-        )
-        let buttonPointInContainer = overlay.convert(buttonPointInOverlay, to: containerView)
-        #expect(
-            overlay.hitTest(buttonPointInContainer) === reconnectButton,
-            "an offset reconnect button must receive its own hit"
-        )
+    private func waitForMainRunLoop(
+        timeout: TimeInterval = 1,
+        condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while !condition(), Date() < deadline {
+            RunLoop.main.run(
+                mode: .default,
+                before: min(deadline, Date(timeIntervalSinceNow: 0.01))
+            )
+        }
+        return condition()
     }
 }

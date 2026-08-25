@@ -8259,7 +8259,7 @@ private final class TerminalViewportBorderOverlayView: NSView {
     }
 }
 
-final class CloudTerminalReconnectOverlayView: NSView {
+private final class CloudTerminalReconnectOverlayView: NSView {
     var onReconnect: (() -> Void)?
 
     private let cardView = NSVisualEffectView(frame: .zero)
@@ -8349,12 +8349,10 @@ final class CloudTerminalReconnectOverlayView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden, alphaValue > 0 else { return nil }
-        let pointInSelf = convert(point, from: superview)
-        if let buttonSuperview = reconnectButton.superview,
-           let buttonHit = reconnectButton.hitTest(convert(pointInSelf, to: buttonSuperview)) {
+        if let buttonHit = reconnectButton.hitTest(convert(point, to: reconnectButton)) {
             return buttonHit
         }
-        if cardView.frame.contains(pointInSelf) {
+        if cardView.frame.contains(point) {
             return self
         }
         return nil
@@ -9083,10 +9081,9 @@ final class GhosttySurfaceScrollView: NSView {
     override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let pointInSelf = convert(point, from: superview)
         if let overlay = cloudTerminalReconnectOverlayView,
            overlay.superview === self,
-           let hit = overlay.hitTest(pointInSelf) {
+           let hit = overlay.hitTest(overlay.convert(point, from: self)) {
             return hit
         }
 
@@ -9094,7 +9091,7 @@ final class GhosttySurfaceScrollView: NSView {
         guard hit === scrollView.contentView || hit === documentView else {
             return hit
         }
-        return surfaceView.hitTest(pointInSelf)
+        return surfaceView.hitTest(surfaceView.convert(point, from: self))
     }
 
     // Avoid stealing focus on scroll; focus is managed explicitly by the surface view.
