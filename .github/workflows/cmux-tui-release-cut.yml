@@ -169,7 +169,27 @@ jobs:
             -f publish_npm=true \
             -f publish_pypi=true \
             -f confirm_tui_cmux=true
+          release_run_id=""
+          for _ in $(seq 1 30); do
+            release_run_id="$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow cmux-tui-release.yml \
+              --branch "$TAG" \
+              --event workflow_dispatch \
+              --limit 100 \
+              --json databaseId,headSha,headBranch \
+              --jq ".[] | select(.headSha == \"$GITHUB_SHA\" and .headBranch == \"$TAG\") | .databaseId" \
+              | head -n 1)"
+            if [[ -n "$release_run_id" ]]; then
+              break
+            fi
+            sleep 2
+          done
+          if [[ -z "$release_run_id" ]]; then
+            echo "::error::cmux-tui-release.yml dispatch was not acknowledged for $TAG at $GITHUB_SHA" >&2
+            exit 1
+          fi
           {
-            echo "- Dispatched one build/package run on $TAG"
+            echo "- Dispatched build/package run $release_run_id on $TAG at $GITHUB_SHA"
             echo "- npm and PyPI will reuse that run's verified artifacts"
           } >> "$GITHUB_STEP_SUMMARY"
