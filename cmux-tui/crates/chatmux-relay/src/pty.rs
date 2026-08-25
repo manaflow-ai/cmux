@@ -993,7 +993,7 @@ impl Inner {
             Arc::new(move |code: i64| {
                 let kill = {
                     let _guard = gate.lock().expect("attachment gate");
-                    inner.emit_raw_exit(&pty_id, generation, code, &context, &control)
+                    inner.emit_raw_exit(&pty_id, generation, None, code, &context, &control)
                 };
                 if let Some(control) = kill {
                     control.kill();
@@ -1055,12 +1055,12 @@ impl Inner {
         &self,
         pty_id: &str,
         generation: u64,
-        stream: &TerminalStream,
+        stream: Option<&TerminalStream>,
         code: i64,
         context: &FrameContext,
         control: &Weak<dyn PtyControl>,
     ) -> Option<Arc<dyn PtyControl>> {
-        if !stream.overflowed() {
+        if stream.is_none_or(|stream| !stream.overflowed()) {
             self.emit_exit(pty_id, generation, code, context, control);
             return None;
         }
@@ -2230,7 +2230,7 @@ impl Inner {
                 relay.emit_raw_exit(
                     &pty_id_for_exit,
                     generation,
-                    &stream_for_exit,
+                    Some(&stream_for_exit),
                     code,
                     &context_for_exit,
                     &control_identity,
@@ -3126,7 +3126,7 @@ mod tests {
         let _ = h.manager.inner.emit_raw_exit(
             "p1",
             old.generation,
-            &stale_stream,
+            Some(&stale_stream),
             1,
             &h.context("supervised", h.owner.clone()),
             &old_identity,

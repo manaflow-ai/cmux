@@ -8,6 +8,103 @@ import Testing
 
 @Suite("Remote daemon upload")
 struct RemoteDaemonUploadTests {
+    @Test("Upload refreshes its owner marker while the input stream is open")
+    func uploadRefreshesOwnerMarker() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-upload-heartbeat-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let remoteDirectory = root.appendingPathComponent("remote", isDirectory: true)
+        try fileManager.createDirectory(at: remoteDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let localBinary = root.appendingPathComponent("cmuxd-remote", isDirectory: false)
+        try Data([0x41, 0x42]).write(to: localBinary)
+        let runner = RecordingProcessRunner { request in
+            switch Self.uploadStep(for: request) {
+            case .createDirectory, .upload:
+                return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+            case .cleanup, .finalize, .unknown:
+                return Self.unexpectedRequestResult(request)
+            }
+        }
+        let coordinator = makeCoordinator(runner: runner)
+        defer { coordinator.stop() }
+        let location = RemoteDaemonInstallLocation(
+            relativePath: "remote/cmuxd-remote",
+            absolutePath: remoteDirectory.appendingPathComponent("cmuxd-remote").path
+        )
+        try coordinator.queue.sync {
+            try coordinator.uploadRemoteDaemonBinaryLocked(
+                localBinary: localBinary,
+                location: location
+            )
+        }
+        let uploadRequest = try #require(
+            runner.requests.first { Self.uploadStep(for: $0) == .upload }
+        )
+        let uploadCommand = try #require(uploadRequest.arguments.last)
+
+        // Make the watchdog interval short without changing production code.
+        // The generated command still runs unchanged; only its sleep utility
+        // is replaced by a bounded test helper.
+        let fakeBin = root.appendingPathComponent("bin", isDirectory: true)
+        try fileManager.createDirectory(at: fakeBin, withIntermediateDirectories: true)
+        let fakeSleep = fakeBin.appendingPathComponent("sleep", isDirectory: false)
+        try "#!/bin/sh\nexec /bin/sleep 0.05\n".write(
+            to: fakeSleep,
+            atomically: true,
+            encoding: .utf8
+        )
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeSleep.path)
+
+        let input = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", uploadCommand]
+        process.environment = ["PATH": "\(fakeBin.path):/usr/bin:/bin"]
+        process.standardInput = input
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        defer {
+            try? input.fileHandleForWriting.close()
+            if process.isRunning {
+                process.terminate()
+                process.waitUntilExit()
+            }
+        }
+        try process.run()
+        try input.fileHandleForWriting.write(contentsOf: Data([0x41]))
+
+        let markerURL: URL
+        var discoveredMarker: URL?
+        for _ in 0..<40 {
+            discoveredMarker = try fileManager.contentsOfDirectory(
+                at: remoteDirectory,
+                includingPropertiesForKeys: [.contentModificationDateKey]
+            ).first { $0.pathExtension == "pid" }
+            if discoveredMarker != nil {
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        markerURL = try #require(discoveredMarker)
+        let initialDate = try #require(
+            fileManager.attributesOfItem(atPath: markerURL.path)[.modificationDate] as? Date
+        )
+        Thread.sleep(forTimeInterval: 0.75)
+        let refreshedDate = try #require(
+            fileManager.attributesOfItem(atPath: markerURL.path)[.modificationDate] as? Date
+        )
+        #expect(refreshedDate > initialDate)
+
+        try input.fileHandleForWriting.close()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+        #expect(!fileManager.fileExists(atPath: markerURL.path))
+    }
+
     @Test("Upload succeeds through SSH exec when SCP's SFTP transport is unavailable")
     func uploadSucceedsWithoutSFTP() throws {
         let fileManager = FileManager.default

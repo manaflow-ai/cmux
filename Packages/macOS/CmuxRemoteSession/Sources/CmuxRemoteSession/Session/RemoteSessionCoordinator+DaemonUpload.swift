@@ -120,6 +120,10 @@ extension RemoteSessionCoordinator {
           stall_checks=0
           previous_size=0
           while kill -0 "$cat_pid" 2>/dev/null; do
+            # The marker is a liveness lease. Refresh it while the payload
+            # reader is alive so age-based recovery cannot remove an active
+            # upload that has no recent byte progress.
+            touch "$pid_path" 2>/dev/null || exit 0
             current_size="$(wc -c < "$temp_path" 2>/dev/null || printf '0')"
             set -- $current_size
             current_size="${1:-0}"
