@@ -90,9 +90,7 @@ pub fn e2e_loopback_backend_override(raw: Option<&str>) -> Option<String> {
 }
 
 fn environment_e2e_loopback_backend_override() -> Option<String> {
-    std::env::var(E2E_BACKEND_ENV)
-        .ok()
-        .and_then(|raw| e2e_loopback_backend_override(Some(&raw)))
+    std::env::var(E2E_BACKEND_ENV).ok().and_then(|raw| e2e_loopback_backend_override(Some(&raw)))
 }
 
 /// Load, validate, and destroy the one-shot enrollment file. `now_ms` is
@@ -377,14 +375,8 @@ mod tests {
     #[test]
     fn e2e_override_accepts_only_http_loopback_origins() {
         for (raw, expected) in [
-            (
-                Some("http://127.0.0.1:8917"),
-                Some("http://127.0.0.1:8917"),
-            ),
-            (
-                Some("http://localhost:8917/path"),
-                Some("http://localhost:8917"),
-            ),
+            (Some("http://127.0.0.1:8917"), Some("http://127.0.0.1:8917")),
+            (Some("http://localhost:8917/path"), Some("http://localhost:8917")),
             (Some("http://[::1]:8917"), Some("http://[::1]:8917")),
         ] {
             assert_eq!(
@@ -402,11 +394,7 @@ mod tests {
             Some("http://10.0.0.5:8917"),
             Some("http://127.0.0.2:8917"),
         ] {
-            assert_eq!(
-                e2e_loopback_backend_override(raw),
-                None,
-                "expected {raw:?} to be refused",
-            );
+            assert_eq!(e2e_loopback_backend_override(raw), None, "expected {raw:?} to be refused",);
         }
     }
 
@@ -420,12 +408,9 @@ mod tests {
             "token": "e".repeat(48),
         });
         let path = fixture(&loopback, 0o600, "e2e-loopback");
-        let loaded = load_managed_enrollment_file_with_override(
-            &path,
-            NOW,
-            Some("http://127.0.0.1:8917"),
-        )
-        .expect("matching loopback origin should load");
+        let loaded =
+            load_managed_enrollment_file_with_override(&path, NOW, Some("http://127.0.0.1:8917"))
+                .expect("matching loopback origin should load");
         assert_eq!(loaded.backend, "http://127.0.0.1:8917");
         assert_eq!(
             loaded.events,
@@ -438,30 +423,20 @@ mod tests {
         let mut mismatched = loopback.clone();
         mismatched["backend"] = Value::from("http://127.0.0.1:9999");
         let path = fixture(&mismatched, 0o600, "e2e-mismatched");
-        assert!(load_managed_enrollment_file_with_override(
-            &path,
-            NOW,
-            Some("http://127.0.0.1:8917"),
-        )
-        .is_err());
+        assert!(
+            load_managed_enrollment_file_with_override(&path, NOW, Some("http://127.0.0.1:8917"),)
+                .is_err()
+        );
 
         let mut remote = loopback;
         remote["backend"] = Value::from("https://attacker.invalid");
         let path = fixture(&remote, 0o600, "e2e-remote");
-        assert!(load_managed_enrollment_file_with_override(
-            &path,
-            NOW,
-            None,
-        )
-        .is_err());
+        assert!(load_managed_enrollment_file_with_override(&path, NOW, None,).is_err());
 
         let path = fixture(&enrollment(), 0o600, "e2e-production");
-        let loaded = load_managed_enrollment_file_with_override(
-            &path,
-            NOW,
-            Some("http://127.0.0.1:8917"),
-        )
-        .expect("production backend must remain allowed");
+        let loaded =
+            load_managed_enrollment_file_with_override(&path, NOW, Some("http://127.0.0.1:8917"))
+                .expect("production backend must remain allowed");
         assert_eq!(loaded.backend, "https://api.chatmux.dev");
     }
 }
