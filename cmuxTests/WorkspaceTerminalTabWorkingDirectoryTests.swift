@@ -424,6 +424,75 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
     }
 
     @MainActor
+    @Test("tab-bar terminal creation honors pane zoom preference")
+    func tabBarTerminalCreationHonorsPaneZoomPreference() throws {
+        let suiteName = "cmux.tab-bar-new-terminal-zoom.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        settings.set(true, for: SettingCatalog().app.keepExpandedOnNewTab)
+        let workspace = Workspace(settings: settings)
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        _ = try #require(
+            workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
+        )
+
+        workspace.focusPanel(firstPanelId)
+        #expect(workspace.toggleSplitZoom(panelId: firstPanelId))
+        #expect(workspace.bonsplitController.zoomedPaneId == paneId)
+
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didRequestNewTab: "terminal",
+            inPane: paneId
+        )
+
+        #expect(
+            workspace.bonsplitController.zoomedPaneId == paneId,
+            "The tab-bar + action should keep the focused pane expanded when opted in"
+        )
+    }
+
+    @MainActor
+    @Test("new terminal to right keeps legacy unzoom behavior by default")
+    func newTerminalToRightKeepsLegacyUnzoomBehaviorByDefault() throws {
+        let suiteName = "cmux.context-new-terminal-zoom.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let workspace = Workspace(settings: settings)
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        _ = try #require(
+            workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
+        )
+
+        workspace.focusPanel(firstPanelId)
+        #expect(workspace.toggleSplitZoom(panelId: firstPanelId))
+        #expect(workspace.bonsplitController.zoomedPaneId == paneId)
+        let anchorTab = try #require(
+            workspace.bonsplitController.tabs(inPane: paneId).first {
+                $0.id == workspace.surfaceIdFromPanelId(firstPanelId)
+            }
+        )
+
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didRequestTabContextAction: .newTerminalToRight,
+            for: anchorTab,
+            inPane: paneId
+        )
+
+        #expect(
+            workspace.bonsplitController.zoomedPaneId == nil,
+            "The context-menu action should retain the default auto-unzoom behavior"
+        )
+    }
+
+    @MainActor
     @Test("surface.create inherits workspace cwd from focused agent pane")
     func surfaceCreateInheritsWorkspaceCurrentDirectoryForAgentPane() throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
