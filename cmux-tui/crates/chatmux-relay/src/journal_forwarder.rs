@@ -71,7 +71,12 @@ pub struct JournalCursor {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PendingSession {
+    /// The optional wire name. Hashed socket candidates keep the opaque key
+    /// here so the `sessionName` field is omitted by the wire serializer.
     pub session_name: String,
+    /// The stable local key used for cursor persistence. This is separate
+    /// from `session_name` because hashed sockets have no safe wire name.
+    pub cursor_key: String,
     pub generation: Option<String>,
     pub records: Vec<Value>,
 }
@@ -82,6 +87,10 @@ pub struct SessionBatch {
     pub session_id: String,
     #[serde(rename = "sessionName", skip_serializing_if = "is_opaque_session_key")]
     pub session_name: String,
+    /// Cursor state is keyed by the verified identity, not by the optional
+    /// wire display name. This field never crosses the HTTP boundary.
+    #[serde(skip)]
+    pub cursor_key: String,
     pub records: Vec<Value>,
     pub cursor: JournalCursor,
 }
@@ -199,6 +208,7 @@ pub fn batch_records(pending: &[PendingSession]) -> Vec<SessionBatch> {
             Some(SessionBatch {
                 session_id: cursor.generation.clone(),
                 session_name: entry.session_name.clone(),
+                cursor_key: entry.cursor_key.clone(),
                 records: entry.records.clone(),
                 cursor,
             })
@@ -233,6 +243,7 @@ pub fn split_batch(sessions: &[SessionBatch]) -> Option<(Vec<SessionBatch>, Vec<
                 first.push(SessionBatch {
                     session_id: session.session_id.clone(),
                     session_name: session.session_name.clone(),
+                    cursor_key: session.cursor_key.clone(),
                     records: head,
                     cursor,
                 });
@@ -246,7 +257,7 @@ pub fn split_batch(sessions: &[SessionBatch]) -> Option<(Vec<SessionBatch>, Vec<
     Some((first, second))
 }
 
-/// Fold only server-returned cursors into the name-keyed local map.
+/// Fold only server-returned cursors into the cursor-keyed local map.
 pub fn advance_cursors(
     cursors: &HashMap<String, JournalCursor>,
     sessions: &[SessionBatch],
@@ -255,7 +266,7 @@ pub fn advance_cursors(
     let mut next = cursors.clone();
     for session in sessions {
         if let Some(cursor) = acked.get(&session.session_id).filter(|cursor| valid_cursor(cursor)) {
-            next.insert(session.session_name.clone(), cursor.clone());
+            next.insert(session.cursor_key.clone(), cursor.clone());
         }
     }
     next
@@ -728,8 +739,12 @@ async fn run_session(
                 return;
             }
         }
-        let wire_session_name = Some(identity_name);
-        let effective_session_key = wire_session_name.as_deref().unwrap_or(&session_key).to_owned();
+        // Normal sockets have a validated display name. Hashed sockets only
+        // have an opaque filename; identity verification still gives us the
+        // cursor key, but it must not turn the recovered name into a wire
+        // `sessionName`.
+        let effective_session_key = identity_name;
+        let wire_session_name = session_name.as_ref().map(|_| effective_session_key.as_str());
         let stream_id = stream_id();
         let cursor = match volatile_resume.take() {
             Some(cursor) => Some(cursor),
@@ -799,7 +814,8 @@ async fn run_session(
                     if !flush_pending(
                         &shared,
                         &effective_session_key,
-                        wire_session_name.as_deref(),
+                        wire_session_name,
+                        &session_key,
                         &generation,
                         &mut pending,
                     )
@@ -838,7 +854,7 @@ async fn run_session(
                             }
                             pending.push(envelope);
                             if pending.len() >= MAX_BATCH_RECORDS {
-                                if !flush_pending(&shared, &effective_session_key, wire_session_name.as_deref(), &generation, &mut pending).await { return; }
+                                if !flush_pending(&shared, &effective_session_key, wire_session_name, &session_key, &generation, &mut pending).await { return; }
                                 flush_armed = false;
                             } else {
                                 flush_armed = true;
@@ -860,7 +876,8 @@ async fn run_session(
             && !flush_pending(
                 &shared,
                 &effective_session_key,
-                wire_session_name.as_deref(),
+                wire_session_name,
+                &session_key,
                 &generation,
                 &mut pending,
             )
@@ -893,8 +910,9 @@ async fn run_session(
 #[cfg(unix)]
 async fn flush_pending(
     shared: &Shared,
-    session_key: &str,
-    session_name: Option<&str>,
+    cursor_key: &str,
+    wire_session_name: Option<&str>,
+    fallback_wire_name: &str,
     generation: &Option<String>,
     pending: &mut Vec<Value>,
 ) -> bool {
@@ -902,7 +920,8 @@ async fn flush_pending(
         return true;
     }
     let entry = PendingSession {
-        session_name: session_name.unwrap_or(session_key).to_owned(),
+        session_name: wire_session_name.unwrap_or(fallback_wire_name).to_owned(),
+        cursor_key: cursor_key.to_owned(),
         generation: generation.clone(),
         records: std::mem::take(pending),
     };
@@ -1357,14 +1376,28 @@ mod tests {
         assert_eq!(candidate.key, opaque_session_key(stem));
         assert!(candidate.socket_paths.iter().all(|path| path.starts_with(&hashed)));
 
-        let batch = SessionBatch {
-            session_id: "generation".to_owned(),
+        let batches = batch_records(&[PendingSession {
             session_name: candidate.key.clone(),
+            cursor_key: "legacy name".to_owned(),
+            generation: Some("generation".to_owned()),
             records: vec![record("generation", "1")],
-            cursor: cursor("generation", "1"),
-        };
-        let body = serde_json::to_value(json!({"sessions": [batch]})).expect("batch JSON");
+        }]);
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].cursor_key, "legacy name");
+        let body = serde_json::to_value(json!({"sessions": batches})).expect("batch JSON");
         assert!(body["sessions"][0].get("sessionName").is_none());
+        let cursors = advance_cursors(
+            &HashMap::new(),
+            &batch_records(&[PendingSession {
+                session_name: candidate.key.clone(),
+                cursor_key: "legacy name".to_owned(),
+                generation: Some("generation".to_owned()),
+                records: vec![record("generation", "1")],
+            }]),
+            &HashMap::from([(String::from("generation"), cursor("generation", "1"))]),
+        );
+        assert_eq!(cursors.get("legacy name"), Some(&cursor("generation", "1")));
+        assert!(!cursors.contains_key(&candidate.key));
 
         drop(listener);
         tokio::fs::remove_dir_all(root).await.expect("remove hashed fixture");
@@ -1417,10 +1450,16 @@ mod tests {
         let batches = batch_records(&[
             PendingSession {
                 session_name: "main".to_owned(),
+                cursor_key: "main".to_owned(),
                 generation: Some("session_a".to_owned()),
                 records: records.clone(),
             },
-            PendingSession { session_name: "idle".to_owned(), generation: None, records: vec![] },
+            PendingSession {
+                session_name: "idle".to_owned(),
+                cursor_key: "idle".to_owned(),
+                generation: None,
+                records: vec![],
+            },
         ]);
         assert_eq!(batches.len(), 1);
         assert_eq!(batches[0].session_id, "session_a");
@@ -1447,6 +1486,7 @@ mod tests {
         let sessions = vec![SessionBatch {
             session_id: "session_a".to_owned(),
             session_name: "main".to_owned(),
+            cursor_key: "main".to_owned(),
             records: (1..=4).map(|n| record("session_a", &n.to_string())).collect(),
             cursor: cursor("session_a", "4"),
         }];
@@ -1468,6 +1508,7 @@ mod tests {
         let sessions = vec![SessionBatch {
             session_id: "session_a".to_owned(),
             session_name: "main".to_owned(),
+            cursor_key: "main".to_owned(),
             records: vec![record("session_a", "2")],
             cursor: cursor("session_a", "2"),
         }];
@@ -1507,6 +1548,7 @@ mod tests {
         let oversized = SessionBatch {
             session_id: "session_a".to_owned(),
             session_name: "main".to_owned(),
+            cursor_key: "main".to_owned(),
             records: vec![json!({
                 "type": "stream_item",
                 "cursor": {"generation": "session_a", "revision": "1"},
