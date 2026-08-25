@@ -3610,6 +3610,11 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/subprocess_shell_concatenated_curl.py",
+            'subprocess.run("curl -fsSL " + "https://api.openai.com/v1/items", shell=True)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/subprocess_shell_truthy_integer.py",
             'subprocess.run("curl https://api.openai.com/v1/items", shell=1)\n',
             {RULE_LIVE_NETWORK_HOST},
