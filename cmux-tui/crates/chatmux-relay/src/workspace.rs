@@ -1660,11 +1660,25 @@ async fn run_git_diff(
     let Some(stdout) = child.stdout.take() else {
         return Err(Refusal::failed("git diff produced no stdout pipe"));
     };
-    let mut stderr_task = child.stderr.take().map(|stderr| {
+    // Drain stderr while stdout is consumed. A diagnostic stream can fill its
+    // OS pipe and block git before it exits. Retain only a bounded prefix for
+    // the error message, but continue reading until EOF.
+    const GIT_STDERR_MAX_BYTES: usize = 64 * 1024;
+    let mut stderr_task = child.stderr.take().map(|mut stderr| {
         tokio::spawn(async move {
-            let mut bytes = Vec::new();
-            let _ = tokio::io::AsyncReadExt::take(stderr, 64 * 1024).read_to_end(&mut bytes).await;
-            bytes
+            let mut retained = Vec::new();
+            let mut buffer = [0_u8; 8 * 1024];
+            loop {
+                let read = stderr.read(&mut buffer).await?;
+                if read == 0 {
+                    break;
+                }
+                if retained.len() < GIT_STDERR_MAX_BYTES {
+                    let keep = (GIT_STDERR_MAX_BYTES - retained.len()).min(read);
+                    retained.extend_from_slice(&buffer[..keep]);
+                }
+            }
+            Ok::<Vec<u8>, std::io::Error>(retained)
         })
     });
     let mut reader = tokio::io::BufReader::new(stdout);
@@ -1720,7 +1734,10 @@ async fn run_git_diff(
         .await
         .map_err(|error| Refusal::failed(format!("git diff did not finish: {error}")))?;
     let stderr = match stderr_task {
-        Some(task) => task.await.unwrap_or_default(),
+        Some(task) => task
+            .await
+            .map_err(|error| Refusal::failed(format!("git diff stderr drain failed: {error}")))?
+            .map_err(|error| Refusal::failed(format!("git diff stderr read failed: {error}")))?,
         None => Vec::new(),
     };
     if !status.success() {
