@@ -315,6 +315,7 @@ extension Workspace {
         refreshPorts: Bool = true
     ) -> Bool {
         let ownedPanelId = agentPIDPanelIdsByKey[key]
+        let ownedPID = agentPIDs[key]
         if requireOwnedKey, ownedPanelId == nil {
             return false
         }
@@ -335,6 +336,12 @@ extension Workspace {
             didChange = true
         }
         if let changedPanelId = ownedPanelId ?? panelId, didChange { AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId) }
+        if let ownedPID, let changedPanelId = ownedPanelId ?? panelId, !isRemoteWorkspace {
+            SharedLiveAgentIndex.shared.disarmSidebarProcessExitWatcher(
+                pid: Int(ownedPID),
+                panelID: changedPanelId
+            )
+        }
         if let lifecyclePanelId = ownedPanelId ?? panelId {
             let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
             if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {

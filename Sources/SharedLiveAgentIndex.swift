@@ -645,8 +645,18 @@ final class SharedLiveAgentIndex {
             queue: watchQueue
         )
         source.setEventHandler { [weak self] in
+            let events = source.data
             Task { @MainActor in
-                self?.sidebarAgentProcessDidExit(pid, expectedIdentity: identity)
+                guard let self else { return }
+                if events.contains(.exit) {
+                    self.sidebarAgentProcessDidExit(pid, expectedIdentity: identity)
+                } else if events.contains(.exec) {
+                    self.refreshCachedProcessLivenessForSidebar(
+                        panelIDs: self.sidebarProcessPanelIDsByPID[pid] ?? [],
+                        currentWorkspaceIDByPanelID: [:],
+                        force: true
+                    )
+                }
             }
         }
         sidebarProcessExitWatchers[pid] = SidebarProcessExitWatcher(
@@ -654,6 +664,17 @@ final class SharedLiveAgentIndex {
             source: source
         )
         source.resume()
+    }
+
+    func disarmSidebarProcessExitWatcher(pid: Int, panelID: UUID) {
+        guard var panelIDs = sidebarProcessPanelIDsByPID[pid] else { return }
+        panelIDs.remove(panelID)
+        if panelIDs.isEmpty {
+            sidebarProcessPanelIDsByPID.removeValue(forKey: pid)
+            sidebarProcessExitWatchers.removeValue(forKey: pid)?.source.cancel()
+        } else {
+            sidebarProcessPanelIDsByPID[pid] = panelIDs
+        }
     }
 
     private func sidebarAgentProcessDidExit(
