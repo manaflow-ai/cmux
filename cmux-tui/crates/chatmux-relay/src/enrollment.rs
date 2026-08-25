@@ -8,16 +8,19 @@
 //! networking, so snapshots, clones, and parse failures retain no live
 //! claim. Tests mirror `managed-enrollment.test.mjs`.
 
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 
 use serde_json::Value;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
+use url::{Host, Url};
 
 use crate::config::{Config, ManagedEvents, ManagedIdentity};
 
 pub const MANAGED_CLIENT: &str = "cmux-relay-managed-v1";
 const ALLOWED_BACKENDS: [&str; 2] = ["https://api.chatmux.dev", "https://api-staging.chatmux.dev"];
+const E2E_BACKEND_ENV: &str = "CHATMUX_RELAY_E2E_BACKEND";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ManagedEnrollmentError(pub String);
@@ -60,11 +63,55 @@ fn string_field(value: &Value, name: &str) -> Option<String> {
     value.get(name).and_then(Value::as_str).map(str::to_owned)
 }
 
+/// Return the normalized origin for the conformance harness's backend
+/// override. The override is intentionally narrower than the production
+/// backend allowlist: only plain HTTP on the local machine is accepted.
+///
+/// `raw` is passed in by the caller so this validator stays deterministic and
+/// unit tests do not need to mutate the process environment.
+pub fn e2e_loopback_backend_override(raw: Option<&str>) -> Option<String> {
+    let raw = raw?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let url = Url::parse(raw).ok()?;
+    if url.scheme() != "http" {
+        return None;
+    }
+    let loopback = match url.host()? {
+        Host::Domain(host) => host == "localhost",
+        Host::Ipv4(host) => host == Ipv4Addr::LOCALHOST,
+        Host::Ipv6(host) => host == Ipv6Addr::LOCALHOST,
+    };
+    if !loopback {
+        return None;
+    }
+    Some(url.origin().ascii_serialization())
+}
+
+fn environment_e2e_loopback_backend_override() -> Option<String> {
+    std::env::var(E2E_BACKEND_ENV)
+        .ok()
+        .and_then(|raw| e2e_loopback_backend_override(Some(&raw)))
+}
+
 /// Load, validate, and destroy the one-shot enrollment file. `now_ms` is
 /// Unix time in milliseconds (injectable for tests).
 pub fn load_managed_enrollment_file(
     path: &str,
     now_ms: i64,
+) -> Result<Config, ManagedEnrollmentError> {
+    load_managed_enrollment_file_with_override(
+        path,
+        now_ms,
+        environment_e2e_loopback_backend_override().as_deref(),
+    )
+}
+
+fn load_managed_enrollment_file_with_override(
+    path: &str,
+    now_ms: i64,
+    e2e_backend: Option<&str>,
 ) -> Result<Config, ManagedEnrollmentError> {
     if path.is_empty() {
         return Err(error("Managed enrollment file is required."));
@@ -74,7 +121,8 @@ pub fn load_managed_enrollment_file(
         serde_json::from_str(&raw).map_err(|_| error("Managed enrollment file is invalid."))?;
 
     let backend = string_field(&value, "backend").unwrap_or_default();
-    let allowed_backend = ALLOWED_BACKENDS.contains(&backend.as_str());
+    let allowed_backend = ALLOWED_BACKENDS.contains(&backend.as_str())
+        || e2e_backend.is_some_and(|override_backend| override_backend == backend);
     let token = string_field(&value, "token").unwrap_or_default();
     let expires_at_ms = string_field(&value, "expiresAt")
         .and_then(|raw| OffsetDateTime::parse(&raw, &Rfc3339).ok())
@@ -324,5 +372,96 @@ mod tests {
         let path = fixture(&value, 0o600, "v1-events");
         let loaded = load_managed_enrollment_file(&path, NOW).expect("v1 remains compatible");
         assert!(loaded.events.is_none());
+    }
+
+    #[test]
+    fn e2e_override_accepts_only_http_loopback_origins() {
+        for (raw, expected) in [
+            (
+                Some("http://127.0.0.1:8917"),
+                Some("http://127.0.0.1:8917"),
+            ),
+            (
+                Some("http://localhost:8917/path"),
+                Some("http://localhost:8917"),
+            ),
+            (Some("http://[::1]:8917"), Some("http://[::1]:8917")),
+        ] {
+            assert_eq!(
+                e2e_loopback_backend_override(raw),
+                expected.map(str::to_owned),
+                "unexpected result for {raw:?}",
+            );
+        }
+        for raw in [
+            None,
+            Some(""),
+            Some("not a url"),
+            Some("https://127.0.0.1:8917"),
+            Some("http://api.evil.example:8917"),
+            Some("http://10.0.0.5:8917"),
+            Some("http://127.0.0.2:8917"),
+        ] {
+            assert_eq!(
+                e2e_loopback_backend_override(raw),
+                None,
+                "expected {raw:?} to be refused",
+            );
+        }
+    }
+
+    #[test]
+    fn e2e_override_requires_exact_origin_and_preserves_production_allowlist() {
+        let mut loopback = enrollment();
+        loopback["version"] = Value::from(2);
+        loopback["backend"] = Value::from("http://127.0.0.1:8917");
+        loopback["events"] = json!({
+            "url": "http://127.0.0.1:8917/v2/agent-events",
+            "token": "e".repeat(48),
+        });
+        let path = fixture(&loopback, 0o600, "e2e-loopback");
+        let loaded = load_managed_enrollment_file_with_override(
+            &path,
+            NOW,
+            Some("http://127.0.0.1:8917"),
+        )
+        .expect("matching loopback origin should load");
+        assert_eq!(loaded.backend, "http://127.0.0.1:8917");
+        assert_eq!(
+            loaded.events,
+            Some(ManagedEvents {
+                url: "http://127.0.0.1:8917/v2/agent-events".to_owned(),
+                token: "e".repeat(48),
+            })
+        );
+
+        let mut mismatched = loopback.clone();
+        mismatched["backend"] = Value::from("http://127.0.0.1:9999");
+        let path = fixture(&mismatched, 0o600, "e2e-mismatched");
+        assert!(load_managed_enrollment_file_with_override(
+            &path,
+            NOW,
+            Some("http://127.0.0.1:8917"),
+        )
+        .is_err());
+
+        let mut remote = loopback;
+        remote["backend"] = Value::from("https://attacker.invalid");
+        let path = fixture(&remote, 0o600, "e2e-remote");
+        assert!(load_managed_enrollment_file_with_override(
+            &path,
+            NOW,
+            None,
+        )
+        .is_err());
+
+        let path = fixture(&enrollment(), 0o600, "e2e-production");
+        let loaded = load_managed_enrollment_file_with_override(
+            &path,
+            NOW,
+            Some("http://127.0.0.1:8917"),
+        )
+        .expect("production backend must remain allowed");
+        assert_eq!(loaded.backend, "https://api.chatmux.dev");
     }
 }

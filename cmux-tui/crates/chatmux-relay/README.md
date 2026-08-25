@@ -35,6 +35,13 @@ One binary serves both paired human machines and sandboxes. Job sessions
 keep launching through the `cmux` CLI daemon; the relay attaches to them
 over the shared control socket (`cmux-terminal-client`).
 
+The journal-forwarder conformance harness may set
+`CHATMUX_RELAY_E2E_BACKEND` to its local stub origin. The relay accepts this
+override only when it is an explicit `http://` origin on `127.0.0.1`,
+`localhost`, or `::1`, and only for an exact enrollment backend origin. Empty,
+remote, HTTPS, and mismatched values are ignored. The production backend
+allowlist remains active with or without the override.
+
 ## Port plan (slices)
 
 Each slice is gated on the JS relay's behavior; the chatmux e2e conformance
