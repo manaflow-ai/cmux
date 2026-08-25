@@ -224,7 +224,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             ) else { continue }
             let path = value.hasPrefix("/")
                 ? URL(fileURLWithPath: value).standardizedFileURL.path
-                : URL(fileURLWithPath: repository.gitDirectory)
+                : URL(fileURLWithPath: repository.workTreeRoot)
                     .appendingPathComponent(value)
                     .standardizedFileURL.path
             paths.append(name == "reftable"

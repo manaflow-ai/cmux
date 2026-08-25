@@ -219,17 +219,26 @@ public struct GitMetadataService: Sendable {
                 wallTimeLimit: safetyConfiguration.gitStatusWallTime
             )
             let deadline = DispatchTime.now() + safetyConfiguration.gitStatusWallTime
-            let result = selector.select(repository: repository, deadline: deadline).flatMap { runner in
+            var result: WorkspaceChangesGitResult?
+            for runner in selector.candidateRunners.prefix(4) {
                 let now = DispatchTime.now()
-                guard deadline > now else { return nil }
+                guard deadline > now else { break }
                 let remaining = Double(deadline.uptimeNanoseconds - now.uptimeNanoseconds)
                     / 1_000_000_000
-                try? runner.run(
-                    arguments: ["remote", "-v"],
-                    in: URL(fileURLWithPath: repository.workTreeRoot, isDirectory: true),
-                    maximumOutputByteCount: 1 * 1_024 * 1_024,
-                    wallTimeLimit: remaining
-                )
+                do {
+                    let candidate = try runner.run(
+                        arguments: ["remote", "-v"],
+                        in: URL(fileURLWithPath: repository.workTreeRoot, isDirectory: true),
+                        maximumOutputByteCount: 1 * 1_024 * 1_024,
+                        wallTimeLimit: remaining
+                    )
+                    if candidate.exitCode == 0, !candidate.standardOutputWasTruncated {
+                        result = candidate
+                        break
+                    }
+                } catch {
+                    continue
+                }
             }
             output = result.flatMap { result in
                 guard result.exitCode == 0, !result.standardOutputWasTruncated else { return nil }
