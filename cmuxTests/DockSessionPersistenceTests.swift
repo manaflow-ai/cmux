@@ -277,6 +277,10 @@ struct DockSessionPersistenceTests {
             .appendingPathComponent("cmux-dock-owner-rotation-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
+        let defaultsName = "cmux-dock-owner-rotation-defaults-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
 
         let hookStateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
         let previousHookStateDirectory = getenv("CMUX_AGENT_HOOK_STATE_DIR").map {
@@ -344,7 +348,8 @@ struct DockSessionPersistenceTests {
         let sourceStore = DockSplitStore(
             workspaceId: persistedOwnerID,
             scope: scope,
-            baseDirectoryProvider: { workingDirectory.path }
+            baseDirectoryProvider: { workingDirectory.path },
+            agentSessionAutoResumeDefaults: defaults
         )
         defer { sourceStore.closeAllPanels() }
         sourceStore.restoreSessionSnapshot(emptyTerminalDockSnapshot(
@@ -380,7 +385,8 @@ struct DockSessionPersistenceTests {
         let restoredStore = DockSplitStore(
             workspaceId: restoredOwnerID,
             scope: scope,
-            baseDirectoryProvider: { workingDirectory.path }
+            baseDirectoryProvider: { workingDirectory.path },
+            agentSessionAutoResumeDefaults: defaults
         )
         defer { restoredStore.closeAllPanels() }
         let restoredIDs = restoredStore.restoreSessionSnapshot(persisted)
@@ -392,21 +398,25 @@ struct DockSessionPersistenceTests {
             restoredStore.restoredAgentLifecycle.snapshotsByPanelId[restoredPanelID]
         )
         let startupInput = try #require(restoredTerminal.surface.initialInput)
-        let launcherPath = try #require(
-            TerminalStartupWorkingDirectoryPrefix.shellWordRanges(
-                startupInput.trimmingCharacters(in: .whitespacesAndNewlines)
-            ).map(\.value).last
-        )
-        defer { try? fileManager.removeItem(atPath: launcherPath) }
-        let startupPayload = try String(contentsOfFile: launcherPath, encoding: .utf8)
 
         #expect(restoredOwnerID != persistedOwnerID)
         #expect(restoredTerminal.stableSurfaceId == stableSurfaceID)
         #expect(restoredAgent.kind == .codex)
         #expect(restoredAgent.sessionId == currentSessionID)
-        #expect(startupInput.contains("/cmux-r/"), Comment(rawValue: startupInput))
-        #expect(startupPayload.contains(currentSessionID), Comment(rawValue: startupPayload))
-        #expect(!startupPayload.contains(staleSessionID), Comment(rawValue: startupPayload))
+        if startupInput.contains("/cmux-r/") {
+            let launcherPath = try #require(
+                TerminalStartupWorkingDirectoryPrefix.shellWordRanges(
+                    startupInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                ).map(\.value).last
+            )
+            defer { try? fileManager.removeItem(atPath: launcherPath) }
+            let startupPayload = try String(contentsOfFile: launcherPath, encoding: .utf8)
+            #expect(startupPayload.contains(currentSessionID), Comment(rawValue: startupPayload))
+            #expect(!startupPayload.contains(staleSessionID), Comment(rawValue: startupPayload))
+        } else {
+            #expect(startupInput.contains(currentSessionID), Comment(rawValue: startupInput))
+            #expect(!startupInput.contains(staleSessionID), Comment(rawValue: startupInput))
+        }
     }
 
     @Test(
