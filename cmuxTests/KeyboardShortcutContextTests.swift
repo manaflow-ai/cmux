@@ -153,6 +153,13 @@ final class KeyboardShortcutContextTests: XCTestCase {
     func testRenameWorkspaceDefaultIsDistinctFromBrowserHardReload() {
         let renameWorkspace = KeyboardShortcutSettings.Action.renameWorkspace.defaultShortcut
         let browserHardReload = KeyboardShortcutSettings.Action.browserHardReload.defaultShortcut
+        let legacyRenameWorkspace = StoredShortcut(
+            key: "r",
+            command: true,
+            shift: true,
+            option: false,
+            control: false
+        )
 
         XCTAssertEqual(
             renameWorkspace,
@@ -168,6 +175,16 @@ final class KeyboardShortcutContextTests: XCTestCase {
                 with: browserHardReload,
                 proposedAction: .browserHardReload,
                 configuredShortcut: browserHardReload
+            )
+        )
+        // Existing installs can still have the old ⌘⇧R application binding.
+        // Hard reload is pre-routed in a focused browser, so Settings must let
+        // that legacy binding remain recordable instead of reporting a conflict.
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.renameWorkspace.conflicts(
+                with: browserHardReload,
+                proposedAction: .browserHardReload,
+                configuredShortcut: legacyRenameWorkspace
             )
         )
     }
