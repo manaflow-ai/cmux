@@ -307,6 +307,7 @@ final class RemoteTmuxController {
             applyCreationTitleAsCustomTitle: false
         )
         workspace.isRemoteTmuxMirror = true
+        workspace.authenticateRemoteTmuxWindowsPane()
         // Identity pairs the connection pushes into the remote SESSION
         // environment on attach and every reconnect (issue #833). Workspace id
         // is published under both keys, matching the SSH-workspace bootstrap
