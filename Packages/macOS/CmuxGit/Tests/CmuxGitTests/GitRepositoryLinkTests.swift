@@ -578,4 +578,37 @@ import Testing
 
         #expect(snapshot.remoteVOutput?.contains("https://github.com/included/remote.git") == true)
     }
+
+    @Test func configuredHomeResolvesTildeIncludes() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmuxgit-tilde-home-\(UUID().uuidString)", isDirectory: true)
+        let globalConfigURL = home.appendingPathComponent(".gitconfig")
+        let includedURL = home.appendingPathComponent("shared.inc")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        try """
+        [include]
+            path = ~/shared.inc
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try """
+        [remote "origin"]
+            url = https://github.com/tilde-home/repo.git
+        """.write(to: includedURL, atomically: true, encoding: .utf8)
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            environment: [
+                "GIT_CONFIG_GLOBAL": globalConfigURL.path,
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "HOME": home.path,
+            ]
+        )
+
+        #expect(snapshot.remoteVOutput?.contains("https://github.com/tilde-home/repo.git") == true)
+    }
 }
