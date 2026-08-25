@@ -125,8 +125,10 @@ extension SystemGitReferenceReader {
         repository: ResolvedGitRepository,
         deadline: DispatchTime?
     ) -> Bool {
-        guard let deadline, deadline > DispatchTime.now() else { return true }
-        return boundedFileSnapshot(repository: repository, deadline: deadline) == nil
+        let effectiveDeadline = deadline
+            ?? (DispatchTime.now() + GitMetadataSafetyConfiguration().gitStatusWallTime)
+        guard effectiveDeadline > DispatchTime.now() else { return true }
+        return boundedFileSnapshot(repository: repository, deadline: effectiveDeadline) == nil
     }
 
     /// Accepts only complete SHA-1 or SHA-256 object IDs.

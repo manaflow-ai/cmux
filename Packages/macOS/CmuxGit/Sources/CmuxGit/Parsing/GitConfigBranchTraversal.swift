@@ -48,6 +48,8 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         var paths = result.configURLs.map { $0.standardizedFileURL.path }
         if !result.isComplete {
             paths.append(contentsOf: GitMetadataService.gitRootConfigURLs(repository: repository).map(\.path))
+            paths.append(repository.gitDirectory)
+            paths.append(repository.commonDirectory)
         }
         paths.append(contentsOf: result.referenceStoragePaths)
         var seen: Set<String> = []

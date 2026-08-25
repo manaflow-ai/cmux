@@ -26,41 +26,15 @@ extension GitMetadataService {
             URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config"),
         ]
         var urls = rootURLs
-        var worktreeConfigEnabled = false
-        let reader = GitConfigFileReader()
-        for configURL in rootURLs {
-            let result = reader.read(at: configURL, maximumByteCount: 64 * 1_024)
-            if case .oversized = result {
-                // Unknown configuration fails closed; Git must explicitly
-                // enable worktreeConfig before the sibling file is trusted.
-                continue
-            }
-            guard case .contents(let contents, consumedByteCount: _) = result else { continue }
-            var inExtensionsSection = false
-            for rawLine in contents.split(whereSeparator: \.isNewline) {
-                let line = gitConfigLineRemovingInlineComment(String(rawLine))
-                    .trimmingCharacters(in: .whitespaces)
-                if line.hasPrefix("[") && line.hasSuffix("]") {
-                    inExtensionsSection = line.lowercased() == "[extensions]"
-                    continue
-                }
-                guard inExtensionsSection else { continue }
-                let parts = line.split(separator: "=", maxSplits: 1).map {
-                    $0.trimmingCharacters(in: .whitespaces)
-                }
-                guard !parts.isEmpty, parts[0].lowercased() == "worktreeconfig" else { continue }
-                let value = parts.count == 1
-                    ? "true"
-                    : gitConfigUnquotedValue(parts[1]).lowercased()
-                worktreeConfigEnabled = ["true", "yes", "on", "1", "t", "y"].contains(value)
-            }
-        }
         // The bounded reader rejects FIFOs and directories before any content
         // is consumed.
         let worktreeConfigURL = URL(fileURLWithPath: repository.gitDirectory)
             .appendingPathComponent("config.worktree")
-        if worktreeConfigEnabled,
-           reader.read(at: worktreeConfigURL, maximumByteCount: 1).isAvailable {
+        if GitWorktreeConfigEnablementReader().isEnabled(
+            repository: repository,
+            rootURLs: rootURLs
+        ),
+           GitConfigFileReader().read(at: worktreeConfigURL, maximumByteCount: 1).isAvailable {
             urls.append(worktreeConfigURL)
         }
         return urls
