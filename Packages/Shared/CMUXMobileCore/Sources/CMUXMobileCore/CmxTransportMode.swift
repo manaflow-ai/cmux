@@ -1,3 +1,5 @@
+import Foundation
+
 /// The user's selected transport policy.
 public enum CmxTransportMode: String, Codable, CaseIterable, Hashable, Sendable {
     /// Let the runtime use its normal route ordering and Iroh fallback policy.

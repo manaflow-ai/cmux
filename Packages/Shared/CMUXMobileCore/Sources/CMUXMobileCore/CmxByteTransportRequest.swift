@@ -70,7 +70,7 @@ public struct CmxByteTransportRequest: Equatable, Sendable {
     public func validateTransportMode() throws {
         try CmxTransportModePolicy(transportMode).validate(route: route)
         if transportMode == .direct,
-           irohDirectOnlyDialCandidates == nil {
+           irohDirectOnlyDialCandidates?.isEmpty != false {
             throw CmxTransportModeError.noRoute(
                 mode: .direct,
                 macDisplayName: nil
