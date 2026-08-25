@@ -31,6 +31,22 @@ struct CmxIrohSelectedTransportPathTests {
     }
 
     @Test
+    func socketAddressHostExtractionSupportsTailscaleClassification() {
+        #expect(CmxIrohIPAddressScope.host(from: "100.100.20.40:443") == "100.100.20.40")
+        #expect(CmxIrohIPAddressScope.host(from: "[fd7a:115c:a1e0::1234]:443") == "fd7a:115c:a1e0::1234")
+        #expect(CmxIrohIPAddressScope.host(from: "192.168.1.20:443") == "192.168.1.20")
+        let path = CmxIrohObservedConnectionPath.privateNetwork(address: "100.100.20.40:443")
+        #expect(
+            CmxConnectivityByteTransport.mobileTransportPath(path, mode: .automatic)
+                == .tailscale(address: "100.100.20.40:443")
+        )
+        #expect(
+            CmxConnectivityEngine.mobileTransportPath(from: path, relayPolicy: nil)
+                == .tailscale(address: "100.100.20.40:443")
+        )
+    }
+
+    @Test
     func managedRelayAttributionComesFromVerifiedPolicyLabels() throws {
         let url = "https://use1.relay.cmux.dev/"
         let descriptor = CmxIrohManagedRelayDescriptor(

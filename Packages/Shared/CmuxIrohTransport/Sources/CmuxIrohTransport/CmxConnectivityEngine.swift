@@ -420,7 +420,7 @@ public actor CmxConnectivityEngine {
         }
     }
 
-    private static func mobileTransportPath(
+    nonisolated static func mobileTransportPath(
         from observed: CmxIrohObservedConnectionPath,
         relayPolicy: CmxIrohEffectiveRelayPolicy?
     ) -> CmxTransportPath {
@@ -430,7 +430,8 @@ public actor CmxConnectivityEngine {
         case .direct:
             return .irohDirect
         case let .privateNetwork(address):
-            if CmxTailscalePeerAddress(address) != nil {
+            if let host = CmxIrohIPAddressScope.host(from: address),
+               CmxTailscalePeerAddress(host) != nil {
                 return .tailscale(address: address)
             }
             return .lan(address: address)

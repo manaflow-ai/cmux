@@ -233,14 +233,15 @@ final class MobileAttachTicketStore {
                 pairingURLScheme: pairingURLScheme
             )
         case .physicalDevice:
-            // Preserve the released-client Tailscale grammar whenever one is
-            // available, even when the authenticated ticket also carries Iroh
-            // and LAN routes. The compact fallback cannot be decoded by old
-            // clients after the `.lan` route kind was introduced.
-            if let pairingURL = tailscaleCompatibilityAttachURL(
-                for: ticket,
-                pairingURLScheme: pairingURLScheme
-            ) {
+            // Preserve the released-client Tailscale grammar only when every
+            // disclosed route is Tailscale. A mixed ticket must retain Iroh and
+            // LAN routes so the phone can later honor a pinned mode after the
+            // initial pairing; the v2 grammar has nowhere to encode them.
+            if ticket.routes.allSatisfy({ $0.kind == .tailscale }),
+               let pairingURL = tailscaleCompatibilityAttachURL(
+                   for: ticket,
+                   pairingURLScheme: pairingURLScheme
+               ) {
                 return pairingURL
             }
             // A current client can bootstrap LAN Only from an identity-only
@@ -285,21 +286,8 @@ final class MobileAttachTicketStore {
             }) else {
                 throw MobileAttachTicketStoreError.invalidAttachURL
             }
-            // A Tailscale-only payload can use the minimal v2 grammar. Mixed
-            // Iroh/LAN/Tailscale routes use the compact compatibility payload
-            // so no class is relabeled or silently dropped.
-            if ticket.routes.allSatisfy({ $0.kind == .tailscale }),
-               let pairingURL = CmxPairingQRCode().encode(
-                   ticket,
-                   routeDisclosureMode: .legacyPrivateNetworkCompatibility,
-                   pairingURLScheme: pairingURLScheme
-               ),
-               let url = URL(string: pairingURL),
-               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-               let decoded = try? CmxPairingQRCode().decode(components),
-               decoded.routes == ticket.routes {
-                return url
-            }
+            // The compact grammar is the lossless current-client fallback for
+            // mixed route classes; unlike v2 it can carry `.iroh` and `.lan`.
             return try compactAttachURL(
                 for: ticket,
                 routeDisclosureMode: .legacyPrivateNetworkCompatibility,

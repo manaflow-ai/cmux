@@ -121,7 +121,7 @@ actor CmxConnectivityByteTransport:
         }
     }
 
-    private static func mobileTransportPath(
+    nonisolated static func mobileTransportPath(
         _ path: CmxIrohObservedConnectionPath,
         mode: CmxTransportMode
     ) -> CmxTransportPath {
@@ -137,7 +137,8 @@ actor CmxConnectivityByteTransport:
             if mode == .lan {
                 return .lan(address: address)
             }
-            if CmxTailscalePeerAddress(address) != nil {
+            if let host = CmxIrohIPAddressScope.host(from: address),
+               CmxTailscalePeerAddress(host) != nil {
                 return .tailscale(address: address)
             }
             return .lan(address: address)

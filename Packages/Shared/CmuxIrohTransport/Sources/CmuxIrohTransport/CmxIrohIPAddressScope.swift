@@ -47,7 +47,11 @@ struct CmxIrohIPAddressScope: Sendable {
         isPrivate = false
     }
 
-    private static func host(from socketAddress: String) -> String? {
+    /// Extracts the host literal from an IPv4/IPv6 socket address.
+    ///
+    /// Iroh reports selected paths with their port attached (`host:port` or
+    /// `[host]:port`), while address validators consume the host alone.
+    static func host(from socketAddress: String) -> String? {
         if socketAddress.first == "[",
            let closingBracket = socketAddress.firstIndex(of: "]") {
             return String(socketAddress[socketAddress.index(after: socketAddress.startIndex) ..< closingBracket])

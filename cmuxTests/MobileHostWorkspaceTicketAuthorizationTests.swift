@@ -220,6 +220,23 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         #expect(pathHints.isEmpty)
     }
 
+    @Test func physicalDeviceMixedRoutesPreserveEveryClassInCompactCode() throws {
+        let store = MobileAttachTicketStore()
+        let ticket = try store.createTicket(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [try irohRoute(withPathHint: false), try lanRoute(), try tailscaleRoute()],
+            ttl: 3600
+        )
+
+        let payload = try store.payload(for: ticket, target: .physicalDevice)
+        let attachURL = try #require(payload["attach_url"] as? String)
+        #expect(attachURL.contains("?v=1&payload="))
+        let decoded = try compactTicket(from: attachURL)
+        #expect(decoded.routes == ticket.routes)
+        #expect(decoded.authToken == nil)
+    }
+
     @Test func physicalDeviceCanonicalizesFilteredSecondaryRouteForV2() throws {
         let secondaryRoute = try tailscaleRoute(
             id: "tailscale_2",
