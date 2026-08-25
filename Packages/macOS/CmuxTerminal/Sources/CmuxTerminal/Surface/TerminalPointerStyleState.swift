@@ -135,6 +135,9 @@ public struct TerminalPointerStyleState {
                 ghosttyCursor = lastNonPointerCursor
                 ghosttyShape = lastNonPointerShape
                 pendingUnsupportedBaseAfterPointer = false
+                if !isGhosttyLinkHoverActive {
+                    return isFocused && !isCmuxLinkHoverActive
+                }
             }
             guard isGhosttyLinkHoverActive != nextActive else { return false }
             isGhosttyLinkHoverActive = nextActive
