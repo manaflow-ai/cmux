@@ -63,17 +63,19 @@ final class WorkspaceEnvironmentEditor {
         let presentingWindow = AppDelegate.shared?.mainWindowContainingWorkspace(workspace.id)
         let alertWindow = alert.window
         alertWindow.initialFirstResponder = textView
-        var shouldSelectAll = true
+        var shouldPlaceCursorAtEnd = true
 
         while true {
-            let selectAll = shouldSelectAll
-            shouldSelectAll = false
+            let placeCursorAtEnd = shouldPlaceCursorAtEnd
+            shouldPlaceCursorAtEnd = false
             let response = alert.runCmuxModal(
                 presentingWindow: presentingWindow
             ) { _ in
                 alertWindow.makeFirstResponder(self.textView)
-                if selectAll {
-                    self.textView.selectAll(nil)
+                if placeCursorAtEnd {
+                    self.textView.setSelectedRange(
+                        NSRange(location: self.textView.string.utf16.count, length: 0)
+                    )
                 }
             }
             guard response == .alertFirstButtonReturn else { return }
