@@ -31,7 +31,8 @@ extension GitMetadataService {
         for configURL in rootURLs {
             let result = reader.read(at: configURL, maximumByteCount: 64 * 1_024)
             if case .oversized = result {
-                worktreeConfigEnabled = true
+                // Unknown configuration fails closed; Git must explicitly
+                // enable worktreeConfig before the sibling file is trusted.
                 continue
             }
             guard case .contents(let contents, consumedByteCount: _) = result else { continue }
@@ -47,8 +48,11 @@ extension GitMetadataService {
                 let parts = line.split(separator: "=", maxSplits: 1).map {
                     $0.trimmingCharacters(in: .whitespaces)
                 }
-                guard parts.count == 2, parts[0].lowercased() == "worktreeconfig" else { continue }
-                worktreeConfigEnabled = gitConfigUnquotedValue(parts[1]).lowercased() == "true"
+                guard !parts.isEmpty, parts[0].lowercased() == "worktreeconfig" else { continue }
+                let value = parts.count == 1
+                    ? "true"
+                    : gitConfigUnquotedValue(parts[1]).lowercased()
+                worktreeConfigEnabled = ["true", "yes", "on", "1", "t", "y"].contains(value)
             }
         }
         // The bounded reader rejects FIFOs and directories before any content

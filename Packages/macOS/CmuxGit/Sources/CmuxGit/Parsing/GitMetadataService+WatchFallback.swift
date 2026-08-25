@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 extension GitMetadataService {
@@ -7,13 +8,7 @@ extension GitMetadataService {
         repositories: Set<String>
     ) -> GitWorkspaceMetadataWatchDescriptor {
         guard !repositories.isEmpty else { return descriptor }
-        let reader = GitConfigFileReader()
-        let existingRoots = repositories.filter { path in
-            reader.read(
-                at: URL(fileURLWithPath: path),
-                maximumByteCount: 1
-            ).isAvailable
-        }
+        let existingRoots = repositories.filter { isDirectory(atPath: $0) }
         guard !existingRoots.isEmpty else { return descriptor }
 
         var watchedPaths = Set(descriptor.watchedPaths)
@@ -37,5 +32,11 @@ extension GitMetadataService {
                 ? .unreadableIndex
                 : descriptor.degradation
         )
+    }
+
+    private nonisolated func isDirectory(atPath path: String) -> Bool {
+        var metadata = stat()
+        return path.withCString { Darwin.stat($0, &metadata) == 0 }
+            && metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFDIR)
     }
 }

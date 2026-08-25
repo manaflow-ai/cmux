@@ -40,6 +40,7 @@ actor CmxConnectivityPeerSession {
     /// A cancelled FFI dial normally settles immediately. This bound prevents
     /// one non-cooperative endpoint implementation from blocking every redial.
     static var retiredDialSettleWaitLimitSeconds: TimeInterval { 10 }
+    private static let maximumRetiredDialCleanupCount = 8
 
     /// Bounded grace between an `.unavailable` selected-path observation and
     /// eviction. Iroh can briefly publish no selected path while moving between
@@ -60,6 +61,10 @@ actor CmxConnectivityPeerSession {
     private var nextDiagnosticSessionID = 0
     private var pendingConnection: PendingConnection?
     private var retiredDialDrains: [UUID: Task<Void, Never>] = [:]
+    // Timed-out drains remain owned by a bounded cleanup set until their
+    // wrapper observes the canceled dial. This prevents repeated wedges from
+    // accumulating unowned tasks while allowing replacement dialing.
+    private var retiredDialCleanupTasks: [UUID: Task<Void, Never>] = [:]
     private var retiredDialWaiters: [
         UUID: CheckedContinuation<Void, Never>
     ] = [:]
@@ -539,6 +544,7 @@ actor CmxConnectivityPeerSession {
             await orphan.close()
         }
         retiredDialDrains[id] = nil
+        retiredDialCleanupTasks[id] = nil
         guard retiredDialDrains.isEmpty else { return }
         let waiters = retiredDialWaiters.values
         for waiterID in retiredDialWaiters.keys {
@@ -604,7 +610,17 @@ actor CmxConnectivityPeerSession {
               retiredDialWaiterGenerations[id] == retiredDialGeneration else {
             return
         }
+        let timedOutDrains = retiredDialDrains
         retiredDialDrains.removeAll()
+        for (drainID, drain) in timedOutDrains {
+            drain.cancel()
+            retiredDialCleanupTasks[drainID] = drain
+        }
+        while retiredDialCleanupTasks.count > Self.maximumRetiredDialCleanupCount {
+            guard let oldestID = retiredDialCleanupTasks.keys.first else { break }
+            retiredDialCleanupTasks[oldestID]?.cancel()
+            retiredDialCleanupTasks.removeValue(forKey: oldestID)
+        }
         let waiters = retiredDialWaiters.values
         let registeredWaiterIDs = Set(retiredDialWaiters.keys)
         for waiterID in retiredDialWaiterGenerations.keys where
