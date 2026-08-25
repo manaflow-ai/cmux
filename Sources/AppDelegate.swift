@@ -850,6 +850,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var runtimeServiceSettingsObserver: NSObjectProtocol?
+    private var runtimeServiceFeatureFlagsObserver: NSObjectProtocol?
     /// Applies MDM managed-policy transitions (browser/remote-control) while
     /// the app runs. Installed once from `installManagedPolicyEnforcement()`.
     var managedPolicyEnforcementObserver: ManagedPolicyEnforcementObserver?
@@ -6629,6 +6630,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         useLastTurnSource: Bool,
         sessionId: String?,
         patchFileURL: URL? = nil,
+        patchFileDescriptor: Int32? = nil,
         focus: Bool = true
     ) -> Bool {
         let process = Process()
@@ -6637,7 +6639,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "--socket", socketPath,
             "diff",
         ]
-        if let patchFileURL {
+        if let patchFileDescriptor {
+            arguments.append("/dev/fd/\(patchFileDescriptor)")
+        } else if let patchFileURL {
             arguments.append(patchFileURL.path)
         } else {
             arguments.append(useLastTurnSource ? "--last-turn" : "--unstaged")
@@ -6672,6 +6676,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let outputCollector = ProcessOutputCollector(stdout: stdoutPipe, stderr: stderrPipe)
         outputCollector.start()
         process.terminationHandler = { terminatedProcess in
+            if let patchFileDescriptor {
+                _ = close(patchFileDescriptor)
+            }
             let output = outputCollector.finish()
             let processIdentifier = terminatedProcess.processIdentifier
             let terminationStatus = terminatedProcess.terminationStatus
@@ -6699,6 +6706,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return true
         } catch {
+            if let patchFileDescriptor {
+                _ = close(patchFileDescriptor)
+            }
             outputCollector.cancel()
 #if DEBUG
             cmuxDebugLog("openDiffViewer failed errorType=\(type(of: error))")
@@ -9855,6 +9865,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         runtimeServiceSettingsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.syncRuntimeServicesToSettings()
+            }
+        }
+        runtimeServiceFeatureFlagsObserver = NotificationCenter.default.addObserver(
+            forName: .cmuxFeatureFlagsDidChange,
+            object: CmuxFeatureFlags.shared,
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in

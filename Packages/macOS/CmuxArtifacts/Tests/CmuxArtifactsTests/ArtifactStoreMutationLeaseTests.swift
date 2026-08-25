@@ -92,4 +92,32 @@ struct ArtifactStoreMutationLeaseTests {
             atPath: outside.appendingPathComponent("artifacts/plan.md").path
         ))
     }
+
+    @Test("A replaced leaf cannot be removed through an old identity")
+    func rejectsReplacedLeafIdentity() throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let paths = ArtifactStorePaths(projectRoot: root)
+        let note = paths.filesystemRoot.appendingPathComponent("session/notes/plan.md")
+        try FileManager.default.createDirectory(
+            at: note.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("original".utf8).write(to: note)
+        let expectedIdentity = try ArtifactFileIdentity.read(at: note)
+        let replacement = note.deletingLastPathComponent().appendingPathComponent("replacement.md")
+        try Data("replacement".utf8).write(to: replacement)
+        try FileManager.default.removeItem(at: note)
+        try FileManager.default.moveItem(at: replacement, to: note)
+
+        let lease = try ArtifactStoreMutationLease(directory: paths.filesystemRoot)
+        defer { lease.finish() }
+        #expect(throws: ArtifactStoreError.self) {
+            try lease.unlink(
+                relativePath: "session/notes/plan.md",
+                expectedIdentity: expectedIdentity
+            )
+        }
+        #expect(try String(contentsOf: note, encoding: .utf8) == "replacement")
+    }
 }

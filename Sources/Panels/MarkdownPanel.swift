@@ -20,6 +20,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     /// Absolute path to the markdown file being displayed.
     let filePath: String
+    private let artifactFile: ArtifactSidebarFileAccess.OpenedFile?
 
     /// The workspace this panel belongs to.
     private(set) var workspaceId: UUID
@@ -47,6 +48,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     /// Whether the file has been deleted or is unreadable.
     @Published private(set) var isFileUnavailable: Bool = false
+
+    /// Whether this panel is backed by a descriptor-protected artifact read.
+    var isReadOnly: Bool {
+        artifactFile != nil
+    }
 
     /// Token incremented to trigger focus flash animation.
     @Published private(set) var focusFlashToken: Int = 0
@@ -99,13 +105,19 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// - Parameter fontSize: Initial body font size in points. When `nil`, the
     ///   panel uses the persistent `markdown.fontSize` default. The value is
     ///   clamped to the supported range.
-    init(workspaceId: UUID, filePath: String, fontSize: Double? = nil) {
+    init(
+        workspaceId: UUID,
+        filePath: String,
+        fontSize: Double? = nil,
+        artifactFile: ArtifactSidebarFileAccess.OpenedFile? = nil
+    ) {
         let defaultSize = MarkdownFontSizeSettings.resolvedDefault()
         let defaultFamily = MarkdownFontFamily.resolvedDefault()
         let defaultMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
+        self.artifactFile = artifactFile
         self.fontSize = MarkdownFontSizeSettings.clamp(fontSize ?? defaultSize)
         self.fontFamily = defaultFamily
         self.maxContentWidth = defaultMaxWidth
@@ -115,7 +127,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         self.displayTitle = (filePath as NSString).lastPathComponent
 
         loadFileContent()
-        startWatching()
+        if artifactFile == nil {
+            startWatching()
+        }
         observeTypographyDefaults()
     }
 
@@ -305,6 +319,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     @discardableResult
     func saveTextContent() -> Task<Void, Never>? {
+        guard !isReadOnly else { return nil }
         guard !isSaving else { return nil }
         let currentContent = textView?.string ?? textContent
         guard currentContent != originalTextContent else {
@@ -347,7 +362,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     // MARK: - File I/O
 
     private func loadFileContent(replacingDirtyContent: Bool = true) {
-        switch Self.loadMarkdownFile(at: filePath) {
+        let readPath = artifactFile?.readURL.path ?? filePath
+        switch Self.loadMarkdownFile(at: readPath) {
         case .loaded(let newContent, let encoding):
             applyLoadedContent(newContent, encoding: encoding, replacingDirtyContent: replacingDirtyContent)
         case .unavailable:

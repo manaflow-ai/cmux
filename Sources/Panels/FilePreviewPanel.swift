@@ -977,6 +977,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .filePreview
     let filePath: String
+    private let artifactFile: ArtifactSidebarFileAccess.OpenedFile?
     private(set) var workspaceId: UUID
     @Published private(set) var displayTitle: String
     @Published private(set) var displayIcon: String?
@@ -1013,6 +1014,17 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         URL(fileURLWithPath: filePath)
     }
 
+    /// Descriptor-backed URL used for reads of an artifact sidebar file.
+    var readURL: URL {
+        artifactFile?.readURL ?? fileURL
+    }
+
+    /// Artifact sidebar previews are read-only so a replaced pathname cannot
+    /// redirect a save operation outside the validated inode.
+    var isReadOnly: Bool {
+        artifactFile != nil
+    }
+
     var previewRevision: Int {
         previewRevisionState.value
     }
@@ -1021,6 +1033,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         workspaceId: UUID,
         filePath: String,
         startFileWatcher: Bool = true,
+        artifactFile: ArtifactSidebarFileAccess.OpenedFile? = nil,
         textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = { url in
             await FilePreviewTextLoader.load(url: url)
         },
@@ -1035,6 +1048,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
+        self.artifactFile = artifactFile
         self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
         self.textLoader = textLoader
         self.textSaver = textSaver
@@ -1049,8 +1063,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.lastObservedFileState = .capture(path: filePath)
 
         prepareContentForPreviewMode()
-        resolvePreviewModeIfNeeded(for: fileURL)
-        if startFileWatcher {
+        if artifactFile == nil {
+            resolvePreviewModeIfNeeded(for: fileURL)
+        }
+        if startFileWatcher, artifactFile == nil {
             startWatchingForFileChanges()
         }
     }
@@ -1181,6 +1197,13 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @discardableResult
     func reloadFromDisk() -> Task<Void, Never> {
         lastObservedFileState = .capture(path: filePath)
+        if artifactFile != nil {
+            if previewMode == .text {
+                return loadTextContent(replacingDirtyContent: false)
+            }
+            previewRevisionState.increment()
+            return Task {}
+        }
         let fileURL = fileURL
         let modeResolver = modeResolver
 
@@ -1218,7 +1241,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         if previewMode == .text {
             return loadTextContent(replacingDirtyContent: false)
         } else {
-            isFileUnavailable = !FileManager.default.fileExists(atPath: filePath)
+            isFileUnavailable = artifactFile == nil
+                && !FileManager.default.fileExists(atPath: filePath)
             return nil
         }
     }
@@ -1256,7 +1280,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         guard previewMode == .text else {
             return Task {}
         }
-        let fileURL = fileURL
+        let fileURL = readURL
         let textLoader = textLoader
 
         return textLoadCoordinator.submit(load: {
@@ -1301,6 +1325,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @discardableResult
     func saveTextContent() -> Task<Void, Never>? {
         guard previewMode == .text else { return nil }
+        guard !isReadOnly else { return nil }
         guard !isSaving else { return nil }
         let currentContent = textView?.string ?? textContent
         guard currentContent != originalTextContent else {
@@ -1315,7 +1340,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         textContent = currentContent
         isSaving = true
         activeSaveGeneration = generation
-        let fileURL = fileURL
+        let fileURL = readURL
         let encoding = textEncoding
         let textSaver = textSaver
         return Task { [weak self, currentContent, fileURL, encoding, generation, textSaver] in
@@ -1421,14 +1446,14 @@ struct FilePreviewPanelView: View {
                 PanelHeaderIconButton(
                     systemName: "arrow.counterclockwise",
                     label: String(localized: "filePreview.revert", defaultValue: "Revert"),
-                    isDisabled: !panel.isDirty,
+                    isDisabled: panel.isReadOnly || !panel.isDirty,
                     action: { panel.loadTextContent() }
                 )
 
                 PanelHeaderIconButton(
                     systemName: "square.and.arrow.down",
                     label: String(localized: "filePreview.save", defaultValue: "Save"),
-                    isDisabled: !panel.isDirty || panel.isSaving,
+                    isDisabled: panel.isReadOnly || !panel.isDirty || panel.isSaving,
                     action: { panel.saveTextContent() }
                 )
             }

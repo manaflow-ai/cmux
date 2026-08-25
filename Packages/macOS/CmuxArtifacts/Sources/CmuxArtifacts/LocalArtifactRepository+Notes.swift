@@ -144,11 +144,17 @@ extension LocalArtifactRepository: NoteStoring {
             notes: resolver.notes(snapshot: completeSnapshot(paths: paths)),
             rawName: name
         )
+        guard let expectedIdentity = note.fileIdentity else {
+            throw CmuxNoteStoreError.pathOutsideStore(note.absolutePath)
+        }
         try prepareForMutation(paths: paths)
         let lease = try ArtifactStoreMutationLease(directory: paths.filesystemRoot)
         defer { lease.finish() }
         do {
-            try lease.unlink(relativePath: note.relativePath)
+            try lease.unlink(
+                relativePath: note.relativePath,
+                expectedIdentity: expectedIdentity
+            )
         } catch ArtifactStoreError.pathOutsideStore {
             throw CmuxNoteStoreError.pathOutsideStore(note.absolutePath)
         }

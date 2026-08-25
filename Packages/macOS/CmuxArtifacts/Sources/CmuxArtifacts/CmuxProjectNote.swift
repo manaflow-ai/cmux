@@ -16,6 +16,8 @@ public struct CmuxProjectNote: Identifiable, Equatable, Sendable {
     public let size: Int64?
     /// Current filesystem modification date, when available.
     public let modifiedAt: Date?
+    /// Device/inode identity captured with the note snapshot, when available.
+    public let fileIdentity: ArtifactFileIdentity?
 
     /// Creates a live filesystem note value.
     ///
@@ -25,12 +27,14 @@ public struct CmuxProjectNote: Identifiable, Equatable, Sendable {
     ///   - absolutePath: Current absolute local path.
     ///   - size: Current byte size, when available.
     ///   - modifiedAt: Current filesystem modification date, when available.
+    ///   - fileIdentity: Device/inode identity captured with the snapshot.
     public init(
         name: String,
         relativePath: String,
         absolutePath: String,
         size: Int64?,
-        modifiedAt: Date?
+        modifiedAt: Date?,
+        fileIdentity: ArtifactFileIdentity? = nil
     ) {
         self.id = relativePath
         self.name = name
@@ -39,5 +43,6 @@ public struct CmuxProjectNote: Identifiable, Equatable, Sendable {
         self.reference = ".cmux/\(relativePath)"
         self.size = size
         self.modifiedAt = modifiedAt
+        self.fileIdentity = fileIdentity
     }
 }

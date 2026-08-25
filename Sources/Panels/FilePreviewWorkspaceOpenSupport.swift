@@ -2,6 +2,55 @@ import Bonsplit
 import Foundation
 
 extension Workspace {
+    /// Opens an artifact through its already-validated descriptor. The panel
+    /// retains that descriptor and reads `/dev/fd`, so a pathname replacement
+    /// cannot redirect the preview after this method returns.
+    @discardableResult
+    func openArtifactFileSurface(
+        inPane paneId: PaneID,
+        file: ArtifactSidebarFileAccess.OpenedFile,
+        focus: Bool = true,
+        reuseExisting: Bool = false
+    ) -> (any Panel)? {
+        let filePath = file.sourceURL.path
+        if reuseExisting {
+            let canonical = (filePath as NSString).resolvingSymlinksInPath
+            for (existingID, panel) in panels {
+                let existingPath: String?
+                if let markdown = panel as? MarkdownPanel {
+                    existingPath = markdown.filePath
+                } else if let preview = panel as? FilePreviewPanel {
+                    existingPath = preview.filePath
+                } else {
+                    existingPath = nil
+                }
+                guard let existingPath,
+                      (existingPath as NSString).resolvingSymlinksInPath == canonical else {
+                    continue
+                }
+                if focus {
+                    focusPanel(existingID)
+                }
+                return panel
+            }
+        }
+
+        if MarkdownPanelFileLinkResolver.isMarkdownPathLike(filePath) {
+            return newMarkdownSurface(
+                inPane: paneId,
+                filePath: filePath,
+                focus: focus,
+                artifactFile: file
+            )
+        }
+        return newFilePreviewSurface(
+            inPane: paneId,
+            filePath: filePath,
+            focus: focus,
+            artifactFile: file
+        )
+    }
+
     @discardableResult
     func openFileSurfaces(
         inPane paneId: PaneID,

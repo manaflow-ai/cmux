@@ -24,13 +24,14 @@ extension ContentView {
               let paneId = workspace.bonsplitController.focusedPaneId
                 ?? workspace.bonsplitController.allPaneIds.first else { return }
         guard let projectRoot = artifact.projectRoot,
-              let safeURL = ArtifactSidebarFileAccess().validatedFileURL(
+              let openedFile = ArtifactSidebarFileAccess().openedFile(
                   for: artifact.fileURL,
                   artifactRoot: projectRoot.appendingPathComponent(".cmux", isDirectory: true)
               ) else {
             NSSound.beep()
             return
         }
+        let safeURL = openedFile.sourceURL
         sidebarSelectionState.selection = .tabs
         switch artifact.fileKind {
         case .html:
@@ -56,13 +57,13 @@ extension ContentView {
                 }
             }
         case .patch:
-            if AppDelegate.shared?.openArtifactPatch(safeURL, for: tabManager) != true {
+            if AppDelegate.shared?.openArtifactPatch(openedFile, for: tabManager) != true {
                 NSSound.beep()
             }
         case .image, .video, .markdown, .text, .other, nil:
-            _ = workspace.openFileSurfaces(
+            _ = workspace.openArtifactFileSurface(
                 inPane: paneId,
-                filePaths: [safeURL.path],
+                file: openedFile,
                 focus: true,
                 reuseExisting: true
             )

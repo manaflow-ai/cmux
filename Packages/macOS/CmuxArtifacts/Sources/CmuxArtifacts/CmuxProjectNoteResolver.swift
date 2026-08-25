@@ -146,7 +146,10 @@ struct CmuxProjectNoteResolver {
             relativePath: node.relativePath,
             absolutePath: node.absolutePath,
             size: node.size,
-            modifiedAt: node.modifiedAt
+            modifiedAt: node.modifiedAt,
+            fileIdentity: try? ArtifactFileIdentity.read(
+                at: URL(fileURLWithPath: node.absolutePath, isDirectory: false)
+            )
         )
     }
 

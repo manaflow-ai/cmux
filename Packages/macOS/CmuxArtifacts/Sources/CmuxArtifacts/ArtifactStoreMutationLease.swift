@@ -55,7 +55,10 @@ final class ArtifactStoreMutationLease {
     /// with ``O_NOFOLLOW``. The final `unlinkat` removes a replaced symlink
     /// itself rather than following it, so a concurrent filesystem mutation
     /// cannot redirect deletion outside the store.
-    func unlink(relativePath: String) throws {
+    func unlink(
+        relativePath: String,
+        expectedIdentity: ArtifactFileIdentity? = nil
+    ) throws {
         let components = relativePath.split(separator: "/").map(String.init)
         guard !relativePath.contains("\0"),
               !components.isEmpty,
@@ -86,6 +89,31 @@ final class ArtifactStoreMutationLease {
             parentDescriptor = childDescriptor
         }
 
+        if let expectedIdentity {
+            guard let leaf = components.last else {
+                throw ArtifactStoreError.pathOutsideStore(relativePath)
+            }
+            let targetDescriptor = leaf.withCString { leafPointer in
+                Darwin.openat(
+                    parentDescriptor,
+                    leafPointer,
+                    O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+                )
+            }
+            guard targetDescriptor >= 0 else {
+                throw ArtifactStoreError.pathOutsideStore(relativePath)
+            }
+            defer { _ = close(targetDescriptor) }
+            var status = stat()
+            guard fstat(targetDescriptor, &status) == 0,
+                  (status.st_mode & S_IFMT) == S_IFREG,
+                  ArtifactFileIdentity(
+                      device: UInt64(status.st_dev),
+                      inode: UInt64(status.st_ino)
+                  ) == expectedIdentity else {
+                throw ArtifactStoreError.pathOutsideStore(relativePath)
+            }
+        }
         guard let leaf = components.last,
               leaf.withCString({ leafPointer in
                   Darwin.unlinkat(parentDescriptor, leafPointer, 0)

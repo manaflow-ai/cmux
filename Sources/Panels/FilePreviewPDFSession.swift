@@ -65,6 +65,6 @@ final class FilePreviewPDFSession {
         view.isHidden = !isVisibleInUI
         view.setBackgroundAppearance(backgroundColor: backgroundColor, drawsBackground: drawsBackground)
         view.setPanel(panel)
-        view.setURL(panel.fileURL, revision: revision)
+        view.setURL(panel.readURL, revision: revision)
     }
 }

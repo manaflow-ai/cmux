@@ -105,6 +105,37 @@ struct ArtifactHTMLPreviewSecurityTests {
         }
     }
 
+    @Test("Descriptor-backed artifact reads stay on the opened inode")
+    func descriptorReadSurvivesPathReplacement() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-artifact-open-\(UUID().uuidString)", isDirectory: true)
+        let outside = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-artifact-open-outside-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: outside)
+        }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let source = root.appendingPathComponent("artifact.txt")
+        try "authorized".write(to: source, atomically: true, encoding: .utf8)
+        let opened = try #require(
+            ArtifactSidebarFileAccess().openedFile(for: source, artifactRoot: root)
+        )
+        try "outside".write(
+            to: outside.appendingPathComponent("artifact.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.removeItem(at: source)
+        try FileManager.default.createSymbolicLink(
+            at: source,
+            withDestinationURL: outside.appendingPathComponent("artifact.txt")
+        )
+
+        #expect(try String(contentsOf: opened.readURL, encoding: .utf8) == "authorized")
+    }
+
     @Test("Artifact previews use an ephemeral script-free WebKit configuration")
     @MainActor
     func configuresAnIsolatedWebView() {
