@@ -90,6 +90,14 @@ extension GitMetadataService {
             deadline: deadline,
             branchContext: branchContext
         ) != false {
+            pathsByRepository[repository.workTreeRoot, default: []].append(contentsOf:
+                gitmodulesFallbackMetadataPaths(
+                    repository: repository,
+                    depth: 0,
+                    safetyConfiguration: safetyConfiguration,
+                    deadline: deadline
+                )
+            )
             forceWorkTreeRoots.insert(repository.workTreeRoot)
             return (pathsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
@@ -170,5 +178,61 @@ extension GitMetadataService {
             visitedRoots,
             remainingRepositoryCount
         )
+    }
+
+    /// Discovers direct submodule metadata roots when the SHA-1 index parser is
+    /// unavailable (for example in a SHA-256 repository).
+    private nonisolated func gitmodulesFallbackMetadataPaths(
+        repository: ResolvedGitRepository,
+        depth: Int,
+        safetyConfiguration: GitMetadataSafetyConfiguration,
+        deadline: DispatchTime
+    ) -> [String] {
+        guard depth < safetyConfiguration.submoduleDepth,
+              deadline > DispatchTime.now() else { return [] }
+        let gitmodulesURL = URL(fileURLWithPath: repository.workTreeRoot)
+            .appendingPathComponent(".gitmodules")
+        let reader = GitConfigFileReader()
+        guard case .contents(let contents, consumedByteCount: _) = reader.read(
+            at: gitmodulesURL,
+            maximumByteCount: GitConfigFileReader.defaultMaximumByteCount,
+            deadline: deadline
+        ) else {
+            return []
+        }
+        var paths: [String] = [gitmodulesURL.path]
+        var inSubmoduleSection = false
+        for rawLine in contents.split(whereSeparator: \.isNewline) {
+            let line = GitMetadataService.gitConfigLineRemovingInlineComment(String(rawLine))
+                .trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") && line.hasSuffix("]") {
+                inSubmoduleSection = line.lowercased().hasPrefix("[submodule ")
+                continue
+            }
+            guard inSubmoduleSection else { continue }
+            let parts = line.split(separator: "=", maxSplits: 1).map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+            guard parts.count == 2, parts[0].lowercased() == "path" else { continue }
+            let childPath = GitMetadataService.joinedPath(
+                root: repository.workTreeRoot,
+                relativePath: GitMetadataService.gitConfigUnquotedValue(parts[1])
+            )
+            guard let child = Self.resolveGitRepository(containing: childPath),
+                  child.workTreeRoot == childPath else { continue }
+            paths.append(contentsOf: [
+                child.workTreeRoot,
+                child.gitDirectory,
+                child.commonDirectory,
+            ])
+            paths.append(contentsOf: gitmodulesFallbackMetadataPaths(
+                repository: child,
+                depth: depth + 1,
+                safetyConfiguration: safetyConfiguration,
+                deadline: deadline
+            ))
+        }
+        var seen: Set<String> = []
+        return paths.filter { seen.insert($0).inserted }
     }
 }

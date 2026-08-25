@@ -17,10 +17,11 @@ extension SystemGitReferenceReader {
     ) -> QuickReferenceStorageProbe {
         var storageName: String?
         var hasInclude = false
-        for configURL in GitWorktreeConfigEnablementReader().rootConfigURLs(
-            repository: repository,
-            deadline: deadline
-        ) {
+        let configURLs = [
+            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config"),
+            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config"),
+        ]
+        for configURL in configURLs {
             if let deadline, deadline <= DispatchTime.now() { return .incomplete }
             switch configReader.read(
                 at: configURL,

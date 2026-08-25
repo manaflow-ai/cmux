@@ -71,17 +71,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         guard deadline > DispatchTime.now() else {
             return unreadableSnapshot()
         }
-        if hasReftableDirectory(repository: repository) {
-            return plumbingSnapshot(
-                repository: repository,
-                deadline: deadline,
-                includeStorageWatchPaths: includeStorageWatchPaths
-            )
-        }
-        let quickProbe = quickReferenceStorageName(repository: repository, deadline: deadline)
-        if case .complete(let storage) = quickProbe,
-           let storage,
-           storage != "files" {
+        if hasReftableDirectory(repository: repository, deadline: deadline) {
             return plumbingSnapshot(
                 repository: repository,
                 deadline: deadline,
@@ -97,6 +87,20 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                 deadline: deadline,
                 includeStorageWatchPaths: includeStorageWatchPaths
             )
+        }
+        let quickProbe = quickReferenceStorageName(repository: repository, deadline: deadline)
+        if directSnapshot.currentCommit != nil,
+           directSnapshot.branchName != ".invalid" {
+            if case .complete(let storage) = quickProbe,
+               let storage,
+               storage != "files" {
+                return plumbingSnapshot(
+                    repository: repository,
+                    deadline: deadline,
+                    includeStorageWatchPaths: includeStorageWatchPaths
+                )
+            }
+            return directSnapshot
         }
         let configuredStorage: String?
         switch quickProbe {
@@ -158,8 +162,25 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         if let deadline, deadline <= DispatchTime.now() {
             return true
         }
-        if hasReftableDirectory(repository: repository) {
+        if hasReftableDirectory(repository: repository, deadline: deadline) {
             return true
+        }
+        let effectiveDeadline = deadline
+            ?? (DispatchTime.now() + boundedCommandWallTimeLimit)
+        guard let directSnapshot = boundedFileSnapshot(
+            repository: repository,
+            deadline: effectiveDeadline
+        ) else {
+            return true
+        }
+        if directSnapshot.currentCommit != nil,
+           directSnapshot.branchName != ".invalid" {
+            switch quickReferenceStorageName(repository: repository, deadline: deadline) {
+            case .complete(let storage):
+                return storage.map { $0 != "files" } ?? false
+            case .incomplete:
+                return true
+            }
         }
         switch quickReferenceStorageName(repository: repository, deadline: deadline) {
         case .complete(let storage):
@@ -175,11 +196,26 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         }
     }
 
-    private func hasReftableDirectory(repository: ResolvedGitRepository) -> Bool {
+    private func hasReftableDirectory(
+        repository: ResolvedGitRepository,
+        deadline: DispatchTime?
+    ) -> Bool {
+        let effectiveDeadline = deadline
+            ?? (DispatchTime.now() + boundedCommandWallTimeLimit)
         [repository.gitDirectory, repository.commonDirectory].contains { directory in
-            let path = URL(fileURLWithPath: directory)
-                .appendingPathComponent("reftable", isDirectory: true).path
-            return storageProbe.isDirectory(atPath: path)
+            let marker = URL(fileURLWithPath: directory)
+                .appendingPathComponent("reftable", isDirectory: true)
+                .appendingPathComponent("tables.list")
+            switch configReader.read(
+                at: marker,
+                maximumByteCount: 1,
+                deadline: effectiveDeadline
+            ) {
+            case .contents, .oversized:
+                return true
+            case .missing, .unavailable:
+                return false
+            }
         }
     }
 
