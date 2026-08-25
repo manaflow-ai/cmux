@@ -19,6 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
+use tokio::io::AsyncReadExt as _;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::actions::{
@@ -1509,7 +1510,6 @@ async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refu
     let Some(stdout) = child.stdout.take() else {
         return Err(Refusal::failed("git status produced no stdout pipe"));
     };
-    use tokio::io::AsyncReadExt as _;
     let stderr_task = child.stderr.take().map(|stderr| {
         tokio::spawn(async move {
             let mut bytes = Vec::new();
@@ -1656,7 +1656,6 @@ async fn run_git_diff(
     // drops whole files past DIFF_MAX_BYTES so memory and the wire stay
     // bounded even for a pathological working tree.
     use tokio::io::AsyncBufReadExt as _;
-    use tokio::io::AsyncReadExt as _;
     let Some(stdout) = child.stdout.take() else {
         return Err(Refusal::failed("git diff produced no stdout pipe"));
     };
