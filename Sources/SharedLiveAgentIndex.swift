@@ -549,8 +549,15 @@ final class SharedLiveAgentIndex {
     }
 
     /// Arms one kernel-backed exit source per active local agent PID.
-    /// Polling remains a low-frequency safety net; process exit is the primary
-    /// path for crash-without-hook liveness updates.
+    /// Process exit is the primary path for crash-without-hook liveness updates.
+    func armSidebarProcessExitWatchers(panelIDs: Set<UUID>) {
+        guard let index else { return }
+        synchronizeSidebarProcessExitWatchers(
+            index: index,
+            panelIDs: panelIDs
+        )
+    }
+
     private func synchronizeSidebarProcessExitWatchers(
         index: RestorableAgentSessionIndex,
         panelIDs: Set<UUID>
@@ -566,10 +573,6 @@ final class SharedLiveAgentIndex {
             }
         }
 
-        for processID in Array(sidebarProcessExitWatchers.keys)
-        where panelKeysByPID[processID] == nil {
-            sidebarProcessExitWatchers.removeValue(forKey: processID)?.cancel()
-        }
         for processID in panelKeysByPID.keys {
             guard sidebarProcessExitWatchers[processID] == nil else { continue }
             let source = DispatchSource.makeProcessSource(

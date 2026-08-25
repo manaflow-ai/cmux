@@ -11611,9 +11611,8 @@ struct VerticalTabsSidebar: View, Equatable {
                 refreshWorkspaceSnapshots()
             }
         }
-        .task(id: "\(isPresented)-\(featureFlags.isAppKitSidebarListEnabled)-\(renderContext.showsAgentActivity)-\(effectiveExtensionSidebarProviderId)") {
+        .task(id: "\(isPresented)-\(renderContext.showsAgentActivity)-\(effectiveExtensionSidebarProviderId)") {
             guard isPresented,
-                  !featureFlags.isAppKitSidebarListEnabled,
                   renderContext.showsAgentActivity,
                   CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
                       effectiveProviderId: effectiveExtensionSidebarProviderId
@@ -11628,50 +11627,10 @@ struct VerticalTabsSidebar: View, Equatable {
                 _ = await SharedLiveAgentIndex.shared.indexRefreshingNow()
             }
             guard isPresented, !Task.isCancelled else { return }
-            refreshWorkspaceSnapshots()
-        }
-        .task(id: "\(isPresented && renderContext.showsAgentActivity)-\(effectiveExtensionSidebarProviderId)") {
-            guard isPresented,
-                  renderContext.showsAgentActivity,
-                  CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
-                      effectiveProviderId: effectiveExtensionSidebarProviderId
-                  ) else {
-                return
-            }
-            // The shared index is event-driven, but a crashed agent may emit
-            // no hook-store event. Keep one lifecycle-owned freshness lease;
-            // the lightweight process-generation revalidation stays off-main
-            // and notifications still carry the affected panel scope. AppKit
-            // rows receive the keyed cache refresh without a full projection.
-            while !Task.isCancelled {
-                let sharedIndex = SharedLiveAgentIndex.shared
-                _ = sharedIndex.currentIndexSchedulingRefresh()
-                if sharedIndex.hasCachedProcessLivenessEntries() || sharedIndex.index == nil {
-                    let panelIDs = Set(tabManager.tabs.flatMap { $0.panels.keys })
-                    var ownerByPanelID: [UUID: UUID] = [:]
-                    var ambiguousPanelIDs = Set<UUID>()
-                    for workspace in tabManager.tabs {
-                        for panelID in workspace.panels.keys {
-                            if let previousOwner = ownerByPanelID[panelID], previousOwner != workspace.id {
-                                ambiguousPanelIDs.insert(panelID)
-                            } else {
-                                ownerByPanelID[panelID] = workspace.id
-                            }
-                        }
-                    }
-                    for panelID in ambiguousPanelIDs {
-                        ownerByPanelID.removeValue(forKey: panelID)
-                    }
-                    sharedIndex.refreshCachedProcessLivenessForSidebar(
-                        panelIDs: panelIDs,
-                        currentWorkspaceIDByPanelID: ownerByPanelID
-                    )
-                }
-                do {
-                    try await ContinuousClock().sleep(for: .seconds(30))
-                } catch {
-                    return
-                }
+            let panelIDs = Set(tabManager.tabs.flatMap { $0.panels.keys })
+            SharedLiveAgentIndex.shared.armSidebarProcessExitWatchers(panelIDs: panelIDs)
+            if !featureFlags.isAppKitSidebarListEnabled {
+                refreshWorkspaceSnapshots()
             }
         }
         .onChange(of: isPresented) { _, presented in
