@@ -58,13 +58,11 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         if hasReftableDirectory(repository: repository) {
             return plumbingSnapshot(repository: repository)
         }
-        let directSnapshot = fileSnapshot(repository: repository)
-        let needsBackendResolution = directSnapshot.currentCommit == nil
-            || directSnapshot.branchName == ".invalid"
-        if needsBackendResolution,
-           referenceStorageName(repository: repository).map({ $0 != "files" }) == true {
+        let configuredStorage = referenceStorageName(repository: repository)
+        if let configuredStorage, configuredStorage != "files" {
             return plumbingSnapshot(repository: repository)
         }
+        let directSnapshot = fileSnapshot(repository: repository)
         if directSnapshot.branchName == ".invalid" {
             return GitReferenceSnapshot(
                 checkedOutBranch: .unreadable,
@@ -125,13 +123,25 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         runner: any WorkspaceChangesGitRunning,
         deadline: DispatchTime
     ) -> GitReferenceSnapshot {
-        let symbolicReference = output(
+        let symbolicResult = commandOutput(
             arguments: ["symbolic-ref", "--quiet", "HEAD"],
             repository: repository,
             maximumByteCount: Self.maximumSymbolicReferenceByteCount,
             runner: runner,
             deadline: deadline
         )
+        if case .failed = symbolicResult {
+            return GitReferenceSnapshot(
+                checkedOutBranch: .unreadable,
+                headSignature: nil,
+                currentCommit: nil
+            )
+        }
+        let symbolicReference: String? = if case .value(let value) = symbolicResult {
+            value
+        } else {
+            nil
+        }
 
         if let symbolicReference, symbolicReference.hasPrefix("refs/heads/") {
             guard let stableReference = stableBranchReference(

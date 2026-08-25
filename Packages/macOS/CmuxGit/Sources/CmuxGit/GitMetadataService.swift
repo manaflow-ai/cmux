@@ -1,4 +1,5 @@
 import Foundation
+import Dispatch
 
 /// Reads a directory's git metadata from the on-disk repository, with bounded
 /// Git fallbacks for non-files reference storage and unsafe index scans.
@@ -217,11 +218,17 @@ public struct GitMetadataService: Sendable {
             let selector = GitReferenceRunnerSelector(
                 wallTimeLimit: safetyConfiguration.gitStatusWallTime
             )
-            let result = selector.select(repository: repository).flatMap { runner in
+            let deadline = DispatchTime.now() + safetyConfiguration.gitStatusWallTime
+            let result = selector.select(repository: repository, deadline: deadline).flatMap { runner in
+                let now = DispatchTime.now()
+                guard deadline > now else { return nil }
+                let remaining = Double(deadline.uptimeNanoseconds - now.uptimeNanoseconds)
+                    / 1_000_000_000
                 try? runner.run(
                     arguments: ["remote", "-v"],
                     in: URL(fileURLWithPath: repository.workTreeRoot, isDirectory: true),
-                    maximumOutputByteCount: 1 * 1_024 * 1_024
+                    maximumOutputByteCount: 1 * 1_024 * 1_024,
+                    wallTimeLimit: remaining
                 )
             }
             output = result.flatMap { result in

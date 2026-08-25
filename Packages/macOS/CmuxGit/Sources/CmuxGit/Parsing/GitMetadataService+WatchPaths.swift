@@ -123,7 +123,7 @@ extension GitMetadataService {
     ) -> [String] {
         let configPaths = if let configPathsByRepository {
             configPathsByRepository[repository.workTreeRoot]
-                ?? gitRootConfigURLs(repository: repository).map(\.path)
+                ?? [repository.gitDirectory, repository.commonDirectory]
         } else {
             gitConfigURLs(repository: repository).map(\.path)
         }
