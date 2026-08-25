@@ -228,10 +228,19 @@ final class ClaudeHookSessionStore {
     // Preserve the previous 128 ordinary scopes and reserve one overflow slot.
     private static let maxClaudeTaskSyncScopes = 129
     private static let claudeTaskSyncOverflowScopeSuffix = ":<task-sync-overflow>"
+    // Legacy cleanup sends these destinations in 64-item batches; cap the
+    // aggregate proof so batching remains bounded without rejecting a second
+    // batch outright.
+    private static let maxLegacyClaudeTaskOwnerWorkspaceIDs = 512
+    private static let maxLegacyClaudeTaskOwnerCleanupAttempts = 8
+    private static let maxLegacyClaudeTaskOwnerCleanupRetrySeconds: TimeInterval = 60
+    private static let legacyClaudeTaskOwnerCleanupTerminalCooldownSeconds: TimeInterval = 15 * 60
+    private static let maxLegacyClaudeTaskOwnerCleanupSpillEntries = 128
     // Longer than the complete eight-second task hook budget, but short enough
     // to recover a claim left by a crashed CLI process without evicting a live
     // worker's coalescing proof.
     private static let maxClaudeTaskSyncClaimAgeSeconds: TimeInterval = 30
+    private static let sessionEndRecoveryBudgetSeconds: TimeInterval = 1
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
@@ -278,6 +287,23 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    /// Captures the session record and its end boundary in one state transaction.
+    /// Task hooks use the captured boundary so a later SessionStart cannot make
+    /// an already-ended asynchronous process look like a fresh first sighting.
+    func claudeTaskSyncSessionEntry(
+        sessionId: String
+    ) throws -> (record: ClaudeHookSessionRecord?, ended: Bool) {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return (nil, false) }
+        return try withLockedState { state in
+            (
+                state.sessions[normalized],
+                state.endedSessionIDs[normalized] != nil
+                    || state.endedSessionGenerationStarts[normalized] != nil
+            )
+        }
+    }
+
     /// Serializes task snapshot publication across every Claude config root
     /// that shares this durable hook store, without waiting past the hook's
     /// absolute deadline.
@@ -315,34 +341,45 @@ final class ClaudeHookSessionStore {
         workspaceId: String?,
         surfaceId: String?,
         turnId: String?,
+        expectedStartedAt: TimeInterval? = nil,
         scope: String? = nil,
         deadlineUptime: TimeInterval
     ) throws -> ClaudeHookSessionRecord? {
-        try withClaudeTaskSyncLock(deadlineUptime: deadlineUptime, scope: scope) {
-            try consume(
+        let previousLockDeadlineUptime = lockDeadlineUptime
+        lockDeadlineUptime = min(
+            previousLockDeadlineUptime ?? deadlineUptime,
+            deadlineUptime
+        )
+        defer { lockDeadlineUptime = previousLockDeadlineUptime }
+        do {
+            return try withClaudeTaskSyncLock(deadlineUptime: deadlineUptime, scope: scope) {
+                try consume(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    turnId: turnId,
+                    expectedStartedAt: expectedStartedAt
+                )
+            }
+        } catch {
+            // A crashed or wedged task hook must not leave SessionEnd without
+            // an ordering boundary. The fallback consumes only the captured
+            // generation and never scans by workspace when a session id is
+            // present; a later SessionStart clears that boundary atomically.
+            let recoveryDeadlineUptime = ProcessInfo.processInfo.systemUptime
+                + Self.sessionEndRecoveryBudgetSeconds
+            let recoveryPreviousDeadlineUptime = lockDeadlineUptime
+            lockDeadlineUptime = recoveryDeadlineUptime
+            defer { lockDeadlineUptime = recoveryPreviousDeadlineUptime }
+            return try recordClaudeSessionEndBoundary(
                 sessionId: sessionId,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                turnId: turnId
+                turnId: turnId,
+                expectedStartedAt: expectedStartedAt,
+                deadlineUptime: recoveryDeadlineUptime
             )
         }
-    }
-
-    /// Records a teardown boundary when the shared lease cannot be joined.
-    /// The completing task hook observes the tombstone and clears any rows it
-    /// published before this boundary was recorded.
-    func recordClaudeSessionEndBoundary(
-        sessionId: String?,
-        workspaceId: String?,
-        surfaceId: String?,
-        turnId: String?
-    ) throws -> ClaudeHookSessionRecord? {
-        try consume(
-            sessionId: sessionId,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            turnId: turnId
-        )
     }
 
     /// Holds one cross-process file lock, bounded when a deadline is present.
@@ -364,10 +401,28 @@ final class ClaudeHookSessionStore {
             return try body()
         }
         let remainingSeconds = deadlineUptime - ProcessInfo.processInfo.systemUptime
+        if remainingSeconds > 0, remainingSeconds < 1 {
+            // lockf only accepts whole-second timeouts. For the fractional
+            // recovery window, make one non-blocking descriptor attempt so a
+            // free state lock can still record the tombstone without waiting.
+            let descriptor = open(
+                lockPath,
+                O_CREAT | O_RDWR,
+                mode_t(S_IRUSR | S_IWUSR)
+            )
+            guard descriptor >= 0 else { throw POSIXError(.EIO) }
+            defer { Darwin.close(descriptor) }
+            guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+                throw POSIXError(.ETIMEDOUT)
+            }
+            defer { _ = flock(descriptor, LOCK_UN) }
+            return try body()
+        }
         // macOS 14's lockf accepts only `file command`, not descriptor locking.
-        // Whole-second timeout granularity cannot honor a sub-second remainder.
-        guard remainingSeconds >= 1 else { throw POSIXError(.ETIMEDOUT) }
-        let timeoutSeconds = max(1, Int(remainingSeconds.rounded(.down)))
+        // Round its timeout up; the parent readiness wait still enforces the
+        // exact absolute deadline and terminates the child at that boundary.
+        guard remainingSeconds > 0 else { throw POSIXError(.ETIMEDOUT) }
+        let timeoutSeconds = max(1, Int(remainingSeconds.rounded(.up)))
         let leaseInput = Pipe()
         let readyOutput = Pipe()
         let lockProcess = Process()
@@ -490,6 +545,7 @@ final class ClaudeHookSessionStore {
         taskStoreIdentity: ClaudeTaskStoreIdentity,
         workspaceId: String,
         surfaceId: String,
+        pid: Int? = nil,
         expectedStartedAt: TimeInterval? = nil
     ) throws -> Bool {
         let normalizedSessionId = normalizeSessionId(sessionId)
@@ -505,7 +561,10 @@ final class ClaudeHookSessionStore {
         return try withLockedState { state in
             // A task hook may finish after SessionEnd consumed its record. Do
             // not let that stale process recreate the ended session.
-            guard state.endedSessionIDs[normalizedSessionId] == nil else { return false }
+            guard state.endedSessionIDs[normalizedSessionId] == nil,
+                  state.endedSessionGenerationStarts[normalizedSessionId] == nil else {
+                return false
+            }
             let now = Date.now.timeIntervalSince1970
             var record: ClaudeHookSessionRecord
             if let existing = state.sessions[normalizedSessionId] {
@@ -529,6 +588,16 @@ final class ClaudeHookSessionStore {
                     startedAt: now,
                     updatedAt: now
                 )
+            }
+            if let pid {
+                if let existingPID = record.pid, existingPID != pid {
+                    return false
+                }
+                record.pid = pid
+                if let identity = processStartIdentity(pid: pid) {
+                    record.pidStartSeconds = identity.seconds
+                    record.pidStartMicroseconds = identity.microseconds
+                }
             }
             let bindingChanged = record.claudeTaskDirectoryName != normalizedDirectoryName
                 || record.claudeTaskStoreID != taskStoreIdentity.rawValue
@@ -554,6 +623,43 @@ final class ClaudeHookSessionStore {
         guard !normalizedSessionId.isEmpty else { return false }
         return try withLockedState { state in
             state.endedSessionIDs[normalizedSessionId] != nil
+                || state.endedSessionGenerationStarts[normalizedSessionId] != nil
+        }
+    }
+
+    /// Verifies the hook process still belongs to the captured session
+    /// generation. Session IDs can be reused across restart/resume, so the
+    /// persisted PID/start identity is the additional provenance signal.
+    func isClaudeTaskHookProcessCurrent(
+        sessionId: String,
+        expectedStartedAt: TimeInterval,
+        hookPID: Int?,
+        validateProcessIdentity: Bool = true
+    ) throws -> Bool {
+        let normalizedSessionId = normalizeSessionId(sessionId)
+        guard !normalizedSessionId.isEmpty else { return false }
+        return try withLockedState { state in
+            guard let record = state.sessions[normalizedSessionId],
+                  record.startedAt == expectedStartedAt,
+                  state.endedSessionIDs[normalizedSessionId] == nil,
+                  state.endedSessionGenerationStarts[normalizedSessionId] == nil else {
+                return false
+            }
+            guard let recordPID = record.pid else { return true }
+            guard let hookPID else { return true }
+            guard recordPID == hookPID else { return false }
+            guard validateProcessIdentity else { return true }
+            guard let expectedSeconds = record.pidStartSeconds,
+                  let expectedMicroseconds = record.pidStartMicroseconds else {
+                return true
+            }
+            // The parent Claude process may have exited while this async hook
+            // is still draining its socket work. The captured PID/start pair
+            // remains valid provenance; an unavailable live lookup is not a
+            // generation mismatch.
+            guard let identity = processStartIdentity(pid: hookPID) else { return true }
+            return identity.seconds == expectedSeconds
+                && identity.microseconds == expectedMicroseconds
         }
     }
 
@@ -572,12 +678,27 @@ final class ClaudeHookSessionStore {
             )
             state.retiredClaudeTaskLists[key] = Date().timeIntervalSince1970
             if state.retiredClaudeTaskLists.count > Self.maxRetiredClaudeTaskLists {
-                let retainedKeys = Set(
-                    state.retiredClaudeTaskLists
-                        .sorted { lhs, rhs in lhs.value > rhs.value }
-                        .prefix(Self.maxRetiredClaudeTaskLists)
-                        .map(\.key)
+                // Deferred destination/team proofs are the retry owner; do
+                // not evict their retirement key while they still exist.
+                let protectedKeys = Set(
+                    state.claudeTaskListDestinations.values.compactMap { record -> String? in
+                        guard record.taskStoreIdentity != nil else { return nil }
+                        return claudeTaskListStorageKey(record)
+                    }
+                    + state.claudeTeamTaskBindings.values.compactMap { record -> String? in
+                        guard let identity = record.binding.taskStoreIdentity else { return nil }
+                        return claudeTaskListStorageKey(
+                            taskListID: record.binding.taskListID,
+                            taskStoreIdentity: identity
+                        )
+                    }
                 )
+                let unprotectedKeys = state.retiredClaudeTaskLists
+                    .filter { !protectedKeys.contains($0.key) }
+                    .sorted { lhs, rhs in lhs.value > rhs.value }
+                    .prefix(Self.maxRetiredClaudeTaskLists)
+                    .map(\.key)
+                let retainedKeys = protectedKeys.union(unprotectedKeys)
                 state.retiredClaudeTaskLists = state.retiredClaudeTaskLists.filter {
                     retainedKeys.contains($0.key)
                 }
@@ -601,6 +722,37 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    /// Returns namespaced destination proofs retained for a deleted task list.
+    func retiredClaudeTaskListDestinationRecords(
+        taskStoreIdentity: ClaudeTaskStoreIdentity
+    ) throws -> [ClaudeHookTaskListDestinationRecord] {
+        try withLockedState { state in
+            state.claudeTaskListDestinations.values.filter { record in
+                guard record.taskStoreIdentity == taskStoreIdentity else { return false }
+                return state.retiredClaudeTaskLists[
+                    claudeTaskListStorageKey(record)
+                ] != nil
+            }
+        }
+    }
+
+    /// Returns namespaced team proofs retained for a deleted task list.
+    func retiredClaudeTeamTaskBindingRecords(
+        taskStoreIdentity: ClaudeTaskStoreIdentity
+    ) throws -> [ClaudeHookTeamTaskBindingRecord] {
+        try withLockedState { state in
+            state.claudeTeamTaskBindings.values.filter { record in
+                guard record.binding.taskStoreIdentity == taskStoreIdentity else { return false }
+                return state.retiredClaudeTaskLists[
+                    claudeTaskListStorageKey(
+                        taskListID: record.binding.taskListID,
+                        taskStoreIdentity: taskStoreIdentity
+                    )
+                ] != nil
+            }
+        }
+    }
+
     /// Clears a retirement proof after a new authoritative task-list binding.
     func unretireClaudeTaskList(
         taskListID: String,
@@ -619,11 +771,39 @@ final class ClaudeHookSessionStore {
     }
 
     /// Claims the newest pending task-sync worker for one task-store scope.
-    func claimClaudeTaskSync(scope: String) throws -> String {
+    ///
+    /// When a session generation is supplied, the generation check and claim
+    /// write happen in the same state transaction. A stale asynchronous hook
+    /// therefore cannot overwrite a newer generation's coalescing token.
+    func claimClaudeTaskSync(
+        scope: String,
+        sessionId: String? = nil,
+        expectedStartedAt: TimeInterval? = nil
+    ) throws -> String {
         let normalizedScope = scope.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedScope.isEmpty else { return UUID().uuidString }
+        let normalizedSessionId = sessionId.map(normalizeSessionId)
         var token = ""
         try withLockedState { state in
+            if let normalizedSessionId, !normalizedSessionId.isEmpty {
+                let hasEndedBoundary = state.endedSessionIDs[normalizedSessionId] != nil
+                    || state.endedSessionGenerationStarts[normalizedSessionId] != nil
+                if let expectedStartedAt {
+                    guard state.sessions[normalizedSessionId]?.startedAt == expectedStartedAt,
+                          !hasEndedBoundary else {
+                        throw POSIXError(.EAGAIN)
+                    }
+                } else {
+                    // A first-sighting hook may claim only while the store is
+                    // still empty for this id. If SessionStart wins the race,
+                    // this claim is rejected before it can replace a valid
+                    // generation's token.
+                    guard state.sessions[normalizedSessionId] == nil,
+                          !hasEndedBoundary else {
+                        throw POSIXError(.EAGAIN)
+                    }
+                }
+            }
             let isOverflowScope = normalizedScope.hasSuffix(
                 Self.claudeTaskSyncOverflowScopeSuffix
             )
@@ -659,6 +839,44 @@ final class ClaudeHookSessionStore {
     func isLatestClaudeTaskSync(scope: String, token: String) throws -> Bool {
         try withLockedState { state in
             state.claudeTaskSyncLatestTokens[scope] == token
+        }
+    }
+
+    /// Checks claim ownership and session provenance in one state transaction.
+    func isLatestClaudeTaskSyncForSession(
+        scope: String,
+        token: String,
+        sessionId: String,
+        expectedStartedAt: TimeInterval?,
+        hookPID: Int?,
+        validateProcessIdentity: Bool = true
+    ) throws -> Bool {
+        let normalizedSessionId = normalizeSessionId(sessionId)
+        guard !normalizedSessionId.isEmpty else { return false }
+        return try withLockedState { state in
+            guard state.claudeTaskSyncLatestTokens[scope] == token,
+                  state.endedSessionIDs[normalizedSessionId] == nil,
+                  state.endedSessionGenerationStarts[normalizedSessionId] == nil else {
+                return false
+            }
+            guard let expectedStartedAt else {
+                return state.sessions[normalizedSessionId] == nil
+            }
+            guard let record = state.sessions[normalizedSessionId],
+                  record.startedAt == expectedStartedAt else {
+                return false
+            }
+            guard let recordPID = record.pid else { return true }
+            guard let hookPID else { return true }
+            guard recordPID == hookPID else { return false }
+            guard validateProcessIdentity else { return true }
+            guard let expectedSeconds = record.pidStartSeconds,
+                  let expectedMicroseconds = record.pidStartMicroseconds else {
+                return true
+            }
+            guard let identity = processStartIdentity(pid: hookPID) else { return true }
+            return identity.seconds == expectedSeconds
+                && identity.microseconds == expectedMicroseconds
         }
     }
 
@@ -767,7 +985,79 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    /// Returns every recorded workspace still carrying one pre-profile owner.
+    /// Removes destination/team proofs after a legacy owner is fully cleared.
+    /// Session records remain until the replacement binding's compare-and-set
+    /// stamps their new task-store identity.
+    func removeLegacyClaudeTaskOwnerDestinationProofs(directoryName: String) throws {
+        let normalizedDirectoryName = directoryName.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !normalizedDirectoryName.isEmpty else { return }
+        try withLockedState { state in
+            state.claudeTaskListDestinations = state.claudeTaskListDestinations.filter {
+                !($0.value.taskStoreIdentity == nil
+                    && $0.value.taskListID == normalizedDirectoryName)
+            }
+            state.claudeTeamTaskBindings = state.claudeTeamTaskBindings.filter {
+                !($0.value.binding.taskStoreIdentity == nil
+                    && $0.value.binding.taskListID == normalizedDirectoryName)
+            }
+        }
+    }
+
+    /// Advances legacy destination proofs after one successful cleanup page.
+    func markLegacyClaudeTaskOwnerDestinationProofsCleared(
+        directoryName: String,
+        workspaceIDs: [String]
+    ) throws {
+        let normalizedDirectoryName = directoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clearedWorkspaceIDs = Set(workspaceIDs.compactMap(normalizeOptional))
+        guard !normalizedDirectoryName.isEmpty, !clearedWorkspaceIDs.isEmpty else { return }
+        try withLockedState { state in
+            for key in Array(state.claudeTaskListDestinations.keys) {
+                guard let record = state.claudeTaskListDestinations[key],
+                      record.taskStoreIdentity == nil,
+                      record.taskListID == normalizedDirectoryName else { continue }
+                let remainingWorkspaceIDs = record.workspaceIDs.filter {
+                    !clearedWorkspaceIDs.contains($0)
+                }
+                if remainingWorkspaceIDs.isEmpty {
+                    state.claudeTaskListDestinations.removeValue(forKey: key)
+                } else {
+                    state.claudeTaskListDestinations[key] = ClaudeHookTaskListDestinationRecord(
+                        taskStoreIdentity: nil,
+                        taskListID: record.taskListID,
+                        workspaceIDs: remainingWorkspaceIDs,
+                        updatedAt: record.updatedAt
+                    )
+                }
+            }
+            for key in Array(state.claudeTeamTaskBindings.keys) {
+                guard let record = state.claudeTeamTaskBindings[key],
+                      record.binding.taskStoreIdentity == nil,
+                      record.binding.taskListID == normalizedDirectoryName else { continue }
+                let remainingWorkspaceIDs = record.workspaceIDs.filter {
+                    !clearedWorkspaceIDs.contains($0)
+                }
+                if remainingWorkspaceIDs.isEmpty {
+                    state.claudeTeamTaskBindings.removeValue(forKey: key)
+                } else {
+                    state.claudeTeamTaskBindings[key] = ClaudeHookTeamTaskBindingRecord(
+                        binding: record.binding,
+                        workspaceIDs: remainingWorkspaceIDs,
+                        updatedAt: record.updatedAt
+                    )
+                }
+            }
+        }
+    }
+
+    /// Returns every workspace still carrying one pre-profile owner.
+    ///
+    /// The returned list includes the durable continuation, not just live
+    /// session records. A session can be rebound to a namespaced owner while a
+    /// legacy socket cleanup is in flight; retaining this proof is what makes
+    /// that cleanup safe to retry.
     func legacyClaudeTaskOwnerWorkspaceIDs(
         directoryName: String,
         including workspaceIDs: [String],
@@ -787,16 +1077,58 @@ final class ClaudeHookSessionStore {
                     && $0.claudeTaskStoreID == nil
                     && $0.claudeTaskLegacyOwnerCleared != true
             }
-            guard !pendingRecords.isEmpty || includeFallbackDestinations else { return [] }
-            return Set(
-                pendingRecords.compactMap { normalizeOptional($0.workspaceId) }
-                    + workspaceIDs.compactMap(normalizeOptional)
-            ).sorted()
+            let legacyDestinationWorkspaceIDs = state.claudeTaskListDestinations.values
+                .filter {
+                    $0.taskStoreIdentity == nil
+                        && $0.taskListID == normalizedDirectoryName
+                }
+                .flatMap(\.workspaceIDs)
+            let legacyTeamWorkspaceIDs = state.claudeTeamTaskBindings.values
+                .filter {
+                    $0.binding.taskStoreIdentity == nil
+                        && $0.binding.taskListID == normalizedDirectoryName
+                }
+                .flatMap(\.workspaceIDs)
+            let persistedWorkspaceIDs = (state.pendingLegacyClaudeTaskOwnerCleanup[
+                normalizedDirectoryName
+            ]?.workspaceIDs ?? [])
+                + (state.pendingLegacyClaudeTaskOwnerCleanupOverflowEntries[
+                    normalizedDirectoryName
+                ]?.workspaceIDs ?? [])
+                + (state.pendingLegacyClaudeTaskOwnerCleanupSpill[
+                    normalizedDirectoryName
+                ]?.workspaceIDs ?? [])
+            guard !pendingRecords.isEmpty
+                    || !persistedWorkspaceIDs.isEmpty
+                    || !legacyDestinationWorkspaceIDs.isEmpty
+                    || !legacyTeamWorkspaceIDs.isEmpty
+                    || includeFallbackDestinations else {
+                return []
+            }
+            let requiredWorkspaceIDs = Set(workspaceIDs.compactMap(normalizeOptional))
+            let destinationWorkspaceIDs = Set(
+                persistedWorkspaceIDs.compactMap(normalizeOptional)
+                    + pendingRecords.compactMap { normalizeOptional($0.workspaceId) }
+                    + legacyDestinationWorkspaceIDs.compactMap(normalizeOptional)
+                    + legacyTeamWorkspaceIDs.compactMap(normalizeOptional)
+                    + requiredWorkspaceIDs
+            )
+            // Explicit destinations are the current owner proof and must be
+            // be cleaned in the first bounded page; retained continuations
+            // follow. If old session records accumulated beyond the aggregate
+            // proof cap, leave the unselected records discoverable for the
+            // next page instead of rejecting the whole cleanup.
+            let orderedWorkspaceIDs = requiredWorkspaceIDs.sorted()
+                + destinationWorkspaceIDs.subtracting(requiredWorkspaceIDs).sorted()
+            return Array(orderedWorkspaceIDs.prefix(Self.maxLegacyClaudeTaskOwnerWorkspaceIDs))
         }
     }
 
-    /// Marks every recorded copy of one legacy owner only after app cleanup succeeds.
-    func markLegacyClaudeTaskOwnerCleared(directoryName: String) throws {
+    /// Marks selected copies of one legacy owner only after app cleanup succeeds.
+    func markLegacyClaudeTaskOwnerCleared(
+        directoryName: String,
+        workspaceIDs: [String]? = nil
+    ) throws {
         let normalizedDirectoryName = directoryName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedDirectoryName.isEmpty,
               normalizedDirectoryName != ".",
@@ -805,10 +1137,12 @@ final class ClaudeHookSessionStore {
               !normalizedDirectoryName.contains("\0") else { return }
         try withLockedState { state in
             let now = Date.now.timeIntervalSince1970
+            let workspaceIDSet = workspaceIDs.map { Set($0.compactMap(normalizeOptional)) }
             for sessionId in Array(state.sessions.keys) {
                 guard var record = state.sessions[sessionId],
                       record.claudeTaskDirectoryName == normalizedDirectoryName,
-                      record.claudeTaskStoreID == nil else { continue }
+                      record.claudeTaskStoreID == nil,
+                      workspaceIDSet?.contains(normalizeOptional(record.workspaceId) ?? "") != false else { continue }
                 record.claudeTaskLegacyOwnerCleared = true
                 record.updatedAt = now
                 state.sessions[sessionId] = record
@@ -816,11 +1150,335 @@ final class ClaudeHookSessionStore {
             for sessionId in Array(state.pendingSupersededSessionCleanup.keys) {
                 guard var record = state.pendingSupersededSessionCleanup[sessionId],
                       record.claudeTaskDirectoryName == normalizedDirectoryName,
-                      record.claudeTaskStoreID == nil else { continue }
+                      record.claudeTaskStoreID == nil,
+                      workspaceIDSet?.contains(normalizeOptional(record.workspaceId) ?? "") != false else { continue }
                 record.claudeTaskLegacyOwnerCleared = true
                 // Preserve the pending record's immutable cleanup age anchors.
                 state.pendingSupersededSessionCleanup[sessionId] = record
             }
+        }
+    }
+
+    /// Records or retires a bounded legacy-owner cleanup continuation.
+    func setLegacyClaudeTaskOwnerCleanupPending(
+        directoryName: String,
+        workspaceIDs: [String] = [],
+        pending: Bool,
+        retry: Bool = false,
+        replaceWorkspaceIDs: Bool = false
+    ) throws -> Bool {
+        let normalizedDirectoryName = directoryName.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !normalizedDirectoryName.isEmpty else { return false }
+        return try withLockedState { state in
+            if !pending {
+                state.pendingLegacyClaudeTaskOwnerCleanup.removeValue(
+                    forKey: normalizedDirectoryName
+                )
+                state.pendingLegacyClaudeTaskOwnerCleanupOverflowEntries.removeValue(
+                    forKey: normalizedDirectoryName
+                )
+                state.pendingLegacyClaudeTaskOwnerCleanupSpill.removeValue(
+                    forKey: normalizedDirectoryName
+                )
+                return true
+            }
+            let primaryRecord = state.pendingLegacyClaudeTaskOwnerCleanup[
+                normalizedDirectoryName
+            ]
+            let overflowRecord = state.pendingLegacyClaudeTaskOwnerCleanupOverflowEntries[
+                normalizedDirectoryName
+            ]
+            let spillRecord = state.pendingLegacyClaudeTaskOwnerCleanupSpill[
+                normalizedDirectoryName
+            ]
+            let usePrimaryTier: Bool
+            let useOverflowTier: Bool
+            if primaryRecord != nil {
+                usePrimaryTier = true
+                useOverflowTier = false
+            } else if overflowRecord != nil {
+                usePrimaryTier = false
+                useOverflowTier = true
+            } else if spillRecord != nil {
+                usePrimaryTier = false
+                useOverflowTier = false
+            } else if state.pendingLegacyClaudeTaskOwnerCleanup.count
+                        < ClaudeHookTaskListDestinationRecord.maximumRecordCount {
+                usePrimaryTier = true
+                useOverflowTier = false
+            } else if state.pendingLegacyClaudeTaskOwnerCleanupOverflowEntries.count
+                        < ClaudeHookTaskListDestinationRecord.maximumRecordCount {
+                usePrimaryTier = false
+                useOverflowTier = true
+            } else {
+                usePrimaryTier = false
+                useOverflowTier = false
+                state.pendingLegacyClaudeTaskOwnerCleanupOverflow = true
+                if spillRecord == nil,
+                   state.pendingLegacyClaudeTaskOwnerCleanupSpill.count
+                        >= Self.maxLegacyClaudeTaskOwnerCleanupSpillEntries {
+                    let evictableDirectory = state.pendingLegacyClaudeTaskOwnerCleanupSpill
+                        .first { _, record in
+                            record.attemptCount
+                                >= Self.maxLegacyClaudeTaskOwnerCleanupAttempts
+                        }?.key
+                    guard let evictableDirectory else {
+                        // Preserve bounded state and fail closed; destination
+                        // proofs remain in their owning binding records, and
+                        // the overflow marker lets the retry scanner rediscover
+                        // those proof-only destinations.
+                        return false
+                    }
+                    state.pendingLegacyClaudeTaskOwnerCleanupSpill.removeValue(
+                        forKey: evictableDirectory
+                    )
+                }
+            }
+            var record = primaryRecord ?? overflowRecord ?? spillRecord
+                ?? .init(workspaceIDs: [])
+            let normalizedWorkspaceIDs = workspaceIDs.compactMap(normalizeOptional)
+            let mergedWorkspaceIDs = replaceWorkspaceIDs
+                ? Set(normalizedWorkspaceIDs).sorted()
+                : Set(record.workspaceIDs + normalizedWorkspaceIDs).sorted()
+            guard mergedWorkspaceIDs.count <= Self.maxLegacyClaudeTaskOwnerWorkspaceIDs else {
+                state.pendingLegacyClaudeTaskOwnerCleanupOverflow = true
+                // Keep the prior bounded proof intact; callers fail closed and
+                // retain the authoritative destination records for a later
+                // capacity retry instead of truncating IDs.
+                return false
+            }
+            record.workspaceIDs = mergedWorkspaceIDs
+            if retry {
+                let now = Date.now.timeIntervalSince1970
+                let alreadyBackedOff = record.nextAttemptAt.map { $0 > now } == true
+                if !alreadyBackedOff,
+                   record.attemptCount < Self.maxLegacyClaudeTaskOwnerCleanupAttempts {
+                    record.attemptCount = min(
+                        Self.maxLegacyClaudeTaskOwnerCleanupAttempts,
+                        record.attemptCount + 1
+                    )
+                    let exponent = min(record.attemptCount, 6)
+                    let delay = min(
+                        Self.maxLegacyClaudeTaskOwnerCleanupRetrySeconds,
+                        pow(2, Double(exponent))
+                    )
+                    record.nextAttemptAt = now + delay
+                }
+            }
+            if useOverflowTier {
+                state.pendingLegacyClaudeTaskOwnerCleanupOverflowEntries[
+                    normalizedDirectoryName
+                ] = record
+            } else if usePrimaryTier {
+                state.pendingLegacyClaudeTaskOwnerCleanup[normalizedDirectoryName] = record
+            } else {
+                state.pendingLegacyClaudeTaskOwnerCleanupSpill[normalizedDirectoryName] = record
+            }
+            return true
+        }
+    }
+
+    /// Returns whether a queued legacy cleanup is eligible for a normal hook.
+    func isLegacyClaudeTaskOwnerCleanupEligible(directoryName: String) throws -> Bool {
+        let normalizedDirectoryName = directoryName.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !normalizedDirectoryName.isEmpty else { return false }
+        return try withLockedState { state in
+            let now = Date.now.timeIntervalSince1970
+            resetExpiredLegacyClaudeTaskOwnerCleanupAttempts(
+                in: &state,
+                now: now
+            )
+            let record = state.pendingLegacyClaudeTaskOwnerCleanup[
+                normalizedDirectoryName
+            ] ?? state.pendingLegacyClaudeTaskOwnerCleanupOverflowEntries[
+                normalizedDirectoryName
+            ] ?? state.pendingLegacyClaudeTaskOwnerCleanupSpill[
+                normalizedDirectoryName
+            ]
+            if let record,
+               record.attemptCount >= Self.maxLegacyClaudeTaskOwnerCleanupAttempts {
+                return false
+            }
+            guard let nextAttemptAt = record?.nextAttemptAt else { return true }
+            return nextAttemptAt <= now
+        }
+    }
+
+    /// Reopens terminally failed cleanup proofs after a quiet cooldown so a
+    /// transient socket outage cannot permanently occupy the bounded queues.
+    private func resetExpiredLegacyClaudeTaskOwnerCleanupAttempts(
+        in state: inout ClaudeHookSessionStoreFile,
+        now: TimeInterval
+    ) {
+        for directoryName in Array(state.pendingLegacyClaudeTaskOwnerCleanup.keys) {
+            guard var record = state.pendingLegacyClaudeTaskOwnerCleanup[directoryName],
+                  record.attemptCount >= Self.maxLegacyClaudeTaskOwnerCleanupAttempts,
+                  let nextAttemptAt = record.nextAttemptAt,
+                  now - nextAttemptAt >= Self.legacyClaudeTaskOwnerCleanupTerminalCooldownSeconds else {
+                continue
+            }
+            record.attemptCount = 0
+            record.nextAttemptAt = nil
+            state.pendingLegacyClaudeTaskOwnerCleanup[directoryName] = record
+        }
+        for directoryName in Array(
+            state.pendingLegacyClaudeTaskOwnerCleanupOverflowEntries.keys
+        ) {
+            guard var record = state.pendingLegacyClaudeTaskOwnerCleanupOverflowEntries[
+                directoryName
+            ],
+            record.attemptCount >= Self.maxLegacyClaudeTaskOwnerCleanupAttempts,
+            let nextAttemptAt = record.nextAttemptAt,
+            now - nextAttemptAt >= Self.legacyClaudeTaskOwnerCleanupTerminalCooldownSeconds else {
+                continue
+            }
+            record.attemptCount = 0
+            record.nextAttemptAt = nil
+            state.pendingLegacyClaudeTaskOwnerCleanupOverflowEntries[directoryName] = record
+        }
+        for directoryName in Array(state.pendingLegacyClaudeTaskOwnerCleanupSpill.keys) {
+            guard var record = state.pendingLegacyClaudeTaskOwnerCleanupSpill[directoryName],
+                  record.attemptCount >= Self.maxLegacyClaudeTaskOwnerCleanupAttempts,
+                  let nextAttemptAt = record.nextAttemptAt,
+                  now - nextAttemptAt >= Self.legacyClaudeTaskOwnerCleanupTerminalCooldownSeconds else {
+                continue
+            }
+            record.attemptCount = 0
+            record.nextAttemptAt = nil
+            state.pendingLegacyClaudeTaskOwnerCleanupSpill[directoryName] = record
+        }
+    }
+
+    /// Returns and claims one eligible legacy-owner cleanup, rotating failed
+    /// entries behind unrelated work through a durable retry timestamp.
+    func nextLegacyClaudeTaskOwnerCleanup() throws -> (
+        directoryName: String,
+        workspaceIDs: [String]
+    )? {
+        try withLockedState { state in
+            let now = Date.now.timeIntervalSince1970
+            resetExpiredLegacyClaudeTaskOwnerCleanupAttempts(
+                in: &state,
+                now: now
+            )
+            let allEntries = state.pendingLegacyClaudeTaskOwnerCleanup.merging(
+                state.pendingLegacyClaudeTaskOwnerCleanupOverflowEntries
+            ) { primary, _ in primary }.merging(
+                state.pendingLegacyClaudeTaskOwnerCleanupSpill
+            ) { primary, _ in primary }
+            let candidate = allEntries
+                .filter { _, record in
+                    record.attemptCount < Self.maxLegacyClaudeTaskOwnerCleanupAttempts
+                        && record.nextAttemptAt.map { $0 > now } != true
+                }
+                .sorted { lhs, rhs in
+                    let lhsAttempt = lhs.value.nextAttemptAt ?? 0
+                    let rhsAttempt = rhs.value.nextAttemptAt ?? 0
+                    if lhsAttempt != rhsAttempt { return lhsAttempt < rhsAttempt }
+                    if lhs.value.attemptCount != rhs.value.attemptCount {
+                        return lhs.value.attemptCount < rhs.value.attemptCount
+                    }
+                    return lhs.key < rhs.key
+                }
+                .first
+            guard let (directoryName, record) = candidate else {
+                guard state.pendingLegacyClaudeTaskOwnerCleanupOverflow else { return nil }
+                var discoveredCandidates: [(directoryName: String, workspaceIDs: [String])] = []
+                for record in (Array(state.sessions.values)
+                    + Array(state.pendingSupersededSessionCleanup.values)).prefix(256) {
+                        guard record.claudeTaskStoreID == nil,
+                              record.claudeTaskLegacyOwnerCleared != true,
+                              let directoryName = normalizeOptional(record.claudeTaskDirectoryName),
+                              let workspaceID = normalizeOptional(record.workspaceId) else {
+                            continue
+                        }
+                        discoveredCandidates.append((directoryName, [workspaceID]))
+                }
+                for record in state.claudeTaskListDestinations.values.prefix(128) {
+                    guard record.taskStoreIdentity == nil else { continue }
+                    discoveredCandidates.append((record.taskListID, record.workspaceIDs))
+                }
+                for record in state.claudeTeamTaskBindings.values.prefix(128) {
+                    guard record.binding.taskStoreIdentity == nil else { continue }
+                    discoveredCandidates.append((record.binding.taskListID, record.workspaceIDs))
+                }
+                let sortedDiscoveredCandidates = discoveredCandidates
+                    .filter {
+                        state.pendingLegacyClaudeTaskOwnerCleanup[$0.directoryName] == nil
+                            && state.pendingLegacyClaudeTaskOwnerCleanupOverflowEntries[$0.directoryName] == nil
+                            && state.pendingLegacyClaudeTaskOwnerCleanupSpill[$0.directoryName] == nil
+                    }
+                    .sorted { lhs, rhs in
+                        lhs.directoryName < rhs.directoryName
+                    }
+                let discoveredCandidate = sortedDiscoveredCandidates.first {
+                    guard let cursor = state.pendingLegacyClaudeTaskOwnerCleanupOverflowCursor else {
+                        return true
+                    }
+                    return $0.directoryName > cursor
+                } ?? sortedDiscoveredCandidates.first
+                guard let discoveredCandidate else {
+                    // Keep the marker: bounded discovery may have skipped a
+                    // proof beyond the current scan window. A later hook will
+                    // retry the next window rather than retiring the marker.
+                    return nil
+                }
+                let discoveredDirectory = discoveredCandidate.directoryName
+                let discoveredWorkspaceIDs = discoveredCandidate.workspaceIDs
+                state.pendingLegacyClaudeTaskOwnerCleanupOverflowCursor = discoveredDirectory
+                if state.pendingLegacyClaudeTaskOwnerCleanup.count
+                        < ClaudeHookTaskListDestinationRecord.maximumRecordCount {
+                    state.pendingLegacyClaudeTaskOwnerCleanup[discoveredDirectory] = .init(
+                        workspaceIDs: discoveredWorkspaceIDs
+                    )
+                } else if state.pendingLegacyClaudeTaskOwnerCleanupOverflowEntries.count
+                            < ClaudeHookTaskListDestinationRecord.maximumRecordCount {
+                    state.pendingLegacyClaudeTaskOwnerCleanupOverflowEntries[
+                        discoveredDirectory
+                    ] = .init(workspaceIDs: discoveredWorkspaceIDs)
+                } else {
+                    if state.pendingLegacyClaudeTaskOwnerCleanupSpill.count
+                            >= Self.maxLegacyClaudeTaskOwnerCleanupSpillEntries {
+                        let evictableDirectory = state.pendingLegacyClaudeTaskOwnerCleanupSpill
+                            .first { _, record in
+                                record.attemptCount
+                                    >= Self.maxLegacyClaudeTaskOwnerCleanupAttempts
+                            }?.key
+                        guard let evictableDirectory else { return nil }
+                        state.pendingLegacyClaudeTaskOwnerCleanupSpill.removeValue(
+                            forKey: evictableDirectory
+                        )
+                    }
+                    state.pendingLegacyClaudeTaskOwnerCleanupSpill[discoveredDirectory] = .init(
+                        workspaceIDs: discoveredWorkspaceIDs
+                    )
+                }
+                return (discoveredDirectory, discoveredWorkspaceIDs)
+            }
+            var claimed = record
+            claimed.attemptCount = min(
+                Self.maxLegacyClaudeTaskOwnerCleanupAttempts,
+                claimed.attemptCount + 1
+            )
+            let exponent = min(claimed.attemptCount, 6)
+            claimed.nextAttemptAt = now + min(
+                Self.maxLegacyClaudeTaskOwnerCleanupRetrySeconds,
+                pow(2, Double(exponent))
+            )
+            if state.pendingLegacyClaudeTaskOwnerCleanup[directoryName] == nil,
+               state.pendingLegacyClaudeTaskOwnerCleanupOverflowEntries[directoryName] != nil {
+                state.pendingLegacyClaudeTaskOwnerCleanupOverflowEntries[directoryName] = claimed
+            } else if state.pendingLegacyClaudeTaskOwnerCleanup[directoryName] == nil,
+                      state.pendingLegacyClaudeTaskOwnerCleanupSpill[directoryName] != nil {
+                state.pendingLegacyClaudeTaskOwnerCleanupSpill[directoryName] = claimed
+            } else {
+                state.pendingLegacyClaudeTaskOwnerCleanup[directoryName] = claimed
+            }
+            return (directoryName, claimed.workspaceIDs)
         }
     }
 
@@ -832,7 +1490,8 @@ final class ClaudeHookSessionStore {
     func markLegacyClaudeTaskDirectoryMigrated(
         sessionId: String,
         directoryName: String,
-        taskStoreIdentity: ClaudeTaskStoreIdentity
+        taskStoreIdentity: ClaudeTaskStoreIdentity,
+        expectedStartedAt: TimeInterval? = nil
     ) throws -> Bool {
         let normalizedSessionId = normalizeSessionId(sessionId)
         let normalizedDirectoryName = directoryName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -845,6 +1504,10 @@ final class ClaudeHookSessionStore {
         return try withLockedState { state in
             guard var record = state.sessions[normalizedSessionId],
                   record.claudeTaskDirectoryName == normalizedDirectoryName else {
+                return false
+            }
+            if let expectedStartedAt,
+               record.startedAt != expectedStartedAt {
                 return false
             }
             if let existingTaskStoreID = record.claudeTaskStoreID {
@@ -1818,6 +2481,7 @@ final class ClaudeHookSessionStore {
                 // SessionStart (and an explicitly accepted first prompt for a
                 // fork) establishes a new generation for this identifier.
                 state.endedSessionIDs.removeValue(forKey: normalized)
+                state.endedSessionGenerationStarts.removeValue(forKey: normalized)
             }
             var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
                 sessionId: normalized,
@@ -1941,6 +2605,7 @@ final class ClaudeHookSessionStore {
             // clear its prior end tombstone atomically with the identity write
             // so late task hooks from the old generation cannot resurrect it.
             state.endedSessionIDs.removeValue(forKey: normalizedSessionId)
+            state.endedSessionGenerationStarts.removeValue(forKey: normalizedSessionId)
 
             let now = Date().timeIntervalSince1970
             var record = makeSessionRecord(
@@ -1950,6 +2615,7 @@ final class ClaudeHookSessionStore {
                 surfaceId: normalizedSurfaceId,
                 now: now
             )
+            record.startedAt = now
             update(
                 &record,
                 workspaceId: normalizedWorkspaceId,
@@ -2603,7 +3269,8 @@ final class ClaudeHookSessionStore {
             return true
         }
         return try withLockedState { state in
-            guard state.endedSessionIDs[normalizedSessionId] == nil else {
+            guard state.endedSessionIDs[normalizedSessionId] == nil,
+                  state.endedSessionGenerationStarts[normalizedSessionId] == nil else {
                 return false
             }
             // The pane's own active boundary decides first: a hook is stale when a
@@ -2682,7 +3349,8 @@ final class ClaudeHookSessionStore {
         sessionId: String?,
         workspaceId: String?,
         surfaceId: String?,
-        turnId: String? = nil
+        turnId: String? = nil,
+        expectedStartedAt: TimeInterval? = nil
     ) throws -> ClaudeHookSessionRecord? {
         let normalizedSessionId = normalizeOptional(sessionId)
         let normalizedWorkspace = normalizeOptional(workspaceId)
@@ -2691,11 +3359,16 @@ final class ClaudeHookSessionStore {
             let endedAt = Date().timeIntervalSince1970
             if let normalizedSessionId,
                let existing = state.sessions[normalizedSessionId] {
+                if let expectedStartedAt,
+                   existing.startedAt != expectedStartedAt {
+                    return nil
+                }
                 guard !hasActiveTurnMismatch(state, record: existing, turnId: turnId) else {
                     return nil
                 }
                 let removed = state.sessions.removeValue(forKey: normalizedSessionId) ?? existing
                 state.endedSessionIDs[normalizedSessionId] = endedAt
+                state.endedSessionGenerationStarts[normalizedSessionId] = removed.startedAt
                 clearActiveSessionIfMatching(&state, removed: removed, turnId: turnId)
                 return removed
             }
@@ -2703,8 +3376,15 @@ final class ClaudeHookSessionStore {
             // Even when the record was already consumed by another lifecycle
             // hook, retain the end boundary so a late task hook cannot
             // synthesize it again before the next SessionStart.
-            if let normalizedSessionId {
+            if let normalizedSessionId, expectedStartedAt == nil {
                 state.endedSessionIDs[normalizedSessionId] = endedAt
+            }
+
+            // A generation-qualified lifecycle hook may consume only the
+            // exact requested record. Falling back by workspace/surface could
+            // terminate a newer SessionStart generation.
+            if expectedStartedAt != nil {
+                return nil
             }
 
             guard let fallback = fallbackRecord(
@@ -2719,6 +3399,82 @@ final class ClaudeHookSessionStore {
             }
             state.sessions.removeValue(forKey: fallback.sessionId)
             state.endedSessionIDs[fallback.sessionId] = endedAt
+            state.endedSessionGenerationStarts[fallback.sessionId] = fallback.startedAt
+            clearActiveSessionIfMatching(&state, removed: fallback, turnId: turnId)
+            return fallback
+        }
+    }
+
+    /// Records a generation-qualified end boundary when SessionEnd cannot join
+    /// the task-sync lease. The state-file lock is intentionally retried
+    /// independently: task hooks hold the task lease while doing socket work,
+    /// but only hold this state lock for short read/modify/write transactions.
+    /// A matching record is consumed; when it has already disappeared, the
+    /// generation tombstone still blocks a late task hook until SessionStart
+    /// explicitly begins the next generation.
+    func recordClaudeSessionEndBoundary(
+        sessionId: String?,
+        workspaceId: String?,
+        surfaceId: String?,
+        turnId: String?,
+        expectedStartedAt: TimeInterval? = nil,
+        requireNoExistingSessionRecord: Bool = false,
+        deadlineUptime: TimeInterval? = nil,
+        overrideLockDeadline: Bool = false
+    ) throws -> ClaudeHookSessionRecord? {
+        let previousLockDeadlineUptime = lockDeadlineUptime
+        if let deadlineUptime {
+            lockDeadlineUptime = overrideLockDeadline
+                ? deadlineUptime
+                : min(previousLockDeadlineUptime ?? deadlineUptime, deadlineUptime)
+        }
+        defer { lockDeadlineUptime = previousLockDeadlineUptime }
+        let normalizedSessionId = normalizeOptional(sessionId)
+        let normalizedWorkspace = normalizeOptional(workspaceId)
+        let normalizedSurface = normalizeOptional(surfaceId)
+        return try withLockedState { state in
+            let endedAt = Date().timeIntervalSince1970
+            if let normalizedSessionId,
+               let existing = state.sessions[normalizedSessionId] {
+                guard !requireNoExistingSessionRecord else {
+                    // A newer SessionStart won the no-record race; never
+                    // consume that generation with an unqualified boundary.
+                    return nil
+                }
+                guard expectedStartedAt == nil || existing.startedAt == expectedStartedAt else {
+                    // A newer SessionStart won the race; never terminate it.
+                    return nil
+                }
+                guard !hasActiveTurnMismatch(state, record: existing, turnId: turnId) else {
+                    return nil
+                }
+                let removed = state.sessions.removeValue(forKey: normalizedSessionId) ?? existing
+                state.endedSessionIDs[normalizedSessionId] = endedAt
+                state.endedSessionGenerationStarts[normalizedSessionId] = removed.startedAt
+                clearActiveSessionIfMatching(&state, removed: removed, turnId: turnId)
+                return removed
+            }
+
+            if let normalizedSessionId {
+                // With a generation proof, this is the only safe fallback: a
+                // workspace/surface scan could consume a newer session.
+                state.endedSessionIDs[normalizedSessionId] = endedAt
+                if let expectedStartedAt {
+                    state.endedSessionGenerationStarts[normalizedSessionId] = expectedStartedAt
+                }
+                return nil
+            }
+
+            guard let fallback = fallbackRecord(
+                sessions: Array(state.sessions.values),
+                workspaceId: normalizedWorkspace,
+                surfaceId: normalizedSurface
+            ), !hasActiveTurnMismatch(state, record: fallback, turnId: turnId) else {
+                return nil
+            }
+            state.sessions.removeValue(forKey: fallback.sessionId)
+            state.endedSessionIDs[fallback.sessionId] = endedAt
+            state.endedSessionGenerationStarts[fallback.sessionId] = fallback.startedAt
             clearActiveSessionIfMatching(&state, removed: fallback, turnId: turnId)
             return fallback
         }
@@ -2881,6 +3637,9 @@ final class ClaudeHookSessionStore {
         state.endedSessionIDs = state.endedSessionIDs.filter { _, endedAt in
             endedAt >= cutoff
         }
+        state.endedSessionGenerationStarts = state.endedSessionGenerationStarts.filter { sessionId, _ in
+            state.endedSessionIDs[sessionId] != nil
+        }
         if state.endedSessionIDs.count > Self.maxEndedSessionIDs {
             let retainedIDs = Set(
                 state.endedSessionIDs
@@ -2892,6 +3651,9 @@ final class ClaudeHookSessionStore {
                     .map(\.key)
             )
             state.endedSessionIDs = state.endedSessionIDs.filter {
+                retainedIDs.contains($0.key)
+            }
+            state.endedSessionGenerationStarts = state.endedSessionGenerationStarts.filter {
                 retainedIDs.contains($0.key)
             }
         }
@@ -26567,6 +27329,11 @@ struct CMUXCLI {
         switch subcommand {
         case "session-start", "active":
             telemetry.breadcrumb("claude-hook.session-start")
+            let sessionStartDeadlineUptime = client.enforceResponseDeadline(
+                untilUptime: ProcessInfo.processInfo.systemUptime
+                    + Self.claudeSessionStartTaskSyncLockBudgetSeconds
+            )
+            sessionStore.enforceLockDeadline(untilUptime: sessionStartDeadlineUptime)
             guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(
                 mappedSession: nil,
                 routing: hookRouting,
@@ -26607,18 +27374,29 @@ struct CMUXCLI {
             )
             let isClearSessionStart = isClaudeClearSessionStart(parsedInput)
             let sessionStartSource = parsedInput.object?["source"] as? String
+            let sessionStartTaskStoreIdentity = ClaudeTaskStoreIdentity(
+                tasksRootURL: ClaudeTaskRootResolver(
+                    environment: ProcessInfo.processInfo.environment,
+                    homeDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
+                ).resolve()
+            )
             let acceptedSessionId: String? = parsedInput.sessionId.flatMap { sessionId in
-                let accepted = (try? sessionStore.upsertAuthoritativeClaudeSessionStart(
-                    sessionId: sessionId,
-                    source: sessionStartSource,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    cwd: parsedInput.cwd,
-                    transcriptPath: parsedInput.transcriptPath,
-                    pid: claudePid,
-                    launchCommand: launchCommand,
-                    turnId: parsedInput.turnId
-                )) == true
+                let accepted = (try? sessionStore.withClaudeTaskSyncLock(
+                    deadlineUptime: sessionStartDeadlineUptime,
+                    scope: sessionStartTaskStoreIdentity.rawValue
+                ) {
+                    try sessionStore.upsertAuthoritativeClaudeSessionStart(
+                        sessionId: sessionId,
+                        source: sessionStartSource,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: parsedInput.cwd,
+                        transcriptPath: parsedInput.transcriptPath,
+                        pid: claudePid,
+                        launchCommand: launchCommand,
+                        turnId: parsedInput.turnId
+                    )
+                }) == true
                 return accepted ? sessionId : nil
             }
             guard let acceptedSessionId else {
@@ -27334,7 +28112,123 @@ struct CMUXCLI {
             // Only clear when we are the primary cleanup path (Stop didn't fire first).
             // If Stop already consumed the session, consumedSession is nil and we skip
             // to avoid wiping the completion notification that Stop just delivered.
-            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            let sessionEndDeadlineUptime = client.enforceResponseDeadline(
+                untilUptime: ProcessInfo.processInfo.systemUptime
+                    + Self.claudeSessionEndTaskSyncLockBudgetSeconds
+            )
+            sessionStore.enforceLockDeadline(untilUptime: sessionEndDeadlineUptime)
+            let sessionEndTaskStoreIdentity = ClaudeTaskStoreIdentity(
+                tasksRootURL: ClaudeTaskRootResolver(
+                    environment: ProcessInfo.processInfo.environment,
+                    homeDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
+                ).resolve()
+            )
+            let sessionEndTaskStoreScope = sessionEndTaskStoreIdentity.rawValue
+            let sessionEndHookPID = claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let sessionEndEntry = parsedInput.sessionId.flatMap {
+                try? sessionStore.claudeTaskSyncSessionEntry(sessionId: $0)
+            }
+            var mappedSession = sessionEndEntry?.record
+            if parsedInput.sessionId != nil, mappedSession == nil {
+                // A session-id-bearing end event without an atomic generation
+                // proof must not fall back to workspace matching: a newer
+                // SessionStart may already own that identifier.
+                telemetry.breadcrumb("claude-hook.session-end.generation-unresolved")
+                var shouldAcknowledgeWithoutCleanup = false
+                do {
+                    try sessionStore.withClaudeTaskSyncLock(
+                        deadlineUptime: sessionEndDeadlineUptime,
+                        scope: sessionEndTaskStoreScope
+                    ) {
+                        let currentEntry = try sessionStore.claudeTaskSyncSessionEntry(
+                            sessionId: parsedInput.sessionId ?? ""
+                        )
+                        if currentEntry.ended {
+                            shouldAcknowledgeWithoutCleanup = true
+                        } else if let currentRecord = currentEntry.record {
+                            // The initial read was empty. Accept a record only
+                            // when its persisted process identity can still
+                            // corroborate the exiting hook; otherwise leave the
+                            // replacement generation untouched.
+                            let pidMatches: Bool
+                            if let sessionEndHookPID,
+                               let currentPID = currentRecord.pid,
+                               currentPID == sessionEndHookPID {
+                                pidMatches = client.isRelayBacked
+                                    || ((try? sessionStore.isClaudeTaskHookProcessCurrent(
+                                        sessionId: parsedInput.sessionId ?? "",
+                                        expectedStartedAt: currentRecord.startedAt,
+                                        hookPID: sessionEndHookPID,
+                                        validateProcessIdentity: true
+                                    )) == true)
+                            } else {
+                                pidMatches = false
+                            }
+                            if pidMatches {
+                                mappedSession = currentRecord
+                            } else {
+                                shouldAcknowledgeWithoutCleanup = true
+                            }
+                        } else {
+                            _ = try sessionStore.recordClaudeSessionEndBoundary(
+                                sessionId: parsedInput.sessionId,
+                                workspaceId: nil,
+                                surfaceId: nil,
+                                turnId: parsedInput.turnId,
+                                requireNoExistingSessionRecord: true,
+                                deadlineUptime: sessionEndDeadlineUptime
+                            )
+                            shouldAcknowledgeWithoutCleanup = true
+                        }
+                    }
+                } catch {
+                    telemetry.breadcrumb(
+                        "claude-hook.session-end.generation-boundary-failed",
+                        data: ["error": String(describing: error)]
+                    )
+                    _ = try? sessionStore.recordClaudeSessionEndBoundary(
+                        sessionId: parsedInput.sessionId,
+                        workspaceId: nil,
+                        surfaceId: nil,
+                        turnId: parsedInput.turnId,
+                        requireNoExistingSessionRecord: true,
+                        deadlineUptime: ProcessInfo.processInfo.systemUptime + 1,
+                        overrideLockDeadline: true
+                    )
+                    shouldAcknowledgeWithoutCleanup = true
+                }
+                if shouldAcknowledgeWithoutCleanup {
+                    retryPendingClaudeLegacyTaskCleanup(
+                        sessionStore: sessionStore,
+                        taskStoreIdentity: sessionEndTaskStoreIdentity,
+                        client: client,
+                        telemetry: telemetry,
+                        deadlineUptime: sessionEndDeadlineUptime
+                    )
+                    printClaudeHookAck()
+                    return
+                }
+            }
+            if let sessionID = parsedInput.sessionId,
+               let expectedStartedAt = mappedSession?.startedAt {
+                guard (try? sessionStore.isClaudeTaskHookProcessCurrent(
+                    sessionId: sessionID,
+                    expectedStartedAt: expectedStartedAt,
+                    hookPID: sessionEndHookPID,
+                    validateProcessIdentity: !client.isRelayBacked
+                )) == true else {
+                    telemetry.breadcrumb("claude-hook.session-end.process-generation-mismatch")
+                    retryPendingClaudeLegacyTaskCleanup(
+                        sessionStore: sessionStore,
+                        taskStoreIdentity: sessionEndTaskStoreIdentity,
+                        client: client,
+                        telemetry: telemetry,
+                        deadlineUptime: sessionEndDeadlineUptime
+                    )
+                    printClaudeHookAck()
+                    return
+                }
+            }
             // Resolve the pane's CURRENT owner before consuming the record:
             // SessionEnd can be the only hook after a pane move (Ctrl-C exit
             // with no later Stop/Notification to heal the record), and cleanup
@@ -27367,36 +28261,34 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
-            let sessionEndTaskStoreScope = ClaudeTaskStoreIdentity(
-                tasksRootURL: ClaudeTaskRootResolver(
-                    environment: ProcessInfo.processInfo.environment,
-                    homeDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
-                ).resolve()
-            ).rawValue
-            let consumedSession: ClaudeHookSessionRecord?
+            var consumedSession: ClaudeHookSessionRecord?
             do {
                 consumedSession = try sessionStore.consumeAfterClaudeTaskSync(
                     sessionId: parsedInput.sessionId,
                     workspaceId: liveEndTarget.workspaceId,
                     surfaceId: liveEndTarget.surfaceId,
                     turnId: parsedInput.turnId,
+                    expectedStartedAt: mappedSession?.startedAt,
                     scope: sessionEndTaskStoreScope,
-                    deadlineUptime: ProcessInfo.processInfo.systemUptime
-                        + Self.claudeSessionEndTaskSyncLockBudgetSeconds
+                    deadlineUptime: sessionEndDeadlineUptime
                 )
             } catch {
-                // A long-running task hook may still hold the shared lease.
-                // Consume directly as a bounded recovery path so the tombstone
-                // and lifecycle cleanup are not silently abandoned.
+                // Keep the hook protocol alive even when both lease and state
+                // persistence fail. The fallback is generation-qualified and
+                // can be retried by the next lifecycle event.
                 telemetry.breadcrumb(
-                    "claude-hook.session-end.task-sync-lock-recovery",
+                    "claude-hook.session-end.boundary-failed",
                     data: ["error": String(describing: error)]
                 )
+                let recoveryDeadlineUptime = ProcessInfo.processInfo.systemUptime + 1
                 consumedSession = try? sessionStore.recordClaudeSessionEndBoundary(
                     sessionId: parsedInput.sessionId,
                     workspaceId: liveEndTarget.workspaceId,
                     surfaceId: liveEndTarget.surfaceId,
-                    turnId: parsedInput.turnId
+                    turnId: parsedInput.turnId,
+                    expectedStartedAt: mappedSession?.startedAt,
+                    deadlineUptime: recoveryDeadlineUptime,
+                    overrideLockDeadline: true
                 )
             }
             // consume() calls clearActiveSessionIfMatching before returning
@@ -27485,6 +28377,13 @@ struct CMUXCLI {
                     telemetry.breadcrumb("claude-hook.session-end.stale")
                 }
             }
+            retryPendingClaudeLegacyTaskCleanup(
+                sessionStore: sessionStore,
+                taskStoreIdentity: sessionEndTaskStoreIdentity,
+                client: client,
+                telemetry: telemetry,
+                deadlineUptime: sessionEndDeadlineUptime
+            )
             printClaudeHookAck()
 
         case "cron-create-guard":

@@ -666,11 +666,12 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         f"SubagentStop hook should not call the visible stop hook, got {subagent_stop_hooks}",
         failures,
     )
-    # SessionEnd should have a short timeout (session is exiting)
+    # SessionEnd stays bounded while allowing the complete eight-second
+    # task-sync lease plus process/setup margin below Ghostty's grace period.
     session_end_hooks = hooks.get("SessionEnd", [{}])[0].get("hooks", [{}])
     expect(
-        any(h.get("timeout", 999) <= 2 for h in session_end_hooks),
-        f"SessionEnd hook should have short timeout, got {session_end_hooks}",
+        any(h.get("timeout") == 11 for h in session_end_hooks),
+        f"SessionEnd hook should have an 11-second timeout, got {session_end_hooks}",
         failures,
     )
 
