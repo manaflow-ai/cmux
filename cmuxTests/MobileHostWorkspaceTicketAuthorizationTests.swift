@@ -264,6 +264,22 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         #expect(decoded.authToken == nil)
     }
 
+    @Test func physicalDeviceTailscaleAndLANFallbackStripsLANKind() throws {
+        let store = MobileAttachTicketStore()
+        let ticket = try store.createTicket(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [try tailscaleRoute(), try lanRoute()],
+            ttl: 3600
+        )
+
+        let payload = try store.payload(for: ticket, target: .physicalDevice)
+        let attachURL = try #require(payload["attach_url"] as? String)
+        #expect(attachURL.contains("?v=1&payload="))
+        let decoded = try compactTicket(from: attachURL)
+        #expect(decoded.routes.map(\.kind) == [.tailscale])
+    }
+
     @Test func physicalDeviceCanonicalizesFilteredSecondaryRouteForV2() throws {
         let secondaryRoute = try tailscaleRoute(
             id: "tailscale_2",
