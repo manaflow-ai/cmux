@@ -350,6 +350,39 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     }
 
     /// Returns a copy carrying the broker generation for one native-SSH lease.
+    /// Copy with a re-minted daemon WebSocket endpoint. Managed Cloud VM previews can rotate
+    /// (sandbox recreation, preview re-creation), so the proxy broker refreshes the endpoint
+    /// through the backend instead of retrying a dead URL forever.
+    public func withDaemonWebSocketEndpoint(
+        _ endpoint: WorkspaceRemoteWebSocketDaemonEndpoint?
+    ) -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            transport: transport,
+            terminalTransport: terminalTransport,
+            terminalProfile: terminalProfile,
+            destination: destination,
+            port: port,
+            identityFile: identityFile,
+            sshOptions: sshOptions,
+            localProxyPort: localProxyPort,
+            relayPort: relayPort,
+            relayID: relayID,
+            relayToken: relayToken,
+            localSocketPath: localSocketPath,
+            ownerWorkspaceID: ownerWorkspaceID,
+            managedCloudVMID: managedCloudVMID,
+            terminalStartupCommand: terminalStartupCommand,
+            configuredRemoteCommand: configuredRemoteCommand,
+            foregroundAuthToken: foregroundAuthToken,
+            agentSocketPath: agentSocketPath,
+            daemonWebSocketEndpoint: endpoint,
+            preserveAfterTerminalExit: preserveAfterTerminalExit,
+            persistentDaemonSlot: persistentDaemonSlot,
+            skipDaemonBootstrap: skipDaemonBootstrap,
+            sshControlMasterLeaseGeneration: sshControlMasterLeaseGeneration
+        )
+    }
+
     public func withSSHControlMasterLeaseGeneration(_ generation: UUID) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             transport: transport,
