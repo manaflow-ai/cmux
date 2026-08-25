@@ -5395,6 +5395,23 @@ final class BrowserPanel: Panel, ObservableObject {
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
         let request = URLRequest(url: url)
+        return navigate(
+            to: request,
+            recordTypedNavigation: recordTypedNavigation,
+            onNavigationStarted: onNavigationStarted
+        )
+    }
+
+    @discardableResult
+    func navigate(
+        to request: URLRequest,
+        recordTypedNavigation: Bool = false,
+        onNavigationStarted: ((WKNavigation?) -> Void)? = nil
+    ) -> WKNavigation? {
+        guard let url = request.url else {
+            onNavigationStarted?(nil)
+            return nil
+        }
         if !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
             navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
             onNavigationStarted?(nil)

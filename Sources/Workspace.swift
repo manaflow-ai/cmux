@@ -5859,6 +5859,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Ephemeral remote tmux mirror; excluded from cmux session restore.
     var isRemoteTmuxMirror: Bool = false
     weak var remoteTmuxSessionMirror: RemoteTmuxSessionMirror?
+    private var remoteTmuxWindowsPaneId: PaneID?
     /// Bound action for this mirror's outbound window-order mutation boundary.
     var remoteTmuxWindowOrderSync: (([UUID], ((Bool) -> Void)?) -> Bool)?
 
@@ -8529,26 +8530,31 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return newPanel
     }
 
-    /// The top-level Bonsplit pane that holds this mirror's tmux window tabs,
-    /// i.e. every pane except the per-session browser split. Prefers the focused
-    /// pane when it is a tmux pane, else the first non-browser pane. Returns nil
-    /// only when the browser split is the sole remaining pane — never the browser
-    /// pane itself, so a newly mirrored window can never land inside the browser.
-    func remoteTmuxWindowsTargetPaneId() -> PaneID? {
-        let browserPaneId = remoteTmuxSessionBrowserPanelId.flatMap { paneId(forPanelId: $0) }
-        let tmuxPanes = bonsplitController.allPaneIds.filter { $0 != browserPaneId }
-        if let focused = bonsplitController.focusedPaneId, tmuxPanes.contains(focused) {
-            return focused
+    func authenticateRemoteTmuxWindowsPane() {
+        guard isRemoteTmuxMirror else {
+            remoteTmuxWindowsPaneId = nil
+            return
         }
-        return tmuxPanes.first
+        remoteTmuxWindowsPaneId = bonsplitController.focusedPaneId
+            ?? bonsplitController.allPaneIds.first
+    }
+
+    /// The authenticated top-level Bonsplit pane that holds this mirror's tmux window tabs.
+    func remoteTmuxWindowsTargetPaneId() -> PaneID? {
+        guard let paneId = remoteTmuxWindowsPaneId,
+              bonsplitController.allPaneIds.contains(paneId) else { return nil }
+        return paneId
     }
 
     /// Frees the per-session browser slot when its panel is torn down, so a later
     /// browser-icon click recreates the browser instead of focusing a dead panel.
     /// Called from every pane/tab close path that can remove the browser panel.
     func clearRemoteTmuxSessionBrowserPanelIfMatches(_ panelId: UUID) {
-        if panelId == remoteTmuxSessionBrowserPanelId {
-            remoteTmuxSessionBrowserPanelId = nil
+        guard panelId == remoteTmuxSessionBrowserPanelId else { return }
+        remoteTmuxSessionBrowserPanelId = paneId(forPanelId: panelId).flatMap { paneId in
+            bonsplitController.tabs(inPane: paneId)
+                .compactMap { panelIdFromSurfaceId($0.id) }
+                .first { $0 != panelId && panels[$0] is BrowserPanel }
         }
     }
 
@@ -8561,14 +8567,22 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// never sees this panel. A second request focuses the existing browser
     /// (navigating it when a URL is supplied) instead of creating another.
     @discardableResult
-    func openRemoteTmuxSessionBrowser(url: URL? = nil, focus: Bool = true) -> BrowserPanel? {
+    func openRemoteTmuxSessionBrowser(
+        url: URL? = nil,
+        initialRequest: URLRequest? = nil,
+        focus: Bool = true
+    ) -> BrowserPanel? {
         guard isRemoteTmuxMirror else { return nil }
 
         // Reuse the existing session browser: focus it and, when a URL was
         // requested (e.g. an opened link), navigate the existing surface.
         if let existingId = remoteTmuxSessionBrowserPanelId,
            let existing = panels[existingId] as? BrowserPanel {
-            if let url { existing.navigate(to: url) }
+            if let initialRequest {
+                existing.navigate(to: initialRequest)
+            } else if let url {
+                existing.navigate(to: url)
+            }
             if focus { focusPanel(existingId) }
             return existing
         }
@@ -8585,6 +8599,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             from: sourcePanelId,
             orientation: .horizontal,
             url: url,
+            initialRequest: initialRequest,
             focus: focus,
             allowInRemoteTmuxMirror: true
         )
@@ -8914,7 +8929,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // it opens/focuses that one browser; only ``openRemoteTmuxSessionBrowser``
         // (which passes `allowInRemoteTmuxMirror`) performs the actual split.
         if isRemoteTmuxMirror && !allowInRemoteTmuxMirror {
-            return openRemoteTmuxSessionBrowser(url: url, focus: focus)
+            return openRemoteTmuxSessionBrowser(
+                url: url,
+                initialRequest: initialRequest,
+                focus: focus
+            )
         }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         // Under an MDM-managed disable no path may create a browser panel,
@@ -9050,7 +9069,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if isRemoteTmuxMirror {
             let sessionBrowserPane = remoteTmuxSessionBrowserPanelId.flatMap { self.paneId(forPanelId: $0) }
             if sessionBrowserPane == nil || paneId != sessionBrowserPane {
-                return openRemoteTmuxSessionBrowser(url: url ?? initialRequest?.url, focus: focus ?? true)
+                return openRemoteTmuxSessionBrowser(
+                    url: url,
+                    initialRequest: initialRequest,
+                    focus: focus ?? true
+                )
             }
             // Target is the existing browser pane → fall through to add a normal
             // browser tab there.

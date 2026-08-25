@@ -101,6 +101,36 @@ import Testing
         let targetPaneId = try #require(harness.workspace.remoteTmuxWindowsTargetPaneId())
 
         #expect(targetPaneId != browserPaneId)
+
+        #expect(harness.workspace.closePanel(browser.id, force: true))
+        #expect(harness.waitUntil { harness.workspace.remoteTmuxSessionBrowserPanelId == nil })
+
+        let replacement = try #require(harness.workspace.openRemoteTmuxSessionBrowser(focus: false))
+        #expect(replacement.id != browser.id)
+        #expect(harness.workspace.remoteTmuxSessionBrowserPanelId == replacement.id)
+        let replacementPaneId = try #require(harness.workspace.paneId(forPanelId: replacement.id))
+        #expect(harness.workspace.remoteTmuxWindowsTargetPaneId() != replacementPaneId)
+    }
+
+    @Test func closingTrackedBrowserKeepsSiblingAsSessionBrowser() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+
+        let first = try #require(harness.workspace.openRemoteTmuxSessionBrowser(focus: false))
+        let browserPaneId = try #require(harness.workspace.paneId(forPanelId: first.id))
+        let sibling = try #require(
+            harness.workspace.newBrowserSurface(inPane: browserPaneId, focus: false)
+        )
+        let panelCount = harness.workspace.panels.count
+
+        #expect(harness.workspace.closePanel(first.id, force: true))
+        #expect(harness.waitUntil {
+            harness.workspace.remoteTmuxSessionBrowserPanelId == sibling.id
+        })
+
+        let reused = try #require(harness.workspace.openRemoteTmuxSessionBrowser(focus: false))
+        #expect(reused.id == sibling.id)
+        #expect(harness.workspace.panels.count == panelCount - 1)
     }
 
     @MainActor
@@ -112,24 +142,55 @@ import Testing
         let wasBrowserDisabled: Bool
 
         init() throws {
-            wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+            let previousBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+            let app = try #require(AppDelegate.shared)
+            let createdWindowId = app.createMainWindow()
+            let createdWorkspace: Workspace
+            let createdSourcePanelId: UUID
+            do {
+                let manager = try #require(app.tabManagerFor(windowId: createdWindowId))
+                createdWorkspace = try #require(manager.selectedWorkspace)
+                createdSourcePanelId = try #require(createdWorkspace.focusedPanelId)
+            } catch {
+                Self.closeWindow(createdWindowId)
+                throw error
+            }
+            wasBrowserDisabled = previousBrowserDisabled
+            appDelegate = app
+            windowId = createdWindowId
+            workspace = createdWorkspace
+            sourcePanelId = createdSourcePanelId
             BrowserAvailabilitySettings.setDisabled(false)
-            appDelegate = try #require(AppDelegate.shared)
-            windowId = appDelegate.createMainWindow()
-            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-            workspace = try #require(manager.selectedWorkspace)
-            sourcePanelId = try #require(workspace.focusedPanelId)
             workspace.isRemoteTmuxMirror = true
+            workspace.authenticateRemoteTmuxWindowsPane()
         }
 
         func tearDown() {
             workspace.isRemoteTmuxMirror = false
-            let identifier = "cmux.main.\(windowId.uuidString)"
-            if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == identifier }) {
-                window.performClose(nil)
-                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-            }
+            Self.closeWindow(windowId)
             BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled)
+        }
+
+        func waitUntil(
+            timeout: TimeInterval = 2,
+            _ predicate: () -> Bool
+        ) -> Bool {
+            let deadline = Date(timeIntervalSinceNow: timeout)
+            while !predicate(), Date() < deadline {
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+            }
+            return predicate()
+        }
+
+        private static func closeWindow(_ windowId: UUID) {
+            let identifier = "cmux.main.\(windowId.uuidString)"
+            guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == identifier }) else { return }
+            window.performClose(nil)
+            let deadline = Date(timeIntervalSinceNow: 2)
+            while NSApp.windows.contains(where: { $0.identifier?.rawValue == identifier }),
+                  Date() < deadline {
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+            }
         }
     }
 }
