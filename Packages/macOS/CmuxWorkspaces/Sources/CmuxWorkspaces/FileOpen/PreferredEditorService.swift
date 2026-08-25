@@ -31,27 +31,25 @@ public struct PreferredEditorService: FileOpening {
     /// Executables that require a terminal and cannot be presented by the
     /// GUI process with the preferred-editor launch path.
     static let terminalEditorNames: Set<String> = [
-        "vi", "vim", "nvim", "nano", "emacs", "hx", "helix", "kak",
+        "vi", "vim", "nvim", "nano", "hx", "helix", "kak",
         "kakoune", "less"
     ]
 
     /// Detects a known terminal editor at the executable position of a
     /// command, including common env wrappers and assignments.
     static func isTerminalEditorCommand(_ command: String) -> Bool {
-        let tokens = command.split { $0 == " " || $0 == "\t" }
+        let tokens = shellWords(command)
         guard !tokens.isEmpty else { return false }
 
         var executableIndex = 0
         while executableIndex < tokens.count {
-            let token = String(tokens[executableIndex])
-                .trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+            let token = tokens[executableIndex]
             let basename = URL(fileURLWithPath: token).lastPathComponent
 
             if basename == "env" {
                 executableIndex += 1
                 while executableIndex < tokens.count {
-                    let value = String(tokens[executableIndex])
-                        .trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+                    let value = tokens[executableIndex]
                     if value == "--" {
                         executableIndex += 1
                         break
@@ -78,6 +76,22 @@ public struct PreferredEditorService: FileOpening {
                 break
             }
 
+            if ["exec", "command", "nice", "sudo"].contains(basename) {
+                executableIndex += 1
+                while executableIndex < tokens.count, tokens[executableIndex].hasPrefix("-") {
+                    let option = tokens[executableIndex]
+                    executableIndex += 1
+                    if basename == "nice", option == "-n", executableIndex < tokens.count {
+                        executableIndex += 1
+                    } else if basename == "sudo",
+                              ["-u", "--user", "-g", "--group", "-C", "--chdir", "-D", "--role", "--type"].contains(option),
+                              executableIndex < tokens.count {
+                        executableIndex += 1
+                    }
+                }
+                continue
+            }
+
             // Shell environment assignments may precede the executable
             // without an explicit env command.
             if token.contains("=") && !token.hasPrefix("/") {
@@ -88,11 +102,28 @@ public struct PreferredEditorService: FileOpening {
         }
 
         guard executableIndex < tokens.count else { return false }
-        let executable = URL(
-            fileURLWithPath: String(tokens[executableIndex])
-                .trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
-        ).lastPathComponent
-        return terminalEditorNames.contains(executable)
+        let executable = URL(fileURLWithPath: tokens[executableIndex]).lastPathComponent
+        if terminalEditorNames.contains(executable) { return true }
+        // Emacs is graphical by default. Only its explicit terminal mode
+        // requires a controlling terminal.
+        return executable == "emacs" && tokens.dropFirst(executableIndex + 1).contains("-nw")
+    }
+
+    private static func shellWords(_ command: String) -> [String] {
+        var words: [String] = [], current = "", quote: Character?, escaped = false
+        for character in command {
+            if escaped { current.append(character); escaped = false; continue }
+            if character == "\\" { escaped = true; continue }
+            if let activeQuote = quote {
+                if character == activeQuote { quote = nil } else { current.append(character) }
+            } else if character == "'" || character == "\"" { quote = character
+            } else if character == " " || character == "\t" || character == "\n" {
+                if !current.isEmpty { words.append(current); current = "" }
+            } else { current.append(character) }
+        }
+        if escaped { current.append("\\") }
+        if !current.isEmpty { words.append(current) }
+        return words
     }
 
     private let editor: any PreferredEditorReading

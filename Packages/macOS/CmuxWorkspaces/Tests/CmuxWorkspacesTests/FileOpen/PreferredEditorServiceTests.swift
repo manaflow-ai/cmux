@@ -25,7 +25,9 @@ struct PreferredEditorServiceTests {
     @Test(arguments: [
         "nvim", "/opt/homebrew/bin/nvim", "env nvim", "/usr/bin/env nvim",
         "env FOO=1 nvim", "env -u TERM nvim", "FOO=1 /usr/bin/nvim",
-        "env -S nvim --clean", "env -S \"nvim --clean\"", "vim --clean"
+        "env -S nvim --clean", "env -S \"nvim --clean\"", "vim --clean",
+        "exec nvim", "command -- nvim", "nice -n 10 nvim", "sudo -u root nvim",
+        "sudo --user=root /usr/bin/env FOO=1 'nvim'"
     ])
     func terminalEditorCommandsAreDetected(command: String) {
         #expect(PreferredEditorService.isTerminalEditorCommand(command))
@@ -33,10 +35,24 @@ struct PreferredEditorServiceTests {
 
     @Test(arguments: [
         "code", "/Applications/Zed.app/Contents/MacOS/zed", "my-nvim-wrapper",
-        "env FOO=1 code", "env -u TERM /Applications/Zed.app/Contents/MacOS/zed"
+        "env FOO=1 code", "env -u TERM /Applications/Zed.app/Contents/MacOS/zed",
+        "emacs", "'/Applications/Visual Studio Code.app/Contents/MacOS/code'"
     ])
     func graphicalEditorCommandsAreNotDetected(command: String) {
         #expect(!PreferredEditorService.isTerminalEditorCommand(command))
+    }
+
+    @Test(arguments: ["emacs -nw", "exec emacs -nw", "sudo emacs -nw"])
+    func terminalEmacsModeIsDetected(command: String) {
+        #expect(PreferredEditorService.isTerminalEditorCommand(command))
+    }
+
+    @Test(arguments: [
+        "'/Applications/Neovim.app/Contents/MacOS/nvim'",
+        "exec '/opt/tools/nvim' --clean"
+    ])
+    func quotedExecutablePathsAreParsed(command: String) {
+        #expect(PreferredEditorService.isTerminalEditorCommand(command))
     }
 
     private func makeScratchDirectory() throws -> URL {
