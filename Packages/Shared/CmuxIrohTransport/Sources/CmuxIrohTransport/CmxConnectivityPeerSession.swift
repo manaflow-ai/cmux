@@ -63,6 +63,8 @@ actor CmxConnectivityPeerSession {
     private var retiredDialWaiters: [
         UUID: CheckedContinuation<Void, Never>
     ] = [:]
+    private var retiredDialWaiterGenerations: [UUID: UInt64] = [:]
+    private var retiredDialGeneration: UInt64 = 0
     // A test clock (and a very fast production clock) can expire the deadline
     // before the continuation below is registered. Keep that one-shot result
     // until the waiter observes it instead of dropping the wake-up.
@@ -515,6 +517,7 @@ actor CmxConnectivityPeerSession {
         guard let pending = pendingConnection else { return }
         pendingConnection = nil
         pending.task.cancel()
+        retiredDialGeneration &+= 1
         let drainID = UUID()
         retiredDialDrains[drainID] = Task { [weak self] in
             let orphan = try? await pending.task.value
@@ -545,6 +548,7 @@ actor CmxConnectivityPeerSession {
     private func waitForRetiredDials() async {
         guard !retiredDialDrains.isEmpty else { return }
         let waiterID = UUID()
+        retiredDialWaiterGenerations[waiterID] = retiredDialGeneration
         let clock = clock
         let deadline = clock.now().addingTimeInterval(
             Self.retiredDialSettleWaitLimitSeconds
@@ -557,6 +561,7 @@ actor CmxConnectivityPeerSession {
         defer {
             timeout.cancel()
             expiredRetiredDialWaiters.remove(waiterID)
+            retiredDialWaiterGenerations.removeValue(forKey: waiterID)
         }
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
@@ -581,7 +586,9 @@ actor CmxConnectivityPeerSession {
     }
 
     private func expireRetiredDialWait(id: UUID) {
-        guard !Task.isCancelled else { return } // Recheck after the actor hop.
+        guard !Task.isCancelled, retiredDialWaiterGenerations[id] == retiredDialGeneration else {
+            return
+        }
         retiredDialDrains.removeAll()
         let waiters = retiredDialWaiters.values
         retiredDialWaiters.removeAll()

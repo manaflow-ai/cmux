@@ -85,7 +85,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                parts[0].lowercased() == "url" {
                 let remoteURL = GitMetadataService.gitConfigUnquotedValue(parts[1])
                 if !remoteURL.isEmpty {
-                    lines.append("(currentRemoteName)\t(remoteURL) (fetch)\n")
+                    lines.append("\(currentRemoteName)\t\(remoteURL) (fetch)\n")
                 }
                 continue
             }
