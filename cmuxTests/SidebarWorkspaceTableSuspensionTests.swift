@@ -104,11 +104,15 @@ struct SidebarWorkspaceTableSuspensionTests {
     func revealApplyPreservesReloadAfterHiddenRowPrune() async {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
-        let first = makeRowConfiguration()
-        let second = makeRowConfiguration()
+        let initialRows = (0..<24).map { index in
+            makeRowConfiguration(contentToken: index, fixedHeight: 30)
+        }
+        let retainedRows = Array(initialRows.dropLast())
+        let initialWorkspaceIds = initialRows.map(\.workspaceId)
+        let retainedWorkspaceIds = retainedRows.map(\.workspaceId)
         let actions = makeTableActions()
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
             styleMask: .borderless,
             backing: .buffered,
             defer: false
@@ -120,31 +124,44 @@ struct SidebarWorkspaceTableSuspensionTests {
         }
 
         controller.apply(
-            rows: [first, second],
+            rows: initialRows,
             actions: actions,
-            workspaceIds: [first.workspaceId, second.workspaceId],
+            workspaceIds: initialWorkspaceIds,
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
         await flushStagedTableMutations()
-        #expect(container.tableView.numberOfRows == 2)
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        #expect(container.tableView.numberOfRows == initialRows.count)
+
+        let requestedOrigin = container.tableView.rect(ofRow: 10).minY + 7
+        container.clipView.scroll(to: NSPoint(x: 0, y: requestedOrigin))
+        container.scrollView.reflectScrolledClipView(container.clipView)
+        let originBefore = container.clipView.bounds.origin.y
 
         // Hiding prunes the controller snapshot and queues a reload. A reveal
         // apply can arrive before that queued callback gets a run-loop turn.
-        controller.setPresentationActive(false, workspaceIds: [first.workspaceId])
-        controller.setPresentationActive(true, workspaceIds: [first.workspaceId])
+        controller.setPresentationActive(false, workspaceIds: retainedWorkspaceIds)
+        controller.setPresentationActive(true, workspaceIds: retainedWorkspaceIds)
         controller.apply(
-            rows: [first],
+            rows: retainedRows,
             actions: actions,
-            workspaceIds: [first.workspaceId],
+            workspaceIds: retainedWorkspaceIds,
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
         await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
 
         #expect(
-            container.tableView.numberOfRows == 1,
+            container.tableView.numberOfRows == retainedRows.count,
             "A reveal apply must still reload a table whose hidden snapshot was pruned before the apply."
+        )
+        #expect(
+            abs(container.clipView.bounds.origin.y - originBefore) < 0.5,
+            "A forced hidden-prune reload must preserve the mounted table's viewport origin."
         )
     }
 
@@ -599,10 +616,12 @@ struct SidebarWorkspaceTableSuspensionTests {
         var viewportFlushes = 0
         var postUpdateActions = 0
         var reloads = 0
+        var rowHeightFlushes: [Set<SidebarWorkspaceRenderItemID>] = []
         let scheduler = SidebarWorkspaceTableMutationScheduler(
             applyFlush: { _ in appliedInputs += 1 },
             viewportChangeFlush: { viewportFlushes += 1 },
-            reloadFlush: { reloads += 1 }
+            reloadFlush: { reloads += 1 },
+            rowHeightFlush: { rowHeightFlushes.append($0) }
         )
         let row = makeRowConfiguration()
         let input = SidebarWorkspaceTableApplyInput(
@@ -619,11 +638,14 @@ struct SidebarWorkspaceTableSuspensionTests {
         scheduler.stageTableReload()
         scheduler.stageApply(input)
         scheduler.stageViewportChange()
+        scheduler.stageRowHeightChange(row.id)
         scheduler.cancelPendingApplyAndViewport()
+        #expect(rowHeightFlushes.isEmpty)
         await flushStagedTableMutations()
         #expect(appliedInputs == 0)
         #expect(viewportFlushes == 0)
         #expect(reloads == 1)
+        #expect(rowHeightFlushes == [Set([row.id])])
 
         scheduler.stageApply(input)
         scheduler.stageViewportChange()
