@@ -615,6 +615,39 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
+    func disallowedPathMigrationEvictsTheSharedSessionForEveryOwner() async throws {
+        let request = CmxByteTransportRequest(
+            route: try Self.request().route,
+            expectedPeerDeviceID: "123e4567-e89b-42d3-a456-426614174999",
+            authorizationMode: .transportAdmission,
+            transportMode: .lan
+        )
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let session = TestConnectivitySession(
+            continuityID: 45,
+            keepsSelectedPathStreamOpen: true,
+            initialPath: .privateNetwork(address: "192.168.1.20:58465")
+        )
+        let builder = SequencedConnectivitySessionBuilder(sessions: [session])
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+
+        _ = try await peer.connectedSession(for: request)
+        try await Self.waitUntil { await session.hasSelectedPathObserver() }
+        await session.publishSelectedPath(.relay(url: "https://relay.example"))
+        try await Self.waitUntil { await session.closeCount() == 1 }
+
+        #expect(await peer.snapshot().phase == .failed)
+        #expect(await peer.snapshot().failure == .unsupportedRoute)
+        #expect(await peer.connectionContinuityID() == nil)
+        await peer.invalidate()
+    }
+
+    @Test
     func wedgedRetiredDialCannotBlockPastTheSettleBound() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
@@ -853,7 +886,7 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     private var closeGateWaiting = false
     private var closeGateWaiter: CheckedContinuation<Void, Never>?
     private var received: [Data] = []
-    private var selectedPath = CmxIrohObservedConnectionPath.direct(address: nil)
+    private var selectedPath: CmxIrohObservedConnectionPath
     private var selectedPathContinuation:
         AsyncStream<CmxIrohObservedConnectionPath>.Continuation?
 
@@ -862,11 +895,13 @@ private actor TestConnectivitySession: CmxConnectivitySession {
         gatesCloseAttribution: Bool = false,
         keepsSelectedPathStreamOpen: Bool = false,
         gatesFirstIsClosedCheck: Bool = false,
-        gatesFirstClose: Bool = false
+        gatesFirstClose: Bool = false,
+        initialPath: CmxIrohObservedConnectionPath = .direct(address: nil)
     ) {
         self.continuityID = continuityID
         self.gatesCloseAttribution = gatesCloseAttribution
         self.keepsSelectedPathStreamOpen = keepsSelectedPathStreamOpen
+        selectedPath = initialPath
         isClosedGatePending = gatesFirstIsClosedCheck
         closeGatePending = gatesFirstClose
     }
