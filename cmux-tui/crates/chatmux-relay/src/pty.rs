@@ -1014,10 +1014,10 @@ impl Inner {
                 send_pty_error(
                     context,
                     pty_id,
-                    RelayPtyErrorCode::Failed,
+                    operational_pty_error_code(context, RelayPtyErrorCode::Overflow),
                     &format!(
-                        "dropped: {buffered} bytes buffered toward the server (cap {})",
-                        self.output_cap
+                        "pty output backlog exceeded: {buffered} bytes buffered toward the server (cap {}); reattach to continue receiving output",
+                        self.output_cap,
                     ),
                 );
             }
@@ -1180,7 +1180,7 @@ impl Inner {
                 context,
                 pty_id,
                 operational_pty_error_code(context, RelayPtyErrorCode::TrustRevoked),
-                &format!("PTY {action} refused after trust change"),
+                &format!("PTY {action} refused after trust change; restore trust, then reattach"),
             );
             None
         }
@@ -2727,6 +2727,26 @@ mod tests {
             trust: &str,
             owner: Option<String>,
         ) {
+            self.open_at_version(
+                PTY_OPERATIONAL_ERRORS_PROTOCOL_VERSION,
+                pty_id,
+                session,
+                extra,
+                trust,
+                owner,
+            )
+            .await;
+        }
+
+        async fn open_at_version(
+            &self,
+            negotiated_version: u64,
+            pty_id: &str,
+            session: &str,
+            extra: Value,
+            trust: &str,
+            owner: Option<String>,
+        ) {
             let mut frame = serde_json::json!({
                 "version": 4,
                 "type": "pty_open",
@@ -2743,7 +2763,9 @@ mod tests {
                     frame[k] = v;
                 }
             }
-            self.manager.handle_frame(&frame, &self.context(trust, owner)).await;
+            self.manager
+                .handle_frame(&frame, &self.context_at_version(negotiated_version, trust, owner))
+                .await;
         }
 
         async fn frame(&self, frame: Value) {
@@ -2753,7 +2775,20 @@ mod tests {
         }
 
         async fn frame_as(&self, frame: Value, trust: &str, owner: Option<String>) {
-            self.manager.handle_frame(&frame, &self.context(trust, owner)).await;
+            self.frame_as_at_version(PTY_OPERATIONAL_ERRORS_PROTOCOL_VERSION, frame, trust, owner)
+                .await;
+        }
+
+        async fn frame_as_at_version(
+            &self,
+            negotiated_version: u64,
+            frame: Value,
+            trust: &str,
+            owner: Option<String>,
+        ) {
+            self.manager
+                .handle_frame(&frame, &self.context_at_version(negotiated_version, trust, owner))
+                .await;
         }
 
         fn sent(&self) -> Vec<Value> {
@@ -2888,6 +2923,34 @@ mod tests {
         .await;
         assert!(h.sent().iter().any(|f| f["code"] == "trust_revoked"));
         assert!(h.spawned()[0].state.lock().unwrap().written.is_empty());
+    }
+
+    #[tokio::test]
+    async fn trust_downgrade_downgrades_for_v6_workers() {
+        let h = harness(None, None);
+        h.open_at_version(
+            6,
+            "p1",
+            "main",
+            serde_json::json!({"actorId": "user_other"}),
+            "supervised",
+            h.owner.clone(),
+        )
+        .await;
+        h.frame_as_at_version(
+            6,
+            serde_json::json!({"type":"pty_input","ptyId":"p1","dataB64":b64("x")}),
+            "observe",
+            h.owner.clone(),
+        )
+        .await;
+        let error = h
+            .sent()
+            .into_iter()
+            .find(|frame| ty(frame) == "pty_error")
+            .expect("trust downgrade error");
+        assert_eq!(error["code"], "failed");
+        assert!(error["message"].as_str().unwrap_or_default().contains("restore trust"));
     }
 
     #[tokio::test]
@@ -3116,13 +3179,27 @@ mod tests {
         let last = h.sent();
         let last = last.last().unwrap();
         assert_eq!(last["type"], "pty_error");
-        assert_eq!(last["code"], "failed");
+        assert_eq!(last["code"], "overflow");
+        assert!(last["message"].as_str().unwrap_or_default().contains("reattach"));
         assert!(!pty.state.lock().unwrap().killed);
         h.buffered.store(0, Ordering::SeqCst);
         h.open("p2", "main", Value::Null, "supervised", h.owner.clone()).await;
         let reopened =
             h.sent().into_iter().find(|f| ty(f) == "pty_opened" && f["ptyId"] == "p2").unwrap();
         assert_eq!(reopened["created"], false);
+    }
+
+    #[tokio::test]
+    async fn output_backlog_overflow_downgrades_for_v6_workers() {
+        let h = harness(None, None);
+        h.open_at_version(6, "p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+        let pty = h.spawned()[0].clone();
+        h.buffered.store(OUTPUT_BUFFER_CAP + 1, Ordering::SeqCst);
+        pty.emit("flood");
+        let last = h.sent().last().cloned().expect("overflow error");
+        assert_eq!(last["type"], "pty_error");
+        assert_eq!(last["code"], "failed");
+        assert!(last["message"].as_str().unwrap_or_default().contains("reattach"));
     }
 
     #[tokio::test]
