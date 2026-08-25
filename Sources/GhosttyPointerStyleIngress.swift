@@ -76,7 +76,10 @@ actor GhosttyPointerStyleIngress {
 
     /// Retires a runtime; `nil` unconditionally retires the currently active one.
     nonisolated func retire(runtimeLifetimeId: UUID?, surfaceId: UUID) {
-        let generation = runtimeGeneration.advanceRelaxed()
+        // Retirement only tombstones the lifetime. The next activation owns
+        // generation advancement; an old delayed teardown must not invalidate
+        // callbacks from the replacement runtime.
+        let generation = runtimeGeneration.loadRelaxed()
         Task {
             await self.retireIsolated(
                 runtimeLifetimeId: runtimeLifetimeId,
