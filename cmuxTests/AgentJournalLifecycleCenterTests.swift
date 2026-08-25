@@ -107,6 +107,54 @@ struct AgentJournalLifecycleCenterTests {
         #expect(!state.combinedPendingWork(surfaceId: surface, agentKey: "claude_code"))
     }
 
+    /// An agent that exits leaves the pane with no state at all, not frozen on
+    /// its last one.
+    ///
+    /// A pane whose agent quit used to keep whatever colour it last had - a
+    /// plain shell prompt sitting on the finished-turn green indefinitely,
+    /// because nothing cleared the entry. An ended session stops contributing,
+    /// the entry vanishes from the snapshot, and the diff emits an explicit
+    /// clear, which is what returns the pane to the no-agent neutral.
+    @Test func anEndedSessionClearsThePaneRatherThanFreezingItsLastState() {
+        let reducer = AgentLifecycleReducer()
+        var state = AgentLifecycleReducerState()
+        let surface = UUID().uuidString
+        let workspace = UUID().uuidString
+
+        func event(_ sequence: Int64, _ kind: AgentJournalEventKind) -> AgentJournalEvent {
+            AgentJournalEvent(
+                sequence: sequence,
+                committedAtMs: sequence,
+                draft: AgentJournalEventDraft(
+                    eventId: "event-\(sequence)",
+                    kind: kind,
+                    occurredAtMs: sequence,
+                    source: "claude",
+                    agentKey: "claude_code",
+                    sessionId: "session-1",
+                    workspaceId: workspace,
+                    surfaceId: surface
+                )
+            )
+        }
+
+        reducer.apply(event(1, .turnCompleted), to: &state)
+        let finished = state.snapshot()
+        #expect(finished.phases[surface]?["claude_code"] == .idle)
+
+        reducer.apply(event(2, .sessionEnded), to: &state)
+        let afterExit = state.snapshot()
+        #expect(afterExit.phases[surface]?["claude_code"] == nil,
+                "an exited agent must leave no phase behind")
+
+        // The clear has to reach the pane as an explicit assignment, or the
+        // sidebar keeps painting the vanished entry.
+        let assignments = afterExit.assignments(since: finished)
+        #expect(assignments.count == 1)
+        #expect(assignments.first?.phase == nil)
+        #expect(assignments.first?.agentKey == "claude_code")
+    }
+
     /// The pending bit alone must produce an assignment: it is what vetoes
     /// hibernation, so a snapshot diff that only moves it cannot be dropped.
     @Test func aPendingWorkChangeAloneStillProducesAnAssignment() {
