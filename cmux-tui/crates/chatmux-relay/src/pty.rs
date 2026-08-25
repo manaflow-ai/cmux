@@ -3320,24 +3320,7 @@ impl TerminalSizingLease {
                 waiter = Some(joined_waiter);
                 endpoint = Some(joined_endpoint);
             }
-            let rollback = {
-                let mut state = self.state.lock().expect("terminal sizing lease lock");
-                state.joining = false;
-                if state.released || endpoint.is_none() {
-                    // Do not retain the endpoint after a cancelled or failed
-                    // join. The endpoint owns the control callbacks, and
-                    // those callbacks can retain this lease. Keeping the
-                    // reference here would create a lease -> endpoint ->
-                    // control -> callback -> lease cycle.
-                    state.endpoint = None;
-                    true
-                } else {
-                    state.joined = true;
-                    state.queue_owned = true;
-                    state.endpoint = endpoint.as_ref().map(Arc::downgrade);
-                    false
-                }
-            };
+            let rollback = self.finish_join(endpoint.as_ref());
             if rollback {
                 if let Some(endpoint) = endpoint.as_ref() {
                     coordinator.leave_endpoint(&self.key, self.viewer_id, endpoint);
@@ -3346,6 +3329,34 @@ impl TerminalSizingLease {
             }
         }
         waiter
+    }
+
+    /// Complete the synchronous coordinator registration. Keeping this state
+    /// transition in one helper makes the cancellation/failed-registration
+    /// branch explicit: queue ownership survives only when an endpoint exists
+    /// and a rollback close can be enqueued.
+    fn finish_join(&self, endpoint: Option<&Arc<OrderedControlEndpoint>>) -> bool {
+        let mut state = self.state.lock().expect("terminal sizing lease lock");
+        state.joining = false;
+        if state.released || endpoint.is_none() {
+            // Do not retain the endpoint after a cancelled or failed join.
+            // The endpoint owns the control callbacks, and those callbacks
+            // can retain this lease. Keeping the reference here would create
+            // a lease -> endpoint -> control -> callback -> lease cycle.
+            state.endpoint = None;
+            // A cancellation may have marked teardown as queue-owned while
+            // join was in flight. If no endpoint was installed, no FIFO close
+            // can be pending for this lease; permit direct standalone cleanup.
+            if endpoint.is_none() {
+                state.queue_owned = false;
+            }
+            true
+        } else {
+            state.joined = true;
+            state.queue_owned = true;
+            state.endpoint = endpoint.map(Arc::downgrade);
+            false
+        }
     }
 
     fn update(&self, grid: SizingGrid) {
@@ -8041,6 +8052,34 @@ mod tests {
         assert!(!control.ended(), "joining-cancel cleanup bypassed FIFO close");
         control.release_end();
         control.wait_for_end().await;
+    }
+
+    #[test]
+    fn failed_join_without_endpoint_releases_queue_owned_marker() {
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-failed-join-marker.sock"),
+            surface_id: 44,
+        };
+        let control = SizingControl::new(12, &[]);
+        let control_handle: Arc<dyn ControlHandle> = Arc::new(control.clone());
+        let lease = TerminalSizingLease::new(&coordinator, key, 1, 44);
+        {
+            let mut state = lease.state.lock().unwrap();
+            state.joining = true;
+            state.released = true;
+            state.queue_owned = true;
+        }
+
+        // A failed coordinator registration returns no endpoint, so no FIFO
+        // close can exist. The rollback must clear the provisional marker and
+        // let the setup guard close this standalone control.
+        assert!(lease.finish_join(None));
+        assert!(!lease.state.lock().unwrap().queue_owned);
+        let mut guard = ControlCleanupGuard::new(control_handle);
+        guard.set_sizing(lease);
+        drop(guard);
+        assert!(control.ended(), "failed join did not close its standalone control");
     }
 
     #[test]
