@@ -7,8 +7,12 @@ extension GitMetadataService {
         repositories: Set<String>
     ) -> GitWorkspaceMetadataWatchDescriptor {
         guard !repositories.isEmpty else { return descriptor }
+        let reader = GitConfigFileReader()
         let existingRoots = repositories.filter { path in
-            FileManager.default.fileExists(atPath: path)
+            reader.read(
+                at: URL(fileURLWithPath: path),
+                maximumByteCount: 1
+            ).isAvailable
         }
         guard !existingRoots.isEmpty else { return descriptor }
 
