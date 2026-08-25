@@ -13,6 +13,9 @@ public actor SudoBroker {
     private var records: [String: SudoPendingRequest] = [:]
     private var expiryTasks: [String: Task<Void, Never>] = [:]
     private var runnerMonitorTasks: [String: Task<Void, Never>] = [:]
+    private var recoveredRunnerTasks: [String: Task<Void, Never>] = [:]
+    private var cleanupRetryTasks: [String: Task<Void, Never>] = [:]
+    private var cleanupRetryNotBefore: [String: Date] = [:]
     private var refreshTask: Task<Void, Never>?
     private var refreshRequested = false
     private var isWatching = false
@@ -149,7 +152,12 @@ public actor SudoBroker {
                 recoveryStatesByID[id] = state
             }
         }
-        let recoveryStates = recoveryStatesByID.values.sorted { $0.id < $1.id }
+        let recoveryStates = recoveryStatesByID.values
+            .filter { state in
+                guard let notBefore = cleanupRetryNotBefore[state.id] else { return true }
+                return notBefore <= now
+            }
+            .sorted { $0.id < $1.id }
         let recoveries = recoveryStates.isEmpty
             ? [:]
             : await dependencies.recovery.recover(
@@ -162,6 +170,17 @@ public actor SudoBroker {
             recoveries: recoveries,
             at: now
         )
+        for state in recoveryStates {
+            switch recoveries[state.id] {
+            case .cleanupIncomplete:
+                scheduleCleanupRetry(
+                    id: state.id,
+                    notBefore: now.addingTimeInterval(5)
+                )
+            case .recovered, .runnerActive, .none:
+                cancelCleanupRetry(id: state.id)
+            }
+        }
 
         var discovered: [SudoPendingRequest] = []
         for snapshot in snapshots {
@@ -175,7 +194,16 @@ public actor SudoBroker {
                     settleInterruptedIfPossible(id: id, at: now)
                     continue
                 }
-                let recovery = recoveries[id] ?? .cleanupIncomplete
+                guard let recovery = recoveries[id] else {
+                    let executing = SudoPendingRequest(
+                        request: snapshot.request,
+                        script: snapshot.script,
+                        phase: phase
+                    )
+                    records[id] = executing
+                    discovered.append(executing)
+                    continue
+                }
                 if recovery == .recovered {
                     settleInterruptedIfPossible(id: id, at: now)
                     continue
@@ -184,6 +212,11 @@ public actor SudoBroker {
                     settleCleanupFailureIfPossible(id: id, at: now)
                     continue
                 }
+                scheduleRecoveredRunnerReconciliation(
+                    id: id,
+                    deadline: store.manifest(id: id)?.deadline
+                        ?? now.addingTimeInterval(Self.executionGraceSeconds)
+                )
                 let executing = SudoPendingRequest(
                     request: snapshot.request,
                     script: snapshot.script,
@@ -339,7 +372,7 @@ public actor SudoBroker {
                     "\(now.ISO8601Format()) \(id) failed approval-refresh"
                 )
             }
-        case .approved:
+        case .approved(let manifest):
             cancelExpiry(id: id)
             records[id] = SudoPendingRequest(
                 request: pending.request,
@@ -350,7 +383,8 @@ public actor SudoBroker {
             do {
                 let runner = try await dependencies.runner.launch(
                     requestID: id,
-                    reviewedScript: Data(pending.script.utf8)
+                    reviewedScript: Data(pending.script.utf8),
+                    manifest: manifest
                 )
                 monitor(runner: runner, requestID: id)
             } catch {
@@ -394,9 +428,26 @@ public actor SudoBroker {
             task.cancel()
         }
         expiryTasks.removeAll()
+        let activeRecoveredRunnerTasks = Array(recoveredRunnerTasks.values)
+        for task in activeRecoveredRunnerTasks {
+            task.cancel()
+        }
+        recoveredRunnerTasks.removeAll()
+        let activeCleanupRetryTasks = Array(cleanupRetryTasks.values)
+        for task in activeCleanupRetryTasks {
+            task.cancel()
+        }
+        cleanupRetryTasks.removeAll()
+        cleanupRetryNotBefore.removeAll()
         await dependencies.watcher?.stop()
         await activeRefreshTask?.value
         for task in activeExpiryTasks {
+            await task.value
+        }
+        for task in activeRecoveredRunnerTasks {
+            await task.value
+        }
+        for task in activeCleanupRetryTasks {
             await task.value
         }
         refreshTask = nil
@@ -540,6 +591,7 @@ public actor SudoBroker {
             guard store.result(id: id) != nil else { continue }
             cancelExpiry(id: id)
             cancelRunnerMonitor(id: id)
+            cancelRecoveredRunnerReconciliation(id: id)
             records.removeValue(forKey: id)
             removedRecord = true
         }
@@ -558,6 +610,7 @@ public actor SudoBroker {
     }
 
     private func runnerTerminated(requestID: String) async {
+        cancelRecoveredRunnerReconciliation(id: requestID)
         runnerMonitorTasks.removeValue(forKey: requestID)
         if store.result(id: requestID) != nil {
             settleCompletedRecords()
@@ -595,6 +648,8 @@ public actor SudoBroker {
         _ = try store.settle(result)
         cancelExpiry(id: result.id)
         cancelRunnerMonitor(id: result.id)
+        cancelRecoveredRunnerReconciliation(id: result.id)
+        cancelCleanupRetry(id: result.id)
         records.removeValue(forKey: result.id)
         store.appendAudit(
             "\(date.ISO8601Format()) \(result.id) \(auditStatus)"
@@ -608,6 +663,68 @@ public actor SudoBroker {
 
     private func cancelRunnerMonitor(id: String) {
         runnerMonitorTasks.removeValue(forKey: id)?.cancel()
+    }
+
+    private func scheduleRecoveredRunnerReconciliation(id: String, deadline: Date) {
+        cancelRecoveredRunnerReconciliation(id: id)
+        let clock = dependencies.clock
+        recoveredRunnerTasks[id] = Task { [weak self] in
+            do {
+                try await clock.sleep(until: deadline)
+                try Task.checkCancellation()
+                await self?.reconcileRecoveredRunner(id: id)
+            } catch {
+                return
+            }
+        }
+    }
+
+    private func reconcileRecoveredRunner(id: String) async {
+        recoveredRunnerTasks.removeValue(forKey: id)
+        guard let state = store.state(id: id) else {
+            settleInterruptedIfPossible(id: id, at: await dependencies.clock.now())
+            return
+        }
+        let recoveries = await dependencies.recovery.recover(
+            states: [state],
+            approvedDirectory: store.paths.approved
+        )
+        let now = await dependencies.clock.now()
+        switch recoveries[id] ?? .cleanupIncomplete {
+        case .recovered:
+            settleInterruptedIfPossible(id: id, at: now)
+        case .cleanupIncomplete:
+            settleCleanupFailureIfPossible(id: id, at: now)
+        case .runnerActive:
+            scheduleRecoveredRunnerReconciliation(
+                id: id,
+                deadline: now.addingTimeInterval(5)
+            )
+        }
+    }
+
+    private func cancelRecoveredRunnerReconciliation(id: String) {
+        recoveredRunnerTasks.removeValue(forKey: id)?.cancel()
+    }
+
+    private func scheduleCleanupRetry(id: String, notBefore: Date) {
+        cleanupRetryNotBefore[id] = notBefore
+        cleanupRetryTasks.removeValue(forKey: id)?.cancel()
+        let clock = dependencies.clock
+        cleanupRetryTasks[id] = Task { [weak self] in
+            do {
+                try await clock.sleep(until: notBefore)
+                try Task.checkCancellation()
+                await self?.requestRefresh()
+            } catch {
+                return
+            }
+        }
+    }
+
+    private func cancelCleanupRetry(id: String) {
+        cleanupRetryTasks.removeValue(forKey: id)?.cancel()
+        cleanupRetryNotBefore.removeValue(forKey: id)
     }
 
     private func publishSnapshot() {

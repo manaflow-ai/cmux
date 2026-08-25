@@ -80,6 +80,10 @@ public struct SudoExecutionRunner {
     /// - Parameter requestID: The approved request identifier supplied by the app.
     /// - Returns: Zero after a terminal result is persisted, or a runner setup error code.
     public func run(requestID: String) -> Int32 {
+        run(requestID: requestID, expectedManifestData: nil)
+    }
+
+    func run(requestID: String, expectedManifestData: Data?) -> Int32 {
         do {
             try store.ensureDirectories()
             guard parentValidator.validate(expectedExecutableURL: expectedParentExecutableURL) else {
@@ -107,12 +111,45 @@ public struct SudoExecutionRunner {
                 )
                 return 1
             }
+            let expectedManifest: SudoExecutionManifest?
+            if let expectedManifestData {
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                guard let decodedManifest = try? decoder.decode(
+                    SudoExecutionManifest.self,
+                    from: expectedManifestData
+                ) else {
+                    try settleRunnerLaunchFailureIfApproved(
+                        requestID: requestID,
+                        auditStatus: "failed manifest-capability"
+                    )
+                    return 1
+                }
+                expectedManifest = decodedManifest
+                guard store.manifest(id: requestID) == decodedManifest else {
+                    try settleRunnerLaunchFailureIfApproved(
+                        requestID: requestID,
+                        auditStatus: "failed manifest-binding"
+                    )
+                    return 1
+                }
+            } else {
+                expectedManifest = nil
+            }
             guard let manifest = try store.claimApprovedExecution(
                 id: requestID,
                 runner: runnerIdentity,
-                now: startedAt
+                now: startedAt,
+                expectedManifest: expectedManifest
             ) else {
                 return 0
+            }
+            if let expectedManifest, expectedManifest != manifest {
+                try settleRunnerLaunchFailureIfApproved(
+                    requestID: requestID,
+                    auditStatus: "failed manifest-race"
+                )
+                return 1
             }
 
             guard inspector.isRunning(manifest.requesterIdentity) else {

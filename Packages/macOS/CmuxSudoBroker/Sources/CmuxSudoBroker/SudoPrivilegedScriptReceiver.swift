@@ -22,6 +22,7 @@ struct SudoPrivilegedScriptReceiver {
 
     func withReceivedDescriptor<Value>(
         expectedByteCount: Int,
+        deadline: Date = .distantFuture,
         operation: (Int32) throws -> Value
     ) throws -> Value {
         guard (0...SudoResourcePolicy.standard.maximumScriptBytes)
@@ -48,7 +49,12 @@ struct SudoPrivilegedScriptReceiver {
         try writeAll(markers.inputReady, to: outputDescriptor)
         let descriptor = try makeAnonymousDescriptor()
         defer { Darwin.close(descriptor) }
-        try copyExactly(expectedByteCount, from: inputDescriptor, to: descriptor)
+        try copyExactly(
+            expectedByteCount,
+            from: inputDescriptor,
+            to: descriptor,
+            deadline: deadline
+        )
         guard lseek(descriptor, 0, SEEK_SET) == 0 else {
             throw Failure.seek(errno)
         }
@@ -88,11 +94,41 @@ struct SudoPrivilegedScriptReceiver {
     private func copyExactly(
         _ byteCount: Int,
         from source: Int32,
-        to destination: Int32
+        to destination: Int32,
+        deadline: Date
     ) throws {
+        let originalFlags = fcntl(source, F_GETFL)
+        guard originalFlags >= 0,
+              fcntl(source, F_SETFL, originalFlags | O_NONBLOCK) == 0 else {
+            throw Failure.read(errno)
+        }
+        defer { _ = fcntl(source, F_SETFL, originalFlags) }
+
         var remaining = byteCount
         var buffer = [UInt8](repeating: 0, count: min(max(byteCount, 1), 64 * 1_024))
         while remaining > 0 {
+            let remainingSeconds = deadline.timeIntervalSinceNow
+            guard remainingSeconds > 0 else { throw Failure.timeout }
+            var pollState = pollfd(
+                fd: source,
+                events: Int16(POLLIN),
+                revents: 0
+            )
+            let timeoutMilliseconds = Int32(
+                min(
+                    Double(Int32.max),
+                    max(1, (remainingSeconds * 1_000).rounded(.up))
+                )
+            )
+            let pollResult = Darwin.poll(
+                &pollState,
+                1,
+                timeoutMilliseconds
+            )
+            if pollResult < 0, errno == EINTR { continue }
+            guard pollResult > 0 else {
+                throw Failure.timeout
+            }
             let requestedCount = min(remaining, buffer.count)
             let count = buffer.withUnsafeMutableBytes { bytes in
                 Darwin.read(source, bytes.baseAddress, requestedCount)
@@ -100,7 +136,7 @@ struct SudoPrivilegedScriptReceiver {
             if count > 0 {
                 try writeAll(Data(buffer.prefix(count)), to: destination)
                 remaining -= count
-            } else if count < 0, errno == EINTR {
+            } else if count < 0, errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK {
                 continue
             } else {
                 throw Failure.read(count == 0 ? EIO : errno)
@@ -135,6 +171,7 @@ struct SudoPrivilegedScriptReceiver {
         case unlink(Int32)
         case permissions(Int32)
         case read(Int32)
+        case timeout
         case write(Int32)
         case seek(Int32)
     }

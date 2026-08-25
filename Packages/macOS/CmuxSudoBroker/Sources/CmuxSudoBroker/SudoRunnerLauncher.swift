@@ -22,19 +22,28 @@ struct SudoRunnerLauncher: SudoRunnerLaunching {
     @concurrent
     func launch(
         requestID: String,
-        reviewedScript: Data
+        reviewedScript: Data,
+        manifest: SudoExecutionManifest
     ) async throws -> SudoLaunchedRunner {
         let capability = SudoReviewedScriptCapability(
             bytes: reviewedScript,
             temporaryDirectoryURL: temporaryDirectoryURL
         )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let manifestArgument = try encoder.encode(manifest).base64EncodedString()
         return try capability.withDescriptor { descriptor in
-            try launch(requestID: requestID, capabilityDescriptor: descriptor)
+            try launch(
+                requestID: requestID,
+                manifestArgument: manifestArgument,
+                capabilityDescriptor: descriptor
+            )
         }
     }
 
     private func launch(
         requestID: String,
+        manifestArgument: String,
         capabilityDescriptor: Int32
     ) throws -> SudoLaunchedRunner {
         var fileActions: posix_spawn_file_actions_t?
@@ -77,7 +86,12 @@ struct SudoRunnerLauncher: SudoRunnerLaunching {
             )
         )
 
-        let arguments = [executableURL.path, SudoExecutionRunner.hiddenCommand, requestID]
+        let arguments = [
+            executableURL.path,
+            SudoExecutionRunner.hiddenCommand,
+            requestID,
+            manifestArgument,
+        ]
         let environment = SudoProcessEnvironment().entries
         var processIdentifier: pid_t = 0
         let status = try Self.withCStringArray(arguments) { arguments in

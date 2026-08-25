@@ -38,7 +38,10 @@ extension CMUXCLI {
     }
 
     func runHiddenSudoRunner(commandArgs: [String]) -> Int32 {
-        guard commandArgs.count == 1 else { return 2 }
+        guard commandArgs.count == 2,
+              let expectedManifestData = Data(base64Encoded: commandArgs[1]) else {
+            return 2
+        }
         do {
             let context = try sudoCLIContext()
             let runner = SudoExecutionRunner(
@@ -47,7 +50,10 @@ extension CMUXCLI {
                 privilegedHelperExecutableURL: context.cliExecutableURL,
                 messages: .localized
             )
-            return runner.run(requestID: commandArgs[0])
+            return runner.run(
+                requestID: commandArgs[0],
+                expectedManifestData: expectedManifestData
+            )
         } catch {
             writeSudoError(
                 String(

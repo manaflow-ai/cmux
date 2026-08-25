@@ -258,13 +258,21 @@ struct SudoSpoolStore {
         }
     }
 
-    func claimApprovedExecution(id: String, runner: SudoProcessIdentity, now: Date) throws -> SudoExecutionManifest? {
+    func claimApprovedExecution(
+        id: String,
+        runner: SudoProcessIdentity,
+        now: Date,
+        expectedManifest: SudoExecutionManifest? = nil
+    ) throws -> SudoExecutionManifest? {
         try withRequestLock(id: id) {
             guard result(id: id) == nil,
                   state(id: id)?.phase == .approved,
                   let manifest = manifest(id: id),
                   manifest.id == id else {
                 return nil
+            }
+            if let expectedManifest, manifest != expectedManifest {
+                throw SudoSpoolError.manifestMismatch
             }
             try writeState(
                 SudoRequestState(
@@ -899,6 +907,7 @@ enum SudoSpoolError: Error {
     case scriptTooLarge
     case approvedScriptAlreadyExists
     case executionAlreadyExists
+    case manifestMismatch
     case unsafeDirectory(String)
     case invalidFile(String)
     case readFailed(String, Int32)

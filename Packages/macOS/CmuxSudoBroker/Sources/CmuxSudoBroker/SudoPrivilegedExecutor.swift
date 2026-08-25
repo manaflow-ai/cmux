@@ -49,7 +49,8 @@ public struct SudoPrivilegedExecutor {
         let deadline = Date(timeIntervalSince1970: deadlineInterval)
         do {
             return try receiver.withReceivedDescriptor(
-                expectedByteCount: byteCount
+                expectedByteCount: byteCount,
+                deadline: deadline
             ) { descriptor in
                 resultCode(
                     supervisor.execute(
