@@ -1,6 +1,39 @@
 import Foundation
 
 extension RemoteTmuxControlConnection {
+    /// The fields appended to pane-rect replies and title subscriptions.
+    static let paneTitleMetadataFormat = "#{pane_title}\(RemoteTmuxPaneTitleMetadata.fieldSeparator)"
+        + "#{host}\(RemoteTmuxPaneTitleMetadata.fieldSeparator)#{host_short}"
+
+    /// The complete pane-rect format, with the variable-width header last.
+    static let paneRectsFormat = "#{pane_id} #{pane_left} #{pane_top} #{pane_width} #{pane_height}"
+        + " #{pane_active} #{pane-border-status} :#{T:pane-border-format}"
+        + "\(RemoteTmuxPaneTitleMetadata.fieldSeparator)\(paneTitleMetadataFormat)"
+
+    /// Updates one pane's raw title metadata and reports whether it changed.
+    @discardableResult
+    func updatePaneTitleMetadata(paneId: Int, wireValue: String) -> Bool {
+        let next = RemoteTmuxPaneTitleMetadata(wireValue: wireValue)
+        guard paneTitleMetadataByPane[paneId] != next else { return false }
+        paneTitleMetadataByPane[paneId] = next
+        return true
+    }
+
+    /// The exact `refresh-client -B` line for a pane's raw title metadata.
+    static func paneTitleSubscriptionCommand(paneId: Int) -> String {
+        "refresh-client -B \"\(paneTitleSubscriptionPrefix)\(paneId):%\(paneId):\(paneTitleMetadataFormat)\""
+    }
+
+    /// Subscribes to raw pane-title changes, including OSC title updates.
+    func subscribePaneTitle(paneId: Int) {
+        send(Self.paneTitleSubscriptionCommand(paneId: paneId))
+    }
+
+    /// Removes the raw pane-title subscription for a pane.
+    func unsubscribePaneTitle(paneId: Int) {
+        send("refresh-client -B \(Self.paneTitleSubscriptionPrefix)\(paneId)")
+    }
+
     /// Subscribes to live changes of `paneId`'s expanded `pane-border-format`
     /// (see ``headerSubscriptionPrefix``). The pane-rects fetch seeds the
     /// initial label; this keeps it current between layout events. Quoting is
@@ -10,7 +43,10 @@ extension RemoteTmuxControlConnection {
     }
 
     func unsubscribePaneHeader(paneId: Int) {
-        send("refresh-client -B \(Self.headerSubscriptionPrefix)\(paneId)")
+        send(
+            "refresh-client -B \(Self.headerSubscriptionPrefix)\(paneId)"
+                + " -B \(Self.paneTitleSubscriptionPrefix)\(paneId)"
+        )
     }
 
     /// Format for close-time activity queries: the pane id (for cache refresh and
@@ -125,7 +161,7 @@ extension RemoteTmuxControlConnection {
         send(Self.paneReflowSubscriptionCommand(paneId: paneId))
     }
 
-    /// All three live subscriptions (reflow, cwd, header) for a pane in ONE
+    /// All four live subscriptions (reflow, cwd, header, title) for a pane in ONE
     /// `refresh-client`. tmux accepts multiple `-B` directives per command,
     /// so this is exactly equivalent to the three separate sends but costs
     /// one FIFO slot instead of three. Under rapid pane churn the per-pane
@@ -138,6 +174,7 @@ extension RemoteTmuxControlConnection {
                 + "#{alternate_on}\(PaneForegroundState.fieldSeparator)#{pane_current_command}\""
                 + " -B \"\(Self.cwdSubscriptionPrefix)\(paneId):%\(paneId):#{pane_current_path}\""
                 + " -B \"\(Self.headerSubscriptionPrefix)\(paneId):%\(paneId):#{T:pane-border-format}\""
+                + " -B \"\(Self.paneTitleSubscriptionPrefix)\(paneId):%\(paneId):\(Self.paneTitleMetadataFormat)\""
         )
     }
 

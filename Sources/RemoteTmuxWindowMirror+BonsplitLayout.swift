@@ -70,6 +70,15 @@ extension RemoteTmuxWindowMirror {
         )
     }
 
+    nonisolated static func surfaceTitle(
+        windowTitle: String,
+        paneIndex: Int,
+        paneTitleMetadata: RemoteTmuxPaneTitleMetadata?
+    ) -> String {
+        paneTitleMetadata?.intentionalTitle
+            ?? windowPaneTitle(windowTitle, paneIndex: paneIndex)
+    }
+
     nonisolated static func dividerFraction(
         first: RemoteTmuxLayoutNode,
         rest: [RemoteTmuxLayoutNode],

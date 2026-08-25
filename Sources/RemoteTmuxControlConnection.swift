@@ -83,6 +83,10 @@ final class RemoteTmuxControlConnection {
     /// the moment tmux would redraw its own border. The mirror copies its
     /// windows' subset on reconcile; the view never reads this directly.
     var paneHeaderLabels: [Int: String] = [:]
+    /// Raw pane titles plus tmux's host defaults, refreshed with the pane header
+    /// snapshot and by a dedicated live subscription. Mirrors use this to let
+    /// deliberate pane names through without reviving hostname-only titles.
+    var paneTitleMetadataByPane: [Int: RemoteTmuxPaneTitleMetadata] = [:]
     /// Configured tmux pane-title placement per window; absence means off.
     var windowTitleRowPlacements: [Int: RemoteTmuxPaneTitleRowPlacement] = [:]
     /// Layouts awaiting authoritative pane rectangles before publication.
@@ -297,6 +301,9 @@ final class RemoteTmuxControlConnection {
     /// its pane, the running command changing) — the same moments native
     /// tmux redraws its own header row.
     static let headerSubscriptionPrefix = "cmux_hdr_"
+    /// Per-pane subscription for raw `pane_title`, independent of the user's
+    /// `pane-border-format` (which may omit the title entirely).
+    static let paneTitleSubscriptionPrefix = "cmux_title_"
 
     /// Per-WINDOW subscription to `pane-border-status`, the one layout input tmux
     /// changes with no notification of its own.
@@ -883,6 +890,7 @@ final class RemoteTmuxControlConnection {
                     paneOutputByteCounts[pane] = nil
                     paneForegroundStates[pane] = nil
                     paneHeaderLabels[pane] = nil
+                    paneTitleMetadataByPane[pane] = nil
                 }
             }
             activePaneByWindow[id] = nil
@@ -945,6 +953,11 @@ final class RemoteTmuxControlConnection {
                 let label = Self.strippingStyleTokens(value)
                 if paneHeaderLabels[paneId] != label {
                     paneHeaderLabels[paneId] = label
+                    observers.notifyTopologyChanged()
+                }
+            } else if name.hasPrefix(Self.paneTitleSubscriptionPrefix),
+                      let paneId = Int(name.dropFirst(Self.paneTitleSubscriptionPrefix.count)) {
+                if updatePaneTitleMetadata(paneId: paneId, wireValue: value) {
                     observers.notifyTopologyChanged()
                 }
             } else if name.hasPrefix(Self.borderStatusSubscriptionPrefix),

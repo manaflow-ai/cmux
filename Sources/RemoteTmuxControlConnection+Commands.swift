@@ -192,7 +192,7 @@ extension RemoteTmuxControlConnection {
         cmuxDebugLog("remote.rects.request @\(windowId) gen=\(generation)")
         #endif
         return sendInternal(
-            "list-panes -t @\(windowId) -F \"#{pane_id} #{pane_left} #{pane_top} #{pane_width} #{pane_height} #{pane_active} #{pane-border-status} :#{T:pane-border-format}\"",
+            "list-panes -t @\(windowId) -F \"\(Self.paneRectsFormat)\"",
             kind: .paneRects(windowId, generation)
         )
     }

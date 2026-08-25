@@ -73,8 +73,8 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     private(set) var activePaneId: Int?
     @ObservationIgnored var pendingControlPaneFocusRequest: PendingControlPaneFocusRequest?
     @ObservationIgnored var pendingCreatedPaneFocusRequests: [PendingCreatedPaneFocusRequest] = []
-    /// Display title for this mirrored tmux window; every inner surface/tab title
-    /// derives from this tmux window name, never from pane-border labels.
+    /// Display title for this mirrored tmux window; inner surfaces use it unless
+    /// tmux reports a pane title that differs from both host defaults.
     private(set) var windowTitle = String(localized: "remoteTmux.tab.window", defaultValue: "tmux window")
 
     /// Only the visible tab's mirror writes after its initial claim. Hidden
@@ -222,6 +222,9 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// connection on every reconcile so the view reads stored state, never
     /// the connection. Rendered on the strip above each pane.
     private(set) var paneHeaderLabels: [Int: String] = [:]
+    /// Raw pane-title metadata copied from the connection on every reconcile.
+    /// Only titles that differ from tmux's host defaults are projected onto tabs.
+    @ObservationIgnored var paneTitleMetadataByPane: [Int: RemoteTmuxPaneTitleMetadata] = [:]
 
     /// The render constants the view actually uses, updated ONLY on event
     /// paths (applied-resize reports, client-size pushes) and read by the
@@ -401,6 +404,11 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         if layout != newLayout { layout = newLayout }
         let labels = (connection?.paneHeaderLabels ?? [:]).filter { livePaneIds.contains($0.key) }
         if labels != paneHeaderLabels { paneHeaderLabels = labels }
+        let paneTitleMetadata = (connection?.paneTitleMetadataByPane ?? [:])
+            .filter { livePaneIds.contains($0.key) }
+        if paneTitleMetadata != paneTitleMetadataByPane {
+            paneTitleMetadataByPane = paneTitleMetadata
+        }
         let titleRowPlacement = connection?.windowTitleRowPlacements[windowId]
         if tmuxTitleRowPlacement != titleRowPlacement {
             tmuxTitleRowPlacement = titleRowPlacement
@@ -587,6 +595,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         paneIdByBonsplitPane.removeAll()
         paneIdByTabId.removeAll()
         cwdByPaneId.removeAll()
+        paneTitleMetadataByPane.removeAll()
         lastRenderedGrids.removeAll()
         activePaneId = nil
         connection = nil
