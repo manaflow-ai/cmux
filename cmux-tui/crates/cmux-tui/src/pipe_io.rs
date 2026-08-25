@@ -19,11 +19,13 @@
 //!   reattaches and resyncs from a fresh replay).
 
 use std::io::{BufRead, Write};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, SyncSender};
 
 use base64::Engine as _;
 use cmux_tui_core::SurfaceId;
+use cmux_tui_core::resource::TerminalPublicId;
 
 use crate::session::{PipeIoEvent, RemoteSession, Session, SurfaceAttach, SurfaceHandle};
 
@@ -100,6 +102,8 @@ pub fn parse_request(line: &str) -> anyhow::Result<PipeIoRequest> {
 pub fn run(
     session: &Session,
     remote: &Arc<RemoteSession>,
+    socket_path: &Path,
+    terminal: &TerminalPublicId,
     surface: SurfaceId,
     cols: u16,
     rows: u16,
@@ -115,7 +119,38 @@ pub fn run(
         SurfaceAttach::Deferred => anyhow::bail!("terminal attach was deferred by the server"),
     };
     spawn_stdin_pump(handle, sender);
-    pump_events_to_stdout(&receiver, &mut std::io::stdout().lock())
+    let reason = pump_events_to_stdout(&receiver, &mut std::io::stdout().lock())?;
+    if reason == PipeIoExitReason::DaemonLost {
+        return Ok(classify_daemon_loss(remote, socket_path, terminal));
+    }
+    Ok(reason)
+}
+
+/// The stream ended without a terminal-exit event, but "stream lost" covers
+/// two situations the embedder must tell apart: the daemon really is
+/// unreachable (respawn until it returns), or the terminal was closed and
+/// the daemon tore the scoped stream down before the exit event reached us
+/// (never respawn). One bounded probe of the daemon resolves it: prefer the
+/// existing connection, and fall back to a fresh connect when the socket
+/// died with the stream.
+fn classify_daemon_loss(
+    remote: &Arc<RemoteSession>,
+    socket_path: &Path,
+    terminal: &TerminalPublicId,
+) -> PipeIoExitReason {
+    let terminal_still_exists = remote
+        .refresh_tree()
+        .ok()
+        .map(|tree| tree.resolve_terminal(terminal).is_some())
+        .or_else(|| {
+            let probe = RemoteSession::connect_for_terminal_attach(socket_path).ok()?;
+            let tree = probe.refresh_tree().ok()?;
+            Some(tree.resolve_terminal(terminal).is_some())
+        });
+    match terminal_still_exists {
+        Some(false) => PipeIoExitReason::TerminalEnded,
+        Some(true) | None => PipeIoExitReason::DaemonLost,
+    }
 }
 
 /// Forwards embedder requests from stdin until EOF, then reports the closed
@@ -139,7 +174,23 @@ fn spawn_stdin_pump(handle: SurfaceHandle, sender: SyncSender<PipeIoEvent>) {
                         }
                     }
                     Ok(PipeIoRequest::Resize { cols, rows }) => {
-                        let _ = handle.resize(cols, rows);
+                        // Diagnostics only; the exit JSON stays the final
+                        // stderr line and embedders skip lines without an
+                        // "exit" key.
+                        match handle.resize(cols, rows) {
+                            Ok(accepted) => eprintln!(
+                                "{}",
+                                serde_json::json!({
+                                    "diag": {"resize": {"cols": cols, "rows": rows, "accepted": accepted}}
+                                })
+                            ),
+                            Err(error) => eprintln!(
+                                "{}",
+                                serde_json::json!({
+                                    "diag": {"resize": {"cols": cols, "rows": rows, "error": error.to_string()}}
+                                })
+                            ),
+                        }
                     }
                     Ok(PipeIoRequest::Unknown) => {}
                     // A malformed line means the embedder side is broken;

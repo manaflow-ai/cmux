@@ -4068,6 +4068,10 @@ impl PipeIoRelay {
         String::from_utf8_lossy(&self.stdout.lock().unwrap()).into_owned()
     }
 
+    fn stderr_text(&self) -> String {
+        String::from_utf8_lossy(&self.stderr.lock().unwrap()).into_owned()
+    }
+
     fn wait_for_stdout(&mut self, needle: &str, what: &str) {
         let deadline = Instant::now() + Duration::from_secs(20);
         while Instant::now() < deadline {
@@ -4215,8 +4219,25 @@ fn pipe_io_resize_reaches_the_daemon_pty() {
     relay.send_input(b"printf 'PIPEIO-%s\\n' SIZED\n");
     relay.wait_for_stdout("PIPEIO-SIZED", "shell readiness marker");
     relay.send_resize(100, 30);
-    relay.send_input(b"stty size\n");
-    relay.wait_for_stdout("30 100", "stty report of the resized PTY");
+    // The daemon acknowledges the resize before the PTY winsize necessarily
+    // lands; poll stty until the new geometry is visible.
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        relay.send_input(b"stty size\n");
+        let poll_deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < poll_deadline {
+            if relay.stdout_text().contains("30 100") {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for stty to report the resized PTY\nstdout:\n{}\nstderr:\n{}",
+            relay.stdout_text(),
+            relay.stderr_text()
+        );
+    }
 }
 
 #[cfg(unix)]

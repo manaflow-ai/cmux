@@ -1535,6 +1535,18 @@ fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
     cmux_tui_core::terminal_host_runtime::serve_terminal_host_stdio(args, &mut reader, &mut writer)
 }
 
+/// Ends a `--pipe-io` relay: the machine-readable exit reason is the final
+/// stderr line (the embedder localizes what it shows) and the exit code
+/// carries the respawn decision.
+fn exit_pipe_io(reason: pipe_io::PipeIoExitReason) -> ! {
+    {
+        let mut stderr = std::io::stderr().lock();
+        let _ = writeln!(stderr, "{}", serde_json::json!({"exit": {"reason": reason.as_str()}}));
+        let _ = stderr.flush();
+    }
+    std::process::exit(reason.exit_code());
+}
+
 fn run_attach(args: Args) -> anyhow::Result<()> {
     let socket_path =
         args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
@@ -1555,8 +1567,14 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
     };
     let surface_only = if let Some(terminal) = terminal.as_ref() {
         let tree = remote.refresh_tree()?;
-        let surface = tree
-            .resolve_terminal(terminal)
+        let resolved = tree.resolve_terminal(terminal);
+        // A pipe-io embedder respawns on daemon loss; a terminal that no
+        // longer exists must read as terminal-ended (do not respawn), not
+        // as a startup failure it would retry forever.
+        if args.pipe_io && resolved.is_none() {
+            exit_pipe_io(pipe_io::PipeIoExitReason::TerminalEnded);
+        }
+        let surface = resolved
             .ok_or_else(|| anyhow::anyhow!(messages.unknown_terminal(terminal.as_str())))?;
         if !remote.supports_surface_subscription_filter() {
             anyhow::bail!(messages.filtered_subscription_unavailable);
@@ -1564,6 +1582,9 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
         remote.scope_events_to_surface(surface)?;
         let tree = remote.refresh_tree()?;
         if tree.resolve_terminal(terminal) != Some(surface) {
+            if args.pipe_io {
+                exit_pipe_io(pipe_io::PipeIoExitReason::TerminalEnded);
+            }
             anyhow::bail!(messages.unknown_terminal(terminal.as_str()));
         }
         Some(surface)
@@ -1572,23 +1593,18 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
     };
     if args.pipe_io {
         let surface = surface_only.expect("--pipe-io is validated to carry --terminal");
+        let terminal = terminal.as_ref().expect("--pipe-io is validated to carry --terminal");
         let session = Session::Remote(remote.clone());
         let reason = pipe_io::run(
             &session,
             &remote,
+            &socket_path,
+            terminal,
             surface,
             args.pipe_io_cols.unwrap_or(80),
             args.pipe_io_rows.unwrap_or(24),
         )?;
-        // The exit reason is machine-readable protocol for the embedder,
-        // not user-facing copy; the embedder localizes what it shows.
-        {
-            let mut stderr = std::io::stderr().lock();
-            let _ =
-                writeln!(stderr, "{}", serde_json::json!({"exit": {"reason": reason.as_str()}}));
-            let _ = stderr.flush();
-        }
-        std::process::exit(reason.exit_code());
+        exit_pipe_io(reason);
     }
     run_connected_session_client(
         socket_path,
