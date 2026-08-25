@@ -6,13 +6,22 @@ import Foundation
 /// fixtures. This instance owns the resolved branch context used by production
 /// reftable reads, so `includeIf.onbranch` never consults the sentinel `HEAD`.
 nonisolated struct GitConfigBranchTraversal: Sendable {
+    private static let maximumIncludedFileCount = 256
+    private static let maximumTotalConfigByteCount = 8 * 1_024 * 1_024
+
     private let repository: ResolvedGitRepository
     private let branchContext: GitConfigBranchContext
+    private let configReader: GitConfigFileReader
 
     /// Creates a traversal for one repository and resolved branch context.
-    init(repository: ResolvedGitRepository, branchContext: GitConfigBranchContext) {
+    init(
+        repository: ResolvedGitRepository,
+        branchContext: GitConfigBranchContext,
+        configReader: GitConfigFileReader = GitConfigFileReader()
+    ) {
         self.repository = repository
         self.branchContext = branchContext
+        self.configReader = configReader
     }
 
     /// Returns every reachable config file in Git's include order.
@@ -20,17 +29,25 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         var urls: [URL] = []
         var pendingURLs = GitMetadataService.gitRootConfigURLs(repository: repository)
         var seenConfigPaths: Set<String> = []
+        var budget = GitConfigTraversalBudget(
+            remainingPathCount: Self.maximumIncludedFileCount,
+            remainingFileCount: Self.maximumIncludedFileCount,
+            remainingByteCount: Self.maximumTotalConfigByteCount,
+            reader: configReader
+        )
 
         while !pendingURLs.isEmpty {
             let configURL = pendingURLs.removeFirst().standardizedFileURL
             guard seenConfigPaths.insert(configURL.path).inserted else { continue }
+            guard budget.reservePath() else { break }
             urls.append(configURL)
-            guard let config = try? String(contentsOf: configURL, encoding: .utf8) else {
+            guard let config = budget.read(at: configURL) else {
                 continue
             }
             pendingURLs.append(contentsOf: includedConfigURLs(
                 fromConfig: config,
-                configURL: configURL
+                configURL: configURL,
+                maximumCount: budget.remainingPathCount
             ))
         }
         return urls
@@ -40,11 +57,18 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
     func remoteVOutput() -> String? {
         var lines: [String] = []
         var seenConfigPaths: Set<String> = []
+        var budget = GitConfigTraversalBudget(
+            remainingPathCount: Self.maximumIncludedFileCount,
+            remainingFileCount: Self.maximumIncludedFileCount,
+            remainingByteCount: Self.maximumTotalConfigByteCount,
+            reader: configReader
+        )
         for configURL in GitMetadataService.gitRootConfigURLs(repository: repository) {
             appendRemoteVLines(
                 fromConfigURL: configURL,
                 seenConfigPaths: &seenConfigPaths,
-                lines: &lines
+                lines: &lines,
+                budget: &budget
             )
         }
         return lines.isEmpty ? nil : lines.joined()
@@ -53,11 +77,13 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
     private func appendRemoteVLines(
         fromConfigURL rawConfigURL: URL,
         seenConfigPaths: inout Set<String>,
-        lines: inout [String]
+        lines: inout [String],
+        budget: inout GitConfigTraversalBudget
     ) {
         let configURL = rawConfigURL.standardizedFileURL
         guard seenConfigPaths.insert(configURL.path).inserted,
-              let config = try? String(contentsOf: configURL, encoding: .utf8) else {
+              budget.reservePath(),
+              let config = budget.read(at: configURL) else {
             return
         }
 
@@ -102,12 +128,17 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             appendRemoteVLines(
                 fromConfigURL: includeURL,
                 seenConfigPaths: &seenConfigPaths,
-                lines: &lines
+                lines: &lines,
+                budget: &budget
             )
         }
     }
 
-    private func includedConfigURLs(fromConfig config: String, configURL: URL) -> [URL] {
+    private func includedConfigURLs(
+        fromConfig config: String,
+        configURL: URL,
+        maximumCount: Int
+    ) -> [URL] {
         var urls: [URL] = []
         var currentSectionAllowsPath = false
         for rawLine in config.components(separatedBy: .newlines) {
@@ -132,6 +163,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                   ) else {
                 continue
             }
+            guard urls.count < maximumCount else { break }
             urls.append(includeURL)
         }
         return urls

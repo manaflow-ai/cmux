@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 /// Reads file-backed refs directly and delegates other storage backends to Git.
@@ -11,26 +10,31 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     /// The bounded process runner used only for non-files reference storage.
     private let runner: any WorkspaceChangesGitRunning
     private let storageProbe: any GitReferenceStorageProbing
+    private let configReader: GitConfigFileReader
 
     /// Creates a production reader backed by the system Git executable.
     init(
         boundedCommandWallTimeLimit: TimeInterval = GitMetadataSafetyConfiguration().gitStatusWallTime,
-        storageProbe: (any GitReferenceStorageProbing)? = nil
+        storageProbe: (any GitReferenceStorageProbing)? = nil,
+        configReader: GitConfigFileReader = GitConfigFileReader()
     ) {
         runner = SystemWorkspaceChangesGitRunner(
             boundedCommandWallTimeLimit: boundedCommandWallTimeLimit,
             allowsExecutableFallback: true
         )
         self.storageProbe = storageProbe ?? SystemGitReferenceStorageProbe()
+        self.configReader = configReader
     }
 
     /// Creates a reader with an injected runner for deterministic tests.
     init(
         runner: any WorkspaceChangesGitRunning,
-        storageProbe: (any GitReferenceStorageProbing)? = nil
+        storageProbe: (any GitReferenceStorageProbing)? = nil,
+        configReader: GitConfigFileReader = GitConfigFileReader()
     ) {
         self.runner = runner
         self.storageProbe = storageProbe ?? SystemGitReferenceStorageProbe()
+        self.configReader = configReader
     }
 
     /// Resolves refs using direct files or Git plumbing according to storage.
@@ -148,15 +152,29 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                 for: verifiedSymbolicReference,
                 repository: repository
             )
-            guard let verifiedCommit else { return nil }
-            if verifiedSymbolicReference == symbolicReference,
-               verifiedCommit == currentCommit {
-                return (symbolicReference, currentCommit)
+            if verifiedSymbolicReference == symbolicReference {
+                if let currentCommit, currentCommit == verifiedCommit {
+                    return (symbolicReference, currentCommit)
+                }
+                if currentCommit == nil,
+                   verifiedCommit == nil,
+                   isLegitimateUnbornReference(symbolicReference) {
+                    // Git's reftable worktree compatibility HEAD uses the
+                    // `.invalid` sentinel; never publish that value. A named
+                    // branch with no object is the legitimate unborn case.
+                    return (symbolicReference, nil)
+                }
             }
             symbolicReference = verifiedSymbolicReference
             guard symbolicReference.hasPrefix("refs/heads/") else { return nil }
         }
         return nil
+    }
+
+    /// Returns true for a named branch that may legitimately have no commit.
+    private func isLegitimateUnbornReference(_ symbolicReference: String) -> Bool {
+        guard symbolicReference.hasPrefix("refs/heads/") else { return false }
+        return String(symbolicReference.dropFirst("refs/heads/".count)) != ".invalid"
     }
 
     /// Resolves one branch ref to a complete object ID, or nil when plumbing
@@ -265,45 +283,17 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     nonisolated func boundedReferenceStorageConfig(
         at configURL: URL
     ) -> (contents: String?, isOversized: Bool) {
-        let descriptor = Darwin.open(
-            configURL.path,
-            O_RDONLY | O_NONBLOCK | O_CLOEXEC
-        )
-        guard descriptor >= 0 else {
+        switch configReader.read(
+            at: configURL,
+            maximumByteCount: Self.maximumReferenceStorageConfigByteCount
+        ) {
+        case .contents(let contents):
+            return (contents, false)
+        case .oversized:
+            return (nil, true)
+        case .unavailable:
             return (nil, false)
         }
-        defer { Darwin.close(descriptor) }
-
-        var metadata = stat()
-        guard Darwin.fstat(descriptor, &metadata) == 0,
-              metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else {
-            return (nil, false)
-        }
-
-        var data = Data()
-        let readChunkByteCount = 64 * 1_024
-        data.reserveCapacity(min(Self.maximumReferenceStorageConfigByteCount, readChunkByteCount))
-        var buffer = [UInt8](repeating: 0, count: readChunkByteCount)
-        while data.count <= Self.maximumReferenceStorageConfigByteCount {
-            let count = buffer.withUnsafeMutableBytes { bytes in
-                Darwin.read(descriptor, bytes.baseAddress, bytes.count)
-            }
-            if count > 0 {
-                data.append(contentsOf: buffer.prefix(count))
-                if data.count > Self.maximumReferenceStorageConfigByteCount {
-                    return (nil, true)
-                }
-                continue
-            }
-            if count == 0 {
-                break
-            }
-            if errno == EINTR {
-                continue
-            }
-            return (nil, false)
-        }
-        return (String(data: data, encoding: .utf8), false)
     }
 
     /// Accepts only complete SHA-1 or SHA-256 object IDs.

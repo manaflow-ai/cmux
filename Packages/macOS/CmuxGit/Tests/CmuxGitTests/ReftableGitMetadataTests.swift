@@ -60,6 +60,23 @@ import Testing
         #expect(nextMetadata.headSignature != initialMetadata.headSignature)
     }
 
+    @Test func unbornReftableBranchKeepsItsBranchIdentity() throws {
+        let fixture = try WorkspaceChangesGitRepositoryFixture(initializeRepository: false)
+        let repositoryRoot = fixture.root.appendingPathComponent("unborn", isDirectory: true)
+        let branch = "feature/unborn-reftable"
+        try fixture.git([
+            "init", "--ref-format=reftable", "--initial-branch=\(branch)", repositoryRoot.path,
+        ])
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: repositoryRoot.path)
+        )
+        let snapshot = SystemGitReferenceReader().snapshot(repository: repository)
+
+        #expect(snapshot.checkedOutBranch == .branch(branch))
+        #expect(snapshot.currentCommit == nil)
+    }
+
     /// Uses plumbing when a generated config exceeds the bounded backend scan.
     @Test func oversizedReferenceConfigFallsBackToGitPlumbing() throws {
         let fixture = try GitRepositoryFixture()

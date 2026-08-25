@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxGit
@@ -160,6 +161,35 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
 
         let descriptor = try #require(await service.watchDescriptor(for: fixture.root.path))
         #expect(descriptor.watchedPaths.contains(includedURL.standardizedFileURL.path))
+    }
+
+    @Test func branchAwareTraversalSkipsNonRegularIncludedFiles() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("feature/reftable-sidebar")
+        try fixture.writeConfig("""
+        [includeIf "onbranch:feature/**"]
+            path = blocked.inc
+        """)
+        let fifoURL = fixture.gitDirectory.appendingPathComponent("blocked.inc")
+        let fifoResult = fifoURL.path.withCString { path in
+            mkfifo(path, mode_t(0o600))
+        }
+        #expect(fifoResult == 0)
+        defer {
+            fifoURL.path.withCString { path in
+                _ = Darwin.unlink(path)
+            }
+        }
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let output = GitConfigBranchTraversal(
+            repository: repository,
+            branchContext: .resolved("feature/reftable-sidebar")
+        ).remoteVOutput()
+
+        #expect(output == nil)
     }
 
     @Test func appliesIncludesInPlace() throws {

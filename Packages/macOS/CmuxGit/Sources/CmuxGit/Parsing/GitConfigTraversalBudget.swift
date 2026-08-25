@@ -1,0 +1,29 @@
+import Foundation
+
+/// Bounds one config include traversal by path count and decoded bytes.
+nonisolated struct GitConfigTraversalBudget: Sendable {
+    var remainingPathCount: Int
+    var remainingFileCount: Int
+    var remainingByteCount: Int
+    let reader: GitConfigFileReader
+
+    mutating func reservePath() -> Bool {
+        guard remainingPathCount > 0 else { return false }
+        remainingPathCount -= 1
+        return true
+    }
+
+    mutating func read(at url: URL) -> String? {
+        guard remainingFileCount > 0, remainingByteCount > 0 else { return nil }
+        remainingFileCount -= 1
+        switch reader.read(at: url, maximumByteCount: remainingByteCount) {
+        case .contents(let contents):
+            let byteCount = contents.utf8.count
+            guard byteCount <= remainingByteCount else { return nil }
+            remainingByteCount -= byteCount
+            return contents
+        case .oversized, .unavailable:
+            return nil
+        }
+    }
+}
