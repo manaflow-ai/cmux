@@ -17381,11 +17381,8 @@ impl App {
 
     fn cancel_workspace_preview(&mut self) {
         let Some(preview) = self.workspace_preview.take() else { return };
-        let Some(index) = self
-            .tree
-            .workspaces
-            .iter()
-            .position(|workspace| workspace.id == preview.origin)
+        let Some(index) =
+            self.tree.workspaces.iter().position(|workspace| workspace.id == preview.origin)
         else {
             return;
         };
@@ -17396,11 +17393,8 @@ impl App {
 
     fn reconcile_workspace_preview(&mut self) {
         let Some(preview) = self.workspace_preview else { return };
-        let Some(target_index) = self
-            .tree
-            .workspaces
-            .iter()
-            .position(|workspace| workspace.id == preview.target)
+        let Some(target_index) =
+            self.tree.workspaces.iter().position(|workspace| workspace.id == preview.target)
         else {
             self.workspace_preview = None;
             return;
@@ -41735,7 +41729,10 @@ mod tests {
         app.sync_layout((100, 20));
         assert_eq!(app.tree.active_workspace, 1);
         assert_eq!(app.active_surface(), Some(second.id));
-        assert_eq!(app.workspace_preview, Some(WorkspacePreview { origin: first.id, target: second.id }));
+        assert_eq!(
+            app.workspace_preview,
+            Some(WorkspacePreview { origin: first.id, target: second.id })
+        );
         assert_eq!(mux.with_state(|state| state.active_workspace), 0);
 
         app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
@@ -41787,7 +41784,10 @@ mod tests {
         assert_eq!(app.sidebar_workspace_selection, 1);
         assert_eq!(app.tree.active_workspace, 1);
         assert_eq!(app.active_surface(), Some(second.id));
-        assert_eq!(app.workspace_preview, Some(WorkspacePreview { origin: first.id, target: second.id }));
+        assert_eq!(
+            app.workspace_preview,
+            Some(WorkspacePreview { origin: first.id, target: second.id })
+        );
 
         app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.tree.active_workspace, 0);
