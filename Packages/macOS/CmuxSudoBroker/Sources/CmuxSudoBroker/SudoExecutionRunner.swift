@@ -200,7 +200,8 @@ public struct SudoExecutionRunner {
                     fileURLWithPath: manifest.currentDirectory,
                     isDirectory: true
                 ),
-                outputURL: store.outputURL(id: requestID)
+                outputURL: store.outputURL(id: requestID),
+                directoryIdentity: manifest.directoryIdentity
             )
             let process: SudoSpawnedProcess
             do {

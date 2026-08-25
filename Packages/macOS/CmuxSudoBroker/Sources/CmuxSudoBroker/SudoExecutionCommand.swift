@@ -8,6 +8,7 @@ struct SudoExecutionCommand: Sendable, Equatable {
     let standardInput: Data?
     let standardInputReadyMarker: Data?
     let controlMarkers: SudoExecutionControlMarkers
+    let expectedDirectoryIdentity: SudoDirectoryIdentity?
 
     init(
         executableURL: URL,
@@ -16,7 +17,8 @@ struct SudoExecutionCommand: Sendable, Equatable {
         outputURL: URL,
         standardInput: Data? = nil,
         standardInputReadyMarker: Data? = nil,
-        controlMarkers: SudoExecutionControlMarkers = SudoExecutionControlMarkers()
+        controlMarkers: SudoExecutionControlMarkers = SudoExecutionControlMarkers(),
+        expectedDirectoryIdentity: SudoDirectoryIdentity? = nil
     ) {
         self.executableURL = executableURL
         self.arguments = arguments
@@ -25,6 +27,7 @@ struct SudoExecutionCommand: Sendable, Equatable {
         self.standardInput = standardInput
         self.standardInputReadyMarker = standardInputReadyMarker
         self.controlMarkers = controlMarkers
+        self.expectedDirectoryIdentity = expectedDirectoryIdentity
     }
 
     static func sudo(
@@ -33,7 +36,8 @@ struct SudoExecutionCommand: Sendable, Equatable {
         privilegedHelperExecutableURL: URL,
         deadline: Date,
         currentDirectoryURL: URL,
-        outputURL: URL
+        outputURL: URL,
+        directoryIdentity: SudoDirectoryIdentity? = nil
     ) -> SudoExecutionCommand {
         let controlMarkers = SudoExecutionControlMarkers()
         let transport = SudoReviewedScriptTransport(
@@ -59,7 +63,8 @@ struct SudoExecutionCommand: Sendable, Equatable {
             outputURL: outputURL,
             standardInput: reviewedScript,
             standardInputReadyMarker: controlMarkers.inputReady,
-            controlMarkers: controlMarkers
+            controlMarkers: controlMarkers,
+            expectedDirectoryIdentity: directoryIdentity
         )
     }
 }

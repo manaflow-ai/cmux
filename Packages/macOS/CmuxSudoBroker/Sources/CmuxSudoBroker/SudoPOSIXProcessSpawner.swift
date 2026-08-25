@@ -70,6 +70,10 @@ struct SudoPOSIXProcessSpawner: SudoProcessSpawning {
             }
         }
         if actionStatus == 0 {
+            if let expectedDirectoryIdentity = command.expectedDirectoryIdentity,
+               !expectedDirectoryIdentity.matches(path: command.currentDirectoryURL.path) {
+                throw SudoPOSIXSpawnError.directoryChanged
+            }
             actionStatus = command.currentDirectoryURL.path.withCString { path in
                 posix_spawn_file_actions_addchdir_np(&fileActions, path)
             }
@@ -222,4 +226,5 @@ private enum SudoPOSIXSpawnError: Error {
     case allocationFailed
     case spawnFailed(Int32)
     case identityUnavailable
+    case directoryChanged
 }

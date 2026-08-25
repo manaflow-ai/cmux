@@ -172,6 +172,7 @@ struct SudoReviewRegressionTests {
             id: request.id,
             requesterIdentity: pending.request.requesterIdentity!,
             currentDirectory: pending.request.currentDirectory,
+            directoryIdentity: try SudoDirectoryIdentity(path: pending.request.currentDirectory),
             deadline: pending.request.approvalDeadline.addingTimeInterval(
                 SudoBroker.executionGraceSeconds
             )

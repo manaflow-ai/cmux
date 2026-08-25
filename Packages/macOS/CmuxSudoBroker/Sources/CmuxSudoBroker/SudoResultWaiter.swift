@@ -15,6 +15,8 @@ struct SudoResultWaiter {
         deadline: Date,
         approvalTimeoutNote: String
     ) throws -> SudoResultWaitOutcome {
+        let leaseDescriptor = try store.acquireResultLease(id: requestID)
+        defer { store.releaseResultLease(id: requestID, descriptor: leaseDescriptor) }
         var outputDescriptor: Int32 = -1
         defer {
             if outputDescriptor >= 0 { close(outputDescriptor) }

@@ -203,6 +203,9 @@ struct SudoSpoolStore {
                 id: id,
                 requesterIdentity: requesterIdentity,
                 currentDirectory: pending.request.currentDirectory,
+                directoryIdentity: try SudoDirectoryIdentity(
+                    path: pending.request.currentDirectory
+                ),
                 deadline: pending.request.approvalDeadline.addingTimeInterval(executionGraceSeconds)
             )
             let scriptData = Data(pending.script.utf8)
@@ -398,9 +401,50 @@ struct SudoSpoolStore {
         paths.results.appendingPathComponent("\(id).out")
     }
 
+    func acquireResultLease(id: String) throws -> Int32 {
+        // Cross-process lease: the CLI waiter and app broker are independent processes.
+        guard Self.isValidRequestID(id) else { throw SudoSpoolError.invalidRequestID }
+        let url = paths.locks.appendingPathComponent("\(id).result-lease.lock")
+        let descriptor = Darwin.open(
+            url.path,
+            O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC,
+            mode_t(0o600)
+        )
+        guard descriptor >= 0 else { throw SudoSpoolError.lockFailed(errno) }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+            let error = errno
+            Darwin.close(descriptor)
+            throw SudoSpoolError.lockFailed(error)
+        }
+        return descriptor
+    }
+
+    func releaseResultLease(id: String, descriptor: Int32) {
+        guard descriptor >= 0 else { return }
+        _ = flock(descriptor, LOCK_UN)
+        Darwin.close(descriptor)
+        if Self.isValidRequestID(id) {
+            _ = unlink(paths.locks.appendingPathComponent("\(id).result-lease.lock").path)
+        }
+    }
+
     func removeOutput(id: String) {
         guard Self.isValidRequestID(id) else { return }
         _ = unlink(outputURL(id: id).path)
+    }
+
+    func requeueAfterSettlementFailure(id: String, now: Date) throws -> Bool {
+        try withRequestLock(id: id) {
+            guard state(id: id)?.phase == .approved, result(id: id) == nil else {
+                return false
+            }
+            try? fileManager.removeItem(at: approvedScriptURL(id: id))
+            try? fileManager.removeItem(
+                at: paths.executions.appendingPathComponent("\(id).json")
+            )
+            try writeState(SudoRequestState(id: id, phase: .pendingApproval, updatedAt: now))
+            return true
+        }
     }
 
     func approvedScriptURL(id: String) -> URL {
@@ -524,6 +568,11 @@ struct SudoSpoolStore {
             before: cutoff,
             maximumTotalBytes: .max,
             isEligible: { url in
+                let name = url.lastPathComponent
+                if name.hasSuffix(".result-lease.lock") {
+                    let id = String(name.dropLast(".result-lease.lock".count))
+                    return Self.isValidRequestID(id) && !resultLeaseIsHeld(id: id)
+                }
                 guard url.pathExtension == "lock" else { return false }
                 let id = url.deletingPathExtension().lastPathComponent
                 guard id != "admission", id != "audit" else { return false }
@@ -601,15 +650,32 @@ struct SudoSpoolStore {
     }
 
     private func hasActiveEvidence(id: String) -> Bool {
-        fileManager.fileExists(
-            atPath: paths.requests.appendingPathComponent("\(id).json").path
-        ) || fileManager.fileExists(atPath: stateURL(id: id).path)
+        resultLeaseIsHeld(id: id)
+            || fileManager.fileExists(
+                atPath: paths.requests.appendingPathComponent("\(id).json").path
+            ) || fileManager.fileExists(atPath: stateURL(id: id).path)
             || fileManager.fileExists(
                 atPath: paths.executions.appendingPathComponent("\(id).json").path
             )
             || fileManager.fileExists(
                 atPath: paths.approved.appendingPathComponent("\(id).sh").path
             )
+    }
+
+    private func resultLeaseIsHeld(id: String) -> Bool {
+        guard Self.isValidRequestID(id) else { return false }
+        let url = paths.locks.appendingPathComponent("\(id).result-lease.lock")
+        let descriptor = Darwin.open(url.path, O_RDWR | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else { return false }
+        let status = flock(descriptor, LOCK_EX | LOCK_NB)
+        if status == 0 {
+            _ = flock(descriptor, LOCK_UN)
+            Darwin.close(descriptor)
+            return false
+        }
+        let held = errno == EWOULDBLOCK || errno == EAGAIN
+        Darwin.close(descriptor)
+        return held
     }
 
     private func hasAnyEvidence(id: String) -> Bool {

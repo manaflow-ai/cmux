@@ -589,6 +589,25 @@ public actor SudoBroker {
             store.appendAudit(
                 "\(date.ISO8601Format()) \(result.id) failed \(auditStatus)-settle"
             )
+            guard result.errorCode == .stagingFailed || result.errorCode == .runnerLaunchFailed,
+                  (try? store.requeueAfterSettlementFailure(id: result.id, now: date)) == true,
+                  let record = records[result.id] else {
+                return
+            }
+            cancelRunnerMonitor(id: result.id)
+            records[result.id] = SudoPendingRequest(
+                request: record.request,
+                script: record.script,
+                phase: .pendingApproval
+            )
+            scheduleExpiry(
+                for: SudoPendingRequest(
+                    request: record.request,
+                    script: record.script,
+                    phase: .pendingApproval
+                )
+            )
+            publishSnapshot()
         }
     }
 
