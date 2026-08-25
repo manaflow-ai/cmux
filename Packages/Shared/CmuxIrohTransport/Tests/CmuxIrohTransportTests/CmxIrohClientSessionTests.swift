@@ -106,6 +106,34 @@ struct CmxIrohClientSessionTests {
     }
 
     @Test
+    func pinnedIrohRejectsASelectedPathThatCannotBeClassified() async throws {
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: []
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(publicPaths: [try publicRelayHint()]),
+            credential: credential,
+            transportMode: .iroh
+        )
+        let unknownPath = CmxIrohObservedConnectionPath(snapshots: [
+            CmxIrohConnectionPathSnapshot(
+                isSelected: true,
+                remoteAddress: "peer-name.invalid",
+                isIP: false,
+                isRelay: false
+            ),
+        ])
+
+        // A selected-but-unclassified path is not the same as a temporarily
+        // empty selection. Pinned modes must reject it rather than grace it.
+        #expect(!String(describing: unknownPath).contains("unavailable"))
+        #expect(!(await session.pathIsAllowed(unknownPath)))
+    }
+
+    @Test
     func publicDialAdmitsControlAndPreservesFollowingRPCBytes() async throws {
         let events = TestIrohEventRecorder()
         let control = controlStream(
