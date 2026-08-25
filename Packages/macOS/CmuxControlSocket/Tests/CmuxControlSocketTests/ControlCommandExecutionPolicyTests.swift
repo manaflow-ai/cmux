@@ -34,6 +34,7 @@ struct ControlCommandExecutionPolicyTests {
             "sidebar.custom.open",
             "debug.sidebar.simulate_drag", "debug.mobile.transport.disconnect",
             "debug.window.screenshot", "mobile.attach_ticket.create",
+            "mobile.next_transport.pair",
             "mobile.terminal.set_font", "mobile.task.models.list",
             "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
             "mobile.panel.artifact.thumbnail",

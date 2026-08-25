@@ -1536,6 +1536,12 @@ class TerminalController {
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobileAttachTicketCreate(params: request.params)
             }
+        #if DEBUG
+        case "mobile.next_transport.pair":
+            // Socket parity with the phone RPC dispatcher, so tooling can
+            // preflight the graduation bootstrap without a device.
+            return v2Result(id: request.id, v2MobileNextTransportPair(params: request.params))
+        #endif
         case "mobile.terminal.set_font":
             return v2Result(id: request.id, v2MobileTerminalSetFont(params: request.params))
         case "system.ping":

@@ -95,6 +95,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.delete",
         "browser.import.cookies",
         "mobile.attach_ticket.create",
+        "mobile.next_transport.pair",
         // Provider discovery may read configuration or run `opencode models`;
         // it must never hold the main actor while waiting for process I/O.
         "mobile.task.models.list",
