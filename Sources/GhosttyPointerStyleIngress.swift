@@ -56,6 +56,7 @@ final class GhosttyPointerStyleIngress: @unchecked Sendable {
 
     private struct PendingState {
         var activeRuntimeLifetimeId: UUID?
+        var retiredRuntimeLifetimeIds: Set<UUID> = []
         var byRuntime: [UUID: RuntimePending] = [:]
         var drainScheduled = false
     }
@@ -76,13 +77,27 @@ final class GhosttyPointerStyleIngress: @unchecked Sendable {
     func activate(runtimeLifetimeId: UUID) {
         pendingState.withLock { state in
             state.activeRuntimeLifetimeId = runtimeLifetimeId
+            state.retiredRuntimeLifetimeIds.remove(runtimeLifetimeId)
             state.byRuntime.removeAll(keepingCapacity: true)
         }
     }
 
     /// Retires pending callbacks for a runtime that has been torn down.
-    func retire(runtimeLifetimeId: UUID) {
+    func retire(runtimeLifetimeId: UUID?) {
         pendingState.withLock { state in
+            guard let runtimeLifetimeId = runtimeLifetimeId ??
+                    state.activeRuntimeLifetimeId else {
+                state.byRuntime.removeAll(keepingCapacity: true)
+                return
+            }
+            if state.activeRuntimeLifetimeId == runtimeLifetimeId {
+                state.activeRuntimeLifetimeId = nil
+            }
+            state.retiredRuntimeLifetimeIds.insert(runtimeLifetimeId)
+            if state.retiredRuntimeLifetimeIds.count > 8,
+               let oldest = state.retiredRuntimeLifetimeIds.first {
+                state.retiredRuntimeLifetimeIds.remove(oldest)
+            }
             state.byRuntime.removeValue(forKey: runtimeLifetimeId)
         }
     }
@@ -91,12 +106,11 @@ final class GhosttyPointerStyleIngress: @unchecked Sendable {
     @discardableResult
     func submit(_ request: Request) -> Bool {
         let shouldSchedule = pendingState.withLock { state in
-            if let activeRuntimeLifetimeId = state.activeRuntimeLifetimeId,
-               activeRuntimeLifetimeId != request.runtimeLifetimeId {
+            guard state.activeRuntimeLifetimeId == request.runtimeLifetimeId,
+                  !state.retiredRuntimeLifetimeIds.contains(
+                      request.runtimeLifetimeId
+                  ) else {
                 return false
-            }
-            if state.activeRuntimeLifetimeId == nil {
-                state.activeRuntimeLifetimeId = request.runtimeLifetimeId
             }
             var runtime = state.byRuntime[request.runtimeLifetimeId] ??
                 RuntimePending()
