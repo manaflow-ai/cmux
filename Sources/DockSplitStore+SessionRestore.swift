@@ -436,9 +436,9 @@ extension DockSplitStore {
             willRunStartupCommand: false,
             willRunStartupInput: willRunAgentInput,
             resumeWorkingDirectory: resumeSessionWorkingDirectory,
-            agentSessionAlreadyActive: restoreIndexUnavailable
-                ? false
-                : agentSessionAlreadyActive,
+            agentSessionAlreadyActive: deferredAgentResumeAdmission
+                ? true
+                : (restoreIndexUnavailable ? false : agentSessionAlreadyActive),
             ownsResumeLaunchClaim: agentLaunch != nil,
             defersStartupRestoreAdmission: deferredAgentResumeAdmission
         )

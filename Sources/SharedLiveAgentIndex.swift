@@ -459,13 +459,23 @@ final class SharedLiveAgentIndex {
         while true {
             if let refreshTask {
                 await refreshTask.value
-                return index
+                continue
             }
             if let forkAvailabilityRefreshTask {
                 await forkAvailabilityRefreshTask.value
                 // Fork availability reloads may intentionally retain an
                 // unchanged index. Ownership-sensitive callers need the full
                 // refresh task below as well.
+                continue
+            }
+            if changePending || deferredReloadTimer != nil {
+                // A hook event observed during the previous scan must be
+                // folded into this ownership decision, even when the normal
+                // event-throttle timer would defer it for interactive callers.
+                deferredReloadTimer?.cancel()
+                deferredReloadTimer = nil
+                changePending = false
+                startReload()
                 continue
             }
             startReload()

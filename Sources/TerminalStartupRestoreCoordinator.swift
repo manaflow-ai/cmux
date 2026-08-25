@@ -172,24 +172,35 @@ final class TerminalStartupRestoreCoordinator {
                 willRunStartupInput: pending.willRunStartupInput,
                 resumeWorkingDirectory: pending.resumeWorkingDirectory
             )
-            if let chatResumeBinding = pending.chatResumeBinding {
-                let resumeIntent = chatResumeBinding.intent(
-                    panelID: panelID,
-                    workspaceID: workspaceID
-                )
-                resumeIntentRecorder.record(resumeIntent)
-#if DEBUG
-                cmuxDebugLog(
-                    "session.restore.resumeBinding workspace=\(workspaceID.uuidString.prefix(8)) " +
-                    "surface=\(panelID.uuidString.prefix(8)) source=\(resumeIntent.source) " +
-                    "session=\(resumeIntent.sessionID.prefix(8))"
-                )
-#endif
+            if !pending.defersStartupRestoreAdmission,
+               let chatResumeBinding = pending.chatResumeBinding {
+                recordChatResumeBinding(chatResumeBinding, panelID: panelID)
             }
             if pending.willRunStartupWork, !pending.defersStartupRestoreAdmission {
                 pending.panel.surface.admitStartupRestoreRuntime()
             }
         }
+    }
+
+    /// Records chat ownership only after a deferred resume has been admitted.
+    ///
+    /// A deferred restore deliberately stages no chat intent: ownership may be
+    /// rejected by the fresh index or by a competing launch claim.
+    func recordDeferredResumeIntent(
+        panelID: UUID,
+        snapshot: SessionRestorableAgentSnapshot?,
+        resumeBinding: SurfaceResumeBindingSnapshot?,
+        workingDirectory: String?
+    ) {
+        guard let chatResumeBinding = chatResumeBinding(
+            snapshot: snapshot,
+            resumeBinding: resumeBinding,
+            workingDirectory: workingDirectory,
+            agentSessionAlreadyActive: false
+        ) else {
+            return
+        }
+        recordChatResumeBinding(chatResumeBinding, panelID: panelID)
     }
 
     /// Cancels staged transactions and clears all committed lifecycle metadata.
@@ -246,5 +257,23 @@ final class TerminalStartupRestoreCoordinator {
             source: session.source,
             workingDirectory: workingDirectory
         )
+    }
+
+    private func recordChatResumeBinding(
+        _ chatResumeBinding: PendingTerminalStartupRestoreChatBinding,
+        panelID: UUID
+    ) {
+        let resumeIntent = chatResumeBinding.intent(
+            panelID: panelID,
+            workspaceID: workspaceID
+        )
+        resumeIntentRecorder.record(resumeIntent)
+#if DEBUG
+        cmuxDebugLog(
+            "session.restore.resumeBinding workspace=\(workspaceID.uuidString.prefix(8)) " +
+            "surface=\(panelID.uuidString.prefix(8)) source=\(resumeIntent.source) " +
+            "session=\(resumeIntent.sessionID.prefix(8))"
+        )
+#endif
     }
 }

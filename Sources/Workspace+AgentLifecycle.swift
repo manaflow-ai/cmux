@@ -625,6 +625,12 @@ extension Workspace {
                 removeDeferredAgentResumeRestore(panelId: panelId)
                 continue
             }
+            guard AgentSessionAutoResumeSettings.isEnabled(
+                defaults: agentSessionAutoResumeDefaults
+            ) else {
+                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                continue
+            }
             let ownershipPanelID = restore.stablePanelID
             let expectedKind = restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind
             let expectedSessionId = restore.restorableAgent?.sessionId ?? restore.resumeBinding?.checkpointId
@@ -641,8 +647,7 @@ extension Workspace {
                     panelId: ownershipPanelID
                 )
             guard !ownershipIsBlocked else {
-                terminal.surface.cancelStartupRestoreAdmission()
-                removeDeferredAgentResumeRestore(panelId: panelId)
+                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
 
@@ -680,8 +685,7 @@ extension Workspace {
                 claim = nil
             }
             guard let startupInput, !startupInput.isEmpty else {
-                terminal.surface.cancelStartupRestoreAdmission()
-                removeDeferredAgentResumeRestore(panelId: panelId)
+                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
             if let claim,
@@ -689,8 +693,7 @@ extension Workspace {
                    kind: claim.kind,
                    sessionId: claim.sessionId
                ) {
-                terminal.surface.cancelStartupRestoreAdmission()
-                removeDeferredAgentResumeRestore(panelId: panelId)
+                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
             if let claim {
@@ -719,6 +722,12 @@ extension Workspace {
                     panelId: panelId
                 )
             } else {
+                terminalStartupRestoreCoordinator.recordDeferredResumeIntent(
+                    panelID: panelId,
+                    snapshot: restore.restorableAgent,
+                    resumeBinding: restore.resumeBinding,
+                    workingDirectory: restore.resumeWorkingDirectory ?? restore.workingDirectory
+                )
                 deferredAgentResumeRestoresByPanelId.removeValue(forKey: panelId)
             }
         }
@@ -734,6 +743,18 @@ extension Workspace {
         }
     }
 
+    private func cancelDeferredAgentResumeRestore(
+        panelId: UUID,
+        restore: DeferredAgentResumeRestore
+    ) {
+        (panels[panelId] as? TerminalPanel)?.surface.cancelStartupRestoreAdmission()
+        removeDeferredAgentResumeRestore(panelId: panelId)
+        restoredAgentLifecycle.setResumeState(
+            restore.restorableAgent == nil ? nil : .manualResumeAvailable,
+            panelId: panelId
+        )
+    }
+
     func clearDeferredAgentResumeRestores() {
         deferredAgentResumeIndexTask?.cancel()
         deferredAgentResumeIndexTask = nil
@@ -742,8 +763,12 @@ extension Workspace {
                 + Array(deferredAgentResumeClaimsByPanelId.keys)
         )
         for panelId in panelIds {
-            (panels[panelId] as? TerminalPanel)?.surface.cancelStartupRestoreAdmission()
-            removeDeferredAgentResumeRestore(panelId: panelId)
+            if let restore = deferredAgentResumeRestoresByPanelId[panelId] {
+                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+            } else {
+                (panels[panelId] as? TerminalPanel)?.surface.cancelStartupRestoreAdmission()
+                removeDeferredAgentResumeRestore(panelId: panelId)
+            }
         }
         deferredAgentResumeRestoresByPanelId.removeAll()
     }

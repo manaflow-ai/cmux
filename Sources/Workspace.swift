@@ -1913,9 +1913,9 @@ extension Workspace {
                     ? resumeSessionWorkingDirectory
                     : nil,
                 chatWorkingDirectory: resumeSessionWorkingDirectory,
-                agentSessionAlreadyActive: restoreIndexUnavailable
-                    ? false
-                    : agentSessionAlreadyActive,
+                agentSessionAlreadyActive: deferredAgentResumeAdmission
+                    ? true
+                    : (restoreIndexUnavailable ? false : agentSessionAlreadyActive),
                 ownsResumeLaunchClaim: restoredAgentResumeLaunch != nil,
                 defersStartupRestoreAdmission: deferredAgentResumeAdmission
             )
