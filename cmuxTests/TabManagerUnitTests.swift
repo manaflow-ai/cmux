@@ -910,6 +910,29 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
 @MainActor
 final class TabManagerWorkspaceOwnershipTests: XCTestCase {
+    func testSwitchingWorkspacesClearsSplitZoomFromOutgoingWorkspace() {
+        let manager = TabManager()
+        guard let outgoingWorkspace = manager.selectedWorkspace,
+              let focusedPanelId = outgoingWorkspace.focusedPanelId,
+              outgoingWorkspace.newTerminalSplit(from: focusedPanelId, orientation: .horizontal) != nil else {
+            XCTFail("Expected the outgoing workspace to contain a split")
+            return
+        }
+        let incomingWorkspace = manager.addWorkspace(select: false)
+
+        outgoingWorkspace.focusPanel(focusedPanelId)
+        XCTAssertTrue(outgoingWorkspace.toggleSplitZoom(panelId: focusedPanelId))
+        XCTAssertTrue(outgoingWorkspace.bonsplitController.isSplitZoomed)
+
+        manager.selectWorkspace(incomingWorkspace)
+
+        XCTAssertEqual(manager.selectedTabId, incomingWorkspace.id)
+        XCTAssertFalse(
+            outgoingWorkspace.bonsplitController.isSplitZoomed,
+            "Switching workspaces should clear zoom from the workspace being left"
+        )
+    }
+
     func testCloseWorkspaceIgnoresWorkspaceNotOwnedByManager() {
         let manager = TabManager()
         _ = manager.addWorkspace()
