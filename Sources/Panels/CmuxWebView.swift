@@ -853,14 +853,6 @@ final class CmuxWebView: WKWebView {
             }
         }
 
-        if AppDelegate.shared?.shouldCaptureBrowserKeyboardShortcuts(for: event, webView: self) == true {
-#if DEBUG
-            route = "captureShortcutsWebView"
-#endif
-            forwardKeyDownToWebKit(event)
-            return
-        }
-
         // An undo/redo chord reaching keyDown has already been offered to the
         // page through performKeyEquivalent and declined (WebKit resends
         // unhandled keys). Perform the web view's own editing undo/redo here;
@@ -869,6 +861,14 @@ final class CmuxWebView: WKWebView {
 #if DEBUG
             route = "webContentUndoRedo"
 #endif
+            return
+        }
+
+        if AppDelegate.shared?.shouldCaptureBrowserKeyboardShortcuts(for: event, webView: self) == true {
+#if DEBUG
+            route = "captureShortcutsWebView"
+#endif
+            forwardKeyDownToWebKit(event)
             return
         }
 
