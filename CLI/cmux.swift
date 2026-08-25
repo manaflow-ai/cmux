@@ -1892,7 +1892,6 @@ final class ClaudeHookSessionStore {
             let existing = state.sessions[normalizedSessionId]
             if let expectedRecord {
                 guard let existing,
-                      existing.updatedAt == expectedRecord.updatedAt,
                       existing.workspaceId == expectedRecord.workspaceId,
                       existing.surfaceId == expectedRecord.surfaceId,
                       compactSessionStillOwnsTarget(
@@ -1924,6 +1923,17 @@ final class ClaudeHookSessionStore {
                 surfaceId: normalizedSurfaceId,
                 now: now
             )
+            let identityChanged = record.workspaceId != normalizedWorkspaceId
+                || record.surfaceId != normalizedSurfaceId
+            let inheritedActiveRecord: ClaudeHookActiveSessionRecord? = {
+                let candidates = [
+                    state.activeSessionsByWorkspace[normalizedWorkspaceId],
+                    state.activeSessionsBySurface[normalizedSurfaceId],
+                    state.activeSessionsByWorkspace[record.workspaceId],
+                    state.activeSessionsBySurface[record.surfaceId],
+                ]
+                return candidates.compactMap { $0 }.first { $0.sessionId == normalizedSessionId }
+            }()
             update(
                 &record,
                 workspaceId: normalizedWorkspaceId,
@@ -1946,6 +1956,24 @@ final class ClaudeHookSessionStore {
                 now: now
             )
             state.sessions[normalizedSessionId] = record
+            if identityChanged {
+                for (workspaceID, active) in state.activeSessionsByWorkspace
+                    where workspaceID != normalizedWorkspaceId && active.sessionId == normalizedSessionId {
+                    state.activeSessionsByWorkspace.removeValue(forKey: workspaceID)
+                }
+                for (surfaceID, active) in state.activeSessionsBySurface
+                    where surfaceID != normalizedSurfaceId && active.sessionId == normalizedSessionId {
+                    state.activeSessionsBySurface.removeValue(forKey: surfaceID)
+                }
+                let activeRecord = ClaudeHookActiveSessionRecord(
+                    sessionId: normalizedSessionId,
+                    turnId: inheritedActiveRecord?.turnId,
+                    allowsNewSessionReplacement: inheritedActiveRecord?.allowsNewSessionReplacement,
+                    updatedAt: now
+                )
+                state.activeSessionsByWorkspace[normalizedWorkspaceId] = activeRecord
+                state.activeSessionsBySurface[normalizedSurfaceId] = activeRecord
+            }
             return true
         }
     }
