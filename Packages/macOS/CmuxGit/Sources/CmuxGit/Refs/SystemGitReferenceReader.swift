@@ -91,16 +91,23 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         let quickProbe = quickReferenceStorageName(repository: repository, deadline: deadline)
         if directSnapshot.currentCommit != nil,
            directSnapshot.branchName != ".invalid" {
-            if case .complete(let storage) = quickProbe,
-               let storage,
-               storage != "files" {
+            switch quickProbe {
+            case .complete(let storage):
+                if let storage, storage != "files" {
+                    return plumbingSnapshot(
+                        repository: repository,
+                        deadline: deadline,
+                        includeStorageWatchPaths: includeStorageWatchPaths
+                    )
+                }
+                return directSnapshot
+            case .incomplete:
                 return plumbingSnapshot(
                     repository: repository,
                     deadline: deadline,
                     includeStorageWatchPaths: includeStorageWatchPaths
                 )
             }
-            return directSnapshot
         }
         let configuredStorage: String?
         switch quickProbe {
