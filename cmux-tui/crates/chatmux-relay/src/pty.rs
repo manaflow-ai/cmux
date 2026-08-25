@@ -33,6 +33,7 @@ use serde_json::{Value, json};
 
 use crate::actions::{expand_path, scrubbed_env, validate_request_path};
 use crate::control::ControlHandle;
+use crate::relay_wire::RelayPtyErrorCode;
 
 pub const PTY_PROTOCOL_VERSION: u64 = 4;
 
@@ -480,6 +481,22 @@ fn send_pty_error(context: &FrameContext, pty_id: &str, code: &str, message: &st
     }));
 }
 
+fn send_typed_pty_error(
+    context: &FrameContext,
+    pty_id: &str,
+    code: RelayPtyErrorCode,
+    message: &str,
+) {
+    let wire_code = match code {
+        RelayPtyErrorCode::BadRequest => "bad_request",
+        RelayPtyErrorCode::TrustRefused => "trust_refused",
+        RelayPtyErrorCode::SessionLimit => "session_limit",
+        RelayPtyErrorCode::TerminalGone => "terminal_gone",
+        RelayPtyErrorCode::Failed => "failed",
+    };
+    send_pty_error(context, pty_id, wire_code, message);
+}
+
 impl Inner {
     async fn open(self: Arc<Self>, frame: &Value, context: &FrameContext) {
         let pty_id = frame.get("ptyId").and_then(Value::as_str).unwrap_or_default().to_owned();
@@ -604,7 +621,7 @@ impl Inner {
                 Ok(Some(opened)) => Some(opened),
                 Ok(None) => None, // degrade to whole-session
                 Err((code, message)) => {
-                    fail(code, &message);
+                    send_typed_pty_error(context, &pty_id, code, &message);
                     return;
                 }
             }
@@ -1547,13 +1564,13 @@ impl Inner {
         pty_id: &str,
         server_roots: Option<&[String]>,
         context: &FrameContext,
-    ) -> Result<Option<Opened>, (&'static str, String)> {
+    ) -> Result<Option<Opened>, (RelayPtyErrorCode, String)> {
         let socket_dir = self.deps.socket_dir();
         let ensured = self
             .deps
             .ensure_daemon(cmux_tui, session, &socket_dir, cwd, env)
             .await
-            .map_err(|message| ("failed", message))?;
+            .map_err(|message| (RelayPtyErrorCode::Failed, message))?;
         let control = match self.deps.connect_control(&ensured.socket_path).await {
             Ok(control) => control,
             Err(_) => return Ok(None), // degrade to the whole-session attach
@@ -1602,7 +1619,7 @@ impl Inner {
             // closed) — permanent, so clients render an ended state and
             // never offer a retry.
             return Err((
-                "terminal_gone",
+                RelayPtyErrorCode::TerminalGone,
                 format!(
                     "terminal \"{surface_ref}\" not found in session \"{session}\" (it may have been closed)"
                 ),
@@ -1622,14 +1639,14 @@ impl Inner {
             if actual.is_none_or(|value| value.is_empty() || !Path::new(value).is_absolute()) {
                 control.end();
                 return Err((
-                    "failed",
+                    RelayPtyErrorCode::Failed,
                     "cannot prove existing surface cwd is within allowed roots".to_owned(),
                 ));
             }
             let Some(actual) = actual else {
                 control.end();
                 return Err((
-                    "failed",
+                    RelayPtyErrorCode::Failed,
                     "cannot prove existing surface cwd is within allowed roots".to_owned(),
                 ));
             };
@@ -1638,7 +1655,7 @@ impl Inner {
             {
                 control.end();
                 return Err((
-                    "failed",
+                    RelayPtyErrorCode::Failed,
                     "existing surface cwd is outside allowed roots".to_owned(),
                 ));
             }
@@ -1684,7 +1701,7 @@ impl Inner {
                 .and_then(Value::as_str)
                 .unwrap_or("no reply");
             return Err((
-                "failed",
+                RelayPtyErrorCode::Failed,
                 format!("attach-surface failed for terminal \"{surface_ref}\": {reason}"),
             ));
         }
@@ -2596,6 +2613,9 @@ mod tests {
         // The typed code is the contract (chatmux protocol RelayPtyErrorCode);
         // the message keeps the human wording the Node relay used.
         assert_eq!(error["code"], "terminal_gone");
+        let decoded: crate::relay_wire::RelayPtyError =
+            serde_json::from_value(error.clone()).expect("generated pty_error fixture");
+        assert_eq!(decoded.code, RelayPtyErrorCode::TerminalGone);
         assert!(
             error["message"].as_str().unwrap_or_default().contains("not found in session"),
         );
