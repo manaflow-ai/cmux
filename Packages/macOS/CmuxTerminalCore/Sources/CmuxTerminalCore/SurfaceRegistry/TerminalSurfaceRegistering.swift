@@ -141,6 +141,7 @@ public extension TerminalSurfaceRegistering {
         for surface: any TerminalSurfacing,
         _ placement: TerminalSurfaceFocusPlacement
     ) {
+        guard self.surface(id: surface.id) === surface else { return }
         updateFocusPlacement(id: surface.id, placement)
     }
 }
