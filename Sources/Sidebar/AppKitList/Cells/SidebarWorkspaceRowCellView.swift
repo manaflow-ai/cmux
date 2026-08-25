@@ -373,13 +373,15 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
               let elapsed = model.snapshot.agentActivity.elapsed(at: now) else { return false }
         let bucket = SidebarWorkspaceAgentActivity.compactElapsedDisplayBucket(elapsed)
         guard agentElapsedDisplayBucket != bucket else { return false }
+        let previousNaturalWidth = agentActivityView.sidebarNaturalCellSize.width
         agentElapsedDisplayBucket = bucket
         let payload = agentElapsedDisplayPayload(model.snapshot.agentActivity, now)
         agentActivityView.stringValue = payload.text
         agentActivityView.toolTip = payload.toolTip
         agentActivityView.setAccessibilityLabel(payload.accessibilityLabel)
         needsLayout = true
-        return true
+        let nextNaturalWidth = agentActivityView.sidebarNaturalCellSize.width
+        return abs(nextNaturalWidth - previousNaturalWidth) >= 0.5
     }
 
     func setAgentElapsedDisplayPayload(
