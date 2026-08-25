@@ -222,6 +222,7 @@ final class MainWindowLifecycleCoordinator {
     ) -> Bool {
         guard orphanedRoute(windowId: windowId)?.window == nil else { return false }
         return orphanedRoutes()
+            .filter(\.isEligibleForSessionPersistence)
             .prefix(max(0, availablePersistenceSlots))
             .contains { $0.windowId == windowId }
     }

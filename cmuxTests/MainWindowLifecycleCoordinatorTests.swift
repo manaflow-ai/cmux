@@ -284,6 +284,80 @@ struct MainWindowLifecycleCoordinatorTests {
         #expect(coordinator.orphanedRoutes().map(\.windowId) == [windowIds[1], windowIds[0]])
     }
 
+    @Test("Ineligible remote orphan does not consume a freeze slot")
+    func ineligibleRemoteOrphanDoesNotConsumeFreezeSlot() throws {
+        let coordinator = MainWindowLifecycleCoordinator()
+        let eligibleWindowId = UUID()
+        let remoteWindowId = UUID()
+        let eligibleManager = TabManager(autoWelcomeIfNeeded: false)
+        let remoteManager = TabManager(autoWelcomeIfNeeded: false)
+        defer {
+            tearDown(eligibleManager)
+            tearDown(remoteManager)
+        }
+
+        let remoteWorkspace = remoteManager.addWorkspace(
+            title: "remote",
+            select: true,
+            autoWelcomeIfNeeded: false
+        )
+        remoteWorkspace.isRemoteTmuxMirror = true
+        _ = eligibleManager.addWorkspace(
+            title: "eligible",
+            select: true,
+            autoWelcomeIfNeeded: false
+        )
+        let eligibleContext = makeContext(
+            windowId: eligibleWindowId,
+            manager: eligibleManager
+        )
+        let remoteContext = makeContext(
+            windowId: remoteWindowId,
+            manager: remoteManager
+        )
+        coordinator.register(
+            eligibleContext,
+            lookupKey: ObjectIdentifier(eligibleManager)
+        )
+        coordinator.register(
+            remoteContext,
+            lookupKey: ObjectIdentifier(remoteManager)
+        )
+        let eligibleRoute = RecoverableMainWindowRoute(
+            windowId: eligibleWindowId,
+            tabManager: eligibleManager,
+            window: nil,
+            sidebar: eligibleContext.sidebarState,
+            sidebarSelection: eligibleContext.sidebarSelectionState,
+            frozenWindowDockSnapshot: nil,
+            retainTabManager: true
+        )
+        let remoteRoute = RecoverableMainWindowRoute(
+            windowId: remoteWindowId,
+            tabManager: remoteManager,
+            window: nil,
+            sidebar: remoteContext.sidebarState,
+            sidebarSelection: remoteContext.sidebarSelectionState,
+            frozenWindowDockSnapshot: nil,
+            retainTabManager: true
+        )
+        #expect(coordinator.transitionToOrphaned(eligibleRoute, from: eligibleContext))
+        #expect(coordinator.transitionToOrphaned(remoteRoute, from: remoteContext))
+
+        #expect(
+            coordinator.shouldFreezeWindowlessRoute(
+                windowId: eligibleWindowId,
+                availablePersistenceSlots: 1
+            )
+        )
+        #expect(
+            !coordinator.shouldFreezeWindowlessRoute(
+                windowId: remoteWindowId,
+                availablePersistenceSlots: 1
+            )
+        )
+    }
+
     @Test("Windowless recovery detection is coalesced and canceled when unused")
     func windowlessRecoveryDetectionIsCoalescedAndCanceledWhenUnused() async {
         let coordinator = MainWindowLifecycleCoordinator()

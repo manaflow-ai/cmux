@@ -35,6 +35,16 @@ final class RecoverableMainWindowRoute {
         return frozenWindowDockSnapshot.map { .frozen($0) }
     }
 
+    /// Indicates whether this live route can occupy a persisted window slot.
+    var isEligibleForSessionPersistence: Bool {
+        guard let manager = tabManager else { return false }
+        let workspaces = manager.tabs
+        let omitsRemoteMirrorOnlyWindow = windowDock == nil
+            && !workspaces.isEmpty
+            && workspaces.allSatisfy(\.isRemoteTmuxMirror)
+        return !omitsRemoteMirrorOnlyWindow
+    }
+
     var frozenWindowSnapshot: SessionWindowSnapshot? {
         guard case .frozen(let snapshot) = payload else { return nil }
         return snapshot
