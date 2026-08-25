@@ -1664,10 +1664,6 @@ struct FilePreviewPanelView: View {
 
     @State private var focusFlashOpacity = 0.0
     @State private var focusFlashAnimationGeneration = 0
-    @AppStorage(FilePreviewWordWrapSettings.key) private var fileEditorWordWrap = FilePreviewWordWrapSettings.defaultEnabled
-    @AppStorage(FilePreviewFontFamilySettings.key) private var fileEditorFontFamily = FilePreviewFontFamilySettings.defaultFamily
-    @AppStorage(FilePreviewFontSizeSettings.key) private var fileEditorFontSize = FilePreviewFontSizeSettings.defaultPointSize
-    @AppStorage(FilePreviewLineHeightSettings.key) private var fileEditorLineHeight = FilePreviewLineHeightSettings.defaultMultiplier
 
     private var themeForegroundColor: NSColor {
         appearance.foregroundColor
@@ -1744,11 +1740,7 @@ struct FilePreviewPanelView: View {
                     isVisibleInUI: isVisibleInUI,
                     themeBackgroundColor: contentBackgroundColor,
                     themeForegroundColor: themeForegroundColor,
-                    drawsBackground: appearance.drawsContentBackground,
-                    wordWrap: fileEditorWordWrap,
-                    fontSize: fileEditorFontSize,
-                    fontFamily: fileEditorFontFamily,
-                    lineHeight: fileEditorLineHeight
+                    drawsBackground: appearance.drawsContentBackground
                 )
             case .pdf:
                 FilePreviewPDFView(

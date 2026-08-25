@@ -159,11 +159,7 @@ struct FilePreviewTextEditorTextKitTests {
             isVisibleInUI: true,
             themeBackgroundColor: .white,
             themeForegroundColor: .black,
-            drawsBackground: true,
-            wordWrap: false,
-            fontSize: 17,
-            fontFamily: "Helvetica",
-            lineHeight: 1.5
+            drawsBackground: true
         )
         let coordinator = editor.makeCoordinator()
         let textView = SavingTextView.makeFilePreviewTextView()
@@ -174,9 +170,9 @@ struct FilePreviewTextEditorTextKitTests {
         coordinator.withPanelUpdate {
             textView.string = panel.textContent
             textView.configurePreviewTypography(
-                fontFamily: editor.fontFamily,
-                defaultFontSize: CGFloat(editor.fontSize),
-                lineHeight: CGFloat(editor.lineHeight)
+                fontFamily: "Helvetica",
+                defaultFontSize: 17,
+                lineHeight: 1.5
             )
             textView.applyCurrentPreviewFont()
             textView.applyCurrentPreviewLineHeight()

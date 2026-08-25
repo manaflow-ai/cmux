@@ -20,16 +20,13 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor
     let drawsBackground: Bool
-    /// Whether long lines soft-wrap at the editor's right edge. Sourced from
-    /// the persisted `fileEditor.wordWrap` setting; updates apply live.
-    let wordWrap: Bool
-    /// Default point size for newly opened editors. An existing editor follows
-    /// a changed default only until the user has zoomed it independently.
-    let fontSize: Double
-    /// Default AppKit font family. Empty keeps the monospaced system font.
-    let fontFamily: String
-    /// Paragraph line-height multiplier. `1.0` keeps natural font leading.
-    let lineHeight: Double
+    /// Persisted editor settings are observed only while this text editor is mounted.
+    /// Keeping them here prevents Settings changes from invalidating unrelated preview
+    /// surfaces, especially the Markdown WebView while a font-family field is edited.
+    @AppStorage(FilePreviewWordWrapSettings.key) private var fileEditorWordWrap = FilePreviewWordWrapSettings.defaultEnabled
+    @AppStorage(FilePreviewFontSizeSettings.key) private var fileEditorFontSize = FilePreviewFontSizeSettings.defaultPointSize
+    @AppStorage(FilePreviewFontFamilySettings.key) private var fileEditorFontFamily = FilePreviewFontFamilySettings.defaultFamily
+    @AppStorage(FilePreviewLineHeightSettings.key) private var fileEditorLineHeight = FilePreviewLineHeightSettings.defaultMultiplier
 
     func makeCoordinator() -> Coordinator {
         Coordinator(panel: panel)
@@ -45,9 +42,9 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         scrollView.drawsBackground = drawsBackground
 
         let textView = SavingTextView.makeFilePreviewTextView(
-            fontFamily: fontFamily,
-            fontSize: CGFloat(fontSize),
-            lineHeight: CGFloat(lineHeight)
+            fontFamily: fileEditorFontFamily,
+            fontSize: CGFloat(fileEditorFontSize),
+            lineHeight: CGFloat(fileEditorLineHeight)
         )
         textView.panel = panel
         textView.delegate = context.coordinator
@@ -55,15 +52,15 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.string = panel.textContent
         textView.applyCurrentPreviewFont()
         textView.configurePreviewTypography(
-            fontFamily: fontFamily,
-            defaultFontSize: CGFloat(fontSize),
-            lineHeight: CGFloat(lineHeight)
+            fontFamily: fileEditorFontFamily,
+            defaultFontSize: CGFloat(fileEditorFontSize),
+            lineHeight: CGFloat(fileEditorLineHeight)
         )
         textView.applyCurrentPreviewLineHeight()
         panel.attachTextView(textView)
 
         scrollView.documentView = textView
-        textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
+        textView.applyFilePreviewWordWrap(fileEditorWordWrap, scrollView: scrollView)
         Self.applyTheme(
             to: scrollView,
             backgroundColor: themeBackgroundColor,
@@ -85,7 +82,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         guard let textView = scrollView.documentView as? SavingTextView else { return }
         textView.panel = panel
         textView.applyFilePreviewTextEditorInsets()
-        textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
+        textView.applyFilePreviewWordWrap(fileEditorWordWrap, scrollView: scrollView)
         panel.attachTextView(textView)
 
         let contentNeedsUpdate = textView.string != panel.textContent
@@ -99,9 +96,9 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
                 textView.string = panel.textContent
             }
             textView.configurePreviewTypography(
-                fontFamily: fontFamily,
-                defaultFontSize: CGFloat(fontSize),
-                lineHeight: CGFloat(lineHeight)
+                fontFamily: fileEditorFontFamily,
+                defaultFontSize: CGFloat(fileEditorFontSize),
+                lineHeight: CGFloat(fileEditorLineHeight)
             )
             if contentNeedsUpdate {
                 // Reapply attributes after replacing the string; NSTextView can
