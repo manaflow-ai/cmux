@@ -86,6 +86,7 @@ final class SharedLiveAgentIndex {
     private var lastSidebarLivenessRefreshAt: Date?
     private var sidebarLivenessRefreshTask: Task<Void, Never>?
     private var sidebarProcessExitWatchers: [Int: DispatchSourceProcess] = [:]
+    private var sidebarExplicitRefreshRetryTimer: DispatchSourceTimer?
     private var lastExplicitSidebarRefreshAt: Date?
     private var sidebarProcessPanelIDsByPID: [Int: Set<UUID>] = [:]
     private var deferredReloadTimer: DispatchSourceTimer?
@@ -270,6 +271,7 @@ final class SharedLiveAgentIndex {
         for source in sidebarProcessExitWatchers.values {
             source.cancel()
         }
+        sidebarExplicitRefreshRetryTimer?.cancel()
         for record in forkExecutableWatchRecords.values {
             for source in record.sources {
                 source.cancel()
@@ -548,8 +550,24 @@ final class SharedLiveAgentIndex {
         if let lastExplicitSidebarRefreshAt,
            now.timeIntervalSince(lastExplicitSidebarRefreshAt) < 2 {
             changePending = true
+            if sidebarExplicitRefreshRetryTimer == nil {
+                let timer = DispatchSource.makeTimerSource(queue: watchQueue)
+                timer.schedule(deadline: .now() + 2)
+                timer.setEventHandler { [weak self] in
+                    Task { @MainActor in
+                        guard let self else { return }
+                        self.sidebarExplicitRefreshRetryTimer?.cancel()
+                        self.sidebarExplicitRefreshRetryTimer = nil
+                        self.requestSidebarIndexRefresh()
+                    }
+                }
+                sidebarExplicitRefreshRetryTimer = timer
+                timer.resume()
+            }
             return
         }
+        sidebarExplicitRefreshRetryTimer?.cancel()
+        sidebarExplicitRefreshRetryTimer = nil
         lastExplicitSidebarRefreshAt = now
         if refreshTask != nil || forkAvailabilityRefreshTask != nil || sidebarLivenessRefreshTask != nil {
             changePending = true

@@ -1244,7 +1244,7 @@ struct RestorableAgentSessionIndex: Sendable {
             let currentPanelProcessIDs: Set<Int> = processLiveness == .running
                 ? Set(entry.processIDs.filter { processID in
                     guard let process = processSnapshot.process(pid: processID) else { return false }
-                    return process.cmuxWorkspaceID == key.workspaceId
+                    return process.cmuxWorkspaceID == (currentWorkspaceIDByPanelID[key.panelId] ?? key.workspaceId)
                         && process.cmuxSurfaceID == key.panelId
                 }).union(confirmedAgentProcessIDs)
                 : []
