@@ -12,10 +12,10 @@ extension TerminalSurface {
         guard let surface = liveSurfaceForGhosttyAccess(
             reason: "readText"
         ) else { return nil }
-        return Self.readText(surface: surface, region: region)
+        return readText(surface: surface, region: region)
     }
 
-    private static func readText(
+    private func readText(
         surface: ghostty_surface_t,
         region: TerminalTextRegion
     ) -> String? {
