@@ -49,8 +49,9 @@ struct OnboardingSceneHeader: View {
                 .background {
                     // Washes the animated backdrop cells out behind the page
                     // dots so they never read as extra pages; tracks the
-                    // indicator wherever the header lands. Backgrounds do not
-                    // affect layout, so the oversized fade is free.
+                    // indicator wherever the header lands. Kept to the row's
+                    // height and out of accessibility so the header's reported
+                    // frame never grows past the screen edge in compact height.
                     EllipticalGradient(
                         colors: [
                             PlatformPalette.systemBackground,
@@ -59,7 +60,8 @@ struct OnboardingSceneHeader: View {
                         ],
                         center: .center
                     )
-                    .frame(width: 220, height: 110)
+                    .frame(width: 200, height: 44)
+                    .accessibilityHidden(true)
                 }
         }
         .padding(.horizontal, 16)
