@@ -9374,6 +9374,85 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// A keyboard toggle must not reshape the terminal surface or its grid:
+    /// the hosting bounds, the grid viewport, and the render size are
+    /// keyboard-invariant by contract (the render slides on the dock; nothing
+    /// resizes). Regression: SwiftUI's keyboard safe area shaved the
+    /// home-indicator band off the surface on every toggle, which resized the
+    /// shared PTY grid, re-measured the blank band mid-leg, and retargeted the
+    /// render after the keyboard had already settled (a visible one-band
+    /// shift on every toggle).
+    @MainActor
+    func testKeyboardToggleKeepsTerminalSurfaceGeometryInvariant() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let baseline = waitForDock(in: app, describe: "settled keyboard-down geometry") {
+            (Int($0["boundsHeight"] ?? "") ?? 0) > 0
+                && (Int($0["viewportHeight"] ?? "") ?? 0) > 0
+                && (Int($0["renderHeight"] ?? "") ?? 0) > 0
+        }
+        guard let baselineBounds = Int(baseline["boundsHeight"] ?? ""),
+              let baselineViewport = Int(baseline["viewportHeight"] ?? ""),
+              let baselineRender = Int(baseline["renderHeight"] ?? "") else {
+            XCTFail("Missing baseline surface geometry. dock=\(baseline)")
+            return
+        }
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 4))
+        composerField.tap()
+
+        guard waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) != nil else { return }
+        let up = waitForDock(in: app, describe: "keyboard-up geometry") {
+            ($0["keyboardHeight"].flatMap(Double.init) ?? 0) > 120
+        }
+        XCTAssertEqual(
+            Int(up["boundsHeight"] ?? ""),
+            baselineBounds,
+            "The keyboard must not reshape the terminal surface. up=\(up) baseline=\(baseline)"
+        )
+        XCTAssertEqual(
+            Int(up["viewportHeight"] ?? ""),
+            baselineViewport,
+            "The keyboard must not resize the grid viewport. up=\(up) baseline=\(baseline)"
+        )
+        XCTAssertEqual(
+            Int(up["renderHeight"] ?? ""),
+            baselineRender,
+            "The keyboard must not resize the render. up=\(up) baseline=\(baseline)"
+        )
+
+        dismissKeyboard(in: app)
+        let down = waitForDock(in: app, describe: "keyboard-down geometry restored") {
+            ($0["keyboardHeight"].flatMap(Double.init) ?? 1) < 1
+        }
+        XCTAssertEqual(
+            Int(down["boundsHeight"] ?? ""),
+            baselineBounds,
+            "Dismissal must return the identical surface bounds. down=\(down) baseline=\(baseline)"
+        )
+        XCTAssertEqual(
+            Int(down["viewportHeight"] ?? ""),
+            baselineViewport,
+            "Dismissal must return the identical grid viewport. down=\(down) baseline=\(baseline)"
+        )
+        XCTAssertEqual(
+            Int(down["renderHeight"] ?? ""),
+            baselineRender,
+            "Dismissal must return the identical render size. down=\(down) baseline=\(baseline)"
+        )
+    }
+
     /// The Settings > Developer "Rebuilt Keyboard Pinning" toggle persists
     /// `cmux.mobile.debug.forceRebuildKeyboardDock.v1` and the terminal host
     /// snapshots it at mount. Drive the same defaults key through the launch
