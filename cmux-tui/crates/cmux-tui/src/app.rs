@@ -40829,6 +40829,61 @@ mod tests {
     }
 
     #[test]
+    fn workspace_sidebar_preview_commits_when_pane_is_clicked() {
+        let mux = Mux::new("workspace-sidebar-preview-pane-click-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let workspace_tree = Session::Local(mux.clone()).tree();
+        let first_workspace = workspace_tree.workspaces[0].id;
+        let second_workspace = workspace_tree.workspaces[1].id;
+        let second_pane = workspace_tree.workspaces[1].screens[0].active_pane;
+        mux.select_workspace(Some(0), None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.tree.active_workspace = 0;
+        app.sidebar_workspace_selection = 0;
+        app.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 20));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let row = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::Workspace { index: 1, .. }).then_some(*rect)
+            })
+            .expect("second workspace hit");
+        app.handle_hover_with_admission(row.x, row.y, KeyModifiers::NONE, None).unwrap();
+        app.sync_layout((100, 20));
+        let area = app
+            .pane_areas
+            .iter()
+            .find(|area| area.surface == second.id)
+            .copied()
+            .expect("previewed pane area");
+        assert!(area.content.width > 2 && area.content.height > 2);
+
+        let click = (area.content.x + area.content.width / 2, area.content.y + area.content.height / 2);
+        app.handle_left_down(click.0, click.1, KeyModifiers::NONE).unwrap();
+
+        assert_eq!(app.workspace_preview, None);
+        assert_eq!(app.tree.active_workspace, 1);
+        assert_eq!(app.active_surface(), Some(second.id));
+        assert_eq!(app.focus, FocusTarget::Pane);
+        assert_eq!(mux.session_focus().map(|(pane, _)| pane), Some(second_pane));
+        assert_eq!(app.tree.workspaces[app.tree.active_workspace].id, second_workspace);
+        assert_ne!(first.id, second.id);
+        assert_ne!(first_workspace, second_workspace);
+
+        for surface in [first.id, second.id] {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
     fn projection_enter_on_active_surface_returns_focus_to_pane() {
         let (mux, surface) = test_mux("projection-active-surface-enter-test", None);
         mux.report_agent(
