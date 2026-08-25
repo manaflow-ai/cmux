@@ -700,7 +700,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 lastNamedAt: now - 60,
                 lastAttemptAt: now - 30,
                 inFlightAt: nil,
-                activeSessionId: activeSessionId
+                activeSessionId: activeSessionId,
+                activeAllowsNewSessionReplacement: true
             )
             return transcriptURL
         }
@@ -755,6 +756,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertEqual(stale.status, 0, stale.stderr)
             XCTAssertTrue(autoNamingApplyRequests(in: context).isEmpty)
             XCTAssertNil(try readClaudeHookSession(sessionId, context: context)["autoNameTitleReconciliationGeneration"])
+            let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+            let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+            let activeSessions = try XCTUnwrap(state["activeSessionsByWorkspace"] as? [String: Any])
+            let active = try XCTUnwrap(activeSessions[context.workspaceId] as? [String: Any])
+            XCTAssertEqual(
+                active["sessionId"] as? String,
+                "newer-session",
+                "A delayed compact event must not resurrect an older session that the pane has already replaced"
+            )
         }
 
         do {
@@ -10739,6 +10749,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         lastAttemptAt: TimeInterval?,
         inFlightAt: TimeInterval?,
         activeSessionId: String? = nil,
+        activeAllowsNewSessionReplacement: Bool = false,
         surfaceId: String? = nil
     ) throws {
         let now = Date().timeIntervalSince1970
@@ -10765,10 +10776,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         if let inFlightAt {
             session["autoNameInFlightAt"] = inFlightAt
         }
-        let active: [String: Any] = [
+        var active: [String: Any] = [
             "sessionId": activeSessionId ?? sessionId,
             "updatedAt": now,
         ]
+        if activeAllowsNewSessionReplacement {
+            active["allowsNewSessionReplacement"] = true
+        }
         var sessions: [String: Any] = [sessionId: session]
         if let activeSessionId, activeSessionId != sessionId {
             sessions[activeSessionId] = [
