@@ -11643,15 +11643,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
               let paneId = paneId(forPanelId: panelId),
               let browser = browserPanel(for: panelId) else { return nil }
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        guard let newPanel = newBrowserSurface(
-            inPane: paneId,
-            url: browser.currentURLForTabDuplication,
-            focus: focus,
-            preferredProfileID: browser.profileID,
-            chromeVisibility: browser.chromeVisibility,
-            bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication,
-            websiteDataStore: browser.explicitEphemeralWebsiteDataStoreForSibling
-        ) else { return nil }
+        guard let newPanel = withNewTabZoomPolicy(inPane: paneId, {
+            newBrowserSurface(
+                inPane: paneId,
+                url: browser.currentURLForTabDuplication,
+                focus: focus,
+                preferredProfileID: browser.profileID,
+                chromeVisibility: browser.chromeVisibility,
+                bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication,
+                websiteDataStore: browser.explicitEphemeralWebsiteDataStoreForSibling
+            )
+        }) else { return nil }
         newPanel.setMuted(browser.isMuted)
         syncBrowserAudioMuteStateForPanel(newPanel.id, browserPanel: newPanel)
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
@@ -12086,25 +12088,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             return nil
         }
 
-        let zoomedPaneId = bonsplitController.zoomedPaneId
-        if zoomedPaneId != nil {
-            clearSplitZoom()
-        }
-
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        let forkedPanel = newTerminalSurface(
-            inPane: paneId,
-            focus: true,
-            workingDirectory: remoteStartupCommand == nil ? workingDirectory : nil,
-            initialInput: startupInput
-        )
-        if let forkedPanel {
-            _ = reorderSurface(panelId: forkedPanel.id, toIndex: targetIndex)
-            if remoteStartupCommand != nil, let workingDirectory {
-                updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
-            }
-        } else if let zoomedPaneId {
-            _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
+        guard let forkedPanel = withNewTabZoomPolicy(inPane: paneId, {
+            newTerminalSurface(
+                inPane: paneId,
+                focus: true,
+                workingDirectory: remoteStartupCommand == nil ? workingDirectory : nil,
+                initialInput: startupInput
+            )
+        }) else {
+            return nil
+        }
+        _ = reorderSurface(panelId: forkedPanel.id, toIndex: targetIndex)
+        if remoteStartupCommand != nil, let workingDirectory {
+            updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
         }
         return forkedPanel
     }

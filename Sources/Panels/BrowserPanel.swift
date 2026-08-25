@@ -6169,15 +6169,17 @@ extension BrowserPanel {
 #endif
             return
         }
-        guard let _ = workspace.newBrowserSurface(
-            inPane: paneId,
-            url: seed.url,
-            initialRequest: seed.initialRequest,
-            focus: true,
-            preferredProfileID: profileID,
-            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
-            websiteDataStore: explicitEphemeralWebsiteDataStoreForSibling
-        ) else {
+        guard let _ = workspace.withNewTabZoomPolicy(inPane: paneId, {
+            workspace.newBrowserSurface(
+                inPane: paneId,
+                url: seed.url,
+                initialRequest: seed.initialRequest,
+                focus: true,
+                preferredProfileID: profileID,
+                bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
+                websiteDataStore: explicitEphemeralWebsiteDataStoreForSibling
+            )
+        }) else {
 #if DEBUG
             cmuxDebugLog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=newPanelFailed")
 #endif
