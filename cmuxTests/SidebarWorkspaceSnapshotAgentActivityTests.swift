@@ -168,6 +168,18 @@ struct SidebarWorkspaceAgentActivityTests {
         #expect(first == second)
     }
 
+    @Test
+    func manualWorkspaceLoadersContributeToSpinnerCountWithoutAgentLabels() {
+        let activity = SidebarWorkspaceAgentActivity(
+            agents: [],
+            manualLoadingCount: 2
+        )
+
+        #expect(activity.manualLoadingCount == 2)
+        #expect(activity.activeCodingAgentCount == 2)
+        #expect(activity.agents.isEmpty)
+    }
+
     private static func evidence(
         panelID: UUID = codexPanelID,
         statusKey: String = "codex",

@@ -14,6 +14,7 @@ extension Workspace {
         let panelIDs = Set(panels.keys)
             .union(agentLifecycleStatesByPanelId.keys)
             .union(agentPIDKeysByPanelId.keys)
+        var manualLoadingCount = 0
 
         func addEvidence(_ evidence: SidebarAgentActivityEvidence) {
             if let existing = evidenceByID[evidence.id] {
@@ -25,6 +26,11 @@ extension Workspace {
 
         for panelID in panelIDs {
             let runtimeStates = agentLifecycleStatesByPanelId[panelID] ?? [:]
+            manualLoadingCount += runtimeStates.reduce(into: 0) { count, pair in
+                if AgentHibernationLifecycleStatusKeys.isManualKey(pair.key), pair.value == .running {
+                    count += 1
+                }
+            }
             let runtimeKeys = agentPIDKeysByPanelId[panelID] ?? []
             let indexEntry = liveIndex?.entry(workspaceId: id, panelId: panelID)
             var lifecycleByStatus: [String: AgentHibernationLifecycleState] = [:]
@@ -224,7 +230,10 @@ extension Workspace {
             addEvidence(evidence)
         }
 
-        return SidebarWorkspaceAgentActivity.resolve(evidence: Array(evidenceByID.values))
+        return SidebarWorkspaceAgentActivity.resolve(
+            evidence: Array(evidenceByID.values),
+            manualLoadingCount: manualLoadingCount
+        )
     }
 
     nonisolated private static func sidebarLifecyclePriority(

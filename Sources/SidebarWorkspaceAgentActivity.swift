@@ -6,13 +6,17 @@ import Foundation
 struct SidebarWorkspaceAgentActivity: Equatable, Sendable {
     let agents: [SidebarAgentActivity]
     private let bestActivityByCanonicalStatus: [String: SidebarAgentActivity]
+    /// Active `workspace loading` leases contribute to the spinner but never
+    /// become agent status labels.
+    let manualLoadingCount: Int
     let activeCodingAgentCount: Int
     let hasUnknownState: Bool
     let primaryState: SidebarAgentResolvedState?
     let primaryElapsedStart: TimeInterval?
 
-    init(agents: [SidebarAgentActivity]) {
+    init(agents: [SidebarAgentActivity], manualLoadingCount: Int = 0) {
         self.agents = agents
+        self.manualLoadingCount = max(0, manualLoadingCount)
         var bestActivityByCanonicalStatus: [String: SidebarAgentActivity] = [:]
         bestActivityByCanonicalStatus.reserveCapacity(agents.count)
         for agent in agents {
@@ -50,7 +54,7 @@ struct SidebarWorkspaceAgentActivity: Equatable, Sendable {
                 hasIdle = true
             }
         }
-        activeCodingAgentCount = runningCount
+        activeCodingAgentCount = runningCount + self.manualLoadingCount
         hasUnknownState = hasUnknown
         primaryElapsedStart = oldestElapsedStart
         primaryState = if hasNeedsInput {
@@ -125,7 +129,10 @@ struct SidebarWorkspaceAgentActivity: Equatable, Sendable {
         }
     }
 
-    static func resolve(evidence: [SidebarAgentActivityEvidence]) -> Self {
+    static func resolve(
+        evidence: [SidebarAgentActivityEvidence],
+        manualLoadingCount: Int = 0
+    ) -> Self {
         var mergedByID: [String: SidebarAgentActivityEvidence] = [:]
         for item in evidence where item.hasDeterministicPresence {
             if let existing = mergedByID[item.id] {
@@ -152,7 +159,7 @@ struct SidebarWorkspaceAgentActivity: Equatable, Sendable {
                 startedAt: item.startedAt
             )
         }.sorted { $0.id < $1.id }
-        return Self(agents: agents)
+        return Self(agents: agents, manualLoadingCount: manualLoadingCount)
     }
 
     static func compactElapsedText(seconds: TimeInterval) -> String {

@@ -372,7 +372,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
               !agentActivityView.isHidden,
               let elapsed = model.snapshot.agentActivity.elapsed(at: now) else { return false }
         let bucket = SidebarWorkspaceAgentActivity.compactElapsedDisplayBucket(elapsed)
-        guard agentElapsedDisplayBucket != bucket else { return true }
+        guard agentElapsedDisplayBucket != bucket else { return false }
         agentElapsedDisplayBucket = bucket
         let payload = agentElapsedDisplayPayload(model.snapshot.agentActivity, now)
         agentActivityView.stringValue = payload.text
