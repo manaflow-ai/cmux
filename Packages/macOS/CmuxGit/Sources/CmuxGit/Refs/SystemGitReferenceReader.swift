@@ -59,12 +59,11 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             return plumbingSnapshot(repository: repository)
         }
         let directSnapshot = fileSnapshot(repository: repository)
+        guard directSnapshot.currentCommit == nil || directSnapshot.branchName == ".invalid" else {
+            return directSnapshot
+        }
         let configuredStorage = referenceStorageName(repository: repository)
-        if let configuredStorage,
-           configuredStorage != "files",
-           (configuredStorage != "unknown"
-                || directSnapshot.currentCommit == nil
-                || directSnapshot.branchName == ".invalid") {
+        if let configuredStorage, configuredStorage != "files" {
             return plumbingSnapshot(repository: repository)
         }
         if directSnapshot.branchName == ".invalid" {

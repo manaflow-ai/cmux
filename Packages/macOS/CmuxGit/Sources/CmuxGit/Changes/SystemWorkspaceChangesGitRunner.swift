@@ -145,6 +145,7 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         let deadline = DispatchTime.now() + max(0, wallTimeLimit)
         let candidates = [executableURL] + fallbackExecutableURLs
         var lastResult: (exitCode: Int32, wasTruncated: Bool)?
+        var lastError: Error?
         for candidate in candidates {
             let now = DispatchTime.now()
             guard deadline > now else { break }
@@ -167,13 +168,15 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
                     return result
                 }
             } catch {
+                lastError = error
                 if error is POSIXError {
                     continue
                 }
                 throw error
             }
         }
-        return lastResult ?? (exitCode: 128, wasTruncated: true)
+        if let lastResult { return lastResult }
+        throw lastError ?? POSIXError(.EIO)
     }
 
     private func executeOnce(

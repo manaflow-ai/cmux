@@ -68,7 +68,13 @@ extension GitMetadataService {
     nonisolated func gitReferenceSnapshot(
         repository: ResolvedGitRepository
     ) async -> GitReferenceSnapshot {
-        guard await referenceSnapshotLimiter.acquire() else {
+        let shouldLimit = referenceReader.requiresGitPlumbing(repository: repository)
+        let didAcquire = if shouldLimit {
+            await referenceSnapshotLimiter.acquire()
+        } else {
+            true
+        }
+        guard didAcquire else {
             return GitReferenceSnapshot(
                 checkedOutBranch: .unreadable,
                 headSignature: nil,
@@ -89,7 +95,9 @@ extension GitMetadataService {
         } onCancel: {
             cancellationSignal.cancel()
         }
-        await referenceSnapshotLimiter.release()
+        if shouldLimit {
+            await referenceSnapshotLimiter.release()
+        }
         return snapshot
     }
 }
