@@ -20,7 +20,9 @@ struct SurfaceResumeBindingIndex: Sendable {
         var ambiguousPanelIds: Set<UUID> = []
         for (panelId, candidates) in candidatesByPanelId {
             let candidatesByTimestamp = Dictionary(grouping: candidates) { $0.updatedAt }
-            if candidatesByTimestamp.values.contains(where: { $0.count > 1 }) {
+            let processDetectedCandidates = candidates.filter(\.isProcessDetected)
+            if processDetectedCandidates.count > 1 ||
+               (processDetectedCandidates.isEmpty && candidatesByTimestamp.values.contains(where: { $0.count > 1 })) {
                 ambiguousPanelIds.insert(panelId)
             }
             guard var selected = candidates.first else {

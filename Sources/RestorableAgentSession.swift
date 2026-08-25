@@ -2650,7 +2650,9 @@ struct RestorableAgentSessionIndex: Sendable {
         var ambiguousPanelIds: Set<UUID> = []
         for (panelId, candidates) in candidatesByPanelId {
             let candidatesByTimestamp = Dictionary(grouping: candidates) { $0.updatedAt }
-            if candidatesByTimestamp.values.contains(where: { $0.count > 1 }) {
+            let liveCandidates = candidates.filter(Self.entryHasLiveProcess)
+            if liveCandidates.count > 1 ||
+               (liveCandidates.isEmpty && candidatesByTimestamp.values.contains(where: { $0.count > 1 })) {
                 // Equal timestamps from separate owner keys have no reliable panel-only winner.
                 ambiguousPanelIds.insert(panelId)
             }
