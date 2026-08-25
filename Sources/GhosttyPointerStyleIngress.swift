@@ -6,9 +6,9 @@ import os
 /// Coalesces runtime pointer callbacks before they cross onto the main actor.
 ///
 /// Ghostty can report hyperlink state on every cursor-position refresh. The
-/// ingress keeps independent latest values for shape and link state, while
-/// lifecycle resets remain ordered ahead of those values. At most one main
-/// queue drain is pending for a view.
+/// ingress keeps the first and latest shape per runtime, the latest link state,
+/// and lifecycle transitions independently. At most one main-queue drain is
+/// pending for a view, and the runtime-keyed map is capped to four lifetimes.
 final class GhosttyPointerStyleIngress: @unchecked Sendable {
     struct Request {
         enum Event {
@@ -43,11 +43,16 @@ final class GhosttyPointerStyleIngress: @unchecked Sendable {
         let runtimeLifetimeId: UUID
     }
 
-    private struct PendingState {
+    private struct RuntimePending {
+        var firstShape: Request?
         var latestShape: Request?
         var latestLinkHover: Request?
         var latestRuntimeReset: Request?
         var latestRuntimeEnded: Request?
+    }
+
+    private struct PendingState {
+        var byRuntime: [UUID: RuntimePending] = [:]
         var drainScheduled = false
     }
 
@@ -67,15 +72,29 @@ final class GhosttyPointerStyleIngress: @unchecked Sendable {
     @discardableResult
     func submit(_ request: Request) -> Bool {
         let shouldSchedule = pendingState.withLock { state in
+            var runtime = state.byRuntime[request.runtimeLifetimeId] ??
+                RuntimePending()
             switch request.event {
             case .runtimeReset:
-                state.latestRuntimeReset = request
+                runtime.latestRuntimeReset = request
             case .runtimeEnded:
-                state.latestRuntimeEnded = request
+                runtime.latestRuntimeEnded = request
             case .shape:
-                state.latestShape = request
+                if runtime.firstShape == nil {
+                    runtime.firstShape = request
+                }
+                runtime.latestShape = request
             case .linkHover:
-                state.latestLinkHover = request
+                runtime.latestLinkHover = request
+            }
+            state.byRuntime[request.runtimeLifetimeId] = runtime
+
+            if state.byRuntime.count > 4 {
+                if let staleRuntime = state.byRuntime.keys.first(
+                    where: { $0 != request.runtimeLifetimeId }
+                ) {
+                    state.byRuntime.removeValue(forKey: staleRuntime)
+                }
             }
 
             guard !state.drainScheduled else { return false }
@@ -92,40 +111,36 @@ final class GhosttyPointerStyleIngress: @unchecked Sendable {
 
     @MainActor
     private func drain() {
-        let snapshot = pendingState.withLock { state in
-            let snapshot = (
-                runtimeReset: state.latestRuntimeReset,
-                runtimeEnded: state.latestRuntimeEnded,
-                shape: state.latestShape,
-                linkHover: state.latestLinkHover
-            )
-            state.latestRuntimeReset = nil
-            state.latestRuntimeEnded = nil
-            state.latestShape = nil
-            state.latestLinkHover = nil
+        let pending = pendingState.withLock { state in
+            let pending = state.byRuntime
+            state.byRuntime.removeAll(keepingCapacity: true)
             state.drainScheduled = false
-            return snapshot
+            return pending
         }
 
         guard let surfaceView else { return }
-        for request in [
-            snapshot.runtimeReset,
-            snapshot.runtimeEnded,
-            snapshot.shape,
-            snapshot.linkHover
-        ].compactMap({ $0 }) {
-            guard let terminalSurface = surfaceView.terminalSurface,
-                  terminalSurface.id == request.surfaceId,
-                  terminalSurface.isActiveRuntimeLifetime(
-                      request.runtimeLifetimeId
-                  ) else {
-                continue
-            }
-            surfaceView.applyTerminalPointerStyle(
-                request.event.terminalEvent(
-                    runtimeLifetimeId: request.runtimeLifetimeId
+        for runtime in pending.values {
+            let requests = [
+                runtime.latestRuntimeReset,
+                runtime.latestRuntimeEnded,
+                runtime.firstShape,
+                runtime.latestShape,
+                runtime.latestLinkHover
+            ].compactMap { $0 }
+            for request in requests {
+                guard let terminalSurface = surfaceView.terminalSurface,
+                      terminalSurface.id == request.surfaceId,
+                      terminalSurface.isActiveRuntimeLifetime(
+                          request.runtimeLifetimeId
+                      ) else {
+                    continue
+                }
+                surfaceView.applyTerminalPointerStyle(
+                    request.event.terminalEvent(
+                        runtimeLifetimeId: request.runtimeLifetimeId
+                    )
                 )
-            )
+            }
         }
     }
 }
