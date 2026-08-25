@@ -22,7 +22,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use tokio::sync::Notify;
 
 use async_trait::async_trait;
@@ -834,13 +834,13 @@ impl Inner {
         self: &Arc<Self>,
         pty_id: &str,
         context: &FrameContext,
-        control: Arc<dyn PtyControl>,
+        control: Weak<dyn PtyControl>,
     ) -> (DataSink, ExitSink) {
         let on_data = {
             let inner = Arc::clone(self);
             let context = context.clone();
             let pty_id = pty_id.to_owned();
-            let control = Arc::clone(&control);
+            let control = control.clone();
             Arc::new(move |chunk: Bytes| inner.emit_output(&pty_id, &chunk, &context, &control))
                 as Arc<dyn Fn(Bytes) + Send + Sync>
         };
@@ -848,7 +848,7 @@ impl Inner {
             let inner = Arc::clone(self);
             let context = context.clone();
             let pty_id = pty_id.to_owned();
-            let control = Arc::clone(&control);
+            let control = control.clone();
             Arc::new(move |code: i64| inner.emit_exit(&pty_id, code, &context, &control))
                 as Arc<dyn Fn(i64) + Send + Sync>
         };
@@ -860,9 +860,10 @@ impl Inner {
         pty_id: &str,
         chunk: &Bytes,
         context: &FrameContext,
-        control: &Arc<dyn PtyControl>,
+        control: &Weak<dyn PtyControl>,
     ) {
         let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
+        let Some(control) = control.upgrade() else { return };
         if self.authorize_snapshot(pty_id, &auth, context, "output").is_none()
             || self
                 .attachments
@@ -908,9 +909,10 @@ impl Inner {
         pty_id: &str,
         code: i64,
         context: &FrameContext,
-        control: &Arc<dyn PtyControl>,
+        control: &Weak<dyn PtyControl>,
     ) {
         let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
+        let Some(control) = control.upgrade() else { return };
         if self.authorize_snapshot(pty_id, &auth, context, "exit").is_none()
             || self
                 .attachments
@@ -1137,7 +1139,8 @@ impl Inner {
         let control = Arc::clone(&handle.control);
         let output = Arc::clone(&handle.output);
         let banner = handle.banner.clone();
-        let (on_data, on_exit) = self.sinks(pty_id, context, Arc::clone(&control));
+        let control_identity = Arc::downgrade(&control);
+        let (on_data, on_exit) = self.sinks(pty_id, context, control_identity);
         Ok(Opened {
             created: ensured.created,
             surface: None,
@@ -1314,7 +1317,9 @@ impl Inner {
             released: Arc::clone(&released),
             delivery: OnceLock::new(),
         });
-        let (on_data, on_exit) = self.sinks(pty_id, context, Arc::clone(&proxy));
+        let proxy_control: Arc<dyn PtyControl> = Arc::clone(&proxy);
+        let control_identity = Arc::downgrade(&proxy_control);
+        let (on_data, on_exit) = self.sinks(pty_id, context, control_identity);
         let delivery = ViewerDelivery::new(on_data, on_exit);
         assert!(
             proxy.delivery.set(Arc::clone(&delivery)).is_ok(),
@@ -1878,8 +1883,9 @@ impl Inner {
         }
 
         let proxy = Arc::new(ControlTerminalControl { control, surface_id });
-        let (on_data, _) = self.sinks(pty_id, context, Arc::clone(&proxy));
-        let control_for_exit: Arc<dyn PtyControl> = Arc::clone(&proxy);
+        let proxy_control: Arc<dyn PtyControl> = Arc::clone(&proxy);
+        let control_identity = Arc::downgrade(&proxy_control);
+        let (on_data, _) = self.sinks(pty_id, context, control_identity.clone());
         let relay = Arc::clone(&self);
         let context_for_exit = context.clone();
         let pty_id_for_exit = pty_id.to_owned();
@@ -1894,7 +1900,7 @@ impl Inner {
                     "pty output backlog overflowed; reattach to continue receiving output",
                 );
             } else {
-                relay.emit_exit(&pty_id_for_exit, code, &context_for_exit, &control_for_exit);
+                relay.emit_exit(&pty_id_for_exit, code, &context_for_exit, &control_identity);
             }
         });
         let start_stream = Arc::clone(&stream);
