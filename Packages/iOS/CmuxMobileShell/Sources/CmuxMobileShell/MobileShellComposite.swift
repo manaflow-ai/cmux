@@ -1066,6 +1066,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// an in-process status value; diagnostics retain only its redacted class.
     public internal(set) var activeTransportPath: CmxTransportPath = .unavailable
     @ObservationIgnored var transportPathObservationTask: Task<Void, Never>?
+    @ObservationIgnored var transportPathObservationClientID: ObjectIdentifier?
     package var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
