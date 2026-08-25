@@ -1267,7 +1267,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         for _ in 0..<2 {
             let duplicateApproval = runCursorHook(
                 "shell-exec",
-                input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(duplicateCommand)","sandbox":false}"#
+                input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(duplicateCommand)","tool_use_id":"duplicate-id","sandbox":false}"#
             )
             XCTAssertFalse(duplicateApproval.timedOut, duplicateApproval.stderr)
             XCTAssertEqual(duplicateApproval.status, 0, duplicateApproval.stderr)
@@ -1276,7 +1276,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let duplicateCompletionStart = state.snapshot().count
         let duplicateCompletion = runCursorHook(
             "shell-done",
-            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"\#(duplicateCommand)","output":"","duration":1,"sandbox":false}"#
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"\#(duplicateCommand)","tool_use_id":"duplicate-id","output":"","duration":1,"sandbox":false}"#
         )
         XCTAssertFalse(duplicateCompletion.timedOut, duplicateCompletion.stderr)
         XCTAssertEqual(duplicateCompletion.status, 0, duplicateCompletion.stderr)

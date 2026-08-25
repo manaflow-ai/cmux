@@ -371,17 +371,11 @@ final class ClaudeHookSessionStore {
             }
             let normalizedToolUseId = normalizedCursorShellToolUseId(toolUseId)
             let commandIdentity = CursorPendingShellApproval.identity(for: normalizedCommand)
-            let duplicateIndex = pending.firstIndex { existing in
-                if let normalizedToolUseId,
-                   let existingToolUseId = existing.toolUseId {
-                    return normalizedToolUseId == existingToolUseId
-                }
-                // Cursor retries can omit the tool id. In that case the
-                // command fingerprint/length is the only stable identity and
-                // coalescing prevents one terminal callback from leaving a
-                // duplicate approval behind.
-                return existing.commandFingerprint == commandIdentity.fingerprint
-                    && existing.commandLength == commandIdentity.length
+            // Only a repeated stable tool id is a retry. Without one, two
+            // identical commands may be concurrent invocations; preserving
+            // both records lets two terminal callbacks consume both waits.
+            let duplicateIndex = normalizedToolUseId.flatMap { toolUseId in
+                pending.firstIndex { $0.toolUseId == toolUseId }
             }
             if let duplicateIndex {
                 let existing = pending[duplicateIndex]
@@ -32251,7 +32245,9 @@ export default CMUXSessionRestore;
             let fileManager = FileManager.default
             var cursor = cwdURL
             var projectRoot: URL?
-            while true {
+            let maximumProjectRootAncestors = 64
+            var ancestorDepth = 0
+            while ancestorDepth < maximumProjectRootAncestors {
                 if fileManager.fileExists(
                     atPath: cursor.appendingPathComponent(".git", isDirectory: false).path
                 ) {
@@ -32261,6 +32257,7 @@ export default CMUXSessionRestore;
                 let parent = cursor.deletingLastPathComponent()
                 if parent.path == cursor.path { break }
                 cursor = parent
+                ancestorDepth += 1
             }
             let projectRoot = projectRoot ?? cwdURL
             applyConfig(
