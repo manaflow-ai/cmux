@@ -499,7 +499,16 @@ struct SudoSpoolStore {
             maximumTotalBytes: resourcePolicy.maximumArchiveBytes,
             isEligible: { _ in true }
         )
-        pruneStaleTerminalOutputs(before: cutoff)
+        pruneRegularFiles(
+            in: paths.results,
+            before: cutoff,
+            maximumTotalBytes: resourcePolicy.maximumOutputBytes,
+            isEligible: { url in
+                guard url.pathExtension == "out" else { return false }
+                let id = url.deletingPathExtension().lastPathComponent
+                return Self.isValidRequestID(id) && !hasActiveEvidence(id: id)
+            }
+        )
         pruneRegularFiles(
             in: paths.results,
             before: cutoff,
@@ -716,28 +725,6 @@ struct SudoSpoolStore {
                 continue
             } else {
                 return
-            }
-        }
-    }
-
-    private func pruneStaleTerminalOutputs(before cutoff: Date) {
-        let names = (try? fileManager.contentsOfDirectory(atPath: paths.results.path)) ?? []
-        for name in names where name.hasSuffix(".out") {
-            let id = String(name.dropLast(4))
-            guard Self.isValidRequestID(id), result(id: id) != nil else { continue }
-            let url = paths.results.appendingPathComponent(name)
-            var status = stat()
-            guard lstat(url.path, &status) == 0,
-                  status.st_mode & S_IFMT == S_IFREG,
-                  status.st_uid == geteuid() else {
-                continue
-            }
-            let modifiedAt = Date(
-                timeIntervalSince1970: TimeInterval(status.st_mtimespec.tv_sec)
-                    + TimeInterval(status.st_mtimespec.tv_nsec) / 1_000_000_000
-            )
-            if modifiedAt <= cutoff {
-                _ = unlink(url.path)
             }
         }
     }

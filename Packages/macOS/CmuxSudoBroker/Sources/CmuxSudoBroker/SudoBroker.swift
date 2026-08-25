@@ -16,6 +16,7 @@ public actor SudoBroker {
     private var recoveredRunnerTasks: [String: Task<Void, Never>] = [:]
     private var cleanupRetryTasks: [String: Task<Void, Never>] = [:]
     private var cleanupRetryNotBefore: [String: Date] = [:]
+    private var cleanupRecoveryAttempts: [String: Int] = [:]
     private var refreshTask: Task<Void, Never>?
     private var refreshRequested = false
     private var isWatching = false
@@ -173,11 +174,19 @@ public actor SudoBroker {
         for state in recoveryStates {
             switch recoveries[state.id] {
             case .cleanupIncomplete:
-                scheduleCleanupRetry(
-                    id: state.id,
-                    notBefore: now.addingTimeInterval(5)
-                )
+                let attempts = cleanupRecoveryAttempts[state.id, default: 0] + 1
+                cleanupRecoveryAttempts[state.id] = attempts
+                if attempts < store.resourcePolicy.maximumCleanupRecoveryAttempts {
+                    scheduleCleanupRetry(
+                        id: state.id,
+                        notBefore: now.addingTimeInterval(5)
+                    )
+                } else {
+                    cleanupRetryTasks.removeValue(forKey: state.id)?.cancel()
+                    cleanupRetryNotBefore[state.id] = .distantFuture
+                }
             case .recovered, .runnerActive, .none:
+                cleanupRecoveryAttempts.removeValue(forKey: state.id)
                 cancelCleanupRetry(id: state.id)
             }
         }
@@ -255,6 +264,27 @@ public actor SudoBroker {
                 continue
             }
 
+            if wasKnown {
+                guard let existing = records[id],
+                      existing.script == snapshot.script else {
+                    settleIfPossible(
+                        SudoResult(
+                            id: id,
+                            status: .failed,
+                            errorCode: .stagingFailed,
+                            note: messages.stagingFailed
+                        ),
+                        auditStatus: "failed snapshot-mutation",
+                        at: now
+                    )
+                    continue
+                }
+                if expiryTasks[id] == nil, existing.phase == .pendingApproval {
+                    scheduleExpiry(for: existing)
+                }
+                continue
+            }
+
             let pending = SudoPendingRequest(
                 request: snapshot.request,
                 script: snapshot.script,
@@ -317,7 +347,7 @@ public actor SudoBroker {
         // pending spool so approval bursts cannot accumulate one thread per
         // ninety-second execution grace period.
         settleCompletedRecords()
-        guard runnerMonitorTasks.count < store.resourcePolicy.maximumActiveRunnerCount else {
+        guard activeRunnerCount() < store.resourcePolicy.maximumActiveRunnerCount else {
             settleIfPossible(
                 SudoResult(
                     id: id,
@@ -439,6 +469,7 @@ public actor SudoBroker {
         }
         cleanupRetryTasks.removeAll()
         cleanupRetryNotBefore.removeAll()
+        cleanupRecoveryAttempts.removeAll()
         await dependencies.watcher?.stop()
         await activeRefreshTask?.value
         for task in activeExpiryTasks {
@@ -650,6 +681,7 @@ public actor SudoBroker {
         cancelRunnerMonitor(id: result.id)
         cancelRecoveredRunnerReconciliation(id: result.id)
         cancelCleanupRetry(id: result.id)
+        cleanupRecoveryAttempts.removeValue(forKey: result.id)
         records.removeValue(forKey: result.id)
         store.appendAudit(
             "\(date.ISO8601Format()) \(result.id) \(auditStatus)"
@@ -663,6 +695,21 @@ public actor SudoBroker {
 
     private func cancelRunnerMonitor(id: String) {
         runnerMonitorTasks.removeValue(forKey: id)?.cancel()
+    }
+
+    private func activeRunnerCount() -> Int {
+        var activeIDs = Set(
+            records.values.compactMap { record in
+                switch record.phase {
+                case .approved, .executing:
+                    return record.request.id
+                case .pendingApproval:
+                    return nil
+                }
+            }
+        )
+        activeIDs.formUnion(store.cleanupFailureStates().map(\.id))
+        return activeIDs.count
     }
 
     private func scheduleRecoveredRunnerReconciliation(id: String, deadline: Date) {
