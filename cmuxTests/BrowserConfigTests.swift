@@ -5642,6 +5642,20 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         XCTAssertEqual(openedURL, url)
         XCTAssertTrue(didRunAfterOpen)
     }
+
+    func testConfiguredExternalOpenReportsOpenerFailureWithoutTreatingItAsNoMatch() throws {
+        defaults.set(
+            ["example.com"],
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        let url = try XCTUnwrap(URL(string: "https://example.com/"))
+        let result = BrowserExternalNavigationHandler(
+            defaults: defaults,
+            openURL: { _ in false }
+        ).openConfiguredExternallyResult(url)
+
+        XCTAssertEqual(result, .failed)
+    }
 }
 
 

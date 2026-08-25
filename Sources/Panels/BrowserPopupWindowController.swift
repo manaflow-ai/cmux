@@ -461,13 +461,17 @@ private final class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        if let url = navigationAction.request.url,
-           externalNavigationHandler.openConfiguredExternallyIfNeeded(
-               url,
-               navigationType: navigationAction.navigationType,
-               targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
-           ) {
-            return nil
+        if let url = navigationAction.request.url {
+            switch externalNavigationHandler.openConfiguredExternallyResult(
+                url,
+                navigationType: navigationAction.navigationType,
+                targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
+            ) {
+            case .opened, .failed:
+                return nil
+            case .notConfigured:
+                break
+            }
         }
 
         if let url = navigationAction.request.url,
@@ -736,7 +740,7 @@ private final class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
             return
         }
 
-        if externalNavigationHandler.openConfiguredExternallyIfNeeded(
+        switch externalNavigationHandler.openConfiguredExternallyResult(
             url,
             navigationType: navigationAction.navigationType,
             targetFrameIsMain: navigationAction.targetFrame?.isMainFrame,
@@ -744,8 +748,15 @@ private final class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
                 clearAttemptedRequest(discardPendingBypasses: true)
             }
         ) {
+        case .opened:
             decisionHandler(.cancel)
             return
+        case .failed:
+            clearAttemptedRequest(discardPendingBypasses: true)
+            decisionHandler(.cancel)
+            return
+        case .notConfigured:
+            break
         }
 
         let isMainFrame = navigationAction.targetFrame?.isMainFrame != false

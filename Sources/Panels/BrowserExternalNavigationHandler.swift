@@ -10,6 +10,15 @@ import WebKit
 /// consistent without reaching through a static settings namespace.
 @MainActor
 struct BrowserExternalNavigationHandler {
+    enum OpenResult: Equatable {
+        /// No configured rule selected this URL.
+        case notConfigured
+        /// A configured URL was accepted by the system opener.
+        case opened
+        /// A configured URL could not be handed to the system opener.
+        case failed
+    }
+
     private let defaults: UserDefaults
     private let openURL: @MainActor @Sendable (URL) -> Bool
 
@@ -61,9 +70,23 @@ struct BrowserExternalNavigationHandler {
         _ url: URL,
         onOpened: @escaping @MainActor () -> Void = {}
     ) -> Bool {
-        guard shouldOpenExternally(url), openURL(url) else { return false }
+        if case .opened = openConfiguredExternallyResult(url, onOpened: onOpened) {
+            return true
+        }
+        return false
+    }
+
+    /// Attempts a configured external open and distinguishes no match from an
+    /// opener failure so callers can avoid silently falling back in-app.
+    @discardableResult
+    func openConfiguredExternallyResult(
+        _ url: URL,
+        onOpened: @escaping @MainActor () -> Void = {}
+    ) -> OpenResult {
+        guard shouldOpenExternally(url) else { return .notConfigured }
+        guard openURL(url) else { return .failed }
         onOpened()
-        return true
+        return .opened
     }
 
     /// Opens a matching user-activated navigation through the injected opener.
@@ -74,14 +97,34 @@ struct BrowserExternalNavigationHandler {
         targetFrameIsMain: Bool?,
         onOpened: @escaping @MainActor () -> Void = {}
     ) -> Bool {
+        if case .opened = openConfiguredExternallyResult(
+            url,
+            navigationType: navigationType,
+            targetFrameIsMain: targetFrameIsMain,
+            onOpened: onOpened
+        ) {
+            return true
+        }
+        return false
+    }
+
+    /// Attempts a user-activated external open while preserving opener status.
+    @discardableResult
+    func openConfiguredExternallyResult(
+        _ url: URL,
+        navigationType: WKNavigationType,
+        targetFrameIsMain: Bool?,
+        onOpened: @escaping @MainActor () -> Void = {}
+    ) -> OpenResult {
         guard shouldOpenExternally(
             url,
             navigationType: navigationType,
             targetFrameIsMain: targetFrameIsMain
-        ), openURL(url) else {
-            return false
+        ) else {
+            return .notConfigured
         }
+        guard openURL(url) else { return .failed }
         onOpened()
-        return true
+        return .opened
     }
 }

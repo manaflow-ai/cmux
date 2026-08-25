@@ -210,13 +210,21 @@ struct TerminalLinkOpenCoordinator {
         request: TerminalLinkOpenRequest,
         container: (any TerminalLinkOpenContainer)?
     ) -> Bool {
-        if externalNavigationHandler.shouldOpenExternally(url) {
-            let opened = externalNavigationHandler.openConfiguredExternallyIfNeeded(url)
+        switch externalNavigationHandler.openConfiguredExternallyResult(url) {
+        case .opened:
             log(
                 "link.openURL opening externally reason=external pattern " +
-                "opened=\(opened ? 1 : 0) url=\(url)"
+                "opened=1 url=\(url)"
             )
-            return opened
+            return true
+        case .failed:
+            log(
+                "link.openURL opening externally reason=external pattern " +
+                "opened=0 url=\(url)"
+            )
+            return false
+        case .notConfigured:
+            break
         }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
             return openExternally(url, reason: "invalid host")

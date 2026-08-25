@@ -8290,13 +8290,17 @@ private final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
             "windowFeatures={\(windowFeaturesSummary)}"
         )
 #endif
-        if let url = navigationAction.request.url,
-           externalNavigationHandler.openConfiguredExternallyIfNeeded(
-               url,
-               navigationType: navigationAction.navigationType,
-               targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
-           ) {
-            return nil
+        if let url = navigationAction.request.url {
+            switch externalNavigationHandler.openConfiguredExternallyResult(
+                url,
+                navigationType: navigationAction.navigationType,
+                targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
+            ) {
+            case .opened, .failed:
+                return nil
+            case .notConfigured:
+                break
+            }
         }
 
         if let url = navigationAction.request.url,

@@ -59,4 +59,19 @@ struct BrowserExternalURLPolicyTests {
         #expect(arrayPolicy.matches(try #require(URL(string: "https://example.com"))))
         #expect(arrayPolicy.matches(try #require(URL(string: "https://other.test"))))
     }
+
+    @Test func settingsStoreMigratesLegacyArrayForTheEditor() async throws {
+        let suiteName = "BrowserExternalURLPolicyTests.migration.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(
+            [" example.com ", "# ignored", "other.test"],
+            forKey: BrowserExternalURLPolicy.userDefaultsKey
+        )
+
+        let store = UserDefaultsSettingsStore(defaults: defaults)
+        let key = SettingCatalog().browser.urlsToAlwaysOpenExternally
+        #expect(await store.value(for: key) == "example.com\nother.test")
+        #expect(defaults.object(forKey: key.userDefaultsKey) as? String == "example.com\nother.test")
+    }
 }

@@ -304,28 +304,42 @@ import WebKit
             return
         }
 
-        if let url = navigationAction.request.url,
-           externalNavigationHandler.openConfiguredExternallyIfNeeded(
-               url,
-               navigationType: navigationAction.navigationType,
-               targetFrameIsMain: navigationAction.targetFrame?.isMainFrame,
-               onOpened: { [self] in
-                   clearAttemptedRequest(discardPendingBypasses: true)
-                   let reportTerminalCancellation = terminalPolicyCancellationReporter?(
-                       navigationAction,
-                       webView
-                   ) ?? {}
-                   reportTerminalCancellation()
-               }
-           ) {
-#if DEBUG
-            cmuxDebugLog(
-                "browser.nav.decidePolicy.action kind=openConfiguredExternalURL " +
-                "url=\(browserNavigationDebugURL(url))"
+        if let url = navigationAction.request.url {
+            let openResult = externalNavigationHandler.openConfiguredExternallyResult(
+                url,
+                navigationType: navigationAction.navigationType,
+                targetFrameIsMain: navigationAction.targetFrame?.isMainFrame,
+                onOpened: { [self] in
+                    clearAttemptedRequest(discardPendingBypasses: true)
+                    let reportTerminalCancellation = terminalPolicyCancellationReporter?(
+                        navigationAction,
+                        webView
+                    ) ?? {}
+                    reportTerminalCancellation()
+                }
             )
+            switch openResult {
+            case .failed:
+                clearAttemptedRequest(discardPendingBypasses: true)
+                let reportTerminalCancellation = terminalPolicyCancellationReporter?(
+                    navigationAction,
+                    webView
+                ) ?? {}
+                reportTerminalCancellation()
+                decisionHandler(.cancel)
+                return
+            case .notConfigured:
+                break
+            case .opened:
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.nav.decidePolicy.action kind=openConfiguredExternalURL " +
+                    "url=\(browserNavigationDebugURL(url))"
+                )
 #endif
-            decisionHandler(.cancel)
-            return
+                decisionHandler(.cancel)
+                return
+            }
         }
 
         if let url = navigationAction.request.url {

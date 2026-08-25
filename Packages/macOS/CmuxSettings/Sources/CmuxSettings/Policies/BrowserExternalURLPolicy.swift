@@ -27,6 +27,19 @@ public struct BrowserExternalURLPolicy: Equatable, Sendable {
         self.patterns = Self.normalizedPatterns(from: patterns)
     }
 
+    /// Migrates a legacy array representation to the newline text used by the
+    /// Settings editor, preserving the same normalized rules as matching.
+    ///
+    /// The migration is intentionally limited to this key so unrelated string
+    /// settings continue to reject type-mismatched UserDefaults values.
+    static func migrateLegacyArrayIfNeeded(in defaults: UserDefaults) {
+        guard let rawValue = defaults.object(forKey: Self.userDefaultsKey),
+              let values = arrayValues(from: rawValue) else {
+            return
+        }
+        defaults.set(normalizedPatterns(from: values).joined(separator: "\n"), forKey: Self.userDefaultsKey)
+    }
+
     private init(rawValue: Any?) {
         self.patterns = Self.normalizedPatterns(from: Self.stringValues(from: rawValue))
     }
@@ -182,5 +195,16 @@ public struct BrowserExternalURLPolicy: Equatable, Sendable {
             return [value]
         }
         return []
+    }
+
+    private static func arrayValues(from rawValue: Any?) -> [String]? {
+        if let values = rawValue as? [String] {
+            return values
+        }
+        guard let values = rawValue as? NSArray else {
+            return nil
+        }
+        let strings = values.compactMap { $0 as? String }
+        return strings.count == values.count ? strings : nil
     }
 }

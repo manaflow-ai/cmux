@@ -26,6 +26,9 @@ public actor UserDefaultsSettingsStore {
     /// Creates a store backed by the given `UserDefaults` instance.
     public init(defaults: UserDefaults, migrating: [AnySettingKey] = []) {
         self.storage = UserDefaultsSettingsStorage(defaults: defaults)
+        // The browser editor is String-typed for its line-oriented text, while
+        // older JSON imports could persist the same key as a string array.
+        BrowserExternalURLPolicy.migrateLegacyArrayIfNeeded(in: defaults)
         // Each entry's migration closure was captured with its concrete
         // Value type, so it skips legacy keys whose stored value does not
         // decode as the new key's type. See AnySettingKey for details.
