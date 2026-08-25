@@ -2164,7 +2164,10 @@ struct SidebarInlineRenameTests {
         let editor = try #require(cell.renameField.currentEditor() as? NSTextView)
         #expect(window.firstResponder === editor)
 
-        editor.setSelectedRange(NSRange(location: 0, length: (editor.string as NSString).length))
+        #expect(
+            editor.selectedRange() == NSRange(location: 0, length: (originalTitle as NSString).length),
+            "Entering workspace rename must select the existing title for replacement typing."
+        )
         editor.insertText(editedTitle, replacementRange: editor.selectedRange())
         #expect(cell.renameField.stringValue == editedTitle)
         let handled = cell.renameField.control(
