@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobilePairedMac
 @testable import CmuxMobileShell
 import CmuxMobileShellModel
@@ -22,6 +23,64 @@ import Testing
         ])
     }
 
+    @Test func computerSnapshotUsesTheLiveAliasColor() async throws {
+        let sharedRoute = try CmxAttachRoute(
+            id: "shared-route",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.82.214.112", port: 50922)
+        )
+        let store = await shellStore(pairedMacs: [
+            pairedMac(
+                id: "mac-old",
+                name: "MacBook Pro",
+                lastSeenAt: 20,
+                isActive: true,
+                routes: [sharedRoute]
+            ),
+            pairedMac(
+                id: "mac-fresh",
+                name: "MacBook Pro",
+                lastSeenAt: 10,
+                routes: [sharedRoute]
+            ),
+        ])
+        let oldPairingID = MobilePairedMac.pairingID(macDeviceID: "mac-old", instanceTag: nil)
+        let freshPairingID = MobilePairedMac.pairingID(macDeviceID: "mac-fresh", instanceTag: nil)
+        #expect(store.displayPairedMacs.first?.id == oldPairingID)
+
+        func state(for macDeviceID: String) -> MacWorkspaceState {
+            MacWorkspaceState(
+                macDeviceID: macDeviceID,
+                workspaces: [MobileWorkspacePreview(
+                    id: "workspace-\(macDeviceID)",
+                    macDeviceID: macDeviceID,
+                    name: macDeviceID,
+                    terminals: []
+                )],
+                status: .connected
+            )
+        }
+
+        // Keep the old alias in the additive-only slot table, then simulate the
+        // re-paired Mac's live workspace state moving to the fresh alias.
+        store.setWorkspaceStatesForTesting([
+            oldPairingID: state(for: "mac-old"),
+            freshPairingID: state(for: "mac-fresh"),
+        ], foregroundMacDeviceID: "mac-old")
+        let oldColor = try #require(store.machineColorIndex[oldPairingID])
+        let freshColor = try #require(store.machineColorIndex[freshPairingID])
+        #expect(oldColor != freshColor)
+
+        store.setWorkspaceStatesForTesting([
+            freshPairingID: state(for: "mac-fresh"),
+        ], foregroundMacDeviceID: "mac-fresh")
+        let workspaceColor = try #require(store.workspaces.first?.machineColorIndex)
+        let snapshot = try #require(MacComputerSnapshot.snapshots(from: store).first)
+
+        #expect(workspaceColor == freshColor)
+        #expect(snapshot.colorIndex == workspaceColor)
+    }
+
     private func shellStore(pairedMacs: [MobilePairedMac]) async -> CMUXMobileShellStore {
         let suiteName = "MacComputerSnapshotBuildScopeTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName) ?? .standard
@@ -38,14 +97,20 @@ import Testing
         return store
     }
 
-    private func pairedMac(id: String, name: String, lastSeenAt: TimeInterval) -> MobilePairedMac {
+    private func pairedMac(
+        id: String,
+        name: String,
+        lastSeenAt: TimeInterval,
+        isActive: Bool = false,
+        routes: [CmxAttachRoute] = []
+    ) -> MobilePairedMac {
         MobilePairedMac(
             macDeviceID: id,
             displayName: name,
-            routes: [],
+            routes: routes,
             createdAt: Date(timeIntervalSince1970: 0),
             lastSeenAt: Date(timeIntervalSince1970: lastSeenAt),
-            isActive: false,
+            isActive: isActive,
             stackUserID: "user-1",
             teamID: "team-a"
         )
