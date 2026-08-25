@@ -321,6 +321,50 @@ extension AgentNotificationRegressionTests {
         #expect(!dock.agentNeedsInputAttention.surfaceIds.contains(panelID))
     }
 
+    @Test("Native attention resolves a Dock-owned panel")
+    func nativeAttentionResolvesDockOwnedPanel() throws {
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            scope: .global,
+            baseDirectoryProvider: { nil }
+        )
+        let paneID = try #require(dock.bonsplitController.allPaneIds.first)
+        let panelID = try #require(
+            dock.newSurface(kind: .terminal, inPane: paneID, focus: false)
+        )
+        defer {
+            FeedCoordinator.shared.retireAgentAttention(
+                workspaceId: dock.workspaceId,
+                panelId: panelID
+            )
+            dock.closeAllPanels()
+        }
+        let generation = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        #expect(
+            dock.recordAgentPIDResult(
+                key: "amp.native",
+                pid: generation.pid,
+                panelId: panelID,
+                processIdentity: generation
+            ).accepted
+        )
+
+        #expect(
+            FeedCoordinator.shared.beginObservedAgentAttention(
+                source: "amp",
+                sessionId: "dock-native-session-\(UUID().uuidString)",
+                observationId: "dock-native-observation-\(UUID().uuidString)",
+                scopeId: "dock-native-scope-\(UUID().uuidString)",
+                workspaceId: dock.workspaceId,
+                surfaceId: panelID,
+                processGeneration: generation
+            )
+        )
+        #expect(dock.agentNeedsInputAttention.surfaceIds.contains(panelID))
+    }
+
     @Test("Workspace rejects delayed PID registration before replacing runtime")
     func workspaceRejectsDelayedOlderPIDRegistration() throws {
         let workspace = Workspace()
