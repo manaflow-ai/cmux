@@ -1738,9 +1738,7 @@ fn validate_correlation_key(value: &str) -> Result<(), UsageError> {
 
 fn validate_bounded_text(flag: &str, value: &str) -> Result<(), UsageError> {
     if value.is_empty() || value.len() > 128 {
-        Err(UsageError::new(format!(
-            "{flag} must contain 1 to 128 UTF-8 bytes"
-        )))
+        Err(UsageError::new(format!("{flag} must contain 1 to 128 UTF-8 bytes")))
     } else {
         Ok(())
     }
