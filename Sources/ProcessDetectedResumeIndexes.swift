@@ -54,31 +54,42 @@ struct ProcessDetectedResumeIndexes: Sendable {
             }
         }
     ) async -> ProcessDetectedResumeIndexes? {
-        await withCheckedContinuation { continuation in
-            let gate = AgentForkTimeoutResumeGate<ProcessDetectedResumeIndexes?>(continuation)
-            // The synchronous worker cannot be interrupted in the middle of a
-            // process/filesystem call. Its owner retains the handle until it
-            // finishes so a later recovery pass cannot overlap another scan.
-            let worker = Task.detached(priority: .utility) {
-                let result = loadFreshSynchronously(
-                    homeDirectory: homeDirectory,
-                    fileManager: fileManager,
-                    ttyDeviceBindings: ttyDeviceBindings
-                )
-                _ = gate.resume(returning: result)
-                return result
+        let (workerFinished, workerFinishedContinuation) =
+            AsyncStream<Void>.makeStream()
+        // The synchronous worker cannot be interrupted in the middle of a
+        // process/filesystem call. Its owner retains the handle until it
+        // finishes so a later recovery pass cannot overlap another scan.
+        let worker = Task.detached(priority: .utility) {
+            let result = loadFreshSynchronously(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager,
+                ttyDeviceBindings: ttyDeviceBindings
+            )
+            workerFinishedContinuation.yield(())
+            return result
+        }
+        onWorkerCreated(worker)
+
+        // Race two cancellable child tasks. The worker signal child is separate
+        // from the synchronous worker, so canceling the race never waits for a
+        // timed-out process/filesystem scan.
+        return await withTaskGroup(of: Int.self) { group in
+            group.addTask {
+                var iterator = workerFinished.makeAsyncIterator()
+                _ = await iterator.next()
+                return 0 // worker finished
             }
-            onWorkerCreated(worker)
-            Task {
-                guard await sleepUntilDeadline(deadline) else {
-                    // Cancellation must still release the continuation; otherwise
-                    // the owning recovery task can wait forever during teardown.
-                    _ = gate.resume(returning: nil)
-                    return
-                }
+            group.addTask {
+                await sleepUntilDeadline(deadline) ? 1 : 2
+            }
+            let winner = await group.next() ?? 2
+            workerFinishedContinuation.finish()
+            group.cancelAll()
+            guard winner == 0 else {
                 worker.cancel()
-                _ = gate.resume(returning: nil)
+                return nil
             }
+            return await worker.value
         }
     }
 

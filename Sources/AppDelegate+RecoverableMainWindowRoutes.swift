@@ -350,13 +350,15 @@ extension AppDelegate {
                   self?.windowForMainWindowId(windowId) == nil else {
                 return
             }
-            let restorableAgentIndex = resumeIndexes?.restorableAgentIndex ?? .empty
+            // A timed-out fresh scan must retain the last cached agent projection;
+            // only its process-detected surface bindings are unavailable.
+            let restorableAgentIndex = resumeIndexes?.restorableAgentIndex
+                ?? SharedLiveAgentIndex.shared.index
+                ?? .empty
             self?.freezeWindowlessRecoverableMainWindowRoute(
                 route,
                 restorableAgentIndex: restorableAgentIndex,
-                surfaceResumeBindingIndex: ttyDeviceBindings.isEmpty
-                    ? nil
-                    : resumeIndexes?.surfaceResumeBindingIndex
+                surfaceResumeBindingIndex: resumeIndexes?.surfaceResumeBindingIndex
             )
         }
         mainWindowLifecycleCoordinator.retainWindowlessRouteFreezeTask(
