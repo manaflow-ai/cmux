@@ -266,6 +266,11 @@ final class TuiManualIOPump {
     private var stdoutTask: Task<Void, Never>?
     private var stderrBox = TuiManualIOStderrBox()
     private var retryTask: Task<Void, Never>?
+    /// Process termination and stderr EOF race (termination is not EOF);
+    /// classification needs the relay's final stderr line, so it runs only
+    /// once BOTH have arrived for the current generation.
+    private var pendingExitStatus: Int32?
+    private var stderrDrainedGeneration = 0
     /// Fences callbacks from an old relay after a respawn or stop.
     private var generation = 0
     private var stopped = false
@@ -426,13 +431,16 @@ final class TuiManualIOPump {
 
         let stderrBox = TuiManualIOStderrBox()
         self.stderrBox = stderrBox
-        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            if data.isEmpty {
-                handle.readabilityHandler = nil
-                return
+        pendingExitStatus = nil
+        // Blocking drain to EOF on a throwaway queue: it continuously
+        // empties the pipe (a full pipe would wedge the relay) and EOF is
+        // the only signal that the final exit-reason line has landed.
+        let stderrHandle = stderrPipe.fileHandleForReading
+        DispatchQueue(label: "cmux.tuiManualIO.stderr", qos: .utility).async { [weak self] in
+            stderrBox.append(stderrHandle.readDataToEndOfFile())
+            Task { @MainActor [weak self] in
+                self?.handleStderrDrained(generation: spawnGeneration)
             }
-            stderrBox.append(data)
         }
 
         let reader = RemoteTmuxProcessOutputReader(
@@ -464,7 +472,7 @@ final class TuiManualIOPump {
         process.terminationHandler = { [weak self] finished in
             let status = finished.terminationStatus
             Task { @MainActor [weak self] in
-                self?.handleRelayExit(generation: spawnGeneration, status: status)
+                self?.handleRelayTermination(generation: spawnGeneration, status: status)
             }
         }
 
@@ -480,6 +488,24 @@ final class TuiManualIOPump {
         inputChannel.setHandle(stdinPipe.fileHandleForWriting)
         reader.attach(to: stdoutPipe.fileHandleForReading)
         log("relay spawned generation=\(spawnGeneration) grid=\(grid.cols)x\(grid.rows)")
+    }
+
+    private func handleStderrDrained(generation drainedGeneration: Int) {
+        guard drainedGeneration == generation, !stopped else { return }
+        stderrDrainedGeneration = drainedGeneration
+        if let status = pendingExitStatus {
+            pendingExitStatus = nil
+            handleRelayExit(generation: drainedGeneration, status: status)
+        }
+    }
+
+    private func handleRelayTermination(generation exitedGeneration: Int, status: Int32) {
+        guard exitedGeneration == generation, !stopped else { return }
+        guard stderrDrainedGeneration == exitedGeneration else {
+            pendingExitStatus = status
+            return
+        }
+        handleRelayExit(generation: exitedGeneration, status: status)
     }
 
     private func handleRelayExit(
