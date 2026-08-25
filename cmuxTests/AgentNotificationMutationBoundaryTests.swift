@@ -10,6 +10,65 @@ import Testing
 #endif
 
 extension AgentNotificationRegressionTests {
+    @Test("Generic hook recovery prefers the currently live process generation")
+    func genericHookRecoveryPrefersCurrentProcessGeneration() {
+        let cli = CMUXCLI(args: [])
+        let currentPID = Int(getpid())
+
+        #expect(
+            cli.preferredAgentHookEventPID(
+                agentName: "cursor",
+                mappedPID: 999_991,
+                inferredPID: currentPID
+            ) == currentPID,
+            "A provider restart can deliver a hook before SessionStart rewrites the mapped PID."
+        )
+        #expect(
+            cli.preferredAgentHookEventPID(
+                agentName: "claude",
+                mappedPID: 999_991,
+                inferredPID: currentPID
+            ) == currentPID,
+            "All generic integrations must attach generation metadata to the live hook process."
+        )
+    }
+
+    @Test("Panel transfer preserves lifecycle-owned status without a PID key")
+    func panelTransferPreservesLifecycleOwnedStatusWithoutPID() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let status = SidebarStatusEntry(
+            key: "amp",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF"
+        )
+        workspace.statusEntries["amp"] = status
+        let remoteGeneration = AgentPIDProcessIdentity(
+            pid: 42_424,
+            startSeconds: 1_700_000_000,
+            startMicroseconds: 123
+        )
+
+        #expect(
+            workspace.setAgentLifecycle(
+                key: "amp",
+                panelId: panelID,
+                lifecycle: .running,
+                processGeneration: remoteGeneration
+            )
+        )
+        let runtime = try #require(
+            workspace.agentRuntimeState(forPanelId: panelID)
+        )
+        #expect(runtime.agentPIDs.isEmpty)
+        #expect(runtime.agentLifecycleStates["amp"] == .running)
+        #expect(
+            runtime.statusEntries["amp"] == status,
+            "A lifecycle-owned remote status must remain visible when its panel moves without a local PID key."
+        )
+    }
+
     // Generous for loaded CI runners: subprocess spawn, signal propagation,
     // and marker writes can take multiple seconds there. A long timeout only
     // slows the failure path.

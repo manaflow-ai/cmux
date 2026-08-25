@@ -4076,6 +4076,50 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                 after=delayed_directory_start,
             )
 
+            cancelled_tool_call_id = (
+                f"cursor-call-cancelled-during-observation-{id_suffix}"
+            )
+            cancelled_payload = {
+                **requested_payload,
+                "generation_id": "cursor-turn-cancelled-observation",
+                "tool_use_id": cancelled_tool_call_id,
+                "tool_input": {"command": "npm run deploy"},
+            }
+            # A turn boundary can cancel an observer while it is waiting for
+            # Cursor's native decision. A decision arriving after that
+            # cancellation must not resurrect Needs Input for the old turn.
+            log_path.write_text("", encoding="utf-8")
+            cancelled_start = len(fake.frames)
+            run_cursor_feed("preToolUse", cancelled_payload)
+            wait_for_cursor_observer(cancelled_tool_call_id, present=True)
+            run_cursor_feed(
+                "postToolUse",
+                {
+                    **cancelled_payload,
+                    "tool_output": "turn ended before approval decision",
+                },
+            )
+            wait_for_method(
+                fake,
+                "agent.attention.end",
+                after=cancelled_start,
+            )
+            append_native_decision(
+                "Shell permissions: requesting shell approval",
+                cancelled_tool_call_id,
+            )
+            wait_for_cursor_observer(cancelled_tool_call_id, present=False)
+            stale_begins = [
+                frame
+                for frame in fake.frames[cancelled_start:]
+                if frame.get("method") == "agent.attention.begin"
+            ]
+            if stale_begins:
+                raise AssertionError(
+                    "Cursor observer published attention after its lease was cancelled: "
+                    f"{stale_begins!r}"
+                )
+
             auto_payload = {
                 **requested_payload,
                 "generation_id": "cursor-turn-2",

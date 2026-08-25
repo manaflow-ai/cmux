@@ -490,4 +490,19 @@ struct AgentTurnSettlementTests {
 
         #expect(freshness == .unknown)
     }
+
+    @Test func incompleteNestedTurnIdentityRemainsUnknown() {
+        let freshness = AgentTurnSettlementReconciler().classifyTurnFreshness(
+            incomingTurnId: "untracked-nested-turn",
+            activeTurnIds: ["tracked-nested-turn"],
+            activeTurnDepth: 2,
+            latestTurnId: "tracked-nested-turn",
+            terminalTurnIds: []
+        )
+
+        #expect(
+            freshness == .unknown,
+            "A partial legacy depth/ID snapshot cannot prove that an untracked stop is stale."
+        )
+    }
 }
