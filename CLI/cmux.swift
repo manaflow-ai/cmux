@@ -10486,9 +10486,12 @@ struct CMUXCLI {
         if let mixedTTYCluster = leadingRemoteOptionArguments.first(
             where: SSHRemoteCommand.isMixedTTYOptionCluster
         ) {
-            throw CLIError(message: String(
-                localized: "cli.ssh.error.mixedTTYOptionCluster",
-                defaultValue: "ssh: mixed short-option cluster '\(mixedTTYCluster)' is not supported after the destination; use --ssh-option for SSH flags or -- for remote command arguments"
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(
+                    localized: "cli.ssh.error.mixedTTYOptionCluster",
+                    defaultValue: "ssh: mixed short-option cluster '%@' is not supported after the destination; use --ssh-option for SSH flags or -- for remote command arguments"
+                ),
+                mixedTTYCluster
             ))
         }
         let remoteCommand = SSHRemoteCommand(
