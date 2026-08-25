@@ -13,6 +13,8 @@ ZIG_EXPECTED_SHA256="${ZIG_EXPECTED_SHA256:-}"
 ZIG_WORK_PARENT="${RUNNER_TEMP:-/tmp/cmux-zig-ci}"
 ZIG_SYSTEM_PREFIX="${ZIG_SYSTEM_PREFIX:-/usr/local}"
 ZIG_SYSTEM_PREFIX="${ZIG_SYSTEM_PREFIX%/}"
+ZIG_DOWNLOAD_ATTEMPTS="${ZIG_DOWNLOAD_ATTEMPTS:-8}"
+ZIG_DOWNLOAD_RETRY_DELAY="${ZIG_DOWNLOAD_RETRY_DELAY:-10}"
 export HOMEBREW_NO_AUTO_UPDATE="${HOMEBREW_NO_AUTO_UPDATE:-1}"
 export HOMEBREW_NO_INSTALL_CLEANUP="${HOMEBREW_NO_INSTALL_CLEANUP:-1}"
 export HOMEBREW_NO_ENV_HINTS="${HOMEBREW_NO_ENV_HINTS:-1}"
@@ -120,22 +122,56 @@ download_file() {
   local url="$1"
   local output="$2"
   local partial_output="${3:-${output}.part}"
-  if ! curl \
-      --fail \
-      --location \
-      --show-error \
-      --continue-at - \
-      --connect-timeout 20 \
-      --max-time 300 \
-      --retry 8 \
-      --retry-all-errors \
-      --retry-delay 10 \
-      --retry-max-time 300 \
-      "$url" \
-      --output "$partial_output"; then
-    return 1
-  fi
-  mv -f "$partial_output" "$output"
+  local attempt=1
+  local curl_status=1
+
+  case "$ZIG_DOWNLOAD_ATTEMPTS" in
+    ''|*[!0-9]*|0)
+      echo "Invalid ZIG_DOWNLOAD_ATTEMPTS: ${ZIG_DOWNLOAD_ATTEMPTS}" >&2
+      return 1
+      ;;
+  esac
+  case "$ZIG_DOWNLOAD_RETRY_DELAY" in
+    ''|*[!0-9]*)
+      echo "Invalid ZIG_DOWNLOAD_RETRY_DELAY: ${ZIG_DOWNLOAD_RETRY_DELAY}" >&2
+      return 1
+      ;;
+  esac
+
+  # Keep the retry budget outside curl. Each bounded curl process gets its
+  # own 300-second transfer window while the mirror-specific partial file
+  # carries progress into the next process.
+  while [ "$attempt" -le "$ZIG_DOWNLOAD_ATTEMPTS" ]; do
+    if curl \
+        --fail \
+        --location \
+        --show-error \
+        --continue-at - \
+        --connect-timeout 20 \
+        --max-time 300 \
+        "$url" \
+        --output "$partial_output"; then
+      if ! mv -f "$partial_output" "$output"; then
+        return 1
+      fi
+      return 0
+    else
+      curl_status="$?"
+    fi
+
+    # A server that cannot honor Range cannot resume this partial file. Curl
+    # reports that condition as CURLE_RANGE_ERROR (33); only then is it safe
+    # to discard the bytes and restart from zero. Preserve partial bytes for
+    # every other failure so the next attempt resumes this same mirror.
+    if [ "$curl_status" -eq 33 ]; then
+      rm -f "$partial_output"
+    fi
+    if [ "$attempt" -lt "$ZIG_DOWNLOAD_ATTEMPTS" ] && [ "$ZIG_DOWNLOAD_RETRY_DELAY" -gt 0 ]; then
+      sleep "$ZIG_DOWNLOAD_RETRY_DELAY"
+    fi
+    attempt=$((attempt + 1))
+  done
+  return "$curl_status"
 }
 
 download_zig_artifact() {

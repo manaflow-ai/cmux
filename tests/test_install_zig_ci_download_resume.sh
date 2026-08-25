@@ -40,6 +40,9 @@ CURL_LOG="$TMP_DIR/curl.log"
 RESUME_RUNNER_TEMP="$TMP_DIR/resume-runner-temp"
 RESUME_OUTPUT_FILE="$TMP_DIR/resume-output"
 RESUME_CURL_LOG="$TMP_DIR/resume-curl.log"
+RANGE_RUNNER_TEMP="$TMP_DIR/range-runner-temp"
+RANGE_OUTPUT_FILE="$TMP_DIR/range-output"
+RANGE_CURL_LOG="$TMP_DIR/range-curl.log"
 
 mkdir -p "$FIXTURE_ROOT/$ZIG_NAME/lib/compiler" "$BIN_DIR"
 cat > "$FIXTURE_ROOT/$ZIG_NAME/zig" <<EOF
@@ -80,7 +83,7 @@ set -euo pipefail
 url=""
 output=""
 continue_at=""
-curl_args=("$@")
+state_file="${CURL_LOG:?}.state"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --continue-at)
@@ -114,14 +117,23 @@ done
   exit 2
 }
 
-  printf '%s\t%s\tcontinue-at=%s\n' "$url" "$output" "$continue_at" >> "${CURL_LOG:?}"
+resume_offset=0
+if [ -f "$output" ]; then
+  resume_offset="$(wc -c < "$output" | tr -d ' ')"
+fi
+  printf '%s\t%s\tcontinue-at=%s\tresume-offset=%s\n' "$url" "$output" "$continue_at" "$resume_offset" >> "${CURL_LOG:?}"
 
 case "$url" in
   *primary.invalid*)
-    if [ "${FAKE_CURL_MODE:?}" = "resume" ] && [ ! -s "$output" ]; then
+    if [ "${FAKE_CURL_MODE:?}" = "resume" ] && [ ! -e "$state_file" ]; then
+      : > "$state_file"
       head -c 32 "${FAKE_ZIG_ARCHIVE:?}" > "$output"
-      FAKE_CURL_RECURSED=1 "$0" "${curl_args[@]}"
-      exit $?
+      exit 28
+    fi
+    if [ "${FAKE_CURL_MODE:?}" = "range-reset" ] && [ ! -e "$state_file" ]; then
+      : > "$state_file"
+      printf 'stale bytes that cannot be resumed\n' > "$output"
+      exit 33
     fi
     if [ "${FAKE_CURL_MODE:?}" = "fallback" ]; then
       printf 'partial bytes from primary\n' > "$output"
@@ -148,6 +160,7 @@ run_install() {
   PATH="$BIN_DIR:/usr/bin:/bin" \
     RUNNER_TEMP="$runner_temp" \
     FAKE_CURL_MODE="$mode" \
+    ZIG_DOWNLOAD_RETRY_DELAY=0 \
     FAKE_ZIG_ARCHIVE="$ARCHIVE" \
     CURL_LOG="$curl_log" \
     ZIG_REQUIRED="$ZIG_REQUIRED" \
@@ -170,18 +183,27 @@ if grep -Fq 'secondary.invalid' "$RESUME_CURL_LOG"; then
   echo "FAIL: resumable primary transfer fell back despite completing on retry" >&2
   exit 1
 fi
+if ! awk -F '\t' '$1 ~ /primary\.invalid/ && $4 == "resume-offset=32" { found = 1 } END { exit(found ? 0 : 1) }' "$RESUME_CURL_LOG"; then
+  cat "$RESUME_OUTPUT_FILE"
+  cat "$RESUME_CURL_LOG"
+  echo "FAIL: later curl process did not resume the primary partial file" >&2
+  exit 1
+fi
 
-PATH="$BIN_DIR:/usr/bin:/bin" \
-  RUNNER_TEMP="$RUNNER_TEMP" \
-  FAKE_CURL_MODE=fallback \
-  FAKE_ZIG_ARCHIVE="$ARCHIVE" \
-  CURL_LOG="$CURL_LOG" \
-  ZIG_REQUIRED="$ZIG_REQUIRED" \
-  ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
-  ZIG_MIRROR_URL="https://primary.invalid/$ZIG_NAME.tar.xz" \
-  ZIG_SECONDARY_MIRROR_URL="https://secondary.invalid/$ZIG_NAME.tar.xz" \
-  ZIG_OFFICIAL_URL="https://official.invalid/$ZIG_NAME.tar.xz" \
-  "$SCRIPT" > "$OUTPUT_FILE" 2>&1
+run_install range-reset "$RANGE_RUNNER_TEMP" "$RANGE_OUTPUT_FILE" "$RANGE_CURL_LOG"
+if [ ! -x "$RANGE_RUNNER_TEMP/$ZIG_NAME/zig" ]; then
+  cat "$RANGE_OUTPUT_FILE"
+  echo "FAIL: range-unsupported retry did not install Zig" >&2
+  exit 1
+fi
+if ! awk -F '\t' '$1 ~ /primary\.invalid/ && $4 == "resume-offset=0" { count += 1 } END { exit(count >= 2 ? 0 : 1) }' "$RANGE_CURL_LOG"; then
+  cat "$RANGE_OUTPUT_FILE"
+  cat "$RANGE_CURL_LOG"
+  echo "FAIL: range-unsupported retry did not reset only the affected partial file" >&2
+  exit 1
+fi
+
+run_install fallback "$RUNNER_TEMP" "$OUTPUT_FILE" "$CURL_LOG"
 
 if ! grep -Fq -- 'continue-at=-' "$CURL_LOG"; then
   cat "$OUTPUT_FILE"
