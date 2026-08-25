@@ -24,7 +24,16 @@ extension Workspace {
                 } else {
                     existingPath = nil
                 }
-                guard let existingPath,
+                let isArtifactBacked: Bool
+                if let markdown = panel as? MarkdownPanel {
+                    isArtifactBacked = markdown.isReadOnly
+                } else if let preview = panel as? FilePreviewPanel {
+                    isArtifactBacked = preview.isReadOnly
+                } else {
+                    isArtifactBacked = false
+                }
+                guard isArtifactBacked,
+                      let existingPath,
                       (existingPath as NSString).resolvingSymlinksInPath == canonical else {
                     continue
                 }

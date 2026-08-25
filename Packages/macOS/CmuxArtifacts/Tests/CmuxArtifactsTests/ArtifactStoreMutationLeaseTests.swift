@@ -120,4 +120,41 @@ struct ArtifactStoreMutationLeaseTests {
         }
         #expect(try String(contentsOf: note, encoding: .utf8) == "replacement")
     }
+
+    @Test("Descriptor-relative metadata writes survive a swapped ancestor")
+    func writesThroughPinnedAncestor() throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let paths = ArtifactStorePaths(projectRoot: root)
+        try FileManager.default.createDirectory(
+            at: paths.provenanceRoot,
+            withIntermediateDirectories: true
+        )
+        let outside = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(outside) }
+        let lease = try ArtifactStoreMutationLease(directory: paths.filesystemRoot)
+        defer { lease.finish() }
+
+        let oldMetadata = paths.filesystemRoot.appendingPathComponent(".metadata-old")
+        try FileManager.default.moveItem(at: paths.metadataRoot, to: oldMetadata)
+        try FileManager.default.createSymbolicLink(
+            at: paths.metadataRoot,
+            withDestinationURL: outside
+        )
+
+        try lease.writeData(
+            Data("safe".utf8),
+            toRelativePath: ".metadata/provenance/digest.json"
+        )
+
+        #expect(
+            try String(
+                contentsOf: oldMetadata.appendingPathComponent("provenance/digest.json"),
+                encoding: .utf8
+            ) == "safe"
+        )
+        #expect(!FileManager.default.fileExists(
+            atPath: outside.appendingPathComponent("provenance/digest.json").path
+        ))
+    }
 }

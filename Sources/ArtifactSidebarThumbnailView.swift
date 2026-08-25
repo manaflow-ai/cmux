@@ -6,6 +6,7 @@ import SwiftUI
 /// Small Quick Look thumbnail used for image and video artifact rows.
 struct ArtifactSidebarThumbnailView: View {
     let fileURL: URL
+    let artifactRoot: URL?
     let kind: ArtifactFileKind?
     let isDirectory: Bool
     let revision: ArtifactSidebarFileRevision?
@@ -52,8 +53,18 @@ struct ArtifactSidebarThumbnailView: View {
         guard kind == .image || kind == .video else {
             return
         }
+        let openedFile: ArtifactSidebarFileAccess.OpenedFile?
+        if let artifactRoot {
+            openedFile = ArtifactSidebarFileAccess().openedFile(
+                for: fileURL,
+                artifactRoot: artifactRoot
+            )
+            guard let openedFile else { return }
+        } else {
+            openedFile = nil
+        }
         let request = QLThumbnailGenerator.Request(
-            fileAt: fileURL,
+            fileAt: openedFile?.readURL ?? fileURL,
             size: CGSize(width: 48, height: 48),
             scale: NSScreen.main?.backingScaleFactor ?? 2,
             representationTypes: [.thumbnail, .icon]

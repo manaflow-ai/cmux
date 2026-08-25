@@ -29,7 +29,7 @@ extension LocalArtifactRepository {
                 capturedAt: capturedAt,
                 size: size
             )
-            try recordProvenance(record, paths: paths)
+            try recordProvenance(record, paths: paths, mutationLease: mutationLease)
             existingByDigest[digest] = source
             return .alreadyStored(record)
         }
@@ -45,7 +45,7 @@ extension LocalArtifactRepository {
                 capturedAt: capturedAt,
                 size: size
             )
-            try recordProvenance(record, paths: paths)
+            try recordProvenance(record, paths: paths, mutationLease: mutationLease)
             return .deduplicated(record)
         }
 
@@ -112,7 +112,7 @@ extension LocalArtifactRepository {
             capturedAt: capturedAt,
             size: size
         )
-        try recordProvenance(record, paths: paths)
+        try recordProvenance(record, paths: paths, mutationLease: mutationLease)
         existingByDigest[digest] = destination
         keepsDestination = true
         return .copied(record)

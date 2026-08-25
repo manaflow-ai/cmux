@@ -99,13 +99,19 @@ extension TerminalController {
         } catch {
             throw MobileChatArtifactIndexError.sessionUnavailable
         }
+        let maximumFileBytes = await service.artifactCaptureCoordinator?
+            .maximumTranscriptScanBytes(for: resolved.record)
         let snapshot = try await service.artifactIndex.snapshot(
             sessionID: resolved.record.sessionID,
             agentKind: resolved.record.agentKind,
             transcriptPath: resolved.path,
-            workingDirectory: resolved.record.workingDirectory
+            workingDirectory: resolved.record.workingDirectory,
+            maximumFileBytes: maximumFileBytes
         )
-        service.scheduleIndexedArtifactCapture(record: resolved.record, snapshot: snapshot)
+        if service.observesTranscriptsForAutomaticArtifactCapture,
+           maximumFileBytes != nil {
+            service.scheduleIndexedArtifactCapture(record: resolved.record, snapshot: snapshot)
+        }
         return (resolved.record.sessionID, snapshot)
     }
 

@@ -11,6 +11,7 @@ struct ArtifactSidebarRowView: View {
             disclosure
             ArtifactSidebarThumbnailView(
                 fileURL: snapshot.fileURL,
+                artifactRoot: snapshot.projectRoot?.appendingPathComponent(".cmux", isDirectory: true),
                 kind: snapshot.fileKind,
                 isDirectory: snapshot.isDirectory,
                 revision: snapshot.fileRevision

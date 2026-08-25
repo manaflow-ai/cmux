@@ -122,6 +122,95 @@ final class ArtifactStoreMutationLease {
         }
     }
 
+    /// Atomically writes one store-relative file through descriptor-pinned
+    /// parents. The caller may hold the same lease for a larger mutation.
+    func writeData(_ data: Data, toRelativePath relativePath: String) throws {
+        let components = relativePath.split(separator: "/").map(String.init)
+        guard !relativePath.contains("\0"),
+              !components.isEmpty,
+              components.allSatisfy({ $0 != "." && $0 != ".." }) else {
+            throw ArtifactStoreError.pathOutsideStore(relativePath)
+        }
+
+        var openedDescriptors: [Int32] = []
+        defer {
+            for openedDescriptor in openedDescriptors.reversed() {
+                _ = close(openedDescriptor)
+            }
+        }
+        var parentDescriptor = descriptor
+        for component in components.dropLast() {
+            let childDescriptor = component.withCString { componentPointer in
+                Darwin.openat(
+                    parentDescriptor,
+                    componentPointer,
+                    O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
+                )
+            }
+            guard childDescriptor >= 0 else {
+                throw ArtifactStoreError.pathOutsideStore(relativePath)
+            }
+            openedDescriptors.append(childDescriptor)
+            parentDescriptor = childDescriptor
+        }
+
+        guard let destinationName = components.last else {
+            throw ArtifactStoreError.pathOutsideStore(relativePath)
+        }
+        let temporaryName = ".cmux-provenance-\(UUID().uuidString).tmp"
+        let temporaryDescriptor = temporaryName.withCString { name in
+            Darwin.openat(
+                parentDescriptor,
+                name,
+                O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+                S_IRUSR | S_IWUSR
+            )
+        }
+        guard temporaryDescriptor >= 0 else {
+            throw ArtifactStoreError.pathOutsideStore(relativePath)
+        }
+        var keepsTemporary = true
+        defer {
+            _ = close(temporaryDescriptor)
+            if keepsTemporary {
+                _ = temporaryName.withCString { name in
+                    Darwin.unlinkat(parentDescriptor, name, 0)
+                }
+            }
+        }
+        try data.withUnsafeBytes { bytes in
+            guard let baseAddress = bytes.baseAddress else { return }
+            var offset = 0
+            while offset < bytes.count {
+                let written = Darwin.write(
+                    temporaryDescriptor,
+                    baseAddress.advanced(by: offset),
+                    bytes.count - offset
+                )
+                if written < 0, errno == EINTR { continue }
+                guard written > 0 else {
+                    throw ArtifactStoreError.pathOutsideStore(relativePath)
+                }
+                offset += written
+            }
+        }
+        guard Darwin.fsync(temporaryDescriptor) == 0,
+              temporaryName.withCString({ sourceName in
+                  destinationName.withCString { targetName in
+                      Darwin.renameat(
+                          parentDescriptor,
+                          sourceName,
+                          parentDescriptor,
+                          targetName
+                      )
+                  }
+              }) == 0 else {
+            throw ArtifactStoreError.pathOutsideStore(relativePath)
+        }
+        _ = Darwin.fsync(parentDescriptor)
+        keepsTemporary = false
+    }
+
     /// Moves a staged file into the leased store without resolving destination
     /// parents again after validation.
     func moveFile(

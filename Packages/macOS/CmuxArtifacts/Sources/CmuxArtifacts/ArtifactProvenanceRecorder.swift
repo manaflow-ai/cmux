@@ -34,7 +34,8 @@ struct ArtifactProvenanceRecorder {
         digest: String,
         relativePath: String,
         size: Int64,
-        event: ArtifactProvenanceEvent
+        event: ArtifactProvenanceEvent,
+        mutationLease: ArtifactStoreMutationLease? = nil
     ) throws {
         try rejectSymbolicLink(at: paths.filesystemRoot)
         try rejectSymbolicLink(at: paths.metadataRoot)
@@ -71,7 +72,19 @@ struct ArtifactProvenanceRecorder {
                 metadataURL(paths: paths, digest: digest).path
             )
         }
-        try data.write(to: metadataURL(paths: paths, digest: digest), options: .atomic)
+        if let mutationLease {
+            try mutationLease.writeData(
+                data,
+                toRelativePath: ".metadata/provenance/\(digest).json"
+            )
+        } else {
+            let ownedLease = try ArtifactStoreMutationLease(directory: paths.filesystemRoot)
+            defer { ownedLease.finish() }
+            try ownedLease.writeData(
+                data,
+                toRelativePath: ".metadata/provenance/\(digest).json"
+            )
+        }
     }
 
     func metadataURL(paths: ArtifactStorePaths, digest: String) -> URL {

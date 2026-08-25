@@ -384,7 +384,11 @@ public actor LocalArtifactRepository: ArtifactStoring {
         )
     }
 
-    func recordProvenance(_ record: ArtifactRecord, paths: ArtifactStorePaths) throws {
+    func recordProvenance(
+        _ record: ArtifactRecord,
+        paths: ArtifactStorePaths,
+        mutationLease: ArtifactStoreMutationLease
+    ) throws {
         let recorder = ArtifactProvenanceRecorder(
             fileManager: fileManager,
             encoder: encoder,
@@ -401,7 +405,8 @@ public actor LocalArtifactRepository: ArtifactStoring {
                 sessionID: record.sessionID,
                 provenance: record.provenance,
                 capturedAt: record.capturedAt
-            )
+            ),
+            mutationLease: mutationLease
         )
     }
 }
