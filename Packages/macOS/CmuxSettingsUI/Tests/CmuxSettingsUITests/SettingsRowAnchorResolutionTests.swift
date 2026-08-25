@@ -82,6 +82,7 @@ struct SettingsRowAnchorResolutionTests {
         "browser.urlsToAlwaysOpenExternally",
         "canvas.paneGap",
         "canvas.snappingEnabled",
+        "cloud.beta.machines.enabled",
         "customSidebars.renderer",
         "fileEditor.wordWrap",
         "mobile.artifactFolderAccess",
