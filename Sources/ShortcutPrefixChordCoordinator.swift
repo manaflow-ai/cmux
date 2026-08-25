@@ -271,7 +271,6 @@ final class ShortcutPrefixChordCoordinator {
         for event: NSEvent,
         owner: AppDelegate
     ) -> [ShortcutPrefixChordBinding] {
-        let context = owner.shortcutEventFocusContext(event).shortcutContext
         var result: [ShortcutPrefixChordBinding] = []
         result.reserveCapacity(KeyboardShortcutSettings.Action.allCases.count)
 
@@ -280,7 +279,7 @@ final class ShortcutPrefixChordCoordinator {
                   action.allowsChordShortcut,
                   let shortcut = KeyboardShortcutSettings.shortcutIfBound(for: action),
                   shortcut.hasChord,
-                  KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(context) else {
+                  owner.shortcutWhenClauseAllows(action: action, event: event) else {
                 continue
             }
             guard let binding = ShortcutPrefixChordBinding(

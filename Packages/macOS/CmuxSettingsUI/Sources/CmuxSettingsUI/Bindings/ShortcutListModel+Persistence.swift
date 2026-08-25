@@ -60,9 +60,10 @@ extension ShortcutListModel {
         rebasingChordsTo firstStroke: ShortcutStroke?,
         rebasingGeneration: Int?
     ) async {
+        var rebasedOriginals: [String: StoredShortcut]?
         do {
             if let firstStroke, let rebasingGeneration {
-                try await persistRebasedChordBindings(
+                rebasedOriginals = try await persistRebasedChordBindings(
                     to: firstStroke,
                     generation: rebasingGeneration
                 )
@@ -83,6 +84,9 @@ extension ShortcutListModel {
                 return
             }
             guard prefixWriteGeneration == generation else { return }
+            if let rebasedOriginals {
+                await restoreRebasedChordBindings(rebasedOriginals)
+            }
             let committed = ShortcutPrefixPolicy().normalized(
                 await jsonStore.value(for: catalog.shortcuts.prefix)
             ) ?? previous
@@ -128,7 +132,7 @@ extension ShortcutListModel {
     private func persistRebasedChordBindings(
         to firstStroke: ShortcutStroke,
         generation: Int
-    ) async throws {
+    ) async throws -> [String: StoredShortcut]? {
         // Read the snapshot at execution time, after all earlier queued
         // mutations have landed. The model cache may still be cold or waiting
         // for a coalesced file-watch event, so it is not a safe rebase source.
@@ -145,7 +149,7 @@ extension ShortcutListModel {
             // has landed by the time we observe that there are no chords to
             // rebase, reconcile it here instead of leaving its optimistic
             // snapshot pending forever.
-            guard pendingWriteGeneration == generation else { return }
+            guard pendingWriteGeneration == generation else { return nil }
             let changedActionIds = Set(bindings.keys)
                 .union(persisted.bindings.keys)
                 .filter { bindings[$0] != persisted.bindings[$0] }
@@ -157,8 +161,17 @@ extension ShortcutListModel {
             pruneNumberedDigitRejections(
                 changedActionIds: Set(changedActionIds)
             )
-            return
+            return nil
         }
+        let originals = Dictionary(
+            uniqueKeysWithValues: rebased.compactMap { actionID, shortcut in
+                guard shortcut != current[actionID], let original = current[actionID] else {
+                    return nil
+                }
+                return (actionID, original)
+            }
+        )
+        var appliedActionIDs: [String] = []
 
         for (actionID, shortcut) in rebased where shortcut.hasChord {
             guard let action = ShortcutAction(rawValue: actionID) else { continue }
@@ -190,8 +203,9 @@ extension ShortcutListModel {
                     defaultValue: .unbound
                 )
                 try await jsonStore.set(rebased[actionID] ?? .unbound, for: key)
+                appliedActionIDs.append(actionID)
             }
-            guard pendingWriteGeneration == generation else { return }
+            guard pendingWriteGeneration == generation else { return originals }
             let committed = await jsonStore.value(for: catalog.shortcuts.bindingSnapshot)
             bindings = committed.bindings
             managedBindingActionIDs = committed.managedActionIDs
@@ -202,13 +216,40 @@ extension ShortcutListModel {
                 changedActionIds: Set(current.keys).union(committed.bindings.keys)
                     .filter { current[$0] != committed.bindings[$0] }
             )
+            return originals
         } catch {
+            if !appliedActionIDs.isEmpty {
+                await restoreRebasedChordBindings(
+                    originals,
+                    actionIDs: appliedActionIDs
+                )
+            }
             guard pendingWriteGeneration == generation else { throw error }
             let committed = await jsonStore.value(for: catalog.shortcuts.bindingSnapshot)
             bindings = committed.bindings
             managedBindingActionIDs = committed.managedActionIDs
             pendingBindings = nil
             throw error
+        }
+    }
+
+    /// Restores the leaves changed by a failed prefix rebase. JSONConfigStore
+    /// writes each leaf atomically, so compensating in reverse order returns
+    /// the table to its pre-rebase snapshot whenever the underlying failure is
+    /// transient; a rollback failure is intentionally retained as the original
+    /// settings error so the user still gets one actionable alert.
+    private func restoreRebasedChordBindings(
+        _ originals: [String: StoredShortcut],
+        actionIDs: [String]? = nil
+    ) async {
+        let ids = actionIDs ?? originals.keys.sorted()
+        for actionID in ids.reversed() {
+            guard let original = originals[actionID] else { continue }
+            let key = JSONKey<StoredShortcut>(
+                id: "\(catalog.shortcuts.bindings.id).\(actionID)",
+                defaultValue: .unbound
+            )
+            try? await jsonStore.set(original, for: key)
         }
     }
 

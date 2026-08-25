@@ -44,7 +44,8 @@ extension AppDelegate {
     /// the auxiliary popover's transient focus context cannot prevent dismissal.
     func globalSearchShortcutWhenClauseAllows(event: NSEvent) -> Bool {
         GlobalSearchCoordinator.shared.isPaletteVisible()
-            || shortcutWhenClauseAllows(action: .globalSearch, event: event)
+            || KeyboardShortcutSettings.effectiveWhenClause(for: .globalSearch)
+                .evaluate(shortcutEventFocusContext(event).shortcutContext)
     }
 
     /// Whether the action's effective `shortcuts.when` predicate permits the event.
@@ -52,6 +53,9 @@ extension AppDelegate {
         action: KeyboardShortcutSettings.Action,
         event: NSEvent
     ) -> Bool {
+        if action == .globalSearch {
+            return globalSearchShortcutWhenClauseAllows(event: event)
+        }
         KeyboardShortcutSettings.effectiveWhenClause(for: action)
             .evaluate(shortcutEventFocusContext(event).shortcutContext)
     }

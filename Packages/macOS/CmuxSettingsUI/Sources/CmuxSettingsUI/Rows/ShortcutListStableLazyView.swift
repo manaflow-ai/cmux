@@ -30,8 +30,12 @@ struct ShortcutListStableLazyView: View {
                     // when this action's ordinary single stroke requires a
                     // modifier; without a shared prefix retain the legacy
                     // first-stroke validation.
-                    firstStrokeRequiresModifier: model.prefix.isUnbound
-                        && !action.allowsBareFirstStroke,
+                    // A configured prefix relaxes validation only for the
+                    // suffix of a chord. Single-stroke recording still uses
+                    // the legacy modifier requirement, even when the shared
+                    // prefix layer is enabled.
+                    firstStrokeRequiresModifier: !action.allowsBareFirstStroke
+                        && (model.prefix.isUnbound || !model.chordsEnabled(for: action)),
                     configuredPrefix: model.prefix.isUnbound ? nil : model.prefix.first,
                     isUnbound: effective?.isUnbound ?? true,
                     canRestore: model.canRestore(for: action),

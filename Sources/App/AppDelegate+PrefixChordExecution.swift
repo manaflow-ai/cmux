@@ -68,8 +68,7 @@ extension AppDelegate {
         if let action = KeyboardShortcutSettings.Action(rawValue: binding.actionID) {
             guard let shortcut = KeyboardShortcutSettings.shortcutIfBound(for: action),
                   shortcut.hasChord,
-                  KeyboardShortcutSettings.effectiveWhenClause(for: action)
-                      .evaluate(shortcutEventFocusContext(event).shortcutContext) else {
+                  shortcutWhenClauseAllows(action: action, event: event) else {
                 return false
             }
             return prefixChordShortcutMatches(
