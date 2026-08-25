@@ -3123,7 +3123,7 @@ mod tests {
         let old_control = Arc::clone(&old.control);
         let old_identity = Arc::downgrade(&old_control);
         let before = h.sent().len();
-        h.manager.inner.emit_raw_exit(
+        let _ = h.manager.inner.emit_raw_exit(
             "p1",
             old.generation,
             &stale_stream,
