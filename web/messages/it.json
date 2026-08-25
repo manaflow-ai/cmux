@@ -135,6 +135,35 @@
     "faqFeatureA": "Vogliamo saperlo. Apri una <issuesLink>issue</issuesLink> o una <prLink>pull request</prLink> su GitHub, oppure <mailLink>scrivici</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "panoramica",
+      "team": "team"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "Instrada le richieste LLM tra gli account dei provider con failover e pianificazione basata sull’utilizzo.",
+      "coderouterLink": "apri coderouter",
+      "iosAppName": "app iOS",
+      "iosAppDescription": "Installa l'app iOS di cmux tramite TestFlight (accesso beta).",
+      "iosLink": "Apri l'app iOS"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Gestisci gli account IA condivisi e instrada le richieste con coderouter.",
+      "title": "coderouter",
+      "description": "coderouter instrada le richieste LLM tra gli account dei provider con failover e pianificazione basata sull’utilizzo."
+    },
+    "accountMenu": {
+      "label": "Menu account",
+      "settings": "Impostazioni",
+      "billing": "Fatturazione",
+      "signOut": "Esci",
+      "signingOut": "Uscita…",
+      "signOutError": "Impossibile uscire. Riprova.",
+      "organizationSwitchError": "Impossibile cambiare organizzazione. Riprova.",
+      "signIn": "Accedi"
+    },
     "aiAccounts": {
       "metaTitle": "Account IA — cmux",
       "metaDescription": "Gestisci gli account dei provider IA del team per cmux.",
@@ -185,7 +214,13 @@
       "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
+      "openAiKeyPlaceholder": "sk-...",
+      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
+      "copied": "Copied"
     },
     "billing": {
       "plan": {
@@ -771,6 +806,22 @@
     "remoteTmux": {
       "moshContrast": "Per passare da una rete all’altra usa cmux mosh-tmux. Apre un terminale Mosh pienamente integrato collegato a una sessione tmux denominata; non sostituisce il mirror nativo di workspace, schede e suddivisioni offerto dalla modalità di controllo tmux via SSH."
     },
+    "claudeCodeTeams": {
+      "shimStep1": "Crea uno shim tmux nella directory temporanea degli shim della superficie corrente. Il percorso include l’UUID della superficie e cambia per ogni pannello e a ogni avvio, quindi non è possibile indicare un percorso fisso",
+      "shimStep2": "Imposta TMUX e TMUX_PANE per simulare tmux nella sessione di avvio di Claude Teams",
+      "shimDiagnostic": "Lo shim instrada verso cmux solo quando <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> è impostato; altrimenti passa in modo trasparente al successivo eseguibile tmux reale. Di conseguenza, <which>which tmux</which> non indica se l’intercettazione di Claude Teams è attiva.",
+      "envTmux": "Percorso sintetico del socket tmux per la sessione che ha eseguito cmux claude-teams",
+      "envTmuxPane": "Identificatore sintetico del pannello tmux per la sessione che ha eseguito cmux claude-teams; vuoto nei pannelli agente generati",
+      "envSurface": "L’UUID della superficie corrente; usalo come identificatore della superficie all’interno di un pannello agente creato",
+      "envScope": "I valori sintetici <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> e i valori correlati di compatibilità tmux descrivono la sessione che ha eseguito <command>cmux claude-teams</command>, non i pannelli creati. Da un pannello agente, usa <surface>CMUX_SURFACE_ID</surface> ed esegui <tree>cmux tree --json</tree>; l’oggetto <caller>caller</caller> nell’output identifica il pannello chiamante.",
+      "dirShimPath": "Directory per superficie nella directory temporanea di sistema (nessun percorso fisso)",
+      "dirShim": "Contiene lo shim tmux attivo e viene anteposto a PATH per quella superficie",
+      "dirStore": "Archiviazione persistente per buffer e hook di tmux-compat e per lo stato di posizionamento/layout delle suddivisioni",
+      "storeDetails": "Le chiavi di instradamento delle suddivisioni sono:",
+      "storeLastSplitSurface": "Mappa ogni UUID del workspace all’UUID della superficie creata dall’ultima suddivisione. Fornisce il valore iniziale all’ancora della colonna degli agenti, che decide dove atterra la prossima suddivisione main-vertical.",
+      "storeMainVerticalLayouts": "Mappa ogni UUID del workspace a <mainSurfaceId>mainSurfaceId</mainSurfaceId> (la superficie principale o leader) e <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (la superficie più in basso nella colonna degli agenti). Le successive suddivisioni dei membri del team puntano a quella colonna e si impilano verso il basso.",
+      "storeTroubleshooting": "Controlla queste chiavi di instradamento quando il pannello di un membro del team appare come una scheda dietro una superficie esistente invece che come una suddivisione accanto ad essa."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Per iniziare",
@@ -867,6 +918,8 @@
       "concepts": "Concetti",
       "anchorTitle": "Workspace di ancoraggio",
       "anchorDesc": "Ogni gruppo è di proprietà di esattamente un workspace chiamato ancoraggio. L'intestazione del gruppo nella barra laterale è la rappresentazione dell'ancoraggio — non c'è una riga separata per esso. Cliccando sull'area del nome dell'intestazione si mettono a fuoco i pannelli dell'ancoraggio; cliccando sul chevron si alterna la compressione.",
+      "anchorNew": "L'ancoraggio di un gruppo è sempre un workspace completamente nuovo al momento della creazione; né il raggruppamento di una selezione né la creazione di un gruppo promuovono mai uno dei workspace esistenti ad ancoraggio. (La chiusura successiva dell'ancoraggio promuove invece il primo membro rimasto del gruppo; vedi sotto.) La directory di lavoro dell'ancoraggio viene ereditata dal primo workspace selezionato quando si raggruppa una selezione, oppure dal workspace attivo quando si crea tramite CLI senza --cwd.",
+      "anchorClose": "La chiusura del workspace di ancoraggio chiude solo quel workspace e promuove il primo membro rimasto del gruppo (quello che compare per primo tra quelli ancora presenti nell'ordine del gruppo) a nuovo ancoraggio, lasciando intatti il gruppo e gli altri membri (il membro promosso mostra quindi il nome del gruppo come intestazione). Quando l'ancoraggio è l'unico workspace del gruppo, il gruppo viene rimosso. Per trasformare un gruppo in workspace non raggruppati usa Separa aree di lavoro; per chiudere tutti i workspace di un gruppo usa Elimina gruppo.",
       "identityTitle": "Identità del gruppo",
       "identityDesc": "Un gruppo ha un nome, un'icona (un SF Symbol, predefinito folder.fill) e un colore personalizzato opzionale. Questi sono indipendenti dalle personalizzazioni proprie del workspace di ancoraggio. Il colore e l'icona dell'ancoraggio vengono inizializzati dal gruppo alla creazione, ma possono divergere in seguito.",
       "pinningTitle": "Fissaggio",
@@ -968,7 +1021,8 @@
         "browser": {
           "defaultSearchEngine": "Motore di ricerca predefinito per le query nella barra degli indirizzi del browser che non sono URL. Usa custom con customSearchEngineURLTemplate per altri provider.",
           "customSearchEngineName": "Nome visualizzato quando defaultSearchEngine è custom.",
-          "customSearchEngineURLTemplate": "URL di ricerca usato quando defaultSearchEngine è custom. Includi il segnaposto della query o %s per la query codificata. Senza segnaposto, cmux aggiunge q= all’URL."
+          "customSearchEngineURLTemplate": "URL di ricerca usato quando defaultSearchEngine è custom. Includi il segnaposto della query o %s per la query codificata. Senza segnaposto, cmux aggiunge q= all’URL.",
+          "urlAllowlist": "Pattern di host o URL che limitano la navigazione nel browser incorporato. Le impostazioni suggeriscono le origini di sviluppo locale; salvare un elenco attiva la limitazione opzionale. Rimuovi le voci per bloccarle oppure lascia vuoto il valore utente, quando non esiste una policy gestita, per disattivare la limitazione."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Valore predefinito globale per dove Cmd-N dentro un gruppo, il pulsante + nell’intestazione del gruppo e le azioni di gruppo configurate inseriscono il nuovo workspace: `afterCurrent` (dopo il workspace attivo nel gruppo, con fallback a top), `top` (seconda posizione, subito dopo l’ancora) o `end` (dopo l’ultimo membro).",
@@ -1405,7 +1459,16 @@
     "changelog": {
       "title": "Changelog",
       "metaDescription": "Note di rilascio e cronologia delle versioni di cmux. Nuove funzionalità, correzioni di bug e modifiche per il terminale macOS nativo.",
-      "metaTitle": "Registro modifiche"
+      "metaTitle": "Registro modifiche",
+      "versionTitle": "cmux {version} · Registro modifiche",
+      "releaseNavLabel": "Versioni vicine a cmux {version}",
+      "sections": {
+        "added": "Aggiunte",
+        "changed": "Modifiche",
+        "fixed": "Correzioni",
+        "removed": "Rimozioni",
+        "contributors": "Collaboratori"
+      }
     },
     "navItems": {
       "gettingStarted": "Per iniziare",
@@ -1433,7 +1496,7 @@
       "metaTitle": "Dock",
       "metaDescription": "Aggiungi controlli TUI personalizzati alla barra laterale destra di cmux con Dock JSON.",
       "title": "Dock",
-      "intro": "Dock ti permette di aggiungere controlli TUI alla barra laterale destra. Ogni controllo è un comando definito in JSON e renderizzato nella propria sezione di terminale basata su Ghostty. Usalo per feed, log, code, stato git, server di sviluppo o qualunque TUI che il team vuole tenere vicino a ogni workspace.",
+      "intro": "Dock ti permette di aggiungere controlli terminale e browser alla barra laterale destra. I controlli terminale eseguono comandi in sezioni basate su Ghostty, mentre i controlli browser incorporano pagine web. Usalo per feed, log, code, stato git, server di sviluppo, dashboard o pagine di riferimento che il team vuole tenere vicino a ogni workspace.",
       "configTitle": "Configurazione",
       "configIntro": "cmux cerca la configurazione Dock in questo ordine:",
       "projectConfig": "per il repository corrente, il progetto padre più vicino e le directory di progetti annidati.",
@@ -1447,9 +1510,12 @@
       "descriptionHeader": "Descrizione",
       "fieldId": "Identificatore unico e stabile del controllo. Mantienilo breve e non riutilizzarlo per un altro comando.",
       "fieldTitle": "Etichetta mostrata nell'intestazione del Dock.",
-      "fieldCommand": "Comando da eseguire nel terminale Dock. Si avvia nella tua shell di login.",
+      "fieldCommand": "Comando da eseguire nel terminale Dock. Obbligatorio per i controlli terminale e avviato nella shell di login.",
+      "fieldType": "Tipo di controllo facoltativo: terminal (predefinito) o browser.",
+      "fieldUrl": "Pagina da aprire. Obbligatoria per i controlli browser.",
+      "fieldChrome": "Visibilità facoltativa dell’interfaccia del browser. Il valore predefinito è true; false nasconde la barra degli indirizzi e la barra degli strumenti, fa sì che l’azione Focalizza barra degli indirizzi non abbia effetto in quel riquadro e mantiene disponibili cmux browser goto/reload.",
       "fieldCwd": "Directory di lavoro opzionale. I percorsi relativi vengono risolti dalla radice del progetto per le configurazioni di progetto o dalla home directory per le configurazioni globali.",
-      "fieldHeight": "Altezza opzionale richiesta per il terminale, in punti. I controlli senza height condividono lo spazio rimanente.",
+      "fieldHeight": "Altezza facoltativa del controllo. I controlli senza height condividono lo spazio rimanente.",
       "fieldEnv": "Variabili d'ambiente opzionali passate solo a quel controllo.",
       "sharingTitle": "Condivisione con un team",
       "sharingIntro": "Dock è progettato per essere condiviso tramite source control quando i comandi appartengono al repository.",
@@ -1459,7 +1525,7 @@
       "agentPromptTitle": "Chiedi a un agente di configurarlo",
       "agentPromptIntro": "Usa questo prompt quando vuoi che un agente di coding crei controlli Dock. Indica all’agente di eseguire `cmux docs dock`, ispezionare il progetto e chiedere prima di tirare a indovinare.",
       "agentPromptCodeTitle": "Prompt per l'agente",
-      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
+      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal and browser control area. A Dock config is JSON with a top-level `controls` array. Terminal controls run commands in Ghostty-backed sections using the user's login shell; browser controls embed URLs. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or fixed web dashboards.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    },\n    {\n      \"id\": \"dashboard\",\n      \"title\": \"Dashboard\",\n      \"type\": \"browser\",\n      \"url\": \"http://127.0.0.1:3000\",\n      \"chrome\": false\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- `type` is optional: `terminal` is the default, or use `browser`.\n- Terminal controls require `command`; browser controls require `url`.\n- Browser controls default to `chrome: true`. Set `chrome: false` to hide browser chrome, including the address bar and toolbar; Focus Address Bar then does nothing for that pane, while `cmux browser goto` and `cmux browser reload` remain available.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
     },
     "sessionRestore": {
       "title": "Ripristino sessione",
@@ -3524,7 +3590,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "La fatturazione non è disponibile al momento. Riprova più tardi."
+    "billingUnavailable": "La fatturazione non è disponibile al momento. Riprova più tardi.",
+    "signedOutNotice": "Non hai effettuato l'accesso. Accedi per vedere il piano attuale o ripristinare un acquisto esistente.",
+    "signedOutSignIn": "Accedi"
   },
   "platforms": {
     "macos": "macOS",
@@ -3558,7 +3626,6 @@
     "title": "cmux per {platform}",
     "tagline": "Un browser Chromium e uno spazio di lavoro per agenti, progettati insieme.",
     "logoAlt": "Icona dell’app cmux",
-    "portableCta": "ZIP portatile",
     "featuresTitle": "Progettato per il lavoro con agenti",
     "features": {
       "chromium": {
@@ -3580,7 +3647,7 @@
     },
     "installTitle": "Installazione",
     "releaseTitle": "Versioni e aggiornamenti",
-    "releaseBody": "Questi link puntano sempre all’ultima versione stabile su <github>GitHub Releases</github>. cmux verifica i manifesti di aggiornamento firmati prima di installare un aggiornamento.",
+    "releaseBody": "Questi link puntano sempre all’ultima versione nightly su <github>GitHub Releases</github>. cmux verifica i manifesti di aggiornamento firmati prima di installare un aggiornamento.",
     "sourceLink": "Visualizza il sorgente su GitHub",
     "otherPlatform": "cmux per {platform}",
     "macLink": "Terminale cmux per Mac",
@@ -3590,6 +3657,7 @@
       "metaDescription": "Scarica cmux per Windows x64: un browser Chromium e uno spazio di lavoro per agenti, gratuito e open source, con schede per attività e superfici terminale.",
       "subtitle": "Una build x64 nativa con schede Chromium, spazi di lavoro cmux e le familiari convenzioni da tastiera di Windows.",
       "primaryCta": "Scarica il programma di installazione (.exe)",
+      "secondaryCta": "ZIP portatile",
       "requirements": "Windows 10 o versioni successive · x64",
       "installBody": "Esegui il programma di installazione e segui le indicazioni di Windows. Scegli lo ZIP portatile se preferisci conservare cmux in una cartella senza un’installazione a livello di sistema."
     },
@@ -3598,9 +3666,10 @@
       "metaTitle": "Scarica cmux per Linux",
       "metaDescription": "Scarica cmux per Linux x64: un browser Chromium e uno spazio di lavoro per agenti, gratuito e open source, con schede per attività e superfici terminale.",
       "subtitle": "Una build x64 nativa con schede Chromium, spazi di lavoro cmux e superfici terminale integrate.",
-      "primaryCta": "Scarica .deb",
-      "requirements": "Debian o Ubuntu · x64",
-      "installBody": "Scarica il pacchetto Debian e installalo con il gestore pacchetti. Scegli lo ZIP portatile per un’installazione per utente e gli aggiornamenti nell’app."
+      "primaryCta": "Scarica il programma di installazione con aggiornamenti automatici (.run)",
+      "secondaryCta": "Pacchetto Debian (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Esegui una volta il programma di installazione per utente. Installa cmux in ~/.local senza privilegi di root e abilita gli aggiornamenti firmati nell’app. Se vuoi che gli aggiornamenti siano gestiti dal tuo gestore pacchetti, scegli invece il pacchetto Debian."
     }
   },
   "emails": {

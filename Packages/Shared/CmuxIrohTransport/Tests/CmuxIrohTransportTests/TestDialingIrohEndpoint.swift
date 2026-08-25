@@ -31,7 +31,7 @@ actor TestDialingIrohEndpoint: CmxIrohEndpoint {
     func connect(
         to address: CmxIrohEndpointAddress,
         alpn _: Data
-    ) throws -> any CmxIrohConnection {
+    ) async throws -> any CmxIrohConnection {
         dialedAddresses.append(address)
         guard !dialResults.isEmpty else {
             throw TestIrohTransportError.unsupported
@@ -41,6 +41,12 @@ actor TestDialingIrohEndpoint: CmxIrohEndpoint {
             return connection
         case let .failure(error):
             throw error
+        case .hang:
+            // The production endpoint cancels its native ConnectAttempt. A
+            // long cancellable sleep models that contract without leaving a
+            // continuation behind when the phase bound wins.
+            try await Task.sleep(for: .seconds(3_600))
+            throw TestIrohTransportError.unsupported
         }
     }
 

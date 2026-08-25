@@ -36,6 +36,7 @@ struct ChatArtifactViewerHostedPage: View {
             onDone: onDone
         )
         .clipped()
+        .environment(\.chatArtifactLoader, loader)
     }
 }
 #endif

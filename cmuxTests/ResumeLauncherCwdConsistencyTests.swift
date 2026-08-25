@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -9,8 +10,8 @@ import Testing
 
 @Suite("Resume launcher cwd consistency")
 struct ResumeLauncherCwdConsistencyTests {
-    @Test("launcher cwd and cwd-sensitive resume argv use the same restored directory")
-    func launcherAndResumeCommandShareRestoredWorkingDirectory() throws {
+    @Test("local restore keeps cwd-sensitive argv structured behind the short verb")
+    func localRestoreUsesShortVerbForCwdSensitiveAgent() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-9200-retarget-\(UUID().uuidString)", isDirectory: true)
@@ -43,18 +44,45 @@ struct ResumeLauncherCwdConsistencyTests {
         )
 
         let input = try #require(snapshot.resumeStartupInput(
-            fileManager: fileManager,
-            temporaryDirectory: root,
             restoringWorkingDirectory: restoredDirectory.path
         ))
-        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(
-            input.trimmingCharacters(in: .whitespacesAndNewlines)
-        ).map(\.value)
-        let launcherPath = try #require(words.last)
-        let script = try String(contentsOfFile: launcherPath, encoding: .utf8)
-        #expect(script.contains("cd -- \(TerminalStartupShellQuoting.singleQuoted(restoredDirectory.path))"))
-        #expect(script.contains("'--cwd' '\(restoredDirectory.path)'"))
-        #expect(!script.contains(savedDirectory.path))
+        #expect(
+            input
+                == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore cwd-agent session-9200\n"
+        )
+        #expect(
+            try fileManager.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: nil
+            ).map(\.lastPathComponent) == ["restored"]
+        )
+
+        let preparedArguments = try #require(
+            snapshot.preparedResumeArguments(
+                launchCommand: snapshot.launchCommand,
+                workingDirectory: restoredDirectory.path,
+                observedPermissionMode: nil
+            )
+        )
+        let invocation = try #require(AgentRestorePlanner(
+            executableFileResolver: AgentRestoreExecutableFileResolver()
+        ).invocation(
+            for: AgentRestoreRequest(
+                mode: .resumeAgent,
+                kind: snapshot.kind.rawValue,
+                checkpointID: snapshot.sessionId,
+                source: "session-snapshot",
+                workingDirectory: restoredDirectory.path,
+                environment: [:],
+                launchCommand: snapshot.launchCommand,
+                preparedArguments: preparedArguments,
+                observedPermissionMode: nil
+            ),
+            ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+        ))
+        #expect(invocation.workingDirectory == restoredDirectory.path)
+        #expect(invocation.arguments.contains(restoredDirectory.path))
+        #expect(!invocation.arguments.contains(savedDirectory.path))
     }
 
     @Test("restored logical cwd survives physical-path shell reports")
@@ -111,8 +139,7 @@ struct ResumeLauncherCwdConsistencyTests {
         )
 
         let input = try #require(snapshot.resumeStartupInput(
-            allowLauncherScript: false,
-            allowOversizedInlineInput: true,
+            useLocalRestoreVerb: false,
             restoringWorkingDirectory: restoredDirectory
         ))
         #expect(input.contains("cd -- '\(restoredDirectory)'"))

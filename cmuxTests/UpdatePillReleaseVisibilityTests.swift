@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CmuxFoundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -68,6 +69,16 @@ struct BrowserInsecureHTTPSettingsTests {
             BrowserInsecureHTTPSettings.normalizedAllowlistPatterns(rawValue: nil),
             ["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]
         )
+    }
+
+    @Test
+    func testExplicitlyEmptyAllowlistRemovesTheLoopbackDefaults() {
+        checkEqual(
+            BrowserInsecureHTTPSettings.normalizedAllowlistPatterns(rawValue: ""),
+            []
+        )
+        checkFalse(BrowserInsecureHTTPSettings.isHostAllowed("localhost", rawAllowlist: ""))
+        checkFalse(BrowserInsecureHTTPSettings.isHostAllowed("127.0.0.1", rawAllowlist: ""))
     }
 
     @Test
@@ -245,6 +256,76 @@ struct TitlebarControlsSizingPolicyTests {
             yOffset: 3
         )
         checkTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: offsetChanged))
+    }
+
+    @Test
+    @MainActor
+    func testLayoutModelOnlyRecomputesForTitlebarInputs() async {
+        let suiteName = "TitlebarControlsLayoutModel-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let notificationCenter = NotificationCenter()
+        var computationCount = 0
+        let model = TitlebarControlsLayoutModel(
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        ) { config in
+            computationCount += 1
+            return NSSize(width: config.buttonSize, height: config.buttonSize)
+        }
+
+        checkEqual(computationCount, 1)
+        checkEqual(model.snapshot.style, .classic)
+
+        defaults.set(true, forKey: "unrelatedTitlebarTestSetting")
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        await drainMainQueue()
+        checkEqual(computationCount, 1)
+
+        defaults.set(TitlebarControlsStyle.compact.rawValue, forKey: TitlebarControlsStyle.storageKey)
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        await drainMainQueue()
+        checkEqual(computationCount, 2)
+        checkEqual(model.snapshot.style, .compact)
+
+        notificationCenter.post(
+            name: KeyboardShortcutSettings.didChangeNotification,
+            object: nil,
+            userInfo: [
+                KeyboardShortcutSettings.actionUserInfoKey:
+                    KeyboardShortcutSettings.Action.closeWindow.rawValue,
+            ]
+        )
+        await drainMainQueue()
+        checkEqual(computationCount, 2)
+
+        notificationCenter.post(
+            name: KeyboardShortcutSettings.didChangeNotification,
+            object: nil,
+            userInfo: [
+                KeyboardShortcutSettings.actionUserInfoKey:
+                    KeyboardShortcutSettings.Action.toggleSidebar.rawValue,
+            ]
+        )
+        await drainMainQueue()
+        checkEqual(computationCount, 3)
+
+        notificationCenter.post(name: KeyboardShortcutSettings.didChangeNotification, object: nil)
+        await drainMainQueue()
+        checkEqual(computationCount, 4)
+
+        notificationCenter.post(name: GlobalFontMagnification.didChangeNotification, object: nil)
+        await drainMainQueue()
+        checkEqual(computationCount, 5)
+    }
+
+    @MainActor
+    private func drainMainQueue() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
+        }
     }
 
     @Test

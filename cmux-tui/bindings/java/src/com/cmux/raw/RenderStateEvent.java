@@ -15,6 +15,8 @@ public final class RenderStateEvent implements WireValue, ProtocolEvent, RenderA
     private final RenderCursor cursor;
     private final String defaultBg;
     private final String defaultFg;
+    private final Field<RenderGraphics> graphics;
+    private final UInt64 historyEpoch;
     private final List<RenderRow> rows;
     private final long scrollbackRows;
     private final Size size;
@@ -27,6 +29,9 @@ public final class RenderStateEvent implements WireValue, ProtocolEvent, RenderA
         this.defaultBg = Wire.nonNull(builder.defaultBg, "default_bg");
         if (!builder.defaultFgSet) throw new IllegalArgumentException("default_fg is required");
         this.defaultFg = Wire.nonNull(builder.defaultFg, "default_fg");
+        this.graphics = builder.graphics;
+        if (!builder.historyEpochSet) throw new IllegalArgumentException("history_epoch is required");
+        this.historyEpoch = Wire.nonNull(builder.historyEpoch, "history_epoch");
         if (!builder.rowsSet) throw new IllegalArgumentException("rows is required");
         this.rows = List.copyOf(Wire.nonNull(builder.rows, "rows"));
         if (!builder.scrollbackRowsSet) throw new IllegalArgumentException("scrollback_rows is required");
@@ -42,6 +47,8 @@ public final class RenderStateEvent implements WireValue, ProtocolEvent, RenderA
     public RenderCursor cursor() { return cursor; }
     public String defaultBg() { return defaultBg; }
     public String defaultFg() { return defaultFg; }
+    public Field<RenderGraphics> graphics() { return graphics; }
+    public UInt64 historyEpoch() { return historyEpoch; }
     public List<RenderRow> rows() { return rows; }
     public long scrollbackRows() { return scrollbackRows; }
     public Size size() { return size; }
@@ -58,6 +65,12 @@ public final class RenderStateEvent implements WireValue, ProtocolEvent, RenderA
         builder.defaultBg(Wire.string(rawDefaultBg, "RenderStateEvent.default_bg"));
         Object rawDefaultFg = Wire.required(object, "default_fg");
         builder.defaultFg(Wire.string(rawDefaultFg, "RenderStateEvent.default_fg"));
+        Object rawGraphics = Wire.optional(object, "graphics");
+        if (!Wire.isMissing(rawGraphics)) {
+            builder.graphics(RenderGraphics.fromWire(rawGraphics));
+        }
+        Object rawHistoryEpoch = Wire.required(object, "history_epoch");
+        builder.historyEpoch(Wire.uint64(rawHistoryEpoch, "RenderStateEvent.history_epoch"));
         Object rawRows = Wire.required(object, "rows");
         builder.rows(Wire.array(rawRows, "RenderStateEvent.rows", item -> RenderRow.fromWire(item)));
         Object rawScrollbackRows = Wire.required(object, "scrollback_rows");
@@ -76,6 +89,8 @@ public final class RenderStateEvent implements WireValue, ProtocolEvent, RenderA
         Wire.put(object, "cursor", cursor);
         Wire.put(object, "default_bg", defaultBg);
         Wire.put(object, "default_fg", defaultFg);
+        Wire.put(object, "graphics", graphics);
+        Wire.put(object, "history_epoch", historyEpoch);
         Wire.put(object, "rows", rows);
         Wire.put(object, "scrollback_rows", scrollbackRows);
         Wire.put(object, "size", size);
@@ -86,11 +101,11 @@ public final class RenderStateEvent implements WireValue, ProtocolEvent, RenderA
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof RenderStateEvent that)) return false;
-        return Objects.equals(cursor, that.cursor) && Objects.equals(defaultBg, that.defaultBg) && Objects.equals(defaultFg, that.defaultFg) && Objects.equals(rows, that.rows) && Objects.equals(scrollbackRows, that.scrollbackRows) && Objects.equals(size, that.size) && Objects.equals(surface, that.surface);
+        return Objects.equals(cursor, that.cursor) && Objects.equals(defaultBg, that.defaultBg) && Objects.equals(defaultFg, that.defaultFg) && Objects.equals(graphics, that.graphics) && Objects.equals(historyEpoch, that.historyEpoch) && Objects.equals(rows, that.rows) && Objects.equals(scrollbackRows, that.scrollbackRows) && Objects.equals(size, that.size) && Objects.equals(surface, that.surface);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cursor, defaultBg, defaultFg, rows, scrollbackRows, size, surface); }
+    public int hashCode() { return Objects.hash(cursor, defaultBg, defaultFg, graphics, historyEpoch, rows, scrollbackRows, size, surface); }
 
     @Override
     public String toString() { return "RenderStateEvent" + toWire(); }
@@ -102,6 +117,9 @@ public final class RenderStateEvent implements WireValue, ProtocolEvent, RenderA
         private boolean defaultBgSet;
         private String defaultFg;
         private boolean defaultFgSet;
+        private Field<RenderGraphics> graphics = Field.omitted();
+        private UInt64 historyEpoch;
+        private boolean historyEpochSet;
         private List<RenderRow> rows;
         private boolean rowsSet;
         private Long scrollbackRows;
@@ -124,6 +142,15 @@ public final class RenderStateEvent implements WireValue, ProtocolEvent, RenderA
         public Builder defaultFg(String value) {
             this.defaultFg = value;
             this.defaultFgSet = true;
+            return this;
+        }
+        public Builder graphics(RenderGraphics value) {
+            this.graphics = Field.of(value);
+            return this;
+        }
+        public Builder historyEpoch(UInt64 value) {
+            this.historyEpoch = value;
+            this.historyEpochSet = true;
             return this;
         }
         public Builder rows(List<RenderRow> value) {

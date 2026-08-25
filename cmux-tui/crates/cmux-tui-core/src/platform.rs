@@ -1,5 +1,9 @@
 //! Platform decisions for cmux-tui.
 
+use std::fs::File;
+#[cfg(windows)]
+use std::fs::OpenOptions;
+use std::io;
 use std::path::{Path, PathBuf};
 
 pub mod transport {
@@ -128,6 +132,23 @@ pub mod transport {
     }
 }
 
+/// The path to exec THIS running build again (terminal hosts, headless
+/// daemons). On Linux this is the open inode via `/proc/self/exe`, so an
+/// in-place binary upgrade can never break a running process's self-spawns:
+/// `std::env::current_exe()` resolves to "<path> (deleted)" after the file
+/// is replaced and exec then fails, which broke every new tab on a
+/// long-lived daemon. Elsewhere it is the resolved executable path.
+pub fn self_exe_for_spawn() -> io::Result<PathBuf> {
+    #[cfg(target_os = "linux")]
+    {
+        Ok(PathBuf::from("/proc/self/exe"))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        std::env::current_exe()
+    }
+}
+
 /// Runtime socket/pidfile directory for the current user.
 pub fn runtime_dir() -> PathBuf {
     runtime_base_dir().join(format!("cmux-tui-{}", user_id_component()))
@@ -178,6 +199,19 @@ pub fn workspace_state_dir() -> Option<PathBuf> {
             },
         )
     }
+}
+
+/// Path of the client's bounded rolling log file: the `cmux-tui` state root
+/// (the parent of the sessions directory), so it survives session cleanup and
+/// sits where users already look for state. `CMUX_TUI_LOG_FILE` overrides it.
+pub fn client_log_path() -> Option<PathBuf> {
+    if let Some(path) = env_path("CMUX_TUI_LOG_FILE") {
+        return Some(path);
+    }
+    workspace_state_dir().map(|sessions| match sessions.parent() {
+        Some(root) => root.join("client.log"),
+        None => sessions.join("client.log"),
+    })
 }
 
 /// User config file path, honoring explicit env overrides before the default
@@ -609,12 +643,30 @@ pub fn chrome_user_data_dir() -> Option<PathBuf> {
     }
 }
 
-pub fn restrict_directory(path: &Path) -> std::io::Result<()> {
+pub fn restrict_directory(path: &Path) -> io::Result<()> {
     restrict_permissions(path, 0o700)
 }
 
-pub fn restrict_file(path: &Path) -> std::io::Result<()> {
+pub fn restrict_file(path: &Path) -> io::Result<()> {
     restrict_permissions(path, 0o600)
+}
+
+pub fn sync_directory(path: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        if std::fs::metadata(path)?.is_dir() {
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("not a directory: {}", path.display()),
+            ))
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        File::open(path)?.sync_all()
+    }
 }
 
 pub fn is_executable_file(path: &Path) -> bool {
@@ -659,6 +711,78 @@ pub fn home_dir() -> Option<PathBuf> {
         home.push(path);
         Some(home)
     })
+}
+
+/// Convert a terminal-reported OSC 7 working directory into a local path.
+///
+/// Shells normally report `file://host/path`. A URI from another host cannot
+/// name a safe local spawn directory, so callers should fall back to the
+/// surface's original working directory when this returns `None`.
+pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
+    let plain = Path::new(value);
+    if terminal_pwd_path_is_safe(plain) {
+        return Some(plain.to_owned());
+    }
+
+    let mut url = url::Url::parse(value).ok()?;
+    if url.scheme() != "file" {
+        return None;
+    }
+    if let Some(host) = url.host_str()
+        && !terminal_pwd_host_is_local(host)
+    {
+        return None;
+    }
+    if url.host_str().is_some() {
+        url.set_host(Some("localhost")).ok()?;
+    }
+    url.to_file_path().ok().filter(|path| terminal_pwd_path_is_safe(path))
+}
+
+fn terminal_pwd_path_is_safe(path: &Path) -> bool {
+    if !path.is_absolute() {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        path.to_str().is_some_and(windows_path_is_rooted_local_drive)
+    }
+    #[cfg(not(windows))]
+    {
+        true
+    }
+}
+
+/// Windows namespaces can make an "absolute" path name a network share or
+/// device. OSC 7 inheritance only needs ordinary drive-rooted directories.
+#[cfg(any(windows, test))]
+fn windows_path_is_rooted_local_drive(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.first().is_some_and(|byte| byte.is_ascii_alphabetic())
+        && bytes.get(1) == Some(&b':')
+        && bytes.get(2).is_some_and(|separator| matches!(*separator, b'\\' | b'/'))
+}
+
+fn terminal_pwd_host_is_local(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host == "127.0.0.1"
+        || host == "::1"
+        || local_hostname().is_some_and(|local| host.eq_ignore_ascii_case(&local))
+}
+
+#[cfg(unix)]
+fn local_hostname() -> Option<String> {
+    let mut hostname = [0_u8; 256];
+    if unsafe { libc::gethostname(hostname.as_mut_ptr().cast(), hostname.len()) } != 0 {
+        return None;
+    }
+    let end = hostname.iter().position(|byte| *byte == 0).unwrap_or(hostname.len());
+    std::str::from_utf8(&hostname[..end]).ok().filter(|value| !value.is_empty()).map(str::to_owned)
+}
+
+#[cfg(windows)]
+fn local_hostname() -> Option<String> {
+    std::env::var("COMPUTERNAME").ok().filter(|value| !value.is_empty())
 }
 
 fn env_path(name: &str) -> Option<PathBuf> {
@@ -709,7 +833,7 @@ fn push_unique(candidates: &mut Vec<PathBuf>, path: PathBuf) {
 }
 
 #[cfg(unix)]
-fn restrict_permissions(path: &Path, mode: u32) -> std::io::Result<()> {
+fn restrict_permissions(path: &Path, mode: u32) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
@@ -762,6 +886,70 @@ mod tests {
             packaged_installation.resources_dir.as_deref(),
             Some(Path::new("/tmp/cmux-browser.app/Contents/Resources/ghostty"))
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn terminal_pwd_rejects_unc_verbatim_and_device_paths() {
+        for path in [
+            r"\\server\share\src",
+            "//server/share/src",
+            r"\\?\UNC\server\share\src",
+            r"\\.\PhysicalDrive0",
+            r"\\?\C:\src",
+            r"\??\C:\src",
+            r"C:drive-relative",
+            r"\rooted-without-drive",
+            "file://server/share/src",
+            "file:////server/share/src",
+        ] {
+            assert_eq!(terminal_pwd_to_local_path(path), None, "{path}");
+        }
+        assert_eq!(
+            terminal_pwd_to_local_path(r"C:\Users\alice\src"),
+            Some(PathBuf::from(r"C:\Users\alice\src"))
+        );
+        assert_eq!(
+            terminal_pwd_to_local_path("file:///C:/Users/alice/src"),
+            Some(PathBuf::from(r"C:\Users\alice\src"))
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_sync_directory_accepts_existing_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-sync-directory-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        sync_directory(&root).unwrap();
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn windows_path_classifier_accepts_only_rooted_local_drives() {
+        for path in [r"C:\Users\alice\src", "z:/src/cmux", r"D:\"] {
+            assert!(windows_path_is_rooted_local_drive(path), "{path}");
+        }
+        for path in [
+            r"\\server\share\src",
+            "//server/share/src",
+            r"\\?\UNC\server\share\src",
+            r"\\.\PhysicalDrive0",
+            r"\\?\C:\src",
+            r"\??\C:\src",
+            r"C:drive-relative",
+            r"\rooted-without-drive",
+            "/unix/absolute",
+            "",
+        ] {
+            assert!(!windows_path_is_rooted_local_drive(path), "{path}");
+        }
     }
 
     #[test]
@@ -853,5 +1041,25 @@ mod tests {
             )),
             Some(PathBuf::from("/Applications/cmux-browser.app/Contents/Resources/ghostty"))
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_pwd_converts_local_osc7_urls_without_trusting_remote_hosts() {
+        let mut hostname = [0_u8; 256];
+        assert_eq!(unsafe { libc::gethostname(hostname.as_mut_ptr().cast(), hostname.len()) }, 0);
+        let hostname_end = hostname.iter().position(|byte| *byte == 0).unwrap_or(hostname.len());
+        let hostname = std::str::from_utf8(&hostname[..hostname_end]).unwrap();
+
+        assert_eq!(
+            terminal_pwd_to_local_path(&format!("file://{hostname}/tmp/a%20b")),
+            Some(PathBuf::from("/tmp/a b"))
+        );
+        assert_eq!(
+            terminal_pwd_to_local_path("file://localhost/tmp/local"),
+            Some(PathBuf::from("/tmp/local"))
+        );
+        assert_eq!(terminal_pwd_to_local_path("/tmp/plain"), Some(PathBuf::from("/tmp/plain")));
+        assert_eq!(terminal_pwd_to_local_path("file://remote.invalid/tmp/nope"), None);
     }
 }

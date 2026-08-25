@@ -13,7 +13,7 @@ final class SessionIndexTableRowHeightCalculator {
         switch row {
         case .gap:
             return 4
-        case .section(let section, let rowLimit, _, _, let isCollapsed, _, _, _, _):
+        case .section(let section, let rowLimit, _, _, let isCollapsed, _, _, _):
             let headerHeight = lineHeight(
                 baseFontSize: 13,
                 minimumContentHeight: 14,

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxControlSocket
+import CmuxCore
 import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -173,6 +174,48 @@ extension AgentNotificationRegressionTests {
             return
         }
         #expect(code == "invalid_params")
+    }
+
+    @Test
+    func testRelayTTYResolutionStaysInsideAuthenticatedWorkspace() throws {
+        let fixture = try makeLiveRetargetFixture()
+        defer { fixture.restore() }
+
+        let remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "example.invalid",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        fixture.claimedWorkspace.remoteConfiguration = remoteConfiguration
+        fixture.owningWorkspace.remoteConfiguration = remoteConfiguration
+        let siblingPanelID = try #require(fixture.claimedWorkspace.focusedPanelId)
+        fixture.claimedWorkspace.trackRemoteTerminalSurface(siblingPanelID)
+        fixture.owningWorkspace.trackRemoteTerminalSurface(fixture.panelId)
+        fixture.claimedWorkspace.registerReportedSurfaceTTYName("0", panelId: siblingPanelID)
+        fixture.owningWorkspace.registerReportedSurfaceTTYName("0", panelId: fixture.panelId)
+
+        let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: [
+            "tty_name": "0",
+            "tty_resolution": "reported_tty",
+            "workspace_id": fixture.claimedWorkspace.id.uuidString,
+            "_cmux_remote_workspace_id": fixture.owningWorkspace.id.uuidString,
+        ])
+        guard case .ok(let payload) = result,
+              let target = payload as? [String: Any] else {
+            Issue.record("Expected authenticated relay TTY resolution, got \(result)")
+            return
+        }
+        #expect(target["source"] as? String == "tty")
+        #expect(target["tty_resolution"] as? String == "reported_tty")
+        #expect(target["workspace_id"] as? String == fixture.owningWorkspace.id.uuidString)
+        #expect(target["surface_id"] as? String == fixture.panelId.uuidString)
     }
 
     @Test
@@ -464,7 +507,7 @@ extension AgentNotificationRegressionTests {
     @Test
     func testTTYDeviceMatchRequiresUniqueSurface() throws {
         let workspace = Workspace(), panel = try #require(workspace.focusedPanelId)
-        workspace.surfaceTTYNames[panel] = "/dev/null"
+        workspace.registerReportedSurfaceTTYName("/dev/null", panelId: panel)
         #expect(workspace.surfaceTTYDevices[panel] == CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: "/dev/null"))
         let w1 = UUID(), s1 = UUID(), w2 = UUID(), s2 = UUID()
         let bindings: [(workspaceId: UUID, surfaceId: UUID, ttyDevice: Int64)] = [

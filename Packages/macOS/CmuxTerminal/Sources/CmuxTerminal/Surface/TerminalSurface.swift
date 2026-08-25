@@ -53,16 +53,19 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     // other files use.
     public typealias NamedKeySendResult = CmuxTerminalCore.NamedKeySendResult
     public typealias InputSendResult = CmuxTerminalCore.InputSendResult
-    public typealias ClaudeCommandShim = TerminalSurfaceClaudeCommandShim
-    public typealias CodexCommandShim = TerminalSurfaceCodexCommandShim
+    public typealias AgentCommandShimSet = TerminalSurfaceAgentCommandShimSet
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
     private var runtimeSurface: ghostty_surface_t?
+    var runtimeControllingTTYName: String?
+    var runtimeControllingTTYDeviceIdentifier: Int64?
     /// The live runtime surface pointer, or nil before creation/after teardown.
     public internal(set) var surface: ghostty_surface_t? {
         get { runtimeSurface }
         set {
             guard runtimeSurface != newValue else { return }
             runtimeSurface = newValue
+            runtimeControllingTTYName = nil
+            runtimeControllingTTYDeviceIdentifier = nil
             runtimeSurfaceGeneration &+= 1
         }
     }
@@ -83,6 +86,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
     let restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling
     let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
+    let agentCommandShimInstallDeadline: Duration
+    let agentCommandShimInstallDeadlineClock: any Clock<Duration>
     /// Port ordinal base/range for CMUX_PORT assignment, snapshotted by the app composition root.
     let sessionPortBase: Int
     let sessionPortRangeSize: Int
@@ -142,9 +147,16 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 
     /// Unique identity for this terminal process generation.
     ///
-    /// Respawning a logical surface constructs a new ``TerminalSurface`` with
-    /// the same ``id`` but a different lifecycle identity.
-    public let terminalLifecycleId: UUID
+    /// Agent hibernation retains this model while replacing its child runtime,
+    /// so the identity advances when that runtime is retired. The registry
+    /// mirrors the current value under its synchronous validation lock.
+    @MainActor public private(set) var terminalLifecycleId: UUID
+
+    /// Retires the child generation before a retained surface spawns another.
+    @MainActor
+    func advanceTerminalLifecycleForRuntimeReplacement() {
+        terminalLifecycleId = registry.advanceTerminalLifecycle(for: self)
+    }
 
     /// The owning workspace id.
     public private(set) var tabId: UUID
@@ -191,15 +203,20 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public private(set) var focusPlacement: TerminalSurfaceFocusPlacement
     var additionalEnvironment: [String: String]
 
-    /// When true, the surface is created in libghostty MANUAL I/O mode: no
-    /// process is spawned, output is injected via `processRemoteOutput(_:)`,
-    /// and typed input is delivered to `manualInputHandler`.
-    let manualIO: Bool
-    let manualInputHandler: (@Sendable (Data) -> Void)?
+    /// Identifies who owns the process, PTY, and terminal protocol.
+    public let ioMode: TerminalSurfaceIOMode
+    /// Ordered input from the manual transport (literal bytes or named keys).
+    let manualInputHandler: (@Sendable (TerminalManualInput) -> Void)?
+    /// Resolves physical keys that the manual transport should encode itself.
+    let manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)?
 
     /// Remote tmux manual-I/O resize and runtime-readiness hooks.
     @MainActor public var onManualSizeApplied: (@MainActor (TerminalSurfaceRawSizingSample) -> Void)?
     @MainActor public var onRuntimeReady: (@MainActor () -> Void)?
+    /// Requests owner-scoped visual bell attention without activating the app.
+    @MainActor public var onVisualBell: (@MainActor () -> Void)?
+    /// Routes accepted explicit user input to the surface's current panel owner.
+    @MainActor public var onExplicitInput: (@MainActor () -> Void)?
     /// Called after durable font-size lineage changes.
     @MainActor public var onFontSizeLineageChanged: (@MainActor (TerminalFontSizeLineage) -> Void)?
     @MainActor var manualSizeReportPendingWindowAttach = false
@@ -216,6 +233,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// surface is created so background mirror output is not lost.
     var pendingRemoteOutput = Data()
     let maxPendingRemoteOutputBytes = 4 * 1_048_576
+    /// FIFO native-output lane for the current runtime surface generation.
+    var remoteOutputLane: TerminalSurfaceRemoteOutputLane
+    var remoteOutputLaneGeneration: UInt64 = 0
 
     /// The explicit startup environment overrides replayed on respawn.
     public var respawnInitialEnvironmentOverrides: [String: String] {
@@ -274,17 +294,20 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     weak var configurationReloadDeferredRuntimeSurfaceView:
         (any TerminalSurfaceNativeViewing)?
     var requiresRestoreSpawnPacing = false
+    var startupRestoreAdmissionPhase = TerminalSurfaceStartupRestoreAdmissionPhase.unrestricted
     var runtimeSurfaceSuspendedForAgentHibernation = false
     var agentHibernationRuntimeTeardownTicket: TerminalSurfaceRuntimeTeardownTicket?
+    var staleRuntimeResourceReleaseTicket: TerminalSurfaceRuntimeTeardownTicket?
     var agentHibernationRuntimeTeardownReservation:
         TerminalSurfaceRuntimeTeardownReservation?
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
-    var claudeCommandShim: ClaudeCommandShim?
-    var claudeCommandShimInstallTask: Task<ClaudeCommandShim?, Never>?
-    var claudeCommandShimCompletionTask: Task<Void, Never>?
-    var claudeCommandShimInstallCompleted = false
-    var claudeCommandShimPendingCreationSource: RuntimeSurfaceCreationSource?
+    var agentCommandShims: AgentCommandShimSet?
+    var agentCommandShimInstallTask: Task<AgentCommandShimSet?, Never>?
+    var agentCommandShimCompletionTask: Task<Void, Never>?
+    var agentCommandShimDeadlineTask: Task<Void, Never>?
+    var agentCommandShimInstallCompleted = false
+    var agentCommandShimPendingCreationSource: RuntimeSurfaceCreationSource?
     /// The retained byte-tee lease for the libghostty PTY tee callback (cmux
     /// fork extension). Installed in `createSurface` after
     /// `ghostty_surface_new` succeeds. The Mac sync server reads the tee'd
@@ -491,13 +514,18 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
-        manualIO: Bool = false,
-        manualInputHandler: (@Sendable (Data) -> Void)? = nil,
+        ioMode: TerminalSurfaceIOMode = .exec,
+        manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil,
+        manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in },
         dependencies: TerminalSurfaceRuntimeDependencies
     ) {
         self.id = id
+        self.remoteOutputLane = TerminalSurfaceRemoteOutputLane(
+            surfaceID: id,
+            generation: 0
+        )
         self.terminalLifecycleId = UUID()
         self.tabId = tabId
         self.surfaceContext = context
@@ -523,8 +551,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.initialEnvironmentOverrides = Self.mergedNormalizedEnvironment(base: [:], overrides: initialEnvironmentOverrides)
         self.additionalEnvironment = Self.mergedNormalizedEnvironment(base: [:], overrides: additionalEnvironment)
         self.focusPlacement = focusPlacement
-        self.manualIO = manualIO
+        self.ioMode = ioMode
         self.manualInputHandler = manualInputHandler
+        self.manualInputKeyNameResolver = manualInputKeyNameResolver
         self.registry = dependencies.registry
         self.engine = dependencies.engine
         self.spawnPolicyProvider = dependencies.spawnPolicy
@@ -534,7 +563,12 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.runtimeTeardown = dependencies.runtimeTeardown
         self.restoreSpawnScheduler = dependencies.restoreSpawnScheduler
         self.runtimeFilesystem = dependencies.runtimeFilesystem
-        self.requiresRestoreSpawnPacing = runtimeSpawnPolicy == .pacedSessionRestore
+        self.agentCommandShimInstallDeadline = dependencies.agentCommandShimInstallDeadline
+        self.agentCommandShimInstallDeadlineClock = dependencies.agentCommandShimInstallDeadlineClock
+        self.requiresRestoreSpawnPacing = runtimeSpawnPolicy.spawnTiming == .pacedSessionRestore
+        self.startupRestoreAdmissionPhase = runtimeSpawnPolicy.requiresStartupRestoreAdmission
+            ? .awaitingAdmission
+            : .unrestricted
         self.sessionPortBase = dependencies.sessionPortBase
         self.sessionPortRangeSize = dependencies.sessionPortRangeSize
         self.scrollbackReplayEnvironmentKey = dependencies.scrollbackReplayEnvironmentKey
@@ -548,7 +582,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.surfaceView = views.surfaceView
         self.paneHost = views.paneHost
         preparePaneHost(self.paneHost)
-        registry.register(self)
+        registry.register(
+            self,
+            terminalLifecycleID: terminalLifecycleId
+        )
         self.paneHost.attachSurface(self)
 
         let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -561,7 +598,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             // MANUAL-I/O remote-tmux display surfaces have no command but must
             // start eagerly so they can receive injected output while their
             // workspace is still in the background.
-            || manualIO
+            || ioMode.usesManualIO
 
         // Surfaces with startup work must spawn before the user focuses their workspace.
         // Ghostty's embedded surface creation still expects a view with a window, so use
@@ -606,8 +643,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     deinit {
-        claudeCommandShimInstallTask?.cancel()
-        claudeCommandShimCompletionTask?.cancel()
+        agentCommandShimInstallTask?.cancel()
+        agentCommandShimCompletionTask?.cancel()
         registry.unregister(self)
         markPortalLifecycleClosed(reason: "deinit")
         // Mirror closeHeadlessStartupWindowIfNeeded: deinit is nonisolated, so
@@ -689,6 +726,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         // io_write_cb) until ghostty_surface_free joins those threads, so releasing
         // manualIOContext or teeLease here would leave a use-after-free window until
         // the coordinator's deferred free runs.
+        let retiredRemoteOutputLane = remoteOutputLane
+        retiredRemoteOutputLane.close()
 #if DEBUG
         if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
             runtimeTeardown.enqueueRuntimeTeardown(
@@ -699,6 +738,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
+                beforeFree: {
+                    await retiredRemoteOutputLane.drain()
+                },
                 freeSurface: freeSurface
             )
             return
@@ -711,7 +753,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             surface: surfaceToFree,
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
-            byteTeeLease: teeLease
+            byteTeeLease: teeLease,
+            beforeFree: {
+                await retiredRemoteOutputLane.drain()
+            }
         )
     }
 }
@@ -730,8 +775,8 @@ extension TerminalSurface: TerminalSurfaceControlling {
 }
 
 // The engine's surface registry tracks surfaces behind the cross-domain
-// TerminalSurfacing seam; TerminalSurface satisfies it with its immutable
-// `id` and `focusPlacement`.
+// TerminalSurfacing seam; lifecycle generations are registered separately so
+// the registry never reads mutable model state from a socket worker thread.
 extension TerminalSurface: TerminalSurfacing {}
 
 /// Transports the hidden bootstrap window from a nonisolated `deinit` to the

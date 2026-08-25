@@ -43,4 +43,28 @@ import Testing
         #expect(UUID(uuidString: id) != nil)
         #expect(id != "not-a-uuid")
     }
+
+    @Test func dogfoodLaunchUsesTheInjectedClientIdentity() {
+        let defaults = makeDefaults()
+        let expected = UUID().uuidString
+        let repository = MobileClientIDRepository(
+            defaults: defaults,
+            environment: ["CMUX_DOGFOOD_CLIENT_ID": expected]
+        )
+
+        #expect(repository.clientID == expected)
+        #expect(defaults.string(forKey: MobileClientIDRepository.defaultsKey) == expected)
+    }
+
+    @Test func invalidDogfoodIdentityDoesNotOverridePersistedClient() {
+        let defaults = makeDefaults()
+        let existing = UUID().uuidString
+        defaults.set(existing, forKey: MobileClientIDRepository.defaultsKey)
+        let repository = MobileClientIDRepository(
+            defaults: defaults,
+            environment: ["CMUX_DOGFOOD_CLIENT_ID": "not-a-uuid"]
+        )
+
+        #expect(repository.clientID == existing)
+    }
 }

@@ -64,7 +64,9 @@ public struct RemoteTmuxSessionCommandBuilder: Sendable {
         "CMUX_SHELL_INTEGRATION",
         "CMUX_SHELL_INTEGRATION_DIR",
         "CMUX_SOCKET_PATH",
+        "CMUX_SSH_ATTEMPT_ID",
         "CMUX_TAB_ID",
+        "CMUX_TERMINAL_LIFECYCLE_ID",
         "CMUX_WORKSPACE_ID",
     ]
 

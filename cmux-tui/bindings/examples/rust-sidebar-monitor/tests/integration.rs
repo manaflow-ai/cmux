@@ -29,14 +29,14 @@ fn request(reader: &mut BufReader<UnixStream>) -> Value {
     let mut line = String::new();
     assert_ne!(reader.read_line(&mut line).unwrap(), 0);
     let value: Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(value["protocol"], "cmux.protocol/1");
+    assert_eq!(value["protocol"], "cmux.protocol/2");
     assert_eq!(value["type"], "request");
     value
 }
 
 fn success(stream: &mut UnixStream, request: &Value, result: Value) {
     let response = json!({
-        "protocol": "cmux.protocol/1",
+        "protocol": "cmux.protocol/2",
         "type": "response",
         "id": request["id"],
         "ok": true,
@@ -98,7 +98,7 @@ fn send_snapshot(stream: &mut UnixStream, stream_id: &str, text: &str) {
         stream,
         "{}",
         json!({
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "stream_item",
             "stream_id": stream_id,
             "sequence": "0",
@@ -144,7 +144,7 @@ fn send_patch(stream: &mut UnixStream, stream_id: &str, sequence: u64, text: &st
         stream,
         "{}",
         json!({
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "stream_item",
             "stream_id": stream_id,
             "sequence": sequence.to_string(),
@@ -176,7 +176,7 @@ fn send_unknown(stream: &mut UnixStream, stream_id: &str) {
         stream,
         "{}",
         json!({
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "stream_item",
             "stream_id": stream_id,
             "sequence": "1",
@@ -197,7 +197,7 @@ fn send_end(
     recovery: Option<&str>,
 ) {
     let mut envelope = json!({
-        "protocol": "cmux.protocol/1",
+        "protocol": "cmux.protocol/2",
         "type": "stream_end",
         "stream_id": stream_id,
         "reason": reason,
@@ -234,7 +234,12 @@ fn wait_until(monitor: &mut SidebarMonitor, condition: impl Fn(&SidebarMonitor) 
         if condition(monitor) {
             return;
         }
-        assert!(Instant::now() < deadline, "monitor condition timed out");
+        assert!(
+            Instant::now() < deadline,
+            "monitor condition timed out: status={:?}, model={:?}",
+            monitor.status(),
+            monitor.model()
+        );
         thread::sleep(Duration::from_millis(5));
     }
 }
