@@ -11,6 +11,28 @@ import WebKit
 @MainActor
 @Suite(.serialized)
 struct CmuxWebViewContextMenuLinkCaptureTests {
+    /// The WebKit bridge must safely hop a callback arriving from a worker
+    /// context and deliver exactly one result on the main actor.
+    @Test
+    func javascriptCompletionBridgeHopsOffActorExactlyOnce() async {
+        let bridge = BrowserJavaScriptCompletionBridge()
+        let outcome = await withCheckedContinuation {
+            (continuation: CheckedContinuation<(Any?, (any Error)?), Never>) in
+            Task.detached {
+                bridge.deliver(
+                    result: nil,
+                    error: ContextMenuLinkCaptureTestError.synthetic,
+                    to: { result, error in
+                        continuation.resume(returning: (result, error))
+                    }
+                )
+            }
+        }
+
+        #expect(outcome.0 == nil)
+        #expect(outcome.1 is ContextMenuLinkCaptureTestError)
+    }
+
     /// Regression coverage for the browser Copy Image crash path: an
     /// evaluation failure from WebKit must reach the page-focus repository as
     /// data, not trip an actor assertion in the completion bridge.
@@ -221,6 +243,10 @@ struct CmuxWebViewContextMenuLinkCaptureTests {
         }
         return opened.url
     }
+}
+
+private enum ContextMenuLinkCaptureTestError: Error, Sendable {
+    case synthetic
 }
 
 @MainActor

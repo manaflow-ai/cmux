@@ -1,6 +1,20 @@
 import CmuxBrowser
 import WebKit
 
+/// Delivers a WebKit JavaScript result on the actor promised by the browser
+/// focus repository, even when the Objective-C callback arrives off-actor.
+struct BrowserJavaScriptCompletionBridge: Sendable {
+    func deliver(
+        result: Any?,
+        error: (any Error)?,
+        to completion: @escaping @MainActor (Any?, (any Error)?) -> Void
+    ) {
+        Task { @MainActor in
+            completion(result, error)
+        }
+    }
+}
+
 /// Bridges the omnibar page-focus repository to a panel's live web view.
 ///
 /// The panel is held weakly so the repository and adapter do not form a retain
@@ -22,14 +36,13 @@ final class BrowserOmnibarPageFocusAdapter: BrowserOmnibarScriptEvaluating {
             completion(nil, nil)
             return
         }
+        let bridge = BrowserJavaScriptCompletionBridge()
         panel.webView.evaluateJavaScript(script) { result, error in
             // WebKit may invoke an Objective-C completion without an active
-            // main-actor executor during nested menu tracking. Hop explicitly
-            // so the repository can classify the raw result/error without
-            // racing its main-actor state or touching AppKit off-actor.
-            Task { @MainActor in
-                completion(result, error)
-            }
+            // main-actor executor during nested menu tracking. The bridge
+            // preserves the raw result/error while hopping to the repository's
+            // promised actor.
+            bridge.deliver(result: result, error: error, to: completion)
         }
     }
 }
