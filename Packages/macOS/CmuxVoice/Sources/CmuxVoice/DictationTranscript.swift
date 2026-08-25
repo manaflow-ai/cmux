@@ -22,14 +22,23 @@ public struct DictationTranscript: Equatable, Sendable {
     /// The rolling hypothesis for the utterance currently being spoken.
     public private(set) var volatileText: String = ""
 
+    /// Incremental tail used by the HUD; the full committed transcript remains
+    /// available for insertion bookkeeping without rebuilding it on every
+    /// partial update.
+    private var committedDisplayTail = ""
+
+    private static let displayTailLimit = 512
+
     /// Creates an empty transcript.
     public init() {}
 
     /// Combined committed + volatile text for HUD display.
     public var displayText: String {
-        guard !volatileText.isEmpty else { return committedText }
-        guard !committedText.isEmpty else { return volatileText }
-        return committedText + (needsSeparator(before: volatileText) ? " " : "") + volatileText
+        let volatileTail = String(volatileText.suffix(Self.displayTailLimit))
+        guard !volatileTail.isEmpty else { return committedDisplayTail }
+        guard !committedDisplayTail.isEmpty else { return volatileTail }
+        let separator = needsSeparator(before: volatileText) ? " " : ""
+        return String((committedDisplayTail + separator + volatileTail).suffix(Self.displayTailLimit))
     }
 
     /// Folds one transcription event into the transcript.
@@ -43,6 +52,7 @@ public struct DictationTranscript: Equatable, Sendable {
             volatileText = text
             return nil
         case .final(let text):
+            guard !text.isEmpty else { return nil }
             volatileText = ""
             return commit(text)
         }
@@ -67,6 +77,9 @@ public struct DictationTranscript: Equatable, Sendable {
         guard !text.isEmpty else { return nil }
         let delta = needsSeparator(before: text) ? " " + text : text
         committedText += delta
+        committedDisplayTail = String(
+            (committedDisplayTail + delta).suffix(Self.displayTailLimit)
+        )
         return delta
     }
 

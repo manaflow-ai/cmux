@@ -14,7 +14,7 @@ public protocol DictationTextInserting: AnyObject {
     ///
     /// - Returns: `false` when nothing insertable has focus (the session
     ///   must not start).
-    func beginSession() -> Bool
+    func beginSession() async -> Bool
 
     /// Types one finalized delta into the pinned target.
     ///

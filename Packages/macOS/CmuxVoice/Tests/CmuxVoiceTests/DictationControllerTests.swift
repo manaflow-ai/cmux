@@ -26,7 +26,7 @@ private final class RecordingInserter: DictationTextInserting {
     private(set) var ended = 0
     private(set) var insertions: [String] = []
 
-    func beginSession() -> Bool {
+    func beginSession() async -> Bool {
         began += 1
         return beginSucceeds
     }

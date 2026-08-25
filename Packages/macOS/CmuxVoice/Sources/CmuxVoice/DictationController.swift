@@ -39,10 +39,14 @@ public final class DictationController {
     private let inserter: any DictationTextInserting
     private let makeTranscriber: @MainActor () -> any SpeechTranscribing
     private let localeProvider: @MainActor () -> Locale
+    private let clock: any Clock<Duration>
     private var activeTranscriber: (any SpeechTranscribing)?
     private var sessionTask: Task<Void, Never>?
+    private var stopWatchdogTask: Task<Void, Never>?
     private var sessionGeneration = 0
     private var insertionSessionActive = false
+
+    private static let stopWatchdogTimeout: Duration = .seconds(3)
 
     /// Creates a controller.
     ///
@@ -57,12 +61,14 @@ public final class DictationController {
         authorizer: any DictationAuthorizing,
         inserter: any DictationTextInserting,
         makeTranscriber: @escaping @MainActor () -> any SpeechTranscribing,
-        localeProvider: @escaping @MainActor () -> Locale
+        localeProvider: @escaping @MainActor () -> Locale,
+        clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.authorizer = authorizer
         self.inserter = inserter
         self.makeTranscriber = makeTranscriber
         self.localeProvider = localeProvider
+        self.clock = clock
     }
 
     /// Whether a session is running (any phase other than the resting
@@ -107,6 +113,7 @@ public final class DictationController {
             // hypothesis instead of letting finishTranscribing flush it.
             sessionTask?.cancel()
         }
+        armStopWatchdog(for: sessionGeneration)
         let transcriber = activeTranscriber
         Task {
             await transcriber?.finishTranscribing()
@@ -131,7 +138,7 @@ public final class DictationController {
                 settle(generation: generation)
                 return
             }
-            guard inserter.beginSession() else {
+            guard await inserter.beginSession() else {
                 fail(.insertionTargetUnavailable, generation: generation)
                 return
             }
@@ -211,6 +218,7 @@ public final class DictationController {
 
     private func settle(generation: Int) {
         guard sessionGeneration == generation, isActive else { return }
+        cancelStopWatchdog()
         endInsertionSessionIfActive()
         activeTranscriber = nil
         sessionTask = nil
@@ -222,11 +230,34 @@ public final class DictationController {
         // late stream end can neither clobber .failed back to .idle nor
         // re-fire the failure handler.
         guard sessionGeneration == generation, isActive else { return }
+        cancelStopWatchdog()
         endInsertionSessionIfActive()
         activeTranscriber = nil
         sessionTask = nil
         phase = .failed(failure)
         failureHandler?(failure)
+    }
+
+    private func armStopWatchdog(for generation: Int) {
+        stopWatchdogTask?.cancel()
+        let clock = self.clock
+        stopWatchdogTask = Task { @MainActor [weak self] in
+            try? await clock.sleep(for: Self.stopWatchdogTimeout)
+            guard !Task.isCancelled, let self else { return }
+            guard self.sessionGeneration == generation, self.phase == .stopping else { return }
+            self.sessionTask?.cancel()
+            let transcriber = self.activeTranscriber
+            Task { await transcriber?.finishTranscribing() }
+            self.fail(
+                .transcriptionFailed("dictation stop timed out"),
+                generation: generation
+            )
+        }
+    }
+
+    private func cancelStopWatchdog() {
+        stopWatchdogTask?.cancel()
+        stopWatchdogTask = nil
     }
 
     private func endInsertionSessionIfActive() {

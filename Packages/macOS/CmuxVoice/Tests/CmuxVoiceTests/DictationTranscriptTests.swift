@@ -42,12 +42,21 @@ struct DictationTranscriptTests {
         #expect(leading.apply(.final(" world")) == " world")
     }
 
-    @Test func emptyFinalIsIgnored() {
+    @Test func emptyFinalPreservesExistingPartial() {
         var transcript = DictationTranscript()
         _ = transcript.apply(.partial("noise"))
         #expect(transcript.apply(.final("")) == nil)
         #expect(transcript.committedText.isEmpty)
-        #expect(transcript.volatileText.isEmpty)
+        #expect(transcript.volatileText == "noise")
+        #expect(transcript.commitTrailingVolatileText() == "noise")
+    }
+
+    @Test func displayTextKeepsOnlyABoundedTail() {
+        var transcript = DictationTranscript()
+        _ = transcript.apply(.final(String(repeating: "x", count: 1_000)))
+        _ = transcript.apply(.partial(String(repeating: "y", count: 1_000)))
+        #expect(transcript.displayText.count <= 512)
+        #expect(transcript.displayText.hasSuffix(String(repeating: "y", count: 512)))
     }
 
     @Test func displayTextJoinsCommittedAndVolatile() {

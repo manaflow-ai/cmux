@@ -24,19 +24,40 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
     private weak var pinnedTerminalPanel: TerminalPanel?
     private var activeRoute: DictationInsertionRoute?
 
+    private static let webEditableFocusScript = """
+    (() => {
+      let active = document.activeElement;
+      while (active?.shadowRoot?.activeElement) {
+        active = active.shadowRoot.activeElement;
+      }
+      if (!active || active.disabled || active.readOnly) return false;
+      const tag = (active.tagName || "").toLowerCase();
+      if (tag === "textarea") return true;
+      if (tag === "input") return active.type !== "hidden";
+      if (active.isContentEditable) return true;
+      return !!active.closest?.('[contenteditable]:not([contenteditable="false"])');
+    })()
+    """
+
     init(focusedTerminalPanel: @escaping () -> TerminalPanel?) {
         self.focusedTerminalPanel = focusedTerminalPanel
     }
 
-    func beginSession() -> Bool {
+    func beginSession() async -> Bool {
         let responder = NSApp.keyWindow?.firstResponder
         let textView = responder as? NSTextView
         let webView = (responder as? NSView).flatMap(Self.enclosingWebView(of:))
         let terminalPanel = focusedTerminalPanel()
+        let nativeTextInputIsEditable = textView?.isEditable == true
+        let webViewIsEditable = if let webView {
+            await Self.webViewHasEditableFocus(webView)
+        } else {
+            false
+        }
 
         guard let route = resolver.route(
-            firstResponderIsTextInput: textView != nil,
-            firstResponderIsWebView: webView != nil,
+            firstResponderIsTextInput: nativeTextInputIsEditable,
+            firstResponderIsWebView: webViewIsEditable,
             hasFocusedTerminalSurface: terminalPanel != nil
         ) else { return false }
 
@@ -95,6 +116,25 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
         pinnedWebView = nil
         pinnedTerminalPanel = nil
         activeRoute = nil
+    }
+
+    private static func webViewHasEditableFocus(_ webView: WKWebView) async -> Bool {
+        guard webView.window != nil else { return false }
+        return await withCheckedContinuation { continuation in
+            webView.evaluateJavaScript(Self.webEditableFocusScript) { result, error in
+                guard error == nil else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                if let value = result as? Bool {
+                    continuation.resume(returning: value)
+                } else if let value = result as? NSNumber {
+                    continuation.resume(returning: value.boolValue)
+                } else {
+                    continuation.resume(returning: false)
+                }
+            }
+        }
     }
 
     private static func enclosingWebView(of view: NSView) -> WKWebView? {

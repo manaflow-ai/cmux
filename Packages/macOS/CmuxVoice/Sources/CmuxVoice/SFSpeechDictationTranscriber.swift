@@ -53,6 +53,10 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
     private var isFinishing = false
     private var consecutiveErrorCycles = 0
 
+    /// Keeps recognizer callbacks bounded when the insertion target is slow.
+    /// A dropped event fails the session rather than silently losing a final.
+    private static let eventBufferCapacity = 32
+
     /// Creates an engine for one session.
     public init() {}
 
@@ -67,7 +71,9 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
         }
         self.recognizer = recognizer
 
-        let (stream, continuation) = AsyncThrowingStream<DictationTranscriptionEvent, any Error>.makeStream()
+        let (stream, continuation) = AsyncThrowingStream<DictationTranscriptionEvent, any Error>.makeStream(
+            bufferingPolicy: .bufferingNewest(Self.eventBufferCapacity)
+        )
         self.continuation = continuation
 
         do {
@@ -176,13 +182,13 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
     private func handleRecognition(text: String?, isFinal: Bool, errorDescription: String?) {
         if let text, !isFinal {
             consecutiveErrorCycles = 0
-            continuation?.yield(.partial(text))
+            yield(.partial(text))
             return
         }
         if let text, isFinal {
             consecutiveErrorCycles = 0
             recognitionTask = nil
-            continuation?.yield(.final(text))
+            yield(.final(text))
             if isFinishing {
                 finishStream()
             } else {
@@ -206,6 +212,13 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
             } else {
                 beginRecognitionCycle()
             }
+        }
+    }
+
+    private func yield(_ event: DictationTranscriptionEvent) {
+        guard let continuation else { return }
+        if case .dropped = continuation.yield(event) {
+            failStream(.transcriptionFailed("recognition output backlog"))
         }
     }
 

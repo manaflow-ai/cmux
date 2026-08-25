@@ -14,68 +14,28 @@ import Speech
 /// Recognition never leaves the machine.
 @available(macOS 26.0, *)
 public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
-    /// The audio converter feeding the analyzer, shared with the
-    /// audio-thread tap.
+    /// The bounded handoff from the audio-thread tap to the actor.
     ///
-    /// Lock carve-out: the `AVAudioEngine` tap is a synchronous audio-thread
-    /// callback; conversion and yield must happen inline without actor hops.
+    /// Lock carve-out: the AVAudioEngine tap is a synchronous audio-thread
+    /// callback. It only enqueues an already-owned AnalyzerInput; format
+    /// conversion and buffer allocation happen on the actor's worker task.
     private final class InputBox: @unchecked Sendable {
         private let lock = OSAllocatedUnfairLock()
-        // All three guarded by `lock`.
-        private var converter: AVAudioConverter?
-        private var analyzerFormat: AVAudioFormat?
+        // The continuation is guarded by lock.
         private var continuation: AsyncStream<AnalyzerInput>.Continuation?
 
         func configure(
-            analyzerFormat: AVAudioFormat,
             continuation: AsyncStream<AnalyzerInput>.Continuation
         ) {
             lock.lock()
             defer { lock.unlock() }
-            self.analyzerFormat = analyzerFormat
             self.continuation = continuation
-            converter = nil
-        }
-
-        /// Drops the cached converter so the next buffer rebuilds it against
-        /// the current input format (device/route changes).
-        func resetConverter() {
-            lock.lock()
-            defer { lock.unlock() }
-            converter = nil
         }
 
         func ingest(_ buffer: AVAudioPCMBuffer) {
             lock.lock()
             defer { lock.unlock() }
-            guard let analyzerFormat, let continuation else { return }
-            if buffer.format == analyzerFormat {
-                continuation.yield(AnalyzerInput(buffer: buffer))
-                return
-            }
-            if converter == nil || converter?.inputFormat != buffer.format {
-                converter = AVAudioConverter(from: buffer.format, to: analyzerFormat)
-                converter?.primeMethod = .none
-            }
-            guard let converter else { return }
-            let ratio = analyzerFormat.sampleRate / buffer.format.sampleRate
-            let capacity = AVAudioFrameCount((Double(buffer.frameLength) * ratio).rounded(.up) + 16)
-            guard let converted = AVAudioPCMBuffer(
-                pcmFormat: analyzerFormat,
-                frameCapacity: max(capacity, 1)
-            ) else { return }
-            let feed = SingleBufferFeed(buffer)
-            var conversionError: NSError?
-            converter.convert(to: converted, error: &conversionError) { _, outStatus in
-                guard let next = feed.take() else {
-                    outStatus.pointee = .noDataNow
-                    return nil
-                }
-                outStatus.pointee = .haveData
-                return next
-            }
-            guard conversionError == nil, converted.frameLength > 0 else { return }
-            continuation.yield(AnalyzerInput(buffer: converted))
+            continuation?.yield(AnalyzerInput(buffer: buffer))
         }
 
         func finish() {
@@ -83,16 +43,14 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             defer { lock.unlock() }
             continuation?.finish()
             continuation = nil
-            converter = nil
-            analyzerFormat = nil
         }
     }
 
     /// Hands one buffer to `AVAudioConverter`'s input block.
     ///
-    /// The block runs synchronously inside `convert(to:error:)` on the
-    /// calling (audio) thread, so the buffer never actually crosses threads
-    /// despite the block's `@Sendable` annotation.
+    /// The block runs synchronously inside convert(to:error:) on the
+    /// conversion worker, so the buffer never actually crosses threads
+    /// despite the @Sendable annotation.
     private final class SingleBufferFeed: @unchecked Sendable {
         private var buffer: AVAudioPCMBuffer?
 
@@ -110,6 +68,10 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     private var analyzer: SpeechAnalyzer?
     private var transcriber: SpeechTranscriber?
     private var audioEngine: AVAudioEngine?
+    private var analyzerFormat: AVAudioFormat?
+    private var converter: AVAudioConverter?
+    private var convertedInputContinuation: AsyncStream<AnalyzerInput>.Continuation?
+    private var conversionTask: Task<Void, Never>?
     private var resultsTask: Task<Void, Never>?
     private var configurationChangeTask: Task<Void, Never>?
     private var outputContinuation: AsyncThrowingStream<DictationTranscriptionEvent, any Error>.Continuation?
@@ -119,6 +81,10 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     /// tap size. Dropping the oldest buffer lets the analyzer catch up after
     /// a temporary model stall without retaining an unbounded recording.
     private static let inputBufferCapacity = 8
+
+    /// Keeps transcription callbacks bounded when insertion briefly stalls.
+    /// A dropped event fails the session rather than silently losing a final.
+    private static let eventBufferCapacity = 32
 
     /// Creates an engine for one session.
     public init() {}
@@ -138,6 +104,8 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         let transcriber = SpeechTranscriber(
             locale: locale,
             transcriptionOptions: [],
+            // Apple's volatileResults contract emits tentative results for an
+            // audio range in addition to its finalized result.
             reportingOptions: [.volatileResults],
             attributeOptions: []
         )
@@ -162,10 +130,22 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         }
         try Task.checkCancellation()
 
+        let (rawInputSequence, rawInputContinuation) = AsyncStream<AnalyzerInput>.makeStream(
+            bufferingPolicy: .bufferingNewest(Self.inputBufferCapacity)
+        )
         let (inputSequence, inputContinuation) = AsyncStream<AnalyzerInput>.makeStream(
             bufferingPolicy: .bufferingNewest(Self.inputBufferCapacity)
         )
-        inputBox.configure(analyzerFormat: analyzerFormat, continuation: inputContinuation)
+        inputBox.configure(continuation: rawInputContinuation)
+        self.analyzerFormat = analyzerFormat
+        self.convertedInputContinuation = inputContinuation
+        conversionTask = Task { [weak self] in
+            for await input in rawInputSequence {
+                guard let self else { return }
+                await self.convertAndYield(input)
+            }
+            await self?.finishConvertedInput()
+        }
 
         let analyzer = SpeechAnalyzer(modules: [transcriber])
         self.analyzer = analyzer
@@ -173,10 +153,10 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         do {
             try startAudioEngine()
         } catch is CancellationError {
-            inputBox.finish()
+            await finishInputPipeline(cancelConversion: true)
             throw CancellationError()
         } catch {
-            inputBox.finish()
+            await finishInputPipeline(cancelConversion: true)
             throw DictationFailure.audioCaptureFailed(error.localizedDescription)
         }
 
@@ -185,23 +165,33 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             try Task.checkCancellation()
         } catch is CancellationError {
             stopAudioEngine()
-            inputBox.finish()
+            await finishInputPipeline(cancelConversion: true)
             throw CancellationError()
         } catch {
             stopAudioEngine()
-            inputBox.finish()
+            await finishInputPipeline(cancelConversion: true)
             throw DictationFailure.transcriptionFailed(error.localizedDescription)
         }
 
         observeConfigurationChanges()
 
-        let (stream, continuation) = AsyncThrowingStream<DictationTranscriptionEvent, any Error>.makeStream()
+        let (stream, continuation) = AsyncThrowingStream<DictationTranscriptionEvent, any Error>.makeStream(
+            bufferingPolicy: .bufferingNewest(Self.eventBufferCapacity)
+        )
         outputContinuation = continuation
         resultsTask = Task {
             do {
                 for try await result in transcriber.results {
                     let text = String(result.text.characters)
-                    continuation.yield(result.isFinal ? .final(text) : .partial(text))
+                    let event = result.isFinal ? .final(text) : .partial(text)
+                    if case .dropped = continuation.yield(event) {
+                        continuation.finish(
+                            throwing: DictationFailure.transcriptionFailed(
+                                "recognition output backlog"
+                            )
+                        )
+                        break
+                    }
                 }
                 continuation.finish()
             } catch {
@@ -219,7 +209,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         // down the engine the first call could not see yet.
         isFinishing = true
         stopAudioEngine()
-        inputBox.finish()
+        await finishInputPipeline(cancelConversion: false)
         do {
             // Finalizes the trailing volatile hypothesis; the results
             // sequence then ends, which ends the caller's event stream.
@@ -255,6 +245,58 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         audioEngine = engine
     }
 
+    /// Converts one raw tap buffer off the realtime audio callback.
+    private func convertAndYield(_ input: AnalyzerInput) {
+        guard let analyzerFormat, let continuation = convertedInputContinuation else { return }
+        let buffer = input.buffer
+        if buffer.format == analyzerFormat {
+            continuation.yield(input)
+            return
+        }
+        if converter == nil || converter?.inputFormat != buffer.format {
+            converter = AVAudioConverter(from: buffer.format, to: analyzerFormat)
+            converter?.primeMethod = .none
+        }
+        guard let converter else { return }
+        let ratio = analyzerFormat.sampleRate / buffer.format.sampleRate
+        let capacity = AVAudioFrameCount(
+            (Double(buffer.frameLength) * ratio).rounded(.up) + 16
+        )
+        guard let converted = AVAudioPCMBuffer(
+            pcmFormat: analyzerFormat,
+            frameCapacity: max(capacity, 1)
+        ) else { return }
+        let feed = SingleBufferFeed(buffer)
+        var conversionError: NSError?
+        converter.convert(to: converted, error: &conversionError) { _, outStatus in
+            guard let next = feed.take() else {
+                outStatus.pointee = .noDataNow
+                return nil
+            }
+            outStatus.pointee = .haveData
+            return next
+        }
+        guard conversionError == nil, converted.frameLength > 0 else { return }
+        continuation.yield(AnalyzerInput(buffer: converted))
+    }
+
+    private func finishConvertedInput() {
+        convertedInputContinuation?.finish()
+        convertedInputContinuation = nil
+        converter = nil
+        analyzerFormat = nil
+    }
+
+    private func finishInputPipeline(cancelConversion: Bool) async {
+        inputBox.finish()
+        if cancelConversion {
+            conversionTask?.cancel()
+        }
+        await conversionTask?.value
+        conversionTask = nil
+        finishConvertedInput()
+    }
+
     private func stopAudioEngine() {
         configurationChangeTask?.cancel()
         configurationChangeTask = nil
@@ -285,19 +327,19 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         }
     }
 
-    private func handleConfigurationChange() {
+    private func handleConfigurationChange() async {
         guard !isFinishing, let engine = audioEngine else { return }
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         audioEngine = nil
-        inputBox.resetConverter()
+        converter = nil
         do {
             try startAudioEngine()
         } catch {
             // No usable input device after the change: fail the session
             // instead of listening to silence forever.
             isFinishing = true
-            inputBox.finish()
+            await finishInputPipeline(cancelConversion: true)
             outputContinuation?.finish(
                 throwing: DictationFailure.audioCaptureFailed(error.localizedDescription)
             )
