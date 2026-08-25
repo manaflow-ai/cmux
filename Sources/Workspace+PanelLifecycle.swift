@@ -501,6 +501,7 @@ extension Workspace {
         preservesTerminalForTransfer: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
+        SharedLiveAgentIndex.shared.disarmSidebarProcessExitWatchers(panelID: panelId)
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
         }
