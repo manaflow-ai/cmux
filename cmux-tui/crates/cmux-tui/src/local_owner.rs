@@ -102,10 +102,17 @@ pub(crate) fn ensure_owner(
     if let Some(ready) = wait_while_starting(&spec.socket, expected_session, deadline)? {
         return Ok(Ensured::Running(ready));
     }
-    spawn_detached_owner(spec).map_err(EnsureError::Spawn)?;
-    match wait_until_ready(&spec.socket, Some(&spec.session), deadline)? {
-        Some(ready) => Ok(Ensured::Started(ready)),
-        None => Err(EnsureError::NotReady),
+    let owner = spawn_detached_owner(spec).map_err(EnsureError::Spawn)?;
+    match wait_until_ready(&spec.socket, Some(&spec.session), deadline) {
+        Ok(Some(ready)) => Ok(Ensured::Started(ready)),
+        Ok(None) => {
+            owner.terminate();
+            Err(EnsureError::NotReady)
+        }
+        Err(error) => {
+            owner.terminate();
+            Err(error)
+        }
     }
 }
 
@@ -248,7 +255,20 @@ fn identify(stream: Box<dyn transport::Stream>, deadline: Instant) -> Result<Val
 }
 
 /// Spawn the headless owner detached from this process's terminal.
-fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<()> {
+struct SpawnedOwner {
+    child: std::sync::Arc<std::sync::Mutex<Option<std::process::Child>>>,
+}
+
+impl SpawnedOwner {
+    fn terminate(self) {
+        if let Some(mut child) = self.child.lock().expect("owner mutex poisoned").take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     let program = platform::self_exe_for_spawn()?;
     let mut command = Command::new(program);
     command.arg("--headless");
@@ -306,7 +326,7 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<()> {
         }
         return Err(io::Error::other("local owner reaper unavailable"));
     }
-    Ok(())
+    Ok(SpawnedOwner { child: reaper_child })
 }
 
 /// Exclusive lock serializing owner spawns for one socket path. The lock

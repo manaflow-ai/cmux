@@ -47,8 +47,8 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         );
     }
     let expected_session = global.session.clone();
-    let socket = match super::wire::resolve_socket(&global) {
-        Ok(socket) => socket,
+    let (socket, socket_is_derived) = match super::wire::resolve_socket_with_origin(&global) {
+        Ok(resolved) => resolved,
         Err(_error) => {
             if let Some(session) = global.session.as_deref()
                 && cmux_tui_core::server::validate_session_name(session).is_err()
@@ -76,7 +76,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             expected_session,
             socket,
             socket_output,
-            global.socket.is_none(),
+            socket_is_derived,
             global.output,
         );
     }
