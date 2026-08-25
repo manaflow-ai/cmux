@@ -23,7 +23,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             executable: String,
             launchArguments: [String],
             extraEnvironment: [String: String],
-            existingLaunchArguments: [String]? = nil,
             expectedArguments: [String],
             expectedEnvironment: [String: String]?,
             expectedSource: String? = nil,
