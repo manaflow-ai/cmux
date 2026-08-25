@@ -247358,6 +247358,20 @@
         "ja": { "stringUnit": { "state": "translated", "value": "ターミナルセッションが終了しました" } }
       }
     },
+    "tui.overlay.failed.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The relay for this daemon-backed terminal keeps failing. Check the cmux-tui binary path in Settings, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デーモン管理ターミナルのリレーが繰り返し失敗しています。設定でcmux-tuiバイナリのパスを確認してから再試行してください。" } }
+      }
+    },
+    "tui.overlay.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal backend unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルバックエンドを利用できません" } }
+      }
+    },
     "tui.overlay.reconnecting.detail": {
       "extractionState": "manual",
       "localizations": {

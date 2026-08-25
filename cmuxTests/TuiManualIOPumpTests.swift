@@ -28,12 +28,18 @@ struct TuiManualIOPumpTests {
                 stderrText: "{\"exit\":{\"reason\":\"parent-closed\"}}\n"
             ) == .parentClosed
         )
-        #expect(TuiManualIOPumpPolicy.relayExit(status: 2, stderrText: nil) == .daemonLost)
         #expect(
             TuiManualIOPumpPolicy.relayExit(
                 status: 2,
                 stderrText: "{\"exit\":{\"reason\":\"daemon-lost\"}}\n"
             ) == .daemonLost
+        )
+        // Exit 2 without the relay's reason line is a usage error (e.g. a
+        // binary without --pipe-io), not an endlessly-retryable outage.
+        #expect(TuiManualIOPumpPolicy.relayExit(status: 2, stderrText: nil) == .failure)
+        #expect(
+            TuiManualIOPumpPolicy.relayExit(status: 2, stderrText: "cmux: unknown argument")
+                == .failure
         )
     }
 
@@ -141,6 +147,15 @@ struct TuiManualIOPumpTests {
         )
         #expect(!presentation.showsProgress)
         #expect(!presentation.showsReconnectButton)
+    }
+
+    @Test
+    func failedOverlayOffersManualRetryOnly() throws {
+        let presentation = try #require(
+            TuiManualIOPumpPolicy.overlayPresentation(state: .failed)
+        )
+        #expect(!presentation.showsProgress)
+        #expect(presentation.showsReconnectButton)
     }
 
     // MARK: - Input channel

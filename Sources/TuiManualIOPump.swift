@@ -38,7 +38,10 @@ enum TuiManualIOPumpPolicy {
         switch (status, reason) {
         case (0, "terminal-ended"): return .terminalEnded
         case (0, "parent-closed"): return .parentClosed
-        case (2, _): return .daemonLost
+        // Exit 2 is daemon-lost ONLY with the relay's own reason line: a
+        // binary without --pipe-io support also exits 2 (usage error), and
+        // that must not read as an endlessly-retryable daemon outage.
+        case (2, "daemon-lost"): return .daemonLost
         case (0, _): return .terminalEnded
         default: return .failure
         }
@@ -59,6 +62,11 @@ enum TuiManualIOPumpPolicy {
         case .parentClosed: return .ignore
         }
     }
+
+    /// Unexplained relay failures (no exit-reason line: bad binary, usage
+    /// error, crash) stop retrying after this many consecutive attempts
+    /// without a live interlude; explained daemon-lost exits retry forever.
+    static let maxConsecutiveUnexplainedFailures = 5
 
     /// Reconnect backoff: fast first retries absorb a daemon restart or
     /// handoff, the 30s cap keeps a long outage cheap while the pane shows
@@ -144,6 +152,19 @@ enum TuiManualIOPumpPolicy {
                 showsProgress: false,
                 showsReconnectButton: false
             )
+        case .failed:
+            return CloudTerminalReconnectOverlayPolicy.Presentation(
+                title: String(
+                    localized: "tui.overlay.failed.title",
+                    defaultValue: "Terminal backend unavailable"
+                ),
+                detail: String(
+                    localized: "tui.overlay.failed.detail",
+                    defaultValue: "The relay for this daemon-backed terminal keeps failing. Check the cmux-tui binary path in Settings, then retry."
+                ),
+                showsProgress: false,
+                showsReconnectButton: true
+            )
         }
     }
 }
@@ -213,6 +234,9 @@ final class TuiManualIOPump {
         case reconnecting(attempt: Int)
         /// The daemon terminal ended; the pane keeps its final frame.
         case ended
+        /// The relay failed repeatedly with no explanation (bad binary,
+        /// crash loop); automatic retries stopped, manual retry offered.
+        case failed
     }
 
     private(set) var state: State = .connecting {
@@ -246,6 +270,7 @@ final class TuiManualIOPump {
     private var generation = 0
     private var stopped = false
     private var everRenderedAttach = false
+    private var consecutiveUnexplainedFailures = 0
     private var lastKnownGrid: (cols: Int, rows: Int)?
     private var lastSentGrid: (cols: Int, rows: Int)?
 
@@ -290,12 +315,19 @@ final class TuiManualIOPump {
         }
     }
 
-    /// The overlay's Reconnect button: skip the remaining backoff.
+    /// The overlay's Reconnect button: skip the remaining backoff, or leave
+    /// the failed state for another round of attempts.
     func retryNow() {
-        guard case .reconnecting = state, !stopped else { return }
-        retryTask?.cancel()
-        retryTask = nil
-        spawnRelay()
+        switch state {
+        case .reconnecting, .failed:
+            guard !stopped else { return }
+            consecutiveUnexplainedFailures = 0
+            retryTask?.cancel()
+            retryTask = nil
+            spawnRelay()
+        case .connecting, .live, .ended:
+            break
+        }
     }
 
     /// Tears the pump down (panel closed, app quitting, transfer discard).
@@ -339,7 +371,7 @@ final class TuiManualIOPump {
     private func spawnRelay() {
         guard !stopped, let surface else { return }
         guard FileManager.default.isExecutableFile(atPath: binaryPath) else {
-            scheduleRetry()
+            noteUnexplainedFailureThenRetryOrFail()
             return
         }
         generation += 1
@@ -401,6 +433,7 @@ final class TuiManualIOPump {
                 reader.release(chunk)
                 self.surface?.processRemoteOutput(chunk)
                 self.everRenderedAttach = true
+                self.consecutiveUnexplainedFailures = 0
                 if self.state != .live {
                     self.state = .live
                 }
@@ -419,7 +452,7 @@ final class TuiManualIOPump {
         } catch {
             log("spawn failed: \(error)")
             reader.close()
-            scheduleRetry()
+            noteUnexplainedFailureThenRetryOrFail()
             return
         }
         self.process = process
@@ -443,10 +476,27 @@ final class TuiManualIOPump {
         case .end:
             state = .ended
         case .retry:
-            scheduleRetry()
+            if exit == .failure {
+                noteUnexplainedFailureThenRetryOrFail()
+            } else {
+                scheduleRetry()
+            }
         case .ignore:
             break
         }
+    }
+
+    /// Unexplained failures (spawn failure, usage error, crash) stop
+    /// retrying after a bounded streak so a permanently broken binary
+    /// converges to a visible failed state instead of a silent retry loop.
+    private func noteUnexplainedFailureThenRetryOrFail() {
+        consecutiveUnexplainedFailures += 1
+        if consecutiveUnexplainedFailures
+            >= TuiManualIOPumpPolicy.maxConsecutiveUnexplainedFailures {
+            state = .failed
+            return
+        }
+        scheduleRetry()
     }
 
     private func scheduleRetry() {
