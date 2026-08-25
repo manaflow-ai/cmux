@@ -142,9 +142,14 @@ extension AppDelegate {
     }
 
     /// The Dock for a registered window-owner id, created on first access. `nil`
-    /// means `windowId` is not a live window-Dock owner.
+    /// means `windowId` is not a live window-Dock owner. During context
+    /// replacement, return the already-owned recoverable Dock without creating
+    /// a new store.
     func windowDockForRegisteredOwner(_ windowId: UUID) -> DockSplitStore? {
-        mainWindowContext(forWindowId: windowId)?.windowDockStore(notificationStore: notificationStore)
+        if let context = mainWindowContext(forWindowId: windowId) {
+            return context.windowDockStore(notificationStore: notificationStore)
+        }
+        return recoverableMainWindowRoute(windowId: windowId)?.windowDock
     }
 
     /// The Dock of `tabManager`'s window, created on first access for a live

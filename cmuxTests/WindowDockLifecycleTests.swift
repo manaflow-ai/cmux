@@ -147,6 +147,36 @@ struct WindowDockLifecycleTests {
         #expect(replacementPanel.id != firstPanel.id)
     }
 
+    @Test("Retired workspaces reject late panel callbacks")
+    @MainActor
+    func retiredWorkspaceRejectsLatePanelCallbacks() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = manager.addWorkspace(
+            title: "Cloud VM",
+            initialSurface: .cloudVMLoading,
+            inheritWorkingDirectory: false,
+            autoWelcomeIfNeeded: false
+        )
+        defer {
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+        }
+
+        let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
+        workspace.retireFromOwningTabManager()
+
+        #expect(
+            workspace.replaceCloudVMLoadingSurfaceWithTerminal(
+                workspaceId: workspace.id,
+                initialCommand: "cmux vm-pty-connect --id stale",
+                focus: false
+            ) == nil
+        )
+        #expect(workspace.newNotificationsSurface(inPane: paneId) == nil)
+        #expect(workspace.openOrFocusNotificationsSurface(inPane: paneId) == nil)
+    }
+
     @Test("Window Dock tears down on authoritative route removal")
     @MainActor
     func windowDockTearsDownOnAuthoritativeRouteRemoval() async throws {
@@ -257,6 +287,7 @@ struct WindowDockLifecycleTests {
             #expect(!dock.isRetired)
             #expect(dock.containsPanel(panel.id))
             #expect(appDelegate.existingWindowDock(forWindowId: windowId) === dock)
+            #expect(appDelegate.windowDockForRegisteredOwner(windowId) === dock)
             #expect(appDelegate.existingWindowDocks.contains { $0 === dock })
             #expect(
                 appDelegate.recoverableMainWindowRoute(windowId: windowId)?

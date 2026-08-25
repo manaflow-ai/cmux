@@ -8590,7 +8590,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialCommand: String,
         focus: Bool = true
     ) -> TerminalPanel? {
-        guard workspaceId == id,
+        guard !isRetiredFromOwningTabManager,
+              workspaceId == id,
               let pair = panels.first(where: { $0.value.panelType == .cloudVMLoading }),
               let loadingPanel = pair.value as? CloudVMLoadingPanel,
               let tabId = surfaceIdFromPanelId(pair.key),
