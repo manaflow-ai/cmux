@@ -54,7 +54,8 @@ extension GitMetadataService {
         }
         pathsByRepository[repository.workTreeRoot] = GitConfigBranchTraversal(
             repository: repository,
-            branchContext: branchContext
+            branchContext: branchContext,
+            includeConditionalPathsForWatch: true
         ).watchPaths() + references.storageWatchPaths
 
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")

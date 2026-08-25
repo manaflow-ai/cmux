@@ -224,6 +224,11 @@ extension GitMetadataService {
             paths.append(contentsOf: gitRepositoryMetadataWatchPaths(
                 repository: submoduleRepository,
                 configPathsByRepository: configPathsByRepository
+                    ?? [submoduleRepository.workTreeRoot: GitConfigBranchTraversal(
+                        repository: submoduleRepository,
+                        branchContext: .resolved(nil),
+                        includeConditionalPathsForWatch: true
+                    ).watchPaths()]
             ))
             paths.append(
                 contentsOf: gitlinkMetadataWatchPaths(

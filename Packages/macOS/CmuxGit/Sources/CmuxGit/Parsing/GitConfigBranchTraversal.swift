@@ -14,6 +14,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
     private let configReader: GitConfigFileReader
     private let maximumFileByteCount: Int
     private let storageProbe: any GitReferenceStorageProbing
+    private let includeConditionalPathsForWatch: Bool
 
     /// Creates a traversal for one repository and resolved branch context.
     init(
@@ -21,13 +22,15 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         branchContext: GitConfigBranchContext,
         configReader: GitConfigFileReader = GitConfigFileReader(),
         maximumFileByteCount: Int = GitConfigFileReader.defaultMaximumByteCount,
-        storageProbe: any GitReferenceStorageProbing = SystemGitReferenceStorageProbe()
+        storageProbe: any GitReferenceStorageProbing = SystemGitReferenceStorageProbe(),
+        includeConditionalPathsForWatch: Bool = false
     ) {
         self.repository = repository
         self.branchContext = branchContext
         self.configReader = configReader
         self.maximumFileByteCount = max(0, maximumFileByteCount)
         self.storageProbe = storageProbe
+        self.includeConditionalPathsForWatch = includeConditionalPathsForWatch
     }
 
     /// Returns every reachable config file in Git's include order.
@@ -87,9 +90,9 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         state: inout GitConfigTraversalState
     ) {
         let configURL = rawURL.standardizedFileURL
-        guard state.seenConfigPaths.insert(configURL.path).inserted,
-              state.budget.reservePath() else { return }
+        guard state.seenConfigPaths.insert(configURL.path).inserted else { return }
         state.configURLs.append(configURL)
+        guard state.budget.reservePath() else { return }
         guard let config = state.budget.read(at: configURL) else { return }
 
         var inExtensionsSection = false
@@ -99,10 +102,9 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                 .trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("[") && line.hasSuffix("]") {
                 inExtensionsSection = line.lowercased() == "[extensions]"
-                currentSectionAllowsIncludePath = includeCondition(
-                    fromSectionHeader: line,
-                    configURL: configURL
-                )
+                currentSectionAllowsIncludePath = includeConditionalPathsForWatch
+                    && line.lowercased().hasPrefix("[includeif ")
+                    || includeCondition(fromSectionHeader: line, configURL: configURL)
                 continue
             }
             let parts = line.split(separator: "=", maxSplits: 1).map {
