@@ -48,11 +48,13 @@ extension HostSettingsActions {
     }
 
     func pairComputer(deviceID: String) async -> ComputersPairResult {
+        guard HiveComputersService.shared.viewerTransportAvailable else { return .noRoutes }
         guard let directory = computersDirectory else { return .failed }
         return Self.pairResult(await directory.pair(deviceID: deviceID))
     }
 
     func pairComputer(code: String) async -> ComputersPairResult {
+        guard HiveComputersService.shared.viewerTransportAvailable else { return .noRoutes }
         guard let directory = computersDirectory else { return .failed }
         return Self.pairResult(await directory.pair(code: code))
     }
@@ -120,7 +122,10 @@ extension HostSettingsActions {
             symbolName: Self.symbolName(forPlatform: computer.platform),
             isThisMac: computer.isThisComputer,
             isPaired: computer.isPaired,
-            canPair: !computer.isThisComputer && computer.isPairableHost && !computer.isPaired
+            canOpen: HiveComputersService.shared.viewerTransportAvailable
+                && computer.hasViewerSupportedRoute,
+            canPair: HiveComputersService.shared.viewerTransportAvailable
+                && !computer.isThisComputer && computer.isPairableHost && !computer.isPaired
                 && computer.isOwnedByCurrentUser
                 && computer.hasViewerSupportedRoute,
             presence: Self.presence(computer.presence),

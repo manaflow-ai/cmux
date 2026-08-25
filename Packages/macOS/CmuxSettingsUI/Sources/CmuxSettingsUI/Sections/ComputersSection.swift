@@ -432,6 +432,7 @@ private struct ComputersSectionRow: View {
     @ViewBuilder
     private var control: some View {
         if computer.isPaired, !computer.isThisMac {
+            if computer.canOpen {
             Button(String(localized: "settings.computers.row.open", defaultValue: "Open")) {
                 open()
             }
@@ -439,6 +440,7 @@ private struct ComputersSectionRow: View {
             .controlSize(.small)
             .disabled(isPending)
             .accessibilityIdentifier("SettingsComputersOpenButton-\(computer.deviceID)")
+            }
 
             Button(String(localized: "settings.computers.row.unpair", defaultValue: "Unpair")) {
                 unpair()

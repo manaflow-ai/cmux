@@ -27,6 +27,8 @@ public struct ComputersSettingsComputer: Sendable, Equatable, Identifiable {
     public let isThisMac: Bool
     /// Whether a local pairing exists for this computer.
     public let isPaired: Bool
+    /// Whether the current build has a transport-admission path for opening it.
+    public let canOpen: Bool
     /// Whether the row can be paired from here (a host platform with routes,
     /// not this Mac, not already paired).
     public let canPair: Bool
@@ -45,6 +47,7 @@ public struct ComputersSettingsComputer: Sendable, Equatable, Identifiable {
         symbolName: String,
         isThisMac: Bool,
         isPaired: Bool,
+        canOpen: Bool = true,
         canPair: Bool,
         presence: Presence,
         detail: String? = nil
@@ -54,6 +57,7 @@ public struct ComputersSettingsComputer: Sendable, Equatable, Identifiable {
         self.symbolName = symbolName
         self.isThisMac = isThisMac
         self.isPaired = isPaired
+        self.canOpen = canOpen
         self.canPair = canPair
         self.presence = presence
         self.detail = detail

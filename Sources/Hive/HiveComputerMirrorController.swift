@@ -113,6 +113,7 @@ final class HiveComputerMirrorController {
     /// windows mode creates a real main window scoped to the device.
     static func presentViewer(deviceID: String) {
         Task { @MainActor in
+            guard HiveComputersService.shared.viewerTransportAvailable else { return }
             cmuxDebugLog("hive.presentViewer.begin device=\(deviceID.prefix(8))")
             let presentation: ComputersPresentationMode
             if let runtime = AppDelegate.shared?.settingsRuntime {

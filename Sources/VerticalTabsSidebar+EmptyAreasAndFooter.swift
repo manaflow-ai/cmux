@@ -139,7 +139,10 @@ struct HiveSidebarScopePicker: View {
         await directory.refresh()
         for await merged in directory.updates() {
             let snapshot = merged
-                .filter { $0.isPaired && !$0.isThisComputer }
+                .filter {
+                    HiveComputersService.shared.viewerTransportAvailable
+                        && $0.isPaired && !$0.isThisComputer
+                }
                 .map { HiveScopeComputer(id: $0.deviceID, name: $0.displayName) }
             if snapshot != computers { computers = snapshot }
         }

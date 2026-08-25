@@ -46,8 +46,10 @@ let package = Package(
                 "CmuxHive",
                 "CMUXMobileCore",
                 "CmuxMobilePairedMac",
+                "CmuxMobileRPC",
                 "CmuxMobileShell",
                 "CmuxMobileShellModel",
+                "CmuxMobileTransport",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

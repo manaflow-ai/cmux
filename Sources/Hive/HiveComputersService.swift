@@ -28,6 +28,11 @@ final class HiveComputersService {
         auth?.currentUser != nil
     }
 
+    /// Legacy Tailscale TCP has no cryptographic transport-admission handshake.
+    /// Keep viewer actions gated until that protocol is available; DEBUG
+    /// loopback remains reachable through the direct mirror path.
+    var viewerTransportAvailable: Bool { false }
+
     /// Inject the auth dependency and build the directory. Call once at the
     /// composition root alongside the other cloud clients.
     func configure(auth: AuthCoordinator) {
