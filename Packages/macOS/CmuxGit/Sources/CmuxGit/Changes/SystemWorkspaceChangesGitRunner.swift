@@ -142,16 +142,21 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         prepareAttempt: () throws -> Void,
         consume: (Data) throws -> Void
     ) throws -> (exitCode: Int32, wasTruncated: Bool) {
+        let deadline = DispatchTime.now() + max(0, wallTimeLimit)
         let candidates = [executableURL] + fallbackExecutableURLs
         var lastResult: (exitCode: Int32, wasTruncated: Bool)?
         for candidate in candidates {
+            let now = DispatchTime.now()
+            guard deadline > now else { break }
+            let remaining = Double(deadline.uptimeNanoseconds - now.uptimeNanoseconds)
+                / 1_000_000_000
             do {
                 let result = try executeOnce(
                     executableURL: candidate,
                     arguments: arguments,
                     directory: directory,
                     maximumOutputByteCount: maximumOutputByteCount,
-                    wallTimeLimit: wallTimeLimit,
+                    wallTimeLimit: remaining,
                     prepareAttempt: prepareAttempt,
                     consume: consume
                 )
@@ -162,7 +167,7 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
                     return result
                 }
             } catch {
-                continue
+                throw error
             }
         }
         return lastResult ?? (exitCode: 128, wasTruncated: true)

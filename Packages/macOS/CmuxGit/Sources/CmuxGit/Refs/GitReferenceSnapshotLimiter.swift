@@ -2,6 +2,7 @@ import Foundation
 
 /// Bounds concurrent reference-plumbing snapshots across one service graph.
 actor GitReferenceSnapshotLimiter {
+    private static let maximumWaiterCount = 64
     private let limit: Int
     private var activeCount = 0
     private var waiters: [GitReferenceSnapshotLimiterWaiter] = []
@@ -20,6 +21,8 @@ actor GitReferenceSnapshotLimiter {
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 if Task.isCancelled {
+                    continuation.resume(returning: false)
+                } else if waiters.count >= Self.maximumWaiterCount {
                     continuation.resume(returning: false)
                 } else {
                     waiters.append(GitReferenceSnapshotLimiterWaiter(id: id, continuation: continuation))
