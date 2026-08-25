@@ -20,6 +20,10 @@ struct SurfaceResumeBindingIndex: Sendable {
         self.bindingsByPanelId = bindingsByPanelId
     }
 
+    var isEmpty: Bool {
+        bindingsByPanel.isEmpty
+    }
+
     func binding(workspaceId: UUID, panelId: UUID) -> SurfaceResumeBindingSnapshot? {
         bindingsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? bindingsByPanelId[panelId]
     }

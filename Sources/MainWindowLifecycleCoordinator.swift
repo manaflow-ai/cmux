@@ -221,10 +221,20 @@ final class MainWindowLifecycleCoordinator {
         availablePersistenceSlots: Int
     ) -> Bool {
         guard orphanedRoute(windowId: windowId)?.window == nil else { return false }
-        return orphanedRoutes()
-            .filter(\.isEligibleForSessionPersistence)
-            .prefix(max(0, availablePersistenceSlots))
+        return eligibleOrphanedRoutesForPersistence(
+            maximum: availablePersistenceSlots
+        )
             .contains { $0.windowId == windowId }
+    }
+
+    /// Returns the bounded orphan set that can occupy persisted window slots.
+    func eligibleOrphanedRoutesForPersistence(
+        maximum: Int = SessionPersistencePolicy.maxWindowsPerSnapshot
+    ) -> [RecoverableMainWindowRoute] {
+        orphanedRoutes()
+            .filter(\.isEligibleForSessionPersistence)
+            .prefix(max(0, maximum))
+            .map { $0 }
     }
 
     var registeredContexts: [AppDelegate.MainWindowContext] {

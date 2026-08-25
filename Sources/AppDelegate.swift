@@ -4717,6 +4717,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func currentSurfaceTTYDeviceBindings()
         -> [SurfaceResumeBindingIndex.PanelKey: Int64] {
         var bindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
+        func appendBindings(from dock: DockSplitStore) {
+            for (panelID, panel) in dock.panels {
+                guard let terminal = panel as? TerminalPanel,
+                      let device = terminal.surface.controllingTTYDeviceIdentifier,
+                      device > 0 else {
+                    continue
+                }
+                let key = SurfaceResumeBindingIndex.PanelKey(
+                    workspaceId: dock.workspaceId,
+                    panelId: panelID
+                )
+                if bindings[key] == nil {
+                    bindings[key] = device
+                }
+            }
+        }
         func appendBindings(from manager: TabManager) {
             for workspace in manager.tabs {
                 for (panelID, panel) in workspace.panels {
@@ -4732,18 +4748,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         bindings[key] = device
                     }
                 }
+                if let dock = workspace._dockSplit {
+                    appendBindings(from: dock)
+                }
             }
         }
         // Registered contexts are authoritative when a window id is shared.
         for context in mainWindowContexts.values {
             appendBindings(from: context.tabManager)
+            if let dock = context.existingWindowDock() {
+                appendBindings(from: dock)
+            }
         }
         // A windowless orphan has already left `mainWindowContexts`, but its
         // retained manager still owns the controlling TTYs needed to map plain
-        // SSH/tmux processes during the freeze scan.
-        for route in mainWindowLifecycleCoordinator.orphanedRoutes() {
+        // SSH/tmux processes during the freeze scan. Keep this traversal bounded
+        // to routes that can occupy the persisted window budget.
+        for route in mainWindowLifecycleCoordinator.eligibleOrphanedRoutesForPersistence() {
             guard let manager = route.tabManager else { continue }
             appendBindings(from: manager)
+            if case .live(let dock)? = route.windowDock {
+                appendBindings(from: dock)
+            }
         }
         return bindings
     }

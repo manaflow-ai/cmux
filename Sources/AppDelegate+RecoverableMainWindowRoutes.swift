@@ -358,10 +358,13 @@ extension AppDelegate {
             let restorableAgentIndex = resumeIndexes?.restorableAgentIndex
                 ?? SharedLiveAgentIndex.shared.index
                 ?? .empty
+            let detectedSurfaceResumeBindingIndex = resumeIndexes?.surfaceResumeBindingIndex
             self?.freezeWindowlessRecoverableMainWindowRoute(
                 route,
                 restorableAgentIndex: restorableAgentIndex,
-                surfaceResumeBindingIndex: resumeIndexes?.surfaceResumeBindingIndex
+                surfaceResumeBindingIndex: detectedSurfaceResumeBindingIndex?.isEmpty == false
+                    ? detectedSurfaceResumeBindingIndex
+                    : nil
             )
         }
         mainWindowLifecycleCoordinator.retainWindowlessRouteFreezeTask(
