@@ -72,7 +72,33 @@ struct AuthSnapshot {
 
 pub(crate) struct OutboundFrame {
     pub(crate) text: String,
+    pub(crate) live: Option<Arc<AtomicBool>>,
+    pub(crate) ack: Option<tokio::sync::oneshot::Sender<()>>,
     _bytes: OwnedSemaphorePermit,
+}
+
+impl OutboundFrame {
+    pub(crate) fn is_live(&self) -> bool {
+        self.live.as_ref().is_none_or(|live| live.load(Ordering::Acquire))
+    }
+
+    /// Complete a producer waiting for this frame to leave the writer. The
+    /// sender is optional for lossy frames, and sending is best effort because
+    /// the producer may have been cancelled already.
+    pub(crate) fn acknowledge(&mut self) {
+        if let Some(ack) = self.ack.take() {
+            let _ = ack.send(());
+        }
+    }
+}
+
+impl Drop for OutboundFrame {
+    fn drop(&mut self) {
+        // Covers queue teardown and producer send errors. The writer calls
+        // `acknowledge` explicitly for stale, sent, and failed frames; Drop
+        // makes the shutdown/EOF path safe even if a receiver is discarded.
+        self.acknowledge();
+    }
 }
 
 async fn send_socket_message<S>(
@@ -141,14 +167,36 @@ impl OutboundSink {
     }
 
     pub(crate) async fn critical_text(&self, text: String) -> Result<(), ()> {
+        self.critical_text_with_token_ack(text, None, None).await
+    }
+
+    pub(crate) async fn critical_text_with_token(
+        &self,
+        text: String,
+        live: Option<Arc<AtomicBool>>,
+    ) -> Result<(), ()> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.critical_text_with_token_ack(text, live, Some(tx)).await?;
+        rx.await.map_err(|_| ())
+    }
+
+    pub(crate) async fn critical_text_with_token_ack(
+        &self,
+        text: String,
+        live: Option<Arc<AtomicBool>>,
+        ack: Option<tokio::sync::oneshot::Sender<()>>,
+    ) -> Result<(), ()> {
         let bytes = u32::try_from(text.len()).map_err(|_| ())?;
         if bytes as usize > MAX_OUTBOUND_BYTES {
             self.critical_overflow.store(true, Ordering::Release);
             return Err(());
         }
         let permit = Arc::clone(&self.bytes).acquire_many_owned(bytes).await.map_err(|_| ())?;
-        let result =
-            self.critical.send(OutboundFrame { text, _bytes: permit }).await.map_err(|_| ());
+        let result = self
+            .critical
+            .send(OutboundFrame { text, live, ack, _bytes: permit })
+            .await
+            .map_err(|_| ());
         if result.is_err() {
             self.critical_overflow.store(true, Ordering::Release);
         }
@@ -156,11 +204,27 @@ impl OutboundSink {
     }
 
     pub(crate) fn try_watch_value(&self, frame: Value) -> Result<(), ()> {
+        self.try_watch_value_with_token(frame, None)
+    }
+
+    pub(crate) fn try_watch_value_with_token(
+        &self,
+        frame: Value,
+        live: Option<Arc<AtomicBool>>,
+    ) -> Result<(), ()> {
         let Some(text) = Self::encode(frame) else { return Err(()) };
-        self.try_watch_text(text)
+        self.try_watch_text_with_token(text, live)
     }
 
     pub(crate) fn try_critical_value(&self, frame: Value) -> Result<(), ()> {
+        self.try_critical_value_with_token(frame, None)
+    }
+
+    pub(crate) fn try_critical_value_with_token(
+        &self,
+        frame: Value,
+        live: Option<Arc<AtomicBool>>,
+    ) -> Result<(), ()> {
         let result = (|| {
             let text = Self::encode(frame).ok_or(())?;
             let bytes = u32::try_from(text.len()).map_err(|_| ())?;
@@ -168,7 +232,9 @@ impl OutboundSink {
                 return Err(());
             }
             let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
-            self.critical.try_send(OutboundFrame { text, _bytes: permit }).map_err(|_| ())
+            self.critical
+                .try_send(OutboundFrame { text, live, ack: None, _bytes: permit })
+                .map_err(|_| ())
         })();
         if result.is_err() {
             self.critical_overflow.store(true, Ordering::Release);
@@ -177,13 +243,23 @@ impl OutboundSink {
     }
 
     pub(crate) fn try_critical_text(&self, text: String) -> Result<(), ()> {
+        self.try_critical_text_with_token(text, None)
+    }
+
+    pub(crate) fn try_critical_text_with_token(
+        &self,
+        text: String,
+        live: Option<Arc<AtomicBool>>,
+    ) -> Result<(), ()> {
         let result = (|| {
             let bytes = u32::try_from(text.len()).map_err(|_| ())?;
             if bytes as usize > MAX_OUTBOUND_BYTES {
                 return Err(());
             }
             let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
-            self.critical.try_send(OutboundFrame { text, _bytes: permit }).map_err(|_| ())
+            self.critical
+                .try_send(OutboundFrame { text, live, ack: None, _bytes: permit })
+                .map_err(|_| ())
         })();
         if result.is_err() {
             self.critical_overflow.store(true, Ordering::Release);
@@ -196,9 +272,17 @@ impl OutboundSink {
     }
 
     pub(crate) fn try_watch_text(&self, text: String) -> Result<(), ()> {
+        self.try_watch_text_with_token(text, None)
+    }
+
+    pub(crate) fn try_watch_text_with_token(
+        &self,
+        text: String,
+        live: Option<Arc<AtomicBool>>,
+    ) -> Result<(), ()> {
         let bytes = u32::try_from(text.len()).map_err(|_| ())?;
         let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
-        self.watch.try_send(OutboundFrame { text, _bytes: permit }).map_err(|_| ())
+        self.watch.try_send(OutboundFrame { text, live, ack: None, _bytes: permit }).map_err(|_| ())
     }
 }
 
@@ -274,6 +358,20 @@ async fn shutdown_connection_tasks(
 ) -> bool {
     cancellation.cancel();
     timeout(CONNECTION_TASK_SHUTDOWN_TIMEOUT, connection_tasks.shutdown()).await.is_ok()
+}
+
+/// Resolve acknowledgements for frames that were accepted by a producer but
+/// never reached the socket because the writer stopped at EOF or shutdown.
+fn acknowledge_pending_frames(
+    critical_rx: &mut mpsc::Receiver<OutboundFrame>,
+    watch_rx: &mut mpsc::Receiver<OutboundFrame>,
+) {
+    while let Ok(mut frame) = critical_rx.try_recv() {
+        frame.acknowledge();
+    }
+    while let Ok(mut frame) = watch_rx.try_recv() {
+        frame.acknowledge();
+    }
 }
 
 /// Keep the machine online until the process cancellation token is raised.
@@ -558,18 +656,25 @@ async fn relay_session(
                 }
             }
             Wake::Outbound(is_critical, Some(frame)) => {
+                let mut frame = frame;
+                if !frame.is_live() {
+                    frame.acknowledge();
+                    continue;
+                }
                 if is_critical {
                     critical_burst += 1;
                 } else {
                     critical_burst = 0;
                 }
-                let text = frame.text;
+                let text = std::mem::take(&mut frame.text);
                 let size = text.len() as u64;
                 let sent = send_socket_text(&socket, text, cancellation).await;
                 pending.fetch_sub(size.min(pending.load(Ordering::SeqCst)), Ordering::SeqCst);
                 if sent.is_err() {
+                    frame.acknowledge();
                     break Ok(connected);
                 }
+                frame.acknowledge();
             }
             Wake::Outbound(_, None) => {
                 critical_burst = 0;
@@ -957,6 +1062,11 @@ async fn relay_session(
         }
     };
 
+    // Drop workspace-owned request/watch tasks before draining the outbound
+    // queues. This retires watch tokens and prevents more frames from being
+    // admitted while the writer is shutting down.
+    drop(workspace);
+
     // Handlers are owned by this socket. Cancel them before returning so a
     // dropped connection cannot leave work sending into a dead session. A
     // handler may be inside a non-cooperative provider call, so retain a hard
@@ -967,6 +1077,8 @@ async fn relay_session(
             "Relay connection task shutdown exceeded {CONNECTION_TASK_SHUTDOWN_TIMEOUT:?}; abandoning remaining handlers."
         );
     }
+
+    acknowledge_pending_frames(&mut critical_rx, &mut watch_rx);
 
     // Attachments die with the socket; sessions persist (docs/TERMINAL.md).
     #[cfg(unix)]
@@ -1031,5 +1143,56 @@ mod cancellation_tests {
         assert!(shutdown_connection_tasks(&mut tasks, &cancellation).await);
         assert!(cancellation.is_cancelled());
         assert!(tasks.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod outbound_tests {
+    use super::{OutboundSink, acknowledge_pending_frames};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[tokio::test]
+    async fn stale_frame_acknowledges_after_liveness_retirement() {
+        let (sink, mut critical, mut watch) = OutboundSink::channels();
+        let live = Arc::new(AtomicBool::new(true));
+        let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+        sink.critical_text_with_token_ack(
+            "stale".to_owned(),
+            Some(Arc::clone(&live)),
+            Some(ack_tx),
+        )
+        .await
+        .expect("queue stale frame");
+        live.store(false, Ordering::Release);
+        let mut frame = critical.try_recv().expect("queued critical frame");
+        assert!(!frame.is_live());
+        frame.acknowledge();
+        assert!(ack_rx.await.is_ok());
+        acknowledge_pending_frames(&mut critical, &mut watch);
+    }
+
+    #[tokio::test]
+    async fn shutdown_drain_acknowledges_frames_after_writer_eof() {
+        let (sink, mut critical, mut watch) = OutboundSink::channels();
+        let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+        sink.critical_text_with_token_ack("eof".to_owned(), None, Some(ack_tx))
+            .await
+            .expect("queue frame");
+        acknowledge_pending_frames(&mut critical, &mut watch);
+        assert!(ack_rx.await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn closed_writer_acknowledges_send_failure() {
+        let (sink, critical, _watch) = OutboundSink::channels();
+        drop(critical);
+        let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+        assert!(
+            sink.critical_text_with_token_ack("closed".to_owned(), None, Some(ack_tx))
+                .await
+                .is_err()
+        );
+        assert!(ack_rx.await.is_ok());
     }
 }
