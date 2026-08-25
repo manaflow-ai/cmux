@@ -91,4 +91,20 @@ import Testing
 
         #expect(byteCount <= 256 * 1_024)
     }
+
+    @Test("supplemental artifact references are bounded during one parse")
+    func artifactReferencesBoundedDuringParse() {
+        var assembler = TranscriptBatchAssembler(
+            state: ChatTranscriptParseState(),
+            budget: TranscriptTextBudget()
+        )
+        assembler.appendArtifactReferences(
+            paths: (0..<20_000).map { "/tmp/reference-\($0).md" },
+            seq: 1
+        )
+
+        let references = assembler.result(lastTimestamp: nil).artifactReferences
+        #expect(references.count <= 4_096)
+        #expect(references.reduce(0) { $0 + $1.path.utf8.count } <= 512 * 1_024)
+    }
 }

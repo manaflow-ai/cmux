@@ -30,6 +30,29 @@ struct ArtifactSourceSnapshotTests {
         #expect(try String(contentsOf: snapshot.url, encoding: .utf8) == "initial")
     }
 
+    @Test("Staging cleanup stays on the pinned batch directory")
+    func cleanupDoesNotFollowReplacedDirectory() throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let outside = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(outside) }
+        let paths = ArtifactStorePaths(projectRoot: root)
+        let lease = try ArtifactImportStagingLease(
+            root: paths.importStagingRoot,
+            fileManager: .default
+        )
+        let stagedURL = lease.makeStagedURL()
+        try Data("safe".utf8).write(to: stagedURL)
+        let sentinel = try ArtifactTestSupport.write("keep", named: "sentinel.txt", under: outside)
+        let originalDirectory = lease.directory
+        try FileManager.default.removeItem(at: originalDirectory)
+        try FileManager.default.createSymbolicLink(at: originalDirectory, withDestinationURL: outside)
+
+        lease.finish()
+
+        #expect(try String(contentsOf: sentinel, encoding: .utf8) == "keep")
+    }
+
     @Test("A swapped parent symlink is rejected after the source descriptor opens")
     func rejectsSwappedParentSymlink() throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
