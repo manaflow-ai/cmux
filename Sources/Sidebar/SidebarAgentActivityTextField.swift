@@ -109,21 +109,21 @@ final class SidebarAgentActivityTextField: NSTextField, SidebarAgentElapsedClock
         displayedState = state
         elapsedDisplayBucket = bucket
 
-        if let elapsed {
-            let elapsedText = SidebarWorkspaceAgentActivity.compactElapsedText(seconds: elapsed)
+        if elapsed != nil {
+            let payload = clock?.displayPayload(activity, now)
+                ?? SidebarAgentActivityDisplayPayload(activity: activity, at: now)
             apply(
-                text: SidebarWorkspaceAgentActivity.localizedRunningCompactLabel(elapsedText),
-                toolTip: SidebarWorkspaceAgentActivity.localizedElapsedTooltip(elapsedText),
-                accessibilityLabel: SidebarWorkspaceAgentActivity.localizedRunningAccessibilityLabel(elapsedText)
+                text: payload.text,
+                toolTip: payload.toolTip,
+                accessibilityLabel: payload.accessibilityLabel
             )
         } else {
-            let stateText = SidebarWorkspaceAgentActivity.localizedStateLabel(state)
+            let payload = clock?.displayPayload(activity, now)
+                ?? SidebarAgentActivityDisplayPayload(activity: activity, at: now)
             apply(
-                text: stateText,
-                toolTip: state == .unknown
-                    ? SidebarWorkspaceAgentActivity.localizedUnknownTooltip()
-                    : stateText,
-                accessibilityLabel: stateText
+                text: payload.text,
+                toolTip: payload.toolTip,
+                accessibilityLabel: payload.accessibilityLabel
             )
         }
     }

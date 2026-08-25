@@ -62,6 +62,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var model: SidebarWorkspaceRowModel?
     private var agentElapsedNow = Date.now
     private var agentElapsedDisplayBucket: Int64?
+    private var agentElapsedDisplayPayload: (
+        SidebarWorkspaceAgentActivity,
+        Date
+    ) -> SidebarAgentActivityDisplayPayload = { activity, now in
+        SidebarAgentActivityDisplayPayload(activity: activity, at: now)
+    }
     private var actions: SidebarAppKitRowActions?
     private var isPointerHovering = false
     private var contextMenuVisible = false
@@ -368,16 +374,20 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let bucket = SidebarWorkspaceAgentActivity.compactElapsedDisplayBucket(elapsed)
         guard agentElapsedDisplayBucket != bucket else { return true }
         agentElapsedDisplayBucket = bucket
-        let elapsedText = SidebarWorkspaceAgentActivity.compactElapsedText(seconds: elapsed)
-        agentActivityView.stringValue = SidebarWorkspaceAgentActivity.localizedRunningCompactLabel(
-            elapsedText
-        )
-        agentActivityView.toolTip = SidebarWorkspaceAgentActivity.localizedElapsedTooltip(elapsedText)
-        agentActivityView.setAccessibilityLabel(
-            SidebarWorkspaceAgentActivity.localizedRunningAccessibilityLabel(elapsedText)
-        )
+        let payload = agentElapsedDisplayPayload(model.snapshot.agentActivity, now)
+        agentActivityView.stringValue = payload.text
+        agentActivityView.toolTip = payload.toolTip
+        agentActivityView.setAccessibilityLabel(payload.accessibilityLabel)
         needsLayout = true
         return true
+    }
+
+    func setAgentElapsedDisplayPayload(
+        _ payload: (@MainActor (SidebarWorkspaceAgentActivity, Date) -> SidebarAgentActivityDisplayPayload)?
+    ) {
+        agentElapsedDisplayPayload = payload ?? { activity, now in
+            SidebarAgentActivityDisplayPayload(activity: activity, at: now)
+        }
     }
 
     var hasRunningAgentElapsedLabel: Bool {

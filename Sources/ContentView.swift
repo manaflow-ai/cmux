@@ -11592,7 +11592,14 @@ struct VerticalTabsSidebar: View, Equatable {
             }
         }
         .task(id: isPresented) {
-            guard isPresented else { return }
+            guard isPresented,
+                  !featureFlags.isAppKitSidebarListEnabled,
+                  renderContext.showsAgentActivity,
+                  CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
+                      effectiveProviderId: effectiveExtensionSidebarProviderId
+                  ) else {
+                return
+            }
             // The app prewarms this index at launch, but a sidebar can mount
             // before that detached load publishes. Await the same shared load
             // once from the lifecycle boundary so the first snapshot cannot

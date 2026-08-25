@@ -1990,6 +1990,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F6001000A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6001001A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift */; };
 		C3467AB10000000000000001 /* ShortcutWhenClauseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3467AB10000000000000002 /* ShortcutWhenClauseTests.swift */; };
 		A6AC7122 /* SidebarAgentActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC7123 /* SidebarAgentActivity.swift */; };
+		A6AC71340000000000000001 /* SidebarAgentActivityDisplayCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC71350000000000000001 /* SidebarAgentActivityDisplayCache.swift */; };
+		A6AC71320000000000000001 /* SidebarAgentActivityDisplayPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC71330000000000000001 /* SidebarAgentActivityDisplayPayload.swift */; };
 		A6AC71140000000000000001 /* SidebarAgentActivityEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC71150000000000000001 /* SidebarAgentActivityEvidence.swift */; };
 		A6AC7124 /* SidebarAgentActivityGeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC7125 /* SidebarAgentActivityGeneration.swift */; };
 		A6AC71020000000000000001 /* SidebarAgentActivityIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC71030000000000000001 /* SidebarAgentActivityIndicator.swift */; };
@@ -4819,6 +4821,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		F6001001A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutUnbindingTests.swift; sourceTree = "<group>"; };
 		C3467AB10000000000000002 /* ShortcutWhenClauseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutWhenClauseTests.swift; sourceTree = "<group>"; };
 		A6AC7123 /* SidebarAgentActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarAgentActivity.swift; sourceTree = "<group>"; };
+		A6AC71350000000000000001 /* SidebarAgentActivityDisplayCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarAgentActivityDisplayCache.swift; sourceTree = "<group>"; };
+		A6AC71330000000000000001 /* SidebarAgentActivityDisplayPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarAgentActivityDisplayPayload.swift; sourceTree = "<group>"; };
 		A6AC71150000000000000001 /* SidebarAgentActivityEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarAgentActivityEvidence.swift; sourceTree = "<group>"; };
 		A6AC7125 /* SidebarAgentActivityGeneration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarAgentActivityGeneration.swift; sourceTree = "<group>"; };
 		A6AC71030000000000000001 /* SidebarAgentActivityIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarAgentActivityIndicator.swift; sourceTree = "<group>"; };
@@ -6292,6 +6296,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 						A6AC712B /* SidebarAgentElapsedClockTarget.swift */,
 						A6AC712D /* SidebarAgentElapsedClockTickView.swift */,
 						A6AC712F /* SidebarAgentElapsedClockWeakTarget.swift */,
+						A6AC71330000000000000001 /* SidebarAgentActivityDisplayPayload.swift */,
+						A6AC71350000000000000001 /* SidebarAgentActivityDisplayCache.swift */,
 						A6AC73F20000000000000002 /* SidebarMediaActivityIndicators.swift */,
 						A6AC73F10000000000000002 /* SidebarTitleFirstLineCenterAlignment.swift */,
 						A6AC73310000000000000002 /* SidebarWorkspaceLeadingStatusSlot.swift */,
@@ -10328,6 +10334,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D35A00000000000000000010 /* ShortcutRecorderRejectedAttempt.swift in Sources */,
 				5C3E0454B6C24B02A2F091A8 /* ShortcutRoutingSupport.swift in Sources */,
 				A6AC7122 /* SidebarAgentActivity.swift in Sources */,
+				A6AC71340000000000000001 /* SidebarAgentActivityDisplayCache.swift in Sources */,
+				A6AC71320000000000000001 /* SidebarAgentActivityDisplayPayload.swift in Sources */,
 				A6AC71140000000000000001 /* SidebarAgentActivityEvidence.swift in Sources */,
 				A6AC7124 /* SidebarAgentActivityGeneration.swift in Sources */,
 				A6AC71020000000000000001 /* SidebarAgentActivityIndicator.swift in Sources */,

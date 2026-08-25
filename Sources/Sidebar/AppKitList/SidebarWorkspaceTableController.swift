@@ -215,6 +215,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             isAgentElapsedClockRegistered = false
         }
         agentElapsedClock = actions
+        for cell in createdCellViews.allObjects.compactMap({ $0 as? SidebarWorkspaceRowTableCellView }) {
+            cell.setAgentElapsedDisplayPayload(actions.displayPayload)
+        }
         refreshAgentElapsedClockRegistration()
     }
 
@@ -1667,6 +1670,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func configure(workspaceCell cell: SidebarWorkspaceRowTableCellView, at row: Int) {
         let configuration = rows[row]
         guard let model = configuration.appKitWorkspaceRowModel else { return }
+        cell.setAgentElapsedDisplayPayload(agentElapsedClock?.displayPayload)
         guard let actions = configuration.appKitWorkspaceRowActions else {
             cell.configurePresentation(model: model)
             return

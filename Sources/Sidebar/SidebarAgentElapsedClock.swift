@@ -9,15 +9,21 @@ import Observation
 final class SidebarAgentElapsedClock {
     @ObservationIgnored
     private var targets: [ObjectIdentifier: SidebarAgentElapsedClockWeakTarget] = [:]
+    @ObservationIgnored
+    private let displayCache = SidebarAgentActivityDisplayCache()
 
     /// Whether at least one realized running label needs clock updates.
     private(set) var hasTargets = false
 
     var actions: SidebarAgentElapsedClockActions {
+        let cache = displayCache
         SidebarAgentElapsedClockActions(
             identity: ObjectIdentifier(self),
             register: { [weak self] target in self?.register(target) },
-            unregister: { [weak self] target in self?.unregister(target) }
+            unregister: { [weak self] target in self?.unregister(target) },
+            displayPayload: { activity, now in
+                cache.payload(for: activity, at: now)
+            }
         )
     }
 
