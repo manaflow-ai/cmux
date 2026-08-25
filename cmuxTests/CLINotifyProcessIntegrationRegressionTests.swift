@@ -347,6 +347,31 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNil(surfaces[oldSurfaceId])
         XCTAssertEqual((workspaces[newWorkspaceId] as? [String: Any])?["sessionId"] as? String, sessionId)
         XCTAssertEqual((surfaces[newSurfaceId] as? [String: Any])?["sessionId"] as? String, sessionId)
+
+        state = finalState
+        state["activeSessionsByWorkspace"] = [:]
+        state["activeSessionsBySurface"] = [:]
+        try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+        let unchangedExpected = try XCTUnwrap(try store.lookup(sessionId: sessionId))
+        XCTAssertTrue(try store.upsertCompactSessionIfCurrent(
+            sessionId: sessionId,
+            expectedRecord: unchangedExpected,
+            workspaceId: newWorkspaceId,
+            surfaceId: newSurfaceId,
+            cwd: context.root.path,
+            transcriptPath: nil,
+            pid: nil,
+            launchCommand: nil,
+            targetIsAuthoritative: true
+        ))
+        let refreshedState = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
+        )
+        XCTAssertEqual(
+            ((refreshedState["activeSessionsBySurface"] as? [String: Any])?[newSurfaceId] as? [String: Any])?["sessionId"] as? String,
+            sessionId
+        )
     }
 
     func testClaudeCompactFallbackPersistsReconciliationForAuthoritativeStop() throws {
@@ -2108,6 +2133,62 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             autoNamingProbeRequestCount(in: commands),
             1,
             "An existing in-flight auto-name owner must coalesce overlapping Stops"
+        )
+    }
+
+    func testCodexStopReclaimsExpiredManualAutoNamePass() throws {
+        let context = try makeClaudeHookContext(name: "codex-manual-expired")
+        defer { context.cleanup() }
+
+        let sessionId = "codex-manual-expired-session"
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        let transcriptURL = try writeCodexTerminalTranscript(
+            context: context,
+            name: "codex-manual-expired.jsonl",
+            turnId: "turn-1"
+        )
+        startAgentHookMockServerAccepting(context: context)
+        let prompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"Investigate auth"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+        try updateAgentHookSession(
+            sessionId,
+            sessionStoreSuffix: "codex",
+            context: context
+        ) { session in
+            session["autoNameLastTitle"] = "Investigate auth"
+            session["autoNameLastLineCount"] = 1
+            session["autoNameLastObservedLineCount"] = 1
+            session["autoNameInFlightAt"] = Date().timeIntervalSince1970
+                - AutoNamingEngine().config.inFlightExpiry - 1
+            session["autoNameLastNamedAt"] = Date().timeIntervalSince1970 - 600
+        }
+
+        let detachedProbe = expectation(description: "expired detached auto-name probe")
+        let commandStart = startManualWorkspaceAutoNamingProbeServer(
+            context: context,
+            expectedProbeCount: 2,
+            expectation: detachedProbe
+        )
+        let stop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"Done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        wait(for: [detachedProbe], timeout: 5)
+        let commands = Array(context.state.snapshot().dropFirst(commandStart))
+        XCTAssertGreaterThanOrEqual(
+            autoNamingProbeRequestCount(in: commands),
+            2,
+            "An expired auto-name lease must be reclaimable"
         )
     }
 
