@@ -3645,6 +3645,14 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/httpx_parenthesized_client_base_url_get.py",
+            (
+                '(httpx.Client(base_url="https://api.openai.com"))'
+                '.get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/httpx_nested_client_get.py",
             (
                 "httpx.Client("
@@ -3771,6 +3779,14 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/axios_parenthesized_client_base_url_get.ts",
+            (
+                '(axios.create({ baseURL: "https://api.openai.com" }))'
+                '.get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/axios_client_request_base_override.ts",
             (
                 'axios.create({ baseURL: "http://127.0.0.1:4321" })'
@@ -3782,6 +3798,14 @@ def _self_test() -> int:
             "web/tests/axios_stored_client_get.ts",
             (
                 'const client = axios.create({ baseURL: "https://api.openai.com" });\n'
+                'await client.get("/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/axios_exported_stored_client_get.ts",
+            (
+                'export const client = axios.create({ baseURL: "https://api.openai.com" });\n'
                 'await client.get("/v1/items");\n'
             ),
             {RULE_LIVE_NETWORK_HOST},
