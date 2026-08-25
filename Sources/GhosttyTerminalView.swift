@@ -3705,6 +3705,32 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var suppressGhosttyPointerUntilFreshShape = false
     private var pointerStyleFocusGeneration: UInt64 = 0
 
+    /// Replays the current pointer position once after focus returns so a
+    /// stationary OSC 8 link can restore its hover cursor without waiting for
+    /// another mouse-move event.
+    private func reconcileGhosttyPointerStyleAfterFocus() -> Bool {
+        guard suppressGhosttyPointerUntilFreshShape,
+              terminalPointerStyle.focused else {
+            return false
+        }
+        suppressGhosttyPointerUntilFreshShape = false
+        guard let surface else { return true }
+        guard let point = preferredPointerPoint() else { return true }
+        let modifierFlags = NSEvent.modifierFlags
+        ghostty_surface_mouse_pos(
+            surface,
+            point.x,
+            bounds.height - point.y,
+            hoverModsFromFlags(
+                modifierFlags,
+                suppressCommandPathHover: shouldSuppressCommandPathHover(
+                    for: modifierFlags
+                )
+            )
+        )
+        return true
+    }
+
     @discardableResult
     func applyTerminalPointerStyle(
         _ event: TerminalPointerStyleEvent,
@@ -3715,8 +3741,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
            focusGeneration != pointerStyleFocusGeneration {
             return false
         }
+        let wasSuppressingGhosttyPointer = suppressGhosttyPointerUntilFreshShape
+        var didGainFocus = false
         if case .focusChanged(let focused) = event {
             let didChangeFocus = terminalPointerStyle.focused != focused
+            didGainFocus = focused && didChangeFocus
             if didChangeFocus {
                 pointerStyleFocusGeneration &+= 1
             }
@@ -3727,7 +3756,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 pointerStyleIngress?.focusChanged(focused)
             }
         }
-        let wasSuppressingGhosttyPointer = suppressGhosttyPointerUntilFreshShape
         if case .ghosttyShape(_, let runtimeLifetimeId) = event,
            runtimeLifetimeId == pointerStyleRuntimeLifetimeId {
             suppressGhosttyPointerUntilFreshShape = false
@@ -3735,8 +3763,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let didClearGhosttyPointerSuppression =
             wasSuppressingGhosttyPointer &&
             !suppressGhosttyPointerUntilFreshShape
-        guard terminalPointerStyle.apply(event) ||
-              didClearGhosttyPointerSuppression else { return false }
+        let didApplyPointerStyle = terminalPointerStyle.apply(event)
+        let didReconcilePointerStyle =
+            didGainFocus && reconcileGhosttyPointerStyleAfterFocus()
+        guard didApplyPointerStyle ||
+              didClearGhosttyPointerSuppression ||
+              didReconcilePointerStyle else { return false }
         window?.invalidateCursorRects(for: self)
         return true
     }
@@ -5292,6 +5324,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func ensureSurfaceReadyForInput(reassertInputFocus: Bool = true) -> ghostty_surface_t? {
         if let surface = surface {
             if reassertInputFocus { _ = reassertTerminalFocusForInputIfFirstResponder() }
+            if reconcileGhosttyPointerStyleAfterFocus() {
+                window?.invalidateCursorRects(for: self)
+            }
             return surface
         }
         guard window != nil else { return nil }
@@ -5299,6 +5334,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         updateSurfaceSize(size: bounds.size)
         applySurfaceColorScheme(force: true)
         if reassertInputFocus { _ = reassertTerminalFocusForInputIfFirstResponder() }
+        if reconcileGhosttyPointerStyleAfterFocus() {
+            window?.invalidateCursorRects(for: self)
+        }
         return surface
     }
     private func reassertTerminalFocusForInputIfFirstResponder(forceNative: Bool = false) -> Bool {
