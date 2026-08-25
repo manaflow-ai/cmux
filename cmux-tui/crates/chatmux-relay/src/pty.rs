@@ -53,6 +53,11 @@ const MAX_ALLOWED_ROOT_BYTES: usize = 16 * 1024;
 const MAX_ENUM_SURFACES: usize = 8;
 const RAW_ATTACH_BACKLOG_CAP: usize = 1024 * 1024;
 const PTY_INPUT_B64_CAP: usize = 4 * 1024 * 1024;
+/// A shell viewer must not retain unbounded output while its callback is
+/// blocked. The byte cap matches the per-attachment socket budget, and one
+/// event slot is reserved for the terminal control transition.
+const VIEWER_DELIVERY_MAX_BYTES: usize = OUTPUT_BUFFER_CAP as usize;
+const VIEWER_DELIVERY_MAX_EVENTS: usize = 4096;
 
 pub fn session_name_ok(name: &str) -> bool {
     let invalid = name.is_empty()
@@ -287,11 +292,20 @@ enum ViewerEvent {
     Exit(i64),
 }
 
+enum ViewerDeliveryAction {
+    None,
+    Drain,
+    Overflow,
+}
+
 struct ViewerDeliveryState {
     active: bool,
     finished: bool,
     released: bool,
+    overflowed: bool,
+    overflow_notified: bool,
     draining: bool,
+    queued_bytes: usize,
     queue: VecDeque<ViewerEvent>,
 }
 
@@ -305,56 +319,97 @@ struct ViewerDelivery {
     state: Mutex<ViewerDeliveryState>,
     on_data: DataSink,
     on_exit: ExitSink,
+    on_overflow: Arc<dyn Fn() + Send + Sync>,
 }
 
 impl ViewerDelivery {
     fn new(on_data: DataSink, on_exit: ExitSink) -> Arc<ViewerDelivery> {
+        Self::with_overflow(on_data, on_exit, Arc::new(|| {}))
+    }
+
+    fn with_overflow(
+        on_data: DataSink,
+        on_exit: ExitSink,
+        on_overflow: Arc<dyn Fn() + Send + Sync>,
+    ) -> Arc<ViewerDelivery> {
         Arc::new(ViewerDelivery {
             state: Mutex::new(ViewerDeliveryState {
                 active: false,
                 finished: false,
                 released: false,
+                overflowed: false,
+                overflow_notified: false,
                 draining: false,
+                queued_bytes: 0,
                 queue: VecDeque::new(),
             }),
             on_data,
             on_exit,
+            on_overflow,
         })
     }
 
-    /// Queue an initial banner or replay while callbacks remain paused.
-    fn seed(&self, banner: Option<Bytes>, replay: Option<Bytes>) {
-        let mut state = self.state.lock().expect("viewer delivery lock");
-        if state.finished || state.released {
-            return;
-        }
-        if let Some(banner) = banner {
-            state.queue.push_back(ViewerEvent::Data(banner));
-        }
-        if let Some(replay) = replay {
-            state.queue.push_back(ViewerEvent::Data(replay));
-        }
+    fn mark_overflow(state: &mut ViewerDeliveryState) {
+        state.finished = true;
+        state.overflowed = true;
+        state.queued_bytes = 0;
+        state.queue.clear();
     }
 
-    /// Queue live output and report whether this caller should drain it.
-    fn push_data(&self, chunk: Bytes) -> bool {
+    fn enqueue_data(state: &mut ViewerDeliveryState, chunk: Bytes) -> bool {
+        let data_slots = VIEWER_DELIVERY_MAX_EVENTS.saturating_sub(1);
+        let Some(total) = state.queued_bytes.checked_add(chunk.len()) else {
+            Self::mark_overflow(state);
+            return false;
+        };
+        if state.queue.len() >= data_slots || total > VIEWER_DELIVERY_MAX_BYTES {
+            Self::mark_overflow(state);
+            return false;
+        }
+        state.queued_bytes = total;
+        state.queue.push_back(ViewerEvent::Data(chunk));
+        true
+    }
+
+    /// Queue an initial banner or replay while callbacks remain paused.
+    fn seed(&self, banner: Option<Bytes>, replay: Option<Bytes>) -> bool {
         let mut state = self.state.lock().expect("viewer delivery lock");
         if state.finished || state.released {
             return false;
         }
-        state.queue.push_back(ViewerEvent::Data(chunk));
+        let mut overflowed = false;
+        if let Some(banner) = banner {
+            overflowed |= !Self::enqueue_data(&mut state, banner);
+        }
+        if !overflowed {
+            if let Some(replay) = replay {
+                overflowed |= !Self::enqueue_data(&mut state, replay);
+            }
+        }
+        overflowed
+    }
+
+    /// Queue live output and report whether this caller should drain it.
+    fn push_data(&self, chunk: Bytes) -> ViewerDeliveryAction {
+        let mut state = self.state.lock().expect("viewer delivery lock");
+        if state.finished || state.released {
+            return ViewerDeliveryAction::None;
+        }
+        if !Self::enqueue_data(&mut state, chunk) {
+            return ViewerDeliveryAction::Overflow;
+        }
         if state.active && !state.draining {
             state.draining = true;
-            true
+            ViewerDeliveryAction::Drain
         } else {
-            false
+            ViewerDeliveryAction::None
         }
     }
 
     /// Mark the viewer active and report whether this caller should drain it.
     fn activate(&self) -> bool {
         let mut state = self.state.lock().expect("viewer delivery lock");
-        if state.released {
+        if state.released || state.overflowed {
             return false;
         }
         state.active = true;
@@ -367,18 +422,34 @@ impl ViewerDelivery {
     }
 
     /// Queue terminal exit and report whether this caller should drain it.
-    fn finish(&self, code: i64) -> bool {
+    fn finish(&self, code: i64) -> ViewerDeliveryAction {
         let mut state = self.state.lock().expect("viewer delivery lock");
         if state.finished || state.released {
-            return false;
+            return ViewerDeliveryAction::None;
         }
         state.finished = true;
         state.queue.push_back(ViewerEvent::Exit(code));
         if state.active && !state.draining {
             state.draining = true;
-            true
+            ViewerDeliveryAction::Drain
         } else {
-            false
+            ViewerDeliveryAction::None
+        }
+    }
+
+    /// Invoke the overflow callback once, outside the delivery mutex.
+    fn notify_overflow(&self) {
+        let callback = {
+            let mut state = self.state.lock().expect("viewer delivery lock");
+            if !state.overflowed || state.overflow_notified || state.released {
+                None
+            } else {
+                state.overflow_notified = true;
+                Some(Arc::clone(&self.on_overflow))
+            }
+        };
+        if let Some(callback) = callback {
+            callback();
         }
     }
 
@@ -387,6 +458,7 @@ impl ViewerDelivery {
         let mut state = self.state.lock().expect("viewer delivery lock");
         state.finished = true;
         state.released = true;
+        state.queued_bytes = 0;
         state.queue.clear();
     }
 
@@ -399,6 +471,9 @@ impl ViewerDelivery {
                     state.draining = false;
                     return;
                 };
+                if let ViewerEvent::Data(chunk) = &event {
+                    state.queued_bytes = state.queued_bytes.saturating_sub(chunk.len());
+                }
                 event
             };
             match event {
@@ -964,6 +1039,30 @@ impl Inner {
         }));
     }
 
+    fn handle_viewer_overflow(
+        &self,
+        pty_id: &str,
+        generation: u64,
+        gate: &Arc<Mutex<()>>,
+        control: &Weak<dyn PtyControl>,
+        context: &FrameContext,
+    ) {
+        // Serialize overflow teardown with output and exit callbacks. This
+        // keeps a callback that already passed its identity check from
+        // sending after the overflow error removes the attachment.
+        let _guard = gate.lock().expect("attachment gate");
+        let Some(control) = control.upgrade() else { return };
+        if self.remove_attachment_if_current(pty_id, generation, &control) {
+            control.kill();
+            send_pty_error(
+                context,
+                pty_id,
+                "overflow",
+                "pty viewer delivery queue overflowed; reattach to continue receiving output",
+            );
+        }
+    }
+
     /// Detach, NOT kill: idempotent, unknown ptyId tolerated.
     fn close(&self, pty_id: &str) {
         // Match `open`'s lock order. If opening still owns the reservation,
@@ -1316,7 +1415,7 @@ impl Inner {
                 let exit_session = Arc::clone(&shell_session);
                 let manager = Arc::clone(&self);
                 let on_session_data: DataSink = Arc::new(move |chunk: Bytes| {
-                    let viewers_to_drain: Vec<Arc<ViewerDelivery>> = {
+                    let (viewers_to_drain, viewers_overflowed) = {
                         let mut inner = data_session.inner.lock().expect("shell inner lock");
                         inner.ring_size += chunk.len();
                         inner.ring.push_back(chunk.clone());
@@ -1324,39 +1423,55 @@ impl Inner {
                             let Some(dropped) = inner.ring.pop_front() else { break };
                             inner.ring_size -= dropped.len();
                         }
-                        inner
-                            .viewers
-                            .iter()
-                            .filter_map(|viewer| {
-                                if viewer.delivery.push_data(chunk.clone()) {
-                                    Some(Arc::clone(&viewer.delivery))
-                                } else {
-                                    None
+                        let mut viewers_to_drain = Vec::new();
+                        let mut viewers_overflowed = Vec::new();
+                        for viewer in &inner.viewers {
+                            match viewer.delivery.push_data(chunk.clone()) {
+                                ViewerDeliveryAction::Drain => {
+                                    viewers_to_drain.push(Arc::clone(&viewer.delivery));
                                 }
-                            })
-                            .collect()
+                                ViewerDeliveryAction::Overflow => {
+                                    viewers_overflowed.push(Arc::clone(&viewer.delivery));
+                                }
+                                ViewerDeliveryAction::None => {}
+                            }
+                        }
+                        (viewers_to_drain, viewers_overflowed)
                     };
+                    for delivery in viewers_overflowed {
+                        delivery.notify_overflow();
+                    }
                     for delivery in viewers_to_drain {
                         delivery.drain();
                     }
                 });
                 let on_session_exit: ExitSink = Arc::new(move |code: i64| {
-                    let viewers_to_drain = {
+                    let (viewers_to_drain, viewers_overflowed) = {
                         let mut inner = exit_session.inner.lock().expect("shell inner lock");
                         if !inner.alive {
                             return;
                         }
                         inner.alive = false;
                         inner.exit_code = Some(code);
-                        std::mem::take(&mut inner.viewers)
-                            .into_iter()
-                            .filter_map(|viewer| {
-                                let delivery = viewer.delivery;
-                                if delivery.finish(code) { Some(delivery) } else { None }
-                            })
-                            .collect::<Vec<_>>()
+                        let mut viewers_to_drain = Vec::new();
+                        let mut viewers_overflowed = Vec::new();
+                        for viewer in std::mem::take(&mut inner.viewers) {
+                            match viewer.delivery.finish(code) {
+                                ViewerDeliveryAction::Drain => {
+                                    viewers_to_drain.push(viewer.delivery);
+                                }
+                                ViewerDeliveryAction::Overflow => {
+                                    viewers_overflowed.push(viewer.delivery);
+                                }
+                                ViewerDeliveryAction::None => {}
+                            }
+                        }
+                        (viewers_to_drain, viewers_overflowed)
                     };
                     manager.shell_sessions.lock().expect("shell lock").remove(&session_name);
+                    for delivery in viewers_overflowed {
+                        delivery.notify_overflow();
+                    }
                     for delivery in viewers_to_drain {
                         delivery.drain();
                     }
@@ -1393,7 +1508,21 @@ impl Inner {
         let proxy_control: Arc<dyn PtyControl> = Arc::clone(&proxy);
         let control_identity = Arc::downgrade(&proxy_control);
         let (generation, gate, on_data, on_exit) = self.sinks(pty_id, context, control_identity);
-        let delivery = ViewerDelivery::new(on_data, on_exit);
+        let overflow_inner = Arc::clone(&self);
+        let overflow_context = context.clone();
+        let overflow_pty_id = pty_id.to_owned();
+        let overflow_gate = Arc::clone(&gate);
+        let overflow_control = Arc::downgrade(&proxy_control);
+        let on_overflow: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+            overflow_inner.handle_viewer_overflow(
+                &overflow_pty_id,
+                generation,
+                &overflow_gate,
+                &overflow_control,
+                &overflow_context,
+            );
+        });
+        let delivery = ViewerDelivery::with_overflow(on_data, on_exit, on_overflow);
         assert!(
             proxy.delivery.set(Arc::clone(&delivery)).is_ok(),
             "shell viewer delivery initialized"
@@ -1408,31 +1537,34 @@ impl Inner {
             // Register an inactive delivery and seed its replay while holding
             // the shell lock. Live bytes arriving after this point queue behind
             // the replay instead of racing past it.
-            let should_activate = {
+            let (should_activate, seed_overflowed) = {
                 let mut inner = start_session.inner.lock().expect("shell inner lock");
                 if released.load(Ordering::SeqCst) {
-                    false
+                    (false, false)
                 } else {
                     let banner = created.then(|| start_session.banner.clone()).flatten();
                     let replay = (inner.ring_size > 0).then(|| {
                         inner.ring.iter().flat_map(|c| c.iter().copied()).collect::<Vec<u8>>()
                     });
-                    if inner.alive {
+                    let seed_overflowed =
+                        start_delivery.seed(banner.map(Bytes::from), replay.map(Bytes::from));
+                    if inner.alive && !seed_overflowed {
                         inner.viewers.push(ViewerSink {
                             id: viewer_id,
                             delivery: Arc::clone(&start_delivery),
                         });
                     }
-                    start_delivery.seed(banner.map(Bytes::from), replay.map(Bytes::from));
-                    if !inner.alive {
+                    if !inner.alive && !seed_overflowed {
                         if let Some(code) = inner.exit_code {
-                            start_delivery.finish(code);
+                            let _ = start_delivery.finish(code);
                         }
                     }
-                    true
+                    (true, seed_overflowed)
                 }
             };
-            if should_activate && start_delivery.activate() {
+            if seed_overflowed {
+                start_delivery.notify_overflow();
+            } else if should_activate && start_delivery.activate() {
                 start_delivery.drain();
             }
         });
@@ -2298,8 +2430,11 @@ mod tests {
         });
 
         entered.wait();
-        assert!(!delivery.push_data(Bytes::from_static(b"live")));
-        assert!(!delivery.finish(7));
+        assert!(matches!(
+            delivery.push_data(Bytes::from_static(b"live")),
+            ViewerDeliveryAction::None
+        ));
+        assert!(matches!(delivery.finish(7), ViewerDeliveryAction::None));
         release.wait();
         worker.join().expect("viewer delivery worker");
 
@@ -2312,6 +2447,37 @@ mod tests {
                 "exit:7".to_owned(),
             ]
         );
+    }
+
+    #[test]
+    fn viewer_delivery_overflow_is_bounded_and_notified_once() {
+        let notifications = TestArc::new(AtomicUsize::new(0));
+        let callback_notifications = TestArc::clone(&notifications);
+        let delivery = ViewerDelivery::with_overflow(
+            TestArc::new(|_| {}),
+            TestArc::new(|_| {}),
+            TestArc::new(move || {
+                callback_notifications.fetch_add(1, AtomicOrdering::Relaxed);
+            }),
+        );
+
+        assert!(matches!(
+            delivery.push_data(Bytes::from(vec![0_u8; VIEWER_DELIVERY_MAX_BYTES])),
+            ViewerDeliveryAction::None
+        ));
+        assert!(matches!(
+            delivery.push_data(Bytes::from_static(b"overflow")),
+            ViewerDeliveryAction::Overflow
+        ));
+        delivery.notify_overflow();
+        delivery.notify_overflow();
+
+        let state = delivery.state.lock().expect("viewer delivery lock");
+        assert!(state.overflowed);
+        assert_eq!(state.queued_bytes, 0);
+        assert!(state.queue.is_empty());
+        drop(state);
+        assert_eq!(notifications.load(AtomicOrdering::Relaxed), 1);
     }
 
     #[derive(Default)]
