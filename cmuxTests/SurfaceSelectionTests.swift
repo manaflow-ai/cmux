@@ -302,6 +302,18 @@ struct SurfaceSelectionTests {
             })()
             """
         )
+        let bridgeRemainsImmutable = try await panel.evaluateJavaScript(
+            """
+            (() => {
+              const runtime = globalThis.__cmuxSurfaceSelectionRuntime;
+              const read = runtime?.read;
+              try { runtime.read = () => ({ has_selection: true, text: 'leaked' }); } catch (_) {}
+              try { globalThis.__cmuxSurfaceSelectionRuntime = { read }; } catch (_) {}
+              return runtime?.read === read && globalThis.__cmuxSurfaceSelectionRuntime === runtime;
+            })()
+            """
+        )
+        #expect(bridgeRemainsImmutable as? Bool == true)
         let passwordSnapshot = try snapshot(from: await panel.readSurfaceSelection())
         #expect(!passwordSnapshot.hasSelection)
         #expect(passwordSnapshot.text.isEmpty)
