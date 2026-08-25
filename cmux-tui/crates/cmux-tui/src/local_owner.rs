@@ -234,14 +234,16 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<()> {
     // Unix) its own session, free of the controlling terminal.
     command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     #[cfg(unix)]
-    unsafe {
+    {
         use std::os::unix::process::CommandExt;
-        command.pre_exec(|| {
-            if libc::setsid() == -1 {
-                return Err(io::Error::last_os_error());
-            }
-            Ok(())
-        });
+        // SAFETY: setsid(2) is async-signal-safe and touches no Rust state
+        // in the post-fork child. A freshly forked child is not a
+        // process-group leader, so failure is a real launch error.
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
+            });
+        }
     }
     #[cfg(windows)]
     {

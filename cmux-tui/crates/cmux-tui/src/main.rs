@@ -2222,8 +2222,7 @@ fn session_client_mode(config: &config::Config) -> SessionClientMode {
 }
 
 fn interactive_stdio_is_terminal() -> bool {
-    use std::io::IsTerminal;
-    std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
+    io::stdin().is_terminal() && io::stdout().is_terminal()
 }
 
 /// True when a plain interactive launch should connect through a detached
