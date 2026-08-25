@@ -14123,12 +14123,12 @@ struct CMUXCLI {
             return resolved
         }
 
-        func output(_ payload: [String: Any], fallback: String) {
+        func output(_ payload: [String: Any], fallback: String, textValue: Any? = nil) {
             if effectiveJSONOutput {
                 print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
                 return
             }
-            print(fallback)
+            print(textValue.map { browserValueTextFormatter.string(from: formatIDs($0, mode: effectiveIDFormat)) } ?? fallback)
             if let snapshot = payload["post_action_snapshot"] as? String,
                !snapshot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 print(snapshot)
@@ -14267,7 +14267,7 @@ struct CMUXCLI {
                 browser["title"] = titlePayload["title"] ?? ""
                 payload["browser"] = browser
             }
-            output(payload, fallback: "OK")
+            output(payload, fallback: "OK", textValue: payload)
             return
         }
 
@@ -15473,7 +15473,7 @@ struct CMUXCLI {
             switch cookieVerb {
             case "get":
                 let payload = try client.sendV2(method: "browser.cookies.get", params: params)
-                output(payload, fallback: "OK")
+                output(payload, fallback: "OK", textValue: payload["cookies"] ?? [])
             case "set":
                 var setParams = params
                 let positional = nonFlagArgs(cookieArgs)
@@ -15515,7 +15515,7 @@ struct CMUXCLI {
                     params["key"] = key
                 }
                 let payload = try sendBrowserAutomationRequest(method: "browser.storage.get", params: params)
-                output(payload, fallback: "OK")
+                output(payload, fallback: "OK", textValue: payload["value"] ?? NSNull())
             case "set":
                 guard positional.count >= 2 else {
                     throw CLIError(message: "browser storage \(storageType) set requires <key> <value>")
@@ -15552,7 +15552,7 @@ struct CMUXCLI {
             switch tabVerb {
             case "list":
                 let payload = try client.sendV2(method: "browser.tab.list", params: ["surface_id": sid])
-                output(payload, fallback: "OK")
+                output(payload, fallback: "OK", textValue: payload["tabs"] ?? [])
             case "new":
                 var params: [String: Any] = ["surface_id": sid]
                 let url = tabArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
