@@ -40,9 +40,8 @@ use crate::trust::{
     has_yolo_confirmation, relay_trust,
 };
 use crate::wire::{
-    CLI_VERSION, EXEC_PROTOCOL_VERSION, FRAME_VERSION, HelloFrame,
-    PTY_OPERATIONAL_ERRORS_PROTOCOL_VERSION, PTY_PROTOCOL_VERSION, ServerFrame,
-    advertised_protocol, heartbeat_frame, parse_server_frame, set_trust_frame,
+    CLI_VERSION, EXEC_PROTOCOL_VERSION, FRAME_VERSION, HelloFrame, PTY_PROTOCOL_VERSION,
+    ServerFrame, advertised_protocol, heartbeat_frame, parse_server_frame, set_trust_frame,
 };
 
 const MAX_OUTBOUND_FRAMES: usize = 256;
@@ -67,7 +66,6 @@ struct AuthSnapshot {
     trust: String,
     roots: Option<Vec<String>>,
     owner: Option<String>,
-    negotiated_version: u64,
 }
 
 pub(crate) struct OutboundFrame {
@@ -151,17 +149,15 @@ impl OutboundSink {
     pub(crate) async fn critical_text(&self, text: String) -> Result<(), ()> {
         self.critical_text_with_token(text, None).await
     }
-
     pub(crate) async fn critical_text_with_token(
         &self,
         text: String,
         live: Option<Arc<AtomicBool>>,
     ) -> Result<(), ()> {
-        let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
-        self.critical_text_with_token_ack(text, live, Some(ack_tx)).await?;
-        ack_rx.await.map_err(|_| ())
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.critical_text_with_token_ack(text, live, Some(tx)).await?;
+        rx.await.map_err(|_| ())
     }
-
     pub(crate) async fn critical_text_with_token_ack(
         &self,
         text: String,
@@ -209,14 +205,6 @@ impl OutboundSink {
     }
 
     pub(crate) fn try_critical_text(&self, text: String) -> Result<(), ()> {
-        self.try_critical_text_with_token(text, None)
-    }
-
-    pub(crate) fn try_critical_text_with_token(
-        &self,
-        text: String,
-        live: Option<Arc<AtomicBool>>,
-    ) -> Result<(), ()> {
         let result = (|| {
             let bytes = u32::try_from(text.len()).map_err(|_| ())?;
             if bytes as usize > MAX_OUTBOUND_BYTES {
@@ -224,7 +212,7 @@ impl OutboundSink {
             }
             let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
             self.critical
-                .try_send(OutboundFrame { text, live, ack: None, _bytes: permit })
+                .try_send(OutboundFrame { text, live: None, ack: None, _bytes: permit })
                 .map_err(|_| ())
         })();
         if result.is_err() {
@@ -238,17 +226,11 @@ impl OutboundSink {
     }
 
     pub(crate) fn try_watch_text(&self, text: String) -> Result<(), ()> {
-        self.try_watch_text_with_token(text, None)
-    }
-
-    pub(crate) fn try_watch_text_with_token(
-        &self,
-        text: String,
-        live: Option<Arc<AtomicBool>>,
-    ) -> Result<(), ()> {
         let bytes = u32::try_from(text.len()).map_err(|_| ())?;
         let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
-        self.watch.try_send(OutboundFrame { text, live, ack: None, _bytes: permit }).map_err(|_| ())
+        self.watch
+            .try_send(OutboundFrame { text, live: None, ack: None, _bytes: permit })
+            .map_err(|_| ())
     }
 }
 
@@ -428,7 +410,6 @@ fn make_context(out: &OutboundSink, pending: &Arc<AtomicU64>, auth: &AuthSnapsho
             }
         }),
         buffered_amount: Arc::new(move || pending_probe.load(Ordering::SeqCst)),
-        negotiated_version: auth.negotiated_version,
         trust: auth.trust.clone(),
         local_roots: auth.roots.clone(),
         owner_user_id: auth.owner.clone(),
@@ -619,6 +600,9 @@ async fn relay_session(
                 let sent = send_socket_text(&socket, text, cancellation).await;
                 pending.fetch_sub(size.min(pending.load(Ordering::SeqCst)), Ordering::SeqCst);
                 if sent.is_err() {
+                    if let Some(ack) = frame.ack {
+                        let _ = ack.send(());
+                    }
                     break Ok(connected);
                 }
                 if let Some(ack) = frame.ack {
@@ -743,7 +727,6 @@ async fn relay_session(
                             snapshot.trust = effective_trust;
                             snapshot.roots = local_roots.clone();
                             snapshot.owner = config.owner_user_id.clone();
-                            snapshot.negotiated_version = negotiated_version;
                             workspace.set_local_observe(local_observe);
                         }
                         let mut interval = tokio::time::interval(Duration::from_millis(
@@ -832,10 +815,7 @@ async fn relay_session(
                                     "version": version,
                                     "actionId": action_id,
                                     "ok": false,
-                                    // `busy` is not a RelayActionErrorCode. Keep the
-                                    // retry guidance in the message and use the
-                                    // contract's generic retryable failure code.
-                                    "code": "failed",
+                                    "code": "busy",
                                     "message": "relay is busy; retry this action",
                                 });
                                 let size = serde_json::to_string(&result)
@@ -922,21 +902,27 @@ async fn relay_session(
                                 Ok(()) => {}
                                 Err(mpsc::error::TrySendError::Closed(_)) => break Ok(connected),
                                 Err(mpsc::error::TrySendError::Full(raw)) => {
-                                    // Never silently discard a terminal command. A PTY
-                                    // refusal uses the v7 `busy` code only after the
-                                    // negotiated feature gate. Surface listing has no
-                                    // error response in the wire schema, so close the
-                                    // connection instead of fabricating an empty or
-                                    // invalid result.
-                                    let reply = raw.get("ptyId").and_then(Value::as_str).map(|id| {
-                                        serde_json::json!({
+                                    // Never silently discard a server command. Slow opens/listing
+                                    // have an explicit busy response; control frames use the same
+                                    // typed refusal when the serialized ingress queue is saturated.
+                                    let reply = raw
+                                        .get("ptyId")
+                                        .and_then(Value::as_str)
+                                        .map(|id| serde_json::json!({
                                             "version": PTY_PROTOCOL_VERSION,
                                             "type": "pty_error",
                                             "ptyId": id,
-                                            "code": if negotiated_version >= PTY_OPERATIONAL_ERRORS_PROTOCOL_VERSION { "busy" } else { "failed" },
+                                            "code": "busy",
                                             "message": if is_slow { "relay is busy; retry this terminal request" } else { "relay is busy; retry this terminal command" },
-                                        })
-                                    });
+                                        }))
+                                        .or_else(|| raw.get("requestId").and_then(Value::as_str).map(|id| serde_json::json!({
+                                            "version": PTY_PROTOCOL_VERSION,
+                                            "type": "surface_list_result",
+                                            "requestId": id,
+                                            "surfaces": [],
+                                            "code": "busy",
+                                            "message": "relay is busy; retry this terminal request",
+                                        })));
                                     if let Some(reply) = reply {
                                         // This response is mandatory. Send it directly so a full
                                         // outbound queue cannot block this loop and stop socket
@@ -950,11 +936,6 @@ async fn relay_session(
                                         if sent.is_err() {
                                             break Ok(connected);
                                         }
-                                    } else if raw.get("requestId").is_some() {
-                                        eprintln!(
-                                            "Closing relay connection because surface_list was rejected by a full ingress queue"
-                                        );
-                                        break Ok(connected);
                                     }
                                 }
                             }
