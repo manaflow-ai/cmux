@@ -47,6 +47,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var unreadSnapshot = SidebarUnreadSnapshot()
     private var appliedUnreadSnapshot = SidebarUnreadSnapshot()
     private var hasPendingContentRefresh = false
+    private var forceTableReloadOnNextApply = false
     private var unreadObservation: SidebarUnreadObservation?
     private var clipBoundsObserver: NSObjectProtocol?
     private var resizeDidEndObserver: NSObjectProtocol?
@@ -172,6 +173,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         guard containerView === container else { return }
         mutationScheduler.cancelPendingApplyAndViewport()
         deferredInteractiveResizeApply = nil
+        forceTableReloadOnNextApply = false
         deferredPumpHeightRowIds.removeAll(keepingCapacity: false)
         deferredStructuralHeightRows.removeAll()
         previewBailoutTask?.cancel()
@@ -330,6 +332,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         rows = rows.filter { liveIds.contains($0.workspaceId) }
         rowHeightCache.suspendPresentation(retaining: Set(rows.map(\.id)))
         if previousRowIds != rows.map(\.id) {
+            forceTableReloadOnNextApply = true
             mutationScheduler.stageTableReload()
         }
     }
@@ -354,6 +357,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if let containerView {
             clearDropViewActions(in: containerView)
             if previousRowIds != rows.map(\.id) {
+                forceTableReloadOnNextApply = true
                 mutationScheduler.stageTableReload()
             }
         }
@@ -410,7 +414,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 actions: actions,
                 workspaceIds: nextWorkspaceIds,
                 selectedWorkspaceId: selectedWorkspaceId,
-                selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId
+                selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId,
+                forceTableReload: forceTableReloadOnNextApply
             )
         )
     }
@@ -430,6 +435,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let nextWorkspaceIds = input.workspaceIds
         let selectedWorkspaceId = input.selectedWorkspaceId
         let selectedScrollTargetWorkspaceId = input.selectedScrollTargetWorkspaceId
+        let forceTableReload = input.forceTableReload
         // Authoritative render: reconciles any optimistic preview, so the
         // preview bailout stands down.
         applyGeneration &+= 1
@@ -522,7 +528,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
 #endif
         if hasStructuralChanges {
-            if heightChanges.isEmpty, isSmallPureReorder {
+            if forceTableReload {
+                let table = containerView.tableView
+                let postUpdateActions = detachLoadedCells()
+                performTableGeometryUpdateWithoutAnimation(heightChanges, in: table) {
+                    table.reloadData()
+                    viewportAnchor?.restore(table: table, rows: nextRows)
+                }
+                mutationScheduler.stagePostUpdateActions(postUpdateActions)
+            } else if heightChanges.isEmpty, isSmallPureReorder {
                 // Stable-geometry reorder (drag-drop): move rows in place.
                 // reloadData tears down every visible cell and snaps the
                 // scroll position, while moves keep cells alive and settle
@@ -568,6 +582,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 }
                 mutationScheduler.stagePostUpdateActions(postUpdateActions)
             }
+        } else if forceTableReload {
+            let table = containerView.tableView
+            let postUpdateActions = detachLoadedCells()
+            performTableGeometryUpdateWithoutAnimation(in: table) {
+                table.reloadData()
+            }
+            mutationScheduler.stagePostUpdateActions(postUpdateActions)
         } else {
             if !contentChanges.isEmpty || !heightChanges.isEmpty {
                 var rowsToNote = heightChanges
@@ -636,6 +657,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             mutationScheduler.stageContentRefresh()
         }
         replayDeferredRowClickIfPossible()
+        forceTableReloadOnNextApply = false
     }
 
     private func interactiveGeometryResizeDidEnd() {
@@ -771,20 +793,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         guard rows.indices.contains(row) else { return tableView.rowHeight }
         let configuration = rows[row]
-        let liveWidth = currentColumnWidth()
-        if liveWidth > 0,
-           let override = pumpHeightOverride(for: configuration.id, columnWidth: liveWidth) {
-            return override
+        // The latest pump override is the height currently installed in the
+        // cell. Keep it through consecutive live-width ticks until the
+        // viewport pass replaces it or an authoritative apply releases it;
+        // the stored width is used by those reconciliation paths.
+        if let override = pumpHeightOverrides[configuration.id] {
+            return override.height
         }
-        let columnWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : liveWidth
-        // Keep the height currently installed in AppKit until the staged
-        // viewport pass can replace it with a measurement at the new width.
-        // A pump callback may have painted a newer model at the settled width
-        // just before the clip bounds changed.
-        if columnWidth != liveWidth,
-           let override = pumpHeightOverride(for: configuration.id, columnWidth: columnWidth) {
-            return override
-        }
+        let columnWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : currentColumnWidth()
         return rowHeightCache.height(
             for: configuration,
             columnWidth: columnWidth
@@ -1555,6 +1571,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private func reloadTableWithoutAnimation() {
         guard let table = containerView?.tableView else { return }
+        forceTableReloadOnNextApply = false
         performTableGeometryUpdateWithoutAnimation(in: table) {
             table.reloadData()
         }
