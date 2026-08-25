@@ -210,13 +210,14 @@ impl SshBootstrapper {
                 remote: remote.display(),
             });
         }
-        let temporary = self.temporary_upload_path();
+        let temporary_dir = self.temporary_upload_path();
+        let temporary = format!("{temporary_dir}/payload");
         let parent = self
             .config
             .remote_binary
             .rsplit_once('/')
             .map_or(".", |(parent, _)| if parent.is_empty() { "/" } else { parent });
-        let command = upload_command(&parent, &temporary);
+        let command = upload_command(&parent, &temporary_dir, &temporary);
         let output = match self.run_remote_with_input(&command, source).await {
             Ok(output) => output,
             Err(error) => {
@@ -468,13 +469,12 @@ impl SshBootstrapper {
     }
 }
 
-/// Build the remote upload command. `noclobber` makes the temporary file
-/// creation exclusive and refuses an attacker-provided symlink. The dedicated
-/// descriptor keeps the upload attached to that inode, and the final rename
-/// is atomic at the destination.
-fn upload_command(parent: &str, temporary: &str) -> String {
+/// Build the remote upload command. The temporary directory is created
+/// exclusively with mode 0700, so another same-host user cannot replace or
+/// observe the staged file before chmod, probe, or rename.
+fn upload_command(parent: &str, temporary_dir: &str, temporary: &str) -> String {
     format!(
-        "umask 077; mkdir -p {parent} && (set -C; exec 3> {temporary} && cat >&3) && chmod 755 {temporary}"
+        "umask 077; mkdir -p {parent} && mkdir -m 700 {temporary_dir} && cat > {temporary} && chmod 755 {temporary}"
     )
 }
 
@@ -664,10 +664,13 @@ mod tests {
 
     #[test]
     fn upload_command_uses_exclusive_descriptor_and_no_truncating_redirection() {
-        let command = upload_command("~/.local/bin", "~/.local/bin/cmux-tui.cmux-upload-test");
-        assert!(command.contains("set -C; exec 3>"));
-        assert!(command.contains("cat >&3"));
-        assert!(!command.contains("cat >"));
+        let command = upload_command(
+            "~/.local/bin",
+            "~/.local/bin/.cmux-upload-test",
+            "~/.local/bin/.cmux-upload-test/payload",
+        );
+        assert!(command.contains("mkdir -m 700 ~/.local/bin/.cmux-upload-test"));
+        assert!(command.contains("cat > ~/.local/bin/.cmux-upload-test/payload"));
     }
 
     fn probe(distribution_version: Option<&str>) -> RemoteProbe {
