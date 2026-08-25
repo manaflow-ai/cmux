@@ -461,6 +461,13 @@ extension DockSplitStore {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
+            guard deferredAgentResumeRestoreMatchesCurrentSession(
+                panelId: panelId,
+                restore: restore
+            ) else {
+                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                continue
+            }
             let ownershipPanelID = restore.stablePanelID
             let expectedKind = restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind
             let expectedSessionId = restore.restorableAgent?.sessionId ?? restore.resumeBinding?.checkpointId
@@ -596,9 +603,75 @@ extension DockSplitStore {
         (panels[panelId] as? TerminalPanel)?.surface.cancelStartupRestoreAdmission()
         removeDeferredAgentResumeRestore(panelId: panelId)
         if restore.restorableAgent == nil {
-            retireAgentHookResumeBinding(panelId: panelId)
+            if let binding = restore.resumeBinding {
+                retireAgentHookResumeBinding(panelId: panelId, matching: binding)
+            }
         }
         restoredAgentLifecycle.setResumeState(.manualResumeAvailable, panelId: panelId)
+    }
+
+    private func deferredAgentResumeRestoreMatchesCurrentSession(
+        panelId: UUID,
+        restore: DeferredAgentResumeRestore
+    ) -> Bool {
+        guard let currentRestore = deferredAgentResumeRestoresByPanelId[panelId],
+              currentRestore.stablePanelID == restore.stablePanelID,
+              let expectedKind = restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind,
+              let expectedSessionID = restore.restorableAgent?.sessionId ?? restore.resumeBinding?.checkpointId else {
+            return false
+        }
+        let currentSnapshot = restoredAgentLifecycle.snapshotsByPanelId[panelId]
+            ?? terminalStartupRestoreCoordinator.stagedSnapshot(panelID: panelId)
+        if let currentSnapshot {
+            guard currentSnapshot.kind.rawValue == expectedKind,
+                  ManagedAgentSessionIdentity.sessionIDsMatch(
+                      kind: expectedKind,
+                      lhs: currentSnapshot.sessionId,
+                      rhs: expectedSessionID
+                  ) else {
+                return false
+            }
+        } else if restore.restorableAgent != nil {
+            return false
+        }
+
+        if restore.resumeBinding != nil {
+            guard let currentBinding = surfaceResumeBindingsByPanelId[panelId],
+                  let currentKind = currentBinding.kind,
+                  let currentSessionID = currentBinding.checkpointId,
+                  currentKind == expectedKind,
+                  ManagedAgentSessionIdentity.sessionIDsMatch(
+                      kind: expectedKind,
+                      lhs: currentSessionID,
+                      rhs: expectedSessionID
+                  ) else {
+                return false
+            }
+        } else if let currentBinding = surfaceResumeBindingsByPanelId[panelId] {
+            guard let currentKind = currentBinding.kind,
+                  let currentSessionID = currentBinding.checkpointId,
+                  currentKind == expectedKind,
+                  ManagedAgentSessionIdentity.sessionIDsMatch(
+                      kind: expectedKind,
+                      lhs: currentSessionID,
+                      rhs: expectedSessionID
+                  ) else {
+                return false
+            }
+        }
+        return true
+    }
+
+    private func retireAgentHookResumeBinding(
+        panelId: UUID,
+        matching binding: SurfaceResumeBindingSnapshot
+    ) {
+        guard let currentBinding = surfaceResumeBindingsByPanelId[panelId],
+              currentBinding.isAgentHookBinding,
+              currentBinding == binding || currentBinding.isSameManagedSession(as: binding) else {
+            return
+        }
+        retireAgentHookResumeBinding(panelId: panelId)
     }
 
     func clearDeferredAgentResumeRestores() {

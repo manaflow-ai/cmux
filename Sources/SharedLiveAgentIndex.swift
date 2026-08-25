@@ -474,9 +474,15 @@ final class SharedLiveAgentIndex {
                     return index
                 }
                 guard completedRefreshPasses < Self.maximumOwnershipSensitiveRefreshPasses else {
+                    let pendingHookChange = changePending || deferredReloadTimer != nil
                     deferredReloadTimer?.cancel()
                     deferredReloadTimer = nil
-                    changePending = false
+                    if pendingHookChange {
+                        // Preserve the watcher event for the ordinary coalesced
+                        // refresh path before this ownership request fails closed.
+                        changePending = false
+                        handleHookStoreChange()
+                    }
                     return nil
                 }
                 continue

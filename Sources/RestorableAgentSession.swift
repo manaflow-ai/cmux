@@ -964,6 +964,10 @@ struct RestorableAgentSessionIndex: Sendable {
         let updatedAt: TimeInterval
         /// Unlike an empty process ID set, this distinguishes an exited recorded process from no PID evidence.
         let processLiveness: RestorableAgentProcessLiveness
+        /// Whether the persisted owner record carried a PID. A PID-less hook
+        /// record is durable post-exit state for stable ownership selection;
+        /// its liveness remains tri-state for shell-activity persistence.
+        let hasRecordedProcessID: Bool
         let processIDs: Set<Int>
         let processIdentities: [Int: AgentPIDProcessIdentity]
         let agentProcessIDs: Set<Int>
@@ -1078,11 +1082,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 processPresenceProvider: processPresenceProvider
             )
         }
-        let candidates = candidatesByPanelId[panelId] ?? []
-        return evidence.filter { $0 == .live }.count > 1 || evidence.enumerated().contains {
-            index, value in
-            value == .unknown && !Self.recordedProcessIDs(for: candidates[index].1).isEmpty
-        }
+        return evidence.filter { $0 == .live }.count > 1 || evidence.contains { $0 == .unknown }
     }
 
     func hasConflictingLiveStablePanelEntry(
@@ -1142,7 +1142,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 for: entry,
                 processIdentityProvider: processIdentityProvider,
                 processPresenceProvider: processPresenceProvider
-            ) == .unknown && !Self.recordedProcessIDs(for: entry).isEmpty
+            ) == .unknown
         }
     }
 
@@ -1255,8 +1255,14 @@ struct RestorableAgentSessionIndex: Sendable {
             )
         }
         let liveCandidates = candidatesWithEvidence.filter { $0.evidence == .live }
+        // Ownership-sensitive callers use live probes and must fail closed for
+        // every inconclusive candidate, including PID-less hook records. A
+        // snapshot projection explicitly opts into cached evidence so a
+        // historical PID-less record can still be persisted without main-actor
+        // process inspection.
         let hasUncertainCandidate = candidatesWithEvidence.contains {
-            $0.evidence == .unknown && !Self.recordedProcessIDs(for: $0.entry).isEmpty
+            $0.evidence == .unknown &&
+                (revalidateProcessEvidence || !Self.recordedProcessIDs(for: $0.entry).isEmpty)
         }
         if let exact = liveCandidates.first(where: { $0.key.workspaceId == workspaceId }) {
             return exact.entry
@@ -1339,6 +1345,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 entry.snapshot.kind.rawValue,
                 entry.snapshot.sessionId,
                 liveness,
+                entry.hasRecordedProcessID ? "pid-recorded" : "pidless",
                 processIDs.sorted().map(String.init).joined(separator: ","),
                 processIdentities
             ].joined(separator: "|")
@@ -1423,6 +1430,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 lifecycle: entry.lifecycle,
                 updatedAt: entry.updatedAt,
                 processLiveness: processLiveness,
+                hasRecordedProcessID: entry.hasRecordedProcessID,
                 processIDs: currentPanelProcessIDs,
                 processIdentities: currentProcessIdentities,
                 agentProcessIDs: confirmedAgentProcessIDs,
@@ -1651,6 +1659,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     lifecycle: effectiveRecord.agentLifecycle,
                     updatedAt: effectiveRecord.updatedAt,
                     processLiveness: processObservation.liveness,
+                    hasRecordedProcessID: effectiveRecord.pid != nil,
                     processIDs: liveProcessID.map { [$0] } ?? [],
                     processIdentities: liveProcessIdentities,
                     agentProcessIDs: liveProcessID.map { [$0] } ?? [],
@@ -1730,6 +1739,7 @@ struct RestorableAgentSessionIndex: Sendable {
             return Entry(
                 snapshot: snapshot, lifecycle: lifecycle, updatedAt: updatedAt,
                 processLiveness: .running,
+                hasRecordedProcessID: true,
                 processIDs: detected.processIDs,
                 processIdentities: processIdentities,
                 agentProcessIDs: detected.agentProcessIDs,
@@ -2002,7 +2012,9 @@ struct RestorableAgentSessionIndex: Sendable {
     ) -> CurrentProcessEvidence {
         let processIDs = recordedProcessIDs(for: entry)
         guard !processIDs.isEmpty else {
-            return entry.processLiveness == .unknown ? .unknown : .notLive
+            return entry.processLiveness == .unknown && entry.hasRecordedProcessID
+                ? .unknown
+                : .notLive
         }
         guard entry.processLiveness == .running else {
             return entry.processLiveness == .unknown ? .unknown : .notLive
@@ -2039,7 +2051,9 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private static func cachedProcessEvidence(for entry: Entry) -> CurrentProcessEvidence {
         guard !recordedProcessIDs(for: entry).isEmpty else {
-            return entry.processLiveness == .unknown ? .unknown : .notLive
+            return entry.processLiveness == .unknown && entry.hasRecordedProcessID
+                ? .unknown
+                : .notLive
         }
         switch entry.processLiveness {
         case .running:

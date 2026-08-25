@@ -295,6 +295,10 @@ struct TerminalStartupRestoreFailureTests {
             .awaitingAutoResumeCommand,
             panelId: panelID
         )
+        var replacementBinding = binding
+        replacementBinding.checkpointId = "replacement-(UUID().uuidString)"
+        replacementBinding.command = "codex resume (replacementBinding.checkpointId!)"
+        workspace.surfaceResumeBindingsByPanelId[panelID] = replacementBinding
 
         workspace.cancelDeferredAgentResumeRestore(
             panelId: panelID,
@@ -306,7 +310,7 @@ struct TerminalStartupRestoreFailureTests {
             workspace.restoredAgentResumeStatesByPanelId[panelID]
                 == .manualResumeAvailable
         )
-        #expect(workspace.surfaceResumeBindingsByPanelId[panelID]?.autoResume == false)
+        #expect(workspace.surfaceResumeBindingsByPanelId[panelID]?.autoResume == true)
     }
 
     private func makeAutoResumeDefaults() throws -> (store: UserDefaults, name: String) {

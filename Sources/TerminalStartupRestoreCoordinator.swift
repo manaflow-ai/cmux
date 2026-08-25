@@ -182,6 +182,13 @@ final class TerminalStartupRestoreCoordinator {
         }
     }
 
+    /// Returns the structured snapshot staged for a panel before topology commit.
+    /// Deferred ownership resolution uses this to reject a stale async request
+    /// even when the topology owner has not committed lifecycle state yet.
+    func stagedSnapshot(panelID: UUID) -> SessionRestorableAgentSnapshot? {
+        pendingRestoresByPanelID[panelID]?.snapshot
+    }
+
     /// Records chat ownership only after a deferred resume has been admitted.
     ///
     /// A deferred restore deliberately stages no chat intent: ownership may be
