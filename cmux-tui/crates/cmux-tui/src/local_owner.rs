@@ -291,8 +291,10 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<()> {
         // thread exhaustion; the owner has already been detached from the
         // caller's terminal and cannot report through its stdio.
         if let Some(mut child) = reaper_child.lock().expect("reaper mutex poisoned").take() {
+            let _ = child.start_kill();
             let _ = child.wait();
         }
+        return Err(io::Error::other("local owner reaper unavailable"));
     }
     Ok(())
 }
