@@ -110,7 +110,6 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                parts[0].lowercased() == "refstorage" {
                 recordReferenceStorage(
                     GitMetadataService.gitConfigUnquotedValue(parts[1]),
-                    configURL: configURL,
                     state: &state
                 )
             }
@@ -128,7 +127,6 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
 
     private func recordReferenceStorage(
         _ value: String,
-        configURL: URL,
         state: inout GitConfigTraversalState
     ) {
         guard let separator = value.firstIndex(of: ":") else {
@@ -149,7 +147,17 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                 .standardizedFileURL.path
         }
         if isSafeReferenceStoragePath(path) {
-            state.referenceStoragePaths.append(path)
+            let roots = [repository.gitDirectory, repository.commonDirectory, repository.workTreeRoot]
+                .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+            if roots.contains(where: { root in
+                path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
+            }) {
+                state.referenceStoragePaths.append(path)
+            } else {
+                state.referenceStoragePaths.append(
+                    URL(fileURLWithPath: path).appendingPathComponent("tables.list").path
+                )
+            }
         }
     }
 
@@ -174,6 +182,11 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
 
     /// Synthesizes `git remote -v` fetch lines from reachable config files.
     func remoteVOutput() -> String? {
+        remoteVResult().output
+    }
+
+    /// Synthesizes remote lines while preserving whether the bounded walk completed.
+    func remoteVResult() -> GitConfigRemoteTraversalResult {
         var lines: [String] = []
         var seenConfigPaths: Set<String> = []
         var budget = GitConfigTraversalBudget(
@@ -191,8 +204,10 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                 budget: &budget
             )
         }
-        guard !budget.didExhaustBudget else { return nil }
-        return lines.isEmpty ? nil : lines.joined()
+        return GitConfigRemoteTraversalResult(
+            output: lines.isEmpty ? nil : lines.joined(),
+            isComplete: !budget.didExhaustBudget
+        )
     }
 
     private func appendRemoteVLines(

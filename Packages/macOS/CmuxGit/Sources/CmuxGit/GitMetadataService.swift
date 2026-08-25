@@ -209,9 +209,10 @@ public struct GitMetadataService: Sendable {
             repository: repository,
             branchContext: branchContext
         )
+        let traversalResult = traversal.remoteVResult()
         let output: String?
-        if let parsed = traversal.remoteVOutput() {
-            output = parsed
+        if traversalResult.isComplete {
+            output = traversalResult.output
         } else {
             let runner = SystemWorkspaceChangesGitRunner(
                 boundedCommandWallTimeLimit: safetyConfiguration.gitStatusWallTime
