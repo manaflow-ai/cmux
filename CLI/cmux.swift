@@ -299,6 +299,12 @@ private struct CodexMonitorLeaseRecord: Codable {
 
 final class ClaudeHookSessionStore {
     private typealias CursorPendingShellApproval = ClaudeHookSessionRecord.PendingCursorShellApproval
+    typealias CursorShellApprovalResolution = (
+        matched: Bool,
+        hasRemaining: Bool,
+        expired: Bool,
+        remainingDisplayCommand: String?
+    )
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
     private static let maxPendingCursorShellApprovals = 16
@@ -393,19 +399,15 @@ final class ClaudeHookSessionStore {
         transcriptPath: String? = nil,
         pid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
-        toolUseId: String? = nil
-    ) throws -> (
-        matched: Bool,
-        hasRemaining: Bool,
-        expired: Bool,
-        remainingDisplayCommand: String?
-    ) {
+        toolUseId: String? = nil,
+        afterSave: ((CursorShellApprovalResolution) -> Void)? = nil
+    ) throws -> CursorShellApprovalResolution {
         let normalizedSession = normalizeSessionId(sessionId)
         guard !normalizedSession.isEmpty,
               let normalizedCommand = normalizedCursorShellCommand(command) else {
             return (matched: false, hasRemaining: false, expired: false, remainingDisplayCommand: nil)
         }
-        return try withLockedState { state in
+        return try withLockedState({ state in
             guard var record = state.sessions[normalizedSession],
                   var pending = record.pendingCursorShellApprovals else {
                 return (matched: false, hasRemaining: false, expired: false, remainingDisplayCommand: nil)
@@ -482,7 +484,9 @@ final class ClaudeHookSessionStore {
                 expired: expired,
                 remainingDisplayCommand: pending.last?.displayCommand
             )
-        }
+        }, afterSave: { resolution in
+            afterSave?(resolution)
+        })
     }
 
     /// Drops all pending Cursor shell approvals when a session stops or starts
@@ -1906,7 +1910,13 @@ final class ClaudeHookSessionStore {
         return nil
     }
 
-    func withLockedState<T>(_ body: (inout ClaudeHookSessionStoreFile) throws -> T) throws -> T {
+    /// Runs the optional post-save hook before releasing the cross-process
+    /// lock. Callers use this only for the short visible reconciliation that
+    /// must stay ordered with the durable mutation.
+    func withLockedState<T>(
+        _ body: (inout ClaudeHookSessionStoreFile) throws -> T,
+        afterSave: ((T) -> Void)? = nil
+    ) throws -> T {
         let lockPath = statePath + ".lock"
         let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
         if fd < 0 {
@@ -1923,6 +1933,7 @@ final class ClaudeHookSessionStore {
         pruneExpired(&state)
         let result = try body(&state)
         try saveUnlocked(state)
+        afterSave?(result)
         return result
     }
 
@@ -32745,6 +32756,56 @@ export default CMUXSessionRestore;
                 return
             }
 
+            // Resolve the durable state and enqueue its visible reconciliation
+            // while the same cross-process state lock is held. Two completion
+            // hooks can otherwise resolve in order but enqueue their UI
+            // mutations in the opposite order, resurrecting a stale approval
+            // after the final clear.
+            func reconcileCursorShellUI(
+                _ resolution: ClaudeHookSessionStore.CursorShellApprovalResolution
+            ) {
+                if resolution.matched, resolution.hasRemaining {
+                    let pendingSubtitle = String(
+                        localized: "agent.generic.notification.subtitle.permission",
+                        defaultValue: "Permission"
+                    )
+                    let pendingBody = resolution.remainingDisplayCommand
+                        ?? String(
+                            localized: "agent.generic.notification.body.approvalNeeded",
+                            defaultValue: "Approval needed"
+                        )
+                    let pendingMeta = AgentHookNotifyCategory.needsPermission.metaSegment(
+                        pending: false,
+                        agentKind: def.name,
+                        isSubagent: false
+                    )
+                    let pendingPayload = notificationPayload(
+                        title: notificationTitle(workspaceId: workspaceId, surfaceId: surfaceId),
+                        subtitle: pendingSubtitle,
+                        body: pendingBody,
+                        meta: pendingMeta
+                    )
+                    _ = try? sendV1Command(
+                        "notify_target_async \(workspaceId) \(surfaceId) \(pendingPayload)",
+                        client: client
+                    )
+                    return
+                }
+
+                guard resolution.matched || (resolution.expired && !resolution.hasRemaining) else {
+                    return
+                }
+                _ = try? sendV1Command(
+                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+                let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
+                _ = try? sendV1Command(
+                    "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+            }
+
             let resolution = try? store.resolveCursorShellApproval(
                 sessionId: sessionId,
                 command: command,
@@ -32759,7 +32820,8 @@ export default CMUXSessionRestore;
                 transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                 pid: pid,
                 launchCommand: resumeLaunchCommand,
-                toolUseId: cursorShellToolUseId(from: input)
+                toolUseId: cursorShellToolUseId(from: input),
+                afterSave: reconcileCursorShellUI
             )
             if let resolution, !resolution.matched, resolution.expired, !resolution.hasRemaining {
                 emitJournal(
@@ -32768,15 +32830,6 @@ export default CMUXSessionRestore;
                     surfaceId: surfaceId,
                     declaredPhase: .running,
                     detail: "cursor-shell-expired"
-                )
-                _ = try? sendV1Command(
-                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
-                )
-                let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
-                _ = try? sendV1Command(
-                    "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
                 )
                 return
             }
@@ -32791,34 +32844,6 @@ export default CMUXSessionRestore;
                 return
             }
             if resolution.hasRemaining {
-                // The queued notification write replaces the resolved command
-                // at the same surface when it drains. Do not enqueue a broad
-                // clear first: it can race that replacement and discard an
-                // unrelated notice on the same surface.
-                let pendingSubtitle = String(
-                    localized: "agent.generic.notification.subtitle.permission",
-                    defaultValue: "Permission"
-                )
-                let pendingBody = resolution.remainingDisplayCommand
-                    ?? String(
-                        localized: "agent.generic.notification.body.approvalNeeded",
-                        defaultValue: "Approval needed"
-                    )
-                let pendingMeta = AgentHookNotifyCategory.needsPermission.metaSegment(
-                    pending: false,
-                    agentKind: def.name,
-                    isSubagent: false
-                )
-                let pendingPayload = notificationPayload(
-                    title: notificationTitle(workspaceId: workspaceId, surfaceId: surfaceId),
-                    subtitle: pendingSubtitle,
-                    body: pendingBody,
-                    meta: pendingMeta
-                )
-                _ = try? sendV1Command(
-                    "notify_target_async \(workspaceId) \(surfaceId) \(pendingPayload)",
-                    client: client
-                )
                 emitJournal(
                     .stateChanged,
                     workspaceId: workspaceId,
@@ -32857,15 +32882,6 @@ export default CMUXSessionRestore;
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 detail: failed ? "shell-failed" : "shell-completed"
-            )
-            _ = try? sendV1Command(
-                "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                client: client
-            )
-            let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
-            _ = try? sendV1Command(
-                "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                client: client
             )
         }
 
