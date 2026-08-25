@@ -41,6 +41,45 @@ import Testing
         #expect(selected == registry)
     }
 
+    @Test func registryIrohRefreshKeepsLegacyTailscaleRouteAvailable() throws {
+        let local = [try route(host: "100.0.0.1", port: 51000)]
+        let identity = try CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64))
+        let iroh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(identity: identity, pathHints: [])
+        )
+
+        let selected = try #require(
+            DeviceRegistryService.selectReconnectRoutes(local: local, registry: [iroh])
+        )
+        #expect(selected.map(\.kind) == [.iroh, .tailscale])
+        #expect(selected.last?.endpoint == local[0].endpoint)
+
+        // Once the merged routes are persisted, the same Iroh-only registry
+        // response must not trigger another write on every refresh.
+        #expect(DeviceRegistryService.selectReconnectRoutes(
+            local: selected,
+            registry: [iroh]
+        ) == nil)
+    }
+
+    @Test func registryIrohAndTailscaleRoutesRemainAuthoritative() throws {
+        let local = [try route(host: "100.0.0.1", port: 51000)]
+        let current = try route(host: "100.0.0.2", port: 51000, id: "current")
+        let identity = try CmxIrohPeerIdentity(endpointID: String(repeating: "b", count: 64))
+        let iroh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(identity: identity, pathHints: [])
+        )
+
+        #expect(DeviceRegistryService.selectReconnectRoutes(
+            local: local,
+            registry: [iroh, current]
+        ) == [iroh, current])
+    }
+
     @Test func parsesRoutesForMatchingMacFromListResponse() throws {
         let json = """
         {
@@ -570,6 +609,66 @@ import Testing
 
     // MARK: - Durable device id (binding-registration path)
 
+    @Test func simulatorSeedIsAnAuthoritativeDurableDeviceID() {
+        // Unsigned simulator apps cannot use the data-protection Keychain. The
+        // launcher writes this deterministic seed before launch, so the
+        // simulator-specific authoritative store must return it directly
+        // instead of treating it as a backup-restorable migration mirror.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let seeded = "simulator-device-id-\(UUID().uuidString.lowercased())"
+        defaults.set(seeded, forKey: "cmux.deviceRegistry.iosDeviceID")
+        let store = SimulatorDeviceIdentityStore(defaults: defaults)
+
+        let resolved = DeviceRegistryService.durableDeviceID(
+            store: store,
+            defaults: defaults,
+            evidence: StaticEvidenceProbe(.absent)
+        )
+
+        #expect(resolved == seeded)
+        #expect(store.read() == .found(seeded))
+    }
+
+    @Test func simulatorSeedIsAdoptedIntoTheDurableDefaultsStore() {
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let seeded = "simulator-device-id-\(UUID().uuidString.lowercased())"
+        let firstLaunch = SimulatorDeviceIdentityStore(
+            defaults: defaults,
+            seededDeviceID: seeded
+        )
+
+        #expect(firstLaunch.read() == .found(seeded))
+
+        let springboardRelaunch = SimulatorDeviceIdentityStore(defaults: defaults)
+        #expect(springboardRelaunch.read() == .found(seeded))
+    }
+
+    @Test func blankSimulatorSeedMintsOnceAndSurvivesRelaunch() {
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let firstLaunch = SimulatorDeviceIdentityStore(
+            defaults: defaults,
+            seededDeviceID: " \n "
+        )
+
+        let resolved = DeviceRegistryService.durableDeviceID(
+            store: firstLaunch,
+            defaults: defaults,
+            evidence: StaticEvidenceProbe(.absent)
+        )
+        let springboardRelaunch = SimulatorDeviceIdentityStore(defaults: defaults)
+
+        #expect(resolved != nil)
+        if let resolved {
+            #expect(springboardRelaunch.read() == .found(resolved))
+        }
+    }
+
     @Test func durableDeviceIDMintsAndPersistsOnFreshInstall() {
         let suite = "test.deviceRegistry.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -579,7 +678,9 @@ import Testing
         let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
         // A fresh mint is durable only because the store confirmed the write.
         #expect(resolved != nil)
-        #expect(store.read() == .found(resolved!))
+        if let resolved {
+            #expect(store.read() == .found(resolved))
+        }
         #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == resolved)
     }
 
@@ -748,7 +849,9 @@ import Testing
             store: store, defaults: defaults, evidence: StaticEvidenceProbe(.present),
         )
         #expect(resolved != nil)
-        #expect(store.read() == .found(resolved!))
+        if let resolved {
+            #expect(store.read() == .found(resolved))
+        }
     }
 
     @Test func durableDeviceIDAdoptsConcurrentWinnerInsteadOfMintingSecondID() {

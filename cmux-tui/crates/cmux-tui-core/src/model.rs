@@ -2,9 +2,13 @@
 //! split tree of panes; each pane holds an ordered list of tabs
 //! (surfaces).
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
+use crate::resource::{
+    ContentPublicId, PanePublicId, PublicSlotIndexes, ScreenPublicId, TabPublicId,
+    TabResourceIdentity, TerminalPublicId, WorkspacePublicId,
+};
 use crate::{PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, WorkspaceId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,27 +52,12 @@ pub(crate) enum LayoutMutationKey {
     Resize { owner: LayoutResizeOwner, transaction: u64 },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum ProjectedSplitRatioUpdate {
-    NotProjected,
-    Unchanged,
-    Applied,
-    Unrepresentable { width: f32 },
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct LayoutUndoEntry {
     pub before: ScreenLayoutSnapshot,
     pub after_revision: u64,
     pub created_panes: Vec<PaneId>,
     pub coalesce: Option<LayoutMutationKey>,
-    pub confirmation: Option<LayoutUndoConfirmation>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct LayoutUndoConfirmation {
-    pub revision: u64,
-    pub pane_tabs: Vec<(PaneId, Vec<SurfaceId>)>,
 }
 
 const LAYOUT_UNDO_LIMIT: usize = 32;
@@ -373,18 +362,6 @@ impl Node {
         }
     }
 
-    pub(crate) fn set_deepest_ratio(
-        &mut self,
-        target: PaneId,
-        dir: SplitDir,
-        new_ratio: f32,
-    ) -> bool {
-        let Some(split) = self.deepest_split_for_pane(target, dir) else {
-            return false;
-        };
-        self.set_split_ratio(split, new_ratio)
-    }
-
     pub(crate) fn deepest_split_for_pane(&self, target: PaneId, dir: SplitDir) -> Option<SplitId> {
         fn walk(node: &Node, target: PaneId, dir: SplitDir) -> (bool, Option<SplitId>) {
             match node {
@@ -406,6 +383,19 @@ impl Node {
         }
 
         walk(self, target, dir).1
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_deepest_ratio(
+        &mut self,
+        target: PaneId,
+        dir: SplitDir,
+        new_ratio: f32,
+    ) -> bool {
+        let Some(split) = self.deepest_split_for_pane(target, dir) else {
+            return false;
+        };
+        self.set_split_ratio(split, new_ratio)
     }
 
     pub(crate) fn set_split_ratio(&mut self, target: SplitId, new_ratio: f32) -> bool {
@@ -432,19 +422,6 @@ impl Node {
                 } else {
                     a.split_ratio(target).or_else(|| b.split_ratio(target))
                 }
-            }
-        }
-    }
-
-    fn set_split_ratios(&mut self, ratios: &BTreeMap<SplitId, f32>) {
-        match self {
-            Node::Leaf(_) | Node::Stack { .. } => {}
-            Node::Split { id, ratio, a, b, .. } => {
-                if let Some(updated) = ratios.get(id) {
-                    *ratio = *updated;
-                }
-                a.set_split_ratios(ratios);
-                b.set_split_ratios(ratios);
             }
         }
     }
@@ -540,6 +517,7 @@ mod tests {
     fn legacy_projection_preserves_many_equal_viewport_column_widths() {
         let mut screen = Screen {
             id: 1,
+            public_id: ScreenPublicId::random().unwrap(),
             name: None,
             root: Node::Leaf(1),
             active_pane: 21,
@@ -580,9 +558,10 @@ mod tests {
 }
 
 /// A split-tree leaf: an ordered list of tabs (surfaces) with one active.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Pane {
     pub id: PaneId,
+    pub public_id: PanePublicId,
     /// User-assigned name; falls back to the active tab's title.
     pub name: Option<String>,
     pub tabs: Vec<SurfaceId>,
@@ -600,9 +579,10 @@ impl Pane {
 
 /// One split-tree of panes. A workspace can hold many screens; exactly
 /// one is visible at a time (the status bar switches between them).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Screen {
     pub id: ScreenId,
+    pub public_id: ScreenPublicId,
     /// User-assigned name; display falls back to the screen's number.
     pub name: Option<String>,
     pub root: Node,
@@ -687,7 +667,6 @@ impl Screen {
         {
             if let Some(entry) = self.layout_undo.back_mut() {
                 entry.after_revision = self.layout_revision;
-                entry.confirmation = None;
             }
             return;
         }
@@ -697,7 +676,6 @@ impl Screen {
             after_revision: self.layout_revision,
             created_panes,
             coalesce,
-            confirmation: None,
         });
         while self.layout_undo.len() > LAYOUT_UNDO_LIMIT {
             self.layout_undo.pop_front();
@@ -738,10 +716,6 @@ impl Screen {
 
     pub(crate) fn layout_columns_active(&self) -> bool {
         !self.layout_columns.is_empty()
-    }
-
-    pub(crate) fn is_projected_viewport_split(&self, split: SplitId) -> bool {
-        self.layout_columns.iter().skip(1).any(|column| column.id == split)
     }
 
     pub(crate) fn layout_column_for_pane_mut(&mut self, pane: PaneId) -> Option<&mut LayoutColumn> {
@@ -807,59 +781,6 @@ impl Screen {
         debug_assert!(self.layout_column_projection_is_consistent());
     }
 
-    pub(crate) fn sync_layout_column_width_projection(&mut self) {
-        let Some(first) = self.layout_columns.first() else {
-            self.viewport_splits.clear();
-            self.viewport_base_width = None;
-            return;
-        };
-        self.viewport_splits.clear();
-        self.viewport_base_width = Some(first.width);
-        let mut ratios = BTreeMap::new();
-        let mut width_before = first.width;
-        for column in self.layout_columns.iter().skip(1) {
-            ratios.insert(column.id, width_before / (width_before + column.width));
-            self.viewport_splits.insert(column.id, column.width);
-            width_before += column.width;
-        }
-        self.root.set_split_ratios(&ratios);
-        debug_assert!(self.layout_column_projection_is_consistent());
-    }
-
-    /// Apply a compatibility split ratio to an authoritative viewport column.
-    ///
-    /// Projected split `i` represents all preceding columns on the left and
-    /// column `i` on the right, so changing its ratio changes that right
-    /// column's frontend-relative width.
-    pub(crate) fn set_projected_viewport_split_ratio(
-        &mut self,
-        split: SplitId,
-        ratio: f32,
-    ) -> ProjectedSplitRatioUpdate {
-        let Some(index) = self
-            .layout_columns
-            .iter()
-            .position(|column| column.id == split)
-            .filter(|index| *index > 0)
-        else {
-            return ProjectedSplitRatioUpdate::NotProjected;
-        };
-        let width_before =
-            self.layout_columns[..index].iter().map(|column| column.width).sum::<f32>();
-        let width = width_before * (1.0 - ratio) / ratio;
-        if !width.is_finite()
-            || !(crate::MIN_VIEWPORT_PANE_WIDTH..=crate::MAX_VIEWPORT_PANE_WIDTH).contains(&width)
-        {
-            return ProjectedSplitRatioUpdate::Unrepresentable { width };
-        }
-        if self.layout_columns[index].width == width {
-            return ProjectedSplitRatioUpdate::Unchanged;
-        }
-        self.layout_columns[index].width = width;
-        self.sync_layout_column_width_projection();
-        ProjectedSplitRatioUpdate::Applied
-    }
-
     pub(crate) fn collapse_single_layout_column(&mut self) {
         if self.layout_columns.len() != 1 {
             self.sync_layout_column_projection();
@@ -906,9 +827,10 @@ impl Screen {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Workspace {
     pub id: WorkspaceId,
+    pub public_id: WorkspacePublicId,
     /// Stable external identity used by detached frontends. Unlike `id`, this
     /// survives snapshot/reconciliation boundaries and is safe to persist in
     /// a frontend's richer layout state.
@@ -926,6 +848,7 @@ impl Workspace {
 
 /// The full mutable session state, exposed to [`crate::Mux::with_state`]
 /// closures.
+#[derive(Clone)]
 pub struct State {
     pub workspaces: Vec<Workspace>,
     pub(crate) workspace_index_by_id: HashMap<WorkspaceId, usize>,
@@ -936,11 +859,20 @@ pub struct State {
     /// Monotonic version of the live pane-ID set. Focus, layout, tab, screen,
     /// and workspace selection changes do not advance this counter.
     pub pane_revision: u64,
+    /// Monotonic version of the public resource tree. Every atomic resource
+    /// mutation advances this counter exactly once.
+    pub resource_revision: u64,
     pub(crate) focus_sequence: u64,
     pub active_workspace: usize,
     pub panes: HashMap<PaneId, Pane>,
+    /// View placements keyed by daemon-local placement identity.
     pub surfaces: HashMap<SurfaceId, Arc<Surface>>,
+    /// Stable terminal content kept alive independently of view placement.
+    pub(crate) terminal_catalog: HashMap<TerminalPublicId, Arc<Surface>>,
+    /// Reverse lookup for catalog owners addressed by daemon-local runtime ID.
+    pub(crate) terminal_catalog_by_runtime: HashMap<SurfaceId, TerminalPublicId>,
     pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,
+    pub(crate) resource_indexes: PublicSlotIndexes,
 }
 
 impl State {
@@ -951,16 +883,25 @@ impl State {
 
     pub(crate) fn insert_pane(&mut self, pane: Pane) {
         let id = pane.id;
+        let public_id = pane.public_id.clone();
         let replaced = self.panes.insert(id, pane);
         debug_assert!(replaced.is_none(), "pane {id} was inserted twice");
         if replaced.is_none() {
+            debug_assert!(
+                self.resource_indexes.panes.insert(public_id.clone(), id).is_none(),
+                "pane public id {public_id} was inserted twice"
+            );
+            self.resource_indexes.pane_ids.insert(id, public_id);
             self.pane_revision = self.pane_revision.saturating_add(1);
         }
     }
 
     pub(crate) fn remove_pane(&mut self, pane: PaneId) -> Option<Pane> {
         let removed = self.panes.remove(&pane);
-        if removed.is_some() {
+        if let Some(removed) = removed.as_ref() {
+            self.resource_indexes.panes.remove(&removed.public_id);
+            self.resource_indexes.pane_ids.remove(&pane);
+            self.resource_indexes.pane_screen.remove(&pane);
             self.pane_revision = self.pane_revision.saturating_add(1);
         }
         removed
@@ -972,11 +913,15 @@ impl State {
         debug_assert!(!self.workspace_id_by_key.contains_key(&workspace.key));
         self.workspace_index_by_id.insert(workspace.id, index);
         self.workspace_id_by_key.insert(workspace.key.clone(), workspace.id);
+        self.resource_indexes.workspaces.insert(workspace.public_id.clone(), workspace.id);
+        self.resource_indexes.workspace_ids.insert(workspace.id, workspace.public_id.clone());
         self.workspaces.push(workspace);
     }
 
     pub(crate) fn remove_workspace(&mut self, index: usize) -> Workspace {
         let workspace = self.workspaces.remove(index);
+        self.resource_indexes.workspaces.remove(&workspace.public_id);
+        self.resource_indexes.workspace_ids.remove(&workspace.id);
         self.rebuild_workspace_indexes();
         workspace
     }
@@ -994,6 +939,141 @@ impl State {
             self.workspace_index_by_id.insert(workspace.id, index);
             self.workspace_id_by_key.insert(workspace.key.clone(), workspace.id);
         }
+    }
+
+    /// Record the durable identity of one tab slot. This is the only writer
+    /// of tab identity, so a slot can never disagree with the topology it is
+    /// placed in.
+    pub(crate) fn register_tab_identity(
+        &mut self,
+        slot: SurfaceId,
+        identity: &TabResourceIdentity,
+    ) {
+        self.resource_indexes.tabs.insert(identity.tab_id.clone(), slot);
+        self.resource_indexes.tab_ids.insert(slot, identity.tab_id.clone());
+        let placements = self
+            .resource_indexes
+            .content_placements
+            .entry(identity.content_id.clone())
+            .or_default();
+        if !placements.contains(&slot) {
+            placements.push(slot);
+        }
+        self.resource_indexes.content_ids.insert(slot, identity.content_id.clone());
+    }
+
+    /// Every placed tab must carry a durable identity. Losing one would make
+    /// the next projection tombstone live durable rows, so this fails the
+    /// mutation instead of silently dropping the tab.
+    pub(crate) fn ensure_tab_identity_coverage(&self) -> anyhow::Result<()> {
+        for pane in self.panes.values() {
+            for slot in &pane.tabs {
+                anyhow::ensure!(
+                    self.resource_indexes.tab_ids.contains_key(slot)
+                        && self.resource_indexes.content_ids.contains_key(slot),
+                    "tab slot {slot} has no durable identity"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn rebuild_resource_indexes(&mut self) {
+        let mut indexes = PublicSlotIndexes::default();
+        let mut live_split_slots = self.split_screens.keys().copied().collect::<HashSet<_>>();
+        for workspace in &self.workspaces {
+            let old = indexes.workspaces.insert(workspace.public_id.clone(), workspace.id);
+            debug_assert!(old.is_none(), "duplicate workspace public id");
+            indexes.workspace_ids.insert(workspace.id, workspace.public_id.clone());
+            for screen in &workspace.screens {
+                live_split_slots.extend(screen.layout_columns.iter().map(|column| column.id));
+                let old = indexes.screens.insert(screen.public_id.clone(), screen.id);
+                debug_assert!(old.is_none(), "duplicate screen public id");
+                indexes.screen_ids.insert(screen.id, screen.public_id.clone());
+                indexes.screen_workspace.insert(screen.id, workspace.id);
+                for pane_id in screen.root.pane_ids_vec() {
+                    if let Some(pane) = self.panes.get(&pane_id) {
+                        let old = indexes.panes.insert(pane.public_id.clone(), pane.id);
+                        debug_assert!(old.is_none(), "duplicate pane public id");
+                        indexes.pane_ids.insert(pane.id, pane.public_id.clone());
+                        indexes.pane_screen.insert(pane.id, screen.id);
+                        for surface_id in &pane.tabs {
+                            // Tab identity is owned by the topology, never by
+                            // the live surface. A restored or detached tab has
+                            // no surface, and rebuilding must not lose it.
+                            let (Some(tab_id), Some(content_id)) = (
+                                self.resource_indexes.tab_ids.get(surface_id).cloned(),
+                                self.resource_indexes.content_ids.get(surface_id).cloned(),
+                            ) else {
+                                continue;
+                            };
+                            let old = indexes.tabs.insert(tab_id.clone(), *surface_id);
+                            debug_assert!(old.is_none(), "duplicate tab public id");
+                            indexes.tab_ids.insert(*surface_id, tab_id);
+                            indexes
+                                .content_placements
+                                .entry(content_id.clone())
+                                .or_default()
+                                .push(*surface_id);
+                            indexes.content_ids.insert(*surface_id, content_id);
+                            indexes.tab_pane.insert(*surface_id, pane.id);
+                        }
+                    }
+                }
+            }
+        }
+        for split in live_split_slots {
+            if let Some(public_id) = self.resource_indexes.split_ids.get(&split).cloned() {
+                indexes.splits.insert(public_id.clone(), split);
+                indexes.split_ids.insert(split, public_id);
+            }
+        }
+        self.resource_indexes = indexes;
+    }
+
+    pub fn workspace_by_public_id(&self, id: &WorkspacePublicId) -> Option<&Workspace> {
+        self.resource_indexes.workspaces.get(id).and_then(|id| self.workspace_by_id(*id))
+    }
+
+    pub fn screen_by_public_id(&self, id: &ScreenPublicId) -> Option<&Screen> {
+        let slot = self.resource_indexes.screens.get(id)?;
+        let workspace = self.resource_indexes.screen_workspace.get(slot)?;
+        self.workspace_by_id(*workspace)?.screens.iter().find(|screen| screen.id == *slot)
+    }
+
+    pub fn pane_by_public_id(&self, id: &PanePublicId) -> Option<&Pane> {
+        self.resource_indexes.panes.get(id).and_then(|slot| self.panes.get(slot))
+    }
+
+    pub fn surface_by_tab_public_id(&self, id: &TabPublicId) -> Option<&Arc<Surface>> {
+        self.resource_indexes.tabs.get(id).and_then(|slot| self.surfaces.get(slot))
+    }
+
+    pub fn surface_by_content_public_id(&self, id: &ContentPublicId) -> Option<&Arc<Surface>> {
+        if let ContentPublicId::Terminal(terminal_id) = id
+            && let Some(surface) = self.terminal_catalog.get(terminal_id)
+        {
+            return Some(surface);
+        }
+        self.single_placement_of_content(id).and_then(|slot| self.surfaces.get(&slot))
+    }
+
+    pub fn placements_of_content(&self, id: &ContentPublicId) -> &[SurfaceId] {
+        self.resource_indexes.content_placements.get(id).map(Vec::as_slice).unwrap_or_default()
+    }
+
+    /// Return the placement for content whose model requires exactly one live
+    /// view. Zero or multiple placements fail closed instead of selecting an
+    /// arbitrary traversal-order winner.
+    pub fn single_placement_of_content(&self, id: &ContentPublicId) -> Option<SurfaceId> {
+        let [placement] = self.placements_of_content(id) else { return None };
+        Some(*placement)
+    }
+
+    pub(crate) fn terminal_runtime_by_id(&self, id: SurfaceId) -> Option<&Arc<Surface>> {
+        self.terminal_catalog_by_runtime
+            .get(&id)
+            .and_then(|terminal| self.terminal_catalog.get(terminal))
     }
 
     pub(crate) fn workspace_index(&self, id: WorkspaceId) -> Option<usize> {
@@ -1017,7 +1097,12 @@ impl State {
 
     /// The pane a surface currently lives in.
     pub fn pane_of(&self, surface: SurfaceId) -> Option<PaneId> {
-        self.panes.values().find(|p| p.tabs.contains(&surface)).map(|p| p.id)
+        self.resource_indexes.tab_pane.get(&surface).copied().or_else(|| {
+            // A resource mutation can temporarily stage a local placement
+            // before its public indexes are committed. Preserve lookup for
+            // that bounded transient state without penalizing steady state.
+            self.panes.values().find(|pane| pane.tabs.contains(&surface)).map(|pane| pane.id)
+        })
     }
 
     pub fn active_pane(&self) -> Option<PaneId> {

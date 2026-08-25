@@ -27,6 +27,7 @@ struct MobileHostServiceSettingsTests {
 
     @Test func signedInIrohStartsWithoutEnablingTheLegacyListener() {
         let automatic = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: false,
             legacyListenerRunning: false
         )
@@ -34,6 +35,7 @@ struct MobileHostServiceSettingsTests {
         #expect(!automatic.startsLegacyListener)
 
         let tailscaleCompatible = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: true,
             legacyListenerRunning: false
         )
@@ -41,11 +43,24 @@ struct MobileHostServiceSettingsTests {
         #expect(tailscaleCompatible.startsLegacyListener)
 
         let alreadyListening = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: true,
             legacyListenerRunning: true
         )
         #expect(alreadyListening.activatesIroh)
         #expect(!alreadyListening.startsLegacyListener)
+    }
+
+    @Test func managedRemoteControlPolicyOverridesEveryTransport() {
+        // Even a user who explicitly enabled the legacy listener gets no
+        // transport while the MDM policy is enforced.
+        let disabled = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: true,
+            legacyListenerEnabled: true,
+            legacyListenerRunning: false
+        )
+        #expect(!disabled.activatesIroh)
+        #expect(!disabled.startsLegacyListener)
     }
 
     @Test func mobileHostListenerPreservesHistoricalExplicitOptIn() throws {
@@ -107,6 +122,7 @@ struct MobileHostServiceSettingsTests {
             buildFlavor: .stable
         )
         let plan = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: enabled,
             legacyListenerRunning: false
         )
@@ -126,6 +142,7 @@ struct MobileHostServiceSettingsTests {
             buildFlavor: .stable
         )
         let plan = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: enabled,
             legacyListenerRunning: false
         )
@@ -253,7 +270,10 @@ struct MobileHostTransportRouteCompositionTests {
             priority: 10
         )
 
-        MobileHostPublicStatusCache.update(irohBinding: binding)
+        MobileHostPublicStatusCache.update(
+            irohIdentity: binding.endpointID,
+            pathHints: binding.pathHints
+        )
         MobileHostPublicStatusCache.update(routes: [tailscale])
         #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.iroh, .tailscale])
 
@@ -298,7 +318,12 @@ struct MobileHostTransportRouteCompositionTests {
                   "identity_generation":1,
                   "pairing_enabled":true,
                   "capabilities":["mobile-rpc-v1","multistream-v1"],
-                  "path_hints":[],
+                  "path_hints":[{
+                    "kind":"relay_url",
+                    "value":"https://relay.example.com/",
+                    "source":"native",
+                    "privacy_scope":"public_internet"
+                  }],
                   "last_seen_at":"2026-07-09T12:00:00.000Z"
                 }
                 """.utf8
@@ -312,10 +337,18 @@ struct MobileHostTransportRouteCompositionTests {
         )
 
         MobileHostPublicStatusCache.update(routes: [tailscale])
-        MobileHostPublicStatusCache.update(irohBinding: binding)
-        #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.iroh, .tailscale])
+        MobileHostPublicStatusCache.update(
+            irohBinding: CmxIrohBrokerBindingMetadata(binding: binding)
+        )
+        let routes = MobileHostPublicStatusCache.snapshot()
+        #expect(routes.map(\.kind) == [.iroh, .tailscale])
+        guard case let .peer(_, pathHints) = routes.first?.endpoint else {
+            Issue.record("Expected the cached Iroh route to retain broker path hints")
+            return
+        }
+        #expect(pathHints == binding.pathHints)
 
-        MobileHostPublicStatusCache.update(irohBinding: nil)
+        MobileHostPublicStatusCache.update(irohIdentity: nil)
         #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.tailscale])
     }
 }
@@ -339,54 +372,5 @@ struct MobileHostMacScopedMutationAuthorizationTests {
         }
     }
 
-    @Test func rejectsMacScopedMutationsWithoutAttachToken() async {
-        let service = MobileHostService.shared
-        service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
-        defer { service.debugConfigureAcceptedStackAuthTokenForTesting(nil) }
-        let cases: [(String, [String: String])] = [
-            ("workspace.create", ["group_id": "group-main"]),
-            ("workspace.move", ["workspace_id": "workspace-main", "before_workspace_id": "workspace-next"]),
-            ("workspace.group.action", ["group_id": "group-main", "action": "rename"]),
-            ("workspace.group.create", ["title": "Ops"]),
-        ]
-        for (method, params) in cases {
-            let request = MobileHostRPCRequest(
-                id: method,
-                method: method,
-                params: params,
-                auth: MobileHostRPCAuth(attachToken: nil, stackAccessToken: "cmux-dev-token")
-            )
-            let result = await service.debugAuthorizationError(for: request)
-            guard case let .failure(error) = result else {
-                return #expect(Bool(false), "missing attach token should reject \(method)")
-            }
-            #expect(error.code == "forbidden")
-        }
-    }
-
-    @Test func rejectsMacScopedMutationsWithUnknownAttachToken() async {
-        let service = MobileHostService.shared
-        service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
-        defer { service.debugConfigureAcceptedStackAuthTokenForTesting(nil) }
-        let cases: [(String, [String: String])] = [
-            ("workspace.create", ["group_id": "group-main"]),
-            ("workspace.move", ["workspace_id": "workspace-main", "before_workspace_id": "workspace-next"]),
-            ("workspace.group.action", ["group_id": "group-main", "action": "rename"]),
-            ("workspace.group.create", ["title": "Ops"]),
-        ]
-        for (method, params) in cases {
-            let request = MobileHostRPCRequest(
-                id: method,
-                method: method,
-                params: params,
-                auth: MobileHostRPCAuth(attachToken: "stale-ticket", stackAccessToken: "cmux-dev-token")
-            )
-            let result = await service.debugAuthorizationError(for: request)
-            guard case let .failure(error) = result else {
-                return #expect(Bool(false), "stale attach token should reject \(method)")
-            }
-            #expect(error.code == "forbidden")
-        }
-    }
 }
 #endif

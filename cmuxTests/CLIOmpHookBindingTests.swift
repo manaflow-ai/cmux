@@ -40,6 +40,76 @@ struct CLIOmpHookBindingTests {
     }
 
     @Test
+    func piSessionStartPreservesPathRequiredByForkVersionProbe() async throws {
+        let context = try Harness.makeContext(name: "pi-fork-path")
+        defer { context.cleanup() }
+
+        let sessionId = "pi-fork-path-session"
+        let stateDirectory = context.root.appendingPathComponent(".cmuxterm", isDirectory: true)
+        let binDirectory = context.root.appendingPathComponent("custom-bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+
+        let runtimeName = "cmux-pi-fork-test-runtime"
+        let runtime = binDirectory.appendingPathComponent(runtimeName, isDirectory: false)
+        try "#!/bin/sh\nprintf '0.83.0\\n'\n"
+            .write(to: runtime, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: runtime.path)
+
+        let pi = binDirectory.appendingPathComponent("pi", isDirectory: false)
+        try "#!/usr/bin/env \(runtimeName)\n"
+            .write(to: pi, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pi.path)
+
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId]],
+            pidTarget: nil
+        )
+        let launchPath = "\(binDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin"
+        var environment = Harness.hookEnvironment(context: context)
+        environment["PATH"] = launchPath
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDirectory.path
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "pi"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = pi.path
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Self.base64NULSeparated([pi.path])
+        environment["CMUX_AGENT_LAUNCH_CWD"] = context.root.path
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: [
+                "hooks", "pi", "session-start",
+                "--workspace", Self.liveWorkspaceId,
+                "--surface", Self.liveSurfaceId,
+            ],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+
+        let workspaceId = try #require(UUID(uuidString: Self.liveWorkspaceId))
+        let surfaceId = try #require(UUID(uuidString: Self.liveSurfaceId))
+        let snapshot = try #require(
+            RestorableAgentSessionIndex.load(
+                homeDirectory: context.root.path,
+                fileManager: .default
+            )
+            .snapshot(
+                workspaceId: workspaceId,
+                panelId: surfaceId
+            )
+        )
+        #expect(snapshot.launchCommand?.environment?["PATH"] == launchPath)
+        #expect(
+            await AgentForkSupport.supportsFork(snapshot: snapshot),
+            "Fork availability must probe Pi with the PATH captured by its session-start hook."
+        )
+    }
+
+    @Test
     func resumedSessionUsesLivePIDTTYTargetAndSupersedesPriorProcessClaim() throws {
         let context = try Harness.makeContext(name: "omp-live-pid")
         defer { context.cleanup() }
@@ -116,7 +186,7 @@ struct CLIOmpHookBindingTests {
             $0.hasPrefix("set_agent_pid omp.\(resumedSessionId) ")
         })
         let lifecycleIndex = try #require(commands.firstIndex {
-            $0.hasPrefix("set_agent_lifecycle omp ")
+            $0.hasPrefix("agent_journal_append ") && $0.contains("\"agent_key\":\"omp\"")
         })
         let clearIndex = try #require(commands.firstIndex {
             Self.jsonObject($0)?["method"] as? String == "surface.resume.clear"

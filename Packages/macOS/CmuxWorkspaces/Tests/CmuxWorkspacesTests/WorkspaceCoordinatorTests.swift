@@ -69,7 +69,7 @@ final class StubGroupHost: WorkspaceGroupHosting {
         initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
         select: Bool,
-        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode
+        applyCreationTitleAsCustomTitle: Bool
     ) -> CoordinatorStubTab {
         let tab = CoordinatorStubTab(currentDirectory: workingDirectory ?? "/tmp")
         model.tabs.append(tab)
@@ -524,6 +524,30 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func sidebarNoncontiguousBlockCoalescesAtDraggedRowsOwnGap() {
+        let (model, host, _, reorder) = makeWorld()
+        _ = host
+        let a = CoordinatorStubTab()
+        let b = CoordinatorStubTab()
+        let c = CoordinatorStubTab()
+        let d = CoordinatorStubTab()
+        let e = CoordinatorStubTab()
+        model.tabs = [a, b, c, d, e]
+
+        // Grabbed b with {b, d} selected and dropped at b's own lower gap
+        // (index 1 in [a, c, d, e]): b stays put and d coalesces up to it.
+        // This gap paints an indicator only for noncontiguous blocks
+        // (SidebarWorkspaceDragBlockResolver.blockOccupiesNoncontiguousRows).
+        #expect(reorder.reorderSidebarWorkspaces(
+            tabIds: [b.id, d.id],
+            draggedTabId: b.id,
+            toIndex: 1,
+            isDragOperation: true
+        ))
+        #expect(model.tabs.map(\.id) == [a.id, b.id, d.id, c.id, e.id])
+    }
+
+    @Test
     func sidebarBlockClampsMixedPinTiersAndKeepsEachContiguous() {
         let (model, host, _, reorder) = makeWorld()
         _ = host
@@ -786,6 +810,33 @@ struct WorkspaceCoordinatorTests {
         // Section is contiguous and anchor-first at the first child's slot.
         #expect(model.tabs.map(\.id) == [anchorId, child1.id, child2.id, other.id])
         #expect(host.orderChanges.last == [anchorId, child1.id, child2.id])
+    }
+
+    @Test
+    func createWorkspaceGroupAdoptsPinnedChildren() throws {
+        let (model, host, groups, _) = makeWorld()
+        let pinnedChild = CoordinatorStubTab(isPinned: true)
+        let unpinnedChild = CoordinatorStubTab()
+        model.tabs = [pinnedChild, unpinnedChild]
+
+        let groupId = try #require(groups.createWorkspaceGroup(
+            name: "Mixed",
+            childWorkspaceIds: [pinnedChild.id, unpinnedChild.id]
+        ))
+        let group = try #require(model.workspaceGroups.first { $0.id == groupId })
+
+        #expect(pinnedChild.groupId == groupId)
+        #expect(unpinnedChild.groupId == groupId)
+        #expect(model.tabs.filter { $0.groupId == groupId }.map(\.id) == [
+            group.anchorWorkspaceId,
+            pinnedChild.id,
+            unpinnedChild.id,
+        ])
+        #expect(host.orderChanges.last == [
+            group.anchorWorkspaceId,
+            pinnedChild.id,
+            unpinnedChild.id,
+        ])
     }
 
     @Test

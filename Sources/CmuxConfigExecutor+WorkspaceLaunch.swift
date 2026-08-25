@@ -153,7 +153,7 @@ extension CmuxConfigExecutor {
             titleSource: .auto,
             workingDirectory: resolvedCwd,
             workspaceEnvironment: wsDef.env ?? [:],
-            workspaceDirectoryCustomizationMode: .disabled
+            applyCreationTitleAsCustomTitle: false
         )
         tabManager.setCustomTitle(tabId: newWorkspace.id, title: workspaceName, source: .auto)
         if let color = wsDef.color {

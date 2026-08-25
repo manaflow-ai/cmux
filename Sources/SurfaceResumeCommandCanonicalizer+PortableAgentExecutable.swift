@@ -35,6 +35,10 @@ extension SurfaceResumeBindingSnapshot {
             )
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
+        // Stays raw POSIX: remote restores (remoteStartupInput) hand this to
+        // the remote host's shell, and local callers apply the nushell dialect
+        // envelope at their own typed boundary (restoreStartupInput). Wrapping
+        // here would leak `^/bin/sh …` into contexts that parse POSIX.
         guard let environment, !environment.isEmpty else {
             return trimmed + "\n"
         }
@@ -46,40 +50,46 @@ extension SurfaceResumeBindingSnapshot {
         return argv.map(Self.shellSingleQuoted).joined(separator: " ") + "\n"
     }
 
-    func startupInputWithLauncherScript(
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        allowLauncherScript: Bool = true,
-        restoringWorkingDirectory: String? = nil,
+    func restoreStartupInput(
         repairPortableAgentExecutable: Bool
     ) -> String? {
-        if !allowLauncherScript {
-            return inlineStartupInput(
-                repairPortableAgentExecutable: repairPortableAgentExecutable
-            )
+        if usesLocalRestoreVerb {
+            // Bare words (` cmux restore <kind> <id>`): parses identically in
+            // POSIX shells and nushell, no dialect handling needed.
+            return localRestoreCLIInput
         }
-        guard let inlineInput = inlineStartupInput(
-            repairPortableAgentExecutable: repairPortableAgentExecutable,
-            includeWorkingDirectoryPrefix: false
-        ) else { return nil }
-        guard let scriptInput = OneShotTerminalLauncherStore(
-            fileManager: fileManager,
-            temporaryDirectory: temporaryDirectory
-        ).writeInvocationInput(
-            command: inlineInput,
-            workingDirectory: restoringWorkingDirectory ?? cwd
+        guard let inline = inlineStartupInput(
+            repairPortableAgentExecutable: repairPortableAgentExecutable
         ) else {
             return nil
         }
-
-        return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
+        // The compatibility fallback is a POSIX one-liner typed into the local
+        // login shell, so it is the nushell dialect boundary (the trailing
+        // newline stays outside the wrap). Remote hosts keep raw POSIX via
+        // remoteStartupInput().
+        let command = inline.hasSuffix("\n") ? String(inline.dropLast()) : inline
+        return TerminalStartupTypedShellCommand().typedInput(posixCommand: command) + "\n"
     }
 
-    func remoteStartupInputWithLauncherScript(allowLauncherScript: Bool = false) -> String? {
-        startupInputWithLauncherScript(
-            allowLauncherScript: allowLauncherScript,
-            repairPortableAgentExecutable: false
-        )
+    func remoteStartupInput() -> String? {
+        inlineStartupInput(repairPortableAgentExecutable: false)
+    }
+
+    private var localRestoreCLIInput: String {
+        let executable = AgentRestoreLaunch.cliStartupExecutableToken
+        if let kind = Self.restoreCLIArgument(kind),
+           let checkpointId = Self.restoreCLIArgument(checkpointId) {
+            return " \(executable) restore \(kind) \(checkpointId)\n"
+        }
+        return " \(executable) restore --surface\n"
+    }
+
+    private static func restoreCLIArgument(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return AgentRestoreCLIArgument(rawValue: value)?.rawValue
     }
 
     private func resolvedStartupCommand(repairPortableAgentExecutable: Bool) -> String {

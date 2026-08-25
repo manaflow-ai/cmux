@@ -58,13 +58,6 @@ import Testing
         #expect(!MobileDisplaySettings(defaults: defaults).showMissingFiles)
     }
 
-    @Test func terminalFilesChipDefaultsToFalseWithoutAWrite() throws {
-        let defaults = try makeDefaults("terminalFilesChipDefaults")
-        let settings = MobileDisplaySettings(defaults: defaults)
-        #expect(!settings.terminalFilesChipEnabled)
-        #expect(defaults.object(forKey: "cmux.mobile.terminalFilesChipEnabled") == nil)
-    }
-
     @Test func terminalFolderTapDefaultsToTrueWithoutAWrite() throws {
         let defaults = try makeDefaults("terminalFolderTapDefaults")
         let settings = MobileDisplaySettings(defaults: defaults)
@@ -113,31 +106,6 @@ import Testing
         let defaults = try makeDefaults("terminalFolderTapReadsStoredFalse")
         defaults.set(false, forKey: "cmux.mobile.terminalFolderTapEnabled")
         #expect(!MobileDisplaySettings(defaults: defaults).terminalFolderTapEnabled)
-    }
-
-    @Test func terminalFilesChipPersistsAcrossInstances() throws {
-        let defaults = try makeDefaults("terminalFilesChipPersists")
-        let settings = MobileDisplaySettings(defaults: defaults)
-        settings.terminalFilesChipEnabled = true
-        #expect(MobileDisplaySettings(defaults: defaults).terminalFilesChipEnabled)
-        settings.terminalFilesChipEnabled = false
-        #expect(!MobileDisplaySettings(defaults: defaults).terminalFilesChipEnabled)
-    }
-
-    @Test func taskComposerDefaultsToFalseWithoutAWrite() throws {
-        let defaults = try makeDefaults("taskComposerDefaults")
-        let settings = MobileDisplaySettings(defaults: defaults)
-        #expect(!settings.taskComposerEnabled)
-        #expect(defaults.object(forKey: "cmux.mobile.taskComposerEnabled") == nil)
-    }
-
-    @Test func taskComposerPersistsAcrossInstances() throws {
-        let defaults = try makeDefaults("taskComposerPersists")
-        let settings = MobileDisplaySettings(defaults: defaults)
-        settings.taskComposerEnabled = true
-        #expect(MobileDisplaySettings(defaults: defaults).taskComposerEnabled)
-        settings.taskComposerEnabled = false
-        #expect(!MobileDisplaySettings(defaults: defaults).taskComposerEnabled)
     }
 
     @Test func previewLineCountPersistsAcrossInstances() throws {

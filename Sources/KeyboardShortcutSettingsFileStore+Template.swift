@@ -90,6 +90,7 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "terminal": [
+                    "adaptiveDefaultTheme": SettingCatalog().terminal.adaptiveDefaultTheme.defaultValue,
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
                     "scrollSpeed": TerminalScrollSpeedSettings.defaultMultiplier,
                     "sessionContentMaxWidth": false,
@@ -120,6 +121,7 @@ extension CmuxSettingsFileStore {
                     "showInMenuBar": MenuBarExtraSettings.defaultShowInMenuBar,
                     "unreadPaneRing": NotificationPaneRingSettings.defaultEnabled,
                     "paneFlash": NotificationPaneFlashSettings.defaultEnabled,
+                    "paneFlashColor": NSNull(),
                     "sound": NotificationSoundSettings.defaultValue,
                     "customSoundFilePath": NotificationSoundSettings.defaultCustomFilePath,
                     "command": NotificationSoundSettings.defaultCustomCommand,
@@ -198,6 +200,7 @@ extension CmuxSettingsFileStore {
             [
                 "browser": [
                     "defaultSearchEngine": BrowserSearchSettingsStore.defaultSearchEngine.rawValue,
+                    "defaultZoomLevel": BrowserZoomSettings.defaultLevel,
                     "customSearchEngineName": BrowserSearchSettingsStore.defaultCustomSearchEngineName,
                     "customSearchEngineURLTemplate": BrowserSearchSettingsStore.defaultCustomSearchEngineURLTemplate,
                     "showSearchSuggestions": BrowserSearchSettingsStore.defaultSearchSuggestionsEnabled,
@@ -210,6 +213,7 @@ extension CmuxSettingsFileStore {
                     "hostsToOpenInEmbeddedBrowser": [String](),
                     "urlsToAlwaysOpenExternally": [String](),
                     "insecureHttpHostsAllowedInEmbeddedBrowser": BrowserInsecureHTTPSettings.defaultAllowlistPatterns,
+                    "urlAllowlist": BrowserURLAllowlistPolicy.defaultPatterns,
                     "showImportHintOnBlankTabs": BrowserImportHintSettings.defaultShowOnBlankTabs,
                     "reactGrabVersion": ReactGrabSettings.defaultVersion,
                 ],

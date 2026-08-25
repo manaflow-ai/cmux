@@ -7,6 +7,7 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         case bindingID = "binding_id"
         case deviceID = "device_id"
         case appInstanceID = "app_instance_id"
+        case clientNamespace = "client_namespace"
         case tag
         case platform
         case displayName = "display_name"
@@ -22,6 +23,9 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
     public let bindingID: String
     public let deviceID: String
     public let appInstanceID: String
+
+    /// The exact bundle-derived app namespace that owns this binding.
+    public let clientNamespace: String
     public let tag: String
     public let platform: CmxIrohPlatform
     public let displayName: String?
@@ -38,6 +42,10 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         let bindingID = try container.decode(String.self, forKey: .bindingID)
         let deviceID = try container.decode(String.self, forKey: .deviceID)
         let appInstanceID = try container.decode(String.self, forKey: .appInstanceID)
+        let clientNamespace = try container.decodeIfPresent(
+            String.self,
+            forKey: .clientNamespace
+        ) ?? "legacy"
         let tag = try container.decode(String.self, forKey: .tag)
         let endpointID = try container.decode(String.self, forKey: .endpointID)
         let identityGeneration = try container.decode(Int.self, forKey: .identityGeneration)
@@ -52,11 +60,12 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         guard Self.isCanonicalUUID(bindingID),
               Self.isCanonicalUUID(deviceID),
               Self.isCanonicalUUID(appInstanceID),
-              Self.isSafeToken(tag),
+              cmxIrohIsSafeToken(clientNamespace, maximumUTF8ByteCount: 255),
+              cmxIrohIsSafeToken(tag),
               (1 ... Int(Int32.max)).contains(identityGeneration),
               capabilities.count <= 32,
               Set(capabilities).count == capabilities.count,
-              capabilities.allSatisfy(Self.isSafeToken),
+              capabilities.allSatisfy({ cmxIrohIsSafeToken($0) }),
               displayName.map(Self.isSafeDisplayName) ?? true,
               pathHints.count <= CmxAttachEndpoint.maximumIrohPathHintCount,
               pathHints.filter({ $0.kind == .relayURL }).count <= 2,
@@ -72,6 +81,7 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         self.bindingID = bindingID
         self.deviceID = deviceID
         self.appInstanceID = appInstanceID
+        self.clientNamespace = clientNamespace
         self.tag = tag
         platform = try container.decode(CmxIrohPlatform.self, forKey: .platform)
         self.displayName = displayName
@@ -89,6 +99,7 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         try container.encode(bindingID, forKey: .bindingID)
         try container.encode(deviceID, forKey: .deviceID)
         try container.encode(appInstanceID, forKey: .appInstanceID)
+        try container.encode(clientNamespace, forKey: .clientNamespace)
         try container.encode(tag, forKey: .tag)
         try container.encode(platform, forKey: .platform)
         try container.encodeIfPresent(displayName, forKey: .displayName)
@@ -103,16 +114,6 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
 
     private static func isCanonicalUUID(_ value: String) -> Bool {
         UUID(uuidString: value)?.uuidString.lowercased() == value
-    }
-
-    private static func isSafeToken(_ value: String) -> Bool {
-        guard (1 ... 64).contains(value.utf8.count) else { return false }
-        return value.utf8.allSatisfy { byte in
-            (48 ... 57).contains(byte)
-                || (65 ... 90).contains(byte)
-                || (97 ... 122).contains(byte)
-                || [45, 46, 58, 95].contains(byte)
-        }
     }
 
     private static func isSafeDisplayName(_ value: String) -> Bool {
@@ -216,6 +217,11 @@ public struct CmxIrohLANRendezvous: Codable, Equatable, Sendable {
 /// Authenticated registry snapshot used for endpoint discovery and grant verification.
 public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
     public let routeContractVersion: Int
+    /// Monotonic account route revision returned by revision-aware brokers.
+    ///
+    /// This remains optional while installed clients can still reach a
+    /// pre-connectivity-v2 development backend.
+    public let revision: UInt64?
     public let bindings: [CmxIrohBrokerBinding]
     public let relayFleet: [String]
     public let lanRendezvous: CmxIrohLANRendezvous
@@ -223,6 +229,7 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case routeContractVersion = "route_contract_version"
+        case revision
         case bindings
         case relayFleet = "relay_fleet"
         case lanRendezvous = "lan_rendezvous"
@@ -232,6 +239,7 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let routeContractVersion = try container.decode(Int.self, forKey: .routeContractVersion)
+        let revision = try container.decodeIfPresent(UInt64.self, forKey: .revision)
         let bindings = try container.decode([CmxIrohBrokerBinding].self, forKey: .bindings)
         let relayFleet = try container.decode([String].self, forKey: .relayFleet)
         guard Set(bindings.map(\.bindingID)).count == bindings.count,
@@ -245,6 +253,7 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
             )
         }
         self.routeContractVersion = routeContractVersion
+        self.revision = revision
         self.bindings = bindings
         self.relayFleet = relayFleet
         lanRendezvous = try container.decode(CmxIrohLANRendezvous.self, forKey: .lanRendezvous)
@@ -256,12 +265,14 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
 
     init(
         routeContractVersion: Int,
+        revision: UInt64?,
         bindings: [CmxIrohBrokerBinding],
         relayFleet: [String],
         lanRendezvous: CmxIrohLANRendezvous,
         grantVerificationKeys: CmxIrohGrantVerificationKeySet
     ) {
         self.routeContractVersion = routeContractVersion
+        self.revision = revision
         self.bindings = bindings
         self.relayFleet = relayFleet
         self.lanRendezvous = lanRendezvous
@@ -288,8 +299,57 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
 
 /// Registration response. Relay bootstrap failure never rolls back the binding.
 public struct CmxIrohRegistrationResponse: Decodable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case revision
+        case binding
+        case relay
+        case discovery
+        case discoveryComplete = "discovery_complete"
+        case discoveryScope = "discovery_scope"
+        case discoveryScopeComplete = "discovery_scope_complete"
+    }
+
+    /// Monotonic account route revision after this registration commit.
+    public let revision: UInt64?
     public let binding: CmxIrohBrokerBinding
     public let relay: CmxIrohRegistrationRelay
+    /// The authoritative post-registration account snapshot when supplied by
+    /// connectivity v2. Older brokers omit it and retain the separate sync.
+    public let discovery: CmxIrohDiscoveryResponse?
+    /// True only when the embedded snapshot covers every active binding.
+    /// Older brokers omit this proof, so clients must fetch paginated discovery.
+    public let discoveryComplete: Bool?
+    /// The exact bounded projection represented by embedded discovery.
+    public let discoveryScope: CmxConnectivityDiscoveryScope?
+    /// True only when embedded discovery covers every binding in its scope.
+    public let discoveryScopeComplete: Bool?
+
+    /// Whether the embedded discovery is proven complete globally or for its
+    /// validated scoped-registration request.
+    public var embeddedDiscoveryComplete: Bool {
+        discovery != nil
+            && (discoveryComplete == true
+                || (discoveryScope != nil && discoveryScopeComplete == true))
+    }
+
+    /// Creates a registration response for alternate brokers and tests.
+    public init(
+        revision: UInt64? = nil,
+        binding: CmxIrohBrokerBinding,
+        relay: CmxIrohRegistrationRelay,
+        discovery: CmxIrohDiscoveryResponse? = nil,
+        discoveryComplete: Bool? = nil,
+        discoveryScope: CmxConnectivityDiscoveryScope? = nil,
+        discoveryScopeComplete: Bool? = nil
+    ) {
+        self.revision = revision
+        self.binding = binding
+        self.relay = relay
+        self.discovery = discovery
+        self.discoveryComplete = discoveryComplete
+        self.discoveryScope = discoveryScope
+        self.discoveryScopeComplete = discoveryScopeComplete
+    }
 }
 
 /// Result of the registration route's best-effort initial relay mint.

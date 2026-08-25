@@ -62,6 +62,15 @@ func expectThrowsError<T>(
     }
 }
 
+private final class ExecutableContentsTrackingFileManager: FileManager {
+    private(set) var contentReadPaths: [String] = []
+
+    override func contents(atPath path: String) -> Data? {
+        contentReadPaths.append(path)
+        return super.contents(atPath: path)
+    }
+}
+
 @Suite(.serialized)
 struct AgentExecutableResolverTests {
     @Test
@@ -85,6 +94,66 @@ struct AgentExecutableResolverTests {
         expectEqual(plan.executableURL.path, executable.standardizedFileURL.path)
         expectEqual(plan.arguments, AgentSessionProviderID.codex.launchArguments)
         expectFalse(plan.executableURL.path.contains("/Contents/Resources/bin/"))
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/8743 — `isExecutableFile(atPath:)`
+    /// is true for directories, so a directory named like the provider binary earlier
+    /// on PATH used to shadow the real executable and fail at launch.
+    @Test
+    func testSkipsDirectoryNamedLikeExecutableOnSearchPath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let shadowBin = root.appendingPathComponent("shadow", isDirectory: true)
+        let realBin = root.appendingPathComponent("real", isDirectory: true)
+        let shadowDirectory = shadowBin.appendingPathComponent("codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: shadowDirectory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: shadowDirectory.path)
+        try FileManager.default.createDirectory(at: realBin, withIntermediateDirectories: true)
+        let executable = realBin.appendingPathComponent("codex")
+        try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let resolver = AgentExecutableResolver(
+            environment: ["PATH": "\(shadowBin.path):\(realBin.path)", "HOME": root.path],
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true),
+            includeStandardSearchDirectories: false
+        )
+
+        let plan = try resolver.resolve(.codex)
+        expectEqual(plan.executableURL.path, executable.standardizedFileURL.path)
+    }
+
+    @Test
+    func testRejectsMissingParentBeforeNormalizingSearchPath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let realBin = root.appendingPathComponent("real", isDirectory: true)
+        try FileManager.default.createDirectory(at: realBin, withIntermediateDirectories: true)
+        let executable = realBin.appendingPathComponent("claude")
+        try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let missingParentTraversal = root
+            .appendingPathComponent("missing-directory", isDirectory: true)
+            .appendingPathComponent("..", isDirectory: true)
+        let resolver = AgentExecutableResolver(
+            environment: [
+                "PATH": "\(missingParentTraversal.path):\(realBin.path)",
+                "HOME": root.path,
+            ],
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true),
+            includeStandardSearchDirectories: false
+        )
+
+        let plan = try resolver.resolve(.claude)
+        let runtimePath = plan.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
+        expectEqual(plan.executableURL.path, executable.standardizedFileURL.path)
+        expectFalse(runtimePath.contains(root.standardizedFileURL.path))
     }
 
     @Test
@@ -335,7 +404,7 @@ struct AgentExecutableResolverTests {
     }
 
     @Test
-    func testSkipsCmuxClaudeCommandShim() throws {
+    func testSkipsCmuxAgentCommandShim() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
@@ -449,6 +518,32 @@ struct AgentExecutableResolverTests {
             plan.arguments,
             ["serve", "--hostname", "127.0.0.1", "--port", "0", "--print-logs"]
         )
+    }
+
+    @Test
+    func testOpenCodeResolutionDoesNotReadExecutableContents() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let executable = bin.appendingPathComponent("opencode")
+        try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let fileManager = ExecutableContentsTrackingFileManager()
+        let resolver = AgentExecutableResolver(
+            environment: ["PATH": bin.path, "HOME": root.path],
+            fileManager: fileManager,
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true),
+            includeStandardSearchDirectories: false
+        )
+
+        let plan = try resolver.resolve(.opencode)
+
+        expectEqual(plan.executableURL.path, executable.standardizedFileURL.path)
+        expectTrue(fileManager.contentReadPaths.isEmpty)
     }
 
     @Test

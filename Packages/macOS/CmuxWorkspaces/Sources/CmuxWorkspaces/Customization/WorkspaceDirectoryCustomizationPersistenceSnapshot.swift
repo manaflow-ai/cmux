@@ -1,6 +1,6 @@
 import Foundation
 
-/// The bounded, versioned persistence envelope for sticky directory customizations.
+/// The legacy bounded persistence envelope retained for v1 migration.
 struct WorkspaceDirectoryCustomizationPersistenceSnapshot: Codable, Sendable {
     static let currentVersion = 2
 

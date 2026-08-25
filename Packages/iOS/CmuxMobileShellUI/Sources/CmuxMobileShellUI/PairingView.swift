@@ -67,100 +67,105 @@ struct PairingView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    TextField(
-                        L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac"),
-                        text: $deviceName
-                    )
-                    .focused($focusedField, equals: .name)
-                    .submitLabel(.next)
-                    .addDeviceInputBehavior(.text)
-                    .accessibilityIdentifier("MobileAddDeviceNameField")
+                if initialPresentation.showsManualPairingControls {
+                    Section {
+                        TextField(
+                            L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac"),
+                            text: $deviceName
+                        )
+                        .focused($focusedField, equals: .name)
+                        .submitLabel(.next)
+                        .addDeviceInputBehavior(.text)
+                        .accessibilityIdentifier("MobileAddDeviceNameField")
 
-                    TextField(
-                        L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "127.0.0.1 (simulator only)"),
-                        text: $host
-                    )
-                    .focused($focusedField, equals: .host)
-                    .submitLabel(.next)
-                    .addDeviceInputBehavior(.url)
-                    .accessibilityIdentifier("MobileAddDeviceHostField")
+                        TextField(
+                            L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "127.0.0.1 (simulator only)"),
+                            text: $host
+                        )
+                        .focused($focusedField, equals: .host)
+                        .submitLabel(.next)
+                        .addDeviceInputBehavior(.url)
+                        .accessibilityIdentifier("MobileAddDeviceHostField")
 
-                    TextField(
-                        L10n.string("mobile.addDevice.portPlaceholder", defaultValue: "58465"),
-                        text: $port
-                    )
-                    .focused($focusedField, equals: .port)
-                    .submitLabel(.done)
-                    .addDeviceInputBehavior(.number)
-                    .accessibilityIdentifier("MobileAddDevicePortField")
-                } header: {
-                    Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
-                } footer: {
-                    Text(L10n.string(
-                        "mobile.addDevice.help",
-                        defaultValue: "Scan the Mac's Iroh QR. Manual host and port is only for loopback development in the simulator."
-                    ))
-                }
-                .overlay(alignment: .topLeading) {
-                    #if DEBUG
-                    if UITestConfig.mockDataEnabled {
-                        Color.clear
-                            .frame(width: 1, height: 1)
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityLabel(L10n.string("mobile.addDevice.formAccessibilityLabel", defaultValue: "Add Computer form"))
-                            .accessibilityIdentifier("MobileAddDeviceForm")
+                        TextField(
+                            L10n.string("mobile.addDevice.portPlaceholder", defaultValue: "58465"),
+                            text: $port
+                        )
+                        .focused($focusedField, equals: .port)
+                        .submitLabel(.done)
+                        .addDeviceInputBehavior(.number)
+                        .accessibilityIdentifier("MobileAddDevicePortField")
+                    } header: {
+                        Text(L10n.string("mobile.connections.add", defaultValue: "Add Computer"))
+                    } footer: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(MobilePairingScannerSheet.guidanceText)
+                            Text(L10n.string(
+                                "mobile.addDevice.help",
+                                defaultValue: "Manual host and port entry is an advanced fallback for reconnecting an already paired Mac."
+                            ))
+                        }
+                    }
+                    .overlay(alignment: .topLeading) {
+                        #if DEBUG
+                        if UITestConfig.mockDataEnabled {
+                            Color.clear
+                                .frame(width: 1, height: 1)
+                                .accessibilityElement(children: .ignore)
+                                .accessibilityLabel(L10n.string("mobile.connections.addFormAccessibilityLabel", defaultValue: "Add Computer form"))
+                                .accessibilityIdentifier("MobileAddDeviceForm")
+                        }
+                        #endif
+                    }
+
+                    Section {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: authManager.isAuthenticated ? "person.crop.circle.badge.checkmark" : "person.crop.circle.badge.exclamationmark")
+                                .font(.title3)
+                                .foregroundStyle(authManager.isAuthenticated ? .green : .orange)
+                                .frame(width: 28)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(L10n.string("mobile.addDevice.accountTitle", defaultValue: "This device"))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+
+                                Text(signedInAccountText)
+                                    .font(.body)
+                                    .foregroundStyle(.primary)
+                                    .textSelection(.enabled)
+                                    .accessibilityIdentifier("MobileAddDeviceSignedInAccount")
+
+                                Text(L10n.string("mobile.addDevice.accountHelp", defaultValue: "Manual pairing uses this account. If it does not match the Mac, scan a QR/link from the Mac."))
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .accessibilityElement(children: .contain)
+                    }
+
+                    #if os(iOS)
+                    Section {
+                        Button {
+                            isShowingScanner = true
+                        } label: {
+                            Label(L10n.string("mobile.pairing.scan", defaultValue: "Scan QR Code"), systemImage: "qrcode.viewfinder")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .accessibilityIdentifier("MobileScanQRCodeButton")
                     }
                     #endif
-                }
 
-                Section {
-                    HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: authManager.isAuthenticated ? "person.crop.circle.badge.checkmark" : "person.crop.circle.badge.exclamationmark")
-                            .font(.title3)
-                            .foregroundStyle(authManager.isAuthenticated ? .green : .orange)
-                            .frame(width: 28)
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(L10n.string("mobile.addDevice.accountTitle", defaultValue: "This device"))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-
-                            Text(signedInAccountText)
-                                .font(.body)
-                                .foregroundStyle(.primary)
-                                .textSelection(.enabled)
-                                .accessibilityIdentifier("MobileAddDeviceSignedInAccount")
-
-                            Text(L10n.string("mobile.addDevice.accountHelp", defaultValue: "Manual pairing uses this account. If it does not match the Mac, scan a QR/link from the Mac."))
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
+                    if let manualRouteWarningText {
+                        Section {
+                            Label {
+                                Text(manualRouteWarningText)
+                            } icon: {
+                                Image(systemName: "exclamationmark.triangle")
+                            }
+                            .foregroundStyle(.orange)
+                            .accessibilityIdentifier("MobileManualRouteWarning")
                         }
-                    }
-                    .accessibilityElement(children: .contain)
-                }
-
-                #if os(iOS)
-                Section {
-                    Button {
-                        isShowingScanner = true
-                    } label: {
-                        Label(L10n.string("mobile.pairing.scan", defaultValue: "Scan QR Code"), systemImage: "qrcode.viewfinder")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .accessibilityIdentifier("MobileScanQRCodeButton")
-                }
-                #endif
-
-                if let manualRouteWarningText {
-                    Section {
-                        Label {
-                            Text(manualRouteWarningText)
-                        } icon: {
-                            Image(systemName: "exclamationmark.triangle")
-                        }
-                        .foregroundStyle(.orange)
-                        .accessibilityIdentifier("MobileManualRouteWarning")
                     }
                 }
 
@@ -218,30 +223,32 @@ struct PairingView: View {
             .scrollDismissesKeyboard(.interactively)
             #endif
             .safeAreaInset(edge: .bottom) {
-                Button {
-                    pair()
-                } label: {
-                    HStack {
-                        Spacer(minLength: 0)
-                        Text(L10n.string("mobile.addDevice.pair", defaultValue: "Pair"))
-                            .mobileButtonLoading(isPairing, tint: .white)
-                        Spacer(minLength: 0)
+                if initialPresentation.showsManualPairingControls {
+                    Button {
+                        pair()
+                    } label: {
+                        HStack {
+                            Spacer(minLength: 0)
+                            Text(L10n.string("mobile.addDevice.pair", defaultValue: "Pair"))
+                                .mobileButtonLoading(isPairing, tint: .white)
+                            Spacer(minLength: 0)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .tint(.blue)
+                    .disabled(isPairing || host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("MobilePairButton")
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+                    .padding(.top, 24)
+                    .background {
+                        PlatformPalette.systemBackground
+                            .ignoresSafeArea(edges: .bottom)
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(.blue)
-                .disabled(isPairing || host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityIdentifier("MobilePairButton")
-                .padding(.horizontal)
-                .padding(.bottom, 8)
-                .padding(.top, 24)
-                .background {
-                    PlatformPalette.systemBackground
-                        .ignoresSafeArea(edges: .bottom)
-                }
             }
-            .navigationTitle(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
+            .navigationTitle(navigationTitle)
             .mobileInlineNavigationTitle()
             .toolbar {
                 #if os(iOS)
@@ -280,6 +287,22 @@ struct PairingView: View {
         #endif
     }
 
+    private var navigationTitle: String {
+        if initialPresentation == .tailscaleSetup {
+            return L10n.string(
+                "mobile.connections.tailscale.add",
+                defaultValue: "Add Tailscale Connection"
+            )
+        }
+        if initialPresentation.showsManualPairingControls {
+            return L10n.string("mobile.connections.add", defaultValue: "Add Computer")
+        }
+        return L10n.string(
+            "mobile.pairing.versionWarningTitle",
+            defaultValue: "Compatibility mismatch"
+        )
+    }
+
     private var cancelButton: some View {
         Button {
             cancelActivePairingTask()
@@ -288,6 +311,7 @@ struct PairingView: View {
         } label: {
             Text(L10n.string("mobile.common.cancel", defaultValue: "Cancel"))
         }
+        .accessibilityIdentifier("MobilePairingCancelButton")
     }
 
     private func cancelActivePairingTask() {
@@ -346,13 +370,13 @@ struct PairingView: View {
     private var manualRouteWarningText: String? {
         let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedHost.isEmpty,
-              !CmxPairingURLScheme.hasPairingScheme(trimmedHost),
+              CmxPairingURLScheme(urlString: trimmedHost) == nil,
               MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning(trimmedHost) else {
             return nil
         }
         return L10n.string(
             "mobile.addDevice.manualRouteWarning",
-            defaultValue: "Manual host and port bypasses Iroh. Account credentials are allowed only over simulator loopback; use the Mac's Iroh QR for physical devices."
+            defaultValue: "Manual credentials work only in the simulator. On a device, choose Tailscale and scan the Mac QR."
         )
     }
 
@@ -384,7 +408,7 @@ struct PairingView: View {
             validationError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
             return
         }
-        if CmxPairingURLScheme.hasPairingScheme(trimmedHost) {
+        if CmxPairingURLScheme(urlString: trimmedHost) != nil {
             pairingCode = trimmedHost
             startPairingTask {
                 await connectPairingCode()

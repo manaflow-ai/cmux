@@ -3,6 +3,7 @@ public import Foundation
 extension CmxIrohClientRuntime {
     func performSignOut(
         pendingRevocation: CmxIrohPendingRevocation?,
+        bindingAuthorization: CmxIrohBindingRequestAuthorization?,
         revision: UInt64
     ) async -> CmxIrohClientSignOutPreparation {
         async let wasPersisted = Self.persist(pendingRevocation, to: pendingRevocations)
@@ -10,7 +11,8 @@ extension CmxIrohClientRuntime {
         let (persisted, _) = await (wasPersisted, networkTeardown)
         let preparation = CmxIrohClientSignOutPreparation(
             pendingRevocation: pendingRevocation,
-            wasPersisted: persisted
+            wasPersisted: persisted,
+            bindingAuthorization: bindingAuthorization
         )
 
         guard lifecyclePhase == .signingOut,
@@ -37,6 +39,7 @@ extension CmxIrohClientRuntime {
             return preparation
         }
         localBinding = nil
+        lastRegistrationRefreshState = nil
         lifecyclePhase = .inactive
         currentSnapshot = CmxIrohClientRuntimeSnapshot(
             state: .inactive,
@@ -65,15 +68,19 @@ extension CmxIrohClientRuntime {
         registrationRefreshTask = nil
         registrationRefreshTaskID = nil
         registrationRefreshPending = false
+        registrationRefreshPendingRequiresDiscovery = false
         registrationRefreshEnabled = false
         supervisorEventTask?.cancel()
         supervisorEventTask = nil
         await relayCoordinator?.deactivate()
         relayCoordinator = nil
-        await sessionPool.deactivate()
         await contextRouter.clear()
-        if !preserveBinding { localBinding = nil }
-        await supervisor.deactivate()
+        authoritativeDiscovery = nil
+        if !preserveBinding {
+            localBinding = nil
+            lastRegistrationRefreshState = nil
+        }
+        await connectivityEngine.stop()
     }
 
     func validateRelayFleet(_ fleet: [String]) throws {
@@ -108,5 +115,15 @@ extension CmxIrohClientRuntime {
 
     static func isConnectivity(_ error: any Error) -> Bool {
         (error as? CmxIrohTrustBrokerClientError) == .connectivity
+    }
+
+    /// Failures that may fall back to the verified offline policy cache.
+    ///
+    /// Only transport availability qualifies. Authorization rejections fail
+    /// closed even when an older policy was previously verified: the broker
+    /// has explicitly withdrawn this session's authority after the client's
+    /// exactly-once credential recovery.
+    static func recoversWithCachedPolicy(_ error: any Error) -> Bool {
+        isConnectivity(error)
     }
 }

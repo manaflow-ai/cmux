@@ -41,10 +41,9 @@ extension CmxIrohHostRuntime {
     }
 
     /// Runs one registration/policy refresh round now, as if the renewal
-    /// timer had fired, and waits for that round to settle. Called when an
-    /// external signal (a server-directed presence nudge) says broker-side
-    /// state for this binding changed, so the host re-registers and re-reads
-    /// policy within seconds instead of waiting out the hint-expiry renewal.
+    /// timer had fired, and waits for that round to settle. This remains the
+    /// explicit/manual renewal entrypoint; pushed route revisions use the
+    /// read-only ``reconcileConnectivityRevision(_:)`` path below.
     /// Coalesces with an in-flight refresh through the standard pending-replay
     /// path; no-op unless active. Await-to-settled matters for the caller: a
     /// refresh that discovers the binding was revoked or REPLACED (different
@@ -52,17 +51,17 @@ extension CmxIrohHostRuntime {
     /// composition root reads the post-refresh snapshot to decide whether a
     /// full rebuild is needed.
     ///
-    /// This is deliberately the SAME round the renewal timer runs, including
-    /// its mutate-then-detect ordering (register first, notice a changed
-    /// binding id after): a nudge changes when the round happens, never what
-    /// it does. Teaching a superseded host to stand down without re-taking
-    /// the broker's newest-wins slot needs authoritative disposition from the
-    /// broker, which belongs to the nudge-emission hook (it fires from the
-    /// mutation and knows why), not to this accelerator.
+    /// This is deliberately the same round the renewal timer runs, including
+    /// its mutate-then-detect ordering. Server invalidations must never call
+    /// this mutation path because reconciliation cannot retake a newer
+    /// endpoint's broker slot.
     public func requestRegistrationRefresh() async {
         guard lifecyclePhase == .active,
               registrationRefreshEnabled else { return }
-        scheduleRegistrationRefresh(revision: lifecycleRevision)
+        scheduleRegistrationRefresh(
+            revision: lifecycleRevision,
+            forcePublication: true
+        )
         // Await across the coalesced replay, not just the round that was
         // running when this call arrived: a signal landing mid-round only
         // sets the pending bit, and the running round's completion schedules
@@ -74,6 +73,123 @@ extension CmxIrohHostRuntime {
         // out); the runtime is not terminally failed in that state.
         while let task = registrationRefreshTask {
             await task.value
+        }
+    }
+
+    /// Reconciles a pushed account route revision without registering again.
+    ///
+    /// The revision is only an acceleration hint. The complete v2 snapshot is
+    /// fetched and validated before admission policy, LAN rendezvous, persisted
+    /// binding state, and the engine revision move together.
+    public func reconcileConnectivityRevision(
+        _ hintedRevision: UInt64
+    ) async -> CmxIrohLiveDiscoveryRefreshOutcome {
+        guard lifecyclePhase == .active,
+              let connectivityEngine,
+              let admissionController,
+              localBinding != nil else {
+            return .failed(.endpointUnavailable)
+        }
+        while let refresh = registrationRefreshTask {
+            await refresh.value
+        }
+        guard lifecyclePhase == .active,
+              self.connectivityEngine === connectivityEngine else {
+            return .failed(.endpointUnavailable)
+        }
+        if let installed = await connectivityEngine.snapshot().routeRevision,
+           installed >= hintedRevision {
+            return .refreshed
+        }
+        let revision = lifecycleRevision
+        do {
+            let discovery = try await discoverAuthoritatively()
+            try requireCurrent(revision)
+            guard let discoveredRevision = discovery.revision,
+                  discoveredRevision >= hintedRevision else {
+                throw CmxIrohTrustBrokerClientError.invalidResponse
+            }
+            guard discovery.routeContractVersion
+                    == CmxIrohRegistrationPayload.currentRouteContractVersion else {
+                throw CmxIrohHostRuntimeError.routeContractMismatch
+            }
+            guard Set(discovery.relayFleet) == managedRelayURLs,
+                  discovery.relayFleet.count == managedRelayURLs.count else {
+                throw CmxIrohHostRuntimeError.relayFleetMismatch
+            }
+            guard let localBinding = self.localBinding else {
+                throw CmxIrohHostRuntimeError.localBindingMissingFromDiscovery
+            }
+            guard let discovered = discovery.bindings.first(where: {
+                $0.bindingID == localBinding.bindingID
+            }) else {
+                throw CmxIrohHostRuntimeError.localBindingMissingFromDiscovery
+            }
+            let endpointID = try await connectivityEngine.localEndpointIdentity()
+            try validateLocalBinding(discovered, endpointID: endpointID)
+            let attestation = try? await broker.issueEndpointAttestation(
+                bindingID: discovered.bindingID
+            )
+            try requireCurrent(revision)
+            let metadata = CmxIrohBrokerBindingMetadata(binding: discovered)
+            await admissionController.update(
+                keys: discovery.grantVerificationKeys,
+                acceptor: grantPeer(for: metadata),
+                pairingEnabled: discovered.pairingEnabled
+            )
+            self.localBinding = metadata
+            endpointAttestation = attestation ?? endpointAttestation
+            lanRendezvous = discovery.lanRendezvous
+            await handleBinding(
+                CmxIrohRegistrationResponse(
+                    revision: discoveredRevision,
+                    binding: discovered,
+                    relay: .notRequested
+                ),
+                discovery,
+                attestation
+            )
+            try requireCurrent(revision)
+            await handleRoute(metadata, discovered.pathHints)
+            try requireCurrent(revision)
+            await connectivityEngine.didInstallRouteRevision(
+                discoveredRevision,
+                routes: discovery
+            )
+            scheduleLANPublication(
+                binding: metadata,
+                rendezvous: discovery.lanRendezvous,
+                engine: connectivityEngine,
+                revision: revision
+            )
+            scheduleRegistrationRenewal(
+                binding: discovered,
+                revision: revision
+            )
+            return .refreshed
+        } catch {
+            guard lifecyclePhase == .active,
+                  lifecycleRevision == revision else {
+                return .failed(.superseded)
+            }
+            if CmxIrohTrustBrokerClientError
+                .preservesVerifiedStateDuringRefresh(error) {
+                return .failed(DiagnosticFailureKind.classify(error))
+            }
+            lifecyclePhase = .stopping
+            lifecycleRevision &+= 1
+            let failureRevision = lifecycleRevision
+            currentSnapshot = CmxIrohHostRuntimeSnapshot(
+                state: .failed,
+                endpointID: nil,
+                bindingID: self.localBinding?.bindingID
+            )
+            await tearDownComponents(notify: true)
+            if lifecyclePhase == .stopping,
+               lifecycleRevision == failureRevision {
+                lifecyclePhase = .failed
+            }
+            return .failed(DiagnosticFailureKind.classify(error))
         }
     }
 
@@ -91,8 +207,8 @@ extension CmxIrohHostRuntime {
     /// Reads raw local direct addresses only for the interface-filtering publisher.
     public func localDirectAddresses() async -> [String] {
         guard lifecyclePhase == .active,
-              let endpoint = try? await supervisor?.activeEndpoint() else { return [] }
-        return await endpoint.localDirectAddresses()
+              let connectivityEngine else { return [] }
+        return (try? await connectivityEngine.localDirectAddresses()) ?? []
     }
 
     /// Closes networking, durably queues revocation, then deactivates local state.
@@ -116,6 +232,14 @@ extension CmxIrohHostRuntime {
                 bindingID: binding.bindingID
             )
         }
+        let bindingAuthorization = localBinding.flatMap { binding in
+            try? CmxIrohBindingRequestAuthorization(
+                bindingID: binding.bindingID,
+                clientNamespace: binding.clientNamespace,
+                identity: configuration.identity,
+                endpointID: binding.endpointID
+            )
+        }
         lifecyclePhase = .signingOut
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
@@ -128,6 +252,7 @@ extension CmxIrohHostRuntime {
         let operation = Task {
             await self.performSignOut(
                 pendingRevocation: pendingRevocation,
+                bindingAuthorization: bindingAuthorization,
                 requiresNetworkDeactivation: requiresNetworkDeactivation,
                 revision: revision
             )

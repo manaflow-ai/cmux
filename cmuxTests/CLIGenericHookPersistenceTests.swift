@@ -1,5 +1,6 @@
 import XCTest
 import Darwin
+import SQLite3
 
 extension CLINotifyProcessIntegrationRegressionTests {
     struct GenericHookPersistenceScenario {
@@ -314,7 +315,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: 128) { line in
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
             }
@@ -577,12 +578,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_SOCKET_PATH": socketPath,
             "CMUX_WORKSPACE_ID": workspaceId,
             "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_HERMES_AGENT_PID": String(getpid()),
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
         func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
-            let serverHandled = startAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 4)
+            let serverHandled = startAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId)
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "hermes-agent", subcommand],
@@ -635,7 +637,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let approvalCommandStart = state.commands.count
         let approval = runHermesHook(
             "notification",
-            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"pre_approval_request","extra":{"command":"rm -rf build","description":"recursive delete","pattern_key":"recursive delete","surface":"cli"}}"#
+            input: #"{"session_id":"","cwd":"\#(root.path)","hook_event_name":"pre_approval_request","extra":{"session_key":"\#(sessionId)","command":"rm -rf build","description":"recursive delete","pattern_key":"recursive delete","surface":"cli"}}"#
         )
         XCTAssertFalse(approval.timedOut, approval.stderr)
         XCTAssertEqual(approval.status, 0, approval.stderr)
@@ -665,7 +667,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let responseCommandStart = state.commands.count
         let response = runHermesHook(
             "approval-response",
-            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"post_approval_response","extra":{"approved":true}}"#
+            input: #"{"session_id":"","cwd":"\#(root.path)","hook_event_name":"post_approval_response","extra":{"session_key":"\#(sessionId)","surface":"cli","choice":"approve"}}"#
         )
         XCTAssertFalse(response.timedOut, response.stderr)
         XCTAssertEqual(response.status, 0, response.stderr)
@@ -690,6 +692,320 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNil(responseSession["lastBody"])
         XCTAssertNil(responseSession["lastNotificationStatus"])
         XCTAssertEqual(responseSession["runtimeStatus"] as? String, "running")
+
+        // Hermes emits an observer-only smart-approval pair before it decides
+        // whether a tool call can proceed automatically. These payloads omit
+        // top-level session_id and carry the real session as extra.session_key.
+        // They are not user-attention boundaries and must not notify or create
+        // a newer surface-keyed running session that suppresses the later,
+        // genuine post_llm_call completion.
+        let prompt = runHermesHook(
+            "prompt-submit",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"pre_llm_call","extra":{"turn_id":"turn-2","user_message":"4+4"}}"#
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let smartApprovalCommandStart = state.commands.count
+        let smartApproval = runHermesHook(
+            "notification",
+            input: #"{"session_id":"","cwd":"\#(root.path)","hook_event_name":"pre_approval_request","extra":{"session_key":"\#(sessionId)","surface":"smart","command":"python3 -c 'print(4+4)'","description":"run arithmetic helper"}}"#
+        )
+        XCTAssertFalse(smartApproval.timedOut, smartApproval.stderr)
+        XCTAssertEqual(smartApproval.status, 0, smartApproval.stderr)
+        XCTAssertEqual(smartApproval.stdout, "{}\n")
+
+        let smartApprovalCommands = Array(state.commands.dropFirst(smartApprovalCommandStart))
+        XCTAssertFalse(
+            smartApprovalCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Hermes smart approval is automatic and must not notify before the turn completes, saw \(smartApprovalCommands)"
+        )
+        XCTAssertFalse(
+            smartApprovalCommands.contains { $0.contains("set_status hermes-agent Hermes Agent needs input") },
+            "Hermes smart approval is automatic and must keep the running status, saw \(smartApprovalCommands)"
+        )
+
+        let smartResponse = runHermesHook(
+            "approval-response",
+            input: #"{"session_id":"","cwd":"\#(root.path)","hook_event_name":"post_approval_response","extra":{"session_key":"\#(sessionId)","surface":"smart","choice":"smart_approve","decided_by":"aux_llm"}}"#
+        )
+        XCTAssertFalse(smartResponse.timedOut, smartResponse.stderr)
+        XCTAssertEqual(smartResponse.status, 0, smartResponse.stderr)
+        XCTAssertEqual(smartResponse.stdout, "{}\n")
+
+        let finalResponse = "8"
+        let finalCommandStart = state.commands.count
+        let final = runHermesHook(
+            "agent-response",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"post_llm_call","extra":{"turn_id":"turn-2","user_message":"4+4","assistant_response":"\#(finalResponse)","model":"grok-4.5","platform":"cli"}}"#
+        )
+        XCTAssertFalse(final.timedOut, final.stderr)
+        XCTAssertEqual(final.status, 0, final.stderr)
+        XCTAssertEqual(final.stdout, "{}\n")
+
+        let finalCommands = Array(state.commands.dropFirst(finalCommandStart))
+        XCTAssertTrue(
+            finalCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Hermes Agent|Completed in ")
+                    && $0.contains("|\(finalResponse)")
+            },
+            "Hermes must notify from the final post_llm_call after automatic tool approval, saw \(finalCommands)"
+        )
+        XCTAssertTrue(
+            finalCommands.contains { $0.contains("set_status hermes-agent Idle") },
+            "Hermes must become idle only after the final response, saw \(finalCommands)"
+        )
+
+        let replayCommandStart = state.commands.count
+        let replay = runHermesHook(
+            "agent-response",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"post_llm_call","extra":{"turn_id":"turn-2","user_message":"4+4","assistant_response":"\#(finalResponse)","model":"grok-4.5","platform":"cli"}}"#
+        )
+        XCTAssertFalse(replay.timedOut, replay.stderr)
+        XCTAssertEqual(replay.status, 0, replay.stderr)
+
+        let replayCommands = Array(state.commands.dropFirst(replayCommandStart))
+        XCTAssertFalse(
+            replayCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Replaying one Hermes completion hook must remain deduplicated, saw \(replayCommands)"
+        )
+
+        let nextPrompt = runHermesHook(
+            "prompt-submit",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"pre_llm_call","extra":{"turn_id":"turn-3","user_message":"repeat"}}"#
+        )
+        XCTAssertFalse(nextPrompt.timedOut, nextPrompt.stderr)
+        XCTAssertEqual(nextPrompt.status, 0, nextPrompt.stderr)
+
+        let nextCompletionStart = state.commands.count
+        let nextCompletion = runHermesHook(
+            "agent-response",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"post_llm_call","extra":{"turn_id":"turn-3","user_message":"repeat","assistant_response":"\#(finalResponse)","model":"grok-4.5","platform":"cli"}}"#
+        )
+        XCTAssertFalse(nextCompletion.timedOut, nextCompletion.stderr)
+        XCTAssertEqual(nextCompletion.status, 0, nextCompletion.stderr)
+
+        let nextCompletionCommands = Array(state.commands.dropFirst(nextCompletionStart))
+        XCTAssertEqual(
+            nextCompletionCommands.filter {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Hermes Agent|Completed in ")
+                    && $0.contains("|\(finalResponse)")
+            }.count,
+            1,
+            "A later Hermes turn with an identical body must notify exactly once, saw \(nextCompletionCommands)"
+        )
+    }
+
+    func testHermesTUIApprovalWithoutSessionKeyKeepsActiveConversationResumeIdentity() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("hermes-tui-approval-session")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-tui-approval-\(UUID().uuidString)", isDirectory: true)
+        let tuiTempDirectory = root.appendingPathComponent("cmux-hermes-tui.A1B2C3", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "20260808_155500_hermes-session"
+
+        try FileManager.default.createDirectory(at: tuiTempDirectory, withIntermediateDirectories: true)
+        try writeHermesStateDatabase(
+            homeDirectory: root,
+            sessionID: sessionId,
+            cwd: root.path,
+            startedAt: 100
+        )
+        let activeSessionURL = tuiTempDirectory
+            .appendingPathComponent("hermes-tui-active-session-test.json", isDirectory: false)
+        try Data(#"{"session_id":"\#(sessionId)"}"#.utf8).write(to: activeSessionURL)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "TMPDIR": tuiTempDirectory.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_HERMES_AGENT_PID": String(getpid()),
+            "CMUX_HERMES_TUI_HOOK_BOOTSTRAP": "1",
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            let serverHandled = startAgentHookMockServer(
+                listenerFD: listenerFD,
+                state: state,
+                surfaceId: surfaceId
+            )
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "hermes-agent", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        let start = runHermesHook(
+            "session-start",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_start"}"#
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        // Hermes 0.20's TUI gateway does not include extra.session_key on
+        // approval hooks. The invocation-private active-session file remains
+        // the authoritative conversation identity for these callbacks.
+        let approval = runHermesHook(
+            "notification",
+            input: #"{"cwd":"\#(root.path)","hook_event_name":"pre_approval_request","extra":{"surface":"cli","command":"rm -rf build","description":"recursive delete"}}"#
+        )
+        XCTAssertFalse(approval.timedOut, approval.stderr)
+        XCTAssertEqual(approval.status, 0, approval.stderr)
+
+        let responseCommandStart = state.commands.count
+        let response = runHermesHook(
+            "approval-response",
+            input: #"{"cwd":"\#(root.path)","hook_event_name":"post_approval_response","extra":{"surface":"cli","choice":"approve"}}"#
+        )
+        XCTAssertFalse(response.timedOut, response.stderr)
+        XCTAssertEqual(response.status, 0, response.stderr)
+
+        let storeURL = root.appendingPathComponent(
+            "hermes-agent-hook-sessions.json",
+            isDirectory: false
+        )
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
+        )
+        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        XCTAssertEqual(Set(sessions.keys), [sessionId])
+        XCTAssertNil(
+            sessions[surfaceId],
+            "A TUI approval without session_key must never create a surface-UUID Hermes session"
+        )
+
+        let responseCommands = Array(state.commands.dropFirst(responseCommandStart))
+        let resumeRequests = responseCommands.compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        let resumeParams = try XCTUnwrap(
+            resumeRequests.last,
+            "Expected approval response to refresh the real Hermes resume binding; saw \(responseCommands)"
+        )
+        XCTAssertEqual(resumeParams["checkpoint_id"] as? String, sessionId)
+        XCTAssertNotEqual(resumeParams["checkpoint_id"] as? String, surfaceId)
+    }
+
+    func testHermesTransientTransportIDCannotReplaceDurableResumeBinding() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("hermes-transient-resume")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-transient-resume-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let transportId = "96dd0dcc"
+        let durableSessionId = "20260807_185008_923dfc"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try writeHermesStateDatabase(
+            homeDirectory: root,
+            sessionID: durableSessionId,
+            cwd: root.path,
+            startedAt: 110
+        )
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_HERMES_AGENT_PID": String(getpid()),
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            let serverHandled = startAgentHookMockServer(
+                listenerFD: listenerFD,
+                state: state,
+                surfaceId: surfaceId
+            )
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "hermes-agent", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        let startCommandIndex = state.commands.count
+        let start = runHermesHook(
+            "session-start",
+            input: #"{"session_id":"\#(transportId)","cwd":"\#(root.path)","hook_event_name":"session.create"}"#
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        let startRequests = Array(state.commands.dropFirst(startCommandIndex)).compactMap(jsonObject)
+        XCTAssertFalse(
+            startRequests.contains {
+                $0["method"] as? String == "surface.resume.set"
+                    && (($0["params"] as? [String: Any])?["checkpoint_id"] as? String) == transportId
+            },
+            "A transient Hermes transport ID must never become the saved resume checkpoint: \(startRequests)"
+        )
+        let clearRequest = try XCTUnwrap(startRequests.first {
+            $0["method"] as? String == "surface.resume.clear"
+        })
+        let clearParams = try XCTUnwrap(clearRequest["params"] as? [String: Any])
+        XCTAssertEqual(
+            clearParams["checkpoint_id"] as? String,
+            transportId,
+            "A missing Hermes database identity may clear only the transient checkpoint it owns"
+        )
+
+        let promptCommandIndex = state.commands.count
+        let prompt = runHermesHook(
+            "prompt-submit",
+            input: #"{"session_id":"\#(durableSessionId)","cwd":"\#(root.path)","hook_event_name":"pre_llm_call","extra":{"turn_id":"turn-1"}}"#
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let promptRequests = Array(state.commands.dropFirst(promptCommandIndex)).compactMap(jsonObject)
+        XCTAssertTrue(
+            promptRequests.contains {
+                $0["method"] as? String == "surface.resume.set"
+                    && (($0["params"] as? [String: Any])?["checkpoint_id"] as? String) == durableSessionId
+            },
+            "The later durable Hermes identity must publish the resume binding: \(promptRequests)"
+        )
     }
 
     func testHermesAgentSessionEndIsTurnBoundaryButFinalizeTearsDown() throws {
@@ -1369,7 +1685,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "GROK_HOME": grokHome.path,
         ]
 
-        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 80)
+        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId)
 
         func runGrokHook(_ subcommand: String, input: String) -> ProcessRunResult {
             let result = runProcess(
@@ -1791,11 +2107,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(fallback.stdout, "{}\n")
 
         let fallbackCommands = Array(state.commands.dropFirst(fallbackCommandStart))
-        XCTAssertTrue(
+        XCTAssertFalse(
             fallbackCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(waitingMessage)")
             },
-            "Expected empty Grok Notification payload to reuse the saved message, saw \(fallbackCommands)"
+            "Expected the saved-message fallback to dedupe the notification already delivered for that message, saw \(fallbackCommands)"
         )
         XCTAssertTrue(
             fallbackCommands.contains { $0.contains("set_status grok Grok needs input") },
@@ -1889,16 +2205,157 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(neutralFallback.stdout, "{}\n")
 
         let neutralFallbackCommands = Array(state.commands.dropFirst(neutralFallbackCommandStart))
-        XCTAssertTrue(
+        XCTAssertFalse(
             neutralFallbackCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(incompleteWaitingMessage)")
             },
-            "Expected empty payload to reuse the last terminal saved notification, saw \(neutralFallbackCommands)"
+            "Expected the saved-message fallback to dedupe the notification already delivered for that message, saw \(neutralFallbackCommands)"
         )
         XCTAssertTrue(
             neutralFallbackCommands.contains { $0.contains("set_status grok Grok needs input") },
             "Fallback notifications should preserve the saved needs-input status, saw \(neutralFallbackCommands)"
         )
+    }
+
+    func testGrokSessionStartUsesLiveTargetWithoutHookEnvironmentAndDescribesResolutionFailures() throws {
+        let cliPath = try bundledCLIPath()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-live-target-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        func environment(socketPath: String, probePath: String? = nil) -> [String: String] {
+            var values: [String: String] = [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": probePath == nil ? "1" : "0",
+                "GROK_HOME": root.appendingPathComponent("grok-home", isDirectory: true).path,
+            ]
+            values["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"] = probePath
+            return values
+        }
+
+        let successSocketPath = makeSocketPath("grok-live-target")
+        let successListenerFD = try bindUnixSocket(at: successSocketPath)
+        let successState = MockSocketServerState()
+        defer {
+            Darwin.close(successListenerFD)
+            unlink(successSocketPath)
+        }
+        startDetachedMockServer(listenerFD: successListenerFD, state: successState) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return "OK"
+            }
+            switch method {
+            case "agent.resolve_delivery_target":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                        "source": "pid",
+                    ]
+                )
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return "OK"
+            }
+        }
+
+        let liveStart = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "grok", "session-start"],
+            environment: environment(socketPath: successSocketPath),
+            standardInput: #"{"sessionId":"grok-live-session","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#,
+            timeout: 5
+        )
+        XCTAssertFalse(liveStart.timedOut, liveStart.stderr)
+        XCTAssertEqual(liveStart.status, 0, liveStart.stderr)
+        XCTAssertEqual(liveStart.stdout, "{}\n")
+
+        let liveRequests = successState.snapshot().compactMap { self.jsonObject($0) }
+        XCTAssertTrue(
+            liveRequests.contains {
+                ($0["method"] as? String) == "agent.resolve_delivery_target"
+                    && (((($0["params"] as? [String: Any])?["pid"] as? NSNumber)?.intValue ?? 0) > 0)
+            },
+            "A sanitized Grok hook must resolve its live process identity, saw \(successState.snapshot())"
+        )
+        XCTAssertTrue(
+            liveRequests.contains { ($0["method"] as? String) == "surface.resume.set" },
+            "A resolved Grok SessionStart must persist the live target, saw \(successState.snapshot())"
+        )
+        let resumeRequest = try XCTUnwrap(
+            liveRequests.first { ($0["method"] as? String) == "surface.resume.set" }
+        )
+        let resumeParams = try XCTUnwrap(resumeRequest["params"] as? [String: Any])
+        XCTAssertEqual(resumeParams["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(resumeParams["surface_id"] as? String, surfaceId)
+        let storeURL = root.appendingPathComponent("grok-hook-sessions.json", isDirectory: false)
+        let storeJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
+        )
+        let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])
+        let liveRecord = try XCTUnwrap(sessions["grok-live-session"] as? [String: Any])
+        XCTAssertEqual(liveRecord["workspaceId"] as? String, workspaceId)
+        XCTAssertEqual(liveRecord["surfaceId"] as? String, surfaceId)
+
+        let failureSocketPath = makeSocketPath("grok-live-failure")
+        let failureListenerFD = try bindUnixSocket(at: failureSocketPath)
+        let failureState = MockSocketServerState()
+        let probePath = root.appendingPathComponent("target-resolution-error.txt", isDirectory: false).path
+        defer {
+            Darwin.close(failureListenerFD)
+            unlink(failureSocketPath)
+        }
+        startDetachedMockServer(listenerFD: failureListenerFD, state: failureState) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return "OK"
+            }
+            guard method == "agent.resolve_delivery_target" else {
+                return "OK"
+            }
+            return self.v2Response(
+                id: id,
+                ok: false,
+                error: ["code": "not_found", "message": "No live delivery target"]
+            )
+        }
+
+        let failedStart = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "grok", "session-start"],
+            environment: environment(
+                socketPath: failureSocketPath,
+                probePath: probePath
+            ),
+            standardInput: #"{"sessionId":"grok-failed-session","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#,
+            timeout: 5
+        )
+        XCTAssertFalse(failedStart.timedOut, failedStart.stderr)
+        XCTAssertEqual(failedStart.status, 0, failedStart.stderr)
+        XCTAssertEqual(failedStart.stdout, "{}\n")
+        let capturedError = try String(contentsOfFile: probePath, encoding: .utf8)
+        XCTAssertTrue(
+            capturedError.contains("Grok") && capturedError.contains("session-start"),
+            "Target-resolution telemetry must describe the failure, saw \(capturedError)"
+        )
+        XCTAssertFalse(capturedError.contains("(null)"), capturedError)
     }
 
     func testGrokStopFallbackCompletionsFireForTwoConcurrentThreads() throws {
@@ -3059,15 +3516,32 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try JSONSerialization.data(withJSONObject: legacyHookJSON, options: [.prettyPrinted, .sortedKeys])
             .write(to: codexHome.appendingPathComponent("hooks.json", isDirectory: false), options: .atomic)
 
+        let inheritedEnvironment = [
+            "HOME": root.path,
+            "CFFIXED_USER_HOME": root
+                .appendingPathComponent("inherited-app-host", isDirectory: true).path,
+            "XDG_CONFIG_HOME": root
+                .appendingPathComponent("inherited-app-host/.config", isDirectory: true).path,
+            "CMUX_APP_HOST_ISOLATION_REQUIRED": "1",
+            "CODEX_HOME": codexHome.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        let environmentResult = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [],
+            environment: inheritedEnvironment,
+            timeout: 5
+        )
+        XCTAssertEqual(environmentResult.status, 0, environmentResult.stderr)
+        let childEnvironment = Set(environmentResult.stdout.split(separator: "\n").map(String.init))
+        XCTAssertTrue(childEnvironment.contains("CFFIXED_USER_HOME=\(root.path)"))
+        XCTAssertTrue(childEnvironment.contains("XDG_CONFIG_HOME=\(root.path)/.config"))
+
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "install", "--yes"],
-            environment: [
-                "HOME": root.path,
-                "CODEX_HOME": codexHome.path,
-                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "CMUX_CLI_SENTRY_DISABLED": "1",
-            ],
+            environment: inheritedEnvironment,
             timeout: 5
         )
 
@@ -3658,6 +4132,69 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertNil(
                 env?["CODEX_HOME"],
                 "non-restorable codex exec must not persist an env-only CODEX_HOME record; launchCommand=\(persisted["launchCommand"] ?? "nil")"
+            )
+        }
+    }
+
+    private func writeHermesStateDatabase(
+        homeDirectory: URL,
+        sessionID: String,
+        cwd: String,
+        startedAt: Double
+    ) throws {
+        let hermesHome = homeDirectory.appendingPathComponent(".hermes", isDirectory: true)
+        try FileManager.default.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+        let databaseURL = hermesHome.appendingPathComponent("state.db", isDirectory: false)
+        var database: OpaquePointer?
+        guard sqlite3_open(databaseURL.path, &database) == SQLITE_OK, let database else {
+            throw NSError(
+                domain: "CLIGenericHookPersistenceTests.SQLite",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Unable to open Hermes state database"]
+            )
+        }
+        defer { sqlite3_close(database) }
+
+        let schema = """
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          source TEXT NOT NULL,
+          model TEXT,
+          started_at REAL NOT NULL,
+          ended_at REAL,
+          title TEXT,
+          cwd TEXT
+        );
+        """
+        guard sqlite3_exec(database, schema, nil, nil, nil) == SQLITE_OK else {
+            throw NSError(
+                domain: "CLIGenericHookPersistenceTests.SQLite",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Unable to create Hermes sessions table"]
+            )
+        }
+
+        var statement: OpaquePointer?
+        let sql = "INSERT INTO sessions (id, source, model, started_at, title, cwd) VALUES (?, 'tui', 'test-model', ?, 'Durable', ?)"
+        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            sqlite3_finalize(statement)
+            throw NSError(
+                domain: "CLIGenericHookPersistenceTests.SQLite",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "Unable to prepare Hermes session insert"]
+            )
+        }
+        defer { sqlite3_finalize(statement) }
+        let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        guard sqlite3_bind_text(statement, 1, sessionID, -1, transient) == SQLITE_OK,
+              sqlite3_bind_double(statement, 2, startedAt) == SQLITE_OK,
+              sqlite3_bind_text(statement, 3, cwd, -1, transient) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_DONE else {
+            throw NSError(
+                domain: "CLIGenericHookPersistenceTests.SQLite",
+                code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "Unable to insert Hermes session"]
             )
         }
     }
