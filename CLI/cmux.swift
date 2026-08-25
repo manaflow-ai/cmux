@@ -36591,18 +36591,22 @@ export default CMUXSessionRestore;
             return
         }
 
-        let liveTarget = resolvedAttentionDeliveryTarget(
+        guard let liveTarget = resolvedAttentionDeliveryTarget(
             workspaceId: ambientWorkspaceId,
             surfaceId: ambientSurfaceId,
             client: activeClient,
             deadline: deadline
-        )
+        ) else {
+            // Native attention has no safe focused-panel fallback. A missing
+            // or unresolvable surface identity is simply not attributable.
+            return
+        }
         guard let attentionLine = FeedEventClassifier.nativeApprovalPromptAttentionCommand(
             classification: classification,
             displayName: Self.agentDef(named: source)?.displayName ?? source,
             toolName: toolName,
-            workspaceId: liveTarget?.workspaceId ?? ambientWorkspaceId,
-            surfaceId: liveTarget?.surfaceId ?? ambientSurfaceId
+            workspaceId: liveTarget.workspaceId,
+            surfaceId: liveTarget.surfaceId
         ) else { return }
         _ = try? activeClient.send(
             command: attentionLine,
@@ -36613,11 +36617,10 @@ export default CMUXSessionRestore;
 
     /// The `{surface_id}` live-pane probe backing
     /// ``deliverNativeApprovalPromptAttention``. Only a `source == "surface"`
-    /// answer with a live workspace UUID counts; anything else falls back to
-    /// the ambient identities. The probe's timeout is capped and always
-    /// leaves ``feedAttentionSendReserveSeconds`` of the shared deadline for
-    /// the essential send — a stalled probe degrades to ambient addressing,
-    /// never to a starved notification.
+    /// answer with a live workspace/surface pair counts. The probe's timeout
+    /// is capped and always leaves ``feedAttentionSendReserveSeconds`` of the
+    /// shared deadline for the essential send; an unresolved target fails
+    /// closed instead of guessing from focus or ambient state.
     private func resolvedAttentionDeliveryTarget(
         workspaceId: String?,
         surfaceId: String?,
@@ -36651,10 +36654,10 @@ export default CMUXSessionRestore;
         }
         let liveSurfaceId = (payload["surface_id"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let liveSurfaceId, UUID(uuidString: liveSurfaceId) != nil {
-            return (liveWorkspaceId, liveSurfaceId)
+        guard let liveSurfaceId, UUID(uuidString: liveSurfaceId) != nil else {
+            return nil
         }
-        return (liveWorkspaceId, surfaceRaw)
+        return (liveWorkspaceId, liveSurfaceId)
     }
 
     /// Reads an agent hook JSON payload from stdin, forwards it to the
