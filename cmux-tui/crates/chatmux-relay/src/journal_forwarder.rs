@@ -55,6 +55,10 @@ const DEFAULT_CURSOR_PATH: &str = "/tmp/.chatmux-relay-cursors.json";
 // serialized as `sessionName`. It is only a local cursor/task key for hashed
 // socket filenames whose original name is not recoverable.
 const OPAQUE_SESSION_PREFIX: &str = "\u{001f}opaque:";
+#[cfg(unix)]
+const MAX_CURSOR_FILE_BYTES: usize = 1 << 20;
+#[cfg(unix)]
+const CURSOR_TEMP_ATTEMPTS: usize = 8;
 
 #[cfg(unix)]
 static NEXT_STREAM_ID: AtomicU64 = AtomicU64::new(1);
@@ -1066,7 +1070,15 @@ fn decimal_less(left: &str, right: &str) -> bool {
 
 #[cfg(unix)]
 async fn load_cursor_file(path: &Path) -> HashMap<String, JournalCursor> {
-    let Ok(raw) = tokio::fs::read_to_string(path).await else { return HashMap::new() };
+    let Some(file) = open_cursor_file(path).await else { return HashMap::new() };
+    let mut bytes = Vec::with_capacity(MAX_CURSOR_FILE_BYTES.min(4096));
+    let mut limited = tokio::io::AsyncReadExt::take(file, (MAX_CURSOR_FILE_BYTES + 1) as u64);
+    if tokio::io::AsyncReadExt::read_to_end(&mut limited, &mut bytes).await.is_err()
+        || bytes.len() > MAX_CURSOR_FILE_BYTES
+    {
+        return HashMap::new();
+    }
+    let Ok(raw) = String::from_utf8(bytes) else { return HashMap::new() };
     serde_json::from_str::<HashMap<String, JournalCursor>>(&raw)
         .unwrap_or_default()
         .into_iter()
@@ -1079,13 +1091,112 @@ async fn load_cursor_file(path: &Path) -> HashMap<String, JournalCursor> {
 #[cfg(unix)]
 async fn persist_cursors(shared: &Shared) {
     let cursors = shared.cursors.lock().await.clone();
-    let Ok(raw) = serde_json::to_string_pretty(&cursors) else { return };
-    let _ = tokio::fs::write(&shared.cursor_path, format!("{raw}\n")).await;
+    let _ = persist_cursor_file(&shared.cursor_path, &cursors).await;
+}
+
+#[cfg(unix)]
+fn cursor_file_metadata_ok(metadata: &std::fs::Metadata) -> bool {
+    metadata.is_file()
+        && metadata.uid() == unsafe { libc::geteuid() }
+        // Cursor revisions are not credentials, but sharing this file allows
+        // another user to influence replay and delivery. Keep it private.
+        && metadata.permissions().mode() & 0o077 == 0
+}
+
+#[cfg(unix)]
+async fn open_cursor_file(path: &Path) -> Option<tokio::fs::File> {
+    let mut options = tokio::fs::OpenOptions::new();
+    options.read(true).custom_flags(libc::O_NOFOLLOW);
+    let file = options.open(path).await.ok()?;
+    let metadata = file.metadata().await.ok()?;
+    if !cursor_file_metadata_ok(&metadata) || metadata.len() > MAX_CURSOR_FILE_BYTES as u64 {
+        return None;
+    }
+    Some(file)
+}
+
+#[cfg(unix)]
+async fn cursor_path_is_acceptable(path: &Path) -> bool {
+    match tokio::fs::symlink_metadata(path).await {
+        Ok(metadata) => cursor_file_metadata_ok(&metadata),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+        Err(_) => false,
+    }
+}
+
+#[cfg(unix)]
+fn cursor_temp_path(path: &Path, nonce: &[u8; 16]) -> Option<PathBuf> {
+    let file_name = path.file_name()?.to_str()?;
+    let suffix = nonce.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    Some(path.with_file_name(format!(".{file_name}.{suffix}.tmp")))
+}
+
+#[cfg(unix)]
+async fn persist_cursor_file(path: &Path, cursors: &HashMap<String, JournalCursor>) -> bool {
+    let Ok(raw) = serde_json::to_string_pretty(cursors) else { return false };
+    let body = format!("{raw}\n");
+    if body.len() > MAX_CURSOR_FILE_BYTES || !cursor_path_is_acceptable(path).await {
+        return false;
+    }
+
+    for _ in 0..CURSOR_TEMP_ATTEMPTS {
+        let mut nonce = [0_u8; 16];
+        if getrandom::fill(&mut nonce).is_err() {
+            return false;
+        }
+        let Some(temp_path) = cursor_temp_path(path, &nonce) else { return false };
+        let mut options = tokio::fs::OpenOptions::new();
+        options.write(true).create_new(true).custom_flags(libc::O_NOFOLLOW).mode(0o600);
+        let Ok(mut file) = options.open(&temp_path).await else { continue };
+        let write_result = async {
+            file.set_permissions(std::fs::Permissions::from_mode(0o600)).await?;
+            tokio::io::AsyncWriteExt::write_all(&mut file, body.as_bytes()).await?;
+            file.sync_data().await
+        }
+        .await;
+        if write_result.is_err() {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return false;
+        }
+        drop(file);
+
+        // Never replace a symlink, non-regular file, foreign-owned file, or a
+        // file that is readable by another user. The rename itself is atomic,
+        // so readers see either the old valid file or the complete new file.
+        if !cursor_path_is_acceptable(path).await {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return false;
+        }
+        match tokio::fs::rename(&temp_path, path).await {
+            Ok(()) => return true,
+            Err(_) => {
+                let _ = tokio::fs::remove_file(&temp_path).await;
+            }
+        }
+    }
+    false
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    static NEXT_CURSOR_TEST_ID: AtomicU64 = AtomicU64::new(1);
+
+    #[cfg(unix)]
+    async fn cursor_test_path(label: &str) -> (PathBuf, PathBuf) {
+        let id = NEXT_CURSOR_TEST_ID.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir()
+            .join(format!("chatmux-relay-cursor-{label}-{}-{id}", std::process::id()));
+        tokio::fs::create_dir(&root).await.expect("create cursor test directory");
+        (root.clone(), root.join("cursors.json"))
+    }
+
+    #[cfg(unix)]
+    async fn remove_cursor_test_path(root: &Path) {
+        tokio::fs::remove_dir_all(root).await.expect("remove cursor test directory");
+    }
 
     fn cursor(generation: &str, revision: &str) -> JournalCursor {
         JournalCursor { generation: generation.to_owned(), revision: revision.to_owned() }
@@ -1432,5 +1543,55 @@ mod tests {
         assert!(result.is_err(), "a stalled endpoint must time out");
         assert!(started.elapsed() < Duration::from_millis(500));
         server.abort();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cursor_store_rejects_symlinks_non_regular_files_and_shared_modes() {
+        let (root, path) = cursor_test_path("reject").await;
+        let target = root.join("target.json");
+        tokio::fs::write(&target, b"{}").await.expect("write target");
+        tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600))
+            .await
+            .expect("protect target");
+        std::os::unix::fs::symlink(&target, &path).expect("create cursor symlink");
+        assert!(load_cursor_file(&path).await.is_empty());
+        assert!(!persist_cursor_file(&path, &HashMap::new()).await);
+        tokio::fs::remove_file(&path).await.expect("remove cursor symlink");
+
+        tokio::fs::create_dir(&path).await.expect("create non-regular cursor path");
+        assert!(load_cursor_file(&path).await.is_empty());
+        assert!(!persist_cursor_file(&path, &HashMap::new()).await);
+        tokio::fs::remove_dir(&path).await.expect("remove cursor directory");
+
+        tokio::fs::write(&path, b"{}").await.expect("write shared cursor");
+        tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644))
+            .await
+            .expect("make cursor shared");
+        assert!(load_cursor_file(&path).await.is_empty());
+        assert!(!persist_cursor_file(&path, &HashMap::new()).await);
+        remove_cursor_test_path(&root).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cursor_store_rejects_oversized_files_and_writes_private_atomically() {
+        let (root, path) = cursor_test_path("bounded").await;
+        tokio::fs::write(&path, vec![b'x'; MAX_CURSOR_FILE_BYTES + 1])
+            .await
+            .expect("write oversized cursor");
+        tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+            .await
+            .expect("protect oversized cursor");
+        assert!(load_cursor_file(&path).await.is_empty());
+
+        tokio::fs::remove_file(&path).await.expect("remove oversized cursor");
+        let cursors = HashMap::from([(String::from("main"), cursor("session_a", "7"))]);
+        assert!(persist_cursor_file(&path, &cursors).await);
+        let metadata = tokio::fs::symlink_metadata(&path).await.expect("read cursor metadata");
+        assert!(metadata.is_file());
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+        assert_eq!(load_cursor_file(&path).await, cursors);
+        remove_cursor_test_path(&root).await;
     }
 }
