@@ -17,7 +17,6 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         "GIT_CONFIG",
         "GIT_CONFIG_GLOBAL",
         "GIT_CONFIG_SYSTEM",
-        "GIT_CONFIG_NOSYSTEM",
         "GIT_CONFIG_PARAMETERS",
         "GIT_CONFIG_COUNT",
     ]
@@ -44,6 +43,8 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         for key in commandScopedKeys {
             scopedEnvironment.removeValue(forKey: key)
         }
+        // Preserve the caller's explicit system-config opt-out; it does not
+        // redirect repository selection and is part of Git's normal semantics.
         scopedEnvironment["GIT_OPTIONAL_LOCKS"] = "0"
         self.environment = scopedEnvironment
         self.boundedCommandWallTimeLimit = max(0, boundedCommandWallTimeLimit)
