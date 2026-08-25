@@ -3776,6 +3776,11 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/shell_function_curl_network.sh",
+            "fetch_data() { curl -fsSL https://api.openai.com/v1/items; }\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/shell_while_curl_network.sh",
             "while curl -fsSL https://api.openai.com/v1/items; do :; done\n",
             {RULE_LIVE_NETWORK_HOST},
@@ -4341,6 +4346,14 @@ def _self_test() -> int:
                 'pool.spawn("curl", [\n'
                 '  "https://api.openai.com/v1/items",\n'
                 "]);\n"
+            ),
+        ),
+        (
+            "web/tests/n18d_request_helper.ts",
+            (
+                'function request(body, url = "https://cmux.com/status") {\n'
+                "  return new Request(url, { body });\n"
+                "}\n"
             ),
         ),
         # Plain template text is still fixture data; only `${...}` regions are
