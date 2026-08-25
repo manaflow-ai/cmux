@@ -91,7 +91,7 @@ struct CmxTransportModePolicyTests {
             managedRelayURLs: [],
             activeNetworkProfiles: []
         ))
-        let filtered = CmxTransportModePolicy(.irohOnly).irohDialPlan(plan)
+        let filtered = CmxTransportModePolicy(.tailscaleOnly).irohDialPlan(plan)
         #expect(filtered.publicPaths.isEmpty)
         #expect(filtered.privateFallbackPaths.isEmpty)
     }
