@@ -113,11 +113,8 @@ extension Workspace {
                 let runtimeSessionID = selectedPIDKey.flatMap {
                     Self.sessionID(agentPIDKey: $0, statusKey: statusKey)
                 }
-                let hasUnverifiedRuntimeGeneration = !matchingPIDKeys.isEmpty
+                let suppressStaleLifecycle = !matchingPIDKeys.isEmpty
                     && !exactProcessIsLive
-                let suppressStaleLifecycle = hasUnverifiedRuntimeGeneration
-                    && (runtimeIndexEntry?.processLiveness == .exited
-                        || runtimeSessionID == nil)
                 // A definitively exited indexed generation suppresses a stale
                 // lifecycle map until a different cmux-bound generation is
                 // recorded. Unknown index state remains eligible for a live
@@ -172,8 +169,7 @@ extension Workspace {
                     isRuntimeBound: !matchingPIDKeys.isEmpty,
                     hasLiveLifecycleSignal: lifecycle != nil
                         && (matchingPIDKeys.isEmpty
-                            || exactProcessIsLive
-                            || runtimeSessionID != nil)
+                            || exactProcessIsLive)
                         && (matchingPIDKeys.isEmpty || indexLivenessIsFresh)
                         && !suppressStaleLifecycle,
                     isHookBacked: false,
