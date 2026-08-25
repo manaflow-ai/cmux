@@ -396,36 +396,13 @@ public nonisolated struct AgentLifecycleReconciliationState: Sendable {
             return
         }
         var resolved: [String: AgentLifecycleState] = [:]
-        for (key, entry) in entries
-        where AgentLifecycleStatusKey(rawValue: key).isManual {
-            if let resolution = entry.resolution {
-                resolved[key] = resolution.lifecycle
-            }
-        }
-
-        let agentResolutions = entries.compactMap {
-            key, entry -> (String, AgentLifecycleResolution)? in
-            guard !AgentLifecycleStatusKey(rawValue: key).isManual,
-                  let resolution = entry.resolution else {
-                return nil
-            }
-            return (key, resolution)
-        }
-        if let highestConfidence = agentResolutions
-            .map(\.1.confidence)
-            .max() {
-            let authoritative = agentResolutions.filter {
-                $0.1.confidence == highestConfidence
-            }
-            let authoritativeStates = Set(
-                authoritative.map(\.1.lifecycle)
-            )
-            let publishedLifecycle = authoritativeStates.count == 1
-                ? authoritativeStates.first ?? .unknown
-                : .unknown
-            for (key, _) in authoritative {
-                resolved[key] = publishedLifecycle
-            }
+        for (key, entry) in entries {
+            guard let resolution = entry.resolution else { continue }
+            // Confidence orders evidence for one lifecycle key. It must not
+            // hide a different key (for example the Feed attention overlay)
+            // on the same panel; the workspace-level reducer handles
+            // disagreement between independently owned keys.
+            resolved[key] = resolution.lifecycle
         }
         if resolved.isEmpty {
             resolvedStatesByPanelId.removeValue(forKey: panelId)

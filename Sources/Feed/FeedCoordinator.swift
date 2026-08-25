@@ -1400,11 +1400,22 @@ extension FeedCoordinator {
             cancelAttentionExitMonitorIfUnused(key: monitorKey)
         }
         let fallbackWorkspace = pendingState.fallbackWorkspace
-        let owner = TerminalController.shared
-            .controlSidebarResolvePanelOwner(
+        // Prefer the owner recorded when the overlay was surfaced while that
+        // workspace still owns the panel. The global resolver intentionally
+        // checks Docks first, so a stale Dock copy of the same panel ID must
+        // not steal conclusion cleanup from the live workspace owner.
+        let owner = if let fallbackWorkspace,
+                        pendingState.statusOwnerId == fallbackWorkspace.id,
+                        fallbackWorkspace.surfaceOwnershipTarget(
+                            for: target.panelId
+                        ) != nil {
+            ControlSidebarPanelOwner.workspace(fallbackWorkspace)
+        } else {
+            TerminalController.shared.controlSidebarResolvePanelOwner(
                 target: .workspace(target.workspaceId),
                 panelID: target.panelId
             )
+        }
         guard let resolvedOwner = owner
             ?? fallbackWorkspace.map(ControlSidebarPanelOwner.workspace) else {
             return
