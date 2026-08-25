@@ -490,11 +490,12 @@ extension TerminalController {
                     configStore: configStore
                 ),
                 "is_empty": group.isEmpty,
-                "member_workspace_ids": memberIDsByGroup[group.id] ?? []
+                "member_workspace_ids": memberIDsByGroup[group.id] ?? [],
+                // Keep the legacy required field present for older phones.
+                // New clients use `is_empty` and never treat this stable
+                // header identity as a live workspace capability.
+                "anchor_workspace_id": group.anchorWorkspaceId.uuidString
             ]
-            if let anchorWorkspaceId = group.liveAnchorWorkspaceId {
-                payload["anchor_workspace_id"] = anchorWorkspaceId.uuidString
-            }
             return payload
         }
     }

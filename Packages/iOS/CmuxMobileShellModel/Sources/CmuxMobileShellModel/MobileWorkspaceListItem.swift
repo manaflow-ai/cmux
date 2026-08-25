@@ -153,7 +153,12 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
         // A durable empty group has no workspace row from which to discover
         // its header. Keep pinned empty headers in the pinned tier and append
         // unpinned empties after the live rows, matching the Mac projection.
-        let emptyGroups = groups.filter(\.isEmpty)
+        let groupsWithMembers = Set(
+            workspaces.compactMap { workspace in
+                workspace.groupID.flatMap { groupsByID[$0] == nil ? nil : $0 }
+            }
+        )
+        let emptyGroups = groups.filter { $0.isEmpty && !groupsWithMembers.contains($0.id) }
         guard !emptyGroups.isEmpty else { return items }
         let pinnedEmptyGroups = emptyGroups.filter(\.isPinned)
         let unpinnedEmptyGroups = emptyGroups.filter { !$0.isPinned }

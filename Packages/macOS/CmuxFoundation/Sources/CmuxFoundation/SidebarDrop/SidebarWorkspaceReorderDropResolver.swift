@@ -86,6 +86,18 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
     ) -> SidebarWorkspaceReorderDropPlan {
         let groupOrder = request.groups.map(\.id)
         let currentIndex = groupOrder.firstIndex(of: draggedGroup.id) ?? groupOrder.count
+        if context.target?.groupId == draggedGroup.id {
+            let selfIndex = max(0, min(currentIndex, max(0, groupOrder.count - 1)))
+            return SidebarWorkspaceReorderDropPlan(
+                draggedWorkspaceId: draggedGroup.id,
+                indicator: SidebarDropIndicator(
+                    tabId: draggedGroup.anchorWorkspaceId,
+                    edge: context.edge
+                ),
+                indicatorScope: .topLevel,
+                action: .reorderGroup(targetIndex: selfIndex)
+            )
+        }
         let targetGroupId: UUID? = {
             guard let target = context.target else { return nil }
             if let groupId = target.groupId, groupId != draggedGroup.id {

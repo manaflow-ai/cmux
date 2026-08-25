@@ -13992,7 +13992,10 @@ struct VerticalTabsSidebar: View, Equatable {
             let previousOrder = tabManager.workspaceGroups.map(\.id)
             tabManager.moveWorkspaceGroup(groupId: groupId, toIndex: targetIndex)
             let changed = tabManager.workspaceGroups.map(\.id) != previousOrder
-            return changed
+            // A self-drop is a handled no-op; returning false makes AppKit
+            // animate the header back even though the pointer landed on its
+            // own row.
+            return changed || previousOrder.firstIndex(of: groupId).map { targetIndex == $0 } == true
         case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId):
             let selectionBeforeReorder = selectedTabIds
             let anchorWorkspaceIdBeforeReorder = SidebarWorkspaceSelectionSyncPolicy().anchorWorkspaceId(

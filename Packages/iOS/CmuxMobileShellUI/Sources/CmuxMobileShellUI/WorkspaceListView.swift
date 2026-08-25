@@ -1021,7 +1021,9 @@ struct WorkspaceListView: View {
                 // invisible end-of-group spacer; interactive rows keep the
                 // 44pt tap target (32 content + 6/6 insets) explicitly.
                 .frame(minHeight: 32)
-                .moveDisabled(!(enablesReorder && anchorCapabilities.supportsMoveActions))
+                .moveDisabled(
+                    group.isEmpty || !(enablesReorder && anchorCapabilities.supportsMoveActions)
+                )
                 .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 .listRowSeparator(.hidden)
             case .groupFooter(let groupID):

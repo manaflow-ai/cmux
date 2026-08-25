@@ -901,7 +901,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 .actionCapabilities.supportsMoveActions == true
         case .groupHeader(let groupID):
             configuration.groupsByID[groupID]
-                .map { groupActionCapabilities(for: $0).supportsMoveActions }
+                .map { !$0.isEmpty && groupActionCapabilities(for: $0).supportsMoveActions }
                 ?? false
         case .chrome, .filterEmpty, .groupFooter:
             false
