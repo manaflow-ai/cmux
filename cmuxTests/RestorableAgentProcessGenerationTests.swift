@@ -232,13 +232,13 @@ struct RestorableAgentProcessGenerationTests {
         let addedPanel = UUID(uuidString: "00000000-0000-0000-0000-000000000302")!
 
         let previous: Set<String> = [
-            "(firstWorkspace.uuidString)|(firstPanel.uuidString)|old",
-            "(secondWorkspace.uuidString)|(secondPanel.uuidString)|same",
+            "\(firstWorkspace.uuidString)|\(firstPanel.uuidString)|old",
+            "\(secondWorkspace.uuidString)|\(secondPanel.uuidString)|same",
         ]
         let current: Set<String> = [
-            "(firstWorkspace.uuidString)|(firstPanel.uuidString)|new",
-            "(secondWorkspace.uuidString)|(secondPanel.uuidString)|same",
-            "(addedWorkspace.uuidString)|(addedPanel.uuidString)|added",
+            "\(firstWorkspace.uuidString)|\(firstPanel.uuidString)|new",
+            "\(secondWorkspace.uuidString)|\(secondPanel.uuidString)|same",
+            "\(addedWorkspace.uuidString)|\(addedPanel.uuidString)|added",
         ]
 
         let changeSet = RestorableAgentSessionIndexChangeSet(

@@ -56,13 +56,28 @@ extension Workspace {
                 let canonicalStatusKey = SidebarWorkspaceAgentActivity.canonicalStatusKey(statusKey)
                 let lifecycle = lifecycleByStatus[canonicalStatusKey]
                 let matchingPIDKeys = runtimeKeysByStatus[canonicalStatusKey] ?? []
-                // The runtime map retains the exact process generation accepted
-                // at the launch/hook binding. The centralized stale-PID sweep
-                // removes that identity when the generation exits; reusing the
-                // retained evidence here avoids a synchronous sysctl probe in
-                // the main-actor snapshot path.
+                // The runtime map retains the launch-time generation, but that
+                // cache can outlive an exited process until its cleanup sweep.
+                // Only a matching, revalidated shared-index entry may promote
+                // it to live; otherwise fail closed and let a live lifecycle
+                // event (if present) carry the status without PID confidence.
+                let runtimeIndexEntry = indexEntry.flatMap { entry in
+                    SidebarWorkspaceAgentActivity.canonicalStatusKey(
+                        entry.snapshot.kind.rawValue
+                    ) == canonicalStatusKey ? entry : nil
+                }
                 let livenessByPIDKey = Dictionary(uniqueKeysWithValues: matchingPIDKeys.map {
-                    ($0, agentPIDProcessIdentitiesByKey[$0] != nil)
+                    let identity = agentPIDProcessIdentitiesByKey[$0]
+                    let isLive: Bool
+                    if let runtimeIndexEntry,
+                       runtimeIndexEntry.processLiveness == .running,
+                       let identity,
+                       Self.indexEntry(runtimeIndexEntry, containsProcessIdentity: identity) {
+                        isLive = true
+                    } else {
+                        isLive = false
+                    }
+                    return ($0, isLive)
                 })
                 let selectedPIDKey = matchingPIDKeys.min { lhs, rhs in
                     let lhsIdentity = agentPIDProcessIdentitiesByKey[lhs]
