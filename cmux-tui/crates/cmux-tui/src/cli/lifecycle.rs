@@ -326,7 +326,7 @@ fn run_ensure(
             )
         }
         Err(crate::local_owner::EnsureError::Spawn(_error)) => {
-            local_error("server.spawn_failed", messages.owner_spawn_failed(), output, 3)
+            local_error("server.spawn_failed", &messages.owner_spawn_failed(), output, 3)
         }
         Err(crate::local_owner::EnsureError::NotReady) => {
             local_error("server.unavailable", messages.owner_not_ready, output, 3)

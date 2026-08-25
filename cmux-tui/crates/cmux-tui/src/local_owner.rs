@@ -280,9 +280,8 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<()> {
     // lingers as a zombie of a long-lived interactive client.
     let reaper_child = std::sync::Arc::new(std::sync::Mutex::new(Some(child)));
     let reaper_handle = std::sync::Arc::clone(&reaper_child);
-    if let Err(_error) = std::thread::Builder::new()
-        .name("local-owner-reaper".to_string())
-        .spawn(move || {
+    if let Err(_error) =
+        std::thread::Builder::new().name("local-owner-reaper".to_string()).spawn(move || {
             if let Some(mut child) = reaper_handle.lock().expect("reaper mutex poisoned").take() {
                 let _ = child.wait();
             }
@@ -293,7 +292,7 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<()> {
         // thread exhaustion; the owner has already been detached from the
         // caller's terminal and cannot report through its stdio.
         if let Some(mut child) = reaper_child.lock().expect("reaper mutex poisoned").take() {
-            let _ = child.start_kill();
+            let _ = child.kill();
             let _ = child.wait();
         }
         return Err(io::Error::other("local owner reaper unavailable"));
