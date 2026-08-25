@@ -2927,8 +2927,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // pinned to its Tailscale addresses (same lane the terminal
             // lanes ride, same admission authority).
             let candidateMethod = connectionMethod(for: mac)
-            let candidateModeDisallowsIroh = candidateMethod.transportMode.pinnedClass == .lan
-                || candidateMethod.transportMode.pinnedClass == .tailscale
             let irohReconnectIsBlocked = (candidateMethod == .tailscale
                 && !mac.routes.contains { $0.kind == .iroh })
                 || automaticIrohReconnectIsBlockedForAccount
@@ -2967,7 +2965,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                 )
             }
-            if connectionState != .connected, !candidateModeDisallowsIroh,
+            if connectionState != .connected,
                !automaticIrohReconnectIsBlockedForAccount {
                 switch await freshReconnectRoutesAfterLocalFailure(
                     for: mac,

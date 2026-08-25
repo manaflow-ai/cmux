@@ -608,9 +608,14 @@ extension MobileShellComposite {
             return .inconclusive
         }
         let resolvedMethod = connectionMethod(for: currentMac)
-        let requiresIroh = resolvedMethod == .direct
-            || resolvedMethod == .iroh
-            || mac.routes.contains { $0.kind == .iroh }
+        let requiresIroh: Bool = switch resolvedMethod {
+        case .lan, .iroh, .direct:
+            true
+        case .automatic:
+            currentMac.routes.contains { $0.kind == .iroh }
+        case .tailscale:
+            false
+        }
         func containsDialableRoute(_ routes: [CmxAttachRoute]) -> Bool {
             routes.contains { route in
                 route.kind == .iroh

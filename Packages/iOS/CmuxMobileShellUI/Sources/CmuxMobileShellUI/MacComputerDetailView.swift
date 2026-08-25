@@ -364,7 +364,7 @@ struct MacComputerDetailView: View {
                 .accessibilityIdentifier("MobileComputerAddTailscaleConnectionButton")
             }
             if (pendingConnectionMethod ?? selectedMethod) == .lan,
-               !computerHasUsableLANRoute {
+               !computerHasUsableLANBootstrap {
                 Label {
                     Text(L10n.string(
                         "mobile.connections.lanUnavailableWarning",
@@ -628,11 +628,9 @@ struct MacComputerDetailView: View {
         return MobileShellComposite.hasUsableTailscaleAuthorization(in: [pairedMac])
     }
 
-    /// Whether this Computer currently advertises a non-loopback LAN route.
-    private var computerHasUsableLANRoute: Bool {
-        pairedMac?.routes.contains { route in
-            route.kind == .lan && !CmxLoopbackHost().matches(route)
-        } == true
+    /// Whether this Computer has the encrypted Iroh bootstrap LAN Only uses.
+    private var computerHasUsableLANBootstrap: Bool {
+        computerHasUsableIrohRoute
     }
 
     /// Whether this Computer currently advertises an authenticated Iroh peer.

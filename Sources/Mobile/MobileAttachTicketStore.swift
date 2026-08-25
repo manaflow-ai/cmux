@@ -246,7 +246,8 @@ final class MobileAttachTicketStore {
             }
             // A current client can bootstrap LAN Only from an identity-only
             // Iroh code; the broker supplies the LAN path inside encrypted Iroh.
-            if ticket.routes.contains(where: { $0.kind == .iroh }),
+            if ticket.routes.allSatisfy({ $0.kind == .iroh || $0.kind == .lan }),
+               ticket.routes.contains(where: { $0.kind == .iroh }),
                ticket.routes.contains(where: { $0.kind == .lan }),
                let pairingURL = CmxPairingQRCode().encode(
                    ticket,
