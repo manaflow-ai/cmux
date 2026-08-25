@@ -167,7 +167,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         // satisfy this check and are never handed to the recursive watcher.
         let tableList = URL(fileURLWithPath: path).appendingPathComponent("tables.list")
         if case .contents = configReader.read(at: tableList, maximumByteCount: 1 * 1_024) {
-            return path.split(separator: "/").count >= 3
+            return true
         }
         return false
     }

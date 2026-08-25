@@ -21,7 +21,8 @@ extension GitMetadataService {
     nonisolated static func workspaceGitMetadataWatchDescriptor(
         for directory: String,
         safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
-        configPathsByRepository: [String: [String]]? = nil
+        configPathsByRepository: [String: [String]]? = nil,
+        indexSnapshotsByRepository: [String: GitIndexSnapshot]? = nil
     ) -> GitWorkspaceMetadataWatchDescriptor? {
         guard let repository = resolveGitRepository(containing: directory) else {
             return nil
@@ -34,7 +35,8 @@ extension GitMetadataService {
             + gitlinkMetadataWatchPaths(
                 repository: repository,
                 safetyConfiguration: safetyConfiguration,
-                configPathsByRepository: configPathsByRepository
+                configPathsByRepository: configPathsByRepository,
+                indexSnapshotsByRepository: indexSnapshotsByRepository
             )
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
         let indexExists = FileManager.default.fileExists(atPath: indexPath)
@@ -45,7 +47,8 @@ extension GitMetadataService {
                 || $0.fileByteCount > Int64(safetyConfiguration.directIndexByteCount)
         } ?? false
         let indexSnapshot: GitIndexSnapshot? = if header != nil, !exceedsTrackedPathBudget {
-            gitIndexSnapshot(indexURL: URL(fileURLWithPath: indexPath))
+            indexSnapshotsByRepository?[repository.workTreeRoot]
+                ?? gitIndexSnapshot(indexURL: URL(fileURLWithPath: indexPath))
         } else {
             nil
         }
@@ -174,7 +177,8 @@ extension GitMetadataService {
     nonisolated static func gitlinkMetadataWatchPaths(
         repository: ResolvedGitRepository,
         safetyConfiguration: GitMetadataSafetyConfiguration,
-        configPathsByRepository: [String: [String]]? = nil
+        configPathsByRepository: [String: [String]]? = nil,
+        indexSnapshotsByRepository: [String: GitIndexSnapshot]? = nil
     ) -> [String] {
         var visitedWorkTreeRoots: Set<String> = [repository.workTreeRoot]
         return gitlinkMetadataWatchPaths(
@@ -182,7 +186,8 @@ extension GitMetadataService {
             depth: 0,
             visitedWorkTreeRoots: &visitedWorkTreeRoots,
             safetyConfiguration: safetyConfiguration,
-            configPathsByRepository: configPathsByRepository
+            configPathsByRepository: configPathsByRepository,
+            indexSnapshotsByRepository: indexSnapshotsByRepository
         )
     }
 
@@ -191,7 +196,8 @@ extension GitMetadataService {
         depth: Int,
         visitedWorkTreeRoots: inout Set<String>,
         safetyConfiguration: GitMetadataSafetyConfiguration,
-        configPathsByRepository: [String: [String]]?
+        configPathsByRepository: [String: [String]]?,
+        indexSnapshotsByRepository: [String: GitIndexSnapshot]?
     ) -> [String] {
         guard depth < safetyConfiguration.submoduleDepth else { return [] }
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
@@ -201,7 +207,8 @@ extension GitMetadataService {
             return []
         }
         let indexURL = URL(fileURLWithPath: indexPath)
-        guard let indexSnapshot = gitIndexSnapshot(indexURL: indexURL) else {
+        guard let indexSnapshot = indexSnapshotsByRepository?[repository.workTreeRoot]
+            ?? gitIndexSnapshot(indexURL: indexURL) else {
             return []
         }
 
@@ -224,7 +231,8 @@ extension GitMetadataService {
                     depth: depth + 1,
                     visitedWorkTreeRoots: &visitedWorkTreeRoots,
                     safetyConfiguration: safetyConfiguration,
-                    configPathsByRepository: configPathsByRepository
+                    configPathsByRepository: configPathsByRepository,
+                    indexSnapshotsByRepository: indexSnapshotsByRepository
                 )
             )
         }

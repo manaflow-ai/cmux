@@ -6,7 +6,7 @@ extension GitMetadataService {
     nonisolated func branchAwareConfigPathsByRepository(
         repository: ResolvedGitRepository,
         safetyConfiguration: GitMetadataSafetyConfiguration
-    ) async -> [String: [String]] {
+    ) async -> GitMetadataWatchInputs {
         let deadline = DispatchTime.now()
             + max(5, safetyConfiguration.gitStatusWallTime * 8)
         let result = await collectBranchAwareConfigPaths(
@@ -17,7 +17,10 @@ extension GitMetadataService {
             remainingRepositoryCount: 32,
             deadline: deadline
         )
-        return result.paths
+        return GitMetadataWatchInputs(
+            configPathsByRepository: result.paths,
+            indexSnapshotsByRepository: result.indexSnapshots
+        )
     }
 
     private nonisolated func collectBranchAwareConfigPaths(
@@ -27,20 +30,26 @@ extension GitMetadataService {
         visitedRoots: Set<String>,
         remainingRepositoryCount: Int,
         deadline: DispatchTime
-    ) async -> (paths: [String: [String]], visitedRoots: Set<String>, remainingRepositoryCount: Int) {
+    ) async -> (
+        paths: [String: [String]],
+        indexSnapshots: [String: GitIndexSnapshot],
+        visitedRoots: Set<String>,
+        remainingRepositoryCount: Int
+    ) {
         guard !visitedRoots.contains(repository.workTreeRoot),
               remainingRepositoryCount > 0,
               DispatchTime.now() < deadline else {
-            return ([:], visitedRoots, remainingRepositoryCount)
+            return ([:], [:], visitedRoots, remainingRepositoryCount)
         }
         var visitedRoots = visitedRoots
         visitedRoots.insert(repository.workTreeRoot)
         var remainingRepositoryCount = remainingRepositoryCount - 1
         var pathsByRepository: [String: [String]] = [:]
+        var indexSnapshotsByRepository: [String: GitIndexSnapshot] = [:]
 
         let branchContext = await gitReferenceBranchContext(repository: repository)
         guard DispatchTime.now() < deadline else {
-            return (pathsByRepository, visitedRoots, remainingRepositoryCount)
+            return (pathsByRepository, indexSnapshotsByRepository, visitedRoots, remainingRepositoryCount)
         }
         pathsByRepository[repository.workTreeRoot] = GitConfigBranchTraversal(
             repository: repository,
@@ -54,11 +63,17 @@ extension GitMetadataService {
               let indexSnapshot = Self.gitIndexSnapshot(
                   indexURL: URL(fileURLWithPath: indexPath)
               ) else {
-            return (pathsByRepository, visitedRoots, remainingRepositoryCount)
+            return (pathsByRepository, indexSnapshotsByRepository, visitedRoots, remainingRepositoryCount)
         }
+        indexSnapshotsByRepository[repository.workTreeRoot] = indexSnapshot
 
         guard depth < safetyConfiguration.submoduleDepth else {
-            return (pathsByRepository, visitedRoots, remainingRepositoryCount)
+            return (
+                pathsByRepository,
+                indexSnapshotsByRepository,
+                visitedRoots,
+                remainingRepositoryCount
+            )
         }
 
         let gitlinkMode: UInt32 = 0o160000
@@ -82,7 +97,16 @@ extension GitMetadataService {
             visitedRoots = childResult.visitedRoots
             remainingRepositoryCount = childResult.remainingRepositoryCount
             pathsByRepository.merge(childResult.paths, uniquingKeysWith: { _, new in new })
+            indexSnapshotsByRepository.merge(
+                childResult.indexSnapshots,
+                uniquingKeysWith: { _, new in new }
+            )
         }
-        return (pathsByRepository, visitedRoots, remainingRepositoryCount)
+        return (
+            pathsByRepository,
+            indexSnapshotsByRepository,
+            visitedRoots,
+            remainingRepositoryCount
+        )
     }
 }

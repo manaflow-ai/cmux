@@ -177,14 +177,15 @@ public struct GitMetadataService: Sendable {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return nil
         }
-        let configPathsByRepository = await branchAwareConfigPathsByRepository(
+        let watchInputs = await branchAwareConfigPathsByRepository(
             repository: repository,
             safetyConfiguration: safetyConfiguration
         )
         return Self.workspaceGitMetadataWatchDescriptor(
             for: directory,
             safetyConfiguration: safetyConfiguration,
-            configPathsByRepository: configPathsByRepository
+            configPathsByRepository: watchInputs.configPathsByRepository,
+            indexSnapshotsByRepository: watchInputs.indexSnapshotsByRepository
         )
     }
 
@@ -212,7 +213,9 @@ public struct GitMetadataService: Sendable {
         if let parsed = traversal.remoteVOutput() {
             output = parsed
         } else {
-            let runner = SystemWorkspaceChangesGitRunner()
+            let runner = SystemWorkspaceChangesGitRunner(
+                boundedCommandWallTimeLimit: safetyConfiguration.gitStatusWallTime
+            )
             let result = try? runner.run(
                     arguments: ["remote", "-v"],
                     in: URL(fileURLWithPath: repository.workTreeRoot, isDirectory: true),
