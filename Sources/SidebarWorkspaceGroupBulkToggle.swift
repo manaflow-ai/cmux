@@ -37,6 +37,7 @@ struct SidebarWorkspaceGroupBulkToggle: View {
             )
         }
         .buttonStyle(SidebarFooterIconButtonStyle())
+        .titlebarInteractiveControl()
         .accessibilityElement(children: .ignore)
         .safeHelp(title)
         .accessibilityLabel(title)

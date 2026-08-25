@@ -11620,6 +11620,8 @@ struct VerticalTabsSidebar: View, Equatable {
                 refreshWorkspaceSnapshots()
             }
         }
+        // This helper is mounted only by the default-sidebar branch in body;
+        // extensionSidebarScrollArea bypasses workspaceScrollArea entirely.
         .overlay(alignment: .topTrailing) {
             if isPresented, !renderContext.workspaceGroups.isEmpty {
                 SidebarWorkspaceGroupBulkToggle(
