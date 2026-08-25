@@ -13,18 +13,21 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
     private let branchContext: GitConfigBranchContext
     private let configReader: GitConfigFileReader
     private let maximumFileByteCount: Int
+    private let storageProbe: any GitReferenceStorageProbing
 
     /// Creates a traversal for one repository and resolved branch context.
     init(
         repository: ResolvedGitRepository,
         branchContext: GitConfigBranchContext,
         configReader: GitConfigFileReader = GitConfigFileReader(),
-        maximumFileByteCount: Int = GitConfigFileReader.defaultMaximumByteCount
+        maximumFileByteCount: Int = GitConfigFileReader.defaultMaximumByteCount,
+        storageProbe: any GitReferenceStorageProbing = SystemGitReferenceStorageProbe()
     ) {
         self.repository = repository
         self.branchContext = branchContext
         self.configReader = configReader
         self.maximumFileByteCount = max(0, maximumFileByteCount)
+        self.storageProbe = storageProbe
     }
 
     /// Returns every reachable config file in Git's include order.
@@ -38,8 +41,6 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         var paths = result.configURLs.map { $0.standardizedFileURL.path }
         if !result.isComplete {
             paths.append(contentsOf: GitMetadataService.gitRootConfigURLs(repository: repository).map(\.path))
-            paths.append(repository.gitDirectory)
-            paths.append(repository.commonDirectory)
         }
         paths.append(contentsOf: result.referenceStoragePaths)
         var seen: Set<String> = []
@@ -148,7 +149,10 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                 .appendingPathComponent(payload)
                 .standardizedFileURL.path
         }
-        if isSafeReferenceStoragePath(path) {
+        if isSafeReferenceStoragePath(
+            path,
+            storageName: String(value[..<separator]).lowercased()
+        ) {
             let roots = [repository.gitDirectory, repository.commonDirectory, repository.workTreeRoot]
                 .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
             if roots.contains(where: { root in
@@ -156,14 +160,20 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             }) {
                 state.referenceStoragePaths.append(path)
             } else {
-                state.referenceStoragePaths.append(
-                    URL(fileURLWithPath: path).appendingPathComponent("tables.list").path
-                )
+                let externalRoot = URL(fileURLWithPath: path)
+                if String(value[..<separator]).lowercased() == "reftable" {
+                    state.referenceStoragePaths.append(
+                        externalRoot.appendingPathComponent("tables.list").path
+                    )
+                } else {
+                    state.referenceStoragePaths.append(externalRoot.appendingPathComponent("refs").path)
+                    state.referenceStoragePaths.append(externalRoot.appendingPathComponent("packed-refs").path)
+                }
             }
         }
     }
 
-    private func isSafeReferenceStoragePath(_ path: String) -> Bool {
+    private func isSafeReferenceStoragePath(_ path: String, storageName: String) -> Bool {
         guard path != "/" else { return false }
         let roots = [repository.gitDirectory, repository.commonDirectory, repository.workTreeRoot]
             .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
@@ -172,16 +182,21 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         }) {
             return true
         }
-        // External stores are accepted only when their concrete reftable marker
-        // is an existing bounded regular file; broad roots such as `/` cannot
-        // satisfy this check and are never handed to the recursive watcher.
-        let tableList = URL(fileURLWithPath: path).appendingPathComponent("tables.list")
-        switch configReader.read(at: tableList, maximumByteCount: 1 * 1_024) {
-        case .contents, .oversized:
-            return true
-        case .missing, .unavailable:
-            return false
+        if storageName == "reftable" {
+            let tableList = URL(fileURLWithPath: path).appendingPathComponent("tables.list")
+            switch configReader.read(at: tableList, maximumByteCount: 1 * 1_024) {
+            case .contents, .oversized:
+                return true
+            case .missing, .unavailable:
+                return false
+            }
         }
+        let refsPath = URL(fileURLWithPath: path).appendingPathComponent("refs").path
+        return storageProbe.isDirectory(atPath: refsPath)
+            || configReader.read(
+                at: URL(fileURLWithPath: path).appendingPathComponent("packed-refs"),
+                maximumByteCount: 1
+            ).isAvailable
     }
 
     /// Synthesizes `git remote -v` fetch lines from reachable config files.

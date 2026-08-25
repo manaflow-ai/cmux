@@ -9,6 +9,15 @@ nonisolated struct GitConfigFileReader: Sendable {
         case oversized(consumedByteCount: Int)
         case missing
         case unavailable(consumedByteCount: Int)
+
+        var isAvailable: Bool {
+            switch self {
+            case .contents, .oversized:
+                return true
+            case .missing, .unavailable:
+                return false
+            }
+        }
     }
 
     static let defaultMaximumByteCount = 1 * 1_024 * 1_024
