@@ -88,4 +88,49 @@ import Testing
         #expect(snapshot.checkedOutBranch == GitCheckedOutBranch.branch("feature/large-config"))
         #expect(snapshot.currentCommit == commit)
     }
+
+    /// Keeps ambient Git repository overrides from redirecting plumbing reads.
+    @Test func plumbingIgnoresAmbientRepositorySelection() throws {
+        let fixture = try WorkspaceChangesGitRepositoryFixture(initializeRepository: false)
+        let intended = fixture.root.appendingPathComponent("intended", isDirectory: true)
+        let unrelated = fixture.root.appendingPathComponent("unrelated", isDirectory: true)
+        let intendedBranch = "feature/intended"
+
+        try fixture.git([
+            "init", "--ref-format=reftable", "--initial-branch=\(intendedBranch)", intended.path,
+        ])
+        try fixture.git([
+            "-C", intended.path,
+            "-c", "user.name=cmux-tests",
+            "-c", "user.email=cmux-tests@example.invalid",
+            "commit", "--allow-empty", "-m", "intended",
+        ])
+        try fixture.git([
+            "init", "--ref-format=reftable", "--initial-branch=feature/unrelated", unrelated.path,
+        ])
+        try fixture.git([
+            "-C", unrelated.path,
+            "-c", "user.name=cmux-tests",
+            "-c", "user.email=cmux-tests@example.invalid",
+            "commit", "--allow-empty", "-m", "unrelated",
+        ])
+
+        let intendedRepository = try #require(
+            GitMetadataService.resolveGitRepository(containing: intended.path)
+        )
+        let unrelatedRepository = try #require(
+            GitMetadataService.resolveGitRepository(containing: unrelated.path)
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["GIT_DIR"] = unrelatedRepository.gitDirectory
+        environment["GIT_WORK_TREE"] = unrelated.path
+        environment["GIT_COMMON_DIR"] = unrelatedRepository.commonDirectory
+        let reader = SystemGitReferenceReader(
+            runner: SystemWorkspaceChangesGitRunner(environment: environment)
+        )
+
+        let snapshot = reader.snapshot(repository: intendedRepository)
+
+        #expect(snapshot.checkedOutBranch == .branch(intendedBranch))
+    }
 }
