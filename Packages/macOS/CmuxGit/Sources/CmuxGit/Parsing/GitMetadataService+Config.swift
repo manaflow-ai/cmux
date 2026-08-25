@@ -3,34 +3,83 @@ import Foundation
 struct GitRemoteConfigSnapshot: Sendable {
     let remoteVOutput: String?
     let configURLs: [URL]
+    let isComplete: Bool
 }
 
 extension GitMetadataService {
+    private struct GitConfigTraversalBudget {
+        static let maximumFileCount = 512
+        static let maximumByteCount = 4 * 1024 * 1024
+        static let maximumIncludeDepth = 32
+
+        var fileCount = 0
+        var byteCount = 0
+        var outputByteCount = 0
+        var exceeded = false
+
+        mutating func read(_ url: URL) -> String? {
+            guard !exceeded else { return nil }
+            guard fileCount < Self.maximumFileCount,
+                  let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+                  let size = attributes[.size] as? NSNumber,
+                  size.int64Value >= 0,
+                  size.int64Value <= Int64(Self.maximumByteCount - byteCount) else {
+                if FileManager.default.fileExists(atPath: url.path) {
+                    exceeded = true
+                }
+                return nil
+            }
+            guard let data = try? Data(contentsOf: url),
+                  let config = String(data: data, encoding: .utf8) else {
+                return nil
+            }
+            fileCount += 1
+            byteCount += data.count
+            return config
+        }
+
+        mutating func appendOutput(_ line: String) -> Bool {
+            let byteCount = line.utf8.count
+            guard outputByteCount <= Self.maximumByteCount - byteCount else {
+                exceeded = true
+                return false
+            }
+            outputByteCount += byteCount
+            return true
+        }
+    }
+
     /// A synthesized `git remote -v`-style listing built by reading remote URLs
     /// straight from the reachable config files (no `git` process). `nil` when
     /// no remote URL is found.
     nonisolated static func gitRemoteVOutput(repository: ResolvedGitRepository) -> String? {
-        gitRemoteConfigSnapshot(repository: repository).remoteVOutput
+        let snapshot = gitRemoteConfigSnapshot(repository: repository)
+        return snapshot.isComplete ? snapshot.remoteVOutput : nil
     }
 
     nonisolated static func gitRemoteConfigSnapshot(
-        repository: ResolvedGitRepository
+        repository: ResolvedGitRepository,
+        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration()
     ) -> GitRemoteConfigSnapshot {
         var lines: [String] = []
         var seenConfigPaths: Set<String> = []
         var configURLs: [URL] = []
+        var budget = GitConfigTraversalBudget()
         for configURL in gitRootConfigURLs(repository: repository) {
             appendGitRemoteVLines(
                 fromConfigURL: configURL,
                 repository: repository,
                 seenConfigPaths: &seenConfigPaths,
                 configURLs: &configURLs,
-                lines: &lines
+                lines: &lines,
+                budget: &budget,
+                depth: 0
             )
         }
         return GitRemoteConfigSnapshot(
             remoteVOutput: lines.isEmpty ? nil : lines.joined(),
-            configURLs: configURLs
+            configURLs: configURLs,
+            isComplete: !budget.exceeded
         )
     }
 
@@ -45,29 +94,14 @@ extension GitMetadataService {
 
     /// Every config file reachable from the repository roots, following
     /// `include`/`includeIf` directives, de-duplicated by path.
-    nonisolated static func gitConfigURLs(repository: ResolvedGitRepository) -> [URL] {
-        var urls: [URL] = []
-        var pendingURLs = gitRootConfigURLs(repository: repository)
-        var seenConfigPaths: Set<String> = []
-
-        while !pendingURLs.isEmpty {
-            let configURL = pendingURLs.removeFirst().standardizedFileURL
-            let path = configURL.path
-            guard seenConfigPaths.insert(path).inserted else { continue }
-            urls.append(configURL)
-            guard let config = try? String(contentsOf: configURL, encoding: .utf8) else {
-                continue
-            }
-            pendingURLs.append(
-                contentsOf: gitIncludedConfigURLs(
-                    fromConfig: config,
-                    configURL: configURL,
-                    repository: repository
-                )
-            )
-        }
-
-        return urls
+    nonisolated static func gitConfigURLs(
+        repository: ResolvedGitRepository,
+        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration()
+    ) -> [URL] {
+        gitRemoteConfigSnapshot(
+            repository: repository,
+            safetyConfiguration: safetyConfiguration
+        ).configURLs
     }
 
     /// Parses a single config string into `git remote -v` fetch lines (used by
@@ -104,19 +138,30 @@ extension GitMetadataService {
     /// Appends `git remote -v` fetch lines from a config file (and its matching
     /// includes) into `lines`, guarding against include cycles via
     /// `seenConfigPaths`.
-    nonisolated static func appendGitRemoteVLines(
+    private nonisolated static func appendGitRemoteVLines(
         fromConfigURL configURL: URL,
         repository: ResolvedGitRepository,
         seenConfigPaths: inout Set<String>,
         configURLs: inout [URL],
-        lines: inout [String]
+        lines: inout [String],
+        budget: inout GitConfigTraversalBudget,
+        depth: Int
     ) {
+        guard depth <= GitConfigTraversalBudget.maximumIncludeDepth,
+              !budget.exceeded else {
+            budget.exceeded = true
+            return
+        }
         let configURL = configURL.standardizedFileURL
         guard seenConfigPaths.insert(configURL.path).inserted else {
             return
         }
+        guard configURLs.count < GitConfigTraversalBudget.maximumFileCount else {
+            budget.exceeded = true
+            return
+        }
         configURLs.append(configURL)
-        guard let config = try? String(contentsOf: configURL, encoding: .utf8) else {
+        guard let config = budget.read(configURL) else {
             return
         }
 
@@ -153,7 +198,9 @@ extension GitMetadataService {
                 guard !remoteURL.isEmpty else {
                     continue
                 }
-                lines.append("\(currentRemoteName)\t\(remoteURL) (fetch)\n")
+                let line = "\(currentRemoteName)\t\(remoteURL) (fetch)\n"
+                guard budget.appendOutput(line) else { return }
+                lines.append(line)
                 continue
             }
 
@@ -171,7 +218,9 @@ extension GitMetadataService {
                 repository: repository,
                 seenConfigPaths: &seenConfigPaths,
                 configURLs: &configURLs,
-                lines: &lines
+                lines: &lines,
+                budget: &budget,
+                depth: depth + 1
             )
         }
     }

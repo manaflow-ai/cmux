@@ -173,7 +173,7 @@ extension GitMetadataService {
                 guard isAllowedDirectoryWatchRoot(resolved, repository: repository) else {
                     return nil
                 }
-                return resolved
+                return nativeStandardizedPath(candidate.path)
             }
             return nativeStandardizedPath(candidate.path)
         }
@@ -202,16 +202,27 @@ extension GitMetadataService {
     ) -> Bool {
         let normalized = nativeStandardizedPath(path)
         guard normalized != "/" else { return false }
-        let repositoryRoots = [
+        let logicalRepositoryRoots = [
             repository.workTreeRoot,
             repository.gitDirectory,
             repository.commonDirectory
         ].map(nativeStandardizedPath)
+        let resolved = nativeStandardizedPath(
+            URL(fileURLWithPath: normalized).resolvingSymlinksInPath().path
+        )
+        let resolvedRepositoryRoots = logicalRepositoryRoots.map {
+            nativeStandardizedPath(
+                URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
+            )
+        }
         let home = nativeStandardizedPath(
             FileManager.default.homeDirectoryForCurrentUser.path
         )
-        return repositoryRoots.contains { isSameOrInside(normalized, root: $0) }
-            || (normalized != home && isSameOrInside(normalized, root: home))
+        let resolvedHome = nativeStandardizedPath(
+            URL(fileURLWithPath: home).resolvingSymlinksInPath().path
+        )
+        return resolvedRepositoryRoots.contains { isSameOrInside(resolved, root: $0) }
+            || (resolved != resolvedHome && isSameOrInside(resolved, root: resolvedHome))
     }
 
     private nonisolated static func filteredMetadataWatchPaths(

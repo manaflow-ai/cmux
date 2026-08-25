@@ -133,15 +133,22 @@ public struct GitMetadataService: Sendable {
         ) {
             return cached
         }
-        let configSnapshot = Self.gitRemoteConfigSnapshot(repository: repository)
-        let link = configSnapshot.remoteVOutput.flatMap { Self.repositoryLink(fromGitRemoteVOutput: $0) }
-        await repositoryLinkCache.store(
-            link: link,
+        let configSnapshot = Self.gitRemoteConfigSnapshot(
             repository: repository,
-            configURLs: configSnapshot.configURLs,
-            headSignature: headSignature,
-            fileStatusReader: fileStatusReader
+            safetyConfiguration: safetyConfiguration
         )
+        let link = configSnapshot.isComplete
+            ? configSnapshot.remoteVOutput.flatMap { Self.repositoryLink(fromGitRemoteVOutput: $0) }
+            : nil
+        if configSnapshot.isComplete {
+            await repositoryLinkCache.store(
+                link: link,
+                repository: repository,
+                configURLs: configSnapshot.configURLs,
+                headSignature: headSignature,
+                fileStatusReader: fileStatusReader
+            )
+        }
         return link
     }
 
