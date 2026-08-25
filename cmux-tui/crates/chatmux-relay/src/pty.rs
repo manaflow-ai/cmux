@@ -2032,12 +2032,31 @@ impl Inner {
             None
         };
         if surface_id.is_none() {
-            let listed = control.request("list-workspaces", json!({})).await;
-            let tabs = listed
-                .as_ref()
-                .filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true))
-                .map(|v| collect_pty_tabs(v.get("data")))
-                .unwrap_or_default();
+            let Some(listed) = control.request("list-workspaces", json!({})).await else {
+                control.end();
+                return Err((
+                    RelayPtyErrorCode::Failed,
+                    "cannot resolve terminal because list-workspaces failed".to_owned(),
+                ));
+            };
+            if listed.get("ok").and_then(Value::as_bool) != Some(true) {
+                control.end();
+                return Err((
+                    RelayPtyErrorCode::Failed,
+                    "cannot resolve terminal because list-workspaces returned an error".to_owned(),
+                ));
+            }
+            let tabs = match collect_pty_tabs_strict(listed.get("data")) {
+                Ok(tabs) => tabs,
+                Err(()) => {
+                    control.end();
+                    return Err((
+                        RelayPtyErrorCode::Failed,
+                        "cannot resolve terminal because list-workspaces returned malformed data"
+                            .to_owned(),
+                    ));
+                }
+            };
             surface_id = tabs
                 .iter()
                 .find(|tab| tab.resource_id.as_deref() == Some(surface_ref))
@@ -3184,6 +3203,73 @@ mod tests {
         assert!(error["message"].as_str().unwrap_or_default().contains("not found in session"),);
         // A gone terminal must NOT degrade to a whole-session attach.
         assert!(!sent.iter().any(|f| ty(f) == "pty_opened"));
+    }
+
+    struct InvalidListControl {
+        response: Option<Value>,
+    }
+
+    impl ControlHandle for InvalidListControl {
+        fn request(
+            &self,
+            cmd: &str,
+            _params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
+            let response = match cmd {
+                "identify" => Some(serde_json::json!({
+                    "ok": true,
+                    "data": { "protocol": CONTROL_MIN_PROTOCOL, "capabilities": [] },
+                })),
+                "list-workspaces" => self.response.clone(),
+                _ => None,
+            };
+            Box::pin(async move { response })
+        }
+        fn send(&self, _cmd: &str, _params: Value) {}
+        fn on_event(&self, _handler: EventHandler) {}
+        fn on_close(&self, _handler: CloseHandler) {}
+        fn pause(&self) {}
+        fn resume(&self) {}
+        fn end(&self) {}
+    }
+
+    async fn assert_invalid_list_is_failed(response: Option<Value>) {
+        let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
+        let h = harness_with_control(
+            Some(cmux),
+            None,
+            None,
+            Some(Arc::new(InvalidListControl { response })),
+        );
+        h.open(
+            "p1",
+            "job-x",
+            serde_json::json!({ "surface": "term_dead" }),
+            "supervised",
+            h.owner.clone(),
+        )
+        .await;
+        let error = h.sent().into_iter().find(|f| ty(f) == "pty_error").unwrap();
+        assert_eq!(error["code"], "failed");
+    }
+
+    #[tokio::test]
+    async fn failed_list_workspaces_is_not_terminal_gone() {
+        assert_invalid_list_is_failed(Some(serde_json::json!({ "ok": false }))).await;
+    }
+
+    #[tokio::test]
+    async fn missing_list_workspaces_is_not_terminal_gone() {
+        assert_invalid_list_is_failed(None).await;
+    }
+
+    #[tokio::test]
+    async fn malformed_list_workspaces_is_not_terminal_gone() {
+        assert_invalid_list_is_failed(Some(serde_json::json!({
+            "ok": true,
+            "data": { "workspaces": {} }
+        })))
+        .await;
     }
 
     #[tokio::test]
