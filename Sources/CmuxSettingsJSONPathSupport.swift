@@ -403,6 +403,7 @@ extension CmuxSettingsFileStore {
         PaneChromeSettings.paneBorderColorKey,
         PaneChromeSettings.activePaneBorderColorKey,
         PaneChromeSettings.agentStateBorderKey,
+        PaneChromeSettings.agentStatePaneTintOpacityKey,
         "app.language",
         "app.appearance",
         "app.appIcon",

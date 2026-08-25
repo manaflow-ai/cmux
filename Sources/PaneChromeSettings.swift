@@ -38,6 +38,20 @@ enum PaneChromeSettings {
     /// CmuxFoundation; this is only the border-local no-agent neutral.
     static let noAgentPaneBorderHex = "#000000"
 
+    /// Settings key for the full-pane agent-state wash opacity.
+    static let agentStatePaneTintOpacityKey = "agentStatePaneTintOpacity"
+    /// Off by default: the wash sits above the terminal surface, so it tints
+    /// glyphs as well as the ground. The border alone stays the default.
+    static let defaultAgentStatePaneTintOpacity = 0.0
+
+    /// The wash opacity, clamped to `0...1`. Zero disables the wash.
+    static func agentStatePaneTintOpacity(defaults: UserDefaults = .standard) -> Double {
+        guard defaults.object(forKey: agentStatePaneTintOpacityKey) != nil else {
+            return defaultAgentStatePaneTintOpacity
+        }
+        return max(0, min(1, defaults.double(forKey: agentStatePaneTintOpacityKey)))
+    }
+
     /// Settings key overriding the pane border color for one agent state.
     ///
     /// Flat keys rather than a nested object so they parse, validate, and

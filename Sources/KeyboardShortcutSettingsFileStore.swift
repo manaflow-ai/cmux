@@ -427,6 +427,15 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[key] = .nullableString(value)
         }
 
+        let tintKey = PaneChromeSettings.agentStatePaneTintOpacityKey
+        if root.keys.contains(tintKey) {
+            if let value = root[tintKey] as? Double, (0...1).contains(value) {
+                snapshot.managedUserDefaults[tintKey] = .double(value)
+            } else {
+                logInvalid(tintKey, sourcePath: sourcePath)
+            }
+        }
+
         let agentStateBorderKey = PaneChromeSettings.agentStateBorderKey
         if root.keys.contains(agentStateBorderKey) {
             if let value = root[agentStateBorderKey] as? Bool {

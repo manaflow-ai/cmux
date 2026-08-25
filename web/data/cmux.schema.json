@@ -66,6 +66,14 @@
       "descriptionKey": "schemaDescriptions.agentStateColorNoAgent",
       "description": "Override the agent-state pane border color for noAgent (no agent is running in the pane). Requires agentStateBorder. Must be #RRGGBB; anything else is ignored."
     },
+    "agentStatePaneTintOpacity": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0,
+      "descriptionKey": "schemaDescriptions.agentStatePaneTintOpacity",
+      "description": "Wash the whole pane in its agent-state color at this opacity, on top of the border. 0 disables it. The wash multiplies over the terminal, so it darkens the background toward the state color while leaving bright text legible; around 0.08 is visible without hurting contrast. Requires agentStateBorder."
+    },
     "actions": {
       "title": "actions",
       "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", or \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart). Inline workspace entries are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Layout\" in the plus-button menu writes entries here.",

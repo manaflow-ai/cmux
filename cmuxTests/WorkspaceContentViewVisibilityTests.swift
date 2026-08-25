@@ -923,6 +923,27 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
+    func agentStatePaneTintOpacityDefaultsOffAndClamps() throws {
+        let suiteName = "PaneChromeTint.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        // Off unless asked for: the wash sits above the terminal surface, so it
+        // tints glyphs as well as the ground.
+        #expect(PaneChromeSettings.agentStatePaneTintOpacity(defaults: defaults) == 0)
+
+        defaults.set(0.08, forKey: PaneChromeSettings.agentStatePaneTintOpacityKey)
+        #expect(PaneChromeSettings.agentStatePaneTintOpacity(defaults: defaults) == 0.08)
+
+        // Out-of-range values clamp rather than producing an opaque pane that
+        // would hide the terminal entirely.
+        defaults.set(4.2, forKey: PaneChromeSettings.agentStatePaneTintOpacityKey)
+        #expect(PaneChromeSettings.agentStatePaneTintOpacity(defaults: defaults) == 1)
+        defaults.set(-1.0, forKey: PaneChromeSettings.agentStatePaneTintOpacityKey)
+        #expect(PaneChromeSettings.agentStatePaneTintOpacity(defaults: defaults) == 0)
+    }
+
+    @Test
     func agentStateColorsHonorPerStateOverrides() throws {
         let suiteName = "PaneChromeAgentColors.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

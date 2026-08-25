@@ -8429,6 +8429,13 @@ final class GhosttySurfaceScrollView: NSView {
     let surfaceView: GhosttyNSView
     private let mobileViewportBorderOverlayView = TerminalViewportBorderOverlayView(frame: .zero)
     private let inactiveOverlayView: GhosttyFlashOverlayView
+    /// Full-pane wash tinted with the agent's state color.
+    ///
+    /// Sits above the Metal surface, like the inactive overlay: Ghostty fills
+    /// the surface opaquely, so a tint painted underneath would never be seen.
+    /// It composites with `multiplyBlendMode` rather than a flat alpha wash so
+    /// the hue darkens toward the state color while bright glyphs stay legible.
+    private let agentStateTintView: GhosttyFlashOverlayView
     private let dropZoneOverlayView: GhosttyFlashOverlayView
     private let paneDropTargetView = TerminalPaneDropTargetView(frame: .zero)
     private let notificationRingOverlayView: GhosttyFlashOverlayView
@@ -8695,6 +8702,7 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView = TerminalPaneBackgroundView(frame: .zero)
         scrollView = GhosttyScrollView()
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
+        agentStateTintView = GhosttyFlashOverlayView(frame: .zero)
         dropZoneOverlayView = GhosttyFlashOverlayView(frame: .zero)
         notificationRingOverlayView = GhosttyFlashOverlayView(frame: .zero)
         notificationRingLayer = CAShapeLayer()
@@ -8740,6 +8748,13 @@ final class GhosttySurfaceScrollView: NSView {
         paneDropTargetView.hostedView = self
         addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
         synchronizeScrollbarAppearance()
+        agentStateTintView.wantsLayer = true
+        agentStateTintView.layerUsesCoreImageFilters = true
+        agentStateTintView.layer?.backgroundColor = NSColor.clear.cgColor
+        agentStateTintView.layer?.compositingFilter = "multiplyBlendMode"
+        agentStateTintView.autoresizingMask = [.width, .height]
+        agentStateTintView.isHidden = true
+        addSubview(agentStateTintView)
         inactiveOverlayView.wantsLayer = true
         inactiveOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
         inactiveOverlayView.isHidden = true
@@ -9601,6 +9616,29 @@ final class GhosttySurfaceScrollView: NSView {
         addSubview(cutoutView, positioned: .below, relativeTo: backgroundView)
         sharedBackdropCutoutView = cutoutView
         return cutoutView
+    }
+
+    /// Washes the whole pane in `color` at `opacity`, or clears it at zero.
+    ///
+    /// Multiply keeps a dark shade readable over terminal content: a flat alpha
+    /// overlay lifts black backgrounds toward the tint and flattens contrast,
+    /// while multiply leaves bright glyphs bright and darkens the ground.
+    func setAgentStateTint(color: NSColor?, opacity: CGFloat) {
+        let clamped = max(0, min(1, opacity))
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if let color, clamped > 0.0001 {
+            agentStateTintView.frame = bounds
+            // The wash is the color itself; `opacity` blends it back toward
+            // white, which is the multiply identity (no darkening).
+            let blended = NSColor.white.blended(withFraction: clamped, of: color) ?? color
+            agentStateTintView.layer?.backgroundColor = blended.cgColor
+            agentStateTintView.isHidden = false
+        } else {
+            agentStateTintView.layer?.backgroundColor = NSColor.clear.cgColor
+            agentStateTintView.isHidden = true
+        }
+        CATransaction.commit()
     }
 
     func setInactiveOverlay(color: NSColor, opacity: CGFloat, visible: Bool) {
@@ -12704,6 +12742,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
         /// Carries the unread-notification color when one is pending and the
         /// pane's agent-state color otherwise.
         var desiredNotificationRingColor: NSColor?
+        var desiredAgentStateTintColor: NSColor?
+        var desiredAgentStateTintOpacity: CGFloat = 0
         var desiredPortalZPriority: Int = 0
         var lastBoundHostId: ObjectIdentifier?
         var lastPaneDropZone: DropZone?
@@ -12801,6 +12841,17 @@ struct GhosttyTerminalView: NSViewRepresentable {
             )
         }
 #endif
+        // The wash follows the agent state only: an unread ring never washes a
+        // pane, and a pane with no agent state has nothing to tint.
+        if let border = agentPaneStateColor, border.status != .none {
+            coordinator.desiredAgentStateTintColor = border.color.nsColor
+            coordinator.desiredAgentStateTintOpacity = CGFloat(
+                PaneChromeSettings.agentStatePaneTintOpacity()
+            )
+        } else {
+            coordinator.desiredAgentStateTintColor = nil
+            coordinator.desiredAgentStateTintOpacity = 0
+        }
         coordinator.desiredPortalZPriority = portalZPriority
         coordinator.hostedView = hostedView
 #if DEBUG
@@ -13040,6 +13091,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
         coordinator.desiredIsActive = false
         coordinator.desiredIsVisibleInUI = false
         coordinator.desiredNotificationRingColor = nil
+        coordinator.desiredAgentStateTintColor = nil
+        coordinator.desiredAgentStateTintOpacity = 0
         coordinator.desiredPortalZPriority = 0
         coordinator.lastBoundHostId = nil
         coordinator.portalReconciliationScheduler.cancel()
