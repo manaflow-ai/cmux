@@ -958,7 +958,16 @@ impl Inner {
             return;
         }
         drop(opening);
-        let attachment = self.attachments.lock().expect("attach lock").remove(pty_id);
+        let gate = self
+            .attachments
+            .lock()
+            .expect("attach lock")
+            .get(pty_id)
+            .map(|attachment| Arc::clone(&attachment.gate));
+        let attachment = gate.and_then(|gate| {
+            let _guard = gate.lock().expect("attachment gate");
+            self.attachments.lock().expect("attach lock").remove(pty_id)
+        });
         if let Some(attachment) = attachment {
             attachment.closing.store(true, Ordering::SeqCst);
             attachment.control.kill();
