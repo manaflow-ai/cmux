@@ -39,6 +39,10 @@ extension GhosttyApp {
             "reload.config.surfaceApply.begin source=\(snapshot.source) prioritized=\(prioritizedLifecycleIDs.count)"
         )
 #endif
+        // This is the public acknowledgement boundary: the validated Ghostty
+        // app configuration is committed, while surface fanout intentionally
+        // continues asynchronously so reload_config cannot reintroduce the
+        // all-surfaces main-actor stall.
         didCommit()
         terminalConfigurationApplyScheduler.replacePendingWork(
             snapshot: snapshot,

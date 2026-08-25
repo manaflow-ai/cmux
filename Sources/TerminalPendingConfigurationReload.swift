@@ -1,6 +1,9 @@
 import CmuxTerminalCore
 
 /// Coalesced request waiting to replace Ghostty's runtime configuration.
+///
+/// Completions acknowledge the validated app-configuration commit. Terminal
+/// surface propagation is a separate bounded asynchronous phase.
 struct TerminalPendingConfigurationReload {
     var soft: Bool
     var source: String
