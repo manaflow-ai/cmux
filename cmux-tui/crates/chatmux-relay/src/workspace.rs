@@ -65,6 +65,7 @@ const GIT_DIFF_LINE_MAX_BYTES: usize = DIFF_MAX_BYTES + 1;
 const GIT_STDERR_MAX_BYTES: usize = 64 * 1024;
 const GIT_STDERR_DRAIN_TIMEOUT_MS: u64 = 250;
 const GIT_STDOUT_DRAIN_TIMEOUT_MS: u64 = 5_000;
+const GIT_PROCESS_WAIT_TIMEOUT_MS: u64 = 5_000;
 
 fn validate_allowed_roots_value(frame: &Value) -> Result<(), &'static str> {
     let Some(value) = frame.get("allowedRoots") else { return Ok(()) };
@@ -1575,6 +1576,29 @@ async fn stop_git(child: &mut tokio::process::Child) {
     let _ = child.kill().await;
 }
 
+/// Await the direct child with a deadline. A process can close both pipes and
+/// still keep running, so pipe EOF is not proof that the Git operation ended.
+/// On timeout, kill and await the child before returning so Unix does not keep
+/// a zombie and the request does not hold an admission permit forever.
+async fn wait_git_with_timeout(
+    child: &mut tokio::process::Child,
+    timeout: std::time::Duration,
+) -> Result<std::process::ExitStatus, Refusal> {
+    match tokio::time::timeout(timeout, child.wait()).await {
+        Ok(Ok(status)) => Ok(status),
+        Ok(Err(error)) => Err(Refusal::failed(format!("could not wait for git: {error}"))),
+        Err(_) => {
+            stop_git(child).await;
+            Err(Refusal::failed("git process wait timed out"))
+        }
+    }
+}
+
+async fn wait_git(child: &mut tokio::process::Child) -> Result<std::process::ExitStatus, Refusal> {
+    wait_git_with_timeout(child, std::time::Duration::from_millis(GIT_PROCESS_WAIT_TIMEOUT_MS))
+        .await
+}
+
 impl Drop for GitStderrDrain {
     fn drop(&mut self) {
         self.task.abort();
@@ -1689,10 +1713,7 @@ async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refu
         stdout_bytes.truncate(STATUS_MAX_BYTES);
         stop_git(&mut child).await;
     }
-    let status = child
-        .wait()
-        .await
-        .map_err(|error| Refusal::failed(format!("could not run git: {error}")))?;
+    let status = wait_git(&mut child).await?;
     let stderr = match stderr_task {
         Some(task) => {
             let result = task.finish().await?;
@@ -1892,10 +1913,7 @@ async fn run_git_diff(
             }
         }
     }
-    let status = child
-        .wait()
-        .await
-        .map_err(|error| Refusal::failed(format!("git diff did not finish: {error}")))?;
+    let status = wait_git(&mut child).await?;
     let stderr = match stderr_task {
         Some(task) => {
             let result = task.finish().await?;
@@ -2797,6 +2815,22 @@ mod tests {
 
         stop_git(&mut child).await;
         assert!(child.id().is_none(), "stop_git must await Child::wait");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn git_wait_timeout_reaps_child_after_pipes_close() {
+        let mut child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg("exec 1>&- 2>&-; sleep 30")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .expect("shell child");
+        let result = wait_git_with_timeout(&mut child, std::time::Duration::from_millis(50)).await;
+        assert!(result.is_err(), "a child that closes pipes must still hit the wait deadline");
+        assert!(child.id().is_none(), "the timeout path must reap the direct child");
     }
 
     fn seeded_repo(name: &str) -> (PathBuf, Scope) {
