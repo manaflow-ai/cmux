@@ -319,6 +319,7 @@ struct Inner {
     output_cap: u64,
     attachments: Mutex<HashMap<String, Attachment>>,
     opening_ids: Mutex<std::collections::HashSet<String>>,
+    cancelled_openings: Mutex<std::collections::HashSet<String>>,
     shell_sessions: Mutex<HashMap<String, Arc<ShellSession>>>,
     shell_starting: Mutex<HashMap<String, Arc<Notify>>>,
     auth: Mutex<Option<AuthSnapshot>>,
@@ -369,6 +370,7 @@ impl PtyManager {
                 output_cap: OUTPUT_BUFFER_CAP,
                 attachments: Mutex::new(HashMap::new()),
                 opening_ids: Mutex::new(std::collections::HashSet::new()),
+                cancelled_openings: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
                 auth: Mutex::new(None),
@@ -394,6 +396,7 @@ impl PtyManager {
                 output_cap,
                 attachments: Mutex::new(HashMap::new()),
                 opening_ids: Mutex::new(std::collections::HashSet::new()),
+                cancelled_openings: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
                 auth: Mutex::new(None),
@@ -649,8 +652,19 @@ impl Inner {
             }
         };
 
+        let cancelled = {
+            let mut opening = self.opening_ids.lock().expect("opening lock");
+            let cancelled =
+                self.cancelled_openings.lock().expect("cancelled openings lock").remove(&pty_id);
+            opening.remove(&pty_id);
+            cancelled
+        };
         reservation.active = false;
-        self.opening_ids.lock().expect("opening lock").remove(&pty_id);
+        if cancelled {
+            opened.closing.store(true, Ordering::SeqCst);
+            opened.control.kill();
+            return;
+        }
         let previous = self.attachments.lock().expect("attach lock").insert(
             pty_id.clone(),
             Attachment {
@@ -761,6 +775,14 @@ impl Inner {
         if let Some(attachment) = attachment {
             attachment.closing.store(true, Ordering::SeqCst);
             attachment.control.kill();
+        } else {
+            let opening = self.opening_ids.lock().expect("opening lock");
+            if opening.contains(pty_id) {
+                self.cancelled_openings
+                    .lock()
+                    .expect("cancelled openings lock")
+                    .insert(pty_id.to_owned());
+            }
         }
     }
 
