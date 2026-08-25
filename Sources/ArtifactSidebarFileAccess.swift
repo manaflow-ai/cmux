@@ -130,7 +130,76 @@ struct ArtifactSidebarFileAccess {
                   chmod(directory.path, S_IRWXU) == 0 else {
                 return nil
             }
+            reclaimStalePreviewFiles(in: directory)
             return directory
+        }
+
+        private static func reclaimStalePreviewFiles(in directory: URL) {
+            let maximumFileCount = 256
+            let maximumByteCount: Int64 = 256 * 1024 * 1024
+            let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
+            guard let enumerator = FileManager.default.enumerator(
+                at: directory,
+                includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
+                options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
+            ) else {
+                return
+            }
+            let directoryPath = directory.standardizedFileURL.path
+            var candidates: [(url: URL, size: Int64, modifiedAt: Date)] = []
+            for case let entry as URL in enumerator {
+                guard entry.deletingLastPathComponent().standardizedFileURL.path == directoryPath,
+                      entry.lastPathComponent.hasPrefix("cmux-artifact-") else {
+                    continue
+                }
+                var status = stat()
+                guard lstat(entry.path, &status) == 0,
+                      (status.st_mode & S_IFMT) == S_IFREG,
+                      status.st_size >= 0 else {
+                    continue
+                }
+                let modifiedAt = Date(timeIntervalSince1970: Double(status.st_mtimespec.tv_sec))
+                guard modifiedAt < cutoff else { continue }
+                let candidate = (
+                    url: entry,
+                    size: Int64(status.st_size),
+                    modifiedAt: modifiedAt
+                )
+                if candidates.count < maximumFileCount {
+                    candidates.append(candidate)
+                    continue
+                }
+                guard let oldestIndex = candidates.indices.min(by: { lhs, rhs in
+                    if candidates[lhs].modifiedAt != candidates[rhs].modifiedAt {
+                        return candidates[lhs].modifiedAt < candidates[rhs].modifiedAt
+                    }
+                    return candidates[lhs].url.path < candidates[rhs].url.path
+                }) else {
+                    continue
+                }
+                let oldest = candidates[oldestIndex]
+                if candidate.modifiedAt > oldest.modifiedAt {
+                    _ = unlink(oldest.url.path)
+                    candidates[oldestIndex] = candidate
+                } else {
+                    _ = unlink(candidate.url.path)
+                }
+            }
+            candidates.sort {
+                if $0.modifiedAt != $1.modifiedAt {
+                    return $0.modifiedAt > $1.modifiedAt
+                }
+                return $0.url.path > $1.url.path
+            }
+            var retainedBytes: Int64 = 0
+            for candidate in candidates {
+                guard candidate.size <= maximumByteCount,
+                      retainedBytes <= maximumByteCount - candidate.size else {
+                    _ = unlink(candidate.url.path)
+                    continue
+                }
+                retainedBytes += candidate.size
+            }
         }
 
         @concurrent

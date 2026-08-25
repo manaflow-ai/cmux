@@ -167,6 +167,8 @@ actor AgentArtifactCaptureCoordinator {
         switch outcomes[processedCount] {
         case .skipped(.candidateLimitReached):
             return .needsContinuation
+        case .skipped(.scanIncomplete):
+            return .blocked
         case .skipped(.storeBusy):
             return .retryableContention
         case .copied, .deduplicated, .alreadyStored, .skipped:
@@ -285,7 +287,7 @@ actor AgentArtifactCaptureCoordinator {
         case .skipped(let reason):
             switch reason {
             case .automaticCaptureDisabled, .candidateLimitReached, .gitPrivacyUnavailable,
-                 .storeBusy, .corruptProvenance:
+                 .storeBusy, .corruptProvenance, .scanIncomplete:
                 return true
             case .notARegularFile, .provenanceNotEligible, .pathOutsideStore,
                  .unsupportedExtension, .exceedsSizeLimit:

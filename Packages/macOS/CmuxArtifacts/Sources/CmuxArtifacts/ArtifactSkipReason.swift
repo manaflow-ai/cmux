@@ -22,4 +22,6 @@ public enum ArtifactSkipReason: String, Equatable, Sendable {
     case exceedsSizeLimit
     /// This scan already reached its configured candidate limit.
     case candidateLimitReached
+    /// Store discovery reached its bounded scan limit and must not be retried immediately.
+    case scanIncomplete
 }

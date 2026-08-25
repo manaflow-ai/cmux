@@ -271905,6 +271905,23 @@
         }
       }
     },
+    "cli.artifact.error.scanIncompleteCandidate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The artifact store is too large to scan safely right now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトストアが大きすぎるため、安全にスキャンできません。"
+          }
+        }
+      }
+    },
     "cli.artifact.error.storeBusy": {
       "extractionState": "manual",
       "localizations": {

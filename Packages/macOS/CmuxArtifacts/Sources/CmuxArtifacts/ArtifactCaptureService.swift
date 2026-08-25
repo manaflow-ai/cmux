@@ -279,7 +279,7 @@ private extension ArtifactStoreError {
         case .artifactNotFound, .ambiguousArtifactName:
             return .notARegularFile
         case .scanIncomplete:
-            return .candidateLimitReached
+            return .scanIncomplete
         case .pathOutsideStore:
             return .pathOutsideStore
         case .corruptProvenance:

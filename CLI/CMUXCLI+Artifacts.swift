@@ -286,6 +286,11 @@ extension CMUXCLI {
                 localized: "cli.artifact.error.candidateLimit",
                 defaultValue: "The artifact capture batch reached its file limit."
             )
+        case .scanIncomplete:
+            return String(
+                localized: "cli.artifact.error.scanIncompleteCandidate",
+                defaultValue: "The artifact store is too large to scan safely right now."
+            )
         }
     }
 
