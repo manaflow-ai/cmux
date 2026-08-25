@@ -116,9 +116,11 @@ class TargetScaleCliTests(unittest.TestCase):
         self.assertEqual(runner.main(["--self-test", "--output", "/tmp/cmux-target-scale-self-test.json"]), 0)
 
     def test_real_run_requires_tag(self) -> None:
-        self.assertEqual(runner.main(["--sizes", "1", "--cpu-seconds", "30"]), 2)
+        self.assertEqual(
+            runner.main(["--sizes", "1", "--cpu-seconds", "30", "--output", "/tmp/cmux-target-scale-missing-tag.json"]),
+            2,
+        )
 
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-

@@ -1,0 +1,164 @@
+name: Target-scale resource budgets
+
+on:
+  # Advisory/manual while hosted-runner variance is characterized.  The
+  # benchmark itself supports --enforce for an explicit gating run.
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or SHA to benchmark
+        required: false
+        default: ""
+      runner:
+        description: Hosted macOS runner
+        required: false
+        default: auto
+        type: choice
+        options:
+          - auto
+          - blacksmith-6vcpu-macos-15
+          - blacksmith-6vcpu-macos-26
+          - blacksmith-6vcpu-macos-latest
+          - warp-macos-15-arm64-6x
+          - depot-macos-latest
+          - depot-macos-14
+      sizes:
+        description: Comma-separated fixture sizes
+        required: false
+        default: "1,10,100,200"
+      scrollback_bytes:
+        description: Identical bounded scrollback bytes per surface
+        required: false
+        default: "65536"
+      settle_seconds:
+        description: Settle time before each measurement
+        required: false
+        default: "5"
+      cpu_seconds:
+        description: CPU sample duration (minimum 30 seconds)
+        required: false
+        default: "30"
+      cycles:
+        description: Reveal/hide cycles
+        required: false
+        default: "20"
+      enforce:
+        description: Exit non-zero on budget failures
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  target-scale:
+    runs-on: ${{ ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner) }}
+    timeout-minutes: 150
+    env:
+      PERF_TAG: target-scale-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Clear stale git locks
+        shell: bash
+        run: |
+          set -euo pipefail
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name '*.lock' -delete 2>/dev/null || true
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download pre-built GhosttyKit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Install Zig and Rust
+        run: |
+          set -euo pipefail
+          ./scripts/install-zig-ci.sh
+          ./scripts/install-rust-ci.sh
+
+      - name: Build tagged app
+        run: |
+          set -euo pipefail
+          CMUX_SKIP_ZIG_BUILD=1 ./scripts/reload.sh --tag "$PERF_TAG"
+
+      - name: Run target-scale benchmark
+        env:
+          SIZES_INPUT: ${{ inputs.sizes || '1,10,100,200' }}
+          SCROLLBACK_INPUT: ${{ inputs.scrollback_bytes || '65536' }}
+          SETTLE_INPUT: ${{ inputs.settle_seconds || '5' }}
+          CPU_INPUT: ${{ inputs.cpu_seconds || '30' }}
+          CYCLES_INPUT: ${{ inputs.cycles || '20' }}
+          ENFORCE_INPUT: ${{ inputs.enforce || 'false' }}
+        run: |
+          set -euo pipefail
+          case "$SCROLLBACK_INPUT" in ''|*[!0-9]*) echo 'scrollback_bytes must be an integer' >&2; exit 2;; esac
+          case "$CPU_INPUT" in ''|*[!0-9]*) echo 'cpu_seconds must be an integer' >&2; exit 2;; esac
+          case "$CYCLES_INPUT" in ''|*[!0-9]*) echo 'cycles must be an integer' >&2; exit 2;; esac
+          RESULTS_DIR="$PWD/perf-results"
+          mkdir -p "$RESULTS_DIR"
+          APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-$PERF_TAG/Build/Products/Debug/cmux DEV $PERF_TAG.app"
+          ENFORCE_ARGS=()
+          if [ "$ENFORCE_INPUT" = 'true' ]; then ENFORCE_ARGS+=(--enforce); fi
+          python3 scripts/perf-target-scale.py \
+            --tag "$PERF_TAG" \
+            --app-path "$APP_PATH" \
+            --sizes "$SIZES_INPUT" \
+            --scrollback-bytes "$SCROLLBACK_INPUT" \
+            --settle-seconds "$SETTLE_INPUT" \
+            --cpu-seconds "$CPU_INPUT" \
+            --cycles "$CYCLES_INPUT" \
+            --output "$RESULTS_DIR/target-scale.json" \
+            --junit "$RESULTS_DIR/target-scale.junit.xml" \
+            "${ENFORCE_ARGS[@]}"
+
+      - name: Write benchmark summary
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ ! -f perf-results/target-scale.json ]; then
+            echo 'No target-scale artifact was produced.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          result = json.loads(Path("perf-results/target-scale.json").read_text())
+          evaluation = result.get("evaluation", {})
+          print("## Target-scale resource budgets")
+          print("")
+          print(f"- Status: `{result.get('status')}`")
+          print(f"- Hardware: `{result.get('metadata', {}).get('hardware', {}).get('model')}`")
+          print(f"- App version: `{result.get('metadata', {}).get('app_version')}`")
+          print(f"- Fixture runs: {len(result.get('runs', []))}")
+          print(f"- Failures: {len(evaluation.get('failures', []))}")
+          for key, value in evaluation.get("slopes", {}).items():
+              print(f"- `{key}`: `{value}`")
+          PY
+
+      - name: Upload target-scale artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: target-scale-${{ github.run_id }}-${{ github.run_attempt }}
+          path: perf-results/
+          if-no-files-found: ignore
+
+      - name: Cleanup tagged app
+        if: always()
+        run: |
+          pkill -f "cmux DEV ${PERF_TAG}.app/Contents/MacOS/cmux DEV" || true
+          rm -f "/tmp/cmux-debug-${PERF_TAG}.sock"
