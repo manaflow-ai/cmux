@@ -243,6 +243,6 @@ extension TerminalController {
               let group = tabManager.workspaceGroups.first(where: { $0.id == groupID }) else {
             return beforeWorkspaceID
         }
-        return group.anchorWorkspaceId
+        return group.liveAnchorWorkspaceId ?? beforeWorkspaceID
     }
 }

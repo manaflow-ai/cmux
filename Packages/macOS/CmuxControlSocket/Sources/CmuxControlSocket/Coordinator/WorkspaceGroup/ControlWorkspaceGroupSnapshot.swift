@@ -17,8 +17,12 @@ public struct ControlWorkspaceGroupSnapshot: Sendable, Equatable {
     public let isCollapsed: Bool
     /// Whether the group is pinned.
     public let isPinned: Bool
-    /// The anchor workspace's identifier.
-    public let anchorWorkspaceID: UUID
+    /// The live anchor workspace's identifier, or `nil` for a header-only group.
+    /// The stable empty-header identity is intentionally not exposed as a
+    /// workspace handle.
+    public let anchorWorkspaceID: UUID?
+    /// Whether the group currently has no live workspace anchor.
+    public let isEmpty: Bool
     /// The group's custom color override, if any.
     public let customColor: String?
     /// The group's custom icon symbol, if any.
@@ -33,7 +37,9 @@ public struct ControlWorkspaceGroupSnapshot: Sendable, Equatable {
     ///   - name: The group's display name.
     ///   - isCollapsed: Whether the group is collapsed.
     ///   - isPinned: Whether the group is pinned.
-    ///   - anchorWorkspaceID: The anchor workspace's identifier.
+    ///   - anchorWorkspaceID: The live anchor workspace's identifier, or `nil`
+    ///     for a header-only group.
+    ///   - isEmpty: Whether the group has no live workspace anchor.
     ///   - customColor: The custom color override, if any.
     ///   - iconSymbol: The custom icon symbol, if any.
     ///   - memberWorkspaceIDs: The member workspace identifiers, in tab order.
@@ -42,7 +48,8 @@ public struct ControlWorkspaceGroupSnapshot: Sendable, Equatable {
         name: String,
         isCollapsed: Bool,
         isPinned: Bool,
-        anchorWorkspaceID: UUID,
+        anchorWorkspaceID: UUID?,
+        isEmpty: Bool,
         customColor: String?,
         iconSymbol: String?,
         memberWorkspaceIDs: [UUID]
@@ -52,6 +59,7 @@ public struct ControlWorkspaceGroupSnapshot: Sendable, Equatable {
         self.isCollapsed = isCollapsed
         self.isPinned = isPinned
         self.anchorWorkspaceID = anchorWorkspaceID
+        self.isEmpty = isEmpty
         self.customColor = customColor
         self.iconSymbol = iconSymbol
         self.memberWorkspaceIDs = memberWorkspaceIDs

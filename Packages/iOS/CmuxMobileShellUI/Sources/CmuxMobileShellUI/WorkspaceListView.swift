@@ -981,14 +981,17 @@ struct WorkspaceListView: View {
         ForEach(items, id: \.id) { item in
             switch item {
             case .groupHeader(let group, let hasUnread):
-                let anchorCapabilities = workspacesByID[group.anchorWorkspaceID]?.actionCapabilities ?? .none
+                let anchorCapabilities = groupCapabilities(
+                    group,
+                    workspacesByID: workspacesByID
+                )
                 WorkspaceGroupHeaderRow(
                     value: WorkspaceGroupHeaderRowValue(
                         group: group,
                         hasUnread: hasUnread,
                         navigationStyle: navigationStyle,
                         isAnchorSelected: navigationStyle == .sidebar
-                            && selectedWorkspaceID == group.anchorWorkspaceID,
+                            && selectedWorkspaceID == group.liveAnchorWorkspaceID,
                         canCreateWorkspaceInGroup: canCreateWorkspaceInGroups
                             && createWorkspaceInGroup != nil,
                         canRenameGroup: anchorCapabilities.supportsGroupActions
@@ -1091,6 +1094,26 @@ struct WorkspaceListView: View {
                 workspaceTitle: workspace.name
             )
         }
+    }
+
+    private func groupCapabilities(
+        _ group: MobileWorkspaceGroupPreview,
+        workspacesByID: [MobileWorkspacePreview.ID: MobileWorkspacePreview]
+    ) -> MobileWorkspaceActionCapabilities {
+        if let anchorWorkspaceID = group.liveAnchorWorkspaceID,
+           let capabilities = workspacesByID[anchorWorkspaceID]?.actionCapabilities {
+            return capabilities
+        }
+        let owner = workspacesByID.values.first { workspace in
+            CmxMacAppInstanceIdentity(
+                macDeviceID: group.macDeviceID ?? "",
+                instanceTag: group.macInstanceTag
+            ) == CmxMacAppInstanceIdentity(
+                macDeviceID: workspace.macDeviceID ?? "",
+                instanceTag: workspace.macInstanceTag
+            )
+        }
+        return owner?.actionCapabilities ?? .none
     }
 
     var settingsMenu: some View {

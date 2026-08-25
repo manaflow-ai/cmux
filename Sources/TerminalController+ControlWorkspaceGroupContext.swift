@@ -46,7 +46,8 @@ extension TerminalController: ControlWorkspaceGroupContext {
             name: group.name,
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
-            anchorWorkspaceID: group.anchorWorkspaceId,
+            anchorWorkspaceID: group.liveAnchorWorkspaceId,
+            isEmpty: group.isEmpty,
             customColor: group.customColor,
             iconSymbol: group.iconSymbol,
             memberWorkspaceIDs: memberIds
@@ -246,7 +247,10 @@ extension TerminalController: ControlWorkspaceGroupContext {
         guard let group = tabManager.workspaceGroups.first(where: { $0.id == groupID }) else {
             return .notFound
         }
-        let anchorCwd = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
+        let anchorCwd = group.liveAnchorWorkspaceId
+            .flatMap { anchorId in
+                tabManager.tabs.first(where: { $0.id == anchorId })?.currentDirectory
+            }
         let configStore = AppDelegate.shared?.mainWindowContexts.values.first(where: { $0.tabManager === tabManager })?.cmuxConfigStore
         let configured = configStore?.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.newWorkspacePlacement
         let placement = explicitPlacement
@@ -330,7 +334,8 @@ extension TerminalController: ControlWorkspaceGroupContext {
             return .tabManagerUnavailable
         }
         guard let group = tabManager.workspaceGroups.first(where: { $0.id == groupID }),
-              let anchor = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId }) else {
+              let anchorId = group.liveAnchorWorkspaceId,
+              let anchor = tabManager.tabs.first(where: { $0.id == anchorId }) else {
             return .notFound
         }
         if let windowId = AppDelegate.shared?.windowId(for: tabManager) {

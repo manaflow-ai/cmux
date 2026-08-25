@@ -113,6 +113,60 @@ import Testing
         #expect(plan.indicator?.tabId == headerId)
     }
 
+    @Test func draggingEmptyGroupHeaderProducesGroupReorderPlan() throws {
+        let groupId = UUID()
+        let otherGroupId = UUID()
+        let otherAnchorId = UUID()
+        let outsideWorkspaceId = UUID()
+        let plan = try #require(SidebarWorkspaceReorderDropResolver().plan(
+            for: SidebarWorkspaceReorderDropRequest(
+                point: CGPoint(x: 12, y: 64),
+                draggedWorkspaceId: groupId,
+                workspaces: [
+                    SidebarWorkspaceReorderWorkspaceSnapshot(
+                        id: outsideWorkspaceId,
+                        isPinned: false,
+                        groupId: nil
+                    ),
+                ],
+                groups: [
+                    SidebarWorkspaceReorderGroupSnapshot(
+                        id: groupId,
+                        anchorWorkspaceId: groupId,
+                        isPinned: true,
+                        isEmpty: true
+                    ),
+                    SidebarWorkspaceReorderGroupSnapshot(
+                        id: otherGroupId,
+                        anchorWorkspaceId: otherAnchorId,
+                        isPinned: true
+                    ),
+                ],
+                targets: [
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: groupId,
+                        groupId: groupId,
+                        isGroupHeader: true,
+                        frame: CGRect(x: 0, y: 0, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: otherAnchorId,
+                        groupId: otherGroupId,
+                        isGroupHeader: true,
+                        frame: CGRect(x: 0, y: 40, width: 180, height: 32)
+                    ),
+                ]
+            )
+        ))
+
+        guard case .reorderGroup(let targetIndex) = plan.action else {
+            Issue.record("expected a group-slot reorder")
+            return
+        }
+        #expect(targetIndex == 1)
+        #expect(plan.draggedWorkspaceId == groupId)
+    }
+
     @Test func orderedWorkspaceDropTargetsMatchArrayWorkspaceAction() {
         let first = UUID()
         let second = UUID()

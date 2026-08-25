@@ -87,9 +87,15 @@ enum SidebarWorkspaceRenderItem {
         var trailingPinned: [WorkspaceGroup] = []
         var trailingUnpinned: [WorkspaceGroup] = []
         for (index, group) in ordered.enumerated() where !memberGroupIds.contains(group.id) {
-            let nextLiveGroup = ordered.dropFirst(index + 1).first { memberGroupIds.contains($0.id) }
-            if let nextLiveGroup {
-                emptyBeforeGroup[nextLiveGroup.id, default: []].append(group)
+            // Empty pinned headers must never be inserted in the unpinned
+            // section (and vice versa). Keep pinned empties in the global
+            // pinned bucket; only an unpinned empty can be anchored directly
+            // before a later live unpinned group.
+            let nextLiveUnpinnedGroup = ordered.dropFirst(index + 1).first {
+                memberGroupIds.contains($0.id) && !$0.isPinned
+            }
+            if !group.isPinned, let nextLiveUnpinnedGroup {
+                emptyBeforeGroup[nextLiveUnpinnedGroup.id, default: []].append(group)
             } else if group.isPinned {
                 trailingPinned.append(group)
             } else {

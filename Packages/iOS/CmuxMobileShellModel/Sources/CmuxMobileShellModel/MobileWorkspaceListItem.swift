@@ -75,7 +75,7 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
         workspaces: [MobileWorkspacePreview],
         groups: [MobileWorkspaceGroupPreview]
     ) -> [MobileWorkspaceListItem] {
-        guard !workspaces.isEmpty else { return [] }
+        guard !workspaces.isEmpty || !groups.isEmpty else { return [] }
         let groupsByID = Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
         // Aggregate unread state per group up front (membership can be
@@ -87,13 +87,13 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
         for workspace in workspaces {
             guard let groupID = workspace.groupID, let group = groupsByID[groupID] else { continue }
             anyMemberUnreadByGroupID[groupID, default: false] = anyMemberUnreadByGroupID[groupID, default: false] || workspace.hasUnread
-            if group.anchorWorkspaceID == workspace.id {
+            if group.liveAnchorWorkspaceID == workspace.id {
                 anchorUnreadByGroupID[groupID] = workspace.hasUnread
             }
         }
 
         var items: [MobileWorkspaceListItem] = []
-        items.reserveCapacity(workspaces.count)
+        items.reserveCapacity(workspaces.count + groups.count)
         var lastEmittedGroupID: MobileWorkspaceGroupPreview.ID?
         var emittedHeaders: Set<MobileWorkspaceGroupPreview.ID> = []
         var emittedFooters: Set<MobileWorkspaceGroupPreview.ID> = []
@@ -135,7 +135,7 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
                 }
             }
 
-            if let groupID, let group = groupsByID[groupID], group.anchorWorkspaceID == workspace.id {
+            if let groupID, let group = groupsByID[groupID], group.liveAnchorWorkspaceID == workspace.id {
                 // Anchor is represented exclusively by the group header.
                 continue
             }
@@ -149,6 +149,29 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
             }
         }
         flushGroupFooter()
+
+        // A durable empty group has no workspace row from which to discover
+        // its header. Keep pinned empty headers in the pinned tier and append
+        // unpinned empties after the live rows, matching the Mac projection.
+        let emptyGroups = groups.filter(\.isEmpty)
+        guard !emptyGroups.isEmpty else { return items }
+        let pinnedEmptyGroups = emptyGroups.filter(\.isPinned)
+        let unpinnedEmptyGroups = emptyGroups.filter { !$0.isPinned }
+        let firstUnpinnedIndex = items.firstIndex { item in
+            switch item {
+            case .groupHeader(let group, _):
+                return !group.isPinned
+            case .workspace(let workspace, _):
+                return !workspace.isPinned
+            case .groupFooter:
+                return false
+            }
+        } ?? items.endIndex
+        items.insert(
+            contentsOf: pinnedEmptyGroups.map { .groupHeader($0, hasUnread: false) },
+            at: firstUnpinnedIndex
+        )
+        items.append(contentsOf: unpinnedEmptyGroups.map { .groupHeader($0, hasUnread: false) })
         return items
     }
 }

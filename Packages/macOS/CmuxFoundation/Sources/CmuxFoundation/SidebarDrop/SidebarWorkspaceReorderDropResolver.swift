@@ -31,6 +31,15 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         let context = hitContext(point: request.point, sortedTargets: sortedTargets)
 
         guard let draggedWorkspace = workspacesById[request.draggedWorkspaceId] else {
+            if let draggedGroup = groupsById[request.draggedWorkspaceId], draggedGroup.isEmpty {
+                return emptyGroupHeaderPlan(
+                    request: request,
+                    context: context,
+                    draggedGroup: draggedGroup,
+                    groupsById: groupsById,
+                    sortedTargets: sortedTargets
+                )
+            }
             return crossWindowPlan(
                 request: request,
                 context: context,
@@ -65,6 +74,69 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             groupsById: groupsById,
             groupByAnchorId: groupByAnchorId,
             groupLayoutsById: groupLayoutsById
+        )
+    }
+
+    private func emptyGroupHeaderPlan(
+        request: SidebarWorkspaceReorderDropRequest,
+        context: SidebarWorkspaceReorderHitContext,
+        draggedGroup: SidebarWorkspaceReorderGroupSnapshot,
+        groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot],
+        sortedTargets: [SidebarWorkspaceReorderDropTarget]
+    ) -> SidebarWorkspaceReorderDropPlan {
+        let groupOrder = request.groups.map(\.id)
+        let currentIndex = groupOrder.firstIndex(of: draggedGroup.id) ?? groupOrder.count
+        let targetGroupId: UUID? = {
+            guard let target = context.target else { return nil }
+            if let groupId = target.groupId, groupId != draggedGroup.id {
+                return groupId
+            }
+            if let previousGroupId = context.previousTarget?.groupId,
+               previousGroupId != draggedGroup.id,
+               groupsById[previousGroupId] != nil {
+                return previousGroupId
+            }
+            return nil
+        }()
+        let rawTargetIndex: Int = {
+            if let targetGroupId,
+               let targetGroupIndex = groupOrder.firstIndex(of: targetGroupId) {
+                return targetGroupIndex + (context.edge == .bottom ? 1 : 0)
+            }
+            // For a root workspace target, count group headers above the
+            // pointer. This keeps the group-slot target independent of raw tab
+            // membership, which is absent for a header-only group.
+            let headerCountBeforePointer = sortedTargets.filter { target in
+                target.isGroupHeader && target.frame.maxY <= request.point.y
+            }.count
+            return context.edge == .top
+                ? headerCountBeforePointer
+                : headerCountBeforePointer
+        }()
+        // `moveWorkspaceGroup` receives the final index after removing the
+        // source. Translate the pointer slot from the full group order so a
+        // source above the target does not land one slot too far right.
+        let adjustedTargetIndex = currentIndex < rawTargetIndex
+            ? rawTargetIndex - 1
+            : rawTargetIndex
+        let clampedTargetIndex = max(0, min(adjustedTargetIndex, groupOrder.count - 1))
+        let indicator: SidebarDropIndicator = {
+            guard let target = context.target else {
+                return SidebarDropIndicator(tabId: nil, edge: .bottom)
+            }
+            let targetId = target.groupId
+                .flatMap { groupsById[$0]?.anchorWorkspaceId }
+                ?? target.workspaceId
+            return SidebarDropIndicator(tabId: targetId, edge: context.edge)
+        }()
+        // Keep the source id in the plan as the stable empty-header identity;
+        // the commit layer interprets the explicit group action, never a
+        // workspace lookup.
+        return SidebarWorkspaceReorderDropPlan(
+            draggedWorkspaceId: draggedGroup.id,
+            indicator: indicator,
+            indicatorScope: .topLevel,
+            action: .reorderGroup(targetIndex: clampedTargetIndex)
         )
     }
 

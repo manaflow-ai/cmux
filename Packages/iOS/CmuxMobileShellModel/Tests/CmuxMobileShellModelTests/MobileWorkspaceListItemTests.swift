@@ -20,17 +20,19 @@ import Testing
 
     private func group(
         _ id: String,
-        anchor: String,
+        anchor: String? = nil,
         collapsed: Bool = false,
         pinned: Bool = false,
-        name: String? = nil
+        name: String? = nil,
+        isEmpty: Bool = false
     ) -> MobileWorkspaceGroupPreview {
         MobileWorkspaceGroupPreview(
             id: .init(rawValue: id),
             name: name ?? id,
             isCollapsed: collapsed,
             isPinned: pinned,
-            anchorWorkspaceID: .init(rawValue: anchor)
+            anchorWorkspaceID: anchor.map { .init(rawValue: $0) },
+            isEmpty: isEmpty
         )
     }
 
@@ -98,6 +100,15 @@ import Testing
             groups: [group("g", anchor: "a")]
         )
         #expect(items == [.groupHeader(group("g", anchor: "a"), hasUnread: false)])
+    }
+
+    @Test func emptyGroupRendersHeaderWithoutWorkspaceRows() {
+        let empty = group("empty", pinned: true, isEmpty: true)
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [],
+            groups: [empty]
+        )
+        #expect(items == [.groupHeader(empty, hasUnread: false)])
     }
 
     @Test func populatedExpandedGroupEndsWithItsDropSlot() {

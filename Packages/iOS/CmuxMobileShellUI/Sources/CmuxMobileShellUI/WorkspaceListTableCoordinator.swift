@@ -880,7 +880,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             return configuration.workspacesByID[workspaceID]
         case .groupHeader(let groupID):
             guard let group = configuration.groupsByID[groupID] else { return nil }
-            return configuration.workspacesByID[group.anchorWorkspaceID]
+            guard let anchorWorkspaceID = group.liveAnchorWorkspaceID else { return nil }
+            return configuration.workspacesByID[anchorWorkspaceID]
         case .chrome, .groupFooter, .filterEmpty:
             return nil
         }
@@ -900,7 +901,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 .actionCapabilities.supportsMoveActions == true
         case .groupHeader(let groupID):
             configuration.groupsByID[groupID]
-                .flatMap { configuration.workspacesByID[$0.anchorWorkspaceID] }?
+                .flatMap { $0.liveAnchorWorkspaceID }
+                .flatMap { configuration.workspacesByID[$0] }?
                 .actionCapabilities.supportsMoveActions == true
         case .chrome, .filterEmpty, .groupFooter:
             false
@@ -1033,7 +1035,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             guard let group = configuration.groupsByID[groupID] else {
                 return AnyView(EmptyView())
             }
-            let capabilities = configuration.workspacesByID[group.anchorWorkspaceID]?
+            let capabilities = group.liveAnchorWorkspaceID
+                .flatMap { configuration.workspacesByID[$0] }?
                 .actionCapabilities ?? .none
             return AnyView(
                 WorkspaceGroupHeaderRow(
@@ -1042,7 +1045,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                         hasUnread: configuration.groupHasUnreadByID[groupID, default: false],
                         navigationStyle: configuration.navigationStyle,
                         isAnchorSelected: configuration.navigationStyle == .sidebar
-                            && configuration.selectedWorkspaceID == group.anchorWorkspaceID,
+                            && configuration.selectedWorkspaceID == group.liveAnchorWorkspaceID,
                         canCreateWorkspaceInGroup: configuration.createWorkspaceInGroup != nil,
                         canRenameGroup: capabilities.supportsGroupActions
                             && configuration.renameWorkspaceGroup != nil,

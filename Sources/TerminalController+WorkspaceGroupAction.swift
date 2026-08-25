@@ -74,7 +74,10 @@ extension TerminalController {
                 tabManager.ungroupWorkspaceGroup(groupId: groupID)
             case .delete:
                 let memberCount = tabManager.tabs.filter { $0.groupId == groupID }.count
-                guard memberCount > 0 else {
+                let isPinnedEmptyGroup = tabManager.workspaceGroups.first {
+                    $0.id == groupID
+                }.map { $0.isPinned && $0.isEmpty } == true
+                guard memberCount > 0 || isPinnedEmptyGroup else {
                     mutationError = .err(
                         code: "invalid_request",
                         message: "Group has no workspaces to close",
@@ -82,7 +85,7 @@ extension TerminalController {
                     )
                     return
                 }
-                guard memberCount < tabManager.tabs.count else {
+                guard isPinnedEmptyGroup || memberCount < tabManager.tabs.count else {
                     mutationError = .err(
                         code: "invalid_request",
                         message: "Cannot delete every workspace in a window",
@@ -94,7 +97,7 @@ extension TerminalController {
                     return
                 }
                 let closed = tabManager.deleteWorkspaceGroup(groupId: groupID)
-                guard closed == memberCount else {
+                guard (isPinnedEmptyGroup ? closed == 0 : closed == memberCount) else {
                     mutationError = .err(
                         code: "invalid_request",
                         message: "Could not close every workspace in the group",

@@ -45,9 +45,17 @@ public struct MobileWorkspaceGroupPreview: Identifiable, Equatable, Sendable {
     public var isPinned: Bool
     /// SF Symbol rendered by the corresponding group row on the Mac.
     public var iconSymbol: String?
-    /// The anchor workspace that owns this group. It is represented by the group
-    /// header and never rendered as a separate row.
+    /// Stable header identity. For an empty group this falls back to the group
+    /// id and must not be treated as a workspace id; use
+    /// ``liveAnchorWorkspaceID`` for workspace actions.
     public var anchorWorkspaceID: MobileWorkspacePreview.ID
+    /// Whether this group intentionally has no live workspace anchor.
+    public var isEmpty: Bool
+
+    /// The live anchor workspace, or `nil` for a header-only group.
+    public var liveAnchorWorkspaceID: MobileWorkspacePreview.ID? {
+        isEmpty ? nil : anchorWorkspaceID
+    }
 
     /// The group identifier to send back to the owning Mac.
     public var rpcGroupID: ID {
@@ -81,7 +89,10 @@ public struct MobileWorkspaceGroupPreview: Identifiable, Equatable, Sendable {
     ///   - isCollapsed: Whether the group is collapsed. Defaults to `false`.
     ///   - isPinned: Whether the group is pinned. Defaults to `false`.
     ///   - iconSymbol: The Mac row's SF Symbol name, when customized.
-    ///   - anchorWorkspaceID: The anchor workspace that owns the group.
+    ///   - anchorWorkspaceID: The live anchor workspace that owns the group,
+    ///     when one exists. Empty groups use the group id as stable header
+    ///     identity.
+    ///   - isEmpty: Whether the group has no live workspace anchor.
     public init(
         id: ID,
         remoteGroupID: ID? = nil,
@@ -91,7 +102,8 @@ public struct MobileWorkspaceGroupPreview: Identifiable, Equatable, Sendable {
         isCollapsed: Bool = false,
         isPinned: Bool = false,
         iconSymbol: String? = nil,
-        anchorWorkspaceID: MobileWorkspacePreview.ID
+        anchorWorkspaceID: MobileWorkspacePreview.ID? = nil,
+        isEmpty: Bool = false
     ) {
         self.id = id
         self.remoteGroupID = remoteGroupID
@@ -110,6 +122,7 @@ public struct MobileWorkspaceGroupPreview: Identifiable, Equatable, Sendable {
         self.isCollapsed = isCollapsed
         self.isPinned = isPinned
         self.iconSymbol = iconSymbol
-        self.anchorWorkspaceID = anchorWorkspaceID
+        self.anchorWorkspaceID = anchorWorkspaceID ?? MobileWorkspacePreview.ID(rawValue: id.rawValue)
+        self.isEmpty = isEmpty || anchorWorkspaceID == nil
     }
 }

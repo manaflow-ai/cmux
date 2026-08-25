@@ -6428,7 +6428,11 @@ extension TabManager {
                         name: groupSnapshot.name,
                         isCollapsed: groupSnapshot.isCollapsed,
                         isPinned: true,
-                        anchor: .empty(groupSnapshot.anchorWorkspaceId ?? groupSnapshot.id),
+                        // The group id is the durable header identity. Older
+                        // snapshots stored a former workspace id here; use
+                        // the group id on restore so header drags resolve as
+                        // group moves rather than as missing workspaces.
+                        anchor: .empty(groupSnapshot.id),
                         customColor: groupSnapshot.customColor,
                         iconSymbol: groupSnapshot.iconSymbol
                     )

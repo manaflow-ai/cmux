@@ -93,7 +93,8 @@ struct MobileWorkspaceListMoveIntentResolver {
         case .workspace(let workspace, _):
             return workspace
         case .groupHeader(let group, _):
-            return workspaces.first { $0.id == group.anchorWorkspaceID }
+            guard let anchorWorkspaceID = group.liveAnchorWorkspaceID else { return nil }
+            return workspaces.first { $0.id == anchorWorkspaceID }
         case .groupFooter:
             return nil
         }
@@ -208,7 +209,7 @@ struct MobileWorkspaceListMoveIntentResolver {
         case .groupFooter(let groupID):
             return workspaceAfterGroup(groupID, workspaces: workspaces)
                 ?? firstWorkspace(in: groupID, workspaces: workspaces)
-                ?? groups.first(where: { $0.id == groupID })?.anchorWorkspaceID
+                ?? groups.first(where: { $0.id == groupID })?.liveAnchorWorkspaceID
         case nil:
             return nil
         }
@@ -230,7 +231,7 @@ struct MobileWorkspaceListMoveIntentResolver {
         in groupID: MobileWorkspaceGroupPreview.ID,
         workspaces: [MobileWorkspacePreview]
     ) -> MobileWorkspacePreview.ID? {
-        guard let anchorWorkspaceID = groups.first(where: { $0.id == groupID })?.anchorWorkspaceID else {
+        guard let anchorWorkspaceID = groups.first(where: { $0.id == groupID })?.liveAnchorWorkspaceID else {
             return nil
         }
         return workspaces.first(where: {

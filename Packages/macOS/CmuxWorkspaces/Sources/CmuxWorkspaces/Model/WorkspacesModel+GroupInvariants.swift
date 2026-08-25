@@ -42,7 +42,7 @@ extension WorkspacesModel {
                 // Unpinned empty groups are not created by normal close paths,
                 // but keeping their identity coherent makes malformed/imported
                 // state deterministic until the caller explicitly removes it.
-                workspaceGroups[index].anchor = .empty(workspaceGroups[index].anchorWorkspaceId)
+                workspaceGroups[index].anchor = .empty(workspaceGroups[index].id)
             }
         }
         let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
@@ -227,7 +227,7 @@ extension WorkspacesModel {
             if let nextAnchor = tabs.first(where: { $0.groupId == group.id }) {
                 workspaceGroups[groupIndex].anchor = .workspace(nextAnchor.id)
             } else {
-                workspaceGroups[groupIndex].anchor = .empty(group.anchorWorkspaceId)
+                workspaceGroups[groupIndex].anchor = .empty(group.id)
             }
         }
         for gid in dissolvedGroupIds {
@@ -270,7 +270,7 @@ extension WorkspacesModel {
                 workspaceGroups[groupIndex].anchor = .workspace(nextAnchor.id)
                 promotedAnchorIds.append(nextAnchor.id)
             } else if workspaceGroups[groupIndex].isPinned {
-                workspaceGroups[groupIndex].anchor = .empty(workspaceGroups[groupIndex].anchorWorkspaceId)
+                workspaceGroups[groupIndex].anchor = .empty(workspaceGroups[groupIndex].id)
             } else {
                 removedGroupIds.append(gid)
             }

@@ -266,13 +266,20 @@ public struct MobileWorkspaceAggregation: Sendable {
                     instanceTag: state.instanceTag,
                     groupID: remoteGroupID
                 )
-                let remoteAnchorID = remoteWorkspaceIDByLocalID[group.anchorWorkspaceID]
-                    ?? group.anchorWorkspaceID
-                stamped.anchorWorkspaceID = rowID(
-                    macDeviceID: state.macDeviceID,
-                    instanceTag: state.instanceTag,
-                    workspaceID: remoteAnchorID
-                )
+                if let liveAnchorWorkspaceID = group.liveAnchorWorkspaceID {
+                    let remoteAnchorID = remoteWorkspaceIDByLocalID[liveAnchorWorkspaceID]
+                        ?? liveAnchorWorkspaceID
+                    stamped.anchorWorkspaceID = rowID(
+                        macDeviceID: state.macDeviceID,
+                        instanceTag: state.instanceTag,
+                        workspaceID: remoteAnchorID
+                    )
+                } else {
+                    // Empty headers have no workspace row to namespace; use
+                    // the already-namespaced group id only as a stable UI row
+                    // identity, never as a workspace capability.
+                    stamped.anchorWorkspaceID = stamped.id
+                }
                 result.append(stamped)
             }
         }

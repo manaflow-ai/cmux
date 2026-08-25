@@ -273,8 +273,12 @@ public struct GroupSyncRecord: MobileSyncRecord {
     public let isPinned: Bool
     /// SF Symbol rendered by the corresponding group row on the Mac.
     public let iconSymbol: String?
-    /// The anchor workspace that owns this group.
-    public let anchorWorkspaceID: String
+    /// The live anchor workspace that owns this group, or `nil` for a
+    /// header-only group. Empty groups never publish a placeholder workspace
+    /// identifier.
+    public let anchorWorkspaceID: String?
+    /// Whether this group currently has no live workspace anchor.
+    public let isEmpty: Bool
     /// Position in the Mac's presented section order.
     public let sortIndex: Int
 
@@ -290,8 +294,9 @@ public struct GroupSyncRecord: MobileSyncRecord {
         isCollapsed: Bool,
         isPinned: Bool,
         iconSymbol: String? = nil,
-        anchorWorkspaceID: String,
-        sortIndex: Int
+        anchorWorkspaceID: String?,
+        sortIndex: Int,
+        isEmpty: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -299,7 +304,21 @@ public struct GroupSyncRecord: MobileSyncRecord {
         self.isPinned = isPinned
         self.iconSymbol = iconSymbol
         self.anchorWorkspaceID = anchorWorkspaceID
+        self.isEmpty = isEmpty
         self.sortIndex = sortIndex
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        isCollapsed = try container.decode(Bool.self, forKey: .isCollapsed)
+        isPinned = try container.decode(Bool.self, forKey: .isPinned)
+        iconSymbol = try container.decodeIfPresent(String.self, forKey: .iconSymbol)
+        anchorWorkspaceID = try container.decodeIfPresent(String.self, forKey: .anchorWorkspaceID)
+        isEmpty = try container.decodeIfPresent(Bool.self, forKey: .isEmpty)
+            ?? (anchorWorkspaceID == nil)
+        sortIndex = try container.decode(Int.self, forKey: .sortIndex)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -309,6 +328,7 @@ public struct GroupSyncRecord: MobileSyncRecord {
         case isPinned = "is_pinned"
         case iconSymbol = "icon_symbol"
         case anchorWorkspaceID = "anchor_workspace_id"
+        case isEmpty = "is_empty"
         case sortIndex = "sort_index"
     }
 }
