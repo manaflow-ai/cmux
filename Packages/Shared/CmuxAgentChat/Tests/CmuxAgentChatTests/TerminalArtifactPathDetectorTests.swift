@@ -175,7 +175,7 @@ struct TerminalArtifactPathDetectorTests {
             .map { "/tmp/generated/path-\($0).txt" }
             .joined(separator: " ")
 
-        let paths = TerminalArtifactPathDetector().paths(in: text, maximumCount: 1_024)
+        let paths = TerminalArtifactPathDetector().paths(in: text)
 
         #expect(paths.count == 1_024)
         #expect(paths.first == "/tmp/generated/path-0.txt")

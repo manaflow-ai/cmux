@@ -204,10 +204,14 @@ struct ArtifactCaptureServiceTests {
         try FileManager.default.removeItem(at: authorizedParent)
         try FileManager.default.createSymbolicLink(at: authorizedParent, withDestinationURL: outside)
 
-        await #expect(throws: ArtifactStoreError.self) {
-            _ = try await ArtifactCaptureService(store: LocalArtifactRepository()).add(
-                sourceURL: source,
-                context: ArtifactCaptureContext(projectRoot: root),
+        let paths = ArtifactStorePaths(projectRoot: root)
+        #expect(throws: ArtifactStoreError.self) {
+            _ = try ArtifactSourceSnapshotter(fileManager: .default).snapshot(
+                source: source,
+                paths: paths,
+                configuration: .defaultValue,
+                maximumBytes: nil,
+                stagedURL: paths.importStagingRoot.appendingPathComponent("staged.md"),
                 expectedCanonicalPath: expectedCanonicalPath
             )
         }
