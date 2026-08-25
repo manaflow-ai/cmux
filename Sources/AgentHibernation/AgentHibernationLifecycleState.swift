@@ -30,7 +30,7 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
         fallback: AgentHibernationLifecycleState?
     ) -> AgentHibernationLifecycleState {
         let states = statusKeyedStates
-            .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
+            .filter { AgentHibernationLifecycleStatusKeys.isAllowed($0.key) }
             .map(\.value)
         guard !states.isEmpty else {
             return fallback ?? .unknown
