@@ -305,6 +305,25 @@ final class ClaudeHookSessionStore {
         expired: Bool,
         remainingDisplayCommand: String?
     )
+
+    final class CursorShellApprovalReconciliationLease {
+        private var fileDescriptor: Int32
+
+        init(fileDescriptor: Int32) {
+            self.fileDescriptor = fileDescriptor
+        }
+
+        func release() {
+            guard fileDescriptor >= 0 else { return }
+            _ = flock(fileDescriptor, LOCK_UN)
+            Darwin.close(fileDescriptor)
+            fileDescriptor = -1
+        }
+
+        deinit {
+            release()
+        }
+    }
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
     private static let maxPendingCursorShellApprovals = 16
@@ -1955,26 +1974,35 @@ final class ClaudeHookSessionStore {
         return result
     }
 
-    /// Serializes Cursor's durable resolution with its visible reconciliation.
+    /// Acquires a session-scoped ordering lease for Cursor approval state/UI.
     ///
-    /// The state lock must be released before socket I/O, so completion hooks
-    /// use this separate lock to keep their state/UI order without blocking
-    /// unrelated session-store transactions.
-    func withCursorShellApprovalReconciliationLock<T>(
-        _ body: () throws -> T
-    ) throws -> T {
-        let lockPath = statePath + ".cursor-approval-reconcile.lock"
+    /// The state lock is released before socket I/O; this separate lease keeps
+    /// one session's creation and completion mutations ordered without
+    /// serializing unrelated Cursor sessions.
+    func acquireCursorShellApprovalReconciliationLock(
+        sessionId: String
+    ) throws -> CursorShellApprovalReconciliationLease {
+        let normalizedSession = normalizeSessionId(sessionId)
+        guard !normalizedSession.isEmpty else {
+            throw CLIError(message: "Cursor approval reconciliation requires a session")
+        }
+        let hexadecimal = Array("0123456789abcdef".utf8)
+        var encoded: [UInt8] = []
+        encoded.reserveCapacity(64)
+        for byte in SHA256.hash(data: Data(normalizedSession.utf8)) {
+            encoded.append(hexadecimal[Int(byte >> 4)])
+            encoded.append(hexadecimal[Int(byte & 0x0f)])
+        }
+        let lockPath = statePath + ".cursor-approval-reconcile-\(String(decoding: encoded, as: UTF8.self)).lock"
         let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
         if fd < 0 {
             throw CLIError(message: "Failed to open Cursor approval reconciliation lock: \(lockPath)")
         }
-        defer { Darwin.close(fd) }
-
         if flock(fd, LOCK_EX) != 0 {
+            Darwin.close(fd)
             throw CLIError(message: "Failed to lock Cursor approval reconciliation: \(lockPath)")
         }
-        defer { _ = flock(fd, LOCK_UN) }
-        return try body()
+        return CursorShellApprovalReconciliationLease(fileDescriptor: fd)
     }
 
     private func loadUnlocked() -> ClaudeHookSessionStoreFile {
@@ -32186,6 +32214,9 @@ export default CMUXSessionRestore;
         let mappedSessionForPolicy = cursorShellEvent
             ? (sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)))
             : nil
+        let cursorLaunchDisablesProjectConfigs = mappedSessionForPolicy?.launchCommand?.arguments.contains {
+            $0 == "--disable-project-configs" || $0 == "--disable-project-configs=true"
+        } == true
         let cursorApprovalSettings: (
             mode: String?,
             allowedShellCommands: [String],
@@ -32241,6 +32272,12 @@ export default CMUXSessionRestore;
                 }
                 return (mode, allowedShellCommands, deniedShellCommands)
             }
+            guard !cursorLaunchDisablesProjectConfigs else {
+                if mode == nil, didReadConfig {
+                    mode = "allowlist"
+                }
+                return (mode, allowedShellCommands, deniedShellCommands)
+            }
             let cwdURL = URL(fileURLWithPath: rawCwd).standardizedFileURL
             let fileManager = FileManager.default
             var cursor = cwdURL
@@ -32255,6 +32292,7 @@ export default CMUXSessionRestore;
                     break
                 }
                 let parent = cursor.deletingLastPathComponent()
+                if cursor.path == "/" { break }
                 if parent.path == cursor.path { break }
                 cursor = parent
                 ancestorDepth += 1
@@ -32857,25 +32895,32 @@ export default CMUXSessionRestore;
                 )
             }
 
-            let resolution = try? store.withCursorShellApprovalReconciliationLock {
-                let resolution = try store.resolveCursorShellApproval(
-                    sessionId: sessionId,
-                    command: command,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    cwd: preferredAgentHookResumeWorkingDirectory(
-                        kind: def.name,
-                        current: launchCommand,
-                        currentCwd: hookCwd,
-                        mapped: mapped
-                    ),
-                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
-                    pid: pid,
-                    launchCommand: resumeLaunchCommand,
-                    toolUseId: cursorShellToolUseId(from: input)
-                )
+            // Hold the session-scoped lease through resume publication and
+            // the authoritative journal append below. Approval creation uses
+            // the same lease, so a newer request cannot be overwritten by
+            // this completion's Running event.
+            let reconciliationLease = try? store.acquireCursorShellApprovalReconciliationLock(
+                sessionId: sessionId
+            )
+            defer { reconciliationLease?.release() }
+            let resolution = try? store.resolveCursorShellApproval(
+                sessionId: sessionId,
+                command: command,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: preferredAgentHookResumeWorkingDirectory(
+                    kind: def.name,
+                    current: launchCommand,
+                    currentCwd: hookCwd,
+                    mapped: mapped
+                ),
+                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                pid: pid,
+                launchCommand: resumeLaunchCommand,
+                toolUseId: cursorShellToolUseId(from: input)
+            )
+            if let resolution {
                 reconcileCursorShellUI(resolution)
-                return resolution
             }
             if let resolution, !resolution.matched, resolution.expired, !resolution.hasRemaining {
                 emitJournal(
@@ -33941,6 +33986,16 @@ export default CMUXSessionRestore;
                 }
             }
 
+            let cursorApprovalReconciliationLease: ClaudeHookSessionStore.CursorShellApprovalReconciliationLease?
+            if cursorShellNeedsApproval {
+                cursorApprovalReconciliationLease = try? store.acquireCursorShellApprovalReconciliationLock(
+                    sessionId: sessionId
+                )
+            } else {
+                cursorApprovalReconciliationLease = nil
+            }
+            defer { cursorApprovalReconciliationLease?.release() }
+
             if cursorShellNeedsApproval {
                 guard !sessionId.isEmpty,
                       let command = cursorShellCommand(from: input),
@@ -34217,7 +34272,12 @@ export default CMUXSessionRestore;
                 )
 #endif
                 do {
-                    let response = try sendV1Command(notifyCommand, client: client)
+                    let response: String
+                    if cursorShellNeedsApproval {
+                        response = try client.send(command: notifyCommand, responseTimeout: 1.0)
+                    } else {
+                        response = try sendV1Command(notifyCommand, client: client)
+                    }
 #if DEBUG
                     agentHookDebugLog(
                         "agentHook.notification.notify.sent agent=\(def.name) session=\(agentHookDebugShort(sessionId)) response=\(response)",
@@ -34255,10 +34315,17 @@ export default CMUXSessionRestore;
                     String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
                     def.displayName
                 )
-                _ = try? sendV1Command(
-                    "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
-                )
+                if cursorShellNeedsApproval {
+                    _ = try? client.send(
+                        command: "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        responseTimeout: 1.0
+                    )
+                } else {
+                    _ = try? sendV1Command(
+                        "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                }
             case .error?:
                 let statusValue = String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
@@ -34273,6 +34340,7 @@ export default CMUXSessionRestore;
             case nil:
                 break
             }
+            cursorApprovalReconciliationLease?.release()
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
 
         case .sessionEnd:
