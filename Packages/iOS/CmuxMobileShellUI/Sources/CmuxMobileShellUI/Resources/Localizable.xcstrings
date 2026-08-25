@@ -920,6 +920,34 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "削除" } }
       }
     },
+    "mobile.connections.route.remove" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Remove route" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "経路を削除" } }
+      }
+    },
+    "mobile.connections.route.deleteComputer.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Delete this computer?" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このコンピュータを削除しますか？" } }
+      }
+    },
+    "mobile.connections.route.deleteComputer.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This is the last route. Deleting it will delete this computer record. You can reconnect later by pairing this computer again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "最後の経路です。削除すると、このコンピュータの登録も削除されます。もう一度ペアリングすれば再接続できます。" } }
+      }
+    },
+    "mobile.connections.route.deleteComputer.confirm" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Delete Computer" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コンピュータを削除" } }
+      }
+    },
     "mobile.common.save" : {
       "extractionState" : "manual",
       "localizations" : {

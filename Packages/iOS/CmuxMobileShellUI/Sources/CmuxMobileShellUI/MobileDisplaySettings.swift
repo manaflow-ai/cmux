@@ -127,6 +127,22 @@ public final class MobileDisplaySettings {
             )
         }
     }
+
+    /// DEBUG-only override forcing the rebuilt keyboard dock path on this
+    /// device (iOS ≤26; legacy is the shipping default), exposed in
+    /// Settings > Developer for keyboard-pinning A/B dogfood. Terminal hosts
+    /// snapshot the flag when they mount, so a change applies after the
+    /// workspace is reopened. Writes through to the shared
+    /// `UserDefaults.cmuxForceRebuildKeyboardDockKey` that
+    /// `GhosttySurfaceHostView` reads.
+    public var forceRebuildKeyboardDock: Bool {
+        didSet {
+            defaults.set(
+                forceRebuildKeyboardDock,
+                forKey: UserDefaults.cmuxForceRebuildKeyboardDockKey
+            )
+        }
+    }
     #else
     /// Production builds expose only the shipping Shell icon treatment.
     var taskComposerShellIconVariant: TaskComposerShellIconVariant { .current }
@@ -161,6 +177,7 @@ public final class MobileDisplaySettings {
         self.taskComposerShellIconVariant = defaults.string(
             forKey: Self.taskComposerShellIconVariantKey
         ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
+        self.forceRebuildKeyboardDock = defaults.cmuxForceRebuildKeyboardDock
         #endif
     }
 

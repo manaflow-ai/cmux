@@ -66,12 +66,12 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             ?? firstChildTab?.currentDirectory
         let originalTabOrder = model.tabs.map(\.id)
 
-        let anchor = host.createGroupAnchorWorkspace(
+        guard let anchor = host.createGroupAnchorWorkspace(
             title: resolvedName,
             workingDirectory: inferredCwd,
             inheritWorkingDirectory: inferredCwd == nil,
             select: selectAnchor
-        )
+        ) else { return nil }
 
         let group = WorkspaceGroup(
             id: UUID(),
@@ -140,7 +140,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             ?? host.defaultNewWorkspacePlacementInGroup
         guard let group = model.workspaceGroups.first(where: { $0.id == groupId }) else { return nil }
         let cwd = model.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
-        let newWorkspace = host.createWorkspaceForGroup(
+        guard let newWorkspace = host.createWorkspaceForGroup(
             title: title,
             workingDirectory: cwd,
             initialSurface: initialSurface,
@@ -150,7 +150,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             inheritWorkingDirectory: cwd == nil,
             select: select,
             applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
-        )
+        ) else { return nil }
         model.assignGroup(workspaceId: newWorkspace.id, groupId: groupId)
         placeWithinGroup(
             workspaceId: newWorkspace.id,

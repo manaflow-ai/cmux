@@ -314,13 +314,14 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         )
     }
 
-    /// Inverse of the press treatment: previewing a different row must peel a
-    /// pending header's optimistic anchor-active visuals. The authoritative
-    /// apply reconfigures only rows whose model changed, and a replaced
-    /// preview never changes this header's model — without an explicit clear
-    /// the painted treatment would linger indefinitely.
-    func clearOptimisticAnchorActive() {
-        guard let model, !model.isAnchorActive else { return }
+    /// Rollback for optimistic press paint: reapplies the stored model
+    /// unconditionally, mirroring the workspace cell. This must not skip
+    /// active models — `showOptimisticDeselection` can clear a header whose
+    /// model is still anchor-active, and a press that never produces an
+    /// authoritative apply (swallowed, superseded, became a drag) would
+    /// otherwise leave that header visually deselected until the next render.
+    func restoreStoredModelPaint() {
+        guard let model else { return }
         applyModel(model)
     }
 
