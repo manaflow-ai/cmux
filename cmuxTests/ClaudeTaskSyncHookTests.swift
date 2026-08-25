@@ -152,8 +152,12 @@ struct ClaudeTaskSyncHookTests {
         #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
         let reconciliations = reconcileRequests(in: context)
         #expect(reconciliations.count == 2)
-        let previousReconciliation = try #require(reconciliations.first)
-        let currentReconciliation = try #require(reconciliations.dropFirst().first)
+        let previousReconciliation = try #require(
+            reconciliations.first { ($0["items"] as? [[String: Any]])?.isEmpty == true }
+        )
+        let currentReconciliation = try #require(
+            reconciliations.first { ($0["items"] as? [[String: Any]])?.isEmpty != true }
+        )
         let ownerID = taskOwnerID(directoryName: sessionId, tasksRootURL: tasksRoot)
         #expect(previousReconciliation["workspace_id"] as? String == previousWorkspaceId)
         #expect(previousReconciliation["owner_id"] as? String == ownerID)
@@ -329,8 +333,16 @@ struct ClaudeTaskSyncHookTests {
         let reconciliations = reconcileRequests(in: context)
         #expect(reconciliations.count == 3)
         let previousDelivery = try #require(reconciliations.first)
-        let previousCleanup = try #require(reconciliations.dropFirst().first)
-        let currentDelivery = try #require(reconciliations.last)
+        let previousCleanup = try #require(
+            reconciliations.dropFirst().first {
+                ($0["items"] as? [[String: Any]])?.isEmpty == true
+            }
+        )
+        let currentDelivery = try #require(
+            reconciliations.dropFirst().first {
+                ($0["items"] as? [[String: Any]])?.isEmpty != true
+            }
+        )
         let ownerID = taskOwnerID(directoryName: sessionId, tasksRootURL: tasksRoot)
         #expect(previousDelivery["workspace_id"] as? String == previousWorkspaceId)
         #expect(previousCleanup["workspace_id"] as? String == previousWorkspaceId)
