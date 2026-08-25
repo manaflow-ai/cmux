@@ -131,7 +131,7 @@ struct SessionIndexView: View {
             Button {
                 store.reload()
             } label: {
-                CmuxSystemSymbolImage(systemName: "arrow.clockwise", pointSize: 10, weight: .medium)
+                CmuxSystemSymbolImage(magnified: "arrow.clockwise", pointSize: 10, weight: .medium)
             }
             .buttonStyle(.borderless)
             .help(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload Vault"))
@@ -285,7 +285,7 @@ private struct AgentIconImage: View, Equatable {
             .frame(width: size, height: size)
         } else {
             CmuxSystemSymbolImage(
-                systemName: agent.systemImageName ?? "person.crop.circle",
+                magnified: agent.systemImageName ?? "person.crop.circle",
                 pointSize: max(size - 2, 10),
                 weight: .regular
             )
@@ -305,7 +305,7 @@ private struct GroupingButton: View {
         Button(action: action) {
             HStack(spacing: 3) {
                 CmuxSystemSymbolImage(
-                    systemName: mode.symbolName,
+                    magnified: mode.symbolName,
                     pointSize: RightSidebarChromeControlStyle.secondaryIconSize,
                     weight: RightSidebarChromeControlStyle.iconWeight
                 )
@@ -470,7 +470,7 @@ struct IndexSectionView: View, Equatable {
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                CmuxSystemSymbolImage(systemName: "chevron.down", pointSize: 9, weight: .semibold)
+                CmuxSystemSymbolImage(magnified: "chevron.down", pointSize: 9, weight: .semibold)
                     .foregroundColor(.secondary.opacity(0.6))
                     .rotationEffect(.degrees(isCollapsed ? -90 : 0))
                 Spacer(minLength: 0)
@@ -503,7 +503,7 @@ struct IndexSectionView: View, Equatable {
         case .agent(let agent):
             AgentIconImage(agent: agent, size: 14)
         case .folder:
-            CmuxSystemSymbolImage(systemName: "folder", pointSize: 12, weight: .regular)
+            CmuxSystemSymbolImage(magnified: "folder", pointSize: 12, weight: .regular)
                 .foregroundColor(.secondary)
                 .frame(width: 14, height: 14)
         }
@@ -778,7 +778,7 @@ struct SessionTranscriptPreviewView: View {
                 }
             }
             Spacer(minLength: 8)
-            CmuxSystemSymbolImage(systemName: "xmark", pointSize: 11, weight: .semibold)
+            CmuxSystemSymbolImage(magnified: "xmark", pointSize: 11, weight: .semibold)
                 .foregroundColor(closeIsHovered ? .primary : .secondary)
                 .frame(width: 20, height: 20)
                 .background(
@@ -841,7 +841,7 @@ struct SessionTranscriptPreviewView: View {
 
     private func statusRow(systemImage: String, text: String) -> some View {
         HStack(spacing: 8) {
-            CmuxSystemSymbolImage(systemName: systemImage, pointSize: 12, weight: .medium)
+            CmuxSystemSymbolImage(magnified: systemImage, pointSize: 12, weight: .medium)
                 .foregroundColor(.secondary)
             Text(text)
                 .cmuxFont(size: 12)
@@ -2005,7 +2005,7 @@ struct SectionPopoverView: View {
             .padding(.bottom, 6)
 
             HStack(spacing: 6) {
-                CmuxSystemSymbolImage(systemName: "magnifyingglass", pointSize: 11, weight: .medium)
+                CmuxSystemSymbolImage(magnified: "magnifyingglass", pointSize: 11, weight: .medium)
                     .foregroundColor(.secondary)
                 TextField(
                     String(localized: "sessionIndex.popover.searchPlaceholder",
@@ -2019,7 +2019,7 @@ struct SectionPopoverView: View {
                     Button {
                         query = ""
                     } label: {
-                        CmuxSystemSymbolImage(systemName: "xmark.circle.fill", pointSize: 11)
+                        CmuxSystemSymbolImage(magnified: "xmark.circle.fill", pointSize: 11)
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(.plain)
@@ -2040,7 +2040,7 @@ struct SectionPopoverView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(errorMessages, id: \.self) { msg in
                         HStack(alignment: .top, spacing: 6) {
-                            CmuxSystemSymbolImage(systemName: "exclamationmark.triangle.fill", pointSize: 10)
+                            CmuxSystemSymbolImage(magnified: "exclamationmark.triangle.fill", pointSize: 10)
                                 .foregroundColor(.orange)
                             Text(msg)
                                 .cmuxFont(size: 11)
@@ -2288,7 +2288,7 @@ struct SectionPopoverView: View {
         case .agent(let agent):
             AgentIconImage(agent: agent, size: 14)
         case .folder:
-            CmuxSystemSymbolImage(systemName: "folder", pointSize: 12, weight: .regular)
+            CmuxSystemSymbolImage(magnified: "folder", pointSize: 12, weight: .regular)
                 .foregroundColor(.secondary)
                 .frame(width: 14, height: 14)
         }
