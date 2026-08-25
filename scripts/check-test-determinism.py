@@ -3175,9 +3175,19 @@ def _logical_network_chunks(
             and source[previous] == "\\"
             and executable[previous]
         )
+        next_code = index + 1
+        while next_code < len(source) and source[next_code] in " \t\r":
+            next_code += 1
+        fluent_continuation = (
+            network_context
+            and next_code < len(source)
+            and source[next_code] == "."
+            and executable[next_code]
+        )
         should_split = (
             executable[index]
             and not line_continues
+            and not fluent_continuation
             and (
                 not network_context
                 or (paren_depth == 0 and bracket_depth == 0)
