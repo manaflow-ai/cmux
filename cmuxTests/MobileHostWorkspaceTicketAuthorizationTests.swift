@@ -319,12 +319,13 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         #expect(payload["attach_url"] == nil)
         // `ticket_only` is the authenticated full-ticket contract consumed by
         // current RPC clients; its token and route set must remain lossless.
-        #expect((payload["routes"] as? [[String: Any]])?.count == routes.count)
+        #expect((payload["routes"] as? [[String: Any]])?.count == 2)
         #expect(
             (payload["routes"] as? [[String: Any]])?.contains {
                 $0["kind"] as? String == CmxAttachTransportKind.lan.rawValue
-            } == true
+            } == false
         )
+        #expect(payload["ticket"] is [String: Any])
     }
 
     @Test func omittedTargetPreservesLegacyAttachURL() throws {

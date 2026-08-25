@@ -617,6 +617,16 @@ import Testing
         #expect(routes.map(\.kind) == [.tailscale])
     }
 
+    @Test func automaticSimulatorReconnectKeepsLoopbackAlongsideIroh() throws {
+        let routes = MobileShellComposite.storedReconnectRoutes(
+            [try iroh(), try loopback()],
+            supportedKinds: [.iroh, .debugLoopback],
+            preferNonLoopback: false
+        )
+
+        #expect(routes.map(\.kind) == [.iroh, .debugLoopback])
+    }
+
     @Test func tailscaleMethodWithoutGrantRejectsEveryRoute() throws {
         let routes = MobileShellComposite.storedReconnectRoutes(
             [try tailscale(), try iroh()],
