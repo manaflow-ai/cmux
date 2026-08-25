@@ -174,7 +174,9 @@ jobs:
           )
           for package in "${packages[@]}"; do
             echo "Publishing $package@$DIST_TAG"
-            if ! npm publish --provenance --tag "$DIST_TAG" "dist/npm-packages/$package"; then
+            # --access public is required to publish a NEW unscoped package
+            # with --provenance; every cmux-relay platform package starts new.
+            if ! npm publish --provenance --access public --tag "$DIST_TAG" "dist/npm-packages/$package"; then
               cat >&2 <<'EOF'
           npm publish failed.
 
@@ -204,7 +206,7 @@ jobs:
       - name: Publish relay launcher package
         env:
           DIST_TAG: ${{ needs.version.outputs.dist_tag }}
-        run: npm publish --provenance --tag "$DIST_TAG" dist/npm-packages/cmux-relay
+        run: npm publish --provenance --access public --tag "$DIST_TAG" dist/npm-packages/cmux-relay
 
       - name: Smoke install from the registry
         env:
