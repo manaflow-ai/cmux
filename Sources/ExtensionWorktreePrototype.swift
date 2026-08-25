@@ -459,52 +459,60 @@ enum CmuxExtensionWorktreePrototype {
                 try FileManager.default.createDirectory(at: worktreeRoot, withIntermediateDirectories: true)
                 let worktree = worktreeRoot.appendingPathComponent(branchName, isDirectory: true)
                 try await run("git", ["-C", projectRoot.path, "worktree", "add", "-b", branchName, worktree.path, "HEAD"])
-                let createdHeadData = try await runCapturingOutput(
-                    "git",
-                    ["-C", worktree.path, "rev-parse", "--verify", "HEAD"]
-                )
-                guard let createdHead = String(bytes: createdHeadData, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                      !createdHead.isEmpty else {
-                    logPrivateFailure("Git returned an empty or non-UTF-8 worktree HEAD.")
-                    throw NSError(
-                        domain: "CmuxExtensionWorktreePrototype",
-                        code: 4,
-                        userInfo: [NSLocalizedDescriptionKey: "Could not create worktree."]
+                let worktreeIdentity = Self.filesystemIdentity(at: worktree)
+                var createdHead: String?
+                do {
+                    let createdHeadData = try await runCapturingOutput(
+                        "git",
+                        ["-C", worktree.path, "rev-parse", "--verify", "HEAD"]
                     )
-                }
-                let generatedArtifact = try writeSampleDevServerFiles(
-                    in: worktree,
-                    projectName: projectRoot.lastPathComponent
-                )
-                let worktreeAttributes = try FileManager.default.attributesOfItem(
-                    atPath: worktree.path
-                )
-                guard let worktreeDeviceID =
-                        (worktreeAttributes[.systemNumber] as? NSNumber)?.uint64Value,
-                      let worktreeFileID =
-                        (worktreeAttributes[.systemFileNumber] as? NSNumber)?.uint64Value else {
-                    throw NSError(
-                        domain: "CmuxExtensionWorktreePrototype",
-                        code: 4,
-                        userInfo: [NSLocalizedDescriptionKey: "Could not create worktree."]
+                    guard let decodedHead = String(bytes: createdHeadData, encoding: .utf8)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines),
+                          !decodedHead.isEmpty else {
+                        logPrivateFailure("Git returned an empty or non-UTF-8 worktree HEAD.")
+                        throw NSError(
+                            domain: "CmuxExtensionWorktreePrototype",
+                            code: 4,
+                            userInfo: [NSLocalizedDescriptionKey: "Could not create worktree."]
+                        )
+                    }
+                    createdHead = decodedHead
+                    let generatedArtifact = try writeSampleDevServerFiles(
+                        in: worktree,
+                        projectName: projectRoot.lastPathComponent
                     )
-                }
+                    guard let (worktreeDeviceID, worktreeFileID) = worktreeIdentity else {
+                        throw NSError(
+                            domain: "CmuxExtensionWorktreePrototype",
+                            code: 4,
+                            userInfo: [NSLocalizedDescriptionKey: "Could not create worktree."]
+                        )
+                    }
 
-                let port = 4_100 + abs(branchName.hashValue % 800)
-                let samplePath = shellEscaped(worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true).path)
-                return CmuxExtensionWorktreeCreationResult(
-                    projectRootPath: projectRoot.path,
-                    worktreePath: worktree.path,
-                    branchName: branchName,
-                    workspaceTitle: branchName,
-                    createdHead: createdHead,
-                    generatedArtifactRelativePath: generatedArtifact.relativePath,
-                    generatedArtifactContents: generatedArtifact.contents,
-                    worktreeDeviceID: worktreeDeviceID,
-                    worktreeFileID: worktreeFileID,
-                    setupCommand: "cd \(samplePath) && python3 -m http.server \(port)"
-                )
+                    let port = 4_100 + abs(branchName.hashValue % 800)
+                    let samplePath = shellEscaped(worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true).path)
+                    return CmuxExtensionWorktreeCreationResult(
+                        projectRootPath: projectRoot.path,
+                        worktreePath: worktree.path,
+                        branchName: branchName,
+                        workspaceTitle: branchName,
+                        createdHead: decodedHead,
+                        generatedArtifactRelativePath: generatedArtifact.relativePath,
+                        generatedArtifactContents: generatedArtifact.contents,
+                        worktreeDeviceID: worktreeDeviceID,
+                        worktreeFileID: worktreeFileID,
+                        setupCommand: "cd \(samplePath) && python3 -m http.server \(port)"
+                    )
+                } catch {
+                    await bestEffortCleanupFailedWorktree(
+                        projectRoot: projectRoot,
+                        worktree: worktree,
+                        branchName: branchName,
+                        expectedHead: createdHead,
+                        expectedIdentity: worktreeIdentity
+                    )
+                    throw error
+                }
             }.value
         } catch let error as NSError where error.domain == "CmuxExtensionWorktreePrototype" {
             throw error
@@ -516,6 +524,69 @@ enum CmuxExtensionWorktreePrototype {
                 userInfo: [NSLocalizedDescriptionKey: "Could not create worktree."]
             )
         }
+    }
+
+    /// Removes a checkout created by this operation when a later setup step
+    /// fails before a rollback result can be handed to the caller. Every
+    /// identity check is best-effort and failure leaves the checkout intact.
+    private static func bestEffortCleanupFailedWorktree(
+        projectRoot: URL,
+        worktree: URL,
+        branchName: String,
+        expectedHead: String?,
+        expectedIdentity: (deviceID: UInt64, fileID: UInt64)?
+    ) async {
+        guard let expectedIdentity,
+              filesystemIdentity(at: worktree) == expectedIdentity else {
+            logPrivateDiagnostic("Skipped failed worktree cleanup after identity changed.")
+            return
+        }
+        let branchRef = "refs/heads/\(branchName)"
+        do {
+            let branchData = try await runCapturingOutput(
+                "git",
+                ["-C", worktree.path, "symbolic-ref", "--quiet", "HEAD"]
+            )
+            guard String(data: branchData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) == branchRef else {
+                return
+            }
+            let headData = try await runCapturingOutput(
+                "git",
+                ["-C", worktree.path, "rev-parse", "--verify", "HEAD"]
+            )
+            guard let currentHead = String(data: headData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !currentHead.isEmpty,
+                  expectedHead == nil || expectedHead == currentHead else {
+                return
+            }
+            try await run(
+                "git",
+                ["-C", projectRoot.path, "worktree", "remove", "--force", worktree.path],
+                failureDescription: "Could not create worktree."
+            )
+            try await run(
+                "git",
+                ["-C", projectRoot.path, "update-ref", "-d", branchRef, currentHead],
+                failureDescription: "Could not create worktree."
+            )
+        } catch {
+            logPrivateDiagnostic(
+                "Failed-worktree cleanup was skipped: \(String(describing: error))"
+            )
+        }
+    }
+
+    private static func filesystemIdentity(
+        at url: URL
+    ) -> (deviceID: UInt64, fileID: UInt64)? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let deviceID = (attributes[.systemNumber] as? NSNumber)?.uint64Value,
+              let fileID = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value else {
+            return nil
+        }
+        return (deviceID, fileID)
     }
 
     private static func ensureGitRepository(at projectRoot: URL) async throws {

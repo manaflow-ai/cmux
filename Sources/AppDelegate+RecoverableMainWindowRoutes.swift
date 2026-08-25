@@ -549,7 +549,9 @@ extension AppDelegate {
     ) -> [UUID] {
         return route.workspaceIds.filter { workspaceId in
             guard let currentOwner = tabManagerFor(tabId: workspaceId) else {
-                return route.tabManager == nil
+                // No current owner means the mirror is orphaned; include it
+                // even while the old manager object is still being released.
+                return true
             }
             return currentOwner === route.tabManager
         }
