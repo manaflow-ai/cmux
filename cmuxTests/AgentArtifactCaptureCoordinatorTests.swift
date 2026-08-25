@@ -476,6 +476,53 @@ struct AgentArtifactCaptureCoordinatorTests {
     }
 
     @MainActor
+    @Test func successfulReadOnlyTerminalDoesNotScheduleCapture() throws {
+        let registry = AgentChatSessionRegistry()
+        let sessionID = UUID().uuidString
+        let projectRoot = try temporaryProjectRoot()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            workspaceId: "workspace",
+            surfaceId: nil,
+            transcriptPath: nil,
+            cwd: projectRoot.path,
+            ppid: nil
+        ))
+        let service = AgentChatTranscriptService(
+            registry: registry,
+            artifactCaptureCoordinator: AgentArtifactCaptureCoordinator(
+                captureService: ArtifactCaptureService(
+                    store: OutOfOrderCaptureStore(suspendsFirstImport: false)
+                )
+            )
+        )
+        service.publishBatch(
+            AgentChatTranscriptTailer.Batch(
+                appended: [ChatMessage(
+                    id: "ls",
+                    seq: 1,
+                    role: .agent,
+                    timestamp: Date(timeIntervalSince1970: 2),
+                    kind: .terminal(ChatTerminalCapture(
+                        command: "ls -la",
+                        output: "notes.md",
+                        exitCode: 0,
+                        isRunning: false
+                    ))
+                ],
+                updated: [],
+                discoveredTitle: nil
+            ),
+            sessionID: sessionID
+        )
+
+        #expect(service.artifactCaptureDebounceTasks[sessionID] == nil)
+    }
+
+    @MainActor
     @Test func deinitCancelsActiveAutomaticCaptureTask() async throws {
         let projectRoot = try temporaryProjectRoot()
         defer { try? FileManager.default.removeItem(at: projectRoot) }

@@ -66,6 +66,6 @@ struct ArtifactImportStagingRecoveryTests {
         ).reclaimAbandonedBatches(root: stagingRoot)
 
         #expect(try String(contentsOf: sentinel, encoding: .utf8) == "keep")
-        #expect(FileManager.default.fileExists(atPath: stale.path))
+        #expect(!FileManager.default.fileExists(atPath: stale.path))
     }
 }
