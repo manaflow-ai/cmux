@@ -213,6 +213,32 @@ struct CmuxNoteRepositoryTests {
         #expect(try String(contentsOf: outside, encoding: .utf8) == "outside")
     }
 
+    @Test("Atomic note replacement rejects a swapped parent symlink")
+    func rejectsAtomicParentSwap() throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let outside = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(outside) }
+        let parent = root.appendingPathComponent("notes", isDirectory: true)
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        let destination = parent.appendingPathComponent("plan.md")
+        let expectedParentPath = ArtifactPathResolver(fileManager: .default)
+            .canonicalPath(parent)
+        try FileManager.default.removeItem(at: parent)
+        try FileManager.default.createSymbolicLink(at: parent, withDestinationURL: outside)
+
+        #expect(throws: CmuxNoteStoreError.self) {
+            try CmuxNoteAtomicWriter().write(
+                Data("must stay inside".utf8),
+                to: destination,
+                expectedParentPath: expectedParentPath
+            )
+        }
+        #expect(!FileManager.default.fileExists(
+            atPath: outside.appendingPathComponent("plan.md").path
+        ))
+    }
+
     @Test("Note writes reject managed control names before creating nested content")
     func rejectsManagedControlPathComponentsBeforeMutation() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()

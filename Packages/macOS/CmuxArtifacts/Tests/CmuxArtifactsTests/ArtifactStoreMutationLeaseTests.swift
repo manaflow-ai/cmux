@@ -53,4 +53,43 @@ struct ArtifactStoreMutationLeaseTests {
             return
         }
     }
+
+    @Test("A swapped destination parent cannot redirect a staged move")
+    func rejectsSwappedDestinationParent() throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let outside = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(outside) }
+        let paths = ArtifactStorePaths(projectRoot: root)
+        try FileManager.default.createDirectory(
+            at: paths.filesystemRoot.appendingPathComponent("session/artifacts"),
+            withIntermediateDirectories: true
+        )
+        let staging = root.appendingPathComponent("staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let source = try ArtifactTestSupport.write("staged", named: "plan.md", under: staging)
+        let expectedSourceParentPath = staging.resolvingSymlinksInPath().standardizedFileURL.path
+        let lease = try ArtifactStoreMutationLease(directory: paths.filesystemRoot)
+        defer { lease.finish() }
+
+        try FileManager.default.removeItem(
+            at: paths.filesystemRoot.appendingPathComponent("session")
+        )
+        try FileManager.default.createSymbolicLink(
+            at: paths.filesystemRoot.appendingPathComponent("session"),
+            withDestinationURL: outside
+        )
+
+        #expect(throws: ArtifactStoreError.self) {
+            try lease.moveFile(
+                from: source,
+                toRelativePath: "session/artifacts/plan.md",
+                expectedSourceParentPath: expectedSourceParentPath
+            )
+        }
+        #expect(FileManager.default.fileExists(atPath: source.path))
+        #expect(!FileManager.default.fileExists(
+            atPath: outside.appendingPathComponent("artifacts/plan.md").path
+        ))
+    }
 }

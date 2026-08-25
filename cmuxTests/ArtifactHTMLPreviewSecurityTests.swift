@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 import Testing
 import WebKit
 
@@ -82,6 +83,15 @@ struct ArtifactHTMLPreviewSecurityTests {
         #expect(!policy.allowsNavigation(to: URL(string: "https://example.com"), targetIsMainFrame: true))
         #expect(!policy.allowsNavigation(to: URL(fileURLWithPath: "/private/sibling.txt"), targetIsMainFrame: false))
         #expect(!policy.allowsNavigation(to: documentURL, targetIsMainFrame: nil))
+    }
+
+    @Test("App-owned preview documents use the trusted internal allowlist path")
+    func trustedPreviewURLSurvivesManagedAllowlist() throws {
+        let documentURL = try #require(URL(string: "data:text/html;base64,PGh0bWw+"))
+        let allowlist = BrowserURLAllowlistPolicy(managedPatterns: ["internal.example"])
+
+        #expect(!allowlist.allows(documentURL))
+        #expect(allowlist.allowsTrustedInternalURL(documentURL))
     }
 
     @Test("Artifact previews never enter normal browser session persistence")
