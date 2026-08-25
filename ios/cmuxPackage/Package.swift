@@ -60,6 +60,7 @@ let package = Package(
                 "CmuxClientConfig",
                 "CmuxIrohTransport",
                 "CmuxNextTransport",
+                .product(name: "CmuxNextTransportBridge", package: "CmuxNextTransport"),
                 .product(name: "IrohLib", package: "iroh-ffi"),
                 "CMUXMobileCore",
                 "CmuxMobileAnalytics",

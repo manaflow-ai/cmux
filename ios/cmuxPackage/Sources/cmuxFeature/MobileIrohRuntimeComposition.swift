@@ -8,6 +8,11 @@ import CryptoKit
 import Foundation
 import OSLog
 
+#if DEBUG
+import CmuxNextTransport
+import CmuxNextTransportBridge
+#endif
+
 nonisolated private let mobileIrohLog = Logger(
     subsystem: "dev.cmux.ios",
     category: "iroh-runtime"
@@ -691,6 +696,23 @@ public final class MobileIrohRuntimeComposition:
     public func transport(
         for request: CmxByteTransportRequest
     ) async throws -> any CmxByteTransport {
+        #if DEBUG
+        // Graduation lane routing: control rides the next transport when the
+        // dev flag is on and this Mac is bootstrapped + admitted. The first
+        // legacy connection also seeds the bootstrap (slice 2).
+        if let connection = await NextTransportGraduationFacade.shared.admittedConnection(
+            for: request)
+        {
+            return try await BridgeLaneDialer.openControlTransport(on: connection)
+        }
+        NextTransportGraduationFacade.shared.bootstrapIfNeeded(
+            for: request,
+            makeLegacyTransport: { [weak self] in
+                guard let self else { throw CancellationError() }
+                let runtime = try await self.preparedRuntimeForConnection()
+                return try runtime.transportFactory.makeTransport(for: request)
+            })
+        #endif
         let runtime = try await preparedRuntimeForConnection()
         return try runtime.transportFactory.makeTransport(for: request)
     }
@@ -707,6 +729,14 @@ public final class MobileIrohRuntimeComposition:
         lane: CmxIrohLane,
         priority: Int32
     ) async throws -> CmxIrohBidirectionalStream {
+        #if DEBUG
+        if let connection = await NextTransportGraduationFacade.shared.admittedConnection(
+            for: request)
+        {
+            return try await BridgeLaneDialer.openLane(
+                on: connection, lane: lane, priority: priority)
+        }
+        #endif
         let runtime = try await preparedRuntimeForConnection()
         return try await runtime.openBidirectionalLane(
             for: request,
@@ -781,6 +811,32 @@ public final class MobileIrohRuntimeComposition:
     public func serverEventByteStream(
         for request: CmxByteTransportRequest
     ) async throws -> CmxIndependentEventByteStream {
+        #if DEBUG
+        if let connection = await NextTransportGraduationFacade.shared.admittedConnection(
+            for: request)
+        {
+            let acceptor = await NextTransportGraduationFacade.shared.acceptor(for: connection)
+            let (_, stream) = try await acceptor.acceptServerEventStream()
+            return AsyncThrowingStream { continuation in
+                let pump = Task {
+                    do {
+                        while let chunk = try await stream.receiveStream.receive(
+                            maximumByteCount: 1 << 16)
+                        {
+                            continuation.yield(chunk)
+                        }
+                        continuation.finish()
+                    } catch {
+                        continuation.finish(throwing: error)
+                    }
+                }
+                continuation.onTermination = { _ in
+                    pump.cancel()
+                    Task { await stream.receiveStream.stop(errorCode: 0) }
+                }
+            }
+        }
+        #endif
         let runtime = try await preparedRuntimeForConnection()
         return try await runtime.serverEventByteStream(for: request)
     }

@@ -90,6 +90,13 @@ public final class NextTransportDialClient {
         await owner?.stop(reason: .userRequested)
     }
 
+    /// The live admitted connection, for the graduation facade to open
+    /// bridged application lanes on. nil until the owner reports ready.
+    public func admittedConnection() async -> IrohPeerConnection? {
+        guard state == "ready" else { return nil }
+        return await owner?.currentConnection as? IrohPeerConnection
+    }
+
     /// The lab's proof traffic: 50 checksummed chunks over the echo lane.
     public func runEcho() async {
         guard let connection = await owner?.currentConnection, state == "ready" else {

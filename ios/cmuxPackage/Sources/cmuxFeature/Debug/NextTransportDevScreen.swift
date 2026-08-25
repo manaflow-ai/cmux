@@ -13,10 +13,33 @@ struct NextTransportDevScreen: View {
     @State private var client = NextTransportDialClient()
     @State private var ticketJSON = ""
     @State private var grantJSON = ""
+    @AppStorage(NextTransportGraduationFacade.routeTrafficDefaultsKey)
+    private var routeAppTraffic = false
 
     var body: some View {
         NavigationStack {
             Form {
+                Section(
+                    String(
+                        localized: "nextTransport.dev.routing",
+                        defaultValue: "App traffic")
+                ) {
+                    Toggle(
+                        String(
+                            localized: "nextTransport.dev.routeAppTraffic",
+                            defaultValue: "Route cmux over next transport"),
+                        isOn: $routeAppTraffic)
+                    Text(
+                        String(
+                            localized: "nextTransport.dev.routeAppTraffic.detail",
+                            defaultValue:
+                                "Normal app launches bootstrap over the paired channel, then carry control, terminals, and events on the next transport. Falls back per call when unavailable."
+                        )
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+
                 Section(
                     String(
                         localized: "nextTransport.dev.identity",
