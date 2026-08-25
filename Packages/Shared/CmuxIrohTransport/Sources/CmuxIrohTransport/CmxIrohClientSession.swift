@@ -274,7 +274,7 @@ public actor CmxIrohClientSession {
     /// address, so matching it back to the plan is the ownership boundary that
     /// prevents a private path from being reclassified as an unrestricted Iroh
     /// direct path during migration.
-    func pathIsAllowed(_ path: CmxIrohObservedConnectionPath) -> Bool {
+    func pathIsAllowed(_ path: CmxIrohObservedConnectionPath) async -> Bool {
         switch transportMode {
         case .automatic:
             return true
@@ -325,7 +325,7 @@ public actor CmxIrohClientSession {
     /// A private socket is classified from the matching dial-plan hint; an
     /// unmatched private socket is deliberately unavailable rather than being
     /// mislabeled as LAN or Tailscale.
-    func transportPath(for path: CmxIrohObservedConnectionPath) -> CmxTransportPath {
+    func transportPath(for path: CmxIrohObservedConnectionPath) async -> CmxTransportPath {
         switch path {
         case .unavailable:
             return .unavailable

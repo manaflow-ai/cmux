@@ -18,9 +18,9 @@ protocol CmxConnectivitySession: Sendable {
     func observedSelectedPathChanges() async -> AsyncStream<CmxIrohObservedConnectionPath>
     /// Whether one observed path remains inside the session's captured dial
     /// policy and provenance allowlist.
-    func pathIsAllowed(_ path: CmxIrohObservedConnectionPath) -> Bool
+    func pathIsAllowed(_ path: CmxIrohObservedConnectionPath) async -> Bool
     /// Projects one observed path using the source-qualified dial plan.
-    func transportPath(for path: CmxIrohObservedConnectionPath) -> CmxTransportPath
+    func transportPath(for path: CmxIrohObservedConnectionPath) async -> CmxTransportPath
     func observedPathEvents() async -> AsyncStream<CmxIrohConnectionPathEvent>
     func close() async
 }
@@ -28,9 +28,9 @@ protocol CmxConnectivitySession: Sendable {
 extension CmxConnectivitySession {
     /// Test/double compatibility for sessions that do not expose dial-plan
     /// provenance; production Iroh sessions override this at the owner seam.
-    func pathIsAllowed(_: CmxIrohObservedConnectionPath) -> Bool { true }
+    func pathIsAllowed(_: CmxIrohObservedConnectionPath) async -> Bool { true }
 
-    func transportPath(for _: CmxIrohObservedConnectionPath) -> CmxTransportPath {
+    func transportPath(for _: CmxIrohObservedConnectionPath) async -> CmxTransportPath {
         .unavailable
     }
 }

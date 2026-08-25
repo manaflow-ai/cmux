@@ -2529,8 +2529,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
         let directRoute = try? Self.manualHostRoute(
             host: normalizedHost,
-            port: port,
-            preferredKind: selectedTransportMode == .lan ? .lan : nil
+            port: port
         )
         let sameRouteProbeClient: MobileCoreRPCClient? = directRoute.flatMap { route in
             guard remoteClient?.sharesPhysicalTransportRoute(

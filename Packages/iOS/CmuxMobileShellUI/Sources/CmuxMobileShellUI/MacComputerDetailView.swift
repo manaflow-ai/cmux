@@ -632,9 +632,6 @@ struct MacComputerDetailView: View {
     private var computerHasUsableLANBootstrap: Bool {
         guard let pairedMac else { return false }
         return pairedMac.routes.contains { route in
-            if route.kind == .lan {
-                return !CmxLoopbackHost().matches(route)
-            }
             guard route.kind == .iroh,
                   case let .peer(_, pathHints) = route.endpoint else {
                 return false
