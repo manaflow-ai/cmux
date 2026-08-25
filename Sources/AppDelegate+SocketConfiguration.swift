@@ -12,9 +12,21 @@ extension AppDelegate {
     }
 
     private func resolvedSocketListenerConfiguration() -> SocketControlServerConfiguration {
+        migrateSocketPasswordIfNeeded()
         return SocketControlServerConfiguration(
             accessMode: CmuxSettingsFileStore.liveSocketAccessMode(),
             preferredSocketPath: SocketControlSettings.socketPath()
+        )
+    }
+
+    private func migrateSocketPasswordIfNeeded() {
+        let outcome = SocketControlPasswordMigration().migrateIfNeeded(
+            configuredMode: CmuxSettingsFileStore.configuredSocketMode()
+        )
+        guard case .failed = outcome else { return }
+        StartupBreadcrumbLog.append(
+            "socket.passwordMigration.failed",
+            fields: ["configKey": "automation.socketPassword"]
         )
     }
 
