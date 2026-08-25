@@ -2945,7 +2945,10 @@ mod tests {
         .expect("inherited stderr descriptor must not block git diff")
         .expect("stderr drain");
 
-        assert!(retained.complete);
+        // The duplex writer remains open to model a descriptor inherited by a
+        // helper process. The drain must return at its bound, with complete
+        // false, instead of waiting forever for EOF.
+        assert!(!retained.complete);
         assert_eq!(retained.bytes, b"diagnostic");
     }
 

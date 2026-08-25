@@ -374,6 +374,22 @@ fn acknowledge_pending_frames(
     }
 }
 
+/// Release bytes from the approximate socket backlog without allowing
+/// concurrent producers to subtract the same bytes twice.
+fn release_pending_bytes(pending: &AtomicU64, bytes: u64) {
+    if bytes == 0 {
+        return;
+    }
+    let mut current = pending.load(Ordering::SeqCst);
+    loop {
+        let next = current.saturating_sub(bytes);
+        match pending.compare_exchange_weak(current, next, Ordering::SeqCst, Ordering::SeqCst) {
+            Ok(_) => return,
+            Err(actual) => current = actual,
+        }
+    }
+}
+
 /// Keep the machine online until the process cancellation token is raised.
 /// Fatal errors are returned to the CLI; transient errors ride a jittered
 /// exponential backoff with a 30s ceiling.
@@ -471,8 +487,7 @@ fn make_context(out: &OutboundSink, pending: &Arc<AtomicU64>, auth: &AuthSnapsho
                 eprintln!(
                     "Dropping relay outbound frame because its bounded queue is full; mandatory={critical}"
                 );
-                pending_send
-                    .fetch_sub(size.min(pending_send.load(Ordering::SeqCst)), Ordering::SeqCst);
+                release_pending_bytes(&pending_send, size);
             }
         }),
         buffered_amount: Arc::new(move || pending_probe.load(Ordering::SeqCst)),
@@ -658,6 +673,7 @@ async fn relay_session(
             Wake::Outbound(is_critical, Some(frame)) => {
                 let mut frame = frame;
                 if !frame.is_live() {
+                    release_pending_bytes(&pending, frame.text.len() as u64);
                     frame.acknowledge();
                     continue;
                 }
@@ -669,7 +685,7 @@ async fn relay_session(
                 let text = std::mem::take(&mut frame.text);
                 let size = text.len() as u64;
                 let sent = send_socket_text(&socket, text, cancellation).await;
-                pending.fetch_sub(size.min(pending.load(Ordering::SeqCst)), Ordering::SeqCst);
+                release_pending_bytes(&pending, size);
                 if sent.is_err() {
                     frame.acknowledge();
                     break Ok(connected);
@@ -899,10 +915,7 @@ async fn relay_session(
                                     result = out.critical_value(result) => result,
                                 };
                                 if sent.is_err() {
-                                    pending.fetch_sub(
-                                        size.min(pending.load(Ordering::SeqCst)),
-                                        Ordering::SeqCst,
-                                    );
+                                    release_pending_bytes(&pending, size);
                                 }
                                 continue;
                             }
@@ -935,10 +948,7 @@ async fn relay_session(
                                 result = out.critical_value(result) => result,
                             };
                             if sent.is_err() {
-                                pending.fetch_sub(
-                                    size.min(pending.load(Ordering::SeqCst)),
-                                    Ordering::SeqCst,
-                                );
+                                release_pending_bytes(&pending, size);
                             }
                         });
                     }
@@ -1148,9 +1158,9 @@ mod cancellation_tests {
 
 #[cfg(test)]
 mod outbound_tests {
-    use super::{OutboundSink, acknowledge_pending_frames};
+    use super::{OutboundSink, acknowledge_pending_frames, release_pending_bytes};
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
     #[tokio::test]
     async fn stale_frame_acknowledges_after_liveness_retirement() {
@@ -1167,6 +1177,9 @@ mod outbound_tests {
         live.store(false, Ordering::Release);
         let mut frame = critical.try_recv().expect("queued critical frame");
         assert!(!frame.is_live());
+        let pending = AtomicU64::new(frame.text.len() as u64);
+        release_pending_bytes(&pending, frame.text.len() as u64);
+        assert_eq!(pending.load(Ordering::SeqCst), 0);
         frame.acknowledge();
         assert!(ack_rx.await.is_ok());
         acknowledge_pending_frames(&mut critical, &mut watch);
