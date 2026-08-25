@@ -397,12 +397,12 @@ struct CmuxConfigValidator: Sendable {
             issues.append(issue(path, "must be a string or an array of one or two strings"))
             return
         }
-        for (index, stroke) in strokes.enumerated() where !validShortcutStroke(stroke, allowUnbound: strokes.count == 1) {
+        for (index, stroke) in strokes.enumerated() where !validShortcutStroke(stroke, allowUnbound: strokes.count == 1, allowBare: strokes.count == 2 && index == 1) {
             issues.append(issue(path + (strokes.count == 1 ? "" : "[\(index)]"), "shortcut stroke is not valid"))
         }
     }
 
-    private func validShortcutStroke(_ rawValue: String, allowUnbound: Bool) -> Bool {
+    private func validShortcutStroke(_ rawValue: String, allowUnbound: Bool, allowBare: Bool = false) -> Bool {
         let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if allowUnbound,
            (rawValue.isEmpty || (normalized.isEmpty && rawValue != " ") ||
@@ -432,7 +432,7 @@ struct CmuxConfigValidator: Sendable {
         ]
         let isFunctionKey = key.first == "f" && (1...20).contains(Int(key.dropFirst()) ?? 0)
         return hasModifier && (rawKey == " " || key.count == 1 || namedKeys.contains(key) || isFunctionKey) ||
-            (!hasModifier && (key == "space" || rawKey == " "))
+            (!hasModifier && (key == "space" || rawKey == " " || allowBare && (key.count == 1 || namedKeys.contains(key) || isFunctionKey)))
     }
 
     private func requireNonBlankString(
