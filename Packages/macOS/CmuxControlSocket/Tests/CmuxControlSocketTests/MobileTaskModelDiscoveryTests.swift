@@ -8,7 +8,10 @@ private actor MobileTaskModelDiscoveryProbe {
 
     func run(_ command: String, timeout: Duration) -> String? {
         commandCount += 1
-        return "opencode/dynamic-\(commandCount)"
+        let modelID = "opencode/dynamic-\(commandCount)"
+        // OpenCode emits each provider-qualified ID followed by its JSON
+        // metadata object; keep the probe output in that parser contract.
+        return "\(modelID)\n{\"name\":\"Dynamic \(commandCount)\"}"
     }
 
     func currentDate() -> Date {
