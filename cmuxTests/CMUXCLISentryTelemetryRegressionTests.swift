@@ -128,7 +128,10 @@ private final class CMUXCLISentryTelemetryBundleToken {}
         // capture gate; Sentry policy precedence is covered by the package
         // tests, while this process test verifies the structured code survives
         // CLI formatting.
-        #expect(actionableResult.stdout.lowercased().contains("internal_error"), Comment(rawValue: actionableResult.stdout))
+        #expect(
+            actionableResult.stdout.contains("internal_error: TabManager not available"),
+            Comment(rawValue: actionableResult.stdout)
+        )
     }
 
     private func bundledCLIPath() throws -> String {
@@ -140,7 +143,7 @@ private final class CMUXCLISentryTelemetryBundleToken {}
         probePath: String,
         root: URL
     ) throws -> ProcessRunResult {
-        let socketPath = root.appendingPathComponent("\(code).sock").path
+        let socketPath = "/tmp/cmux-structured-\(code.prefix(3))-\(UUID().uuidString.prefix(8)).sock"
         let listenerFD = try bindUnixSocket(at: socketPath)
         defer {
             CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
