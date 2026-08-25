@@ -25770,12 +25770,36 @@ struct CMUXCLI {
                 }
             }
 
-            // An idle reminder while background work is still pending is not a
-            // real "waiting for input" state: the pane is still running (the Stop
-            // hook set it to Running) and the app suppresses this banner. Skip the
-            // "Needs input" pill/lifecycle so the idle nag can't undo the Running
-            // status; the app still gates the (tagged) notification itself.
-            let suppressNeedsInputState = (notifyCategory == .idleReminder && notifyPending)
+            // The lifecycle this alert publishes, or nil to leave the pane's
+            // state exactly as the last real event left it.
+            //
+            // Only a prompt that actually blocks on the user may paint the pane
+            // "needs input": a permission request, a plan approval, or a question
+            // (those arrive as `permission_prompt` here, or straight from the
+            // AskUserQuestion/ExitPlanMode pre-tool-use path). The app still gates
+            // and delivers the (tagged) notification itself regardless.
+            let publishedLifecycle: AgentHibernationLifecycleState?
+            if notificationType == "idle_prompt" || notifyCategory == .turnComplete {
+                // `idle_prompt` is Claude's automatic ~60s nag after a turn ends —
+                // nothing is being asked, the agent is just sitting at its prompt —
+                // and a turn-complete alert describes a turn the Stop hook already
+                // settled as Idle. Writing a lifecycle for either undid that state
+                // and left finished panes reading as blocked.
+                //
+                // Deliberately keyed on the *typed* field rather than on
+                // `notifyCategory`: the untyped fallback classifies any waiting cue
+                // as `.idleReminder`, but older clients without `notification_type`
+                // send real blocking prompts through that same cue, and suppressing
+                // those would hide a pane that genuinely wants the user.
+                publishedLifecycle = nil
+            } else if classifiedSubtitle == "Error" {
+                // `classifyClaudeNotification`'s own stable literal for an error or
+                // quota cue. Red is its own state: an agent that cannot continue is
+                // not the same as one politely waiting on an answer.
+                publishedLifecycle = .error
+            } else {
+                publishedLifecycle = .needsInput
+            }
 
             // `.other` means "ungated, always deliver" — identical to an untagged
             // payload, so don't put it on the wire: the app parser accepts only
@@ -25792,34 +25816,43 @@ struct CMUXCLI {
                 )
             )
 
-            if let sessionId = parsedInput.sessionId, !suppressNeedsInputState {
+            if let sessionId = parsedInput.sessionId, let publishedLifecycle {
                 _ = try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .needsInput,
+                    agentLifecycle: publishedLifecycle,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
                 )
             }
 
-            if !suppressNeedsInputState {
+            if let publishedLifecycle {
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
-                    lifecycle: .needsInput,
+                    lifecycle: publishedLifecycle,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
+                let isError = publishedLifecycle == .error
                 _ = try? setClaudeStatus(
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    value: "Needs input",
-                    icon: "bell.fill",
-                    color: "#4C8DFF", pid: claudePid
+                    value: isError
+                        ? String.localizedStringWithFormat(
+                            String(
+                                localized: "agent.generic.notification.status.error",
+                                defaultValue: "%@ error"
+                            ),
+                            title
+                        )
+                        : String(localized: "feed.status.needsInput", defaultValue: "Needs input"),
+                    icon: isError ? "exclamationmark.triangle.fill" : "bell.fill",
+                    color: isError ? "#FF453A" : "#4C8DFF", pid: claudePid
                 )
             }
             _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
@@ -28538,7 +28571,7 @@ struct CMUXCLI {
             let body = message.isEmpty ? "Approval needed" : message
             return ("Permission", body)
         }
-        if lower.contains("error") || lower.contains("failed") || lower.contains("exception") {
+        if AgentHookNotificationClassifier.containsErrorOrQuotaCue(lower) {
             let body = message.isEmpty ? "Claude reported an error" : message
             return ("Error", body)
         }
@@ -32787,10 +32820,13 @@ export default CMUXSessionRestore;
                     client: client
                 )
             case .error?:
+                // Red, not orange: the pill beside it is already the red error
+                // pill, and an errored or quota-exhausted agent is a different
+                // state from one politely waiting on an answer.
                 setAgentLifecycle(
                     client: client,
                     key: def.statusKey,
-                    lifecycle: .needsInput,
+                    lifecycle: .error,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )

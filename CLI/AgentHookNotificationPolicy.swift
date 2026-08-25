@@ -84,7 +84,7 @@ enum AgentHookNotificationClassifier {
                 notifyCategory: .needsPermission
             )
         }
-        if lower.contains("error") || lower.contains("failed") || lower.contains("failure") || lower.contains("exception") {
+        if containsErrorOrQuotaCue(lower) {
             let body = message.isEmpty
                 ? String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.body.reportedError", defaultValue: "%@ reported an error"),
@@ -158,6 +158,29 @@ enum AgentHookNotificationClassifier {
             of: #"^turn complete(?:d)? in \d+(?:\.\d+)?s\.?$"#,
             options: [.regularExpression, .caseInsensitive]
         ) != nil
+    }
+
+    /// Error and quota-exhaustion cues.
+    ///
+    /// Shared by this classifier and the Claude one (`classifyClaudeNotification`)
+    /// so "red means the agent errored or ran out of quota" has a single
+    /// definition instead of two substring lists that drift apart. Quota
+    /// exhaustion folds in here deliberately: like an error, the agent cannot
+    /// continue until the user does something about it, and the pane border
+    /// palette gives both the same red.
+    static func containsErrorOrQuotaCue(_ lowercasedText: String) -> Bool {
+        if lowercasedText.contains("error")
+            || lowercasedText.contains("failed")
+            || lowercasedText.contains("failure")
+            || lowercasedText.contains("exception") {
+            return true
+        }
+        return lowercasedText.contains("quota")
+            || lowercasedText.contains("usage limit")
+            || lowercasedText.contains("usage_limit")
+            || lowercasedText.contains("rate limit")
+            || lowercasedText.contains("rate_limit")
+            || lowercasedText.contains("out of credits")
     }
 
     static func containsCompletionCue(_ lowercasedText: String) -> Bool {
