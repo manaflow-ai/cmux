@@ -891,6 +891,22 @@ struct DockSessionPersistenceTests {
         let detached = try #require(store.detachSurface(panelId: panelID))
         #expect(detached.deferredAgentResumeRestore?.stablePanelID == stablePanelID)
         #expect(store.deferredAgentResumeRestoresByPanelId[panelID] == nil)
+
+        let destination = Workspace(
+            restorableAgentIndexProvider: { .empty }
+        )
+        defer { destination.teardownAllPanels() }
+        let destinationPaneID = try #require(destination.bonsplitController.allPaneIds.first)
+        #expect(
+            destination.attachDetachedSurface(
+                detached,
+                inPane: destinationPaneID,
+                focus: false
+            ) == panelID
+        )
+        #expect(
+            destination.deferredAgentResumeRestoresByPanelId[panelID]?.stablePanelID == stablePanelID
+        )
     }
 
     @Test("Dock file-preview session round-trip preserves path, kind, and binding")
