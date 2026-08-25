@@ -18,11 +18,11 @@ nonisolated struct SystemGitExecutableResolver: Sendable {
         "/Library/Developer/CommandLineTools/usr/bin/git",
     ]
     private static let wellKnownGitPaths = [
+        "/usr/bin/git",
+        "/Library/Developer/CommandLineTools/usr/bin/git",
         "/opt/homebrew/bin/git",
         "/usr/local/bin/git",
         "/opt/local/bin/git",
-        "/usr/bin/git",
-        "/Library/Developer/CommandLineTools/usr/bin/git",
     ]
 
     private let environment: [String: String]

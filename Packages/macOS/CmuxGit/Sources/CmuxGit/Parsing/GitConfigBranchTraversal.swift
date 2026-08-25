@@ -135,14 +135,10 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             state.referenceStorageName = value.lowercased()
             return
         }
-        state.referenceStorageName = String(value[..<separator]).lowercased()
+        state.referenceStorageName = value.lowercased()
         var payload = String(value[value.index(after: separator)...])
-        while payload.hasPrefix("/") && !payload.hasPrefix("//") {
-            payload.removeFirst()
-        }
         if payload.hasPrefix("//") {
-            payload = String(payload.drop(while: { $0 == "/" }))
-            payload = "/" + payload
+            payload.removeFirst(2)
         }
         guard !payload.isEmpty else { return }
         let path = if payload.hasPrefix("/") {
