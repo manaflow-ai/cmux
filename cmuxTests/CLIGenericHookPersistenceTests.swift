@@ -1110,10 +1110,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected exactly one Cursor approval notification for the owning surface, saw \(approvalCommands)"
         )
         XCTAssertTrue(
-            approvalCommands.contains {
-                $0.hasPrefix("set_agent_lifecycle cursor needsInput --tab=\(workspaceId)")
-                    && $0.contains("--panel=\(surfaceId)")
-            },
+            AgentJournalAppendCapture.contains(
+                approvalCommands,
+                kind: "agent.approval.requested",
+                agentKey: "cursor",
+                sessionId: sessionId
+            ),
             "Expected Cursor approval to mark the owning pane Needs input, saw \(approvalCommands)"
         )
         XCTAssertTrue(
@@ -1142,10 +1144,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected Cursor's paired completion hook to clear the approval notification, saw \(responseCommands)"
         )
         XCTAssertTrue(
-            responseCommands.contains {
-                $0.hasPrefix("set_agent_lifecycle cursor running --tab=\(workspaceId)")
-                    && $0.contains("--panel=\(surfaceId)")
-            },
+            AgentJournalAppendCapture.contains(
+                responseCommands,
+                kind: "agent.turn.started",
+                agentKey: "cursor",
+                sessionId: sessionId
+            ),
             "Expected Cursor's paired completion hook to restore Running, saw \(responseCommands)"
         )
 
@@ -1204,9 +1208,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "An unrelated Cursor shell completion must not clear a pending approval, saw \(mismatchedCompletionCommands)"
         )
         XCTAssertFalse(
-            mismatchedCompletionCommands.contains {
-                $0.hasPrefix("set_agent_lifecycle cursor running")
-            },
+            AgentJournalAppendCapture.contains(
+                mismatchedCompletionCommands,
+                kind: "agent.turn.started",
+                agentKey: "cursor",
+                sessionId: sessionId
+            ),
             "An unrelated Cursor shell completion must not restore Running, saw \(mismatchedCompletionCommands)"
         )
 
@@ -1274,7 +1281,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         XCTAssertTrue(
             failureFeedEvents.contains { ($0["is_error"] as? Bool) == true },
-            "Cursor shell failures must mark feed events as errors, saw (failureFeedEvents)"
+            "Cursor shell failures must mark feed events as errors, saw \(failureFeedEvents)"
         )
         XCTAssertTrue(
             failureCommands.contains {
@@ -1283,10 +1290,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Cursor's failure hook must clear a denied approval, saw \(failureCommands)"
         )
         XCTAssertTrue(
-            failureCommands.contains {
-                $0.hasPrefix("set_agent_lifecycle cursor running --tab=\(workspaceId)")
-                    && $0.contains("--panel=\(surfaceId)")
-            },
+            AgentJournalAppendCapture.contains(
+                failureCommands,
+                kind: "agent.turn.started",
+                agentKey: "cursor",
+                sessionId: sessionId
+            ),
             "Cursor's failure hook must restore Running after denial, saw \(failureCommands)"
         )
 
@@ -1351,6 +1360,40 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         XCTAssertFalse(secondQuotedCompletion.timedOut, secondQuotedCompletion.stderr)
         XCTAssertEqual(secondQuotedCompletion.status, 0, secondQuotedCompletion.stderr)
+
+        let reusedCommand = "echo reused-after-turn"
+        let firstReusedApproval = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(reusedCommand)","sandbox":false}"#
+        )
+        XCTAssertFalse(firstReusedApproval.timedOut, firstReusedApproval.stderr)
+        XCTAssertEqual(firstReusedApproval.status, 0, firstReusedApproval.stderr)
+        let turnBoundary = runCursorHook(
+            "prompt-submit",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeSubmitPrompt"}"#
+        )
+        XCTAssertFalse(turnBoundary.timedOut, turnBoundary.stderr)
+        XCTAssertEqual(turnBoundary.status, 0, turnBoundary.stderr)
+        let reusedApproval = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(reusedCommand)","sandbox":false}"#
+        )
+        XCTAssertFalse(reusedApproval.timedOut, reusedApproval.stderr)
+        XCTAssertEqual(reusedApproval.status, 0, reusedApproval.stderr)
+        let delayedReusedCompletionStart = state.snapshot().count
+        let delayedReusedCompletion = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"\#(reusedCommand)","output":"","duration":1,"sandbox":false}"#
+        )
+        XCTAssertFalse(delayedReusedCompletion.timedOut, delayedReusedCompletion.stderr)
+        XCTAssertEqual(delayedReusedCompletion.status, 0, delayedReusedCompletion.stderr)
+        let delayedReusedCompletionCommands = Array(state.snapshot().dropFirst(delayedReusedCompletionStart))
+        XCTAssertFalse(
+            delayedReusedCompletionCommands.contains {
+                $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+            },
+            "A command-only completion after a turn reuse must fail closed, saw \(delayedReusedCompletionCommands)"
+        )
 
         let cancelledCommand = "rm -rf cancelled-output"
         let cancelledApproval = runCursorHook(
@@ -1455,11 +1498,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Sandboxed Cursor shell starts must not generate approval notifications, saw \(sandboxedCommands)"
         )
         XCTAssertFalse(
-            sandboxedCommands.contains { $0.contains("set_agent_lifecycle cursor needsInput") },
+            AgentJournalAppendCapture.contains(
+                sandboxedCommands,
+                kind: "agent.approval.requested",
+                agentKey: "cursor",
+                sessionId: sessionId
+            ),
             "Sandboxed Cursor shell starts must remain non-actionable, saw \(sandboxedCommands)"
         )
         XCTAssertFalse(
-            sandboxedCommands.contains { $0.contains("set_agent_lifecycle cursor running") },
+            AgentJournalAppendCapture.contains(
+                sandboxedCommands,
+                kind: "agent.turn.started",
+                agentKey: "cursor",
+                sessionId: sessionId
+            ),
             "Sandboxed Cursor shell starts must not enter the visible turn lifecycle, saw \(sandboxedCommands)"
         )
     }

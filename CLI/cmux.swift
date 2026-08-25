@@ -159,14 +159,21 @@ struct ClaudeHookSessionRecord: Codable {
         let displayCommand: String
         let toolUseId: String?
         let createdAt: TimeInterval
+        let requiresToolUseId: Bool
 
-        init(command: String, toolUseId: String?, createdAt: TimeInterval) {
+        init(
+            command: String,
+            toolUseId: String?,
+            createdAt: TimeInterval,
+            requiresToolUseId: Bool = false
+        ) {
             let normalized = Self.normalizedCommand(command)
             self.commandFingerprint = Self.fingerprint(for: normalized)
             self.commandLength = normalized.count
             self.displayCommand = Self.redactedPreview(for: normalized)
             self.toolUseId = toolUseId
             self.createdAt = createdAt
+            self.requiresToolUseId = requiresToolUseId
         }
 
         static func identity(for normalizedCommand: String) -> (fingerprint: String, length: Int) {
@@ -206,6 +213,7 @@ struct ClaudeHookSessionRecord: Codable {
             case displayCommand
             case toolUseId
             case createdAt
+            case requiresToolUseId
             case legacyCommand = "command"
         }
 
@@ -225,6 +233,7 @@ struct ClaudeHookSessionRecord: Codable {
             }
             toolUseId = try container.decodeIfPresent(String.self, forKey: .toolUseId)
             createdAt = try container.decodeIfPresent(TimeInterval.self, forKey: .createdAt) ?? 0
+            requiresToolUseId = try container.decodeIfPresent(Bool.self, forKey: .requiresToolUseId) ?? false
         }
     }
 
@@ -280,6 +289,11 @@ struct ClaudeHookSessionRecord: Codable {
     /// after/failure hooks do not carry a native approval decision, so the
     /// command identity is the only safe completion correlation available.
     var pendingCursorShellApprovals: [PendingCursorShellApproval]? = nil
+    /// Command fingerprints cleared at a turn boundary. A recently reused
+    /// command requires a stable tool id on completion because Cursor's
+    /// command-only callback cannot distinguish an old delayed completion from
+    /// the new turn's approval.
+    var recentlyClearedCursorShellCommandFingerprints: [String: TimeInterval]? = nil
 }
 
 struct ClaudeHookActiveSessionRecord: Codable {
@@ -344,6 +358,8 @@ final class ClaudeHookSessionStore {
     private static let maxPendingCursorShellApprovals = 16
     private static let maxPendingCursorShellCommandLength = 64 * 1024
     private static let maxPendingCursorShellApprovalAgeSeconds: TimeInterval = 60 * 60
+    private static let maxRecentlyClearedCursorShellCommandFingerprints = 16
+    private static let recentlyClearedCursorShellCommandAgeSeconds: TimeInterval = 10 * 60
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
@@ -405,6 +421,14 @@ final class ClaudeHookSessionStore {
             }
             let normalizedToolUseId = normalizedCursorShellToolUseId(toolUseId)
             let commandIdentity = CursorPendingShellApproval.identity(for: normalizedCommand)
+            var recentlyCleared = record.recentlyClearedCursorShellCommandFingerprints ?? [:]
+            recentlyCleared = recentlyCleared.filter {
+                now - $0.value <= Self.recentlyClearedCursorShellCommandAgeSeconds
+            }
+            let requiresToolUseId = normalizedToolUseId == nil
+                && recentlyCleared[commandIdentity.fingerprint].map {
+                    now - $0 <= Self.recentlyClearedCursorShellCommandAgeSeconds
+                } == true
             // Only a repeated stable tool id is a retry. Without one, two
             // identical commands may be concurrent invocations; preserving
             // both records lets two terminal callbacks consume both waits.
@@ -418,7 +442,8 @@ final class ClaudeHookSessionStore {
                     pending[duplicateIndex] = CursorPendingShellApproval(
                         command: normalizedCommand,
                         toolUseId: normalizedToolUseId,
-                        createdAt: existing.createdAt
+                        createdAt: existing.createdAt,
+                        requiresToolUseId: existing.requiresToolUseId
                     )
                 }
                 if pending.count != pendingCountBeforePrune
@@ -436,8 +461,17 @@ final class ClaudeHookSessionStore {
             pending.append(CursorPendingShellApproval(
                 command: normalizedCommand,
                 toolUseId: normalizedToolUseId,
-                createdAt: now
+                createdAt: now,
+                requiresToolUseId: requiresToolUseId
             ))
+            if recentlyCleared.count > Self.maxRecentlyClearedCursorShellCommandFingerprints {
+                recentlyCleared = Dictionary(
+                    uniqueKeysWithValues: recentlyCleared.sorted { $0.value > $1.value }
+                        .prefix(Self.maxRecentlyClearedCursorShellCommandFingerprints)
+                        .map { ($0.key, $0.value) }
+                )
+            }
+            record.recentlyClearedCursorShellCommandFingerprints = recentlyCleared
             record.pendingCursorShellApprovals = pending
             record.updatedAt = now
             state.sessions[normalizedSession] = record
@@ -486,10 +520,12 @@ final class ClaudeHookSessionStore {
                     if let pendingToolUseId = pendingApproval.toolUseId {
                         return normalizedToolUseId == pendingToolUseId
                     }
-                    return pendingApproval.commandFingerprint == commandIdentity.fingerprint
+                    return !pendingApproval.requiresToolUseId
+                        && pendingApproval.commandFingerprint == commandIdentity.fingerprint
                         && pendingApproval.commandLength == commandIdentity.length
                 }
-                return pendingApproval.commandFingerprint == commandIdentity.fingerprint
+                return !pendingApproval.requiresToolUseId
+                    && pendingApproval.commandFingerprint == commandIdentity.fingerprint
                     && pendingApproval.commandLength == commandIdentity.length
             }) else {
                 if expired {
@@ -559,11 +595,26 @@ final class ClaudeHookSessionStore {
                   record.pendingCursorShellApprovals?.isEmpty == false else {
                 return false
             }
+            let now = Date().timeIntervalSince1970
+            var recentlyCleared = (record.recentlyClearedCursorShellCommandFingerprints ?? [:]).filter {
+                now - $0.value <= Self.recentlyClearedCursorShellCommandAgeSeconds
+            }
+            for approval in record.pendingCursorShellApprovals ?? [] {
+                recentlyCleared[approval.commandFingerprint] = now
+            }
+            if recentlyCleared.count > Self.maxRecentlyClearedCursorShellCommandFingerprints {
+                recentlyCleared = Dictionary(
+                    uniqueKeysWithValues: recentlyCleared.sorted { $0.value > $1.value }
+                        .prefix(Self.maxRecentlyClearedCursorShellCommandFingerprints)
+                        .map { ($0.key, $0.value) }
+                )
+            }
+            record.recentlyClearedCursorShellCommandFingerprints = recentlyCleared
             record.pendingCursorShellApprovals = nil
             record.lastSubtitle = nil
             record.lastBody = nil
             record.lastNotificationStatus = nil
-            record.updatedAt = Date().timeIntervalSince1970
+            record.updatedAt = now
             state.sessions[normalizedSession] = record
             return true
         }
