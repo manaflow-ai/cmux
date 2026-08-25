@@ -36,9 +36,6 @@ final class SidebarWorkspaceTableMutationScheduler {
 
     func stageApply(_ input: SidebarWorkspaceTableApplyInput) {
         pendingApply = input
-        // The authoritative snapshot owns the complete row graph. A queued
-        // reload from the superseded graph must not run first.
-        shouldFlushTableReload = false
         scheduleFlushIfNeeded()
     }
 
@@ -106,6 +103,9 @@ final class SidebarWorkspaceTableMutationScheduler {
             }
         }
 
+        // Resolve precedence only from this atomic snapshot. A surviving apply
+        // owns the row graph; if it was canceled before flush, the queued
+        // reload remains the synchronization fallback.
         if flushTableReload, apply == nil {
             reloadFlush()
         }
