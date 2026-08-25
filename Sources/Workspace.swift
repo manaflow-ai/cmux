@@ -5244,9 +5244,12 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func setSurfaceResumeBinding(_ binding: SurfaceResumeBindingSnapshot, panelId: UUID) -> Bool {
-        guard terminalPanel(for: panelId) != nil,
-              let startupInput = binding.inlineStartupInput(repairPortableAgentExecutable: false),
-              !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard terminalPanel(for: panelId) != nil else {
+            return false
+        }
+        let startupInput = binding.inlineStartupInput(repairPortableAgentExecutable: false)
+        guard startupInput?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ||
+                binding.permitsTransportOnlyPersistentSSHRestore else {
             return false
         }
         invalidateRestoredAgentLifecycleIfBindingIsReplaced(

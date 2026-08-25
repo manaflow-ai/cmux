@@ -1,6 +1,14 @@
 import Foundation
 
 extension SurfaceResumeBindingSnapshot {
+    /// Allows a persistent-SSH transport reattach when exact policy intentionally omits input.
+    var permitsTransportOnlyPersistentSSHRestore: Bool {
+        isAgentHookBinding &&
+            launchFlavor.remoteContext != nil &&
+            restoreWorkingDirectorySelection?.discardsRecordedCwdOptions == true &&
+            hasCompleteManagedSessionIdentity
+    }
+
     /// Assigns persistent-SSH ownership and fails closed for legacy agent-hook cwd policy.
     func migratingLegacyPersistentSSH(_ context: SurfaceResumeRemoteContext) -> SurfaceResumeBindingSnapshot {
         let migrated = wasDecodedWithoutLaunchFlavor

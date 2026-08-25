@@ -3,9 +3,12 @@ import Foundation
 extension DockSplitStore {
     @discardableResult
     func setSurfaceResumeBinding(_ binding: SurfaceResumeBindingSnapshot, panelId: UUID) -> Bool {
-        guard panels[panelId] is TerminalPanel,
-              let startupInput = binding.inlineStartupInput(repairPortableAgentExecutable: false),
-              !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard panels[panelId] is TerminalPanel else {
+            return false
+        }
+        let startupInput = binding.inlineStartupInput(repairPortableAgentExecutable: false)
+        guard startupInput?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ||
+                binding.permitsTransportOnlyPersistentSSHRestore else {
             return false
         }
         let cachedManagedBinding =
