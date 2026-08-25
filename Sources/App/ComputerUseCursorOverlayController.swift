@@ -441,7 +441,9 @@ final class ComputerUseCursorOverlayController {
     private func hide(animated: Bool) {
         guard let panel, panel.isVisible else { return }
         fade(panel, to: 0, animated: animated && !reduceMotion) { [weak panel] in
-            panel?.orderOut(nil)
+            Task { @MainActor in
+                panel?.orderOut(nil)
+            }
         }
     }
 
