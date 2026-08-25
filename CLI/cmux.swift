@@ -153,6 +153,7 @@ struct ClaudeHookSessionRecord: Codable {
     /// Persisted beside the session record because it is only meaningful as
     /// the command identity for this record's Cursor approval lifecycle.
     struct PendingCursorShellApproval: Codable, Equatable {
+        private static let hexadecimal = Array("0123456789abcdef".utf8)
         let commandFingerprint: String
         let commandLength: Int
         let displayCommand: String
@@ -181,7 +182,6 @@ struct ClaudeHookSessionRecord: Codable {
         }
 
         private static func fingerprint(for value: String) -> String {
-            let hexadecimal = Array("0123456789abcdef".utf8)
             var encoded: [UInt8] = []
             encoded.reserveCapacity(64)
             for byte in SHA256.hash(data: Data(value.utf8)) {
