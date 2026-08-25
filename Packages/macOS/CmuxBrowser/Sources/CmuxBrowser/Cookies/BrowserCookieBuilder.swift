@@ -60,7 +60,7 @@ public struct BrowserCookieBuilder: Sendable {
         }
 
         guard let responseURL = responseURL(for: cookie, originURL: originURL),
-              var setCookieHeader = setCookieHeader(for: cookie, includeDomain: domain != nil) else {
+              var setCookieHeader = setCookieHeader(for: cookie, includeDomain: cookie.domain.hasPrefix(".")) else {
             return nil
         }
         setCookieHeader += "; HttpOnly"
@@ -73,7 +73,7 @@ public struct BrowserCookieBuilder: Sendable {
               let parsedCookie = parsedCookies.first,
               parsedCookie.name == cookie.name,
               parsedCookie.value == cookie.value,
-              Self.normalizedDomain(parsedCookie.domain) == Self.normalizedDomain(cookie.domain),
+              Self.sameDomainScope(parsedCookie.domain, cookie.domain),
               parsedCookie.path == cookie.path,
               parsedCookie.isSecure == cookie.isSecure,
               parsedCookie.isHTTPOnly else {
@@ -131,6 +131,11 @@ public struct BrowserCookieBuilder: Sendable {
         domain
             .trimmingCharacters(in: CharacterSet(charactersIn: "."))
             .lowercased()
+    }
+
+    private static func sameDomainScope(_ lhs: String, _ rhs: String) -> Bool {
+        normalizedDomain(lhs) == normalizedDomain(rhs) &&
+            lhs.hasPrefix(".") == rhs.hasPrefix(".")
     }
 
     private static func httpDateString(_ date: Date) -> String? {

@@ -22,6 +22,7 @@ struct BrowserCookieBuilderTests {
 
         #expect(cookie.name == "session")
         #expect(cookie.value == "secret")
+        #expect(cookie.domain == "example.test")
         #expect(cookie.isSecure)
         #expect(cookie.isHTTPOnly)
     }
