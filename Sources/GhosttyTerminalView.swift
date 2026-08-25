@@ -2947,20 +2947,16 @@ class GhosttyApp {
     /// thread, then drops it if the originating runtime has already been
     /// replaced or torn down by the time the main actor consumes it.
     private func enqueueTerminalPointerStyleEvent(
-        _ event: TerminalPointerStyleEvent,
+        _ event: GhosttyPointerStyleIngress.Request.Event,
+        runtimeLifetimeId: UUID,
         surfaceView: GhosttyNSView,
-        surfaceId: UUID,
-        callbackContext: GhosttySurfaceCallbackContext
+        surfaceId: UUID
     ) {
-        DispatchQueue.main.async { [weak surfaceView, weak callbackContext] in
-            guard let surfaceView,
-                  let callbackContext,
-                  let terminalSurface = surfaceView.terminalSurface,
-                  terminalSurface.id == surfaceId,
-                  terminalSurface.isActiveRuntimeCallbackContext(callbackContext)
-            else { return }
-            surfaceView.applyTerminalPointerStyle(event)
-        }
+        surfaceView.pointerStyleIngress?.submit(.init(
+            event: event,
+            surfaceId: surfaceId,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
     }
 
     private func splitDirection(from direction: ghostty_action_split_direction_e) -> SplitDirection? {
@@ -3105,10 +3101,10 @@ class GhosttyApp {
                let actionSurfaceId = callbackSurfaceId,
                let callbackContext {
                 enqueueTerminalPointerStyleEvent(
-                    .runtimeReset(callbackContext.runtimeLifetimeId),
+                    .runtimeReset,
+                    runtimeLifetimeId: callbackContext.runtimeLifetimeId,
                     surfaceView: surfaceView,
-                    surfaceId: actionSurfaceId,
-                    callbackContext: callbackContext
+                    surfaceId: actionSurfaceId
                 )
             }
             return handleChildExitedAction(
@@ -3229,13 +3225,10 @@ class GhosttyApp {
             guard let actionSurfaceId = callbackSurfaceId,
                   let callbackContext else { return false }
             enqueueTerminalPointerStyleEvent(
-                .ghosttyShape(
-                    shape,
-                    runtimeLifetimeId: callbackContext.runtimeLifetimeId
-                ),
+                .shape(shape),
+                runtimeLifetimeId: callbackContext.runtimeLifetimeId,
                 surfaceView: surfaceView,
-                surfaceId: actionSurfaceId,
-                callbackContext: callbackContext
+                surfaceId: actionSurfaceId
             )
             return true
         case GHOSTTY_ACTION_MOUSE_OVER_LINK:
@@ -3245,13 +3238,10 @@ class GhosttyApp {
             if let actionSurfaceId = callbackSurfaceId,
                let callbackContext {
                 enqueueTerminalPointerStyleEvent(
-                    .ghosttyLinkHoverChanged(
-                        action.action.mouse_over_link.len > 0,
-                        runtimeLifetimeId: callbackContext.runtimeLifetimeId
-                    ),
+                    .linkHover(action.action.mouse_over_link.len > 0),
+                    runtimeLifetimeId: callbackContext.runtimeLifetimeId,
                     surfaceView: surfaceView,
-                    surfaceId: actionSurfaceId,
-                    callbackContext: callbackContext
+                    surfaceId: actionSurfaceId
                 )
             }
             return true
@@ -3684,6 +3674,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var commandClickReleaseRoutingActive = false
     private var commandClickReleaseRuntimeOutcome: TerminalCommandClickReleaseRouter.RuntimeOutcome?
     private var terminalPointerStyle = TerminalPointerStyleState()
+    fileprivate var pointerStyleIngress: GhosttyPointerStyleIngress?
 
     func applyTerminalPointerStyle(_ event: TerminalPointerStyleEvent) {
         guard terminalPointerStyle.apply(event) else { return }
@@ -3972,6 +3963,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func setup() {
         selectionAccessibilityNotifier = TerminalSelectionAccessibilityNotifier(element: self, events: selectionAccessibilitySignal.events)
+        pointerStyleIngress = GhosttyPointerStyleIngress(surfaceView: self)
         // GhosttyMetalLayer provides render stats and opt-in frame notifications for
         // input sequencing that needs to wait for terminal redraws.
         wantsLayer = true
