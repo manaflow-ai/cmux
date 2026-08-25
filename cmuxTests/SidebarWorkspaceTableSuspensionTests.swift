@@ -543,6 +543,32 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
+    func optimisticHeaderBailoutRestoresStoredActivePaint() throws {
+        let cell = SidebarGroupHeaderTableCellView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 44)
+        )
+        let model = makeGroupHeaderModel(isAnchorActive: true)
+        cell.configure(
+            model: model,
+            actions: makeGroupHeaderActions {},
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        let background = try #require(cell.subviews.first)
+        cell.showOptimisticDeselection()
+        let deselectedAlpha = NSColor(cgColor: try #require(background.layer?.backgroundColor))?
+            .alphaComponent
+
+        cell.clearOptimisticAnchorActive()
+        let restoredAlpha = NSColor(cgColor: try #require(background.layer?.backgroundColor))?
+            .alphaComponent
+
+        #expect((deselectedAlpha ?? 1) < 0.01)
+        #expect((restoredAlpha ?? 0) > 0.01)
+    }
+
+    @Test
     func groupHeaderReconfigureAfterSuspensionRestoresAuthoritativePaint() throws {
         let cell = SidebarGroupHeaderTableCellView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 44)
@@ -655,10 +681,10 @@ struct SidebarWorkspaceTableSuspensionTests {
         }
     }
 
-    private func makeGroupHeaderModel() -> SidebarGroupHeaderRowModel {
+    private func makeGroupHeaderModel(isAnchorActive: Bool = false) -> SidebarGroupHeaderRowModel {
         SidebarGroupHeaderRowModel(
             groupId: UUID(), anchorWorkspaceId: UUID(), name: "Group", iconSymbol: "folder",
-            tintHex: nil, isCollapsed: false, isPinned: false, isAnchorActive: false,
+            tintHex: nil, isCollapsed: false, isPinned: false, isAnchorActive: isAnchorActive,
             isMultiSelected: false,
             multiSelectionBackgroundStyle: .clear,
             memberCount: 1, anchorUnreadCount: 0, canMarkRead: false, canMarkUnread: true,
