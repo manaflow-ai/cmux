@@ -255,6 +255,63 @@ struct ClaudeTaskSyncHookTests {
         )
     }
 
+    @Test("An unrecorded SessionEnd tombstones a first-sighting task hook")
+    func tombstonesUnrecordedSessionBeforeTaskSync() throws {
+        let context = try ClaudeHookLiveDeliveryHarness.makeContext(
+            name: "task-sync-unrecorded-session-end"
+        )
+        defer { context.cleanup() }
+        let workspaceId = "3a3a3a3a-3a3a-3a3a-3a3a-3a3a3a3a3a3a"
+        let surfaceId = "3b3b3b3b-3b3b-3b3b-3b3b-3b3b3b3b3b3b"
+        let sessionId = "unrecorded-session-end"
+        let taskDirectory = context.root
+            .appendingPathComponent(".claude/tasks/\(sessionId)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: taskDirectory,
+            withIntermediateDirectories: true
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Must not resurrect","status":"pending"}"#,
+            named: "1.json",
+            in: taskDirectory
+        )
+        _ = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+            context: context,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+        var environment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        let endResult = ClaudeHookLiveDeliveryHarness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            environment: environment,
+            standardInput: #"{"session_id":"unrecorded-session-end","hook_event_name":"SessionEnd"}"#
+        )
+        #expect(!endResult.timedOut, Comment(rawValue: endResult.stderr))
+        #expect(endResult.status == 0, Comment(rawValue: endResult.stderr))
+
+        let lateResult = runHook(
+            context: context,
+            environment: environment,
+            sessionId: sessionId,
+            toolName: "TaskCreate"
+        )
+        #expect(!lateResult.timedOut, Comment(rawValue: lateResult.stderr))
+        #expect(lateResult.status == 0, Comment(rawValue: lateResult.stderr))
+        #expect(reconcileRequests(in: context).isEmpty)
+        let state = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: context.storeURL)
+            ) as? [String: Any]
+        )
+        #expect(
+            (state["endedSessionIDs"] as? [String: Any])?[sessionId] != nil
+        )
+    }
+
     @Test("A personal task list clears its prior workspace after session teardown and resume")
     func movesPersonalTaskOwnerAfterSessionTeardown() throws {
         let context = try ClaudeHookLiveDeliveryHarness.makeContext(
