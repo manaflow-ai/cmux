@@ -208,6 +208,7 @@ extension LocalArtifactRepository {
 
         var captureDirectory: URL?
         for (index, prepared) in orderedPrepared {
+            guard !Task.isCancelled else { break }
             do {
                 attempts[index] = .imported(try importPrepared(
                     prepared,

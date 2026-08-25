@@ -60,12 +60,17 @@ struct ShellArtifactMutationPathDetector: Sendable {
                 continue
             }
             if let activeQuote = quote {
+                if activeQuote != "'" && character == "`" {
+                    return true
+                }
                 if character == activeQuote { quote = nil }
                 index += 1
                 continue
             }
             if character == "'" || character == "\"" {
                 quote = character
+            } else if character == "`" {
+                return true
             } else if character == "[", characters[safe: index + 1] == "[" {
                 return true
             } else if "(){}".contains(character) {

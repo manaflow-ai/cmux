@@ -30,7 +30,14 @@ extension ContentView {
             let workspaceID = workspace.id
             Task { @MainActor in
                 do {
-                    let document = try await ArtifactHTMLPreviewDocument.load(sourceURL: sourceURL)
+                    let artifactRoot = URL(
+                        fileURLWithPath: workspace.currentDirectory,
+                        isDirectory: true
+                    ).appendingPathComponent(".cmux", isDirectory: true)
+                    let document = try await ArtifactHTMLPreviewDocument.load(
+                        sourceURL: sourceURL,
+                        allowedRoot: artifactRoot
+                    )
                     guard tabManager.selectedWorkspace?.id == workspaceID else { return }
                     _ = workspace.newBrowserSurface(
                         inPane: paneId,

@@ -8,12 +8,18 @@ struct ArtifactHTMLPreviewDocument: Sendable {
     let url: URL
 
     @concurrent
-    static func load(sourceURL: URL) async throws -> ArtifactHTMLPreviewDocument {
-        try ArtifactHTMLPreviewDocument(sourceURL: sourceURL)
+    static func load(
+        sourceURL: URL,
+        allowedRoot: URL
+    ) async throws -> ArtifactHTMLPreviewDocument {
+        try ArtifactHTMLPreviewDocument(sourceURL: sourceURL, allowedRoot: allowedRoot)
     }
 
-    private init(sourceURL: URL) throws {
-        let source = String(decoding: try Self.readSource(sourceURL), as: UTF8.self)
+    private init(sourceURL: URL, allowedRoot: URL) throws {
+        let source = String(
+            decoding: try Self.readSource(sourceURL, allowedRoot: allowedRoot),
+            as: UTF8.self
+        )
         let wrapper = Self.wrapper(source: source)
         let encoded = Data(wrapper.utf8).base64EncodedString()
         guard let url = URL(string: "data:text/html;base64,\(encoded)") else {
@@ -22,7 +28,7 @@ struct ArtifactHTMLPreviewDocument: Sendable {
         self.url = url
     }
 
-    private static func readSource(_ sourceURL: URL) throws -> Data {
+    private static func readSource(_ sourceURL: URL, allowedRoot: URL) throws -> Data {
         try Task.checkCancellation()
         let descriptor = Darwin.open(
             sourceURL.path,
@@ -37,6 +43,10 @@ struct ArtifactHTMLPreviewDocument: Sendable {
         guard fstat(descriptor, &status) == 0,
               (status.st_mode & S_IFMT) == S_IFREG,
               status.st_size >= 0 else {
+            throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: sourceURL.path])
+        }
+        guard let openedPath = openedPath(for: descriptor),
+              isPath(openedPath, inside: allowedRoot) else {
             throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: sourceURL.path])
         }
         guard status.st_size <= Self.maximumSourceBytes else {
@@ -67,6 +77,23 @@ struct ArtifactHTMLPreviewDocument: Sendable {
             throw CocoaError(.fileReadTooLarge)
         }
         return data
+    }
+
+    private static func openedPath(for descriptor: Int32) -> URL? {
+        var buffer = [UInt8](repeating: 0, count: Int(PATH_MAX))
+        let result = buffer.withUnsafeMutableBytes { bytes in
+            fcntl(descriptor, F_GETPATH, bytes.baseAddress)
+        }
+        guard result == 0 else { return nil }
+        let path = String(decoding: buffer.prefix { $0 != 0 }, as: UTF8.self)
+        return URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL
+    }
+
+    private static func isPath(_ path: URL, inside root: URL) -> Bool {
+        let rootPath = root.resolvingSymlinksInPath().standardizedFileURL.path
+        let path = path.path
+        return path == rootPath
+            || path.hasPrefix(rootPath.hasSuffix("/") ? rootPath : rootPath + "/")
     }
 
     private static func wrapper(source: String) -> String {

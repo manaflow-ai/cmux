@@ -44,7 +44,7 @@ struct ArtifactGitIgnoreManager {
         try ensureTrustedDirectory(infoDirectory)
         try rejectUntrustedFileEntry(excludeURL)
         try append(
-            entries: ignoreEntries,
+            entries: missingEntries,
             to: excludeURL,
             allowedRoot: repository.commonGitDirectory
         )
