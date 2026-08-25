@@ -50,6 +50,37 @@ struct CmxIrohClientSessionTests {
     }
 
     @Test
+    func freshNativeDirectPathProjectsAsIrohDirect() async throws {
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: []
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(publicPaths: [try publicRelayHint()]),
+            credential: credential,
+            transportMode: .iroh
+        )
+
+        // A public direct address may be discovered after the initial plan was
+        // built. It has native Iroh provenance by path category even without a
+        // matching hint in the original plan.
+        #expect(
+            await session.transportPath(
+                for: .direct(address: "203.0.113.42:443")
+            ) == .irohDirect
+        )
+        // Private observations still require a source-qualified hint and must
+        // remain unavailable when no provenance can be established.
+        #expect(
+            await session.transportPath(
+                for: .privateNetwork(address: "192.168.1.42:443")
+            ) == .unavailable
+        )
+    }
+
+    @Test
     func publicDialAdmitsControlAndPreservesFollowingRPCBytes() async throws {
         let events = TestIrohEventRecorder()
         let control = controlStream(

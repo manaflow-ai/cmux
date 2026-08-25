@@ -103,7 +103,7 @@ extension MobileShellComposite {
         }
     }
 
-    private func recordTransportPathMigration(
+    func recordTransportPathMigration(
         from: CmxTransportPath,
         to: CmxTransportPath,
         sessionID: Int?,

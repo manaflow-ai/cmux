@@ -82,4 +82,33 @@ import Testing
         }
         #expect(selected.isEmpty)
     }
+
+    @Test func transportPathMigrationEventCarriesSessionCorrelation() async throws {
+        let log = DiagnosticLog(capacity: 16, role: .mobileClient)
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            diagnosticLog: log
+        )
+
+        store.recordTransportPathMigration(
+            from: .irohDirect,
+            to: .tailscale(address: "100.64.0.42:56_584"),
+            sessionID: 91,
+            peerID: "test-mac"
+        )
+
+        // `c` is the process-local session correlation documented for every
+        // transportPathMigration event, including policy-violation migrations.
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while await log.processedCount() < 1, clock.now < deadline {
+            await Task.yield()
+        }
+        let event = try #require(
+            await log.snapshot().events.first(where: {
+                $0.code == .transportPathMigration
+            })
+        )
+        #expect(event.diagnosticSessionID == 91)
+    }
 }

@@ -342,6 +342,31 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         #expect(try compactTicket(from: attachURL).routes == ticket.routes)
     }
 
+    @Test func omittedTargetTicketPayloadStripsLANForReleasedDecoders() throws {
+        let store = MobileAttachTicketStore()
+        let ticket = try store.createTicket(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [try irohRoute(withPathHint: false), try lanRoute()],
+            ttl: 3600
+        )
+
+        let payload = try store.payload(for: ticket)
+        let ticketObject = try #require(payload["ticket"] as? [String: Any])
+        let ticketRoutes = try #require(ticketObject["routes"] as? [[String: Any]])
+        let routeObjects = try #require(payload["routes"] as? [[String: Any]])
+
+        // The omitted-target response is the pre-target compatibility contract.
+        // Released decoders have a closed transport-kind enum and must be able
+        // to decode both the full ticket and its convenience route projection.
+        #expect(ticketRoutes.map { $0["kind"] as? String } == [
+            CmxAttachTransportKind.iroh.rawValue,
+        ])
+        #expect(routeObjects.map { $0["kind"] as? String } == [
+            CmxAttachTransportKind.iroh.rawValue,
+        ])
+    }
+
     @Test func omittedTargetTailscaleCompatibilityCodeIsMinimalV2() throws {
         let store = MobileAttachTicketStore()
         let secondaryTailscale = try tailscaleRoute(
