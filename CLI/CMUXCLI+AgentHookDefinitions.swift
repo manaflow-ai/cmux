@@ -76,6 +76,17 @@ extension CMUXCLI {
         struct HookEvent {
             let agentEvent: String
             let cmuxSubcommand: String
+            let matcher: String?
+
+            init(
+                agentEvent: String,
+                cmuxSubcommand: String,
+                matcher: String? = nil
+            ) {
+                self.agentEvent = agentEvent
+                self.cmuxSubcommand = cmuxSubcommand
+                self.matcher = matcher
+            }
         }
 
         enum PostInstallAction {

@@ -76,6 +76,7 @@ struct ClaudeHookParsedInput {
 
 struct CursorPendingShellApproval: Codable, Equatable {
     let command: String
+    let toolUseId: String?
     let createdAt: TimeInterval
 }
 
@@ -226,7 +227,8 @@ final class ClaudeHookSessionStore {
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
     private static let maxPendingCursorShellApprovals = 16
-    private static let maxPendingCursorShellCommandLength = 8_192
+    private static let maxPendingCursorShellCommandLength = 64 * 1024
+    private static let maxPendingCursorShellApprovalAgeSeconds: TimeInterval = 60 * 60
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
@@ -266,6 +268,7 @@ final class ClaudeHookSessionStore {
     struct CursorShellResolution {
         let matched: Bool
         let hasRemaining: Bool
+        let expired: Bool
     }
 
     /// Records one Cursor shell command for atomic completion correlation.
@@ -273,7 +276,11 @@ final class ClaudeHookSessionStore {
     /// decision or a stable tool id, so the normalized command is the durable
     /// identity shared by the before and terminal hook callbacks.
     @discardableResult
-    func rememberCursorShellApproval(sessionId: String, command: String) throws -> Bool {
+    func rememberCursorShellApproval(
+        sessionId: String,
+        command: String,
+        toolUseId: String? = nil
+    ) throws -> Bool {
         let normalizedSession = normalizeSessionId(sessionId)
         guard !normalizedSession.isEmpty,
               let normalizedCommand = normalizedCursorShellCommand(command) else {
@@ -282,15 +289,20 @@ final class ClaudeHookSessionStore {
         return try withLockedState { state in
             guard var record = state.sessions[normalizedSession] else { return false }
             var pending = record.pendingCursorShellApprovals ?? []
+            let now = Date().timeIntervalSince1970
+            pending.removeAll {
+                now - $0.createdAt > Self.maxPendingCursorShellApprovalAgeSeconds
+            }
             pending.append(CursorPendingShellApproval(
                 command: normalizedCommand,
-                createdAt: Date().timeIntervalSince1970
+                toolUseId: normalizedCursorShellToolUseId(toolUseId),
+                createdAt: now
             ))
             if pending.count > Self.maxPendingCursorShellApprovals {
                 pending.removeFirst(pending.count - Self.maxPendingCursorShellApprovals)
             }
             record.pendingCursorShellApprovals = pending
-            record.updatedAt = Date().timeIntervalSince1970
+            record.updatedAt = now
             state.sessions[normalizedSession] = record
             return true
         }
@@ -309,18 +321,40 @@ final class ClaudeHookSessionStore {
         cwd: String?,
         transcriptPath: String? = nil,
         pid: Int? = nil,
-        launchCommand: AgentHookLaunchCommandRecord? = nil
+        launchCommand: AgentHookLaunchCommandRecord? = nil,
+        toolUseId: String? = nil
     ) throws -> CursorShellResolution {
         let normalizedSession = normalizeSessionId(sessionId)
         guard !normalizedSession.isEmpty,
               let normalizedCommand = normalizedCursorShellCommand(command) else {
-            return CursorShellResolution(matched: false, hasRemaining: false)
+            return CursorShellResolution(matched: false, hasRemaining: false, expired: false)
         }
         return try withLockedState { state in
             guard var record = state.sessions[normalizedSession],
-                  var pending = record.pendingCursorShellApprovals,
-                  let matchIndex = pending.firstIndex(where: { $0.command == normalizedCommand }) else {
-                return CursorShellResolution(matched: false, hasRemaining: false)
+                  var pending = record.pendingCursorShellApprovals else {
+                return CursorShellResolution(matched: false, hasRemaining: false, expired: false)
+            }
+            let now = Date().timeIntervalSince1970
+            let beforePruneCount = pending.count
+            pending.removeAll {
+                now - $0.createdAt > Self.maxPendingCursorShellApprovalAgeSeconds
+            }
+            let expired = pending.count != beforePruneCount
+            let normalizedToolUseId = normalizedCursorShellToolUseId(toolUseId)
+            guard let matchIndex = pending.firstIndex(where: { pendingApproval in
+                if let normalizedToolUseId {
+                    if let pendingToolUseId = pendingApproval.toolUseId {
+                        return normalizedToolUseId == pendingToolUseId
+                    }
+                    return pendingApproval.command == normalizedCommand
+                }
+                return pendingApproval.command == normalizedCommand
+            }) else {
+                if expired {
+                    record.pendingCursorShellApprovals = pending.isEmpty ? nil : pending
+                    state.sessions[normalizedSession] = record
+                }
+                return CursorShellResolution(matched: false, hasRemaining: !pending.isEmpty, expired: expired)
             }
             pending.remove(at: matchIndex)
             let hasRemaining = !pending.isEmpty
@@ -340,7 +374,7 @@ final class ClaudeHookSessionStore {
                 updateLastNotificationStatus: true,
                 runtimeStatus: hasRemaining ? .needsInput : .running,
                 updateRuntimeStatus: true,
-                now: Date().timeIntervalSince1970
+                now: now
             )
             record.pendingCursorShellApprovals = hasRemaining ? pending : nil
             if hasRemaining {
@@ -351,7 +385,7 @@ final class ClaudeHookSessionStore {
                 record.lastNotificationStatus = nil
             }
             state.sessions[normalizedSession] = record
-            return CursorShellResolution(matched: true, hasRemaining: hasRemaining)
+            return CursorShellResolution(matched: true, hasRemaining: hasRemaining, expired: expired)
         }
     }
 
@@ -381,6 +415,12 @@ final class ClaudeHookSessionStore {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !collapsed.isEmpty else { return nil }
         return String(collapsed.prefix(Self.maxPendingCursorShellCommandLength))
+    }
+
+    private func normalizedCursorShellToolUseId(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     /// Records the hook-observed permission mode on an existing session record.
@@ -29843,14 +29883,22 @@ struct CMUXCLI {
             switch def.format {
             case .flat:
                 var entries = result[event.agentEvent] as? [[String: Any]] ?? []
-                entries.append(["command": cmd])
+                var entry: [String: Any] = ["command": cmd]
+                if let matcher = event.matcher {
+                    entry["matcher"] = matcher
+                }
+                entries.append(entry)
                 result[event.agentEvent] = entries
             case .kiroAgentJSON(let timeoutMs):
                 var entries = result[event.agentEvent] as? [[String: Any]] ?? []
-                entries.append([
+                var entry: [String: Any] = [
                     "command": cmd,
                     "timeout_ms": max(timeoutMs, 1),
-                ] as [String: Any])
+                ]
+                if let matcher = event.matcher {
+                    entry["matcher"] = matcher
+                }
+                entries.append(entry)
                 result[event.agentEvent] = entries
             case .nested(let timeoutMs):
                 var groups = result[event.agentEvent] as? [[String: Any]] ?? []
@@ -31585,12 +31633,12 @@ export default CMUXSessionRestore;
             guard def.name == "cursor" else { return (nil, []) }
             var mode: String?
             var allowedShellCommands: [String] = []
-            func applyConfig(at url: URL) {
+            func applyConfig(at url: URL, readsApprovalMode: Bool) {
                 guard let data = try? Data(contentsOf: url),
                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                     return
                 }
-                if let configuredMode = json["approvalMode"] as? String {
+                if readsApprovalMode, let configuredMode = json["approvalMode"] as? String {
                     mode = configuredMode
                 }
                 if let permissions = json["permissions"] as? [String: Any],
@@ -31608,7 +31656,8 @@ export default CMUXSessionRestore;
             ).expandingTildeInPath
             applyConfig(
                 at: URL(fileURLWithPath: configDirectory, isDirectory: true)
-                    .appendingPathComponent("cli-config.json", isDirectory: false)
+                    .appendingPathComponent("cli-config.json", isDirectory: false),
+                readsApprovalMode: true
             )
 
             guard let rawCwd = hookCwd ?? normalizedHookValue(env["PWD"]) else {
@@ -31632,7 +31681,8 @@ export default CMUXSessionRestore;
             applyConfig(
                 at: projectRoot
                     .appendingPathComponent(".cursor", isDirectory: true)
-                    .appendingPathComponent("cli.json", isDirectory: false)
+                    .appendingPathComponent("cli.json", isDirectory: false),
+                readsApprovalMode: false
             )
             if cwdURL.path != projectRoot.path,
                cwdURL.path.hasPrefix(projectRoot.path + "/") {
@@ -31643,7 +31693,8 @@ export default CMUXSessionRestore;
                     applyConfig(
                         at: directory
                             .appendingPathComponent(".cursor", isDirectory: true)
-                            .appendingPathComponent("cli.json", isDirectory: false)
+                            .appendingPathComponent("cli.json", isDirectory: false),
+                        readsApprovalMode: false
                     )
                 }
             }
@@ -32078,10 +32129,24 @@ export default CMUXSessionRestore;
             return nil
         }
 
+        func cursorShellToolUseId(from input: ClaudeHookParsedInput) -> String? {
+            guard let rawObject = input.rawObject else { return nil }
+            return firstString(in: rawObject, keys: ["tool_use_id", "toolUseId", "tool_call_id", "toolCallId"])
+        }
+
         func resolveCursorShellHook(failed: Bool) {
             guard def.name == "cursor" else {
                 sendAgentFeedTelemetry()
                 return
+            }
+            if failed {
+                guard let toolName = input.rawObject.flatMap({
+                    firstString(in: $0, keys: ["tool_name", "toolName"])
+                }), toolName.caseInsensitiveCompare("Shell") == .orderedSame else {
+                    sendAgentFeedTelemetry()
+                    telemetry.breadcrumb("\(def.name)-hook.shell-failed.non-shell")
+                    return
+                }
             }
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
@@ -32153,8 +32218,28 @@ export default CMUXSessionRestore;
                 ),
                 transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                 pid: pid,
-                launchCommand: resumeLaunchCommand
+                launchCommand: resumeLaunchCommand,
+                toolUseId: cursorShellToolUseId(from: input)
             )
+            if let resolution, !resolution.matched, resolution.expired, !resolution.hasRemaining {
+                emitJournal(
+                    .stateChanged,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    declaredPhase: .running,
+                    detail: "cursor-shell-expired"
+                )
+                _ = try? sendV1Command(
+                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+                let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
+                _ = try? sendV1Command(
+                    "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+                return
+            }
             guard let resolution, resolution.matched else {
                 telemetry.breadcrumb("\(def.name)-hook.shell-\(failed ? "failed" : "done").unmatched")
                 emitJournal(
@@ -33403,7 +33488,8 @@ export default CMUXSessionRestore;
                 if let command = cursorShellCommand(from: input) {
                     _ = try? store.rememberCursorShellApproval(
                         sessionId: sessionId,
-                        command: command
+                        command: command,
+                        toolUseId: cursorShellToolUseId(from: input)
                     )
                 } else {
                     telemetry.breadcrumb("\(def.name)-hook.shell-exec.missing-command")

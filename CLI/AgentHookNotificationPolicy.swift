@@ -257,10 +257,14 @@ enum AgentHookNotificationPolicy {
         allowedShellCommands: [String] = []
     ) -> Bool {
         guard payload?["sandbox"] as? Bool == false else { return false }
-        guard approvalMode != "unrestricted", approvalMode != "auto-review" else {
+        // Without a locally known allowlist mode there is no authoritative
+        // signal that this callback is waiting. Keep the event telemetry-only
+        // rather than manufacturing an uncorrelatable Needs input state.
+        guard approvalMode == "allowlist",
+              let command = payload?["command"] as? String,
+              !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
-        guard let command = payload?["command"] as? String else { return true }
         return !allowedShellCommands.contains {
             cursorShellAllowlistEntryMatches($0, command: command)
         }

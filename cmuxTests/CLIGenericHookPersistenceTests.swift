@@ -1030,6 +1030,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let sessionId = "cursor-session-9315"
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let cursorConfigDirectory = root.appendingPathComponent(".cursor", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: cursorConfigDirectory,
+            withIntermediateDirectories: true
+        )
+        let cursorConfigURL = cursorConfigDirectory.appendingPathComponent(
+            "cli-config.json",
+            isDirectory: false
+        )
+        let allowlistConfig: [String: Any] = [
+            "version": 1,
+            "approvalMode": "allowlist",
+        ]
+        try JSONSerialization.data(
+            withJSONObject: allowlistConfig,
+            options: [.sortedKeys]
+        ).write(to: cursorConfigURL, options: .atomic)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -1162,6 +1179,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "An unrelated Cursor shell completion must not restore Running, saw \(mismatchedCompletionCommands)"
         )
 
+        let nonShellFailureStart = state.snapshot().count
+        let nonShellFailure = runCursorHook(
+            "shell-failed",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"postToolUseFailure","tool_name":"Read","tool_input":{"command":"\#(secondCommand)","file_path":"README.md"},"error_message":"Read failed","failure_type":"error"}"#
+        )
+        XCTAssertFalse(nonShellFailure.timedOut, nonShellFailure.stderr)
+        XCTAssertEqual(nonShellFailure.status, 0, nonShellFailure.stderr)
+        let nonShellFailureCommands = Array(state.snapshot().dropFirst(nonShellFailureStart))
+        XCTAssertFalse(
+            nonShellFailureCommands.contains {
+                $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+            },
+            "A non-Shell failure must not resolve a pending Cursor shell approval, saw \(nonShellFailureCommands)"
+        )
+
         let failureStart = state.snapshot().count
         let failure = runCursorHook(
             "shell-failed",
@@ -1207,15 +1239,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Cursor stop/cancellation must clear a pending approval, saw \(stopCommands)"
         )
 
-        let cursorConfigDirectory = root.appendingPathComponent(".cursor", isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: cursorConfigDirectory,
-            withIntermediateDirectories: true
-        )
-        let cursorConfigURL = cursorConfigDirectory.appendingPathComponent(
-            "cli-config.json",
-            isDirectory: false
-        )
         let unrestrictedConfig: [String: Any] = [
             "version": 1,
             "approvalMode": "unrestricted",
@@ -1266,6 +1289,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(
             projectAllowlistCommands.contains { $0.hasPrefix("notify_target_async ") },
             "A project Shell(git) allowlist must suppress the forced approval fallback, saw \(projectAllowlistCommands)"
+        )
+
+        let malformedStart = state.snapshot().count
+        let malformed = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","sandbox":false}"#
+        )
+        XCTAssertFalse(malformed.timedOut, malformed.stderr)
+        XCTAssertEqual(malformed.status, 0, malformed.stderr)
+        XCTAssertEqual(malformed.stdout, "{}\n")
+        let malformedCommands = Array(state.snapshot().dropFirst(malformedStart))
+        XCTAssertFalse(
+            malformedCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "An incomplete Cursor shell payload must remain telemetry-only, saw \(malformedCommands)"
         )
 
         let sandboxedCommandStart = state.snapshot().count
@@ -1365,6 +1402,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let failureEntries = try XCTUnwrap(hooks["postToolUseFailure"] as? [[String: Any]])
         let failureCommands = failureEntries.compactMap { $0["command"] as? String }
         XCTAssertEqual(failureCommands.filter { $0.contains("hooks cursor shell-failed") }.count, 1)
+        XCTAssertEqual(failureEntries.first?["matcher"] as? String, "Shell")
 
         let customEntries = try XCTUnwrap(hooks["userCustomEvent"] as? [[String: Any]])
         XCTAssertEqual(customEntries.compactMap { $0["command"] as? String }, [userCustomCommand])
