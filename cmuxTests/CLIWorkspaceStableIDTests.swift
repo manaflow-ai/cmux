@@ -64,6 +64,24 @@ struct CLIWorkspaceStableIDTests {
             #expect((row["id"] != nil) == expectation.hasID, Comment(rawValue: "command=\(command) row=\(row)"))
             #expect((row["ref"] != nil) == expectation.hasRef, Comment(rawValue: "command=\(command) row=\(row)"))
         }
+
+        for expectation in expectations {
+            let command = [
+                "list-pane-surfaces",
+                "--workspace", "workspace:1",
+                "--pane", "pane:1",
+                "--json",
+                "--id-format", expectation.mode,
+            ]
+            let result = try await run(command: command, cliPath: cliPath)
+            #expect(!result.timedOut, Comment(rawValue: result.stderr))
+            #expect(result.status == 0, Comment(rawValue: result.stderr))
+            let root = try responseObject(in: result.stdout)
+            let rows = try #require(root["surfaces"] as? [[String: Any]])
+            let row = try #require(rows.first)
+            #expect((row["id"] as? String) == (expectation.hasID ? Self.surfaceID : nil), Comment(rawValue: "command=\(command) row=\(row)"))
+            #expect((row["ref"] as? String) == (expectation.hasRef ? "surface:1" : nil), Comment(rawValue: "command=\(command) row=\(row)"))
+        }
     }
 
     @Test("Workspace inspection JSON keeps mirror UUIDs by default")

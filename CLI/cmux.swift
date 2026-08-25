@@ -4198,12 +4198,11 @@ struct CMUXCLI {
         )
 
         let idFormat = try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
-        // Workspace inspection JSON is a scripting boundary: keep stable UUIDs
-        // beside renumberable refs unless the caller explicitly chooses a format.
-        let preserveStableWorkspaceIDs = jsonOutput && idFormatArg == nil
-        // Agent integrations consume pane/surface UUIDs from these two topology
-        // listings, so keep them beside refs in the default JSON shape as well.
-        let preservePaneSurfaceIDsByDefault = jsonOutput && idFormatArg == nil
+        // Default JSON output is a scripting boundary: keep stable UUIDs beside
+        // renumberable refs unless the caller explicitly chooses an ID format.
+        // Workspace inspection and pane/surface topology listings use distinct
+        // preservation sets at their call sites below.
+        let preservesStableIDsByDefault = jsonOutput && idFormatArg == nil
         // Most CLI --window routing focuses first so commands without an
         // explicit window_id still target the selected window.
         if let windowId, Self.shouldFocusWindowBeforeDispatch(command: command, commandArgs: commandArgs) {
@@ -5056,7 +5055,7 @@ struct CMUXCLI {
                 client: client,
                 jsonOutput: jsonOutput,
                 idFormat: idFormat,
-                preserveStableListIDs: preserveStableWorkspaceIDs,
+                preserveStableListIDs: preservesStableIDsByDefault,
                 windowOverride: windowId
             )
 
@@ -5086,7 +5085,7 @@ struct CMUXCLI {
                 client: client,
                 jsonOutput: jsonOutput,
                 idFormat: idFormat,
-                preserveStableIDs: preserveStableWorkspaceIDs,
+                preserveStableIDs: preservesStableIDsByDefault,
                 windowOverride: windowId
             )
 
@@ -5196,7 +5195,7 @@ struct CMUXCLI {
                 print(jsonString(formatIDs(
                     payload,
                     mode: idFormat,
-                    preservingIDKinds: preservePaneSurfaceIDsByDefault ? ["pane", "surface"] : []
+                    preservingIDKinds: preservesStableIDsByDefault ? ["pane", "surface"] : []
                 )))
             } else {
                 let panes = payload["panes"] as? [[String: Any]] ?? []
@@ -5230,7 +5229,7 @@ struct CMUXCLI {
                 print(jsonString(formatIDs(
                     payload,
                     mode: idFormat,
-                    preservingIDKinds: preservePaneSurfaceIDsByDefault ? ["pane", "surface"] : []
+                    preservingIDKinds: preservesStableIDsByDefault ? ["pane", "surface"] : []
                 )))
             } else {
                 let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
@@ -5250,10 +5249,10 @@ struct CMUXCLI {
             }
 
         case "tree":
-            try runTreeCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, preserveStableWorkspaceIDs: preserveStableWorkspaceIDs)
+            try runTreeCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, preserveStableWorkspaceIDs: preservesStableIDsByDefault)
 
         case "top":
-            try runTopCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, preserveStableWorkspaceIDs: preserveStableWorkspaceIDs)
+            try runTopCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, preserveStableWorkspaceIDs: preservesStableIDsByDefault)
 
         case "memory":
             try runMemoryCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
@@ -5591,7 +5590,7 @@ struct CMUXCLI {
                 print(jsonString(formatWorkspaceInspectionIDs(
                     response,
                     mode: idFormat,
-                    preserveStableIDs: preserveStableWorkspaceIDs
+                    preserveStableIDs: preservesStableIDsByDefault
                 )))
             } else {
                 let handle = formatHandle(response, kind: "workspace", idFormat: idFormat)
