@@ -462,10 +462,19 @@ final class SharedLiveAgentIndex {
     }
 
     /// Returns a freshly loaded index, coalescing with any refresh already in flight.
-    func indexRefreshingNow() async -> RestorableAgentSessionIndex? {
+    func indexRefreshingNow(
+        requiringSidebarMonitoringLease: Bool = false
+    ) async -> RestorableAgentSessionIndex? {
+        guard !requiringSidebarMonitoringLease || sidebarProcessMonitoringEnabled else {
+            return index
+        }
         ensureWatchingHookStoreDirectory()
         if let sidebarLivenessRefreshTask {
             await sidebarLivenessRefreshTask.value
+        }
+        guard !Task.isCancelled,
+              !requiringSidebarMonitoringLease || sidebarProcessMonitoringEnabled else {
+            return index
         }
         if refreshTask == nil, forkAvailabilityRefreshTask == nil {
             startReload()
@@ -518,7 +527,9 @@ final class SharedLiveAgentIndex {
         let previousFingerprint = liveAgentProcessFingerprint
         let sourceGeneration = indexGeneration
         let processRefreshTask = Task.detached(priority: .utility) {
+            guard !Task.isCancelled else { return cachedIndex }
             let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+            guard !Task.isCancelled else { return cachedIndex }
             return cachedIndex.revalidatingCachedProcesses(
                 against: processSnapshot,
                 panelIDs: panelIDs,

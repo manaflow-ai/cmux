@@ -11648,9 +11648,13 @@ struct VerticalTabsSidebar: View, Equatable {
             // once from the lifecycle boundary so the first snapshot cannot
             // permanently miss hook-backed activity.
             if becameMonitoringOwner {
-                _ = await SharedLiveAgentIndex.shared.indexRefreshingNow()
+                _ = await SharedLiveAgentIndex.shared.indexRefreshingNow(
+                    requiringSidebarMonitoringLease: true
+                )
             } else if SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() == nil {
-                _ = await SharedLiveAgentIndex.shared.indexRefreshingNow()
+                _ = await SharedLiveAgentIndex.shared.indexRefreshingNow(
+                    requiringSidebarMonitoringLease: true
+                )
             }
             guard isPresented, !Task.isCancelled else { return }
             // Re-read ownership after the async load. Restore/move work can
