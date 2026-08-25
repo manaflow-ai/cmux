@@ -97,7 +97,16 @@ final class CmuxSettingsFileStore {
         self.fileManager = fileManager
         self.notificationCenter = notificationCenter
         self.userDefaults = userDefaults
-        self.languageSettingsStore = languageSettingsStore ?? LanguageSettingsStore(defaults: userDefaults)
+        self.languageSettingsStore = languageSettingsStore ?? LanguageSettingsStore(
+            defaults: userDefaults,
+            // UserDefaults does not expose a suite name. The standard store has
+            // the app bundle domain; an injected suite must use direct reads so
+            // language ownership stays inside that suite instead of consulting
+            // the app domain.
+            domainName: userDefaults === UserDefaults.standard
+                ? Bundle.main.bundleIdentifier
+                : nil
+        )
         self.passwordStore = passwordStore
         self.onWatchedFileReload = onWatchedFileReload
         importedManagedDefaults = Self.loadImportedManagedDefaults(defaults: userDefaults)

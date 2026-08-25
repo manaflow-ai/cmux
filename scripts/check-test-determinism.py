@@ -304,7 +304,7 @@ _NETWORK_VERB = re.compile(
   | \b(?:request|got|superagent|undici)\s*\(
   | \bhttp[sx]?\.(?:get|post|request)\s*\(
   | \bXMLHttpRequest\b
-  | \.open\s*\(\s*["'][A-Z]+["']\s*,                 # xhr.open("GET", url)
+  | \.open\s*\(                                  # xhr.open(method, url)
   | \brequests\.(?:get|post|put|delete|head|request)\s*\(
   | \burllib\b
   | \burlopen\s*\(
@@ -1806,13 +1806,13 @@ def _call_uses_explicit_shell(
     return quoted is not None and quoted[0] < quoted[1] < end
 
 
-def _argv_interpreter_source_bounds(
+def _argv_interpreter_source_context(
     line: str,
     opening_paren: int,
     path_suffix: str = "",
     object_command_labels: frozenset[str] = _NO_ARGUMENT_LABELS,
-) -> Optional[tuple[int, int]]:
-    """Return the argv word a known interpreter consumes as evaluated source."""
+) -> Optional[tuple[tuple[int, int], _InterpreterSourceSpec]]:
+    """Return a known interpreter's evaluated source range and language spec."""
     elements = _argv_elements(
         line,
         opening_paren,
@@ -1829,11 +1829,36 @@ def _argv_interpreter_source_bounds(
     spec = _interpreter_source_spec(executable)
     if spec is None:
         return None
-    return _evaluated_source_argument_bounds(
+    source_bounds = _evaluated_source_argument_bounds(
         line,
         [element.value_bounds for element in elements[token_index + 1 :]],
         spec,
     )
+    return (source_bounds, spec) if source_bounds is not None else None
+
+
+def _argv_interpreter_source_bounds(
+    line: str,
+    opening_paren: int,
+    path_suffix: str = "",
+    object_command_labels: frozenset[str] = _NO_ARGUMENT_LABELS,
+) -> Optional[tuple[int, int]]:
+    """Return the argv word a known interpreter consumes as evaluated source."""
+    context = _argv_interpreter_source_context(
+        line,
+        opening_paren,
+        path_suffix,
+        object_command_labels,
+    )
+    return context[0] if context is not None else None
+
+
+def _interpreter_source_suffix(spec: _InterpreterSourceSpec) -> str:
+    if spec is _SHELL_SOURCE_SPEC:
+        return ".sh"
+    if spec is _PYTHON_SOURCE_SPEC:
+        return ".py"
+    return ".ts"
 
 
 def _argv_executable_index(
@@ -1873,17 +1898,42 @@ def _argv_execution_target_ranges(
     path_suffix: str,
     object_command_labels: frozenset[str] = _NO_ARGUMENT_LABELS,
 ) -> list[tuple[int, int]]:
-    evaluated_source = _argv_interpreter_source_bounds(
+    interpreter_context = _argv_interpreter_source_context(
         line,
         opening_paren,
         path_suffix,
         object_command_labels,
     )
-    if evaluated_source is not None and _bounds_contain_offset(
-        evaluated_source,
-        verb_start,
-    ):
-        return [evaluated_source]
+    if interpreter_context is not None:
+        evaluated_source, source_spec = interpreter_context
+        if _bounds_contain_offset(evaluated_source, verb_start):
+            source_start, source_end = evaluated_source
+            source = line[source_start:source_end]
+            source_suffix = _interpreter_source_suffix(source_spec)
+            relative_verb_start = verb_start - source_start
+            nested_match = next(
+                (
+                    nested
+                    for nested in _NETWORK_VERB.finditer(source)
+                    if nested.start() <= relative_verb_start < nested.end()
+                ),
+                None,
+            )
+            if nested_match is not None:
+                nested_ranges = _network_target_ranges(
+                    source,
+                    nested_match,
+                    source_suffix,
+                )
+                if any(
+                    _contains_public_network_url(source[start:end])
+                    for start, end in nested_ranges
+                ):
+                    return [
+                        (source_start + start, source_start + end)
+                        for start, end in nested_ranges
+                    ]
+            return []
 
     executable_bounds = _argv_executable_bounds(
         line,
