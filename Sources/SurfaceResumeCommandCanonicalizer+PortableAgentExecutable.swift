@@ -29,9 +29,21 @@ extension SurfaceResumeBindingSnapshot {
         guard restoreWorkingDirectorySelection?.permitsResume != false else {
             return nil
         }
-        let resolvedCommand = resolvedStartupCommand(
-            repairPortableAgentExecutable: repairPortableAgentExecutable
-        )
+        let resolvedCommand: String
+        if let selection = restoreWorkingDirectorySelection,
+           selection.discardsRecordedCwdOptions {
+            guard let constrainedCommand = constrainedRestoreCommand(
+                selection: selection,
+                includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
+            ) else {
+                return nil
+            }
+            resolvedCommand = constrainedCommand
+        } else {
+            resolvedCommand = resolvedStartupCommand(
+                repairPortableAgentExecutable: repairPortableAgentExecutable
+            )
+        }
         let command = includeWorkingDirectoryPrefix
             ? resolvedCommand
             : TerminalStartupWorkingDirectoryPrefix.removingRequiredChangeDirectoryPrefix(

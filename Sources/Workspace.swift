@@ -5254,7 +5254,7 @@ final class Workspace: Identifiable, ObservableObject {
             // halves of the restore record; do not leave a stale snapshot policy
             // for control-surface restore to prefer later.
             restoredAgentSnapshotsByPanelId[panelId] =
-                restoredAgent.applyingAuthoritativeRemoteBindingSelection(selection)
+                restoredAgent.applyingAuthoritativeBindingSelection(selection)
         }
         let constrainedBinding: SurfaceResumeBindingSnapshot = if binding.isAgentHookBinding,
                                                                    binding.launchFlavor.remoteContext != nil,

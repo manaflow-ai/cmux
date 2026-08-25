@@ -293,24 +293,31 @@ extension TerminalController {
                 nil
             }
         if let agent = compatibleAgent {
-            let workingDirectorySelection = agent.effectiveRestoreWorkingDirectorySelection(
+            let bindingScopedAgent: SessionRestorableAgentSnapshot = if let bindingSelection =
+                binding?.restoreWorkingDirectorySelection,
+                bindingSelection.discardsRecordedCwdOptions {
+                agent.applyingAuthoritativeBindingSelection(bindingSelection)
+            } else {
+                agent
+            }
+            let workingDirectorySelection = bindingScopedAgent.effectiveRestoreWorkingDirectorySelection(
                 .recordedFallback(preferred: target.restoredResumeWorkingDirectory ?? binding?.cwd)
             )
             guard workingDirectorySelection.permitsResume else { return nil }
-            let launchCommand = agent.constrainedLaunchCommand(
-                binding?.launchCommand ?? agent.launchCommand,
+            let launchCommand = bindingScopedAgent.constrainedLaunchCommand(
+                binding?.launchCommand ?? bindingScopedAgent.launchCommand,
                 selection: workingDirectorySelection
             )
             let workingDirectory = workingDirectorySelection.resolved(
-                snapshotWorkingDirectory: agent.workingDirectory,
+                snapshotWorkingDirectory: bindingScopedAgent.workingDirectory,
                 launchWorkingDirectory: launchCommand?.workingDirectory
             )
-            let permissionMode = binding?.permissionMode ?? agent.permissionMode
-            let mode: AgentRestoreRequestMode = agent.kind.restoreMode == .relaunchCommand
+            let permissionMode = binding?.permissionMode ?? bindingScopedAgent.permissionMode
+            let mode: AgentRestoreRequestMode = bindingScopedAgent.kind.restoreMode == .relaunchCommand
                 ? .relaunchAgent
                 : .resumeAgent
-            let preparedArguments = agent.kind.restoreMode == .resumeSession
-                ? agent.preparedResumeArguments(
+            let preparedArguments = bindingScopedAgent.kind.restoreMode == .resumeSession
+                ? bindingScopedAgent.preparedResumeArguments(
                     launchCommand: launchCommand,
                     workingDirectorySelection: workingDirectorySelection,
                     observedPermissionMode: permissionMode
@@ -318,15 +325,15 @@ extension TerminalController {
                 : nil
             return ControlSurfaceRestoreRecord(
                 modeRawValue: mode.rawValue,
-                kind: agent.kind.rawValue,
-                checkpointID: agent.sessionId,
+                kind: bindingScopedAgent.kind.rawValue,
+                checkpointID: bindingScopedAgent.sessionId,
                 source: "session-snapshot",
                 workingDirectory: workingDirectory,
                 environment: binding?.environment ?? [:],
                 launchCommand: launchCommand.map {
                     controlAgentLaunchCommand(
                         $0,
-                        replaySafeEnvironmentFor: agent.kind.rawValue
+                        replaySafeEnvironmentFor: bindingScopedAgent.kind.rawValue
                     )
                 },
                 preparedArguments: preparedArguments,
@@ -334,7 +341,8 @@ extension TerminalController {
                     ? nil
                     : workingDirectory,
                 permissionMode: permissionMode,
-                legacyCommand: agent.restoreWorkingDirectorySelection == nil
+                legacyCommand: binding?.restoreWorkingDirectorySelection?.discardsRecordedCwdOptions != true &&
+                    bindingScopedAgent.restoreWorkingDirectorySelection?.discardsRecordedCwdOptions != true
                     ? compatibilityBinding?.inlineStartupInput
                     : nil
             )
@@ -391,7 +399,9 @@ extension TerminalController {
             preparedArguments: mode == .direct ? launchCommand?.arguments : nil,
             preparedArgumentsWorkingDirectory: nil,
             permissionMode: binding.permissionMode,
-            legacyCommand: compatibilityBinding?.inlineStartupInput
+            legacyCommand: bindingSelection?.discardsRecordedCwdOptions == true
+                ? nil
+                : compatibilityBinding?.inlineStartupInput
         )
     }
 

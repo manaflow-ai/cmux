@@ -94,8 +94,8 @@ extension SessionRestorableAgentSnapshot {
         return refreshable.applyingRestoreWorkingDirectorySelection(selection)
     }
 
-    /// Applies an authenticated remote binding's explicit cwd policy over stale snapshot state.
-    func applyingAuthoritativeRemoteBindingSelection(
+    /// Applies a binding's explicit cwd policy over stale snapshot state.
+    func applyingAuthoritativeBindingSelection(
         _ selection: AgentRestoreWorkingDirectorySelection
     ) -> SessionRestorableAgentSnapshot {
         var unscoped = self
@@ -247,6 +247,38 @@ extension SessionRestorableAgentSnapshot {
 }
 
 extension SurfaceResumeBindingSnapshot {
+    /// Rebuilds an explicit restore command from structured launch data, or fails closed.
+    func constrainedRestoreCommand(
+        selection: AgentRestoreWorkingDirectorySelection,
+        includeWorkingDirectoryPrefix: Bool
+    ) -> String? {
+        guard case .exact = selection,
+              let rawKind = kind,
+              let agentKind = RestorableAgentKind(
+                  persistedRawValue: rawKind,
+                  registration: nil
+              ),
+              let sessionId = checkpointId,
+              let launchCommand else {
+            return nil
+        }
+        let agent = SessionRestorableAgentSnapshot(
+            kind: agentKind,
+            sessionId: sessionId,
+            workingDirectory: cwd,
+            launchCommand: launchCommand,
+            permissionMode: permissionMode
+        ).applyingAuthoritativeBindingSelection(selection)
+        guard let command = agent.resumeCommand(
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+            workingDirectorySelection: selection
+        ) else {
+            return nil
+        }
+        return AgentRestoreLaunch(kind: agentKind.rawValue, sessionID: sessionId)?
+            .applying(toStoredCommand: command) ?? command
+    }
+
     /// Carries an agent snapshot's cwd trust boundary onto its persisted hook binding.
     func applyingRestoreWorkingDirectorySelection(
         _ selection: AgentRestoreWorkingDirectorySelection,
