@@ -1792,7 +1792,6 @@ async fn run_git_status_until(
     let mut process_guard = GitProcessGuard::new(&child);
     let Some(stdout) = child.stdout.take() else {
         stop_git(&mut child).await;
-        process_guard.kill_group();
         disarm_if_reaped(&child, &mut process_guard);
         return Err(Refusal::failed("git status produced no stdout pipe"));
     };
@@ -1986,7 +1985,6 @@ async fn run_git_diff_until(
     // bounded even for a pathological working tree.
     let Some(stdout) = child.stdout.take() else {
         stop_git(&mut child).await;
-        process_guard.kill_group();
         disarm_if_reaped(&child, &mut process_guard);
         return Err(Refusal::failed("git diff produced no stdout pipe"));
     };
