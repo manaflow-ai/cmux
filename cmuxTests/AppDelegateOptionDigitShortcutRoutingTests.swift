@@ -44,7 +44,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             let testWindow = try #require(self.window(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             let firstWorkspace = try #require(manager.selectedWorkspace)
-            let secondWorkspace = manager.addTab(select: false)
+            let secondWorkspace = try #require(manager.addTab(select: false))
             manager.selectTab(at: 0)
 
             let terminalPanelId = try #require(firstWorkspace.focusedPanelId)

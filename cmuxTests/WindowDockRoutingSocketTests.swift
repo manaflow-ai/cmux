@@ -158,7 +158,7 @@ struct WindowDockRoutingSocketTests {
             let fileExplorerState = FileExplorerState()
             try withSocketAppContext(fileExplorerState: fileExplorerState) { _, workspace, _ in
                 let mainPanelID = try #require(workspace.focusedPanelId)
-                let workspaceDock = workspace.dockSplit
+                let workspaceDock = try #require(workspace.dockSplit)
                 let pane = try #require(workspaceDock.bonsplitController.allPaneIds.first)
                 let originalDockSurfaceID = try #require(workspaceDock.newSurface(
                     kind: .terminal,

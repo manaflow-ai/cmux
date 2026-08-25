@@ -796,7 +796,7 @@ struct PiFeedDockOwnershipTests {
     @Test("Blocking Feed clears attention from its exact workspace Dock owner")
     func blockingFeedClearsAttentionFromExactWorkspaceDockOwner() async throws {
         try await withAppContext { _, manager, workspace, _ in
-            let dock = workspace.dockSplit
+            let dock = try #require(workspace.dockSplit)
             let panel = try dock.seedPiFeedPanel()
             let target = try #require(
                 FeedCoordinator.shared.surfaceBlockingDecisionAttention(

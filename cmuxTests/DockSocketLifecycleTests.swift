@@ -670,7 +670,7 @@ struct DockSocketLifecycleTests {
     func workspaceDockBrowserSurfacesResolveBrowserCommands() async throws {
         try await withBrowserEnabled {
             try await withSocketAppContext { _, workspace, windowId in
-                let dock = workspace.dockSplit
+                let dock = try #require(workspace.dockSplit)
                 let pane = try #require(
                     dock.bonsplitController.allPaneIds.first
                 )

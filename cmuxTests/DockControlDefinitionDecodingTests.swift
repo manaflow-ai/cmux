@@ -278,7 +278,7 @@ struct DockControlDefinitionDecodingTests {
         let store: DockSplitStore
         switch scope {
         case .workspace:
-            store = workspace.dockSplit
+            store = try #require(workspace.dockSplit)
         case .global:
             store = manager.makeWindowDockStore(windowId: UUID())
         }
@@ -553,7 +553,7 @@ struct DockControlDefinitionDecodingTests {
 
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
-        let store = workspace.dockSplit
+        let store = try #require(workspace.dockSplit)
         defer {
             store.closeAllPanels()
             workspace.teardownAllPanels()

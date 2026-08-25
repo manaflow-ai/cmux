@@ -224,7 +224,7 @@ struct DockShortcutRoutingTests {
                         focus: true
                     )
                 )
-                let workspaceDock = harness.mainWorkspace.dockSplit
+                let workspaceDock = try #require(harness.mainWorkspace.dockSplit)
                 let dockPane = try #require(
                     workspaceDock.bonsplitController.allPaneIds.first
                 )
@@ -1928,7 +1928,7 @@ struct DockShortcutRoutingTests {
     func dockBrowserFileFallbackUsesAssociatedWorkspace() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             try await Self.withHarness { harness in
-                let workspaceDock = harness.mainWorkspace.dockSplit
+                let workspaceDock = try #require(harness.mainWorkspace.dockSplit)
                 let cases: [(DockSplitStore, PanelHost)] = [
                     (
                         harness.dock,

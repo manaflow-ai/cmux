@@ -128,6 +128,25 @@ struct WindowDockLifecycleTests {
         }
     }
 
+    @Test("Workspace panel teardown keeps its Dock reusable")
+    @MainActor
+    func workspacePanelTeardownKeepsDockReusable() throws {
+        let workspace = Workspace()
+        defer { workspace.retireFromOwningTabManager() }
+
+        let dock = try #require(workspace.dockSplit)
+        let firstPanel = try dock.seedTestPanel()
+
+        workspace.teardownAllPanels()
+
+        #expect(dock.panels.isEmpty)
+        #expect(!dock.isRetired)
+        #expect(workspace.dockSplit === dock)
+
+        let replacementPanel = try dock.seedTestPanel()
+        #expect(replacementPanel.id != firstPanel.id)
+    }
+
     @Test("Window Dock tears down on authoritative route removal")
     @MainActor
     func windowDockTearsDownOnAuthoritativeRouteRemoval() async throws {

@@ -333,7 +333,7 @@ struct DockRuntimeParityTests {
     func unavailableWorkspaceDockFocusPreservesWindowAndSelection() async throws {
         try await withAppContext { appDelegate, manager, selectedWorkspace, windowID in
             let targetWorkspace = manager.addWorkspace(title: "Dock focus target", select: false)
-            let targetDock = targetWorkspace.dockSplit
+            let targetDock = try #require(targetWorkspace.dockSplit)
             let initiallyFocusedPanel = DockRuntimeParityPanel(title: "Initially focused")
             let targetPanel = DockRuntimeParityPanel(title: "Focus target")
             try targetDock.seedRuntimeParityPanel(initiallyFocusedPanel)
@@ -650,7 +650,7 @@ struct DockRuntimeParityTests {
         try await withAppContext(fileExplorerState: sidebarState) { appDelegate, _, workspace, windowID in
             let notificationStore = TerminalNotificationStore.shared
             let previousNotificationStore = appDelegate.notificationStore
-            let workspaceDock = workspace.dockSplit
+            let workspaceDock = try #require(workspace.dockSplit)
             let globalDock = appDelegate.windowDock(forWindowId: windowID)
             let workspacePanel = DockRuntimeParityPanel(title: "Workspace Dock")
             let initiallyFocusedGlobalPanel = DockRuntimeParityPanel(title: "Initially focused")
@@ -1038,7 +1038,7 @@ struct DockRuntimeParityTests {
                 appDelegate.notificationStore = previousNotificationStore
             }
 
-            let workspaceDock = workspace.dockSplit
+            let workspaceDock = try #require(workspace.dockSplit)
             let globalDock = appDelegate.windowDock(forWindowId: windowID)
             let workspacePanel = TerminalPanel(
                 workspaceId: workspace.id,
