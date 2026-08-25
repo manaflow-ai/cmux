@@ -101,10 +101,6 @@ actor GhosttyPointerStyleIngress {
         }
         if state.activeRuntimeLifetimeId != runtimeLifetimeId {
             rememberRetiredRuntime(runtimeLifetimeId)
-            state.activeRuntimeGeneration = max(
-                state.activeRuntimeGeneration,
-                generation
-            )
             return
         }
         guard generation >= state.activeRuntimeGeneration,
