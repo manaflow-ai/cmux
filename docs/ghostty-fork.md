@@ -920,6 +920,33 @@ The `f6b47c837` universal ReleaseFast GhosttyKit archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f6b47c8371991a4555f907737e808f161c368661-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
+### Real VT soft-wrapped URL continuity
+
+- Commits:
+  - `56f5c2b9e` (test: cover long URLs through the real VT stream)
+  - `a3f9c0f9c` (fix: preserve soft-wrap continuity from either row marker)
+  - `98013e14d` (fix: reject incomplete soft-wrap boundaries)
+- Files:
+  - `src/Surface.zig`
+  - `src/link.zig`
+- Summary:
+  - Exercises the exact long Google URL through `Terminal` and
+    `vtStream.nextSlice`, clicking every physical row of the resulting
+    multi-row soft wrap.
+  - Treats the upper-row `wrap` and lower-row `wrap_continuation` markers as
+    one boundary, so a transiently asymmetric pair cannot truncate a target.
+  - Keeps incomplete wrapped lines fail-closed at the screen boundary and
+    shares the same boundary decision with hard-wrap expansion and visible
+    always-link preparation.
+- Conflict note:
+  - Keep both row-direction markers in the shared resolver; reconstructing
+    only from visible text in the cmux host can make click, hover, copy, and
+    preview disagree.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-98013e14d29cc09fb642cbef38f3d7273a344191-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `5ff55af101459586370dcdc5c7b053686c660aa33bb696b79c5080c6c8185455`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
+
 ### Bounded Kitty graphics state
 
 - Pull request: https://github.com/manaflow-ai/ghostty/pull/137
