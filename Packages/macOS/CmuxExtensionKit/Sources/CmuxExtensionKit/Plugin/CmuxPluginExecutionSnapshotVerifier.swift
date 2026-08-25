@@ -59,7 +59,7 @@ struct CmuxPluginExecutionSnapshotVerifier {
         var descriptorMetadata = Darwin.stat()
         var pathMetadata = Darwin.stat()
         guard Darwin.fstat(descriptor, &descriptorMetadata) == 0,
-              Darwin.stat(url.path, &pathMetadata) == 0,
+              url.path.withCString({ Darwin.stat($0, &pathMetadata) }) == 0,
               (descriptorMetadata.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG),
               (pathMetadata.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else {
             return false
