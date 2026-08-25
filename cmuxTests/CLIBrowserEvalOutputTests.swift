@@ -50,6 +50,65 @@ final class CLIBrowserEvalOutputTests {
         #expect(formatter.string(from: NSNull()) == "null")
     }
 
+    private struct BrowserReadCase {
+        let name: String
+        let arguments: [String]
+        let responses: [String]
+        let expectedFragments: [String]
+    }
+
+    @Test("browser read commands render payloads in text output")
+    func browserReadCommandsRenderPayloadsInTextOutput() throws {
+        let cases = [
+            BrowserReadCase(
+                name: "identify",
+                arguments: ["browser", "surface:1", "identify"],
+                responses: [
+                    #"{"id":null,"ok":true,"result":{"workspace_ref":"workspace:7","focused":{"surface_ref":"surface:1"}}}"#,
+                    #"{"id":null,"ok":true,"result":{"url":"https://example.com"}}"#,
+                    #"{"id":null,"ok":true,"result":{"title":"Example"}}"#,
+                ],
+                expectedFragments: ["workspace:7", "Example"]
+            ),
+            BrowserReadCase(
+                name: "cookies default get",
+                arguments: ["browser", "surface:1", "cookies"],
+                responses: [
+                    #"{"id":null,"ok":true,"result":{"surface_ref":"surface:1","cookies":[{"name":"session","value":"abc"}]}}"#,
+                ],
+                expectedFragments: ["session", "abc"]
+            ),
+            BrowserReadCase(
+                name: "cookies empty result",
+                arguments: ["browser", "surface:1", "cookies", "get", "--name", "missing"],
+                responses: [
+                    #"{"id":null,"ok":true,"result":{"surface_ref":"surface:1","cookies":[]}}"#,
+                ],
+                expectedFragments: ["[]"]
+            ),
+            BrowserReadCase(
+                name: "storage default get",
+                arguments: ["browser", "surface:1", "storage", "local", "get"],
+                responses: [
+                    #"{"id":null,"ok":true,"result":{"type":"local","key":null,"value":{"theme":"dark"}}}"#,
+                ],
+                expectedFragments: ["theme", "dark"]
+            ),
+            BrowserReadCase(
+                name: "tab default list",
+                arguments: ["browser", "surface:1", "tab"],
+                responses: [
+                    #"{"id":null,"ok":true,"result":{"surface_ref":"surface:1","tabs":[{"ref":"surface:2","title":"Second"}]}}"#,
+                ],
+                expectedFragments: ["surface:2", "Second"]
+            ),
+        ]
+
+        for testCase in cases {
+            try assertBrowserReadOutput(testCase)
+        }
+    }
+
     private func assertBrowserEvalOutput(_ testCase: Case) throws {
         let socketPath = "/tmp/cmux-eval-\(UUID().uuidString.prefix(8)).sock"
         let response = #"{"id":null,"ok":true,"result":{"value":\#(testCase.wireValue)}}"#
@@ -75,6 +134,36 @@ final class CLIBrowserEvalOutputTests {
             result.output == testCase.expectedOutput + "\n",
             Comment(rawValue: "\(testCase.name): \(result.output.debugDescription)")
         )
+    }
+
+    private func assertBrowserReadOutput(_ testCase: BrowserReadCase) throws {
+        let socketPath = "/tmp/cmux-browser-read-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, responses: testCase.responses)
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = try runProcess(
+            executablePath: BundledCLITestSupport.bundledCLIPath(for: Self.self),
+            arguments: testCase.arguments,
+            environment: environment
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: "\(testCase.name): \(result.output)"))
+        #expect(result.status == 0, Comment(rawValue: "\(testCase.name): \(result.output)"))
+        let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(output != "OK", Comment(rawValue: "\(testCase.name): \(result.output.debugDescription)"))
+        for fragment in testCase.expectedFragments {
+            #expect(
+                output.contains(fragment),
+                Comment(rawValue: "\(testCase.name) missing \(fragment.debugDescription): \(output.debugDescription)")
+            )
+        }
     }
 
     private func runProcess(
