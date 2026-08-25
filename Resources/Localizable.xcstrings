@@ -218504,139 +218504,351 @@
     "sidebar.agentActivity.elapsed.days": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "%lld يوم" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "%lld d" } },
+        "da": { "stringUnit": { "state": "translated", "value": "%lld d" } },
+        "de": { "stringUnit": { "state": "translated", "value": "%lld T." } },
         "en": { "stringUnit": { "state": "translated", "value": "%lldd" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%lld日" } }
+        "es": { "stringUnit": { "state": "translated", "value": "%lld d" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "%lld j" } },
+        "it": { "stringUnit": { "state": "translated", "value": "%lld g" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld日" } },
+        "km": { "stringUnit": { "state": "translated", "value": "%lld ថ្ងៃ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%lld일" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "%lld d" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "%lld dni" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "%lldd" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "%lld дн" } },
+        "th": { "stringUnit": { "state": "translated", "value": "%lld วัน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%lld g" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "%lld д" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "%lld天" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "%lld天" } }
       }
     },
     "sidebar.agentActivity.elapsed.daysHours": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "%lld يوم %lld ساعة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "%lld d %lld h" } },
+        "da": { "stringUnit": { "state": "translated", "value": "%lld d %lld t" } },
+        "de": { "stringUnit": { "state": "translated", "value": "%lld T. %lld Std." } },
         "en": { "stringUnit": { "state": "translated", "value": "%lldd %lldh" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%lld日 %lld時間" } }
+        "es": { "stringUnit": { "state": "translated", "value": "%lld d %lld h" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "%lld j %lld h" } },
+        "it": { "stringUnit": { "state": "translated", "value": "%lld g %lld h" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld日 %lld時間" } },
+        "km": { "stringUnit": { "state": "translated", "value": "%lld ថ្ងៃ %lld ម៉ោង" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%lld일 %lld시간" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "%lld d %lld t" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "%lld dni %lld godz." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "%lldd %lldh" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "%lld дн %lld ч" } },
+        "th": { "stringUnit": { "state": "translated", "value": "%lld วัน %lld ชม." } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%lld g %lld sa" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "%lld д %lld год" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "%lld天 %lld小时" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "%lld天 %lld小時" } }
       }
     },
     "sidebar.agentActivity.elapsed.hours": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "%lld ساعة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "%lld h" } },
+        "da": { "stringUnit": { "state": "translated", "value": "%lld t" } },
+        "de": { "stringUnit": { "state": "translated", "value": "%lld Std." } },
         "en": { "stringUnit": { "state": "translated", "value": "%lldh" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%lld時間" } }
+        "es": { "stringUnit": { "state": "translated", "value": "%lld h" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "%lld h" } },
+        "it": { "stringUnit": { "state": "translated", "value": "%lld h" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld時間" } },
+        "km": { "stringUnit": { "state": "translated", "value": "%lld ម៉ោង" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%lld시간" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "%lld t" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "%lld godz." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "%lldh" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "%lld ч" } },
+        "th": { "stringUnit": { "state": "translated", "value": "%lld ชม." } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%lld sa" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "%lld год" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "%lld小时" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "%lld小時" } }
       }
     },
     "sidebar.agentActivity.elapsed.hoursMinutes": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "%lld ساعة %lld دقيقة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "%lld h %lld min" } },
+        "da": { "stringUnit": { "state": "translated", "value": "%lld t %lld min" } },
+        "de": { "stringUnit": { "state": "translated", "value": "%lld Std. %lld Min." } },
         "en": { "stringUnit": { "state": "translated", "value": "%lldh %lldm" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%lld時間 %lld分" } }
+        "es": { "stringUnit": { "state": "translated", "value": "%lld h %lld min" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "%lld h %lld min" } },
+        "it": { "stringUnit": { "state": "translated", "value": "%lld h %lld min" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld時間 %lld分" } },
+        "km": { "stringUnit": { "state": "translated", "value": "%lld ម៉ោង %lld នាទី" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%lld시간 %lld분" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "%lld t %lld min" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "%lld godz. %lld min" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "%lldh %lldmin" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "%lld ч %lld мин" } },
+        "th": { "stringUnit": { "state": "translated", "value": "%lld ชม. %lld นาที" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%lld sa %lld dk" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "%lld год %lld хв" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "%lld小时 %lld分钟" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "%lld小時 %lld分鐘" } }
       }
     },
     "sidebar.agentActivity.elapsed.minutes": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "%lld دقيقة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "%lld min" } },
+        "da": { "stringUnit": { "state": "translated", "value": "%lld min" } },
+        "de": { "stringUnit": { "state": "translated", "value": "%lld Min." } },
         "en": { "stringUnit": { "state": "translated", "value": "%lldm" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%lld分" } }
+        "es": { "stringUnit": { "state": "translated", "value": "%lld min" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "%lld min" } },
+        "it": { "stringUnit": { "state": "translated", "value": "%lld min" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld分" } },
+        "km": { "stringUnit": { "state": "translated", "value": "%lld នាទី" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%lld분" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "%lld min" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "%lld min" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "%lldmin" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "%lld мин" } },
+        "th": { "stringUnit": { "state": "translated", "value": "%lld นาที" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%lld dk" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "%lld хв" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "%lld分钟" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "%lld分鐘" } }
       }
     },
     "sidebar.agentActivity.elapsed.seconds": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "%lld ثانية" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "%lld s" } },
+        "da": { "stringUnit": { "state": "translated", "value": "%lld sek" } },
+        "de": { "stringUnit": { "state": "translated", "value": "%lld Sek." } },
         "en": { "stringUnit": { "state": "translated", "value": "%llds" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%lld秒" } }
+        "es": { "stringUnit": { "state": "translated", "value": "%lld s" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "%lld s" } },
+        "it": { "stringUnit": { "state": "translated", "value": "%lld s" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld秒" } },
+        "km": { "stringUnit": { "state": "translated", "value": "%lld វិនាទី" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%lld초" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "%lld s" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "%lld s" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "%llds" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "%lld с" } },
+        "th": { "stringUnit": { "state": "translated", "value": "%lld วิ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%lld sn" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "%lld с" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "%lld秒" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "%lld秒" } }
       }
     },
     "sidebar.agentActivity.elapsedTooltip": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Session elapsed: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "セッション経過時間: %@"
-          }
-        }
+        "ar": { "stringUnit": { "state": "translated", "value": "الوقت المنقضي للجلسة: %@" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Proteklo vrijeme sesije: %@" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Forløbet tid for sessionen: %@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Sitzungsdauer: %@" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Session elapsed: %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Tiempo transcurrido de la sesión: %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Temps écoulé de la session : %@" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Tempo trascorso della sessione: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッション経過時間: %@" } },
+        "km": { "stringUnit": { "state": "translated", "value": "រយៈពេលសម័យ: %@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "세션 경과 시간: %@" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Tid gått i økten: %@" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Czas trwania sesji: %@" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Tempo decorrido da sessão: %@" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Время сессии: %@" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เวลาที่ผ่านไปของเซสชัน: %@" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Oturum geçen süresi: %@" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Час сеансу: %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "会话已用时间：%@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "工作階段經過時間：%@" } }
       }
     },
     "sidebar.agentActivity.runningAccessibilityLabel": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Running, session elapsed: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "実行中、セッション経過時間: %@"
-          }
-        }
+        "ar": { "stringUnit": { "state": "translated", "value": "قيد التشغيل، الوقت المنقضي للجلسة: %@" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Pokrenuto, proteklo vrijeme sesije: %@" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Kører, forløbet tid for sessionen: %@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Wird ausgeführt, Sitzungsdauer: %@" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Running, session elapsed: %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "En ejecución, tiempo transcurrido de la sesión: %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "En cours, temps écoulé de la session : %@" } },
+        "it": { "stringUnit": { "state": "translated", "value": "In esecuzione, tempo trascorso della sessione: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "実行中、セッション経過時間: %@" } },
+        "km": { "stringUnit": { "state": "translated", "value": "កំពុងដំណើរការ រយៈពេលសម័យ: %@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "실행 중, 세션 경과 시간: %@" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Kjører, tid gått i økten: %@" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Uruchomiono, czas trwania sesji: %@" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Em execução, tempo decorrido da sessão: %@" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Выполняется, время сессии: %@" } },
+        "th": { "stringUnit": { "state": "translated", "value": "กำลังทำงาน เวลาที่ผ่านไปของเซสชัน: %@" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Çalışıyor, oturum geçen süresi: %@" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Виконується, час сеансу: %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "运行中，会话已用时间：%@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "執行中，工作階段經過時間：%@" } }
       }
     },
     "sidebar.agentActivity.runningCompactLabel": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Running · %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "実行中 · %@"
-          }
-        }
+        "ar": { "stringUnit": { "state": "translated", "value": "قيد التشغيل · %@" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Pokrenuto · %@" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Kører · %@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Läuft · %@" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Running · %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "En ejecución · %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "En cours · %@" } },
+        "it": { "stringUnit": { "state": "translated", "value": "In esecuzione · %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "実行中 · %@" } },
+        "km": { "stringUnit": { "state": "translated", "value": "កំពុងដំណើរការ · %@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "실행 중 · %@" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Kjører · %@" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Uruchomiono · %@" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Em execução · %@" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Выполняется · %@" } },
+        "th": { "stringUnit": { "state": "translated", "value": "กำลังทำงาน · %@" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Çalışıyor · %@" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Виконується · %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "运行中 · %@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "執行中 · %@" } }
       }
     },
     "sidebar.agentActivity.state.idle": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "خامل" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Neaktivno" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Inaktiv" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Inaktiv" } },
         "en": { "stringUnit": { "state": "translated", "value": "Idle" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "アイドル" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Inactivo" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Inactif" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Inattivo" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アイドル" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ទំនេរ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "유휴" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Inaktiv" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Bezczynny" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Inativo" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Простаивает" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ว่าง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Boşta" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Бездіяльний" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "空闲" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "閒置" } }
       }
     },
     "sidebar.agentActivity.state.needsInput": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "يتطلب إدخالًا" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Potreban unos" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Input påkrævet" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Eingabe erforderlich" } },
         "en": { "stringUnit": { "state": "translated", "value": "Needs input" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "入力が必要" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Requiere entrada" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Saisie requise" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Richiede input" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "入力が必要" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ត្រូវការបញ្ចូល" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "입력 필요" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Trenger inndata" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wymaga danych wejściowych" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Requer entrada" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Требуется ввод" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ต้องการอินพุต" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Girdi gerekiyor" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Потрібне введення" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "需要输入" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "需要輸入" } }
       }
     },
     "sidebar.agentActivity.state.running": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "قيد التشغيل" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Pokrenuto" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Kører" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Wird ausgeführt" } },
         "en": { "stringUnit": { "state": "translated", "value": "Running" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "実行中" } }
+        "es": { "stringUnit": { "state": "translated", "value": "En ejecución" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "En cours" } },
+        "it": { "stringUnit": { "state": "translated", "value": "In esecuzione" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "実行中" } },
+        "km": { "stringUnit": { "state": "translated", "value": "កំពុងដំណើរការ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "실행 중" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Kjører" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Uruchomiono" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Em execução" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Выполняется" } },
+        "th": { "stringUnit": { "state": "translated", "value": "กำลังทำงาน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Çalışıyor" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Виконується" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "运行中" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "執行中" } }
       }
     },
     "sidebar.agentActivity.state.unknown": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "غير معروف" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Nepoznato" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ukendt" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Unbekannt" } },
         "en": { "stringUnit": { "state": "translated", "value": "Unknown" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "不明" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Desconocido" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Inconnu" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Sconosciuto" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明" } },
+        "km": { "stringUnit": { "state": "translated", "value": "មិនស្គាល់" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "알 수 없음" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Ukjent" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nieznany" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Desconhecido" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Неизвестно" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่ทราบ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bilinmiyor" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Невідомо" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "未知" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "未知" } }
       }
     },
     "sidebar.agentActivity.unknownTooltip": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent state is unavailable"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントの状態を確認できません"
-          }
-        }
+        "ar": { "stringUnit": { "state": "translated", "value": "حالة الوكيل غير متاحة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Stanje agenta nije dostupno" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Agentstatus er ikke tilgængelig" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Agentstatus ist nicht verfügbar" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Agent state is unavailable" } },
+        "es": { "stringUnit": { "state": "translated", "value": "El estado del agente no está disponible" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "L’état de l’agent n’est pas disponible" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Lo stato dell’agente non è disponibile" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントの状態を確認できません" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ស្ថានភាពភ្នាក់ងារមិនអាចប្រើបាន" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "에이전트 상태를 사용할 수 없음" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Agentstatus er ikke tilgjengelig" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Stan agenta jest niedostępny" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "O estado do agente não está disponível" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Состояние агента недоступно" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่สามารถใช้สถานะเอเจนต์ได้" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Aracı durumu kullanılamıyor" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Стан агента недоступний" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "代理状态不可用" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法取得代理程式狀態" } }
       }
     },
     "sidebar.agentActivity.tooltip.many": {

@@ -5,6 +5,7 @@ import Foundation
 /// Workspace-level aggregate consumed by both sidebar renderers.
 struct SidebarWorkspaceAgentActivity: Equatable, Sendable {
     let agents: [SidebarAgentActivity]
+    private let bestActivityByCanonicalStatus: [String: SidebarAgentActivity]
     let activeCodingAgentCount: Int
     let hasUnknownState: Bool
     let primaryState: SidebarAgentResolvedState?
@@ -12,6 +13,21 @@ struct SidebarWorkspaceAgentActivity: Equatable, Sendable {
 
     init(agents: [SidebarAgentActivity]) {
         self.agents = agents
+        var bestActivityByCanonicalStatus: [String: SidebarAgentActivity] = [:]
+        bestActivityByCanonicalStatus.reserveCapacity(agents.count)
+        for agent in agents {
+            let canonicalStatusKey = Self.canonicalStatusKey(agent.statusKey)
+            guard let existing = bestActivityByCanonicalStatus[canonicalStatusKey] else {
+                bestActivityByCanonicalStatus[canonicalStatusKey] = agent
+                continue
+            }
+            let agentRank = Self.stateActionabilityRank(agent.state)
+            let existingRank = Self.stateActionabilityRank(existing.state)
+            if agentRank < existingRank || (agentRank == existingRank && agent.id < existing.id) {
+                bestActivityByCanonicalStatus[canonicalStatusKey] = agent
+            }
+        }
+        self.bestActivityByCanonicalStatus = bestActivityByCanonicalStatus
         var runningCount = 0
         var hasNeedsInput = false
         var hasRunning = false
@@ -62,15 +78,7 @@ struct SidebarWorkspaceAgentActivity: Equatable, Sendable {
     }
 
     func activity(forStatusKey statusKey: String) -> SidebarAgentActivity? {
-        let canonical = Self.canonicalStatusKey(statusKey)
-        return agents
-            .filter { Self.canonicalStatusKey($0.statusKey) == canonical }
-            .sorted { lhs, rhs in
-                let lhsRank = Self.stateActionabilityRank(lhs.state)
-                let rhsRank = Self.stateActionabilityRank(rhs.state)
-                return lhsRank == rhsRank ? lhs.id < rhs.id : lhsRank < rhsRank
-            }
-            .first
+        bestActivityByCanonicalStatus[Self.canonicalStatusKey(statusKey)]
     }
 
     /// Rewrites structured status pills from the deterministic state model.

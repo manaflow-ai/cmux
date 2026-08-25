@@ -88,6 +88,18 @@ extension Workspace {
                 let generation: SidebarAgentActivityEvidence.Generation
                 if let runtimeSessionID {
                     generation = .session(runtimeSessionID)
+                } else if matchingPIDKeys.isEmpty,
+                          let indexEntry,
+                          SidebarWorkspaceAgentActivity.canonicalStatusKey(
+                              indexEntry.snapshot.kind.rawValue
+                          ) == canonicalStatusKey,
+                          !indexEntry.snapshot.sessionId.isEmpty {
+                    // A token-routed lifecycle event is bound to this panel but
+                    // may not carry a session suffix (for example during the
+                    // first hook transition). Correlate it with the panel's
+                    // single cached session so it merges the durable anchor
+                    // instead of creating a second lifecycle-only agent.
+                    generation = .session(indexEntry.snapshot.sessionId)
                 } else if let indexEntry,
                           SidebarWorkspaceAgentActivity.canonicalStatusKey(
                               indexEntry.snapshot.kind.rawValue
@@ -195,7 +207,7 @@ extension Workspace {
         return SidebarWorkspaceAgentActivity.resolve(evidence: Array(evidenceByID.values))
     }
 
-    private static func sidebarLifecyclePriority(
+    nonisolated private static func sidebarLifecyclePriority(
         _ state: AgentHibernationLifecycleState
     ) -> Int {
         switch state {
@@ -206,7 +218,7 @@ extension Workspace {
         }
     }
 
-    private static func sessionID(agentPIDKey: String, statusKey: String) -> String? {
+    nonisolated private static func sessionID(agentPIDKey: String, statusKey: String) -> String? {
         let prefix = statusKey + "."
         guard agentPIDKey.hasPrefix(prefix) else { return nil }
         let value = String(agentPIDKey.dropFirst(prefix.count))
@@ -214,7 +226,7 @@ extension Workspace {
         return value.isEmpty ? nil : value
     }
 
-    private static func indexEntry(
+    nonisolated private static func indexEntry(
         _ entry: RestorableAgentSessionIndex.Entry,
         containsProcessIdentity identity: AgentPIDProcessIdentity
     ) -> Bool {
@@ -224,7 +236,7 @@ extension Workspace {
         return identities[Int(identity.pid)] == identity
     }
 
-    private static func processStartTime(
+    nonisolated private static func processStartTime(
         _ identities: [Int: AgentPIDProcessIdentity]
     ) -> TimeInterval? {
         processStartTime(identities.values.min { lhs, rhs in
@@ -233,7 +245,7 @@ extension Workspace {
         })
     }
 
-    private static func processStartTime(_ identity: AgentPIDProcessIdentity?) -> TimeInterval? {
+    nonisolated private static func processStartTime(_ identity: AgentPIDProcessIdentity?) -> TimeInterval? {
         guard let identity,
               identity.startSeconds >= 0,
               identity.startMicroseconds >= 0,

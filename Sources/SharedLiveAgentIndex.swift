@@ -561,10 +561,12 @@ final class SharedLiveAgentIndex {
         deferredReloadTimer = nil
         refreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            _ = await self.reload(forcePublish: true)
+            let reloadPanelIdsByWorkspaceId = await self.reload(forcePublish: true)
             self.refreshTask = nil
             self.restartForkAvailabilityRefreshIfPending()
-            NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
+            self.postSharedLiveAgentIndexDidChange(
+                panelIdsByWorkspaceId: reloadPanelIdsByWorkspaceId
+            )
             if self.changePending {
                 self.changePending = false
                 self.handleHookStoreChange()
@@ -1016,10 +1018,6 @@ final class SharedLiveAgentIndex {
     }
 
     private func postSharedLiveAgentIndexDidChange(panelIdsByWorkspaceId: [UUID: Set<UUID>]) {
-        guard !panelIdsByWorkspaceId.isEmpty else {
-            NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
-            return
-        }
         NotificationCenter.default.post(
             name: .sharedLiveAgentIndexDidChange,
             object: self,
@@ -1047,6 +1045,7 @@ final class SharedLiveAgentIndex {
         forcePublish: Bool,
         pendingRequestIDsToRemoveOnCancellation: [ForkProbeKey: Set<UUID>] = [:]
     ) async -> [UUID: Set<UUID>] {
+        let previousFingerprint = liveAgentProcessFingerprint
         let indexLoader = self.indexLoader
         let result = await Task.detached(priority: .utility) {
             indexLoader()
@@ -1057,10 +1056,15 @@ final class SharedLiveAgentIndex {
         }
         let loadedAt = dateProvider()
         let hasPendingForkValidations = !pendingForkValidationPanels.isEmpty
+        var changedPanelIdsByWorkspaceId: [UUID: Set<UUID>] = [:]
         if forcePublish
             || hasPendingForkValidations
             || result.liveAgentProcessFingerprint != liveAgentProcessFingerprint
             || result.processScopeFingerprint != processScopeFingerprint {
+            changedPanelIdsByWorkspaceId = RestorableAgentSessionIndexChangeSet(
+                previous: previousFingerprint,
+                current: result.liveAgentProcessFingerprint
+            ).panelIdsByWorkspaceId
             applyReloadedIndex(
                 result.index,
                 loadedAt: loadedAt,
@@ -1073,9 +1077,14 @@ final class SharedLiveAgentIndex {
             self.processScopeFingerprint = result.processScopeFingerprint
             self.validatedForkPanels = result.forkValidatedPanels
         }
-        return await applyPendingForkValidations(
+        let pendingPanelIdsByWorkspaceId = await applyPendingForkValidations(
             pendingRequestIDsToRemoveOnCancellation: pendingRequestIDsToRemoveOnCancellation
         )
+        Self.mergePanelIdsByWorkspaceId(
+            pendingPanelIdsByWorkspaceId,
+            into: &changedPanelIdsByWorkspaceId
+        )
+        return changedPanelIdsByWorkspaceId
     }
 
     private func applyReloadedIndex(

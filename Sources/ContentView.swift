@@ -11576,8 +11576,14 @@ struct VerticalTabsSidebar: View, Equatable {
                 where renderContext.workspaceById[workspaceId] != nil {
                     scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
                 }
+            } else if let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
+                      renderContext.workspaceById[workspaceId] != nil {
+                scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
             } else {
-                refreshWorkspaceSnapshots()
+                // A scoped index reload always carries its affected panel map.
+                // An empty/legacy notification has no authoritative workspace
+                // scope, so do not rebuild every row on the main actor.
+                return
             }
         }
         .onAppear {
