@@ -6,9 +6,9 @@ import Observation
 
 /// Drives the in-app iOS pairing window. Gates pairing on the Mac being signed
 /// in (authorization is a Stack same-account check), then turns on the pairing
-/// host and mints a Tailscale pairing code. Automatic Iroh discovery needs no
-/// QR. The displayed Tailscale code never expires and is never regenerated on
-/// a timer; Refresh Code re-mints on demand.
+/// host and mints a transport-aware pairing code. Automatic Iroh discovery
+/// needs no QR. The displayed code never expires and is never regenerated on a
+/// timer; Refresh Code re-mints on demand.
 ///
 /// Reads auth state from the app's shared ``CmuxAuthRuntime/AuthCoordinator``
 /// (via `AppDelegate`); sign-in routes through the shared ``HostAccountFlow``
@@ -216,6 +216,11 @@ final class MobilePairingModel {
                 terminalID: nil,
                 ttl: ticketTTL,
                 routeDisclosureMode: routePlan.disclosureMode,
+                // This QR is displayed for a physical phone. Selecting the
+                // target makes mixed Iroh/LAN/Tailscale snapshots use the
+                // lossless physical-device grammar instead of the legacy
+                // Tailscale-only URL, so a later pinned mode has every route.
+                target: .physicalDevice,
                 pairingURLScheme: selectedIOSAppTarget.pairingURLScheme
             )
             guard generation == refreshGeneration else { return }

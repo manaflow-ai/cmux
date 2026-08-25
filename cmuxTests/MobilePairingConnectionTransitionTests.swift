@@ -175,7 +175,7 @@ struct MobilePairingConnectionTransitionTests {
         #expect(next == .signedOut)
     }
 
-    @Test("Tailscale is the only Mac pairing QR when Iroh is also available")
+    @Test("Tailscale remains the preferred pairing disclosure when Iroh is available")
     func tailscaleRouteWinsWhenIrohIsAvailable() throws {
         let plan = try #require(MobilePairingModel.PairingRoutePlan.make(routes: [
             try irohRoute(),

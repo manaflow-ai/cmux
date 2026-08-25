@@ -134,9 +134,9 @@ actor CmxConnectivityByteTransport:
             if mode == .iroh || mode == .direct {
                 return .irohDirect
             }
-            if mode == .lan {
-                return .lan(address: address)
-            }
+            // A Tailscale socket remains a Tailscale path even when LAN Only
+            // was requested; reporting it as LAN would let path migration
+            // bypass the pinned-mode check.
             if let host = CmxIrohIPAddressScope.host(from: address),
                CmxTailscalePeerAddress(host) != nil {
                 return .tailscale(address: address)

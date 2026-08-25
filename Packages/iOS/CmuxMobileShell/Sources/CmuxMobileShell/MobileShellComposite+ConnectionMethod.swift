@@ -179,6 +179,10 @@ extension MobileShellComposite {
                 guard method != observedMethod else { continue }
                 observedMethod = method
                 self.recoverMobileConnection(trigger: .connectionMethodChanged)
+                // Pairings without an override inherit this shared default.
+                // Reconcile warm secondary clients immediately so their
+                // immutable transport requests do not outlive the setting.
+                self.scheduleSecondaryAggregation()
             }
         }
     }
