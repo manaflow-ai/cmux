@@ -144,7 +144,7 @@ export interface VMProvider {
   // Optional: mint a private, token-gated HTTPS preview URL for an arbitrary HTTP port on the
   // VM (the exe.dev "https://vmname.exe.xyz:3456" equivalent). openUrl embeds the token as a
   // query parameter for direct browser use.
-  openPort?(vmId: string, port: number): Promise<{ url: string; token: string; openUrl: string }>;
+  openPort?(vmId: string, port: number): Promise<{ url: string; token: string; openUrl: string; expiresAtMs?: number }>;
 
   snapshot(vmId: string, name?: string): Promise<SnapshotRef>;
   restore(snapshotId: string): Promise<VMHandle>;
