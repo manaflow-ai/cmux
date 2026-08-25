@@ -13,7 +13,7 @@ public actor CmxIrohClientSession {
     private let dialPhaseTimeout: Duration
     private let targetIdentity: CmxIrohPeerIdentity
     private let transportMode: CmxTransportMode
-    private let dialPlan: CmxIrohDialPlan
+    private var dialPlan: CmxIrohDialPlan
     private let credential: CmxIrohAdmissionCredential
     private let privateFallbackAuthorization: CmxIrohPrivateFallbackAuthorization?
     private let privateFallbackValidator: (any CmxIrohPrivateFallbackValidating)?
@@ -511,6 +511,10 @@ public actor CmxIrohClientSession {
                 ))
                 throw error
             }
+            // LAN discovery and other provider fallback stages can replace the
+            // initially empty/private plan. Retain the effective plan so path
+            // provenance and policy checks observe the path we actually dial.
+            dialPlan = fallbackContext.dialPlan
             let fallbackPaths = fallbackContext.dialPlan.privateFallbackPaths
             guard !fallbackPaths.isEmpty else {
                 // The fallback leg had zero dialable hints, so this attempt
@@ -523,6 +527,12 @@ public actor CmxIrohClientSession {
                     b: DiagnosticFailureKind.noRoute.rawValue
                 ))
                 if let publicConnectionError { throw publicConnectionError }
+                if transportMode.isPinned {
+                    throw CmxTransportModeError.noRoute(
+                        mode: transportMode,
+                        macDisplayName: nil
+                    )
+                }
                 throw CmxIrohRegistryContextError.dialPlanUnavailable
             }
             guard let privateFallbackValidator else {

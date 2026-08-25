@@ -361,7 +361,6 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
             )
         case .lan:
             guard plan.publicPaths.isEmpty,
-                  !plan.privateFallbackPaths.isEmpty,
                   plan.privateFallbackPaths.allSatisfy({ $0.source == .lan }) else {
                 throw CmxTransportModeError.routeClassMismatch(
                     expected: .lan,
