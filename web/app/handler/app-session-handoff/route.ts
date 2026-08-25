@@ -7,7 +7,6 @@ import {
   type StackBrowserSessionHandoffAdapter,
 } from "../../../services/auth/stackBrowserSessionHandoff";
 
-export const dynamic = "force-dynamic";
 
 const MAX_BODY_BYTES = 32 * 1024;
 const RATE_LIMIT_WINDOW_MS = 60_000;

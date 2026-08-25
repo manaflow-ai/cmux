@@ -4,8 +4,13 @@ import Testing
 @testable import CmuxIrohTransport
 
 extension CmxIrohClientRuntimeTests {
+    /// The startup snapshot here advertises NO usable target paths, so the
+    /// first dial performs one empty-plan rescue fetch (docs/transport-plane.md,
+    /// D5: reuse windows apply only to healthy-plan dials). When the broker
+    /// rate-limits that duplicate lookup, the dial still proceeds on the
+    /// startup snapshot: exactly two lookups, no spin, no failure.
     @Test
-    func firstDialReusesStartupDiscoveryWhenBrokerRateLimitsDuplicateLookup() async throws {
+    func firstDialOnHintlessStartupDiscoverySurvivesRateLimitedRescueFetch() async throws {
         let fixture = try RegistryFixture()
         let discovery = try fixture.discovery(targetHints: [])
         let identity = try CmxIrohIdentityMaterial(
@@ -16,6 +21,7 @@ extension CmxIrohClientRuntimeTests {
             accountID: "account-a",
             deviceID: fixture.initiator.deviceID,
             appInstanceID: discovery.bindings[0].appInstanceID,
+            clientNamespace: discovery.bindings[0].clientNamespace,
             tag: fixture.initiator.tag,
             displayName: nil,
             identity: identity,
@@ -57,9 +63,80 @@ extension CmxIrohClientRuntimeTests {
         try await runtime.start()
         let provider = try #require(await runtime.registryContextProvider)
 
-        _ = try await provider.context(for: fixture.request(hints: []))
+        let context = try await provider.context(for: fixture.request(hints: []))
 
+        #expect(await broker.observedDiscoveryCount() == 2)
+        #expect(context.dialPlan.publicPaths.isEmpty)
+        await runtime.stop()
+    }
+
+    /// A presence route push invalidates one Mac's reusable discovery through
+    /// the runtime seam: the next dial must refetch instead of consuming the
+    /// startup snapshot (docs/transport-plane.md, D5).
+    @Test
+    func presenceInvalidationThroughRuntimeForcesFreshDiscoveryOnNextDial() async throws {
+        let fixture = try RegistryFixture()
+        let relayHint = try CmxIrohPathHint(
+            kind: .relayURL,
+            value: fixture.relayURL,
+            source: .native,
+            privacyScope: .publicInternet,
+            observedAt: fixture.now,
+            expiresAt: fixture.now.addingTimeInterval(60)
+        )
+        let discovery = try fixture.discovery(targetHints: [relayHint])
+        let identity = try CmxIrohIdentityMaterial(
+            secretKey: CmxIrohSecretKey(bytes: fixture.privateKey.rawRepresentation),
+            generation: fixture.initiator.identityGeneration
+        )
+        let configuration = CmxIrohClientRuntimeConfiguration(
+            accountID: "account-a",
+            deviceID: fixture.initiator.deviceID,
+            appInstanceID: discovery.bindings[0].appInstanceID,
+            clientNamespace: discovery.bindings[0].clientNamespace,
+            tag: fixture.initiator.tag,
+            displayName: nil,
+            identity: identity,
+            capabilities: discovery.bindings[0].capabilities,
+            managedRelayURLs: [fixture.relayURL]
+        )
+        let relay = CmxIrohRelayTokenResponse(
+            token: "testrelaytoken",
+            expiresAt: "2027-01-15T10:00:00Z",
+            refreshAfter: "2027-01-15T09:00:00Z",
+            relayFleet: [fixture.relayURL]
+        )
+        let broker = TestIrohClientBroker(
+            binding: discovery.bindings[0],
+            discovery: discovery,
+            relay: relay,
+            pairGrant: try fixture.pairGrantResponse(
+                issuedAt: fixture.nowSeconds,
+                expiresAt: fixture.nowSeconds + 3_600
+            )
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.initiator.endpointID)]
+            ),
+            broker: broker,
+            configuration: configuration,
+            pendingRevocations: CmxIrohPendingRevocationOutbox(
+                secureStore: TestSecureCredentialStore()
+            ),
+            now: { fixture.now }
+        )
+        try await runtime.start()
+        let provider = try #require(await runtime.registryContextProvider)
         #expect(await broker.observedDiscoveryCount() == 1)
+
+        await runtime.invalidateDiscoverySnapshot(
+            forMacDeviceID: fixture.acceptor.deviceID
+        )
+
+        let context = try await provider.context(for: fixture.request(hints: []))
+        #expect(await broker.observedDiscoveryCount() == 2)
+        #expect(context.dialPlan.publicPaths == [relayHint])
         await runtime.stop()
     }
 
@@ -89,6 +166,7 @@ extension CmxIrohClientRuntimeTests {
             accountID: "account-a",
             deviceID: fixture.initiator.deviceID,
             appInstanceID: discovery.bindings[0].appInstanceID,
+            clientNamespace: discovery.bindings[0].clientNamespace,
             tag: fixture.initiator.tag,
             displayName: nil,
             identity: identity,

@@ -118,7 +118,13 @@ final class SidebarBonsplitTabNewWorkspaceDropView: NSView {
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         defer { setDropActive(false) }
         guard let transfer = acceptedTransfer(sender) else { return false }
-        return performMove(transfer)
+        let moved = performMove(transfer)
+        if moved {
+            AppDelegate.shared?.finishAcceptedBonsplitTabDrop(
+                from: sender.draggingPasteboard
+            )
+        }
+        return moved
     }
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {

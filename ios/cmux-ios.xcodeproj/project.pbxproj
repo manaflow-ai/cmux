@@ -10,11 +10,13 @@
 		8B8A10012DF5000000A66F90 /* cmuxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10172DF5000000A66F90 /* cmuxApp.swift */; };
 		8B8A10F02DF5000000A66F90 /* CmuxAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10F12DF5000000A66F90 /* CmuxAppDelegate.swift */; };
 		8B8A10AA2DF5000000A66F90 /* AppCompositionRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10AB2DF5000000A66F90 /* AppCompositionRoot.swift */; };
+		8B8A10AC2DF5000000A66F90 /* MobileAppLifecycleDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10AD2DF5000000A66F90 /* MobileAppLifecycleDiagnostics.swift */; };
 		8B8A10022DF5000000A66F90 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A10192DF5000000A66F90 /* Assets.xcassets */; };
 		8B8A10032DF5000000A66F90 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A101A2DF5000000A66F90 /* InfoPlist.xcstrings */; };
 		8B8A10042DF5000000A66F90 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A101B2DF5000000A66F90 /* Localizable.xcstrings */; };
 		8B8A10E02DF5000000A66F90 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A10E12DF5000000A66F90 /* PrivacyInfo.xcprivacy */; };
 		8B8A10052DF5000000A66F90 /* cmuxUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A101C2DF5000000A66F90 /* cmuxUITests.swift */; };
+		A7EFF0012F00000000A66F90 /* TaskComposerEffortPickerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7EFF0022F00000000A66F90 /* TaskComposerEffortPickerUITests.swift */; };
 		8B8A10252DF5000000A66F90 /* TerminalThemeParityUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10262DF5000000A66F90 /* TerminalThemeParityUITests.swift */; };
 		8B8A10302DF5000000A66F90 /* PushReadinessUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10312DF5000000A66F90 /* PushReadinessUITests.swift */; };
 		8B8A10E22DF5000000A66F90 /* SnapshotHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10E32DF5000000A66F90 /* SnapshotHelper.swift */; };
@@ -49,12 +51,14 @@
 		8B8A10172DF5000000A66F90 /* cmuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxApp.swift; sourceTree = "<group>"; };
 		8B8A10F12DF5000000A66F90 /* CmuxAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxAppDelegate.swift; sourceTree = "<group>"; };
 		8B8A10AB2DF5000000A66F90 /* AppCompositionRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCompositionRoot.swift; sourceTree = "<group>"; };
+		8B8A10AD2DF5000000A66F90 /* MobileAppLifecycleDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileAppLifecycleDiagnostics.swift; sourceTree = "<group>"; };
 		8B8A10182DF5000000A66F90 /* cmux.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = file; path = cmux.xctestplan; sourceTree = "<group>"; };
 		8B8A10192DF5000000A66F90 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		8B8A101A2DF5000000A66F90 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		8B8A101B2DF5000000A66F90 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		8B8A10E12DF5000000A66F90 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		8B8A101C2DF5000000A66F90 /* cmuxUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxUITests.swift; sourceTree = "<group>"; };
+		A7EFF0022F00000000A66F90 /* TaskComposerEffortPickerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskComposerEffortPickerUITests.swift; sourceTree = "<group>"; };
 		8B8A10262DF5000000A66F90 /* TerminalThemeParityUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalThemeParityUITests.swift; sourceTree = "<group>"; };
 		8B8A10312DF5000000A66F90 /* PushReadinessUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushReadinessUITests.swift; sourceTree = "<group>"; };
 		8B8A10E32DF5000000A66F90 /* SnapshotHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotHelper.swift; sourceTree = "<group>"; };
@@ -94,6 +98,7 @@
 				8B8A10172DF5000000A66F90 /* cmuxApp.swift */,
 				8B8A10F12DF5000000A66F90 /* CmuxAppDelegate.swift */,
 				8B8A10AB2DF5000000A66F90 /* AppCompositionRoot.swift */,
+				8B8A10AD2DF5000000A66F90 /* MobileAppLifecycleDiagnostics.swift */,
 				8B8A10182DF5000000A66F90 /* cmux.xctestplan */,
 			);
 			path = cmux;
@@ -103,6 +108,7 @@
 			isa = PBXGroup;
 			children = (
 				8B8A101C2DF5000000A66F90 /* cmuxUITests.swift */,
+				A7EFF0022F00000000A66F90 /* TaskComposerEffortPickerUITests.swift */,
 				8B8A10262DF5000000A66F90 /* TerminalThemeParityUITests.swift */,
 				8B8A10312DF5000000A66F90 /* PushReadinessUITests.swift */,
 				8B8A10E52DF5000000A66F90 /* SnapshotUITests.swift */,
@@ -276,6 +282,7 @@
 				8B8A10012DF5000000A66F90 /* cmuxApp.swift in Sources */,
 				8B8A10F02DF5000000A66F90 /* CmuxAppDelegate.swift in Sources */,
 				8B8A10AA2DF5000000A66F90 /* AppCompositionRoot.swift in Sources */,
+				8B8A10AC2DF5000000A66F90 /* MobileAppLifecycleDiagnostics.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -284,6 +291,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8B8A10052DF5000000A66F90 /* cmuxUITests.swift in Sources */,
+				A7EFF0012F00000000A66F90 /* TaskComposerEffortPickerUITests.swift in Sources */,
 				8B8A10252DF5000000A66F90 /* TerminalThemeParityUITests.swift in Sources */,
 				8B8A10302DF5000000A66F90 /* PushReadinessUITests.swift in Sources */,
 				8B8A10E42DF5000000A66F90 /* SnapshotUITests.swift in Sources */,

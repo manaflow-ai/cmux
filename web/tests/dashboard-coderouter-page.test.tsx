@@ -8,6 +8,21 @@ let authJsonAvailable = true;
 let cutoverReady = true;
 let hostedControlConfigured = true;
 let hostedExchangeCalls = 0;
+let selectedTeamId: string | null = "team-1";
+let scopedTeamId: string | null = null;
+let authorizedTeams: Array<{
+  teamId: string;
+  teamName: string;
+  use: boolean;
+  manageAccounts: boolean;
+  personal?: boolean;
+}> = [{
+  teamId: "team-1",
+  teamName: "Team One",
+  use: true,
+  manageAccounts: true,
+}];
+const metricsTeamIds: string[] = [];
 
 mock.module("next-intl/server", () => ({
   getTranslations: async (input?: string | { namespace?: string }) =>
@@ -16,7 +31,16 @@ mock.module("next-intl/server", () => ({
 }));
 
 mock.module("next/headers", () => ({
-  headers: async () => new Headers(),
+  headers: async () =>
+    new Headers(
+      scopedTeamId
+        ? {
+          cookie: `cmux_coderouter_organization=${
+            encodeURIComponent(JSON.stringify(["user-1", scopedTeamId]))
+          }`,
+        }
+        : undefined,
+    ),
 }));
 
 mock.module("next/navigation", () => ({
@@ -59,7 +83,7 @@ mock.module("../services/vms/auth", () => ({
     if (!authorizationAvailable) throw authorizationFailure;
     return await operation(new AbortController().signal);
   },
-  verifySubrouterRequest: async () => ({ id: "user-1" }),
+  verifySubrouterRequest: async () => ({ id: "user-1", selectedTeamId }),
   SubrouterAuthorizationUnavailableError:
     TestSubrouterAuthorizationUnavailableError,
   isSubrouterAuthorizationError: (error: unknown) =>
@@ -68,12 +92,7 @@ mock.module("../services/vms/auth", () => ({
 }));
 
 mock.module("../services/subrouter/routeHelpers", () => ({
-  authorizedSubrouterTeams: async () => [{
-    teamId: "team-1",
-    teamName: "Team One",
-    use: true,
-    manageAccounts: true,
-  }],
+  authorizedSubrouterTeams: async () => authorizedTeams,
 }));
 
 mock.module("../services/subrouter/hostedClient", () => ({
@@ -92,6 +111,32 @@ mock.module("../services/subrouter/hostedClient", () => ({
 
 mock.module("../services/subrouter/cutover", () => ({
   hostedSubrouterCutoverReadyForTeam: async () => cutoverReady,
+}));
+
+mock.module("../services/coderouter/teamMetrics", () => ({
+  loadCoderouterTeamMetrics: async (teamId: string) => {
+    metricsTeamIds.push(teamId);
+    return {
+      kind: "ready",
+      periodDays: 30,
+      generatedAt: "2026-08-08T12:00:00.000Z",
+      rateCardVersion: "2026-08-08",
+      totals: {
+        inputTokens: 1_000,
+        cachedInputTokens: 200,
+        outputTokens: 300,
+        totalTokens: 1_300,
+        apiEquivalentUsd: 4.25,
+        pricedTokens: 1_300,
+        unpricedTokens: 0,
+      },
+      daily: [{
+        day: "2026-08-08",
+        totalTokens: 1_300,
+        apiEquivalentUsd: 4.25,
+      }],
+    };
+  },
 }));
 
 mock.module("../db/client", () => ({
@@ -114,6 +159,15 @@ describe("coderouter dashboard", () => {
     cutoverReady = true;
     hostedControlConfigured = true;
     hostedExchangeCalls = 0;
+    metricsTeamIds.length = 0;
+    selectedTeamId = "team-1";
+    scopedTeamId = null;
+    authorizedTeams = [{
+      teamId: "team-1",
+      teamName: "Team One",
+      use: true,
+      manageAccounts: true,
+    }];
   });
 
   test("renders recovery UI when Stack authorization is unavailable", async () => {
@@ -176,6 +230,132 @@ describe("coderouter dashboard", () => {
 
     expect(html).toContain("AI account management isn&#x27;t available yet");
     expect(hostedExchangeCalls).toBe(0);
+  });
+
+  test("renders aggregate metrics only for the authorized selected team", async () => {
+    authorizationAvailable = true;
+
+    const page = await CoderouterOverviewPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({ team: "team-1" }),
+    });
+    const html = renderToStaticMarkup(page);
+
+    expect(metricsTeamIds).toEqual(["team-1"]);
+    expect(html).toContain("30-day usage");
+    expect(html).toContain("1.3K");
+    expect(html).toContain("$4.25");
+    expect(html).toContain("No prompts, outputs, account labels, or member identities");
+    expect(html).not.toContain("stack-user");
+  });
+
+  test("uses the authenticated selected team when the URL has no team scope", async () => {
+    authorizationAvailable = true;
+    selectedTeamId = "team-2";
+    authorizedTeams = [
+      {
+        teamId: "team-1",
+        teamName: "Team One",
+        use: true,
+        manageAccounts: true,
+      },
+      {
+        teamId: "team-2",
+        teamName: "Team Two",
+        use: true,
+        manageAccounts: true,
+      },
+    ];
+
+    await CoderouterOverviewPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({}),
+    });
+
+    expect(metricsTeamIds).toEqual(["team-2"]);
+  });
+
+  test("uses the persisted CodeRouter scope before the Stack default", async () => {
+    authorizationAvailable = true;
+    selectedTeamId = "team-1";
+    scopedTeamId = "team-2";
+    authorizedTeams = [
+      {
+        teamId: "team-1",
+        teamName: "Team One",
+        use: true,
+        manageAccounts: true,
+      },
+      {
+        teamId: "team-2",
+        teamName: "Team Two",
+        use: true,
+        manageAccounts: true,
+      },
+    ];
+
+    await CoderouterOverviewPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({}),
+    });
+
+    expect(metricsTeamIds).toEqual(["team-2"]);
+  });
+
+  test("normalizes a null Stack selection to the personal organization", async () => {
+    authorizationAvailable = true;
+    selectedTeamId = null;
+    authorizedTeams = [
+      {
+        teamId: "team-1",
+        teamName: "Team One",
+        use: true,
+        manageAccounts: true,
+        personal: false,
+      },
+      {
+        teamId: "user-1",
+        teamName: "Personal",
+        use: true,
+        manageAccounts: true,
+        personal: true,
+      },
+    ];
+
+    await CoderouterOverviewPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({}),
+    });
+
+    expect(metricsTeamIds).toEqual(["user-1"]);
+  });
+
+  test("uses personal when the Stack-selected team is no longer authorized", async () => {
+    authorizationAvailable = true;
+    selectedTeamId = "stale-team";
+    authorizedTeams = [
+      {
+        teamId: "team-1",
+        teamName: "Team One",
+        use: true,
+        manageAccounts: true,
+        personal: false,
+      },
+      {
+        teamId: "user-1",
+        teamName: "Personal",
+        use: true,
+        manageAccounts: true,
+        personal: true,
+      },
+    ];
+
+    await CoderouterOverviewPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({}),
+    });
+
+    expect(metricsTeamIds).toEqual(["user-1"]);
   });
 });
 

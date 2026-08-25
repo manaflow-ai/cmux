@@ -22,6 +22,7 @@ struct MuxEventSubscriber {
 
 enum MuxEventFilter {
     All,
+    ConfigReload,
     AttachedSurface(SurfaceId),
     SurfaceSession(SurfaceSessionScope),
 }
@@ -33,6 +34,7 @@ struct SurfaceSessionScope {
     pane: PaneId,
 }
 
+#[derive(Clone)]
 pub struct MuxEventReceiver {
     mailbox: Arc<MuxEventMailbox>,
 }
@@ -55,6 +57,8 @@ struct MuxEventMailboxState {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum CoalescedEventKey {
+    ConfigReload,
+    Agent(SurfaceId),
     Title(SurfaceId),
     SurfaceOutput(SurfaceId),
     Scroll(SurfaceId),
@@ -63,6 +67,10 @@ enum CoalescedEventKey {
 impl MuxEventBroadcaster {
     pub fn subscribe(&self) -> MuxEventReceiver {
         self.subscribe_with_filter(MuxEventFilter::All)
+    }
+
+    pub fn subscribe_config_reload(&self) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::ConfigReload)
     }
 
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
@@ -128,6 +136,7 @@ impl MuxEventFilter {
     fn accepts(&mut self, event: &MuxEvent) -> bool {
         match self {
             Self::All => true,
+            Self::ConfigReload => matches!(event, MuxEvent::ConfigReloadRequested),
             Self::AttachedSurface(surface) => match event {
                 MuxEvent::Notification(notification) => notification.surface == Some(*surface),
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => {
@@ -148,6 +157,7 @@ impl SurfaceSessionScope {
             | MuxEvent::Bell(surface) => *surface == self.surface,
             MuxEvent::SurfaceResized { surface, .. }
             | MuxEvent::SurfaceResizeFailed { surface, .. }
+            | MuxEvent::AgentChanged { surface, .. }
             | MuxEvent::TitleChanged { surface, .. }
             | MuxEvent::ScrollChanged { surface, .. } => *surface == self.surface,
             MuxEvent::Notification(notification) => {
@@ -223,6 +233,9 @@ impl MuxEventMailbox {
         let sequence = state.next_sequence;
         state.next_sequence = state.next_sequence.saturating_add(1);
         let accepted = match event {
+            event @ MuxEvent::AgentChanged { surface, .. } => {
+                state.push_coalesced(sequence, CoalescedEventKey::Agent(surface), event)
+            }
             event @ MuxEvent::TitleChanged { surface, .. } => {
                 state.push_coalesced(sequence, CoalescedEventKey::Title(surface), event)
             }
@@ -232,6 +245,11 @@ impl MuxEventMailbox {
             event @ MuxEvent::ScrollChanged { surface, .. } => {
                 state.push_coalesced(sequence, CoalescedEventKey::Scroll(surface), event)
             }
+            MuxEvent::ConfigReloadRequested => state.push_coalesced(
+                sequence,
+                CoalescedEventKey::ConfigReload,
+                MuxEvent::ConfigReloadRequested,
+            ),
             MuxEvent::SurfaceExited(surface) => {
                 state.discard_surface_state(surface);
                 if !state.reserve_pending_slot() {
@@ -308,6 +326,7 @@ impl MuxEventMailboxState {
     }
 
     fn discard_surface_state(&mut self, surface: SurfaceId) {
+        self.discard_coalesced(CoalescedEventKey::Agent(surface));
         self.discard_coalesced(CoalescedEventKey::Title(surface));
         self.discard_coalesced(CoalescedEventKey::SurfaceOutput(surface));
         self.discard_coalesced(CoalescedEventKey::Scroll(surface));
@@ -338,6 +357,10 @@ impl MuxEventMailboxState {
 }
 
 impl MuxEventReceiver {
+    pub fn close(&self) {
+        self.mailbox.close();
+    }
+
     pub fn overflowed(&self) -> bool {
         self.mailbox.state.lock().unwrap().overflowed
     }
@@ -433,6 +456,52 @@ mod tests {
     }
 
     #[test]
+    fn agent_churn_keeps_one_latest_value_per_surface() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe();
+
+        for index in 0..10_000 {
+            broadcaster.emit(MuxEvent::AgentChanged {
+                surface: 1,
+                state: format!("one-{index}").into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: index,
+            });
+            broadcaster.emit(MuxEvent::AgentChanged {
+                surface: 2,
+                state: format!("two-{index}").into(),
+                source: "socket".into(),
+                session: Some("agent-session".into()),
+                updated_at_ms: index,
+            });
+        }
+
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::AgentChanged {
+                surface: 1,
+                state,
+                updated_at_ms: 9_999,
+                ..
+            } if state.as_ref() == "one-9999"
+        ));
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::AgentChanged {
+                surface: 2,
+                state,
+                source,
+                session: Some(session),
+                updated_at_ms: 9_999,
+            } if state.as_ref() == "two-9999"
+                && source.as_ref() == "socket"
+                && session.as_ref() == "agent-session"
+        ));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
     fn title_fanout_shares_the_payload_allocation() {
         let broadcaster = MuxEventBroadcaster::default();
         let first = broadcaster.subscribe();
@@ -473,6 +542,24 @@ mod tests {
         let events = broadcaster.subscribe();
 
         broadcaster.emit(MuxEvent::TitleChanged { surface: 4, title: "gone".into() });
+        broadcaster.emit(MuxEvent::SurfaceExited(4));
+
+        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(4)));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn surface_exit_discards_its_pending_agent_state() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe();
+
+        broadcaster.emit(MuxEvent::AgentChanged {
+            surface: 4,
+            state: "working".into(),
+            source: "hook".into(),
+            session: None,
+            updated_at_ms: 1,
+        });
         broadcaster.emit(MuxEvent::SurfaceExited(4));
 
         assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(4)));
@@ -661,6 +748,18 @@ mod tests {
         broadcaster.emit(MuxEvent::LayoutChanged(20));
 
         assert!(matches!(events.recv().unwrap(), MuxEvent::TreeDelta(_)));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn config_reload_subscription_keeps_a_pending_reload_when_the_mux_becomes_empty() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe_config_reload();
+
+        broadcaster.emit(MuxEvent::ConfigReloadRequested);
+        broadcaster.emit(MuxEvent::Empty);
+
+        assert!(matches!(events.recv().unwrap(), MuxEvent::ConfigReloadRequested));
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
     }
 

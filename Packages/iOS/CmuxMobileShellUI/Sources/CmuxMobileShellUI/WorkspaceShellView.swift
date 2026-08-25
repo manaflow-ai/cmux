@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import Foundation
+import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -24,7 +25,7 @@ private struct WorkspaceRootToolbarRenderContext: Equatable {
     var statusLine: WorkspaceConnectionStatusLine?
 
     static let fallback = WorkspaceRootToolbarRenderContext(
-        title: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer"),
+        title: L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Computer"),
         visibleSelection: .all,
         machines: []
     )
@@ -74,7 +75,6 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
     let machines: [WorkspaceFilterMachine]
     let showAddDevice: (() -> Void)?
     var statusLine: WorkspaceConnectionStatusLine?
-    var reconnect: (() -> Void)?
 
     var body: some ToolbarContent {
         ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
@@ -97,8 +97,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                 ),
                 actions: WorkspaceMacTitlePickerActions(
                     select: select,
-                    addDevice: showAddDevice,
-                    reconnect: reconnect
+                    addDevice: showAddDevice
                 )
             )
             .equatable()
@@ -107,7 +106,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
             Button(action: openDevices) {
                 Image(systemName: "desktopcomputer")
             }
-            .accessibilityLabel(L10n.string("mobile.computers.title", defaultValue: "Computers"))
+            .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))
             .accessibilityIdentifier("MobileWorkspaceDevicesButton")
         }
     }
@@ -121,7 +120,6 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
     let pendingSelection: WorkspaceMacSelection?
     let select: (WorkspaceMacSelection) -> Void
     let showAddDevice: (() -> Void)?
-    var reconnect: (() -> Void)?
 
     var body: some ToolbarContent {
         WorkspaceRootToolbarContent(
@@ -133,8 +131,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
             select: select,
             machines: renderContext.machines,
             showAddDevice: showAddDevice,
-            statusLine: renderContext.statusLine,
-            reconnect: reconnect
+            statusLine: renderContext.statusLine
         )
     }
 }
@@ -160,19 +157,40 @@ struct WorkspaceShellView: View {
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
     var showPairingScanner: (() -> Void)?
+    /// Whether Tailscale still needs its one-time Mac authorization.
+    var tailscalePairingRequired = false
+    var showSettings: () -> Void = {}
+    var showComputers: () -> Void = {}
+    var taskComposerPresentation = MobileChildSheetPresentation()
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     #if os(iOS)
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
+    /// One-time What's New notice: the unseen-page snapshot captured when the
+    /// sheet presents, so remote list changes mid-presentation cannot mutate
+    /// an open sheet.
+    @Environment(MobileWhatsNewCenter.self) private var whatsNewCenter: MobileWhatsNewCenter?
+    @State private var whatsNewSheetPages: [MobileWhatsNewPage] = []
+    @State private var showsWhatsNewSheet = false
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var notificationSearchNavigationPath: [MobileWorkspacePreview.ID] = []
+    @State private var workspaceSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingPrimarySearchWorkspaceNavigationID: MobileWorkspacePreview.ID?
     @State private var pendingPrimarySearchNotificationNavigationID: MobileWorkspacePreview.ID?
-    @State private var showingRootSettings = false
-    @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
-    @State private var showingRootDeviceTree = false
+    // A NavigationStack path write only reaches UIKit while the stack is in the
+    // window. Writing a push mid tab-transition (search morph still animating)
+    // records the pushed state without pushing, which strands the root list
+    // with the tab bar and toolbar hidden. These flags defer pending pushes to
+    // the destination stack's own onAppear.
+    @State private var workspacesStackIsOnScreen = false
+    @State private var notificationsStackIsOnScreen = false
+    // Set when a workspace is opened from search results: popping back then
+    // finishes the search round on the Workspaces tab with the query cleared,
+    // instead of stranding the user on a deactivated search tab whose selected
+    // (tinted) search control suggests a search is still in progress.
+    @State private var searchSelectionReturnsToWorkspaces = false
     @State private var rootToolbarMachineSnapshots: WorkspaceMachineSnapshots?
     @State private var rootToolbarPendingSelection: WorkspaceMacSelection?
     @State private var rootToolbarSelectionTask: Task<Void, Never>?
@@ -184,12 +202,11 @@ struct WorkspaceShellView: View {
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
-    /// Legacy fallback while the Toasts beta flag is off: the old dismissible
-    /// bottom banner for workspace-action failures.
+    /// Legacy fallback while the toast presenter is disabled: the old
+    /// dismissible bottom banner for workspace-action failures.
     @State var workspaceActionToast: WorkspaceActionToastContent?
     var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
     @Environment(ToastCenter.self) var toasts
-    @State private var isTaskComposerPresented = false
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
     #if os(iOS)
@@ -223,6 +240,16 @@ struct WorkspaceShellView: View {
         #if os(iOS)
         let presentation = workspaceShellRenderPresentation
         let toolbarRenderContext = rootToolbarRenderContext(for: presentation)
+        let visibleSimulatorWorkspaceID = Self.visibleSimulatorStreamWorkspaceID(
+            selectedPrimaryTab: selectedPrimaryTab,
+            searchScope: primarySearchCoordinator.scope,
+            usesCompactStack: usesCompactStack,
+            selectedWorkspaceID: store.selectedWorkspaceID,
+            compactNavigationPath: compactNavigationPath,
+            notificationNavigationPath: notificationNavigationPath,
+            workspaceSearchNavigationPath: workspaceSearchNavigationPath,
+            notificationSearchNavigationPath: notificationSearchNavigationPath
+        )
         GeometryReader { geometry in
             MobilePrimaryTabScaffold(
                 selection: $selectedPrimaryTab,
@@ -259,7 +286,11 @@ struct WorkspaceShellView: View {
                     }
                 }
                 .onAppear {
+                    notificationsStackIsOnScreen = true
                     consumePendingPrimarySearchNavigation(for: .notifications)
+                }
+                .onDisappear {
+                    notificationsStackIsOnScreen = false
                 }
                 .onChange(of: pendingPrimarySearchNotificationNavigationID) { _, _ in
                     consumePendingPrimarySearchNavigation(for: .notifications)
@@ -280,19 +311,46 @@ struct WorkspaceShellView: View {
             .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
             .environment(\.workspaceRootToolbarRenderContext, toolbarRenderContext)
             .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
-                guard !isPresented else { return }
-                consumePendingPrimarySearchNavigation(for: selectedPrimaryTab)
+                store.recordAppEvent(
+                    isPresented ? .searchPresented : .searchDismissed,
+                    detail: .searchScope(diagnosticSearchScope)
+                )
+                if !isPresented {
+                    consumePendingPrimarySearchNavigation(for: selectedPrimaryTab)
+                }
             }
             .onChange(of: selectedPrimaryTab) { oldValue, newValue in
+                store.recordAppEvent(
+                    .primaryTabSelected,
+                    detail: .primaryTab(diagnosticPrimaryTab(newValue))
+                )
                 if oldValue == .search, newValue != .search {
                     notificationSearchNavigationPath = []
+                    workspaceSearchNavigationPath = []
+                    searchSelectionReturnsToWorkspaces = false
                 }
+            }
+            .onChange(of: visibleSimulatorWorkspaceID) { previousWorkspaceID, workspaceID in
+                guard let previousWorkspaceID,
+                      previousWorkspaceID != workspaceID else { return }
+                store.stopActiveMobileSimulatorStream(in: previousWorkspaceID)
+            }
+            .onChange(of: workspaceSearchNavigationPath) { _, path in
+                guard path.isEmpty, searchSelectionReturnsToWorkspaces else { return }
+                searchSelectionReturnsToWorkspaces = false
+                guard selectedPrimaryTab == .search else { return }
+                primarySearchCoordinator.workspaces = ""
+                selectedPrimaryTab = .workspaces
             }
             .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
                 guard request != nil else { return }
                 consumeDeeplinkNavigationRequestIfNeeded()
             }
             .onAppear {
+                store.recordAppEvent(
+                    .primaryTabSelected,
+                    detail: .primaryTab(diagnosticPrimaryTab(selectedPrimaryTab))
+                )
                 updateRootToolbarMachineSnapshots(presentation.toolbarMachineSnapshots)
                 consumeDeeplinkNavigationRequestIfNeeded()
             }
@@ -301,31 +359,6 @@ struct WorkspaceShellView: View {
             }
             .onChange(of: presentation.notificationFeedItems, initial: true) { _, items in
                 notificationFeedProjection.update(items: items)
-            }
-            .sheet(isPresented: $showingRootSettings, onDismiss: {
-                settingsPairingScannerHandoff.settingsDidDismiss(startScanner: showPairingScanner)
-            }) {
-                MobileSettingsView(
-                    connectedHostName: store.connectedHostName,
-                    startPairingScanner: {
-                        settingsPairingScannerHandoff.requestScannerAfterDismiss(
-                            isSettingsPresented: $showingRootSettings
-                        )
-                    },
-                    signOut: signOut,
-                    store: store
-                )
-            }
-            .sheet(isPresented: $showingRootDeviceTree) {
-                DeviceTreeView(
-                    store: store,
-                    selectWorkspace: { id in
-                        transitionPrimaryTab(to: .workspaces) {
-                            selectWorkspace(id)
-                        }
-                    },
-                    showAddDevice: showAddDevice
-                )
             }
         }
         #else
@@ -344,7 +377,7 @@ struct WorkspaceShellView: View {
 
     private func workspaceSearchTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
         workspaceActionToastOverlay {
-            NavigationStack {
+            NavigationStack(path: $workspaceSearchNavigationPath) {
                 MobilePrimaryWorkspaceSearchContentHost(
                     searchCoordinator: primarySearchCoordinator
                 ) { searchText in
@@ -360,7 +393,23 @@ struct WorkspaceShellView: View {
                     )
                 }
                 .toolbar {
-                    rootToolbarContent
+                    if workspaceSearchNavigationPath.isEmpty {
+                        rootToolbarContent
+                    }
+                }
+                // Selecting a search result opens the workspace inside the
+                // search tab's own stack, exactly like notification search.
+                // Transitioning to the Workspaces tab and pushing on its stack
+                // from here raced the search-field dismissal and could record
+                // the push without performing it, stranding the list with no
+                // tab bar (the "stuck after selecting from search" bug).
+                .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
+                    workspaceDestination(
+                        for: workspaceID,
+                        createWorkspace: createWorkspaceInCompactStack,
+                        canCreateWorkspaceForSelection: canCreateWorkspaceForSelection
+                    )
+                    .toolbarVisibility(.hidden, for: .tabBar)
                 }
             }
         }
@@ -370,9 +419,8 @@ struct WorkspaceShellView: View {
     private func workspaceActionToastOverlay<Content: View>(
         @ViewBuilder content: () -> Content
     ) -> some View {
-        // With the Toasts beta flag on, failures surface through the app-wide
-        // toast layer; the legacy bottom banner below only ever receives
-        // content while the flag is off.
+        // If the presenter is re-enabled, failures surface through the
+        // app-wide toast layer; the legacy bottom banner remains the fallback.
         ZStack(alignment: .bottom) {
             content()
             if let workspaceActionToast {
@@ -431,15 +479,83 @@ struct WorkspaceShellView: View {
             compactNavigationPath = [selectedWorkspaceID]
         }
         #if os(iOS)
-        .sheet(isPresented: $isTaskComposerPresented) {
+        .taskComposerPresentation(
+            isPresented: taskComposerPresentation.isPresented,
+            onDismiss: taskComposerPresentation.didDismiss
+        ) { launch, switchDraft in
             TaskComposerSheet(
                 store: store,
+                launchIntent: launch.intent,
+                onSwitchDraft: switchDraft,
                 submitTaskComposer: submitTaskComposerFromShell
             )
+        }
+        // One-time What's New notice. Only users who already HAVE Computers
+        // see it (fresh installs learn the same things in onboarding). The
+        // gate first answers from the cached remote list, then refreshes the
+        // list and re-checks. The shell can restore straight into cached
+        // workspaces without ever loading the paired-Mac list (it normally
+        // loads on the Computers sheet or a reconnect pass), so load it here
+        // and re-check, otherwise the has-Computers gate never answers.
+        .onAppear {
+            presentWhatsNewIfNeeded()
+        }
+        // `.task` (not an unstructured Task in onAppear) so the refresh and
+        // paired-Mac load are owned by the view: cancelled on disappear and
+        // never running concurrently across repeated shell appearances. The
+        // explicit cancellation checks matter because `refresh()` absorbs a
+        // cancelled load into its cache-wins error handling instead of
+        // rethrowing, which would otherwise let this task keep working for a
+        // view that is already gone.
+        .task {
+            await whatsNewCenter?.refresh()
+            guard !Task.isCancelled else { return }
+            await store.loadPairedMacs()
+            guard !Task.isCancelled else { return }
+            presentWhatsNewIfNeeded()
+        }
+        .onChange(of: store.pairedMacs.isEmpty) { _, _ in
+            presentWhatsNewIfNeeded()
+        }
+        .sheet(isPresented: $showsWhatsNewSheet) {
+            MobileWhatsNewSheet(
+                pages: whatsNewSheetPages,
+                allowedWebHosts: whatsNewCenter?.allowedWebHosts ?? [],
+                dismiss: { showsWhatsNewSheet = false }
+            )
+            .presentationDetents([.large])
+            // Acknowledge on the sheet's ACTUAL appearance, not at gate time:
+            // a competing presentation (e.g. a state-restored Settings sheet)
+            // can swallow this presentation entirely, and gate-time
+            // acknowledgement would burn the marker for pages nobody saw.
+            // First appearance still acknowledges everything shown, so a kill
+            // mid-presentation cannot re-show the sheet forever.
+            .onAppear {
+                whatsNewCenter?.acknowledge(whatsNewSheetPages)
+            }
         }
         #endif
         .accessibilityIdentifier("MobileWorkspaceShell")
     }
+
+    #if os(iOS)
+    /// Presents the one-time What's New sheet when there are unseen pages
+    /// and the device already has Computers. Acknowledgement happens in the
+    /// sheet content's `onAppear` (first actual presentation, not on
+    /// dismiss): early enough that a kill mid-presentation cannot re-show
+    /// the sheet forever, late enough that a swallowed presentation (a
+    /// state-restored sheet already occupying the presenter) never marks
+    /// pages as seen.
+    private func presentWhatsNewIfNeeded() {
+        guard let whatsNewCenter,
+              !store.pairedMacs.isEmpty,
+              !showsWhatsNewSheet else { return }
+        let pages = whatsNewCenter.unseenPages
+        guard !pages.isEmpty else { return }
+        whatsNewSheetPages = pages
+        showsWhatsNewSheet = true
+    }
+    #endif
 
     private func stackLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationStack(path: $compactNavigationPath) {
@@ -518,8 +634,12 @@ struct WorkspaceShellView: View {
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
         .onAppear {
+            workspacesStackIsOnScreen = true
             autoOpenSelectedWorkspaceForSoakIfNeeded()
             consumePendingPrimarySearchNavigation(for: .workspaces)
+        }
+        .onDisappear {
+            workspacesStackIsOnScreen = false
         }
         .onChange(of: pendingPrimarySearchWorkspaceNavigationID) { _, _ in
             consumePendingPrimarySearchNavigation(for: .workspaces)
@@ -527,11 +647,11 @@ struct WorkspaceShellView: View {
     }
 
     private func openTaskComposer() {
-        isTaskComposerPresented = true
+        taskComposerPresentation.present()
     }
 
     private var taskComposerAction: (() -> Void)? {
-        guard displaySettings.taskComposerEnabled else { return nil }
+        guard store.supportsTaskComposer else { return nil }
         return openTaskComposer
     }
 
@@ -627,8 +747,10 @@ struct WorkspaceShellView: View {
             cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
             refresh: refreshWorkspacesClosure,
             signOut: signOut,
-            reconnect: reconnectClosure,
+            reconnect: tailscalePairingRequired ? showPairingScanner : reconnectClosure,
+            tailscalePairingRequired: tailscalePairingRequired,
             showAddDevice: showAddDevice,
+            showComputers: showComputers,
             showPairingScanner: showPairingScanner,
             store: store,
             renameWorkspace: renameWorkspaceClosure,
@@ -645,6 +767,10 @@ struct WorkspaceShellView: View {
             isInitialConnectionLoading: isInitialConnectionLoading,
             initialConnectionTimedOut: initialConnectionTimedOut,
             retryInitialConnection: retryInitialConnection,
+            workspaceSortMode: store.workspaceSortMode,
+            setWorkspaceSortMode: { store.setWorkspaceSortMode($0) },
+            workspaceComputerPriority: store.workspaceComputerPriority,
+            setWorkspaceComputerPriority: { store.setWorkspaceComputerPriority($0) },
             filterState: workspaceListFilterState,
             searchText: searchText
         )
@@ -654,12 +780,11 @@ struct WorkspaceShellView: View {
     @ToolbarContentBuilder
     private var rootToolbarContent: some ToolbarContent {
         WorkspaceRootToolbarLiveContent(
-            openSettings: { showingRootSettings = true },
-            openDevices: { showingRootDeviceTree = true },
+            openSettings: showSettings,
+            openDevices: showComputers,
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
-            showAddDevice: showAddDevice,
-            reconnect: reconnectClosure
+            showAddDevice: showAddDevice
         )
     }
 
@@ -674,8 +799,10 @@ struct WorkspaceShellView: View {
             connectionRecoveryFailed: store.connectionRecoveryFailed,
             isRecoveringConnection: store.isRecoveringConnection,
             connectionStatus: listConnectionStatus,
+            tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
-            initialConnectionTimedOut: initialConnectionTimedOut
+            initialConnectionTimedOut: initialConnectionTimedOut,
+            hasLiveTransportPath: store.workspaceListHasLiveTransportPath
         ).statusLine
     }
 
@@ -690,11 +817,19 @@ struct WorkspaceShellView: View {
                let name = workspace.macDisplayName,
                !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 names[id] = name
+                names[MobilePairedMac.pairingID(
+                    macDeviceID: id,
+                    instanceTag: workspace.macInstanceTag
+                )] = name
             }
         }
         for item in store.notificationFeedItems {
             if !item.macDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 names[item.macDeviceID] = item.macDisplayName
+                names[MobilePairedMac.pairingID(
+                    macDeviceID: item.macDeviceID,
+                    instanceTag: item.macInstanceTag
+                )] = item.macDisplayName
             }
         }
         for device in store.deviceTreeDevices {
@@ -713,11 +848,11 @@ struct WorkspaceShellView: View {
         let buildLabelsByID = store.pairedMacBuildLabelsByEntryID()
         let toolbarMachineSnapshots = WorkspaceMachineSnapshots(
             workspaces: store.workspaces,
-            filterMachineIDFor: { scope.aliasIndex.deviceRepresentativeID(for: $0) },
+            filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },
             macPickerMachineIDs: scope.machineIDs,
             namesByID: names,
             buildLabelsByID: buildLabelsByID,
-            fallbackName: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
+            fallbackName: L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Computer")
         )
         return WorkspaceShellRenderPresentation(
             selectionScope: scope,
@@ -741,11 +876,11 @@ struct WorkspaceShellView: View {
         let title: String
         switch visibleSelection {
         case .all, .automatic:
-            title = L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers")
+            title = L10n.string("mobile.workspaces.macPicker.allConnections", defaultValue: "All Computers")
         case .machine(let id):
             title = machineSnapshots.macPickerTitle(
                 for: id,
-                fallback: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
+                fallback: L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Computer")
             )
         }
         return WorkspaceRootToolbarRenderContext(
@@ -851,10 +986,15 @@ struct WorkspaceShellView: View {
         guard !primarySearchCoordinator.isPresented else { return }
         switch tab {
         case .workspaces:
+            // Compact pushes must wait for the workspaces stack to be in the
+            // window (its onAppear re-runs this); the split layout only writes
+            // the store selection, which is safe at any time.
+            guard !usesCompactStack || workspacesStackIsOnScreen else { return }
             guard let workspaceID = pendingPrimarySearchWorkspaceNavigationID else { return }
             pendingPrimarySearchWorkspaceNavigationID = nil
             selectWorkspaceImmediately(workspaceID)
         case .notifications:
+            guard notificationsStackIsOnScreen else { return }
             guard let workspaceID = pendingPrimarySearchNotificationNavigationID else { return }
             pendingPrimarySearchNotificationNavigationID = nil
             if notificationNavigationPath.last != workspaceID {
@@ -899,9 +1039,41 @@ struct WorkspaceShellView: View {
         }
     }
 
+    /// Opens a workspace tapped in the search results by pushing it onto the
+    /// search tab's own stack — no tab transition, so the push cannot land on
+    /// an off-window stack. Choosing a result also ends the search session
+    /// (committing the query, like every other search exit): left presented,
+    /// the field re-presents after popping anchored to the navigation bar at
+    /// the top instead of the search tab's bottom control. Popping back lands
+    /// on the still-filtered results with the bottom search control collapsed.
     private func selectWorkspaceFromSearch(_ id: MobileWorkspacePreview.ID) {
-        pendingPrimarySearchWorkspaceNavigationID = id
-        transitionPrimaryTab(to: .workspaces)
+        store.recordAppEvent(
+            .searchResultSelected,
+            correlationID: id.rawValue,
+            detail: .searchScope(.workspaces)
+        )
+        pendingCompactCreateNavigationWorkspaceIDs = nil
+        primarySearchCoordinator.deactivateCurrentSearch()
+        searchSelectionReturnsToWorkspaces = true
+        store.selectedWorkspaceID = id
+        if workspaceSearchNavigationPath.last != id {
+            workspaceSearchNavigationPath = [id]
+        }
+    }
+
+    private func diagnosticPrimaryTab(_ tab: MobilePrimaryTab) -> DiagnosticPrimaryTab {
+        switch tab {
+        case .workspaces: .workspaces
+        case .notifications: .notifications
+        case .search: .search
+        }
+    }
+
+    private var diagnosticSearchScope: DiagnosticSearchScope {
+        switch primarySearchCoordinator.scope {
+        case .workspaces: .workspaces
+        case .notifications: .notifications
+        }
     }
 
     private func createWorkspaceFromSearch() {
@@ -1002,7 +1174,9 @@ struct WorkspaceShellView: View {
             notificationFeedItems: store.notificationFeedItems,
             foregroundMacDeviceID: store.connectedMacDeviceID ?? store.activeTicket?.macDeviceID,
             foregroundInstanceTag: store.connectedMacInstanceTag,
-            aliasesFor: { store.pairedMacAliasIDs(for: $0) }
+            aliasesFor: {
+                store.pairedMacAliasIDs(for: $0, instanceTag: $1)
+            }
         )
     }
 

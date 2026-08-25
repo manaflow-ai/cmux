@@ -70,9 +70,52 @@ the authenticated output if it contains a principal identifier.
 
 - Sentry project: `coderouter-web`; alert on new coderouter errors,
   reconciliation failure, refresh failure, and sustained provider failure.
-- PostHog dashboard: `coderouter private beta`; internal only.
-- PostHog may contain aggregate token counts, outcomes, durations, user/team
-  identity, and actual subscription cost basis.
+- PostHog project: a dedicated CodeRouter-only project with AI Observability
+  enabled and its project timezone pinned to UTC. Do not ingest ordinary cmux
+  product analytics into it.
+- CodeRouter model-usage events use PostHog's standard `$ai_generation`
+  schema in content-free privacy mode. They contain token counts, the
+  model/provider category required for pricing, and a pre-calculated
+  API-equivalent estimate. They do not include a prompt, output, trace,
+  request body, member identity, or raw Stack team ID.
+- The stable team scope is HMAC-SHA256 with the independent
+  `CODEROUTER_ANALYTICS_SCOPE_SECRET`; plain hashing is not sufficient because
+  known team IDs would be guessable. Person-profile processing is disabled.
 - PostHog must never contain prompts, outputs, bodies, credentials, route
   tokens, email, payment-method details, or provider-account identifiers.
 
+### Customer team-usage dashboard
+
+- Publish `docs/posthog/coderouter-team-usage-30d.hogql` as the fixed
+  `coderouter-team-usage-30d` PostHog Endpoint with a required `team_scope`
+  string variable. Endpoints are PostHog's production/customer-facing
+  analytics API; do not use the free-form Query API here.
+- Set `POSTHOG_CODEROUTER_ENDPOINT_SECRET` to a CodeRouter-project secret API
+  key with only `endpoint:read`. Project secret keys are project-scoped and
+  are not tied to a person's wider PostHog permissions. Never expose it to
+  browser code.
+- The server verifies Stack membership and CodeRouter permission first, then
+  derives the same keyed team scope used at capture time and passes only that
+  scope to the fixed Endpoint.
+- Results are aggregate daily token totals and API-equivalent dollars only.
+  Model identifiers are used at event capture to derive the estimate from the
+  versioned rate card in
+  `web/services/coderouter/apiEquivalentPricing.ts`; neither model nor provider
+  is returned by the Endpoint.
+- The estimate is not actual spend. Unknown models are excluded and surfaced
+  through pricing coverage. Subscription-routed traffic remains `$0`
+  incremental provider API spend.
+- Responses are cached by team ID for five minutes. Missing credentials,
+  truncated or malformed PostHog data, timeouts, and Endpoint failures fail
+  closed to an unavailable panel and never fall back to a cross-team,
+  unfiltered, or free-form query.
+- Capture failures and fixed-Endpoint read failures emit privacy-safe
+  `coderouter.analytics_delivery` and `coderouter.analytics_query` Sentry
+  errors. Alert on either error in production. The report includes only a
+  bounded failure reason and HTTP status, never a team scope, team ID,
+  Endpoint credential, request body, prompt, or model output.
+
+Hexclave Analytics remains the authorization system around this data, but is
+not the metrics store today: its hosted custom-event ingestion currently
+accepts only `$page-view` and `$click`. Reconsider it when Hexclave exposes a
+server-authenticated, team-scoped custom-event ingestion API.
