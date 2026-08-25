@@ -66,6 +66,13 @@ public struct CMUXMobileRootScene: View {
     /// every screen (including sheets) and any descendant can present through
     /// `@Environment(ToastCenter.self)`.
     @State private var toastCenter: ToastCenter
+    #if os(iOS)
+    /// What's New state (binary catalog visibility via the remote list,
+    /// remote announcements, acknowledgement marker), hosted at this root so
+    /// the shell's one-time sheet and Settings > What's New share one fetch
+    /// and one cache through `@Environment(MobileWhatsNewCenter.self)`.
+    @State private var whatsNewCenter: MobileWhatsNewCenter
+    #endif
     /// Per-terminal composer drafts for the app session, so an unsent message
     /// survives keyboard dismiss and terminal switches. In-memory only for now;
     /// a disk-backed ``TerminalDraftStoring`` (drafts surviving relaunch) lands
@@ -150,6 +157,9 @@ public struct CMUXMobileRootScene: View {
         self.draftStore = InMemoryTerminalDraftStore()
         self.diagnosticLog = diagnosticLog
         _toastCenter = State(initialValue: ToastCenter(diagnosticLog: diagnosticLog))
+        _whatsNewCenter = State(
+            initialValue: MobileWhatsNewCenter(apiBaseURL: auth.config.apiBaseURL)
+        )
     }
     #else
     /// Creates the root scene (non-iOS: no push).
@@ -377,6 +387,7 @@ public struct CMUXMobileRootScene: View {
             .keyboardDockRebuildRevertEnabled(featureFlags.keyboardDockRebuildRevertEnabled)
             .environment(connectionMethodStore)
             .environment(autoConnectMigrationStore)
+            .environment(whatsNewCenter)
             #endif
     }
 

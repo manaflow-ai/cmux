@@ -20148,6 +20148,111 @@
           }
         }
       }
+    },
+    "mobile.connectionsUpdate.direct.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "On your LAN, WireGuard, or any other network: add the addresses where a computer is reachable and dial exactly those, with no fallback." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "LANやWireGuardなど、コンピュータに到達できるアドレスを追加すると、そのアドレスだけに接続します。フォールバックはありません。" } }
+      }
+    },
+    "mobile.connectionsUpdate.direct.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New: Direct addresses" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新機能: ダイレクトアドレス" } }
+      }
+    },
+    "mobile.connectionsUpdate.iroh.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Same authenticated, end-to-end encrypted connection, now with a clearer name. The app-wide setting moved out of Settings." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "認証付きのエンドツーエンド暗号化接続はそのままに、名前がわかりやすくなりました。アプリ全体の設定は「設定」から移動しました。" } }
+      }
+    },
+    "mobile.connectionsUpdate.iroh.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Auto-Connect is now Iroh" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動接続は「Iroh」になりました" } }
+      }
+    },
+    "mobile.connectionsUpdate.perComputer.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Each computer now picks how this iPhone reaches it: Iroh, Tailscale Only, or Direct. Set it in Computers → your computer → Connection Method." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "各コンピュータごとに、このiPhoneからの接続方法（Iroh・Tailscaleのみ・ダイレクト）を選べるようになりました。「コンピュータ」→ コンピュータを選択 →「接続方法」で設定できます。" } }
+      }
+    },
+    "mobile.connectionsUpdate.perComputer.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Per-computer methods" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コンピュータごとの接続方法" } }
+      }
+    },
+    "mobile.connectionsUpdate.releaseLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1.0.5 · August 2026" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1.0.5 · 2026年8月" } }
+      }
+    },
+    "mobile.connectionsUpdate.tailscale.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choosing Tailscale Only shows exactly what's missing and offers the pairing-code scan right there. Nothing opens on its own." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "「Tailscaleのみ」を選ぶと、足りない設定とペアリングコードのスキャンをその場で案内します。勝手に画面が開くことはありません。" } }
+      }
+    },
+    "mobile.connectionsUpdate.tailscale.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tailscale, on your terms" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Tailscaleは自分のペースで" } }
+      }
+    },
+    "mobile.connectionsUpdate.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "What's New in cmux" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmuxの新機能" } }
+      }
+    },
+    "mobile.settings.whatsNew": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "What's New" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新機能" } }
+      }
+    },
+    "mobile.whatsNew.announcementBadge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Announcement" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "お知らせ" } }
+      }
+    },
+    "mobile.whatsNew.cta": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Continue" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "続ける" } }
+      }
+    },
+    "mobile.whatsNew.webRetry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Try Again" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再試行" } }
+      }
+    },
+    "mobile.whatsNew.webUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This page needs an internet connection." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このページの表示にはインターネット接続が必要です。" } }
+      }
     }
   },
   "version": "1.0"

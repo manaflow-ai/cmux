@@ -5693,6 +5693,17 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Projects.app"].exists)
         XCTAssertTrue(app.buttons["mobile-link"].exists)
 
+        // Recently used directories surface as quick chips under the search
+        // bar, and tapping one browses into that folder.
+        let recentChip = app.buttons["MobileTaskDirectoryRecent0"]
+        XCTAssertTrue(recentChip.exists)
+        let chipName = recentChip.label
+        XCTAssertTrue(["recent-alpha", "recent-beta"].contains(chipName))
+        tap(recentChip, in: app)
+        XCTAssertTrue(app.navigationBars[chipName].waitForExistence(timeout: 4))
+        tap(app.navigationBars.buttons["ui"], in: app)
+        XCTAssertTrue(hidden.waitForExistence(timeout: 4))
+
         tap(app.buttons["mobile-root"], in: app)
         XCTAssertTrue(app.buttons["Sources"].waitForExistence(timeout: 4))
 
