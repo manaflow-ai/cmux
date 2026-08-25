@@ -88,15 +88,49 @@ struct ArtifactSidebarFileAccess {
                   Int64(data.count) <= maximumBytes else {
                 return nil
             }
-            let temporaryURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-artifact-\(UUID().uuidString)")
-                .appendingPathExtension(pathExtension)
-            do {
-                try data.write(to: temporaryURL, options: .atomic)
-                return temporaryURL
-            } catch {
+            guard let temporaryDirectory = privatePreviewDirectory() else {
                 return nil
             }
+            let temporaryURL = temporaryDirectory
+                .appendingPathComponent("cmux-artifact-\(UUID().uuidString)")
+                .appendingPathExtension(pathExtension)
+            let outputDescriptor = Darwin.open(
+                temporaryURL.path,
+                O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+                S_IRUSR | S_IWUSR
+            )
+            guard outputDescriptor >= 0 else {
+                return nil
+            }
+            do {
+                let output = FileHandle(
+                    fileDescriptor: outputDescriptor,
+                    closeOnDealloc: false
+                )
+                try output.write(contentsOf: data)
+                try output.close()
+                return temporaryURL
+            } catch {
+                _ = Darwin.close(outputDescriptor)
+                _ = unlink(temporaryURL.path)
+                return nil
+            }
+        }
+
+        private static func privatePreviewDirectory() -> URL? {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-artifact-previews", isDirectory: true)
+            if mkdir(directory.path, S_IRWXU) != 0, errno != EEXIST {
+                return nil
+            }
+            var status = stat()
+            guard lstat(directory.path, &status) == 0,
+                  (status.st_mode & S_IFMT) == S_IFDIR,
+                  status.st_uid == geteuid(),
+                  chmod(directory.path, S_IRWXU) == 0 else {
+                return nil
+            }
+            return directory
         }
 
         @concurrent

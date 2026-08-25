@@ -143,6 +143,17 @@ struct ArtifactHTMLPreviewSecurityTests {
         defer { try? FileManager.default.removeItem(at: temporary) }
         #expect(temporary.pathExtension == "txt")
         #expect(try String(contentsOf: temporary, encoding: .utf8) == "authorized")
+        let filePermissions = try #require(
+            FileManager.default.attributesOfItem(atPath: temporary.path)[.posixPermissions]
+                as? NSNumber
+        ).intValue
+        let directoryPermissions = try #require(
+            FileManager.default.attributesOfItem(
+                atPath: temporary.deletingLastPathComponent().path
+            )[.posixPermissions] as? NSNumber
+        ).intValue
+        #expect(filePermissions & 0o077 == 0)
+        #expect(directoryPermissions & 0o077 == 0)
         let asyncTemporary = try #require(
             await opened.makeTemporaryPreviewURLAsync()
         )

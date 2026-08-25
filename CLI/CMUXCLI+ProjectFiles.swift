@@ -133,6 +133,7 @@ extension CMUXCLI {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = [path]
+        process.environment = projectFilesLaunchServicesEnvironment()
         try process.run()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
@@ -215,6 +216,7 @@ extension CMUXCLI {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = [temporaryURL.path]
+        process.environment = projectFilesLaunchServicesEnvironment()
         do {
             try process.run()
             process.waitUntilExit()
@@ -228,6 +230,26 @@ extension CMUXCLI {
         }
         cleanupTemporaryProjectFiles(in: temporaryDirectory)
         cleanupTemporaryProjectFiles(in: systemTemporaryDirectory)
+    }
+
+    private func projectFilesLaunchServicesEnvironment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        let scrubbedKeys = [
+            "CMUX_ALLOW_SOCKET_OVERRIDE",
+            "CMUX_SOCKET",
+            "CMUX_SOCKET_ENABLE",
+            "CMUX_SOCKET_MODE",
+            "CMUX_SOCKET_PASSWORD",
+            "CMUX_SOCKET_PATH",
+            "CMUX_PANEL_ID",
+            "CMUX_SURFACE_ID",
+            "CMUX_TAB_ID",
+            "CMUX_WORKSPACE_ID",
+        ]
+        for key in scrubbedKeys {
+            environment.removeValue(forKey: key)
+        }
+        return environment
     }
 
     func cleanupTemporaryProjectFiles(in directory: URL) {

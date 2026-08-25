@@ -14,6 +14,8 @@ public struct ChatArtifactStat: Sendable, Equatable, Codable {
     public let kind: ChatArtifactKind
     /// Best-effort MIME type inferred by the Mac, when known.
     public let mimeType: String?
+    /// Whether the Mac's effective project policy permits saving this file.
+    public let canSaveToArtifacts: Bool?
 
     /// Creates artifact metadata.
     ///
@@ -24,13 +26,15 @@ public struct ChatArtifactStat: Sendable, Equatable, Codable {
     ///   - modifiedAt: Last modification time.
     ///   - kind: Preview category.
     ///   - mimeType: Best-effort MIME type.
+    ///   - canSaveToArtifacts: Effective Mac-side save eligibility, when supplied.
     public init(
         exists: Bool,
         isDirectory: Bool,
         size: Int64,
         modifiedAt: Date,
         kind: ChatArtifactKind,
-        mimeType: String? = nil
+        mimeType: String? = nil,
+        canSaveToArtifacts: Bool? = nil
     ) {
         self.exists = exists
         self.isDirectory = isDirectory
@@ -38,6 +42,7 @@ public struct ChatArtifactStat: Sendable, Equatable, Codable {
         self.modifiedAt = modifiedAt
         self.kind = kind
         self.mimeType = mimeType
+        self.canSaveToArtifacts = canSaveToArtifacts
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -47,6 +52,7 @@ public struct ChatArtifactStat: Sendable, Equatable, Codable {
         case modifiedAt = "modified_at"
         case kind
         case mimeType = "mime_type"
+        case canSaveToArtifacts = "can_save_to_artifacts"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -61,6 +67,10 @@ public struct ChatArtifactStat: Sendable, Equatable, Codable {
         }
         kind = try container.decode(ChatArtifactKind.self, forKey: .kind)
         mimeType = try container.decodeIfPresent(String.self, forKey: .mimeType)
+        canSaveToArtifacts = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .canSaveToArtifacts
+        )
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -71,5 +81,6 @@ public struct ChatArtifactStat: Sendable, Equatable, Codable {
         try container.encode(modifiedAt.timeIntervalSince1970, forKey: .modifiedAt)
         try container.encode(kind, forKey: .kind)
         try container.encodeIfPresent(mimeType, forKey: .mimeType)
+        try container.encodeIfPresent(canSaveToArtifacts, forKey: .canSaveToArtifacts)
     }
 }

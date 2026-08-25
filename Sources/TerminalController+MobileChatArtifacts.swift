@@ -144,7 +144,7 @@ extension TerminalController {
     }
 
     func v2MobileChatArtifactStat(params: [String: Any]) async -> V2CallResult {
-        let resolution = await mobileChatArtifactResolution(params: params, operation: .file)
+        let resolution = await mobileChatArtifactResolution(params: params, operation: .stat)
         guard case .success(let resolved) = resolution else {
             return resolution.failureResult
         }
@@ -152,7 +152,25 @@ extension TerminalController {
             let stat = try await Task.detached {
                 try ArtifactByteReader().stat(path: resolved.canonicalPath)
             }.value
-            return ChatArtifactWire.result(stat)
+            let canSaveToArtifacts: Bool
+            if let context = resolved.authorizedCaptureContext,
+               let coordinator = agentChatTranscriptService?.artifactCaptureCoordinator {
+                canSaveToArtifacts = await coordinator.canSave(
+                    context: context,
+                    sourceURL: URL(fileURLWithPath: resolved.canonicalPath)
+                )
+            } else {
+                canSaveToArtifacts = false
+            }
+            return ChatArtifactWire.result(ChatArtifactStat(
+                exists: stat.exists,
+                isDirectory: stat.isDirectory,
+                size: stat.size,
+                modifiedAt: stat.modifiedAt,
+                kind: stat.kind,
+                mimeType: stat.mimeType,
+                canSaveToArtifacts: canSaveToArtifacts
+            ))
         } catch let error as ArtifactByteReader.Error {
             return mobileArtifactReadFailure(error, path: resolved.requestedPath)
         } catch {
@@ -302,13 +320,14 @@ extension TerminalController {
     }
 
     enum ChatArtifactOperation: Sendable {
+        case stat
         case file
         case list
         case save
 
         var indexOperation: AgentChatArtifactIndex.Operation {
             switch self {
-            case .file, .save:
+            case .stat, .file, .save:
                 return .file
             case .list:
                 return .list
@@ -316,8 +335,12 @@ extension TerminalController {
         }
 
         var resolvesCaptureProject: Bool {
-            if case .save = self { return true }
-            return false
+            switch self {
+            case .stat, .save:
+                return true
+            case .file, .list:
+                return false
+            }
         }
     }
 

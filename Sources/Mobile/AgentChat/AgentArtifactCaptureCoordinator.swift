@@ -210,6 +210,16 @@ actor AgentArtifactCaptureCoordinator {
         )
     }
 
+    func canSave(
+        context: ArtifactCaptureContext,
+        sourceURL: URL
+    ) async -> Bool {
+        await captureService.permitsExplicitAdd(
+            sourceURL: sourceURL,
+            context: context
+        )
+    }
+
     /// Releases transcript progress when the owning chat session disappears.
     func removeSession(sessionID: String) {
         inFlightRevisionBySession.removeValue(forKey: sessionID)

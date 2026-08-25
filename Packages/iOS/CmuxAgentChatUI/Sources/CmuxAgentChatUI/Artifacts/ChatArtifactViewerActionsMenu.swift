@@ -80,7 +80,7 @@ struct ChatArtifactViewerActionsMenu: View, Equatable {
             isRunning: snapshot.fileActionState.isRunning,
             onAction: { action in actions.performFileAction(action, snapshot) }
         )
-        if value.loaderSupportsArtifactSave {
+        if value.loaderSupportsArtifactSave, snapshot.canSaveToArtifacts {
             Button {
                 actions.saveToArtifacts(snapshot.path)
             } label: {

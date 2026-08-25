@@ -26,6 +26,26 @@ public actor ArtifactCaptureService: ArtifactCapturing {
         return UInt64(configuration.maximumTranscriptScanBytes)
     }
 
+    /// Returns whether the effective project policy accepts one explicit file extension.
+    ///
+    /// Actual persistence still revalidates type, size, identity, and Git privacy.
+    ///
+    /// - Parameters:
+    ///   - sourceURL: Candidate file whose extension is being presented.
+    ///   - context: Project identity used to load the effective configuration.
+    /// - Returns: `true` when an explicit add may proceed to full validation.
+    public func permitsExplicitAdd(
+        sourceURL: URL,
+        context: ArtifactCaptureContext
+    ) async -> Bool {
+        let configuration = await store
+            .configuration(projectRoot: context.projectRoot)
+            .normalized
+        return configuration.allowedExtensions.contains(
+            sourceURL.pathExtension.lowercased()
+        )
+    }
+
     /// Captures eligible detected paths using the project's effective policy.
     ///
     /// Duplicate path detections in one scan are folded together and the

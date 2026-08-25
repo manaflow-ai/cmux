@@ -46,6 +46,10 @@ final class ChatArtifactViewerModel {
             && (activeStat?.size ?? .max) <= Self.maximumCopyContentsBytes
     }
 
+    var canSaveToArtifacts: Bool {
+        activeStat?.canSaveToArtifacts == true
+    }
+
     func load(
         path: String,
         loader: ChatArtifactLoader,

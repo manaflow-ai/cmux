@@ -76,6 +76,38 @@ struct ChatArtifactViewerModelTests {
         #expect(unreachableModel.state == .failure(error: .macUnreachable, actualSize: nil))
     }
 
+    @Test("Save-to-Artifacts eligibility follows the Mac stat policy")
+    @MainActor
+    func saveEligibilityFollowsHostPolicy() async {
+        let loader = ChatArtifactLoader(
+            supportsArtifacts: true,
+            stat: { _ in
+                ChatArtifactStat(
+                    exists: true,
+                    isDirectory: false,
+                    size: 0,
+                    modifiedAt: Date(timeIntervalSince1970: 0),
+                    kind: .text,
+                    mimeType: "text/plain",
+                    canSaveToArtifacts: true
+                )
+            },
+            stream: { _, onChunk in
+                try await onChunk(ChatArtifactChunk(
+                    data: Data(),
+                    offset: 0,
+                    totalSize: 0,
+                    eof: true
+                ))
+            }
+        )
+        let model = ChatArtifactViewerModel()
+
+        await model.load(path: "/tmp/eligible.txt", loader: loader)
+
+        #expect(model.canSaveToArtifacts)
+    }
+
     @Test("damaged image bytes become a visible failure")
     @MainActor
     func damagedImageDoesNotBecomeABlankPreview() async {
