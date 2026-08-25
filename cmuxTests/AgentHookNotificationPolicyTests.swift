@@ -21,6 +21,24 @@ struct AgentHookNotificationPolicyTests {
         #expect(error.status == .error)
         #expect(error.notifyCategory == .other)
 
+        // Quota exhaustion is the same red state as an error: the agent cannot
+        // continue until the user does something about it.
+        for quotaMessage in [
+            "Grok usage limit reached",
+            "You have hit the rate limit",
+            "Monthly quota exhausted",
+            "Out of credits",
+        ] {
+            let quota = classify(quotaMessage)
+            #expect(quota.status == .error, "\(quotaMessage) must classify as error")
+            #expect(quota.notifyCategory == .other, "\(quotaMessage) must stay ungated")
+        }
+
+        // A plain limit word without a usage/rate/quota qualifier is ordinary
+        // prose, not a quota alert.
+        let notQuota = classify("Reviewing the rate of change")
+        #expect(notQuota.status != .error)
+
         let completion = classify("Turn complete in 1.2s.")
         #expect(completion.status == .idle)
         #expect(completion.notifyCategory == .turnComplete)

@@ -2,7 +2,10 @@ import Darwin
 import Foundation
 import Testing
 
-@Suite("Campfire hook notifications")
+// Serialized: every test here spawns hook subprocesses and binds a mock socket
+// server, so running them concurrently starves each other's hooks into their
+// 5s timeout. The failure looks like a product hang and is not one.
+@Suite("Campfire hook notifications", .serialized)
 struct CampfireHookNotificationTests {
     @Test func permissionNotificationLocalizesAndMarksNeedsInput() throws {
         let context = try makeHookContext(name: "campfire-permission-lifecycle")
@@ -176,12 +179,17 @@ struct CampfireHookNotificationTests {
         ]
     }
 
+    /// - Parameter timeout: seconds to wait for the hook subprocess. The default
+    ///   matches the agents' own hook budget; raise it for tests that run many
+    ///   hooks, where parallel suites can starve a healthy hook past 5s and the
+    ///   timeout reads as a product hang.
     private func runAgentHook(
         context: HookContext,
         agent: String,
         subcommand: String,
         standardInput: String,
-        extraEnvironment: [String: String] = [:]
+        extraEnvironment: [String: String] = [:],
+        timeout: TimeInterval = 5
     ) -> ProcessRunResult {
         var environment = [
             "HOME": context.root.path,
@@ -200,7 +208,7 @@ struct CampfireHookNotificationTests {
             arguments: ["hooks", agent, subcommand],
             environment: environment,
             standardInput: standardInput,
-            timeout: 5
+            timeout: timeout
         )
     }
 
@@ -375,6 +383,115 @@ struct CampfireHookNotificationTests {
 /// hook harness above -- makeHookContext / runAgentHook / the mock socket
 /// server -- is `private` to this type.
 extension CampfireHookNotificationTests {
+    /// One case per agent on the shared generic hook lane. Codex and grok carry
+    /// extra special-casing in the notification handler, so they are exercised
+    /// rather than assumed to behave like cursor.
+    ///
+    /// Grok takes the quota message specifically: its handler skips any
+    /// notification whose classified status is nil, which is what quota text used
+    /// to produce, so grok is where the quota cue interacts with agent-specific
+    /// branching. The cue-to-status half of the mapping is covered exhaustively
+    /// and cheaply by `AgentHookNotificationPolicyTests.classificationTable`;
+    /// this test covers the status-to-lifecycle half, which is per-agent. Kept to
+    /// one hook pair per agent because each pair is a subprocess plus a mock
+    /// server, and a wider matrix starves itself under parallel suites.
+    private static let genericLaneAgents = [
+        ("cursor", "/usr/local/bin/cursor-agent"),
+        ("codex", "/usr/local/bin/codex"),
+        ("grok", "/usr/local/bin/grok"),
+        ("kimi", "/usr/local/bin/kimi"),
+    ]
+
+    /// Both cues, for every agent. Quota is not merely a second spelling of
+    /// "error": it reaches the lane through a different classifier branch, and
+    /// grok's handler drops any alert whose classified status is nil — which is
+    /// what quota text used to produce — so the two cues can fail independently
+    /// per agent.
+    private static let genericLaneCues = [
+        "Build failed: exit 1",
+        "usage limit reached",
+    ]
+
+    /// Drives one agent's prompt-submit + notification pair inside an existing
+    /// context, returning only the commands the notification produced.
+    ///
+    /// Deliberately takes a shared context rather than making its own: every
+    /// `HookContext` leaks a global-queue thread parked in `accept()` (closing
+    /// the listener fd does not wake a blocked `accept()` on macOS), so a
+    /// context-per-agent matrix starves the dispatch pool and random hooks then
+    /// block on connect until they time out.
+    private func genericNotificationCommands(
+        context: HookContext,
+        agent: String,
+        executable: String,
+        message: String
+    ) -> [String] {
+        let sessionId = "\(agent)-\(abs(message.hashValue))-lifecycle-session"
+        let launchEnvironment = agentLaunchEnvironment(
+            context: context,
+            kind: agent,
+            executable: executable
+        )
+
+        let submit = runAgentHook(
+            context: context,
+            agent: agent,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"go"}"#,
+            extraEnvironment: launchEnvironment,
+            timeout: 15
+        )
+        #expect(
+            submit.timedOut == false,
+            Comment(rawValue: "\(agent) prompt-submit timed out. stderr: \(submit.stderr)")
+        )
+
+        let notificationStart = context.state.snapshot().count
+        let notification = runAgentHook(
+            context: context,
+            agent: agent,
+            subcommand: "notification",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"\#(message)"}"#,
+            extraEnvironment: launchEnvironment,
+            timeout: 15
+        )
+        #expect(
+            notification.timedOut == false,
+            Comment(rawValue: "\(agent) notification \"\(message)\" timed out. stderr: \(notification.stderr)")
+        )
+        return Array(context.state.snapshot().dropFirst(notificationStart))
+    }
+
+    /// An error or quota alert from any agent is the red `error` state, not the
+    /// orange `needsInput` one. The notification lane painted a red pill but
+    /// published `needsInput` alongside it, so an errored pane was
+    /// indistinguishable from one waiting on an answer; quota text matched no
+    /// error cue at all and classified as "waiting".
+    @Test func errorAndQuotaNotificationsPublishTheErrorLifecycleForEveryAgent() throws {
+        let context = try makeHookContext(name: "generic-error-lifecycle")
+        defer { context.cleanup() }
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+
+        for (agent, executable) in Self.genericLaneAgents {
+            for message in Self.genericLaneCues {
+            let commands = genericNotificationCommands(
+                context: context,
+                agent: agent,
+                executable: executable,
+                message: message
+            )
+            #expect(
+                commands.contains { $0.hasPrefix("set_agent_lifecycle \(agent) error ") },
+                "\(agent): \"\(message)\" must publish the error lifecycle, saw \(commands)"
+            )
+            #expect(
+                !commands.contains { $0.hasPrefix("set_agent_lifecycle \(agent) needsInput ") },
+                "\(agent): \"\(message)\" must not publish needsInput, saw \(commands)"
+            )
+            }
+        }
+    }
+
     /// cursor maps `beforeShellExecution` to prompt-submit and never emits a
     /// matching decrement, so a turn running two shell commands leaves the
     /// no-turn-id depth counter at +1 for good. Reporting that counter as

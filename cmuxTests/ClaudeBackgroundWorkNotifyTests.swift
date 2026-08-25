@@ -150,8 +150,72 @@ struct ClaudeBackgroundWorkNotifyTests {
         )
         #expect(handled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(result)
-        #expect(notifyLine(context.state.snapshot(), containing: "c=needs-permission;p=0") != nil,
-                "permission_prompt must tag needs-permission; saw \(context.state.snapshot())")
+        let snapshot = context.state.snapshot()
+        #expect(notifyLine(snapshot, containing: "c=needs-permission;p=0") != nil,
+                "permission_prompt must tag needs-permission; saw \(snapshot)")
+        // The counterpart to `idlePromptAfterIdleStopNotifiesWithoutFlippingToNeedsInput`:
+        // suppressing the idle nag must not also suppress a real blocking prompt,
+        // which is the one case that may paint the pane as needing input.
+        #expect(lifecycleLine(snapshot, value: "needsInput") != nil,
+                "permission_prompt must set the needsInput lifecycle; saw \(snapshot)")
+        #expect(statusLine(snapshot, value: "Needs input") != nil,
+                "permission_prompt must set the Needs input pill; saw \(snapshot)")
+    }
+
+    /// Both error-shaped cues through one context and one mock server.
+    ///
+    /// One test rather than two, sharing a context: every context parks a
+    /// global-queue thread in `accept()` for the run (closing the listener fd
+    /// does not wake a blocked `accept()` on macOS), so a context per case
+    /// starves the pool and unrelated hooks then block on connect until they
+    /// time out.
+    @Test func notificationErrorAndQuotaCuesPublishTheErrorLifecycle() throws {
+        // Red is "the agent errored or ran out of quota". Claude used to fold both
+        // into the needs-input orange, so red was unreachable on a Claude-only
+        // setup: an out-of-quota pane looked identical to one asking a question.
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "notif-error-cues")
+        defer { context.cleanup() }
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-notif-error-cues",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-notif-error-cues",
+            storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
+        )
+
+        for (session, message) in [
+            ("error", "Claude reported an error: request failed"),
+            ("quota", "Claude usage limit reached"),
+        ] {
+            let start = context.state.snapshot().count
+            let result = harness.runProcess(
+                executablePath: context.cliPath,
+                arguments: ["hooks", "claude", "notification"],
+                environment: environment,
+                standardInput: #"{"session_id":"notif-\#(session)-session","cwd":"/tmp/x","hook_event_name":"Notification","message":"\#(message)"}"#,
+                // Above the agents' own 5s hook budget: these are subprocesses, and
+                // a busy machine starves a healthy hook past 5s, which then reads
+                // as a product hang rather than the scheduling artifact it is.
+                timeout: 15
+            )
+            #expect(handled.wait(timeout: .now() + 15) == .success)
+            harness.assertSuccessfulHook(result)
+            let commands = Array(context.state.snapshot().dropFirst(start))
+            #expect(
+                commands.contains { $0.hasPrefix("set_agent_lifecycle claude_code error ") },
+                "\"\(message)\" must publish the error lifecycle; saw \(commands)"
+            )
+            #expect(
+                !commands.contains { $0.hasPrefix("set_agent_lifecycle claude_code needsInput ") },
+                "\"\(message)\" must not publish needsInput; saw \(commands)"
+            )
+        }
     }
 
     @Test func notificationWithoutTypeFallsBackToCueClassification() throws {
@@ -233,7 +297,7 @@ struct ClaudeBackgroundWorkNotifyTests {
                 "Pending idle_prompt must not set a Needs input pill; saw \(snapshot)")
     }
 
-    @Test func idlePromptAfterIdleStopTagsNotPending() throws {
+    @Test func idlePromptAfterIdleStopNotifiesWithoutFlippingToNeedsInput() throws {
         let session = "idle-after-idle"
         let harness = ClaudeHookSurfaceResolutionSwiftTests()
         let context = try harness.makeClaudeHookContext(name: "idle-idle")
@@ -272,8 +336,15 @@ struct ClaudeBackgroundWorkNotifyTests {
         let snapshot = context.state.snapshot()
         #expect(notifyLine(snapshot, containing: "c=idle-reminder;p=0") != nil,
                 "idle_prompt after an idle stop must tag pending=0; saw \(snapshot)")
-        // With no pending work this is a real waiting state, so the pill flips.
-        #expect(statusLine(snapshot, value: "Needs input") != nil,
-                "Idle idle_prompt must still set the Needs input pill; saw \(snapshot)")
+        // The ~60s idle nag asks nothing — the agent is just sitting at its
+        // prompt — so it must not undo the Stop hook's Idle pill/lifecycle and
+        // paint the pane as blocked. Only a permission prompt, plan approval, or
+        // question may do that.
+        #expect(statusLine(snapshot, value: "Needs input") == nil,
+                "Idle idle_prompt must not set the Needs input pill; saw \(snapshot)")
+        #expect(lifecycleLine(snapshot, value: "needsInput") == nil,
+                "Idle idle_prompt must not set the needsInput lifecycle; saw \(snapshot)")
+        #expect(lifecycleLine(snapshot, value: "idle") != nil,
+                "The preceding Stop must have settled the pane as idle; saw \(snapshot)")
     }
 }
