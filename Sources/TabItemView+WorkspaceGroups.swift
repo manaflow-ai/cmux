@@ -94,7 +94,7 @@ extension TabItemView {
         ) {
             actions.insertDividerAbove(targetIds)
         }
-        .disabled(isMulti || targetIds.isEmpty)
+        .disabled(isMulti || targetIds.count != 1 || !canInsertDividerAbove)
 
         Button(
             String(
@@ -104,7 +104,7 @@ extension TabItemView {
         ) {
             actions.insertDividerBelow(targetIds)
         }
-        .disabled(isMulti || targetIds.isEmpty)
+        .disabled(isMulti || targetIds.count != 1 || !canInsertDividerBelow)
     }
 
     func promptNewWorkspaceGroup(workspaceIds: [UUID]) {

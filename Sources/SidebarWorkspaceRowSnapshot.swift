@@ -35,5 +35,7 @@ struct SidebarWorkspaceRowSnapshot: Equatable {
     let isChecklistExpanded: Bool
     let checklistAddFieldActivationToken: Int
     let isChecklistPopoverPresented: Bool
+    let canInsertDividerAbove: Bool
+    let canInsertDividerBelow: Bool
     let contextMenu: SidebarWorkspaceContextMenuSnapshot
 }

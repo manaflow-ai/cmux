@@ -229,7 +229,7 @@ struct SidebarWorkspaceRowRetirementTests {
     private func makeTableActions() -> SidebarWorkspaceTableActions {
         SidebarWorkspaceTableActions(
             attachScrollView: { _ in }, closeWorkspace: { _ in }, createWorkspaceAtEnd: {},
-            createEmptyWorkspaceGroup: {}, beginWorkspaceDrag: { _ in },
+            createEmptyWorkspaceGroup: {}, createDivider: {}, beginWorkspaceDrag: { _ in },
             movingWorkspaceCount: { _ in 1 }, endWorkspaceDrag: {},
             isValidWorkspaceDrag: { true }, updateWorkspaceDrag: { _, _, _ in nil },
             performWorkspaceDrop: { _, _, _ in false }, commitWorkspaceDropPlan: { _ in false },

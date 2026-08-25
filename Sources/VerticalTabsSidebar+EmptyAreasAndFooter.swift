@@ -564,6 +564,7 @@ struct SidebarEmptyArea: View {
     // Value snapshot + closure bundles instead of an @Observable store
     // reference (snapshot-boundary rule).
     let topDropIndicatorVisible: Bool
+    let canAddDivider: Bool
     var tabDropDelegate: SidebarTabDropDelegate? = nil
     let bonsplitDropIndicator: Binding<SidebarDropIndicator?>
     var expandsVertically = true
@@ -618,11 +619,17 @@ struct SidebarEmptyArea: View {
             }
         if let tabDropDelegate {
             base
-                .sidebarEmptyAreaWorkspaceGroupContextMenu(tabManager: tabManager)
+                .sidebarEmptyAreaWorkspaceGroupContextMenu(
+                    tabManager: tabManager,
+                    canAddDivider: canAddDivider
+                )
                 .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegate)
         } else {
             base
-                .sidebarEmptyAreaWorkspaceGroupContextMenu(tabManager: tabManager)
+                .sidebarEmptyAreaWorkspaceGroupContextMenu(
+                    tabManager: tabManager,
+                    canAddDivider: canAddDivider
+                )
         }
     }
 
@@ -641,7 +648,10 @@ struct SidebarEmptyArea: View {
 }
 
 private extension View {
-    func sidebarEmptyAreaWorkspaceGroupContextMenu(tabManager: TabManager) -> some View {
+    func sidebarEmptyAreaWorkspaceGroupContextMenu(
+        tabManager: TabManager,
+        canAddDivider: Bool
+    ) -> some View {
         contextMenu {
             let newWorkspaceGroupShortcut = KeyboardShortcutSettings.shortcut(for: .newWorkspaceGroup)
             let newWorkspaceGroupLabel = String(
@@ -667,6 +677,7 @@ private extension View {
             ) {
                 _ = tabManager.workspaces.insertSidebarDividerAtEnd()
             }
+            .disabled(!canAddDivider)
         }
     }
 }

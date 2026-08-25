@@ -45,6 +45,15 @@ enum SidebarWorkspaceRenderItem {
         guard !tabs.isEmpty else { return [] }
         var items: [SidebarWorkspaceRenderItem] = []
         items.reserveCapacity(tabs.count + groupsById.count + dividers.count)
+        let topLevelIdByWorkspaceId = Dictionary(
+            tabs.map { tab in
+                let topLevelId = tab.groupId
+                    .flatMap { groupsById[$0]?.anchorWorkspaceId }
+                    ?? tab.id
+                return (tab.id, topLevelId)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
         // Preserve the established tab-order projection (including the
         // defensive behavior for legacy non-contiguous group runs), then add
         // dividers at the end of each top-level block. Rebuilding groups from
@@ -93,12 +102,7 @@ enum SidebarWorkspaceRenderItem {
             case .groupHeader(_, let anchorWorkspaceId):
                 return anchorWorkspaceId
             case .workspace(let workspaceId):
-                if let tab = tabs.first(where: { $0.id == workspaceId }),
-                   let groupId = tab.groupId,
-                   let group = groupsById[groupId] {
-                    return group.anchorWorkspaceId
-                }
-                return workspaceId
+                return topLevelIdByWorkspaceId[workspaceId] ?? workspaceId
             case .divider(let divider):
                 // No divider exists in `items` yet; retain a total switch for
                 // future callers that may pass an already-projected list.

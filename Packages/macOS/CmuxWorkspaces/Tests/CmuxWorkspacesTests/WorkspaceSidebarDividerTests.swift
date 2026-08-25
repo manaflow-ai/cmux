@@ -35,6 +35,17 @@ struct WorkspaceSidebarDividerTests {
     }
 
     @Test
+    func addDividerUsesLastAvailableInteriorGap() throws {
+        let model = WorkspacesModel<DividerStubTab>()
+        let workspaces = (0..<4).map { _ in DividerStubTab() }
+        model.tabs = workspaces
+        _ = model.insertSidebarDivider(after: workspaces[2].id)
+
+        let dividerId = try #require(model.insertSidebarDividerAtEnd())
+        #expect(model.sidebarDivider(after: workspaces[1].id)?.id == dividerId)
+    }
+
+    @Test
     func movingAndRemovingDividerDoesNotChangeWorkspaceOrder() throws {
         let model = WorkspacesModel<DividerStubTab>()
         let first = DividerStubTab()
@@ -93,5 +104,33 @@ struct WorkspaceSidebarDividerTests {
 
         #expect(model.sidebarDivider(after: member.id) != nil)
         #expect(model.sidebarDividers.count == 1)
+    }
+
+    @Test
+    func closingGroupAnchorPreservesDividerAfterPromotedAnchor() throws {
+        let model = WorkspacesModel<DividerStubTab>()
+        let anchor = DividerStubTab()
+        let member = DividerStubTab()
+        let outside = DividerStubTab()
+        let groupId = UUID()
+        anchor.groupId = groupId
+        member.groupId = groupId
+        model.tabs = [anchor, member, outside]
+        model.workspaceGroups = [WorkspaceGroup(
+            id: groupId,
+            name: "Group",
+            isCollapsed: false,
+            isPinned: false,
+            anchorWorkspaceId: anchor.id,
+            customColor: nil,
+            iconSymbol: nil
+        )]
+        _ = try #require(model.insertSidebarDivider(after: anchor.id))
+
+        let promoted = model.removeWorkspaceAndPromoteGroupAnchor(closedWorkspaceId: anchor.id)
+
+        #expect(promoted == [member.id])
+        #expect(model.tabs.map(\.id) == [member.id, outside.id])
+        #expect(model.sidebarDivider(after: member.id) != nil)
     }
 }

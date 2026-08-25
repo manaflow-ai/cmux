@@ -233,4 +233,42 @@ extension WorkspacesModel {
         normalizeWorkspaceGroupContiguity()
         return promotedAnchorIds
     }
+
+    /// Removes a workspace and promotes its group anchor as one model
+    /// operation. Keeping the group replacement visible while `tabs` is
+    /// reassigned lets divider normalization remap a divider from the closed
+    /// anchor before the old row disappears.
+    @discardableResult
+    public func removeWorkspaceAndPromoteGroupAnchor(closedWorkspaceId: UUID) -> [UUID] {
+        guard tabs.contains(where: { $0.id == closedWorkspaceId }) else { return [] }
+
+        let remainingTabs = tabs.filter { $0.id != closedWorkspaceId }
+        let affectedGroupIds = workspaceGroups
+            .filter { $0.anchorWorkspaceId == closedWorkspaceId }
+            .map(\.id)
+        var promotedAnchorIds: [UUID] = []
+        var nextGroups = workspaceGroups
+        for groupId in affectedGroupIds {
+            guard let groupIndex = nextGroups.firstIndex(where: { $0.id == groupId }) else { continue }
+            if let nextAnchor = remainingTabs.first(where: { $0.groupId == groupId }) {
+                nextGroups[groupIndex].anchorWorkspaceId = nextAnchor.id
+                promotedAnchorIds.append(nextAnchor.id)
+            } else {
+                nextGroups.remove(at: groupIndex)
+            }
+        }
+
+        // Store the replacement group anchors while the old workspace is
+        // still present. `workspaceGroups`'s divider remap can then resolve
+        // the old anchor to its replacement before `tabs` normalizes stale
+        // placements.
+        if nextGroups != workspaceGroups {
+            workspaceGroups = nextGroups
+        }
+        tabs = remainingTabs
+        if !promotedAnchorIds.isEmpty {
+            normalizeWorkspaceGroupContiguity()
+        }
+        return promotedAnchorIds
+    }
 }

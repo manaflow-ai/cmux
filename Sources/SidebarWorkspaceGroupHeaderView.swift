@@ -41,7 +41,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.isFirstRow == rhs.isFirstRow &&
             lhs.isBeingDragged == rhs.isBeingDragged &&
             lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
-            lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible
+            lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible &&
+            lhs.canInsertDividerAbove == rhs.canInsertDividerAbove &&
+            lhs.canInsertDividerBelow == rhs.canInsertDividerBelow
     }
 
     let groupId: UUID
@@ -75,6 +77,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
+    let canInsertDividerAbove: Bool
+    let canInsertDividerBelow: Bool
     let onDragStart: () -> NSItemProvider
     let onToggleCollapsed: () -> Void
     let onFocusAnchor: (NSEvent.ModifierFlags) -> Void
@@ -343,6 +347,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 ),
                 action: onInsertDividerAbove
             )
+            .disabled(!canInsertDividerAbove)
             Button(
                 String(
                     localized: "sidebar.divider.insertBelow",
@@ -350,6 +355,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 ),
                 action: onInsertDividerBelow
             )
+            .disabled(!canInsertDividerBelow)
             Divider()
             Button(
                 String(

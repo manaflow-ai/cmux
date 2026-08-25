@@ -80,7 +80,13 @@ extension WorkspacesModel {
     /// Adds a divider at the last legal interior gap in the sidebar.
     @discardableResult
     public func insertSidebarDividerAtEnd() -> UUID? {
-        guard let anchor = sidebarTopLevelWorkspaceIds().dropLast().last else { return nil }
+        let occupiedAnchors = Set(sidebarDividers.map(\.afterWorkspaceId))
+        guard let anchor = sidebarTopLevelWorkspaceIds()
+            .dropLast()
+            .reversed()
+            .first(where: { !occupiedAnchors.contains($0) }) else {
+            return nil
+        }
         return insertSidebarDivider(after: anchor)
     }
 
@@ -160,8 +166,9 @@ extension WorkspacesModel {
             return nil
         }
 
+        let dividerAnchors = Set(sidebarDividers.map(\.afterWorkspaceId))
         let dividerAnchorIndices = topLevelIds.indices.filter {
-            sidebarDivider(after: topLevelIds[$0]) != nil
+            dividerAnchors.contains(topLevelIds[$0])
         }
         let segmentStart = dividerAnchorIndices.last(where: { $0 < currentIndex }).map { $0 + 1 } ?? 0
         let segmentEnd = dividerAnchorIndices.first(where: { $0 >= currentIndex }).map { $0 + 1 } ?? topLevelIds.count

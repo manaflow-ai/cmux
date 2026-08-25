@@ -267623,29 +267623,101 @@
     "sidebar.divider.add": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "إضافة فاصل" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Dodaj razdjelnik" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Tilføj skillelinje" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Trennlinie hinzufügen" } },
         "en": { "stringUnit": { "state": "translated", "value": "Add Divider" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "区切り線を追加" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Añadir separador" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ajouter un séparateur" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Aggiungi separatore" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "区切り線を追加" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បន្ថែមបន្ទាត់បំបែក" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "구분선 추가" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Legg til skillelinje" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Dodaj separator" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Adicionar separador" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Добавить разделитель" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เพิ่มตัวแบ่ง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Ayırıcı Ekle" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Додати роздільник" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "添加分隔线" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "加入分隔線" } }
       }
     },
     "sidebar.divider.insertAbove": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "إدراج فاصل أعلى" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Umetni razdjelnik iznad" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Indsæt skillelinje ovenfor" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Trennlinie darüber einfügen" } },
         "en": { "stringUnit": { "state": "translated", "value": "Insert Divider Above" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "上に区切り線を挿入" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Insertar separador arriba" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Insérer un séparateur au-dessus" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Inserisci separatore sopra" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "上に区切り線を挿入" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បញ្ចូលបន្ទាត់បំបែកខាងលើ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "위에 구분선 삽입" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Sett inn skillelinje over" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wstaw separator powyżej" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Inserir separador acima" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Вставить разделитель выше" } },
+        "th": { "stringUnit": { "state": "translated", "value": "แทรกตัวแบ่งด้านบน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Yukarıya Ayırıcı Ekle" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Вставити роздільник вище" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "在上方插入分隔线" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "在上方插入分隔線" } }
       }
     },
     "sidebar.divider.insertBelow": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "إدراج فاصل أسفل" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Umetni razdjelnik ispod" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Indsæt skillelinje nedenfor" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Trennlinie darunter einfügen" } },
         "en": { "stringUnit": { "state": "translated", "value": "Insert Divider Below" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "下に区切り線を挿入" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Insertar separador abajo" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Insérer un séparateur en dessous" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Inserisci separatore sotto" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "下に区切り線を挿入" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បញ្ចូលបន្ទាត់បំបែកខាងក្រោម" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "아래에 구분선 삽입" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Sett inn skillelinje under" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wstaw separator poniżej" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Inserir separador abaixo" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Вставить разделитель ниже" } },
+        "th": { "stringUnit": { "state": "translated", "value": "แทรกตัวแบ่งด้านล่าง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Aşağıya Ayırıcı Ekle" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Вставити роздільник нижче" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "在下方插入分隔线" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "在下方插入分隔線" } }
       }
     },
     "sidebar.divider.remove": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "إزالة الفاصل" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Ukloni razdjelnik" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Fjern skillelinje" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Trennlinie entfernen" } },
         "en": { "stringUnit": { "state": "translated", "value": "Remove Divider" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "区切り線を削除" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Eliminar separador" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Supprimer le séparateur" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Rimuovi separatore" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "区切り線を削除" } },
+        "km": { "stringUnit": { "state": "translated", "value": "លុបបន្ទាត់បំបែក" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "구분선 제거" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Fjern skillelinje" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Usuń separator" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Remover separador" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Удалить разделитель" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ลบตัวแบ่ง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Ayırıcıyı Kaldır" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Видалити роздільник" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "移除分隔线" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "移除分隔線" } }
       }
     }
   },

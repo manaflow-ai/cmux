@@ -220,9 +220,11 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             }
         }
         guard currentIndex != targetIndex else { return }
-        let workspace = model.tabs.remove(at: currentIndex)
+        var reorderedTabs = model.tabs
+        let workspace = reorderedTabs.remove(at: currentIndex)
         let insertAt = currentIndex < targetIndex ? targetIndex - 1 : targetIndex
-        model.tabs.insert(workspace, at: max(0, min(insertAt, model.tabs.count)))
+        reorderedTabs.insert(workspace, at: max(0, min(insertAt, reorderedTabs.count)))
+        model.tabs = reorderedTabs
     }
 
     // MARK: - Membership

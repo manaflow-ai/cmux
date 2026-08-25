@@ -80,21 +80,19 @@ public final class WorkspacesModel<Tab: WorkspaceTabRepresenting> {
     private func remapSidebarDividersForGroupAnchorChanges(
         from oldGroups: [WorkspaceGroup]
     ) {
-        let oldAnchorsByGroupId = Dictionary(
-            oldGroups.map { ($0.id, $0.anchorWorkspaceId) },
-            uniquingKeysWith: { first, _ in first }
-        )
         let newAnchorsByGroupId = Dictionary(
             workspaceGroups.map { ($0.id, $0.anchorWorkspaceId) },
             uniquingKeysWith: { first, _ in first }
         )
+        let groupIdByOldAnchor = Dictionary(
+            oldGroups.map { ($0.anchorWorkspaceId, $0.id) },
+            uniquingKeysWith: { first, _ in first }
+        )
         var remapped = sidebarDividers
         for index in remapped.indices {
-            guard let oldAnchor = oldAnchorsByGroupId.first(where: { _, anchor in
-                anchor == remapped[index].afterWorkspaceId
-            })?.key,
-            let newAnchor = newAnchorsByGroupId[oldAnchor],
-            newAnchor != remapped[index].afterWorkspaceId else {
+            guard let groupId = groupIdByOldAnchor[remapped[index].afterWorkspaceId],
+                  let newAnchor = newAnchorsByGroupId[groupId],
+                  newAnchor != remapped[index].afterWorkspaceId else {
                 continue
             }
             remapped[index].afterWorkspaceId = newAnchor

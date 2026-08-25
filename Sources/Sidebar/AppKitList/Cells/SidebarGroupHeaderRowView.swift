@@ -561,10 +561,12 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         ))
         menu.addItem(menuItem(
             String(localized: "sidebar.divider.insertAbove", defaultValue: "Insert Divider Above"),
+            enabled: model.canInsertDividerAbove,
             action: actions.onInsertDividerAbove
         ))
         menu.addItem(menuItem(
             String(localized: "sidebar.divider.insertBelow", defaultValue: "Insert Divider Below"),
+            enabled: model.canInsertDividerBelow,
             action: actions.onInsertDividerBelow
         ))
         menu.addItem(.separator())

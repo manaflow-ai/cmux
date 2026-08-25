@@ -101,9 +101,11 @@ extension VerticalTabsSidebar {
             isBeingDragged: dragState.draggedTabId == group.anchorWorkspaceId,
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
+            canInsertDividerAbove: renderContext.sidebarDividerCanInsertAboveByWorkspaceId[group.anchorWorkspaceId] ?? false,
+            canInsertDividerBelow: renderContext.sidebarDividerCanInsertBelowByWorkspaceId[group.anchorWorkspaceId] ?? false,
             colorSchemeIsDark: renderContext.environment.colorScheme == .dark
         )
-        var actions = SidebarGroupHeaderRowActions(
+        let actions = SidebarGroupHeaderRowActions(
             onToggleCollapsed: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
@@ -142,6 +144,14 @@ extension VerticalTabsSidebar {
                     tabManager: tabManager,
                     groupId: groupId
                 )
+            },
+            onInsertDividerAbove: { [weak tabManager, anchorId = group.anchorWorkspaceId] in
+                guard let tabManager else { return }
+                _ = tabManager.workspaces.insertSidebarDivider(before: anchorId)
+            },
+            onInsertDividerBelow: { [weak tabManager, anchorId = group.anchorWorkspaceId] in
+                guard let tabManager else { return }
+                _ = tabManager.workspaces.insertSidebarDivider(after: anchorId)
             },
             onRename: { [weak tabManager, groupId = group.id, currentName = group.name] in
                 guard let tabManager else { return }
@@ -211,14 +221,6 @@ extension VerticalTabsSidebar {
                 SidebarWorkspaceGroupConfigOpener.openWorkspaceGroupsDocs()
             }
         )
-        actions.onInsertDividerAbove = { [weak tabManager, anchorId = group.anchorWorkspaceId] in
-            guard let tabManager else { return }
-            _ = tabManager.workspaces.insertSidebarDivider(before: anchorId)
-        }
-        actions.onInsertDividerBelow = { [weak tabManager, anchorId = group.anchorWorkspaceId] in
-            guard let tabManager else { return }
-            _ = tabManager.workspaces.insertSidebarDivider(after: anchorId)
-        }
         return SidebarWorkspaceTableRowConfiguration(
             groupHeaderModel: model,
             actions: actions,
@@ -362,6 +364,8 @@ extension VerticalTabsSidebar {
             isBeingDragged: dragState.draggedTabId == group.anchorWorkspaceId,
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
+            canInsertDividerAbove: renderContext.sidebarDividerCanInsertAboveByWorkspaceId[group.anchorWorkspaceId] ?? false,
+            canInsertDividerBelow: renderContext.sidebarDividerCanInsertBelowByWorkspaceId[group.anchorWorkspaceId] ?? false,
             shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
         )
     }
@@ -412,6 +416,8 @@ extension VerticalTabsSidebar {
             isBeingDragged: snapshot.isBeingDragged,
             topDropIndicatorVisible: snapshot.topDropIndicatorVisible,
             bottomDropIndicatorVisible: snapshot.bottomDropIndicatorVisible,
+            canInsertDividerAbove: snapshot.canInsertDividerAbove,
+            canInsertDividerBelow: snapshot.canInsertDividerBelow,
             onDragStart: onDragStart,
             onToggleCollapsed: { [weak tabManager, groupId = snapshot.groupId] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)

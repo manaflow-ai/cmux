@@ -2256,16 +2256,12 @@ class TabManager: ObservableObject {
         workspace.owningTabManager = nil
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
-            tabs.remove(at: index)
-            // Real-close path: if the closed workspace anchored a group, keep
-            // the group by promoting its first remaining member (in tabs order)
-            // to anchor so closing one workspace only closes that workspace and
-            // never scatters the rest of its group out to the ungrouped root
-            // tier. A group with no members left after the anchor's removal is
-            // dropped. This lives at the explicit close site (not in the tabs
-            // didSet) so transient remove/insert reorders never trigger the
-            // fixup.
-            let promotedAnchorIds = workspaces.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
+            // Real-close path: remove the workspace and, when needed, promote
+            // its group anchor in one model transaction. This keeps a divider
+            // anchored after the closing group row alive through normalization.
+            let promotedAnchorIds = workspaces.removeWorkspaceAndPromoteGroupAnchor(
+                closedWorkspaceId: workspace.id
+            )
 
             if selectedTabId == workspace.id {
                 // Keep the "focused index" stable when possible:
@@ -4525,9 +4521,11 @@ class TabManager: ObservableObject {
         }
 
         if let currentIndex = tabs.firstIndex(where: { $0.id == workspace.id }) {
-            let removed = tabs.remove(at: currentIndex)
-            let insertIndex = min(max(entry.workspaceIndex, 0), tabs.count)
-            tabs.insert(removed, at: insertIndex)
+            var reorderedTabs = tabs
+            let restoredWorkspace = reorderedTabs.remove(at: currentIndex)
+            let insertIndex = min(max(entry.workspaceIndex, 0), reorderedTabs.count)
+            reorderedTabs.insert(restoredWorkspace, at: insertIndex)
+            tabs = reorderedTabs
         }
         if needsNormalize {
             workspaces.normalizeWorkspaceGroupContiguity()
@@ -6233,15 +6231,24 @@ extension TabManager {
         let validDividerAnchors = Set(
             workspaces.sidebarTopLevelWorkspaceIdsForSidebar().dropLast()
         )
+        let groupIdByAnchorWorkspaceId = Dictionary(
+            workspaceGroups.map { ($0.anchorWorkspaceId, $0.id) },
+            uniquingKeysWith: { first, _ in first }
+        )
         let dividerSnapshots: [SessionWorkspaceSidebarDividerSnapshot]? = {
             let snapshots = sidebarDividers.compactMap { divider -> SessionWorkspaceSidebarDividerSnapshot? in
-                guard restorableWorkspaceIds.contains(divider.afterWorkspaceId),
-                      validDividerAnchors.contains(divider.afterWorkspaceId) else {
+                guard validDividerAnchors.contains(divider.afterWorkspaceId) else {
+                    return nil
+                }
+                let groupId = groupIdByAnchorWorkspaceId[divider.afterWorkspaceId]
+                guard restorableWorkspaceIds.contains(divider.afterWorkspaceId)
+                        || groupId.map({ occupiedGroupIds.contains($0) }) == true else {
                     return nil
                 }
                 return SessionWorkspaceSidebarDividerSnapshot(
                     id: divider.id,
-                    afterWorkspaceId: divider.afterWorkspaceId
+                    afterWorkspaceId: divider.afterWorkspaceId,
+                    afterWorkspaceGroupId: groupId
                 )
             }
             return snapshots.isEmpty ? nil : snapshots
@@ -6489,15 +6496,23 @@ extension TabManager {
             restoredWorkspaceIdsByOriginalId[originalId] =
                 restoredWorkspaceIdsByOriginalId[originalId] ?? workspace.id
         }
+        let groupsById = Dictionary(
+            workspaceGroups.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var topLevelAnchorByRestoredWorkspaceId: [UUID: UUID] = [:]
+        topLevelAnchorByRestoredWorkspaceId.reserveCapacity(newTabs.count)
+        for workspace in newTabs {
+            let anchorId = workspace.groupId
+                .flatMap { groupsById[$0]?.anchorWorkspaceId }
+                ?? workspace.id
+            topLevelAnchorByRestoredWorkspaceId[workspace.id] = anchorId
+        }
         sidebarDividers = (snapshot.sidebarDividers ?? []).compactMap { dividerSnapshot in
-            guard let restoredWorkspaceId = restoredWorkspaceIdsByOriginalId[dividerSnapshot.afterWorkspaceId] else {
-                return nil
-            }
-            // A group can promote a different member while its snapshot is
-            // being restored. Resolve the persisted workspace through the
-            // restored model so the divider follows the visible group row.
-            let restoredAnchorId = workspaces.sidebarTopLevelWorkspaceId(for: restoredWorkspaceId)
-                ?? restoredWorkspaceId
+            let restoredAnchorId = restoredWorkspaceIdsByOriginalId[dividerSnapshot.afterWorkspaceId]
+                .flatMap { topLevelAnchorByRestoredWorkspaceId[$0] }
+                ?? dividerSnapshot.afterWorkspaceGroupId.flatMap { groupsById[$0]?.anchorWorkspaceId }
+            guard let restoredAnchorId else { return nil }
             return WorkspaceSidebarDivider(
                 id: dividerSnapshot.id,
                 afterWorkspaceId: restoredAnchorId

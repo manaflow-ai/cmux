@@ -1889,6 +1889,9 @@ struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
 struct SessionWorkspaceSidebarDividerSnapshot: Codable, Sendable, Equatable {
     var id: UUID
     var afterWorkspaceId: UUID
+    /// Optional fallback when the visible group anchor itself is not
+    /// restorable but another member keeps the group alive.
+    var afterWorkspaceGroupId: UUID? = nil
 }
 
 extension SessionWorkspaceSnapshot {
