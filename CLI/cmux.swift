@@ -32646,14 +32646,17 @@ export default CMUXSessionRestore;
             }
             return (mode, allowedShellCommands, deniedShellCommands)
         }()
-        let cursorLaunchRequestsEverything = mappedSessionForPolicy?.launchCommand?.arguments.contains {
+        let cursorLaunchArguments = Array(
+            (mappedSessionForPolicy?.launchCommand?.arguments ?? []).prefix(while: { $0 != "--" })
+        )
+        let cursorLaunchRequestsEverything = cursorLaunchArguments.contains {
             $0 == "-f" || $0 == "--force" || $0 == "--yolo"
         } == true
-        let cursorLaunchUsesAutoReview = mappedSessionForPolicy?.launchCommand?.arguments.contains {
+        let cursorLaunchUsesAutoReview = cursorLaunchArguments.contains {
             $0 == "--auto-review"
         } == true
         let cursorLaunchModeOverride = AgentHookNotificationPolicy.cursorApprovalModeOverride(
-            arguments: mappedSessionForPolicy?.launchCommand?.arguments ?? []
+            arguments: cursorLaunchArguments
         )
         let cursorShellNeedsApproval = cursorShellEvent
             && cursorShellHasAuthoritativeSession
