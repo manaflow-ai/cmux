@@ -135,7 +135,7 @@ extension Workspace {
                     statusKey: statusKey,
                     generation: generation,
                     lifecycle: lifecycle,
-                    startedAt: Self.processStartTime(identity),
+                    startedAt: nil,
                     updatedAt: nil,
                     processLiveness: identity == nil
                         ? .unknown
@@ -179,10 +179,14 @@ extension Workspace {
             let runtimeMatchesIndexGeneration = currentRuntimeForKind.contains {
                 $0.id == indexIdentityProbe.id
             }
+            let currentRuntimeForDifferentKind = runtimeStatusKeys.contains { runtimeStatusKey in
+                runtimeStatusKey != canonicalStatusKey
+            }
             // A current runtime bound to a different session/process generation
             // supersedes this cached record. Never let the old SessionStart
             // anchor leak into the replacement agent.
-            if !currentRuntimeForKind.isEmpty && !runtimeMatchesIndexGeneration {
+            if currentRuntimeForDifferentKind
+                || (!currentRuntimeForKind.isEmpty && !runtimeMatchesIndexGeneration) {
                 continue
             }
 
@@ -199,10 +203,7 @@ extension Workspace {
                 statusKey: statusKey,
                 generation: indexGeneration,
                 lifecycle: lifecycle,
-                startedAt: indexEntry.startedAt
-                    ?? (indexEntry.hasExactProcessBinding
-                        ? Self.processStartTime(indexEntry.agentProcessIdentities)
-                        : nil),
+                startedAt: indexEntry.startedAt,
                 updatedAt: indexEntry.updatedAt,
                 // A title/latest-file/fork-parent inference may aid restore,
                 // but it cannot make lifecycle state confident in the sidebar.
@@ -251,23 +252,4 @@ extension Workspace {
         return identities[Int(identity.pid)] == identity
     }
 
-    nonisolated private static func processStartTime(
-        _ identities: [Int: AgentPIDProcessIdentity]
-    ) -> TimeInterval? {
-        processStartTime(identities.values.min { lhs, rhs in
-            if lhs.startSeconds != rhs.startSeconds { return lhs.startSeconds < rhs.startSeconds }
-            return lhs.startMicroseconds < rhs.startMicroseconds
-        })
-    }
-
-    nonisolated private static func processStartTime(_ identity: AgentPIDProcessIdentity?) -> TimeInterval? {
-        guard let identity,
-              identity.startSeconds >= 0,
-              identity.startMicroseconds >= 0,
-              identity.startMicroseconds < 1_000_000 else {
-            return nil
-        }
-        return TimeInterval(identity.startSeconds)
-            + TimeInterval(identity.startMicroseconds) / 1_000_000
-    }
 }

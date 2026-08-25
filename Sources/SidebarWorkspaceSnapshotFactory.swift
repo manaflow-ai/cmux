@@ -77,10 +77,18 @@ struct SidebarWorkspaceSnapshotFactory {
         let checklistProgress = workspace.checklistProgressSummary
         // Keep the feature's disabled fast path genuinely cold: the sidebar
         // hot path must not touch the hook index or PID maps when agent
-        // activity is hidden by settings/flag.
-        let agentActivity = (showsAgentActivity || detailVisibility.showsMetadata)
+        // activity is hidden by settings/flag. Metadata remains available in
+        // its legacy form without running the deterministic activity scan.
+        let agentActivity = showsAgentActivity
             ? workspace.sidebarWorkspaceAgentActivity()
             : SidebarWorkspaceAgentActivity(agents: [])
+        let metadataEntries: [SidebarStatusEntry] = if detailVisibility.showsMetadata {
+            showsAgentActivity
+                ? agentActivity.correctedStatusEntries(workspace.sidebarStatusEntriesInDisplayOrder())
+                : workspace.sidebarStatusEntriesInDisplayOrder()
+        } else {
+            []
+        }
 
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey,
@@ -96,9 +104,7 @@ struct SidebarWorkspaceSnapshotFactory {
                     || workspace.remoteConnectionState == .disconnected),
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: workspace.latestConversationMessage,
-            metadataEntries: detailVisibility.showsMetadata
-                ? agentActivity.correctedStatusEntries(workspace.sidebarStatusEntriesInDisplayOrder())
-                : [],
+            metadataEntries: metadataEntries,
             metadataBlocks: detailVisibility.showsMetadata
                 ? workspace.sidebarMetadataBlocksInDisplayOrder()
                 : [],
