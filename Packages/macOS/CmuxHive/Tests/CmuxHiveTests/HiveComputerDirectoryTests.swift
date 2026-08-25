@@ -19,6 +19,22 @@ private struct ScriptedRegistry: DeviceRegistryRefreshing {
     }
 }
 
+private actor ScopeBox {
+    var scope: HiveAccountScope
+
+    init(_ scope: HiveAccountScope) {
+        self.scope = scope
+    }
+
+    func read() -> HiveAccountScope {
+        scope
+    }
+
+    func set(_ scope: HiveAccountScope) {
+        self.scope = scope
+    }
+}
+
 @MainActor
 private func makeTempStore() throws -> (store: MobilePairedMacStore, cleanup: () -> Void) {
     let directory = FileManager.default.temporaryDirectory
@@ -209,6 +225,39 @@ private func makeDirectory(
         // The registry row stays visible, just unpaired.
         let row = try #require(directory.computers.first { $0.deviceID == "registry-mac" })
         #expect(row.isPaired == false)
+    }
+
+    @MainActor
+    @Test func unpairAfterSignOutDoesNotDeleteScopedRecords() async throws {
+        let (store, cleanup) = try makeTempStore()
+        defer { cleanup() }
+        let route = try tailscaleRoute()
+        let device = RegistryDevice(
+            deviceId: "registry-mac",
+            platform: "mac",
+            displayName: "Studio",
+            lastSeenAt: Date(timeIntervalSince1970: 900),
+            instances: [RegistryAppInstance(tag: "stable", routes: [route], lastSeenAt: Date(timeIntervalSince1970: 900))]
+        )
+        let scopeBox = ScopeBox(HiveAccountScope(stackUserID: "user-1", teamID: "team-1"))
+        let directory = HiveComputerDirectory(
+            registry: ScriptedRegistry(outcome: .ok([device])),
+            pairedStore: store,
+            presence: nil,
+            ownDeviceID: "self-device",
+            scopeProvider: { await scopeBox.read() },
+            linkDecoder: HivePairingLinkDecoder(allowsLoopbackRoutes: false),
+            now: { Date(timeIntervalSince1970: 1_000) },
+            presenceRetryDelay: { _ in }
+        )
+        await directory.refresh()
+        #expect(await directory.pair(deviceID: "registry-mac") == .paired(deviceID: "registry-mac"))
+
+        await scopeBox.set(HiveAccountScope(stackUserID: nil, teamID: nil))
+        directory.clearForSignOut()
+        #expect(await directory.unpair(deviceID: "registry-mac") == false)
+        let persisted = try await store.loadAll(stackUserID: "user-1", teamID: "team-1")
+        #expect(persisted.count == 1)
     }
 
     @MainActor
