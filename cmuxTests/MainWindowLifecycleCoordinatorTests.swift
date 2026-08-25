@@ -211,6 +211,38 @@ struct MainWindowLifecycleCoordinatorTests {
         #expect(originalWindow.identifier == nil)
     }
 
+    @Test("Lookup repair updates the lifecycle record key")
+    func lookupRepairUpdatesLifecycleRecordKey() {
+        let coordinator = MainWindowLifecycleCoordinator()
+        let windowId = UUID()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        defer { tearDown(manager) }
+
+        let context = makeContext(windowId: windowId, manager: manager)
+        let originalLookupKey = ObjectIdentifier(manager)
+        #expect(coordinator.register(context, lookupKey: originalLookupKey) === context)
+
+        // AppKit identity repair can replace the exact-window key while the
+        // stable window record remains registered. The two indexes must move
+        // together so the next lifecycle transition still finds the context.
+        let repairedLookupKey = ObjectIdentifier(context)
+        coordinator.replaceRegisteredContextLookups([repairedLookupKey: context])
+
+        #expect(coordinator.registeredContext(for: repairedLookupKey) === context)
+        #expect(coordinator.registeredContext(windowId: windowId) === context)
+
+        let route = RecoverableMainWindowRoute(
+            windowId: windowId,
+            tabManager: manager,
+            window: nil,
+            sidebar: context.sidebarState,
+            sidebarSelection: context.sidebarSelectionState,
+            frozenWindowDockSnapshot: nil,
+            retainTabManager: true
+        )
+        #expect(coordinator.transitionToOrphaned(route, from: context))
+    }
+
     @Test("Frozen orphan retention keeps only the newest configured records")
     func frozenOrphanRetentionKeepsNewestRecords() {
         let coordinator = MainWindowLifecycleCoordinator(
