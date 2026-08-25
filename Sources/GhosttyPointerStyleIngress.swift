@@ -44,6 +44,7 @@ final class GhosttyPointerStyleIngress: @unchecked Sendable {
         let event: Event
         let surfaceId: UUID
         let runtimeLifetimeId: UUID
+        var sequence: UInt64 = 0
     }
 
     private struct RuntimePending {
@@ -58,6 +59,7 @@ final class GhosttyPointerStyleIngress: @unchecked Sendable {
         var activeRuntimeLifetimeId: UUID?
         var retiredRuntimeLifetimeIds: Set<UUID> = []
         var byRuntime: [UUID: RuntimePending] = [:]
+        var nextSequence: UInt64 = 0
         var drainScheduled = false
     }
 
@@ -112,6 +114,9 @@ final class GhosttyPointerStyleIngress: @unchecked Sendable {
                   ) else {
                 return false
             }
+            state.nextSequence &+= 1
+            var request = request
+            request.sequence = state.nextSequence
             var runtime = state.byRuntime[request.runtimeLifetimeId] ??
                 RuntimePending()
             switch request.event {
@@ -158,13 +163,18 @@ final class GhosttyPointerStyleIngress: @unchecked Sendable {
 
         guard let surfaceView else { return }
         for runtime in pending.values {
-            let requests = [
+            var requests = [
                 runtime.latestRuntimeReset,
                 runtime.latestRuntimeEnded,
-                runtime.firstShape,
-                runtime.latestShape,
                 runtime.latestLinkHover
             ].compactMap { $0 }
+            if let firstShape = runtime.firstShape {
+                requests.insert(firstShape, at: 2)
+                if let latestShape = runtime.latestShape,
+                   latestShape.sequence != firstShape.sequence {
+                    requests.insert(latestShape, at: 3)
+                }
+            }
             for request in requests {
                 guard let terminalSurface = surfaceView.terminalSurface,
                       terminalSurface.id == request.surfaceId,
