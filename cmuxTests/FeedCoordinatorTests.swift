@@ -772,7 +772,7 @@ struct FeedCoordinatorTests {
         }
 
         #expect(
-            phoneForwarder.forwarded.wait(timeout: .now() + 2) == .success,
+            waitForFeedTestSignal(phoneForwarder.forwarded, timeout: .now() + 2) == .success,
             "an unresolved blocking Feed decision must mirror its prompt to the phone"
         )
 
