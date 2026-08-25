@@ -290,6 +290,25 @@ struct TerminalPointerStyleStateTests {
         #expect(state.effectiveCursor == NSCursor.pointingHand)
     }
 
+    @Test("delayed hyperlink activation cannot survive focus loss")
+    func delayedHyperlinkActivationIsClampedToFocus() {
+        var state = TerminalPointerStyleState()
+        let runtimeLifetimeId = activate(&state)
+        state.apply(.focusChanged(true))
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_CROSSHAIR,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        state.apply(.focusChanged(false))
+        state.apply(.ghosttyLinkHoverChanged(
+            true,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        state.apply(.focusChanged(true))
+
+        #expect(state.effectiveCursor == NSCursor.crosshair)
+    }
+
     @Test("stale runtime callbacks cannot mutate a replacement lifetime")
     func staleRuntimeCallbacksCannotMutateReplacementLifetime() {
         var state = TerminalPointerStyleState()
