@@ -163,6 +163,7 @@ def invoke_cli(
     env = os.environ.copy()
     for key in [
         "CMUX_SOCKET_PASSWORD",
+        "CMUX_SOCKET_CAPABILITY",
         "CMUX_WORKSPACE_ID",
         "CMUX_SURFACE_ID",
         "CMUX_TAB_ID",
