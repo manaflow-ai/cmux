@@ -48,7 +48,9 @@ public struct TerminalPointerStyleState {
         switch event {
         case .runtimeActivated(let runtimeLifetimeId):
             let shouldInvalidate = isFocused && (
-                ghosttyShape != nil || isCmuxLinkHoverActive
+                ghosttyShape != nil ||
+                isCmuxLinkHoverActive ||
+                isGhosttyLinkHoverActive
             )
             activeRuntimeLifetimeId = runtimeLifetimeId
             ghosttyCursor = .iBeam
@@ -80,7 +82,9 @@ public struct TerminalPointerStyleState {
                 return false
             }
             let shouldInvalidate = isFocused && (
-                ghosttyShape != nil || isCmuxLinkHoverActive
+                ghosttyShape != nil ||
+                isCmuxLinkHoverActive ||
+                isGhosttyLinkHoverActive
             )
             activeRuntimeLifetimeId = nil
             ghosttyCursor = .iBeam
@@ -133,6 +137,7 @@ public struct TerminalPointerStyleState {
             isFocused = focused
             if !focused {
                 isCmuxLinkHoverActive = false
+                isGhosttyLinkHoverActive = false
             }
             return true
 
