@@ -1105,19 +1105,12 @@ final class SharedLiveAgentIndex {
             return
         }
         let changedPanelIds = Set(panelIdsByWorkspaceId.values.joined())
-        var currentPanelIdsByWorkspaceId: [UUID: Set<UUID>] = [:]
-        for panelId in changedPanelIds {
-            if let owner = AppDelegate.shared?.workspaceContainingPanel(panelId: panelId) {
-                currentPanelIdsByWorkspaceId[owner.workspace.id, default: []].insert(panelId)
-            }
-        }
         NotificationCenter.default.post(
             name: .sharedLiveAgentIndexDidChange,
             object: self,
             userInfo: [
                 "panelIdsByWorkspaceId": panelIdsByWorkspaceId,
                 "panelIds": changedPanelIds,
-                "currentPanelIdsByWorkspaceId": currentPanelIdsByWorkspaceId,
             ]
         )
     }

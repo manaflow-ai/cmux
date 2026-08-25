@@ -11611,7 +11611,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 refreshWorkspaceSnapshots()
             }
         }
-        .task(id: isPresented) {
+        .task(id: "\(isPresented)-\(featureFlags.isAppKitSidebarListEnabled)-\(renderContext.showsAgentActivity)-\(effectiveExtensionSidebarProviderId)") {
             guard isPresented,
                   !featureFlags.isAppKitSidebarListEnabled,
                   renderContext.showsAgentActivity,
@@ -11630,7 +11630,7 @@ struct VerticalTabsSidebar: View, Equatable {
             guard isPresented, !Task.isCancelled else { return }
             refreshWorkspaceSnapshots()
         }
-        .task(id: isPresented && renderContext.showsAgentActivity) {
+        .task(id: "\(isPresented && renderContext.showsAgentActivity)-\(effectiveExtensionSidebarProviderId)") {
             guard isPresented,
                   renderContext.showsAgentActivity,
                   CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
