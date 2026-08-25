@@ -2,7 +2,7 @@ import { constants as zlibConstants, gzip } from "node:zlib";
 import { promisify } from "node:util";
 
 const gzipAsync = promisify(gzip);
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
 import {
   NotImplementedError,
@@ -235,8 +235,10 @@ async function blaxelFetch<T>(
 // The cmuxd-remote linux/amd64 binary this driver injects at create time. Local dev points
 // CMUX_VM_BLAXEL_DAEMON_PATH at a `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build` output;
 // deployed runtimes point CMUX_VM_BLAXEL_DAEMON_URL at the R2 build artifact. Cached as the
-// gzipped base64 payload the filesystem API write wants, so repeated creates don't refetch.
-let cachedDaemonB64: string | null = null;
+// in-flight promise of the gzipped base64 payload the filesystem API write wants, so
+// concurrent creates share one read+encode and repeated creates don't refetch. A failed
+// load clears the cache so the next create retries instead of replaying the rejection.
+let cachedDaemonB64: Promise<string> | null = null;
 
 export type BlaxelDaemonSource =
   | { kind: "path"; path: string; sha256?: string }
@@ -285,29 +287,34 @@ export function verifyDaemonDigest(binary: Buffer, expectedSha256: string): void
   }
 }
 
-async function daemonBinaryBase64Gzip(): Promise<string> {
+function daemonBinaryBase64Gzip(): Promise<string> {
   if (cachedDaemonB64) return cachedDaemonB64;
-  const source = resolveDaemonSource();
-  let binary: Buffer;
-  if (source.kind === "path") {
-    binary = readFileSync(source.path);
-  } else {
-    const response = await fetch(source.url, { signal: AbortSignal.timeout(120_000) });
-    if (!response.ok) {
-      throw new ProviderError("blaxel", `daemon download ${source.url} -> ${response.status}`);
+  const load = (async () => {
+    const source = resolveDaemonSource();
+    let binary: Buffer;
+    if (source.kind === "path") {
+      binary = await readFile(source.path);
+    } else {
+      const response = await fetch(source.url, { signal: AbortSignal.timeout(120_000) });
+      if (!response.ok) {
+        throw new ProviderError("blaxel", `daemon download ${source.url} -> ${response.status}`);
+      }
+      binary = Buffer.from(await response.arrayBuffer());
     }
-    binary = Buffer.from(await response.arrayBuffer());
-  }
-  if (source.sha256) {
-    verifyDaemonDigest(binary, source.sha256);
-  }
-  // Compression level is create latency, not egress savings: on a ~10.7MB Go
-  // binary, level 9 measured 32s for 5.86MB vs level 1's 2.6s for 6.20MB — 29s
-  // of every cold create to save 0.3MB (<1s of upload). Best-speed, and async
-  // so the encode does not stall every other request on the event loop.
-  const gz = (await gzipAsync(binary, { level: zlibConstants.Z_BEST_SPEED })).toString("base64");
-  cachedDaemonB64 = gz;
-  return gz;
+    if (source.sha256) {
+      verifyDaemonDigest(binary, source.sha256);
+    }
+    // Compression level is create latency, not egress savings: on a ~10.7MB Go
+    // binary, level 9 measured 32s for 5.86MB vs level 1's 2.6s for 6.20MB — 29s
+    // of every cold create to save 0.3MB (<1s of upload). Best-speed, and async
+    // so the encode does not stall every other request on the event loop.
+    return (await gzipAsync(binary, { level: zlibConstants.Z_BEST_SPEED })).toString("base64");
+  })();
+  cachedDaemonB64 = load.catch((err) => {
+    cachedDaemonB64 = null;
+    throw err;
+  });
+  return cachedDaemonB64;
 }
 
 export class BlaxelProvider implements VMProvider {
@@ -466,7 +473,14 @@ export class BlaxelProvider implements VMProvider {
       "cmux.vm.provider.destroy",
       { "cmux.vm.provider": "blaxel", "cmux.vm.operation": "destroy", "cmux.vm.id": vmId },
       async () => {
-        await blaxelFetch("DELETE", `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}`);
+        try {
+          await blaxelFetch("DELETE", `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}`);
+        } catch (err) {
+          // Cleanup paths retry destroy after partial create failures; a sandbox
+          // that is already gone is this operation's success state, not an error.
+          const gone = err instanceof ProviderError && /-> 404/.test(err.message);
+          if (!gone) throw err;
+        }
       },
     );
   }
