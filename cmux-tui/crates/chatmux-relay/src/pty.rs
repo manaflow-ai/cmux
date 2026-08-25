@@ -1146,7 +1146,31 @@ impl TerminalSizing {
         control: Arc<dyn ControlHandle>,
         grid: SizingGrid,
     ) -> Option<oneshot::Receiver<()>> {
-        let (target, generation, immediate_endpoint, owner_endpoint, owner_id, owner_grid) = {
+        self.join_with_endpoint(key, viewer_id, surface_id, control, grid)
+            .map(|(waiter, _endpoint)| waiter)
+    }
+
+    /// Join and return the exact endpoint registered for this attachment.
+    /// Callers that own a lease must retain this identity: a later reconnect
+    /// may reuse the viewer id, and an old lease must not update or remove the
+    /// replacement endpoint.
+    fn join_with_endpoint(
+        self: &Arc<Self>,
+        key: SizingKey,
+        viewer_id: u64,
+        surface_id: i64,
+        control: Arc<dyn ControlHandle>,
+        grid: SizingGrid,
+    ) -> Option<(oneshot::Receiver<()>, Arc<OrderedControlEndpoint>)> {
+        let (
+            target,
+            generation,
+            joined_endpoint,
+            immediate_endpoint,
+            owner_endpoint,
+            owner_id,
+            owner_grid,
+        ) = {
             let mut targets = self.targets.lock().expect("terminal sizing targets lock");
             let target_key = key.clone();
             let target = targets.entry(key).or_insert_with(|| {
@@ -1192,7 +1216,9 @@ impl TerminalSizing {
                 }
             }
             let endpoint = target.queue.endpoint(viewer_id, Arc::clone(&control));
-            state.viewers.insert(viewer_id, SizingViewer { control, endpoint, grid });
+            state
+                .viewers
+                .insert(viewer_id, SizingViewer { control, endpoint: Arc::clone(&endpoint), grid });
             let generation = self.advance_generation(&target);
             let immediate_claim =
                 state.owner.is_none() && candidate_viewer_id(&state) == Some(viewer_id);
@@ -1204,7 +1230,15 @@ impl TerminalSizing {
                 if !immediate_claim && state.applied != owner_grid { state.owner } else { None };
             let owner_endpoint = owner_id
                 .and_then(|id| state.viewers.get(&id).map(|viewer| Arc::clone(&viewer.endpoint)));
-            (target, generation, immediate_endpoint, owner_endpoint, owner_id, owner_grid)
+            (
+                target,
+                generation,
+                Arc::clone(&endpoint),
+                immediate_endpoint,
+                owner_endpoint,
+                owner_id,
+                owner_grid,
+            )
         };
         if let (Some(endpoint), Some(owner_id), Some(grid)) = (owner_endpoint, owner_id, owner_grid)
         {
@@ -1230,7 +1264,7 @@ impl TerminalSizing {
                 &target, viewer_id, None, &endpoint, grid, true, generation,
             );
         }
-        Some(self.request_reconcile_wait(target))
+        Some((self.request_reconcile_wait(target), joined_endpoint))
     }
 
     fn queue_for(&self, key: &SizingKey, viewer_id: u64) -> Option<Arc<OrderedControlEndpoint>> {
@@ -1241,6 +1275,29 @@ impl TerminalSizing {
     }
 
     fn update(self: &Arc<Self>, key: &SizingKey, viewer_id: u64, grid: SizingGrid) {
+        self.update_inner(key, viewer_id, None, grid);
+    }
+
+    /// Update only the endpoint that owns a lease. A stale lease may retain
+    /// the same viewer id after reconnect; pointer identity prevents it from
+    /// mutating the replacement viewer's grid.
+    fn update_endpoint(
+        self: &Arc<Self>,
+        key: &SizingKey,
+        viewer_id: u64,
+        endpoint: &Arc<OrderedControlEndpoint>,
+        grid: SizingGrid,
+    ) {
+        self.update_inner(key, viewer_id, Some(endpoint), grid);
+    }
+
+    fn update_inner(
+        self: &Arc<Self>,
+        key: &SizingKey,
+        viewer_id: u64,
+        expected_endpoint: Option<&Arc<OrderedControlEndpoint>>,
+        grid: SizingGrid,
+    ) {
         let target = self.targets.lock().expect("terminal sizing targets lock").get(key).cloned();
         let Some(target) = target else { return };
         let (
@@ -1260,6 +1317,12 @@ impl TerminalSizing {
             let mut state = target.state.lock().expect("terminal sizing state lock");
             let owner = state.owner;
             let candidate = owner.is_none() && candidate_viewer_id(&state) == Some(viewer_id);
+            let endpoint_matches = state.viewers.get(&viewer_id).is_some_and(|viewer| {
+                expected_endpoint.is_none_or(|expected| Arc::ptr_eq(&viewer.endpoint, expected))
+            });
+            if !endpoint_matches {
+                return;
+            }
             let Some(viewer) = state.viewers.get_mut(&viewer_id) else { return };
             viewer.grid = grid;
             let Some(effective_grid) = smallest_sizing_grid(&state.viewers) else { return };
@@ -2174,6 +2237,7 @@ struct SizingLeaseState {
     joining: bool,
     joined: bool,
     released: bool,
+    endpoint: Option<Arc<OrderedControlEndpoint>>,
 }
 
 impl TerminalSizingLease {
@@ -2188,7 +2252,12 @@ impl TerminalSizingLease {
             key,
             viewer_id,
             surface_id,
-            state: Mutex::new(SizingLeaseState { joining: false, joined: false, released: false }),
+            state: Mutex::new(SizingLeaseState {
+                joining: false,
+                joined: false,
+                released: false,
+                endpoint: None,
+            }),
         })
     }
 
@@ -2210,6 +2279,7 @@ impl TerminalSizingLease {
             return None;
         }
         let mut waiter = None;
+        let mut endpoint = None;
         {
             let Some(coordinator) = self.coordinator.upgrade() else {
                 let mut state = self.state.lock().expect("terminal sizing lease lock");
@@ -2217,20 +2287,31 @@ impl TerminalSizingLease {
                 state.released = true;
                 return None;
             };
-            waiter =
-                coordinator.join(self.key.clone(), self.viewer_id, self.surface_id, control, grid);
+            if let Some((joined_waiter, joined_endpoint)) = coordinator.join_with_endpoint(
+                self.key.clone(),
+                self.viewer_id,
+                self.surface_id,
+                control,
+                grid,
+            ) {
+                waiter = Some(joined_waiter);
+                endpoint = Some(joined_endpoint);
+            }
             let rollback = {
                 let mut state = self.state.lock().expect("terminal sizing lease lock");
                 state.joining = false;
-                if state.released {
+                if state.released || endpoint.is_none() {
                     true
                 } else {
                     state.joined = true;
+                    state.endpoint = endpoint.clone();
                     false
                 }
             };
             if rollback {
-                coordinator.leave(&self.key, self.viewer_id);
+                if let Some(endpoint) = endpoint.as_ref() {
+                    coordinator.leave_endpoint(&self.key, self.viewer_id, endpoint);
+                }
                 waiter = None;
             }
         }
@@ -2238,42 +2319,39 @@ impl TerminalSizingLease {
     }
 
     fn update(&self, grid: SizingGrid) {
-        let joined = {
+        let endpoint = {
             let state = self.state.lock().expect("terminal sizing lease lock");
-            state.joined && !state.released
+            if state.joined && !state.released { state.endpoint.clone() } else { None }
         };
-        if joined {
+        if let Some(endpoint) = endpoint {
             if let Some(coordinator) = self.coordinator.upgrade() {
-                coordinator.update(&self.key, self.viewer_id, grid);
+                coordinator.update_endpoint(&self.key, self.viewer_id, &endpoint, grid);
             }
         }
     }
 
     fn queue(&self) -> Option<Arc<OrderedControlEndpoint>> {
-        let joined = {
+        let endpoint = {
             let state = self.state.lock().expect("terminal sizing lease lock");
-            state.joined && !state.released
+            if state.joined && !state.released { state.endpoint.clone() } else { None }
         };
-        if !joined {
-            return None;
-        }
-        let coordinator = self.coordinator.upgrade()?;
-        coordinator.queue_for(&self.key, self.viewer_id)
+        self.coordinator.upgrade()?;
+        endpoint
     }
 
     fn leave(&self) {
-        let should_leave = {
+        let (should_leave, endpoint) = {
             let mut state = self.state.lock().expect("terminal sizing lease lock");
             if state.released {
-                false
+                (false, None)
             } else {
                 state.released = true;
-                state.joined && !state.joining
+                (state.joined && !state.joining, state.endpoint.clone())
             }
         };
-        if should_leave {
+        if should_leave && let Some(endpoint) = endpoint {
             if let Some(coordinator) = self.coordinator.upgrade() {
-                coordinator.leave(&self.key, self.viewer_id);
+                coordinator.leave_endpoint(&self.key, self.viewer_id, &endpoint);
             }
         }
     }
@@ -6440,6 +6518,48 @@ mod tests {
         assert!(Arc::ptr_eq(&current, &new_endpoint));
         assert!(new_endpoint.is_active());
         coordinator.leave(&key, 1);
+    }
+
+    #[tokio::test]
+    async fn stale_sizing_lease_cannot_update_or_remove_replacement() {
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-stale-lease.sock"),
+            surface_id: 31,
+        };
+        let old_control = SizingControl::new(12, &[]);
+        let new_control = SizingControl::new(12, &[]);
+        let old_lease = TerminalSizingLease::new(&coordinator, key.clone(), 1, 31);
+        let new_lease = TerminalSizingLease::new(&coordinator, key.clone(), 1, 31);
+
+        old_lease
+            .join(Arc::new(old_control.clone()), SizingGrid { cols: 80, rows: 24 })
+            .expect("old lease join")
+            .await
+            .expect("old sizing worker");
+        let old_endpoint = old_lease.queue().expect("old lease endpoint");
+        new_lease
+            .join(Arc::new(new_control.clone()), SizingGrid { cols: 100, rows: 30 })
+            .expect("replacement lease join")
+            .await
+            .expect("replacement sizing worker");
+        let new_endpoint = new_lease.queue().expect("replacement lease endpoint");
+        assert!(!Arc::ptr_eq(&old_endpoint, &new_endpoint));
+
+        let target = coordinator.targets.lock().unwrap().get(&key).cloned().unwrap();
+        let generation = TerminalSizing::current_generation(&target);
+        old_lease.update(SizingGrid { cols: 40, rows: 20 });
+        assert_eq!(TerminalSizing::current_generation(&target), generation);
+        assert_eq!(
+            target.state.lock().unwrap().viewers.get(&1).map(|viewer| viewer.grid),
+            Some(SizingGrid { cols: 100, rows: 30 })
+        );
+
+        old_lease.leave();
+        let current = coordinator.queue_for(&key, 1).expect("replacement remains attached");
+        assert!(Arc::ptr_eq(&current, &new_endpoint));
+        assert!(new_endpoint.is_active());
+        new_lease.leave();
     }
 
     #[test]
