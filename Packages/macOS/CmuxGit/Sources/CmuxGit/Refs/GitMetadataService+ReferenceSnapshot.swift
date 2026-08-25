@@ -4,9 +4,10 @@ import Foundation
 extension GitMetadataService {
     /// Runs bounded remote fallback plumbing on the blocking-I/O lane.
     nonisolated func gitRemoteVFallback(repository: ResolvedGitRepository) async -> String? {
+        guard await referenceSnapshotLimiter.acquire() else { return nil }
         let cancellationSignal = WorkspaceChangesCancellationSignal()
         let wallTimeLimit = safetyConfiguration.gitStatusWallTime
-        return await withTaskCancellationHandler {
+        let output = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 Self.blockingStatusQueue.async {
                     let output = cancellationSignal.withCurrentBinding {
@@ -41,6 +42,8 @@ extension GitMetadataService {
         } onCancel: {
             cancellationSignal.cancel()
         }
+        await referenceSnapshotLimiter.release()
+        return output
     }
 
     /// Resolves the full reference snapshot for watcher/config consumers.
@@ -65,9 +68,16 @@ extension GitMetadataService {
     nonisolated func gitReferenceSnapshot(
         repository: ResolvedGitRepository
     ) async -> GitReferenceSnapshot {
+        guard await referenceSnapshotLimiter.acquire() else {
+            return GitReferenceSnapshot(
+                checkedOutBranch: .unreadable,
+                headSignature: nil,
+                currentCommit: nil
+            )
+        }
         let cancellationSignal = WorkspaceChangesCancellationSignal()
         let referenceReader = referenceReader
-        return await withTaskCancellationHandler {
+        let snapshot = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 Self.blockingStatusQueue.async {
                     let snapshot = cancellationSignal.withCurrentBinding {
@@ -79,5 +89,7 @@ extension GitMetadataService {
         } onCancel: {
             cancellationSignal.cancel()
         }
+        await referenceSnapshotLimiter.release()
+        return snapshot
     }
 }

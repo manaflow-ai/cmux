@@ -124,7 +124,8 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                let includeURL = GitMetadataService.gitConfigIncludeURL(
                    fromPathValue: parts[1],
                    relativeTo: configURL
-               ) {
+               ),
+               (!includeConditionalPathsForWatch || isSafeConfigWatchPath(includeURL)) {
                 processConfig(at: includeURL, state: &state)
             }
         }
@@ -199,6 +200,22 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                 at: URL(fileURLWithPath: path).appendingPathComponent("packed-refs"),
                 maximumByteCount: 1
             ).isAvailable
+    }
+
+    /// Limits watch-mode include discovery to existing repository-local files.
+    private func isSafeConfigWatchPath(_ url: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        let roots = [repository.gitDirectory, repository.commonDirectory, repository.workTreeRoot]
+            .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+        guard roots.contains(where: { root in
+            path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
+        }) else { return false }
+        switch configReader.read(at: url, maximumByteCount: 1) {
+        case .contents, .oversized:
+            return true
+        case .missing, .unavailable:
+            return false
+        }
     }
 
     /// Synthesizes `git remote -v` fetch lines from reachable config files.

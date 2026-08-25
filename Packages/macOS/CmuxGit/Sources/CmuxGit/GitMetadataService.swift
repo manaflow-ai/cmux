@@ -35,6 +35,7 @@ public struct GitMetadataService: Sendable {
     let referenceReader: any GitReferenceReading
     let degradationRecorder: GitMetadataDegradationRecorder
     let safetyConfiguration: GitMetadataSafetyConfiguration
+    private let referenceSnapshotLimiter: GitReferenceSnapshotLimiter
     private let trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache
 
     /// Creates a git-metadata service.
@@ -52,6 +53,7 @@ public struct GitMetadataService: Sendable {
         )
         self.safetyConfiguration = safetyConfiguration
         self.trackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
+        self.referenceSnapshotLimiter = GitReferenceSnapshotLimiter()
     }
 
     init(
@@ -60,7 +62,8 @@ public struct GitMetadataService: Sendable {
         referenceReader: (any GitReferenceReading)? = nil,
         degradationRecorder: GitMetadataDegradationRecorder? = nil,
         safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
-        trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
+        trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache = GitTrackedChangesSnapshotCache(),
+        referenceSnapshotLimiter: GitReferenceSnapshotLimiter = GitReferenceSnapshotLimiter()
     ) {
         self.fileStatusReader = fileStatusReader
         self.dirtyStatusReader = dirtyStatusReader ?? SystemGitDirtyStatusReader(
@@ -74,6 +77,7 @@ public struct GitMetadataService: Sendable {
         )
         self.safetyConfiguration = safetyConfiguration
         self.trackedChangesSnapshotCache = trackedChangesSnapshotCache
+        self.referenceSnapshotLimiter = referenceSnapshotLimiter
     }
 
     /// Reads a point-in-time git snapshot for `directory`.
