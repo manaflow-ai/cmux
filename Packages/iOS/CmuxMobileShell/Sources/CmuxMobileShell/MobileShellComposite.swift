@@ -9189,6 +9189,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
         userTailscalePairingAuthorizations: [CmxUserTailscalePairingAuthorization] = [],
         directOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
+        transportMode: CmxTransportMode? = nil,
         pairedMacDeviceID: String? = nil,
         instanceTagExpectation: MobileMacInstanceTagExpectation = .adopt,
         ifStillCurrent: (() -> Bool)? = nil
@@ -9226,7 +9227,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalInputRPCPipeline.clear()
         resumeRawTerminalInputDrainWaiters()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let connectionTransportMode = connectionMethod(
+        let connectionTransportMode = transportMode ?? connectionMethod(
             forMacDeviceID: requestedMacDeviceID ?? ticket.macDeviceID,
             instanceTag: instanceTagExpectation.expectedTag
         ).transportMode
@@ -9248,6 +9249,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             legacyTailscaleRoutes: legacyTailscaleRoutes,
             userTailscalePairingAuthorizations: userTailscalePairingAuthorizations,
             directOnly: directOnlyDialCandidates != nil,
+            transportMode: connectionTransportMode,
             pairedMacDeviceID: requestedMacDeviceID,
             instanceTag: instanceTagExpectation.expectedTag
         )
@@ -9992,6 +9994,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
         userTailscalePairingAuthorizations: [CmxUserTailscalePairingAuthorization] = [],
         directOnly: Bool = false,
+        transportMode: CmxTransportMode? = nil,
         pairedMacDeviceID: String? = nil,
         instanceTag: String? = nil
     ) -> [CmxAttachRoute] {
@@ -10015,11 +10018,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Resolve it with the caller's pairing identity when one is known:
         // sibling builds share a device id but choose methods independently,
         // so a bare device lookup could apply the wrong build's method.
-        let ticketMethod = connectionMethod(
+        let ticketTransportMode = transportMode ?? connectionMethod(
             forMacDeviceID: pairedMacDeviceID ?? ticket.macDeviceID,
             instanceTag: instanceTag
-        )
-        let modePolicy = CmxTransportModePolicy(ticketMethod.transportMode)
+        ).transportMode
+        let modePolicy = CmxTransportModePolicy(ticketTransportMode)
         let modeRoutes: [CmxAttachRoute]
         do {
             modeRoutes = try modePolicy.routes(
@@ -10042,10 +10045,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // encrypted; the transport dials only the user-enabled addresses):
         // no dev loopback and no host/port lane, so an unusable allowlist
         // fails closed instead of switching paths.
-        if directOnly || ticketMethod == .direct {
+        if directOnly || ticketTransportMode == .direct {
             return modeRoutes.filter { $0.kind == .iroh }
         }
-        if ticketMethod == .tailscale {
+        if ticketTransportMode == .tailscale {
             let authorizedTailscale = modeRoutes.filter { route in
                 Self.legacyTailscaleAuthorizationEvidence(
                     for: route,
@@ -10059,13 +10062,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return authorizedTailscale
         }
-        if ticketMethod == .lan {
+        if ticketTransportMode == .lan {
             // LAN Only is an encrypted Iroh session whose private dial plan is
             // filtered to broker-authorized LAN hints; raw LAN TCP never gets
             // a Stack bearer.
             return modeRoutes.filter { $0.kind == .iroh }
         }
-        if ticketMethod == .iroh {
+        if ticketTransportMode == .iroh {
             return modeRoutes.filter { $0.kind == .iroh }
         }
         // Auto prefers the authenticated Iroh lane when one is advertised,

@@ -186,6 +186,13 @@ actor CmxConnectivityPeerSession {
             if let activeConnection {
                 if let activeRequest,
                    !Self.sameTransportPolicy(activeRequest, request) {
+                    // One Iroh peer session may be shared by foreground and
+                    // secondary owners. Do not tear down an owned session just
+                    // because a sibling pairing selected another policy; let
+                    // that caller retry after the owner releases it.
+                    guard controlOwner == nil else {
+                        throw CmxConnectivityEngineError.superseded
+                    }
                     await removeActiveConnection(
                         matching: activeConnection.id,
                         releasesControlOwner: false,
@@ -263,6 +270,9 @@ actor CmxConnectivityPeerSession {
             if let installed = activeConnection {
                 if let activeRequest,
                    !Self.sameTransportPolicy(activeRequest, request) {
+                    guard controlOwner == nil else {
+                        throw CmxConnectivityEngineError.superseded
+                    }
                     await installed.session.close()
                     await removeActiveConnection(
                         matching: installed.id,
@@ -299,6 +309,9 @@ actor CmxConnectivityPeerSession {
             if let installed = activeConnection {
                 if let activeRequest,
                    !Self.sameTransportPolicy(activeRequest, request) {
+                    guard controlOwner == nil else {
+                        throw CmxConnectivityEngineError.superseded
+                    }
                     await installed.session.close()
                     await removeActiveConnection(
                         matching: installed.id,

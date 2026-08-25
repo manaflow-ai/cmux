@@ -817,6 +817,7 @@ extension MobileShellComposite {
                     ticket: ticket,
                     legacyTailscaleRoutes: legacyTailscaleRoutes,
                     directOnlyDialCandidates: methodPinnedCandidates,
+                    transportMode: resolvedMethod.transportMode,
                     pairedMacDeviceID: pairedMacDeviceID,
                     instanceTagExpectation: instanceTagExpectation,
                     ifStillCurrent: ifStillCurrent

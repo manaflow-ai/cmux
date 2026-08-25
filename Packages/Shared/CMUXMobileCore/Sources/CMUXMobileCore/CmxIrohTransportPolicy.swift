@@ -145,6 +145,13 @@ extension CmxAttachRoute {
         if disclosure == .publicStatus {
             return nil
         }
+        if (disclosure == .cloudRendezvous
+            || disclosure == .pairedMacCloudBackup), kind == .lan {
+            // LAN host/port coordinates are device-local routing metadata. They
+            // may be shown in an authenticated local pairing snapshot, but
+            // must never enter cloud rendezvous, presence, or backup payloads.
+            return nil
+        }
         return try? Self(
             id: id,
             kind: kind,
