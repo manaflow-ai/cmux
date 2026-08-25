@@ -328,6 +328,13 @@ struct WorkspaceSidebarObservationTests {
             startSeconds: 200,
             startMicroseconds: 20
         )
+        let runningStatus = SidebarStatusEntry(
+            key: "amp",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF"
+        )
+        workspace.statusEntries["amp"] = runningStatus
         #expect(
             FeedCoordinator.shared.beginObservedAgentAttention(
                 source: "amp",
@@ -364,6 +371,10 @@ struct WorkspaceSidebarObservationTests {
         )
         #expect(
             workspace.agentLifecycleStatesByPanelId[panelId]?["amp"] == .running
+        )
+        #expect(
+            workspace.statusEntries["amp"] == runningStatus,
+            "Concluding native attention must restore the status that was visible before the prompt."
         )
     }
 
