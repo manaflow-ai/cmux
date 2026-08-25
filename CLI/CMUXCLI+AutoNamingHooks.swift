@@ -321,6 +321,7 @@ extension CMUXCLI {
         surfaceId: String,
         expectedWorkspaceTitle: String? = nil,
         expectedPanelTitle: String? = nil,
+        reconciliationCAS: Bool = false,
         clearStatusOnApply: Bool = true,
         client: SocketClient,
         telemetryKey: String,
@@ -338,6 +339,9 @@ extension CMUXCLI {
         }
         if let expectedPanelTitle {
             params["expected_panel_title"] = expectedPanelTitle
+        }
+        if reconciliationCAS {
+            params["reconciliation_cas"] = true
         }
         let payload: [String: Any]
         do {
