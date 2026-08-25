@@ -380,7 +380,12 @@ public final class HiveComputerDirectory {
     @discardableResult
     public func unpair(deviceID: String) async -> Bool {
         let scope = await scopeProvider()
-        guard loadedScope == scope else { return false }
+        let generation = scopeGeneration
+        guard scope.stackUserID != nil,
+              loadedScope == scope,
+              await isCurrentScope(scope, generation: generation) else {
+            return false
+        }
         do {
             try await pairedStore.remove(
                 macDeviceID: deviceID,
@@ -390,8 +395,9 @@ public final class HiveComputerDirectory {
         } catch {
             return false
         }
+        guard await isCurrentScope(scope, generation: generation) else { return false }
         await reloadPairedRecords(scope: scope)
-        guard await isCurrentScope(scope, generation: scopeGeneration) else { return false }
+        guard await isCurrentScope(scope, generation: generation) else { return false }
         rebuild()
         return true
     }

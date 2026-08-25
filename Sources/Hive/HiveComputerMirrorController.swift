@@ -315,7 +315,14 @@ final class HiveComputerMirrorController {
         }
         for (_, terminal) in mirror.terminalsByRemoteID { terminal.detach() }
         if let tabManager = mirror.tabManager {
-            tabManager.hiveSidebarScopeModel.scope = .thisMac
+            let hasSurvivingMirror = mirrorsByKey.values.contains {
+                $0 !== mirror && $0.tabManager === tabManager
+            }
+            if !hasSurvivingMirror,
+               case .device(let scopedDeviceID) = tabManager.hiveSidebarScopeModel.scope,
+               scopedDeviceID == deviceID {
+                tabManager.hiveSidebarScopeModel.scope = .thisMac
+            }
             for (_, workspaceId) in mirror.workspaceIdByRemoteID {
                 guard let workspace = tabManager.workspacesById[workspaceId] else { continue }
                 tabManager.closeWorkspace(workspace)
