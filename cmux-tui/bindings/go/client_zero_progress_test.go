@@ -14,8 +14,8 @@ func (zeroProgressConn) Write([]byte) (int, error) { return 0, nil }
 
 func TestWriteReturnsNoProgressOnZeroByteWrite(t *testing.T) {
 	clientSide, serverSide := net.Pipe()
-	defer clientSide.Close()
-	defer serverSide.Close()
+	defer func() { _ = clientSide.Close() }()
+	defer func() { _ = serverSide.Close() }()
 
 	client := &Client{
 		conn:            zeroProgressConn{Conn: clientSide},

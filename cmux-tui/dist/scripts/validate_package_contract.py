@@ -307,7 +307,13 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
         expected = NPM_RELAY_LAUNCHER_FILES
     elif package_name.startswith("cmux-relay-"):
         extension = ".exe" if "win32" in package_name else ""
-        expected = frozenset({"package.json", f"bin/cmux-relay{extension}"})
+        expected = frozenset(
+            {
+                "package.json",
+                f"bin/cmux-relay{extension}",
+                f"bin/cmux-tui{extension}",
+            }
+        )
     else:
         extension = ".exe" if "win32" in package_name else ""
         expected = frozenset(
@@ -342,6 +348,8 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
                 or member.name.endswith("/bin/cmux-tui-hook.exe")
                 or member.name.endswith("/bin/cmux-relay")
                 or member.name.endswith("/bin/cmux-relay.exe")
+                or member.name.endswith("/bin/cmux-tui")
+                or member.name.endswith("/bin/cmux-tui.exe")
             )
             expected_mode = 0o755 if is_executable else 0o644
             if member.mode != expected_mode:

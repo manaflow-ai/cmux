@@ -22,27 +22,47 @@ const packages = {
   "darwin-x64": "cmux-relay-darwin-x64",
   "linux-x64": "cmux-relay-linux-x64",
   "linux-arm64": "cmux-relay-linux-arm64",
-  "win32-x64": "cmux-relay-win32-x64",
 };
-const pkg = packages[`${process.platform}-${process.arch}`];
+const platformKey = `${process.platform}-${process.arch}`;
+// The Rust machine relay has no Windows PTY backend. Do not resolve an
+// optional package, download a binary, or fall back to a shell on Windows.
+if (process.platform === "win32") {
+  console.error(
+    "cmux-relay: unsupported_platform (the Rust machine relay requires a Unix PTY backend)."
+  );
+  process.exit(1);
+}
+const pkg = packages[platformKey];
 if (!pkg) {
-  console.error(`cmux-relay: no prebuilt binary for ${process.platform}-${process.arch}`);
+  console.error(`cmux-relay: unsupported_platform (no Unix binary for ${platformKey}).`);
   process.exit(1);
 }
 const bin = process.platform === "win32" ? "cmux-relay.exe" : "cmux-relay";
-let path;
-try { path = require.resolve(`${pkg}/bin/${bin}`); }
+const runtimeBin = process.platform === "win32" ? "cmux-tui.exe" : "cmux-tui";
+let relayPath;
+let runtimePath;
+try {
+  relayPath = require.resolve(`${pkg}/bin/${bin}`);
+  // Each relay target package bundles the exact cmux-tui runtime built from
+  // the same checkout. Resolve it from that package so a clean install never
+  // depends on a separately published TUI package or silently falls back.
+  runtimePath = require.resolve(`${pkg}/bin/${runtimeBin}`);
+}
 catch {
-  console.error(`cmux-relay: platform package ${pkg} is not installed`);
+  console.error(
+    `cmux-relay: platform package ${pkg} with its cmux-tui runtime is required; ` +
+      "reinstall cmux-relay with optional dependencies enabled"
+  );
   process.exit(1);
 }
-if (process.argv.slice(2).includes("--autostart") && isEphemeralNpxPath(path)) {
+if (process.argv.slice(2).includes("--autostart") && isEphemeralNpxPath(relayPath)) {
   console.error(EPHEMERAL_NPX_MESSAGE);
   process.exit(2);
 }
-const result = spawnSync(path, process.argv.slice(2), { stdio: "inherit" });
+const env = { ...process.env, CHATMUX_RELAY_CMUX_TUI: runtimePath };
+const result = spawnSync(relayPath, process.argv.slice(2), { stdio: "inherit", env });
 if (result.error) {
-  console.error(`cmux-relay: failed to launch ${path}: ${result.error.message}`);
+  console.error(`cmux-relay: failed to launch ${relayPath}: ${result.error.message}`);
   process.exit(1);
 }
 if (result.signal) {

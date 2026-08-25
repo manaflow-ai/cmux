@@ -1513,7 +1513,7 @@ def test_relay_publisher_is_tag_bound_rc_aware_and_attested() -> None:
     assert 'if [[ "$version" == *-rc.* ]]' in text
     # --access public is required for the first publish of each new unscoped
     # cmux-relay package name under --provenance and is a no-op afterwards.
-    assert text.count('npm publish --provenance --access public --tag "$DIST_TAG"') == 2
+    assert text.count('npm publish --provenance --access public --tag "$DIST_TAG"') == 1
     assert 'npm publish --provenance --tag "$DIST_TAG"' not in text.replace(
         'npm publish --provenance --access public --tag "$DIST_TAG"', ""
     )
@@ -1528,7 +1528,11 @@ def test_relay_publisher_is_tag_bound_rc_aware_and_attested() -> None:
     assert "runs-on: ubuntu-latest" in text
     assert "uses: ./.github/workflows/cmux-tui-build-package.yml" in text
     assert "attest_packages: true" in text
-    assert "include_windows: true" in text
+    # The Rust machine relay has no Windows PTY backend yet. Its stable npm
+    # publisher must build and publish Unix packages only; Windows stays on
+    # the Node rollback lane until a tested backend exists.
+    assert "include_windows: false" in text
+    assert "cmux-relay-win32-x64" not in text
     assert "package_pypi: false" in text
     assert "validate_package_contract.py" in text
     assert "--install-npm-relay-package cmux-relay-linux-x64" in text

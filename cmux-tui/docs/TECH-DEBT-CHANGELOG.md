@@ -16,7 +16,9 @@ release-candidate package fixes,
 web determinism merge
 [#10718](https://github.com/manaflow-ai/cmux/pull/10718), and the final PTY,
 socket, Go, Java, workflow, and package-test hardening tail. Each entry names
-the commit and a direct revert command.
+the commit and a direct revert command. For a single commit, use
+`git revert <full-commit-sha>`; use the exact command in each table row for
+merges or coupled changes.
 
 Intent-audit delta: local history added two deduplicated requests after the prior board snapshot, sandbox-scoped agent spawning with lifecycle/provider proof (UI-23), and isolated product sessions plus a bounded Firstmate feasibility slice (UI-24). Current open cmux-tui PRs, including [PR 9783](https://github.com/manaflow-ai/cmux/pull/9783), [PR 10321](https://github.com/manaflow-ai/cmux/pull/10321), and [PR 9933](https://github.com/manaflow-ai/cmux/pull/9933), do not provide the stated end-to-end acceptance evidence.
 
@@ -318,6 +320,7 @@ Session ledger honesty: the board's lower bound is at least 205 substantive
 agent turns, including audits, research, session mining, fixes, reviews, and
 merge gates. It is not an exact session-file count. The requested 10,000-session
 goal was not reached. Empty or duplicate turns were not created to inflate it.
+
 # Latest wave: exact-head review follow-ups
 
 | Commit | Change | Verification / residual risk | Exact revert |
@@ -351,11 +354,13 @@ goal was not reached. Empty or duplicate turns were not created to inflate it.
 The exact-head autoreview was clean for in-scope changes. It reported two
 out-of-scope remote-tmux findings, which were intentionally ignored: they do
 not affect cmux-tui protocol, SDK, relay, or preview ownership in this wave.
+
 # Historical exact-state correction (2026-08-24)
 
 The exact documentation tip is `df419568b0490c794ec1230244936f70bf2e118f`.
 The branch is 556 commits ahead of `origin/main`. The substantive-turn lower
 bound is at least 205.
+
 # Historical post-correction exact tail (2026-08-24)
 
 The previous aggregate tip was `c599fa778e506574bddf12393d4a9bb91c4772e5`,

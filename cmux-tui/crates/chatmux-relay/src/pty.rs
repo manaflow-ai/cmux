@@ -20,10 +20,11 @@
 //! empty frames; unknown ptyIds tolerated; refusals answer pty_error.
 
 use std::collections::{HashMap, VecDeque};
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
-use tokio::sync::Notify;
+use tokio::sync::{Notify, oneshot};
 
 use async_trait::async_trait;
 use base64::Engine as _;
@@ -48,7 +49,13 @@ pub const SCROLLBACK_LIMIT: usize = 256 * 1024;
 pub const OUTPUT_BUFFER_CAP: u64 = 1024 * 1024;
 /// cmux-tui control protocol floor for attach-surface/send.
 const CONTROL_MIN_PROTOCOL: i64 = 5;
-/// Inner terminals listed per session (surface_list stays bounded).
+/// cmux-tui protocol floor for per-surface geometry ownership. Older daemons
+/// still apply a direct `resize-surface`; newer daemons require a verified
+/// `set-client-sizing` claim before a resize changes the PTY grid.
+const CLIENT_SIZING_MIN_PROTOCOL: i64 = 10;
+/// Inner terminals listed per session (surface_list stays bounded). This is a
+/// deliberate capacity/security limit, not a pagination hint: callers must
+/// fail closed when the daemon reports more live PTYs than this cap.
 const MAX_ENUM_TERMINALS: usize = 8;
 const MAX_ALLOWED_ROOTS: usize = 32;
 const MAX_ALLOWED_ROOT_BYTES: usize = 16 * 1024;
@@ -196,6 +203,12 @@ pub trait PtyControl: Send + Sync {
     fn resize(&self, cols: u16, rows: u16);
     fn pause(&self);
     fn resume(&self);
+    /// Release relay-local attachment state after the PTY has already exited.
+    /// Implementations must not terminate a still-running process here.
+    fn release(&self) {}
+    /// Transfer a just-spawned process from its cancellation guard to the
+    /// manager. Ordinary controls do not need a separate transfer step.
+    fn claim(&self) {}
     fn kill(&self);
 }
 
@@ -213,6 +226,12 @@ pub struct PtyHandle {
     pub control: Arc<dyn PtyControl>,
     pub output: Arc<dyn PtyOutput>,
     pub banner: Option<Vec<u8>>,
+}
+
+impl PtyHandle {
+    pub(crate) fn disarm_cleanup(&self) {
+        self.control.claim();
+    }
 }
 
 pub struct SpawnSpec {
@@ -503,6 +522,7 @@ struct ViewerSink {
 struct ShellSession {
     control: Arc<dyn PtyControl>,
     inner: Mutex<ShellInner>,
+    resize_lock: Mutex<()>,
     banner: Option<Vec<u8>>,
 }
 
@@ -512,6 +532,8 @@ struct ShellInner {
     alive: bool,
     exit_code: Option<i64>,
     viewers: Vec<ViewerSink>,
+    viewer_grids: HashMap<u64, SizingGrid>,
+    applied_grid: Option<SizingGrid>,
 }
 
 #[derive(Clone)]
@@ -523,6 +545,1221 @@ struct Attachment {
     /// kill a viewer PTY) — never kills a shared session.
     control: Arc<dyn PtyControl>,
     actor_id: String,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct SizingKey {
+    socket_path: PathBuf,
+    surface_id: i64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SizingGrid {
+    cols: u16,
+    rows: u16,
+}
+
+#[derive(Clone)]
+struct SizingViewer {
+    control: Arc<dyn ControlHandle>,
+    endpoint: Arc<OrderedControlEndpoint>,
+    grid: SizingGrid,
+}
+
+struct OrderedControlQueue {
+    surface_id: i64,
+    state: Mutex<OrderedControlQueueState>,
+}
+
+struct OrderedControlQueueState {
+    pending_resize: Option<(Arc<OrderedControlEndpoint>, SizingGrid, bool)>,
+    last_resize: Option<(u64, SizingGrid, bool)>,
+    /// A report/claim pair already reserved on the wire for a candidate.
+    /// `apply_target` consumes this marker instead of queueing a duplicate
+    /// pair. A failed verified claim clears the marker before a real retry.
+    claim_fence: Option<(u64, SizingGrid)>,
+    worker_running: bool,
+    closed: bool,
+}
+
+impl OrderedControlQueue {
+    fn new(surface_id: i64) -> Arc<Self> {
+        Arc::new(Self {
+            surface_id,
+            state: Mutex::new(OrderedControlQueueState {
+                pending_resize: None,
+                last_resize: None,
+                claim_fence: None,
+                worker_running: false,
+                closed: false,
+            }),
+        })
+    }
+
+    fn endpoint(
+        self: &Arc<Self>,
+        viewer_id: u64,
+        control: Arc<dyn ControlHandle>,
+    ) -> Arc<OrderedControlEndpoint> {
+        Arc::new(OrderedControlEndpoint {
+            queue: Arc::downgrade(self),
+            viewer_id,
+            control,
+            active: AtomicBool::new(true),
+        })
+    }
+
+    /// Queue a resize while the caller already owns the queue lock. This is
+    /// used by owner-loss transitions: the caller can hold this lock across
+    /// the ownership update, so input cannot pass between the loss decision
+    /// and the survivor's report/claim fence.
+    fn enqueue_resize_locked(
+        &self,
+        state: &mut OrderedControlQueueState,
+        endpoint: &Arc<OrderedControlEndpoint>,
+        grid: SizingGrid,
+        claim: bool,
+    ) -> bool {
+        if state.closed || !endpoint.is_active() {
+            return false;
+        }
+        // A survivor claim is an ownership reservation, not a best-effort
+        // resize. Do not let an older owner update replace its report/claim
+        // while the candidate worker is verifying authority.
+        if !claim && state.claim_fence.is_some() {
+            return false;
+        }
+        // A failed claim must be retried even when the viewer reports the
+        // same grid again. Non-claim owner updates can safely deduplicate
+        // an already-enqueued grid.
+        if !claim
+            && state.pending_resize.is_none()
+            && state.last_resize == Some((endpoint.viewer_id, grid, false))
+        {
+            return false;
+        }
+        state.pending_resize = Some((Arc::clone(endpoint), grid, claim));
+        if state.worker_running {
+            false
+        } else {
+            state.worker_running = true;
+            // Establish the first report/claim in the control writer before
+            // the caller can admit input. `send` is fire-and-forget and uses
+            // the bounded FIFO writer queue, so this does not wait for a
+            // daemon reply.
+            self.flush_resize_locked(state);
+            true
+        }
+    }
+
+    /// Reserve a report/claim pair for a candidate before its verified worker
+    /// round-trip. The marker is separate from ordinary claim enqueues so a
+    /// worker-created retry cannot leave stale reservation state behind.
+    fn reserve_resize_locked(
+        &self,
+        state: &mut OrderedControlQueueState,
+        endpoint: &Arc<OrderedControlEndpoint>,
+        grid: SizingGrid,
+    ) -> bool {
+        if state.closed || !endpoint.is_active() {
+            return false;
+        }
+        if state.claim_fence.is_some_and(|fence| fence != (endpoint.viewer_id, grid)) {
+            return false;
+        }
+        if state.claim_fence == Some((endpoint.viewer_id, grid))
+            && state.pending_resize.is_none()
+            && state.last_resize == Some((endpoint.viewer_id, grid, true))
+        {
+            return false;
+        }
+        state.claim_fence = Some((endpoint.viewer_id, grid));
+        self.enqueue_resize_locked(state, endpoint, grid, true)
+    }
+
+    fn consume_claim_fence_locked(
+        &self,
+        state: &mut OrderedControlQueueState,
+        endpoint: &Arc<OrderedControlEndpoint>,
+        grid: SizingGrid,
+    ) -> bool {
+        if state.closed || !endpoint.is_active() {
+            return false;
+        }
+        if state.claim_fence == Some((endpoint.viewer_id, grid)) {
+            state.claim_fence = None;
+            true
+        } else {
+            false
+        }
+    }
+
+    #[cfg(test)]
+    fn consume_claim_fence(
+        &self,
+        endpoint: &Arc<OrderedControlEndpoint>,
+        grid: SizingGrid,
+    ) -> bool {
+        let mut state = self.state.lock().expect("ordered control queue lock");
+        self.consume_claim_fence_locked(&mut state, endpoint, grid)
+    }
+
+    fn start_drain(self: &Arc<Self>, should_start: bool) {
+        if !should_start {
+            return;
+        }
+        let queue = Arc::clone(self);
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            queue.drain_sync();
+            return;
+        };
+        handle.spawn(async move { queue.drain_async().await });
+    }
+
+    /// Input is emitted only after any pending resize has been flushed under
+    /// the same mutex. This is the ordering fence for resize-before-input;
+    /// ingress itself never awaits the control reply.
+    fn enqueue_input(&self, endpoint: &Arc<OrderedControlEndpoint>, data: &[u8]) {
+        let mut state = self.state.lock().expect("ordered control queue lock");
+        if state.closed || !endpoint.is_active() {
+            return;
+        }
+        self.flush_resize_locked(&mut state);
+        endpoint
+            .control
+            .send("send", json!({ "surface": self.surface_id, "bytes": BASE64.encode(data) }));
+    }
+
+    /// Flush a queued resize before a verified control request is written.
+    /// The shared queue still owns ordering for later input.
+    fn flush_before_request(&self) {
+        let mut state = self.state.lock().expect("ordered control queue lock");
+        self.flush_resize_locked(&mut state);
+    }
+
+    /// Remove one endpoint while the caller already owns the queue lock. The
+    /// pointer check prevents a late leave from clearing a replacement that
+    /// reused the same viewer ID.
+    fn detach_locked(
+        &self,
+        state: &mut OrderedControlQueueState,
+        endpoint: &Arc<OrderedControlEndpoint>,
+    ) {
+        if state
+            .pending_resize
+            .as_ref()
+            .is_some_and(|(current, _, _)| Arc::ptr_eq(current, endpoint))
+        {
+            state.pending_resize = None;
+        }
+        if state.claim_fence.is_some_and(|(candidate, _)| candidate == endpoint.viewer_id) {
+            state.claim_fence = None;
+        }
+    }
+
+    fn close_locked(&self, state: &mut OrderedControlQueueState) {
+        state.closed = true;
+        state.pending_resize = None;
+        state.claim_fence = None;
+    }
+
+    fn drain_sync(&self) {
+        let mut state = self.state.lock().expect("ordered control queue lock");
+        self.flush_resize_locked(&mut state);
+        state.worker_running = false;
+    }
+
+    async fn drain_async(self: Arc<Self>) {
+        loop {
+            let again = {
+                let mut state = self.state.lock().expect("ordered control queue lock");
+                if state.closed {
+                    state.worker_running = false;
+                    false
+                } else if state.pending_resize.is_some() {
+                    self.flush_resize_locked(&mut state);
+                    true
+                } else {
+                    state.worker_running = false;
+                    false
+                }
+            };
+            if !again {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+    }
+
+    fn flush_resize_locked(&self, state: &mut OrderedControlQueueState) {
+        let Some((endpoint, grid, claim)) = state.pending_resize.take() else { return };
+        if !endpoint.is_active() {
+            return;
+        }
+        state.last_resize = Some((endpoint.viewer_id, grid, claim));
+        endpoint.control.send(
+            "resize-surface",
+            json!({ "surface": self.surface_id, "cols": grid.cols, "rows": grid.rows }),
+        );
+        if claim {
+            endpoint.control.send(
+                "set-client-sizing",
+                json!({ "surface": self.surface_id, "enabled": true, "exclusive": true }),
+            );
+        }
+    }
+}
+
+struct OrderedControlEndpoint {
+    queue: Weak<OrderedControlQueue>,
+    viewer_id: u64,
+    control: Arc<dyn ControlHandle>,
+    active: AtomicBool,
+}
+
+impl OrderedControlEndpoint {
+    fn is_active(&self) -> bool {
+        self.active.load(Ordering::Acquire)
+    }
+
+    fn enqueue_input(self: &Arc<Self>, data: &[u8]) {
+        if let Some(queue) = self.queue.upgrade() {
+            queue.enqueue_input(self, data);
+        }
+    }
+
+    fn flush_before_request(self: &Arc<Self>) {
+        if let Some(queue) = self.queue.upgrade() {
+            queue.flush_before_request();
+        }
+    }
+}
+
+struct SizingTargetState {
+    surface_id: i64,
+    viewers: HashMap<u64, SizingViewer>,
+    owner: Option<u64>,
+    /// Viewer that lost an authority claim. Keep it attached for output/input,
+    /// but do not immediately elect it again while a survivor is available.
+    blocked_viewer: Option<u64>,
+    applied: Option<SizingGrid>,
+    retired: bool,
+}
+
+struct SizingTarget {
+    key: SizingKey,
+    queue: Arc<OrderedControlQueue>,
+    state: Mutex<SizingTargetState>,
+    requested: AtomicBool,
+    worker_running: AtomicBool,
+    /// Serializes the worker hand-off with request registration. Without
+    /// this lock a new resize can start a second worker after the old worker
+    /// clears `worker_running` but before it drains waiters.
+    transition: Mutex<()>,
+    waiters: Mutex<Vec<oneshot::Sender<()>>>,
+}
+
+/// Pick the smallest viewer that may claim geometry. A viewer that just lost
+/// authority is skipped while any survivor exists; if it is the only viewer,
+/// it may reclaim after the survivors leave.
+fn candidate_viewer_id(state: &SizingTargetState) -> Option<u64> {
+    state
+        .viewers
+        .keys()
+        .filter(|viewer_id| Some(**viewer_id) != state.blocked_viewer)
+        .min()
+        .copied()
+        .or_else(|| state.viewers.keys().min().copied())
+}
+
+/// Coordinates geometry ownership for all raw terminal viewers on this relay.
+///
+/// Protocol 10 daemons accept a terminal resize only from the connection that
+/// successfully claimed `set-client-sizing`. Requests are asynchronous, so a
+/// single bounded worker per surface serializes report, claim, and resize
+/// round-trips while coalescing bursts of viewer updates.
+struct TerminalSizing {
+    targets: Mutex<HashMap<SizingKey, Arc<SizingTarget>>>,
+}
+
+impl TerminalSizing {
+    fn new() -> Arc<Self> {
+        Arc::new(Self { targets: Mutex::new(HashMap::new()) })
+    }
+
+    fn join(
+        self: &Arc<Self>,
+        key: SizingKey,
+        viewer_id: u64,
+        surface_id: i64,
+        control: Arc<dyn ControlHandle>,
+        grid: SizingGrid,
+    ) -> Option<oneshot::Receiver<()>> {
+        let (target, immediate_endpoint, owner_endpoint, owner_id, owner_grid) = {
+            let mut targets = self.targets.lock().expect("terminal sizing targets lock");
+            let target_key = key.clone();
+            let target = targets.entry(key).or_insert_with(|| {
+                let queue = OrderedControlQueue::new(surface_id);
+                Arc::new(SizingTarget {
+                    key: target_key,
+                    queue,
+                    state: Mutex::new(SizingTargetState {
+                        surface_id,
+                        viewers: HashMap::new(),
+                        owner: None,
+                        blocked_viewer: None,
+                        applied: None,
+                        retired: false,
+                    }),
+                    requested: AtomicBool::new(false),
+                    worker_running: AtomicBool::new(false),
+                    transition: Mutex::new(()),
+                    waiters: Mutex::new(Vec::new()),
+                })
+            });
+            let target = Arc::clone(target);
+            // Keep the map lock while changing the target state. This makes a
+            // final leave and a concurrent join observe one linear order and
+            // prevents a newly joined viewer from being removed with a
+            // retired target.
+            let mut state = target.state.lock().expect("terminal sizing state lock");
+            state.retired = false;
+            let endpoint = target.queue.endpoint(viewer_id, Arc::clone(&control));
+            state.viewers.insert(viewer_id, SizingViewer { control, endpoint, grid });
+            let immediate_claim =
+                state.owner.is_none() && candidate_viewer_id(&state) == Some(viewer_id);
+            let immediate_endpoint = immediate_claim
+                .then(|| state.viewers.get(&viewer_id).map(|viewer| Arc::clone(&viewer.endpoint)))
+                .flatten();
+            let owner_grid = smallest_sizing_grid(&state.viewers);
+            let owner_id =
+                if !immediate_claim && state.applied != owner_grid { state.owner } else { None };
+            let owner_endpoint = owner_id
+                .and_then(|id| state.viewers.get(&id).map(|viewer| Arc::clone(&viewer.endpoint)));
+            (target, immediate_endpoint, owner_endpoint, owner_id, owner_grid)
+        };
+        if let (Some(endpoint), Some(owner_id), Some(grid)) = (owner_endpoint, owner_id, owner_grid)
+        {
+            // A newly joined non-owner can lower the canonical grid. Establish
+            // the owner's FIFO resize fence before the join can send input.
+            self.enqueue_update_if_current(
+                &target,
+                owner_id,
+                Some(owner_id),
+                &endpoint,
+                grid,
+                false,
+            );
+        }
+        if let Some(endpoint) = immediate_endpoint {
+            // Keep the control FIFO ordered for input that follows an open.
+            // The worker repeats these commands with request/response
+            // verification; these fire-and-forget copies are only the
+            // non-blocking wire fence that prevents input overtaking the
+            // initial geometry claim.
+            self.enqueue_update_if_current(&target, viewer_id, None, &endpoint, grid, true);
+        }
+        Some(self.request_reconcile_wait(target))
+    }
+
+    fn queue_for(&self, key: &SizingKey, viewer_id: u64) -> Option<Arc<OrderedControlEndpoint>> {
+        let target =
+            self.targets.lock().expect("terminal sizing targets lock").get(key).cloned()?;
+        let state = target.state.lock().expect("terminal sizing state lock");
+        state.viewers.get(&viewer_id).map(|viewer| Arc::clone(&viewer.endpoint))
+    }
+
+    fn update(self: &Arc<Self>, key: &SizingKey, viewer_id: u64, grid: SizingGrid) {
+        let target = self.targets.lock().expect("terminal sizing targets lock").get(key).cloned();
+        let Some(target) = target else { return };
+        let (endpoint, endpoint_viewer_id, expected_owner, claim, effective_grid, should_enqueue) = {
+            let mut state = target.state.lock().expect("terminal sizing state lock");
+            let owner = state.owner;
+            let candidate = owner.is_none() && candidate_viewer_id(&state) == Some(viewer_id);
+            let Some(viewer) = state.viewers.get_mut(&viewer_id) else { return };
+            viewer.grid = grid;
+            let Some(effective_grid) = smallest_sizing_grid(&state.viewers) else { return };
+            let claim = owner.is_none() && candidate;
+            let should_enqueue = claim || state.applied != Some(effective_grid);
+            let (endpoint_viewer_id, endpoint) = if should_enqueue {
+                if let Some(owner_id) = owner {
+                    state
+                        .viewers
+                        .get(&owner_id)
+                        .map(|viewer| (owner_id, Arc::clone(&viewer.endpoint)))
+                } else if candidate {
+                    state
+                        .viewers
+                        .get(&viewer_id)
+                        .map(|viewer| (viewer_id, Arc::clone(&viewer.endpoint)))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            (endpoint, endpoint_viewer_id, owner, claim, effective_grid, should_enqueue)
+        };
+        if should_enqueue && let Some((endpoint_viewer_id, endpoint)) = endpoint {
+            self.enqueue_update_if_current(
+                &target,
+                endpoint_viewer_id,
+                expected_owner,
+                &endpoint,
+                effective_grid,
+                claim,
+            );
+        }
+        self.request_reconcile(target);
+    }
+
+    fn leave(self: &Arc<Self>, key: &SizingKey, viewer_id: u64) {
+        let (target, should_start, remove_target, should_reconcile) = {
+            let mut targets = self.targets.lock().expect("terminal sizing targets lock");
+            let Some(target) = targets.get(key).cloned() else { return };
+            // Keep the queue before state lock order used by input and owner
+            // loss. This makes leave a linear transition: after the endpoint
+            // is removed, a survivor input cannot pass before its replacement
+            // report/claim or owner resize is enqueued.
+            let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
+            let mut state = target.state.lock().expect("terminal sizing state lock");
+            let Some(removed) = state.viewers.remove(&viewer_id) else {
+                return;
+            };
+            target.queue.detach_locked(&mut queue_state, &removed.endpoint);
+            removed.endpoint.active.store(false, Ordering::Release);
+            let removed_owner = state.owner == Some(viewer_id);
+            if state.blocked_viewer == Some(viewer_id) {
+                state.blocked_viewer = None;
+            }
+            if removed_owner {
+                state.owner = None;
+                state.applied = None;
+                state.blocked_viewer = Some(viewer_id);
+            }
+            if state.viewers.is_empty() {
+                state.retired = true;
+                let remove_target = !target.worker_running.load(Ordering::Acquire);
+                if remove_target {
+                    target.queue.close_locked(&mut queue_state);
+                    targets.remove(key);
+                }
+                (target, false, remove_target, false)
+            } else {
+                let grid = smallest_sizing_grid(&state.viewers);
+                let (should_start, has_transition) = if removed_owner || state.owner.is_none() {
+                    if let (Some(viewer_id), Some(grid)) = (candidate_viewer_id(&state), grid) {
+                        if let Some(viewer) = state.viewers.get(&viewer_id)
+                            && viewer.endpoint.is_active()
+                        {
+                            (
+                                target.queue.reserve_resize_locked(
+                                    &mut queue_state,
+                                    &viewer.endpoint,
+                                    grid,
+                                ),
+                                true,
+                            )
+                        } else {
+                            (false, false)
+                        }
+                    } else {
+                        (false, false)
+                    }
+                } else if let (Some(owner_id), Some(grid)) = (state.owner, grid) {
+                    if let Some(owner) = state.viewers.get(&owner_id)
+                        && owner.endpoint.is_active()
+                        && state.applied != Some(grid)
+                    {
+                        (
+                            target.queue.enqueue_resize_locked(
+                                &mut queue_state,
+                                &owner.endpoint,
+                                grid,
+                                false,
+                            ),
+                            true,
+                        )
+                    } else {
+                        (false, false)
+                    }
+                } else {
+                    (false, false)
+                };
+                (target, should_start, false, has_transition)
+            }
+        };
+        target.queue.start_drain(should_start);
+        if should_reconcile && !remove_target {
+            self.request_reconcile(target);
+        }
+    }
+
+    fn request_reconcile(self: &Arc<Self>, target: Arc<SizingTarget>) {
+        self.request_reconcile_with_waiter(target, None);
+    }
+
+    fn request_reconcile_wait(
+        self: &Arc<Self>,
+        target: Arc<SizingTarget>,
+    ) -> oneshot::Receiver<()> {
+        let (sender, receiver) = oneshot::channel();
+        self.request_reconcile_with_waiter(target, Some(sender));
+        receiver
+    }
+
+    fn request_reconcile_with_waiter(
+        self: &Arc<Self>,
+        target: Arc<SizingTarget>,
+        waiter: Option<oneshot::Sender<()>>,
+    ) {
+        let should_start = {
+            let _transition = target.transition.lock().expect("terminal sizing transition lock");
+            if let Some(waiter) = waiter {
+                target.waiters.lock().expect("terminal sizing waiters lock").push(waiter);
+            }
+            target.requested.store(true, Ordering::Release);
+            target
+                .worker_running
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+        };
+        if !should_start {
+            return;
+        }
+        let coordinator = Arc::clone(self);
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            // All production callers are on the relay runtime. Leave the
+            // request and its waiters latched so the next viewer event can
+            // retry if a test or embedding caller invokes this method outside
+            // Tokio. The waiter is an enqueue/worker-turn notification, not a
+            // claim-success acknowledgement; callers that need authority
+            // must inspect the subsequent wire response.
+            let _transition = target.transition.lock().expect("terminal sizing transition lock");
+            target.worker_running.store(false, Ordering::Release);
+            return;
+        };
+        handle.spawn(async move {
+            coordinator.run_target(target).await;
+        });
+    }
+
+    async fn run_target(self: Arc<Self>, target: Arc<SizingTarget>) {
+        loop {
+            let should_apply = {
+                let _transition =
+                    target.transition.lock().expect("terminal sizing transition lock");
+                if target.requested.swap(false, Ordering::AcqRel) {
+                    true
+                } else {
+                    target.worker_running.store(false, Ordering::Release);
+                    // Request registration and waiter completion are serialized
+                    // by `transition`, so no new request can pass between this
+                    // check and the drain. Completion means the worker turn
+                    // drained/enqueued; a daemon refusal is retried on the
+                    // next viewer event.
+                    self.complete_waiters(&target);
+                    false
+                }
+            };
+            if !should_apply {
+                self.remove_retired_target(&target);
+                return;
+            }
+            self.apply_target(&target).await;
+        }
+    }
+
+    fn complete_waiters(&self, target: &Arc<SizingTarget>) {
+        let waiters =
+            std::mem::take(&mut *target.waiters.lock().expect("terminal sizing waiters lock"));
+        for waiter in waiters {
+            let _ = waiter.send(());
+        }
+    }
+
+    fn remove_retired_target(&self, target: &Arc<SizingTarget>) {
+        let mut targets = self.targets.lock().expect("terminal sizing targets lock");
+        let Some(current) = targets.get(&target.key) else { return };
+        if !Arc::ptr_eq(current, target) {
+            return;
+        }
+        // Keep the queue -> target-state order used by owner-loss fencing.
+        // Do not hold target state while closing the queue: that would let a
+        // concurrent input path deadlock against a reclaim transition.
+        let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
+        let state = target.state.lock().expect("terminal sizing state lock");
+        if state.retired
+            && state.viewers.is_empty()
+            && !target.worker_running.load(Ordering::Acquire)
+        {
+            target.queue.close_locked(&mut queue_state);
+            targets.remove(&target.key);
+        }
+    }
+
+    /// Reserve the next owner or owner resize under the shared queue fence.
+    /// Callers use this after a failed request or a leave transition. The
+    /// queue lock is acquired first so input cannot pass while the candidate
+    /// report/claim is being installed.
+    fn enqueue_candidate(&self, target: &Arc<SizingTarget>) -> bool {
+        let (should_start, has_candidate) = {
+            let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
+            let state = target.state.lock().expect("terminal sizing state lock");
+            if state.retired || state.viewers.is_empty() {
+                (false, false)
+            } else {
+                let grid = smallest_sizing_grid(&state.viewers);
+                if let Some(owner_id) = state.owner {
+                    let owner = state.viewers.get(&owner_id);
+                    if let (Some(owner), Some(grid)) = (owner, grid)
+                        && owner.endpoint.is_active()
+                        && state.applied != Some(grid)
+                    {
+                        let should_start = target.queue.enqueue_resize_locked(
+                            &mut queue_state,
+                            &owner.endpoint,
+                            grid,
+                            false,
+                        );
+                        (should_start, true)
+                    } else {
+                        (false, false)
+                    }
+                } else if let (Some(viewer_id), Some(grid)) = (candidate_viewer_id(&state), grid) {
+                    match state.viewers.get(&viewer_id) {
+                        Some(viewer) if viewer.endpoint.is_active() => {
+                            let should_start = target.queue.reserve_resize_locked(
+                                &mut queue_state,
+                                &viewer.endpoint,
+                                grid,
+                            );
+                            (should_start, true)
+                        }
+                        _ => (false, false),
+                    }
+                } else {
+                    (false, false)
+                }
+            }
+        };
+        target.queue.start_drain(should_start);
+        has_candidate
+    }
+
+    /// Enqueue a viewer update only if the owner/endpoint snapshot is still
+    /// current. The queue lock is taken before target state, so an owner-loss
+    /// transition can reserve its survivor fence without a stale update
+    /// replacing that pending claim.
+    fn enqueue_update_if_current(
+        &self,
+        target: &Arc<SizingTarget>,
+        viewer_id: u64,
+        expected_owner: Option<u64>,
+        endpoint: &Arc<OrderedControlEndpoint>,
+        grid: SizingGrid,
+        claim: bool,
+    ) -> bool {
+        let (should_start, current) = {
+            let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
+            let state = target.state.lock().expect("terminal sizing state lock");
+            if state.retired || state.owner != expected_owner {
+                (false, false)
+            } else {
+                let endpoint_current = state.viewers.get(&viewer_id).is_some_and(|viewer| {
+                    viewer.endpoint.is_active() && Arc::ptr_eq(&viewer.endpoint, endpoint)
+                });
+                let grid_current = smallest_sizing_grid(&state.viewers) == Some(grid);
+                let candidate_current =
+                    expected_owner.is_none() && candidate_viewer_id(&state) == Some(viewer_id);
+                let queue_reserved_for_candidate = !claim && queue_state.claim_fence.is_some();
+                let valid = endpoint_current
+                    && grid_current
+                    && (claim == candidate_current)
+                    && !queue_reserved_for_candidate;
+                if !valid {
+                    (false, false)
+                } else {
+                    let should_start = if claim {
+                        target.queue.reserve_resize_locked(&mut queue_state, endpoint, grid)
+                    } else {
+                        target.queue.enqueue_resize_locked(&mut queue_state, endpoint, grid, false)
+                    };
+                    (should_start, true)
+                }
+            }
+        };
+        target.queue.start_drain(should_start);
+        current
+    }
+
+    /// Prepare a candidate's verified report/claim request atomically with
+    /// the shared queue. A stale owner update cannot replace the survivor
+    /// claim between marker consumption and the flush. The queue sends the
+    /// claim pair before this method returns, so later input cannot overtake
+    /// it. `set-client-sizing` is the authority command; its response is an
+    /// acknowledgement, so input is fenced by the command, not by waiting for
+    /// the duplicate verification response.
+    fn prepare_candidate_request(
+        &self,
+        target: &Arc<SizingTarget>,
+        viewer_id: u64,
+        endpoint: &Arc<OrderedControlEndpoint>,
+        grid: SizingGrid,
+    ) -> bool {
+        let (should_start, current) = {
+            let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
+            let state = target.state.lock().expect("terminal sizing state lock");
+            let endpoint_current = state.owner.is_none()
+                && candidate_viewer_id(&state) == Some(viewer_id)
+                && state.viewers.get(&viewer_id).is_some_and(|viewer| {
+                    viewer.endpoint.is_active() && Arc::ptr_eq(&viewer.endpoint, endpoint)
+                })
+                && smallest_sizing_grid(&state.viewers) == Some(grid)
+                && !state.retired;
+            if !endpoint_current || queue_state.closed {
+                (false, false)
+            } else if queue_state.claim_fence.is_some_and(|fence| fence != (viewer_id, grid)) {
+                // Another candidate owns the reservation. Let its worker
+                // finish or abandon the round; do not replace it from this
+                // stale worker turn.
+                (false, false)
+            } else {
+                // Consume and re-establish the reservation in one queue
+                // critical section. This is deliberately not a plain
+                // `consume_claim_fence()` call: a stale owner update must not
+                // acquire the queue after the marker is cleared and before
+                // the survivor report/claim is flushed.
+                let was_reserved =
+                    target.queue.consume_claim_fence_locked(&mut queue_state, endpoint, grid);
+                if !was_reserved {
+                    queue_state.claim_fence = Some((viewer_id, grid));
+                }
+                let should_start = if queue_state.last_resize == Some((viewer_id, grid, true))
+                    && queue_state.pending_resize.is_none()
+                {
+                    false
+                } else {
+                    let should_start =
+                        target.queue.enqueue_resize_locked(&mut queue_state, endpoint, grid, true);
+                    target.queue.flush_resize_locked(&mut queue_state);
+                    should_start
+                };
+                // Keep the fence live through the verified request. Normal
+                // owner updates are rejected until finish_candidate_request
+                // commits or abandons this candidate.
+                queue_state.claim_fence = Some((viewer_id, grid));
+                (should_start, true)
+            }
+        };
+        target.queue.start_drain(should_start);
+        current
+    }
+
+    /// Finish the candidate round-trip while preserving queue/state lock
+    /// order. A successful claim clears the fence and records ownership in
+    /// one transition; a failed or stale round clears only its own fence so a
+    /// later candidate reservation can retry without reviving a stale owner.
+    fn finish_candidate_request(
+        &self,
+        target: &Arc<SizingTarget>,
+        viewer_id: u64,
+        endpoint: &Arc<OrderedControlEndpoint>,
+        grid: SizingGrid,
+        success: bool,
+    ) -> bool {
+        let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
+        let mut state = target.state.lock().expect("terminal sizing state lock");
+        let current = !state.retired
+            && state.owner.is_none()
+            && candidate_viewer_id(&state) == Some(viewer_id)
+            && smallest_sizing_grid(&state.viewers) == Some(grid)
+            && state.viewers.get(&viewer_id).is_some_and(|viewer| {
+                viewer.endpoint.is_active() && Arc::ptr_eq(&viewer.endpoint, endpoint)
+            });
+        if queue_state.claim_fence == Some((viewer_id, grid)) {
+            queue_state.claim_fence = None;
+        }
+        if success && current {
+            state.owner = Some(viewer_id);
+            state.blocked_viewer = None;
+            state.applied = Some(grid);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Atomically fence a survivor when a claimed owner loses authority.
+    ///
+    /// The queue lock is taken before the target state lock. This order is
+    /// intentional: input only takes the queue lock, so it cannot observe
+    /// the owner-loss state and emit a `send` before the survivor's
+    /// report/claim pair is reserved. The owner is cleared while the queue
+    /// lock is still held, and any pending candidate is flushed before the
+    /// lock is released (or remains pending for the next input to flush).
+    fn reserve_candidate_after_owner_loss(
+        &self,
+        target: &Arc<SizingTarget>,
+        lost_owner: u64,
+    ) -> bool {
+        let (should_start, has_survivor) = {
+            let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
+            let mut state = target.state.lock().expect("terminal sizing state lock");
+            if state.retired || state.owner != Some(lost_owner) {
+                (false, false)
+            } else {
+                let has_survivor = state.viewers.iter().any(|(viewer_id, viewer)| {
+                    **viewer_id != lost_owner && viewer.endpoint.is_active()
+                });
+                let candidate = smallest_sizing_grid(&state.viewers).and_then(|grid| {
+                    if has_survivor {
+                        state
+                            .viewers
+                            .iter()
+                            .filter(|(viewer_id, viewer)| {
+                                **viewer_id != lost_owner
+                                    && Some(**viewer_id) != state.blocked_viewer
+                                    && viewer.endpoint.is_active()
+                            })
+                            .min_by_key(|(viewer_id, _)| *viewer_id)
+                            .map(|(_, viewer)| (Arc::clone(&viewer.endpoint), grid))
+                    } else {
+                        state
+                            .viewers
+                            .get(&lost_owner)
+                            .filter(|viewer| viewer.endpoint.is_active())
+                            .map(|viewer| (Arc::clone(&viewer.endpoint), grid))
+                    }
+                });
+                let should_start = candidate
+                    .as_ref()
+                    .map(|(endpoint, grid)| {
+                        target.queue.reserve_resize_locked(&mut queue_state, endpoint, *grid)
+                    })
+                    .unwrap_or(false);
+                state.blocked_viewer = Some(lost_owner);
+                state.owner = None;
+                state.applied = None;
+                (should_start, candidate.is_some())
+            }
+        };
+        target.queue.start_drain(should_start);
+        has_survivor
+    }
+
+    async fn apply_target(self: &Arc<Self>, target: &Arc<SizingTarget>) {
+        let (surface_id, grid, owner, owner_control, owner_queue, candidate) = {
+            let state = target.state.lock().expect("terminal sizing state lock");
+            if state.retired || state.viewers.is_empty() {
+                return;
+            }
+            let Some(grid) = smallest_sizing_grid(&state.viewers) else { return };
+            let owner = state.owner.filter(|id| state.viewers.contains_key(id));
+            if let Some(owner_id) = owner {
+                let Some(viewer) = state.viewers.get(&owner_id) else { return };
+                if state.applied == Some(grid) {
+                    return;
+                }
+                (
+                    state.surface_id,
+                    grid,
+                    Some(owner_id),
+                    Some(Arc::clone(&viewer.control)),
+                    Some(Arc::clone(&viewer.endpoint)),
+                    None,
+                )
+            } else {
+                let Some(viewer_id) = candidate_viewer_id(&state) else {
+                    return;
+                };
+                let Some(viewer) = state.viewers.get(&viewer_id) else { return };
+                (
+                    state.surface_id,
+                    grid,
+                    None,
+                    None,
+                    None,
+                    Some((viewer_id, Arc::clone(&viewer.control), Arc::clone(&viewer.endpoint))),
+                )
+            }
+        };
+
+        if let Some((viewer_id, control, endpoint)) = candidate {
+            // A viewer elected after a leave must use the same ordered wire
+            // fence as an initial join. Otherwise its first input could pass
+            // the asynchronous report/claim pair.
+            if !self.prepare_candidate_request(target, viewer_id, &endpoint, grid) {
+                self.enqueue_candidate(target);
+                return;
+            }
+            let reported = control
+                .request(
+                    "resize-surface",
+                    json!({ "surface": surface_id, "cols": grid.cols, "rows": grid.rows }),
+                )
+                .await;
+            if !control_response_ok(reported.as_ref()) {
+                self.finish_candidate_request(target, viewer_id, &endpoint, grid, false);
+                self.enqueue_candidate(target);
+                return;
+            }
+            // The viewer can detach while the report round-trip is pending.
+            // Re-check liveness before claiming authority; otherwise a late
+            // reply would let a dead attachment claim a surface after leave.
+            {
+                let state = target.state.lock().expect("terminal sizing state lock");
+                if state.retired
+                    || !state.viewers.contains_key(&viewer_id)
+                    || candidate_viewer_id(&state) != Some(viewer_id)
+                    || smallest_sizing_grid(&state.viewers) != Some(grid)
+                {
+                    drop(state);
+                    self.finish_candidate_request(target, viewer_id, &endpoint, grid, false);
+                    self.enqueue_candidate(target);
+                    return;
+                }
+            }
+            // A passive report can return accepted:false while retaining the
+            // report. Claiming immediately after that report is the protocol
+            // sequence that makes this viewer authoritative.
+            let claimed = control
+                .request(
+                    "set-client-sizing",
+                    json!({ "surface": surface_id, "enabled": true, "exclusive": true }),
+                )
+                .await;
+            if !control_response_ok(claimed.as_ref()) {
+                self.finish_candidate_request(target, viewer_id, &endpoint, grid, false);
+                self.enqueue_candidate(target);
+                return;
+            }
+            if !self.finish_candidate_request(target, viewer_id, &endpoint, grid, true) {
+                self.enqueue_candidate(target);
+            }
+            return;
+        }
+
+        let Some(owner_id) = owner else { return };
+        let Some(control) = owner_control else { return };
+        // A non-owner viewer can change the canonical smallest grid. Route the
+        // owner's resize through its ordered queue before the control request,
+        // so input written on that connection cannot overtake this update.
+        // `enqueue_resize` coalesces a resize already queued by the owner
+        // update path, while still fencing a cross-viewer update here.
+        if let Some(endpoint) = owner_queue {
+            if !self.enqueue_update_if_current(
+                target,
+                owner_id,
+                Some(owner_id),
+                &endpoint,
+                grid,
+                false,
+            ) {
+                self.enqueue_candidate(target);
+                return;
+            }
+            endpoint.flush_before_request();
+        }
+        let resized = control
+            .request(
+                "resize-surface",
+                json!({ "surface": surface_id, "cols": grid.cols, "rows": grid.rows }),
+            )
+            .await;
+        if !control_response_ok(resized.as_ref()) {
+            if self.reserve_candidate_after_owner_loss(target, owner_id) {
+                self.request_reconcile(Arc::clone(target));
+            }
+            return;
+        }
+        if resized
+            .as_ref()
+            .and_then(|response| response.get("data"))
+            .and_then(|data| data.get("accepted"))
+            .and_then(Value::as_bool)
+            == Some(false)
+        {
+            if self.reserve_candidate_after_owner_loss(target, owner_id) {
+                self.request_reconcile(Arc::clone(target));
+            }
+            return;
+        }
+        let mut state = target.state.lock().expect("terminal sizing state lock");
+        if state.owner == Some(owner_id) && !state.retired {
+            state.applied = Some(grid);
+        }
+    }
+}
+
+fn smallest_sizing_grid(viewers: &HashMap<u64, SizingViewer>) -> Option<SizingGrid> {
+    viewers.values().map(|viewer| viewer.grid).reduce(|left, right| SizingGrid {
+        cols: left.cols.min(right.cols),
+        rows: left.rows.min(right.rows),
+    })
+}
+
+fn smallest_shell_grid(viewers: &HashMap<u64, SizingGrid>) -> Option<SizingGrid> {
+    viewers.values().copied().reduce(|left, right| SizingGrid {
+        cols: left.cols.min(right.cols),
+        rows: left.rows.min(right.rows),
+    })
+}
+
+fn control_response_ok(response: Option<&Value>) -> bool {
+    response.and_then(|value| value.get("ok")).and_then(Value::as_bool) == Some(true)
+}
+
+struct TerminalSizingLease {
+    // The manager owns the coordinator. A lease must not keep that manager
+    // alive through a control callback cycle after cancellation.
+    coordinator: std::sync::Weak<TerminalSizing>,
+    key: SizingKey,
+    viewer_id: u64,
+    surface_id: i64,
+    state: Mutex<SizingLeaseState>,
+}
+
+struct SizingLeaseState {
+    joining: bool,
+    joined: bool,
+    released: bool,
+}
+
+impl TerminalSizingLease {
+    fn new(
+        coordinator: &Arc<TerminalSizing>,
+        key: SizingKey,
+        viewer_id: u64,
+        surface_id: i64,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            coordinator: Arc::downgrade(coordinator),
+            key,
+            viewer_id,
+            surface_id,
+            state: Mutex::new(SizingLeaseState { joining: false, joined: false, released: false }),
+        })
+    }
+
+    fn join(
+        &self,
+        control: Arc<dyn ControlHandle>,
+        grid: SizingGrid,
+    ) -> Option<oneshot::Receiver<()>> {
+        let should_start = {
+            let mut state = self.state.lock().expect("terminal sizing lease lock");
+            if state.released || state.joined || state.joining {
+                false
+            } else {
+                state.joining = true;
+                true
+            }
+        };
+        if !should_start {
+            return None;
+        }
+        let mut waiter = None;
+        {
+            let Some(coordinator) = self.coordinator.upgrade() else {
+                let mut state = self.state.lock().expect("terminal sizing lease lock");
+                state.joining = false;
+                state.released = true;
+                return None;
+            };
+            waiter =
+                coordinator.join(self.key.clone(), self.viewer_id, self.surface_id, control, grid);
+            let rollback = {
+                let mut state = self.state.lock().expect("terminal sizing lease lock");
+                state.joining = false;
+                if state.released {
+                    true
+                } else {
+                    state.joined = true;
+                    false
+                }
+            };
+            if rollback {
+                coordinator.leave(&self.key, self.viewer_id);
+                waiter = None;
+            }
+        }
+        waiter
+    }
+
+    fn update(&self, grid: SizingGrid) {
+        let joined = {
+            let state = self.state.lock().expect("terminal sizing lease lock");
+            state.joined && !state.released
+        };
+        if joined {
+            if let Some(coordinator) = self.coordinator.upgrade() {
+                coordinator.update(&self.key, self.viewer_id, grid);
+            }
+        }
+    }
+
+    fn queue(&self) -> Option<Arc<OrderedControlEndpoint>> {
+        let joined = {
+            let state = self.state.lock().expect("terminal sizing lease lock");
+            state.joined && !state.released
+        };
+        if !joined {
+            return None;
+        }
+        let coordinator = self.coordinator.upgrade()?;
+        coordinator.queue_for(&self.key, self.viewer_id)
+    }
+
+    fn leave(&self) {
+        let should_leave = {
+            let mut state = self.state.lock().expect("terminal sizing lease lock");
+            if state.released {
+                false
+            } else {
+                state.released = true;
+                state.joined && !state.joining
+            }
+        };
+        if should_leave {
+            if let Some(coordinator) = self.coordinator.upgrade() {
+                coordinator.leave(&self.key, self.viewer_id);
+            }
+        }
+    }
+}
+
+impl Drop for TerminalSizingLease {
+    fn drop(&mut self) {
+        // A cancelled open can drop the lease before the control proxy exists.
+        // Keep the target map bounded even when no close callback is installed.
+        self.leave();
+    }
+}
+
+/// Owns a connected cmux-tui control until raw attachment setup completes.
+/// Every fallible request in `open_cmux_terminal` is therefore cancellation
+/// safe; successful setup transfers ownership to `ControlTerminalControl`.
+struct ControlCleanupGuard {
+    control: Option<Arc<dyn ControlHandle>>,
+}
+
+impl ControlCleanupGuard {
+    fn new(control: Arc<dyn ControlHandle>) -> Self {
+        Self { control: Some(control) }
+    }
+
+    fn disarm(&mut self) {
+        self.control = None;
+    }
+}
+
+impl Drop for ControlCleanupGuard {
+    fn drop(&mut self) {
+        if let Some(control) = self.control.take() {
+            control.end();
+        }
+    }
 }
 
 struct Inner {
@@ -537,8 +1774,10 @@ struct Inner {
     cancelled_openings: Mutex<std::collections::HashSet<String>>,
     shell_sessions: Mutex<HashMap<String, Arc<ShellSession>>>,
     shell_starting: Mutex<HashMap<String, Arc<Notify>>>,
+    sizing: Arc<TerminalSizing>,
     auth: Mutex<Option<AuthSnapshot>>,
     next_generation: AtomicU64,
+    next_sizing_id: AtomicU64,
 }
 
 struct ShellStartReservation {
@@ -570,6 +1809,7 @@ impl Drop for OpeningReservation {
     }
 }
 
+#[derive(Clone)]
 pub struct PtyManager {
     inner: Arc<Inner>,
 }
@@ -589,8 +1829,10 @@ impl PtyManager {
                 cancelled_openings: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
+                sizing: TerminalSizing::new(),
                 auth: Mutex::new(None),
                 next_generation: AtomicU64::new(1),
+                next_sizing_id: AtomicU64::new(1),
             }),
         }
     }
@@ -616,8 +1858,10 @@ impl PtyManager {
                 cancelled_openings: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
+                sizing: TerminalSizing::new(),
                 auth: Mutex::new(None),
                 next_generation: AtomicU64::new(1),
+                next_sizing_id: AtomicU64::new(1),
             }),
         }
     }
@@ -655,6 +1899,12 @@ impl PtyManager {
                     return;
                 };
                 if let Some(attachment) = self.inner.authorize(pty_id, context, "resize") {
+                    // Resize is a hot-path, fire-and-forget operation.  The
+                    // sizing coordinator coalesces updates and performs its
+                    // control-plane replies in a separate worker.  Waiting
+                    // here can hold the serialized relay ingress for the
+                    // full three-second control timeout and block input,
+                    // close, or trust updates behind a slow daemon.
                     attachment.control.resize(cols, rows);
                 }
             }
@@ -686,6 +1936,13 @@ impl PtyManager {
             self.inner.close(&id);
         }
     }
+
+    /// Close one attachment after outbound output saturation. This is kept
+    /// separate from `detach_all` so one slow viewer cannot terminate other
+    /// sessions on the same relay connection.
+    pub fn detach_on_output_overflow(&self, pty_id: &str) {
+        self.inner.close(pty_id);
+    }
 }
 
 fn send_pty_error(context: &FrameContext, pty_id: &str, code: RelayPtyErrorCode, message: &str) {
@@ -708,14 +1965,37 @@ fn operational_pty_error_code(
     context: &FrameContext,
     operational: RelayPtyErrorCode,
 ) -> RelayPtyErrorCode {
-    if context.negotiated_version >= PTY_OPERATIONAL_ERRORS_PROTOCOL_VERSION {
-        operational
+    crate::wire::pty_operational_error_code(context.negotiated_version, operational)
+}
+
+fn send_operational_pty_error(
+    context: &FrameContext,
+    pty_id: &str,
+    code: RelayPtyErrorCode,
+    typed_message: &str,
+    legacy_message: &str,
+) {
+    let code = operational_pty_error_code(context, code);
+    let message = if context.negotiated_version >= PTY_OPERATIONAL_ERRORS_PROTOCOL_VERSION {
+        typed_message
     } else {
-        RelayPtyErrorCode::Failed
-    }
+        legacy_message
+    };
+    send_pty_error(context, pty_id, code, message);
 }
 
 impl Inner {
+    /// Remove a shell map entry only when it still points at the session that
+    /// exited. A replacement can be installed before a late exit callback
+    /// runs; pointer identity prevents that callback from deleting the live
+    /// replacement.
+    fn remove_shell_session_if_current(&self, session: &str, expected: &Arc<ShellSession>) {
+        let mut sessions = self.shell_sessions.lock().expect("shell lock");
+        if sessions.get(session).is_some_and(|current| Arc::ptr_eq(current, expected)) {
+            sessions.remove(session);
+        }
+    }
+
     async fn open(self: Arc<Self>, frame: &Value, context: &FrameContext) {
         let pty_id = frame.get("ptyId").and_then(Value::as_str).unwrap_or_default().to_owned();
         if pty_id.is_empty() {
@@ -848,7 +2128,7 @@ impl Inner {
         } else {
             None
         };
-        let opened = match opened {
+        let mut opened = match opened {
             Some(opened) => opened,
             None => {
                 let result = if let Some(cmux_tui) = cmux_tui.as_ref() {
@@ -899,8 +2179,6 @@ impl Inner {
         if cancelled {
             self.opening_ids.lock().expect("opening lock").remove(&pty_id);
             reservation.active = false;
-            opened.closing.store(true, Ordering::SeqCst);
-            opened.control.kill();
             return;
         }
         let previous_gate = self
@@ -919,8 +2197,6 @@ impl Inner {
             drop(opening);
             drop(previous_gate_guard);
             reservation.active = false;
-            opened.closing.store(true, Ordering::SeqCst);
-            opened.control.kill();
             return;
         }
         let previous = self.attachments.lock().expect("attach lock").insert(
@@ -928,8 +2204,8 @@ impl Inner {
             Attachment {
                 generation: opened.generation,
                 gate: Arc::clone(&opened.gate),
-                closing: opened.closing,
-                control: opened.control,
+                closing: Arc::clone(&opened.closing),
+                control: Arc::clone(&opened.control),
                 actor_id: actor.to_owned(),
             },
         );
@@ -940,13 +2216,16 @@ impl Inner {
             previous.closing.store(true, Ordering::SeqCst);
             previous.control.kill();
         }
+        // The attachment table now owns the control. Dropping `opened` after
+        // this point must not run its cancellation cleanup.
+        opened.disarm_cleanup();
         reservation.active = false;
         let mut opened_frame = serde_json::Map::new();
         opened_frame.insert("version".to_owned(), Value::from(PTY_PROTOCOL_VERSION));
         opened_frame.insert("type".to_owned(), Value::from("pty_opened"));
         opened_frame.insert("ptyId".to_owned(), Value::from(pty_id.clone()));
         opened_frame.insert("session".to_owned(), Value::from(session));
-        if let Some(surface) = opened.surface {
+        if let Some(surface) = opened.surface.as_ref() {
             opened_frame.insert("surface".to_owned(), Value::from(surface));
         }
         opened_frame.insert("created".to_owned(), Value::from(opened.created));
@@ -956,7 +2235,7 @@ impl Inner {
 
         // Output only AFTER pty_opened (ordering): banner, then scrollback
         // replay, then live bytes.
-        (opened.start)();
+        (opened.start.take().expect("opened start callback"))();
     }
 
     /// Build the per-attachment emit closures (output + exit framing).
@@ -1013,9 +2292,16 @@ impl Inner {
     ) -> Option<Arc<dyn PtyControl>> {
         let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return None };
         let Some(control) = control.upgrade() else { return None };
-        if !self.attachment_is_current(pty_id, generation, &control)
-            || self.authorize_snapshot(pty_id, &auth, context, "output").is_none()
-        {
+        if !self.attachment_is_current(pty_id, generation, &control) {
+            return None;
+        }
+        if self.authorize_snapshot(pty_id, &auth, context, "output").is_none() {
+            // The caller already owns the attachment gate. Remove and detach
+            // directly instead of calling `close`, which would try to lock
+            // the same gate again during a trust downgrade.
+            if self.remove_attachment_if_current(pty_id, generation, &control) {
+                return Some(control);
+            }
             return None;
         }
         // Zero-byte chunks carry nothing and historically crashed the web
@@ -1029,14 +2315,12 @@ impl Inner {
         // buffered amount over the cap.
         if buffered.saturating_add(chunk.len() as u64) > self.output_cap {
             if self.remove_attachment_if_current(pty_id, generation, &control) {
-                send_pty_error(
+                send_operational_pty_error(
                     context,
                     pty_id,
-                    operational_pty_error_code(context, RelayPtyErrorCode::Overflow),
-                    &format!(
-                        "pty output backlog exceeded: {buffered} bytes buffered toward the server (cap {}); reattach to continue receiving output",
-                        self.output_cap,
-                    ),
+                    RelayPtyErrorCode::Overflow,
+                    "terminal output overflowed; reattach to continue receiving output",
+                    "PTY output buffer is full. Reattach to continue.",
                 );
                 return Some(control);
             }
@@ -1091,14 +2375,22 @@ impl Inner {
     ) {
         let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
         let Some(control) = control.upgrade() else { return };
-        if !self.attachment_is_current(pty_id, generation, &control)
-            || self.authorize_snapshot(pty_id, &auth, context, "exit").is_none()
-        {
+        if !self.attachment_is_current(pty_id, generation, &control) {
+            return;
+        }
+        if self.authorize_snapshot(pty_id, &auth, context, "exit").is_none() {
+            if self.remove_attachment_if_current(pty_id, generation, &control) {
+                control.kill();
+            }
             return;
         }
         if !self.remove_attachment_if_current(pty_id, generation, &control) {
             return;
         }
+        // Release relay-local state after the PTY has exited. Do not call
+        // `kill`: whole-session controls may still own a process handle and
+        // an exit callback must never send a late SIGKILL to a reused PID.
+        control.release();
         (auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_exit",
@@ -1214,7 +2506,11 @@ impl Inner {
 
     fn authorize(&self, pty_id: &str, context: &FrameContext, action: &str) -> Option<Attachment> {
         let auth = self.auth.lock().expect("auth lock").clone()?;
-        self.authorize_snapshot(pty_id, &auth, context, action)
+        let attachment = self.authorize_snapshot(pty_id, &auth, context, action);
+        if attachment.is_none() {
+            self.close(pty_id);
+        }
+        attachment
     }
 
     fn authorize_snapshot(
@@ -1222,7 +2518,7 @@ impl Inner {
         pty_id: &str,
         auth: &AuthSnapshot,
         context: &FrameContext,
-        action: &str,
+        _action: &str,
     ) -> Option<Attachment> {
         let attachment = self.attachments.lock().expect("attach lock").get(pty_id)?.clone();
         let owner = auth.owner_user_id.as_deref();
@@ -1232,12 +2528,12 @@ impl Inner {
         if allowed {
             Some(attachment)
         } else {
-            self.close(pty_id);
-            send_pty_error(
+            send_operational_pty_error(
                 context,
                 pty_id,
-                operational_pty_error_code(context, RelayPtyErrorCode::TrustRevoked),
-                &format!("PTY {action} refused after trust change; restore trust, then reattach"),
+                RelayPtyErrorCode::TrustRevoked,
+                "PTY trust changed. Restore trust, then reattach.",
+                "PTY trust changed. Restore trust, then reattach.",
             );
             None
         }
@@ -1257,7 +2553,28 @@ struct Opened {
     surface: Option<String>,
     control: Arc<dyn PtyControl>,
     closing: Arc<AtomicBool>,
-    start: Box<dyn FnOnce() + Send>,
+    start: Option<Box<dyn FnOnce() + Send>>,
+    cleanup_armed: AtomicBool,
+}
+
+impl Opened {
+    /// Transfer control ownership to the attachment table. Until this call,
+    /// dropping the value is the cancellation/error cleanup path.
+    fn disarm_cleanup(&self) {
+        self.cleanup_armed.store(false, Ordering::Release);
+    }
+}
+
+impl Drop for Opened {
+    fn drop(&mut self) {
+        if self.cleanup_armed.swap(false, Ordering::AcqRel) {
+            self.closing.store(true, Ordering::Release);
+            // The guard owns a just-opened control until attachment insertion;
+            // cancellation must release sizing ownership and close the local
+            // control socket rather than leaking a daemon attachment.
+            self.control.kill();
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1303,58 +2620,46 @@ impl Inner {
                 .connect_control(&ensured.socket_path)
                 .await
                 .map_err(|_| "cannot inspect existing daemon cwd".to_owned())?;
+            let mut control_cleanup = ControlCleanupGuard::new(Arc::clone(&control));
             let Some(listed) = control.request("list-workspaces", json!({})).await else {
-                control.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             };
             if listed.get("ok").and_then(Value::as_bool) != Some(true) {
-                control.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             }
             let Some(data) = listed.get("data").and_then(Value::as_object) else {
-                control.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             };
             if !data.get("workspaces").is_some_and(Value::is_array) {
-                control.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             }
             if !workspace_shape_valid(listed.get("data")) {
-                control.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             }
             let tabs = match collect_pty_tabs_strict(listed.get("data")) {
                 Ok(tabs) => tabs,
-                Err(_) => {
-                    control.end();
-                    return Err("cannot inspect existing daemon surfaces".to_owned());
-                }
+                Err(_) => return Err("cannot inspect existing daemon surfaces".to_owned()),
             };
             if tabs.len() > MAX_ENUM_TERMINALS || (tabs.is_empty() && !ensured.created) {
-                control.end();
                 return Err("cannot prove existing daemon cwd is within allowed roots".to_owned());
             }
             for tab in tabs {
                 let Some(info) =
                     control.request("process-info", json!({ "surface": tab.surface_id })).await
                 else {
-                    control.end();
                     return Err("cannot inspect existing surface cwd".to_owned());
                 };
                 if info.get("ok").and_then(Value::as_bool) != Some(true) {
-                    control.end();
                     return Err("cannot inspect existing surface cwd".to_owned());
                 }
                 let Some(actual) =
                     info.get("data").and_then(|v| v.get("cwd")).and_then(Value::as_str)
                 else {
-                    control.end();
                     return Err(
                         "cannot prove existing surface cwd is within allowed roots".to_owned()
                     );
                 };
                 if actual.is_empty() || !Path::new(actual).is_absolute() {
-                    control.end();
                     return Err(
                         "cannot prove existing surface cwd is within allowed roots".to_owned()
                     );
@@ -1367,11 +2672,10 @@ impl Inner {
                 )
                 .is_err()
                 {
-                    control.end();
                     return Err("existing surface cwd is outside allowed roots".to_owned());
                 }
             }
-            control.end();
+            drop(control_cleanup);
         }
         let mut args = cmux_tui.prefix.clone();
         args.extend([
@@ -1381,7 +2685,7 @@ impl Inner {
             "--socket".to_owned(),
             ensured.socket_path.to_string_lossy().into_owned(),
         ]);
-        let handle = self
+        let mut handle = self
             .deps
             .spawn_pty(SpawnSpec {
                 file: cmux_tui.file.clone(),
@@ -1392,6 +2696,9 @@ impl Inner {
                 env: env.clone(),
             })
             .await;
+        // The PTY handle owns a cancellation guard until this synchronous
+        // setup transfers its control surface into the attachment guard.
+        handle.disarm_cleanup();
         let control = Arc::clone(&handle.control);
         let output = Arc::clone(&handle.output);
         let banner = handle.banner.clone();
@@ -1404,7 +2711,8 @@ impl Inner {
             surface: None,
             control,
             closing: Arc::new(AtomicBool::new(false)),
-            start: Box::new(move || drive_handle(output, banner, on_data, on_exit)),
+            start: Some(Box::new(move || drive_handle(output, banner, on_data, on_exit))),
+            cleanup_armed: AtomicBool::new(true),
         })
     }
 
@@ -1423,164 +2731,185 @@ impl Inner {
         context: &FrameContext,
     ) -> Result<Opened, String> {
         let mut created = false;
-        let shell_session = loop {
-            if let Some(existing) =
-                self.shell_sessions.lock().expect("shell lock").get(session).cloned()
-            {
-                if context.local_roots.as_deref().is_some_and(|r| !r.is_empty())
-                    || server_roots.is_some_and(|r| !r.is_empty())
+        let (shell_session, viewer_id, released) = loop {
+            // A failed liveness check may retry after the just-created shell
+            // exits. Do not carry that attempt's `created` bit to a different
+            // session map entry.
+            created = false;
+            let shell_session = loop {
+                if let Some(existing) =
+                    self.shell_sessions.lock().expect("shell lock").get(session).cloned()
                 {
-                    return Err("cannot reattach existing shell under scoped roots".to_owned());
+                    break existing;
                 }
-                existing.control.resize(cols, rows);
-                break existing;
-            }
-            let (notify, owner, waiter) = {
-                let mut starting = self.shell_starting.lock().expect("shell starting lock");
-                if let Some(notify) = starting.get(session) {
-                    let notify = Arc::clone(notify);
-                    // Register before releasing the map lock. The owner may
-                    // finish immediately; creating this future later could
-                    // miss `notify_waiters`.
-                    let waiter = Arc::clone(&notify).notified_owned();
-                    (notify, false, Some(waiter))
-                } else {
-                    let notify = Arc::new(Notify::new());
-                    starting.insert(session.to_owned(), Arc::clone(&notify));
-                    (notify, true, None)
+                let (notify, owner, waiter) = {
+                    let mut starting = self.shell_starting.lock().expect("shell starting lock");
+                    if let Some(notify) = starting.get(session) {
+                        let notify = Arc::clone(notify);
+                        // Register before releasing the map lock. The owner may
+                        // finish immediately; creating this future later could
+                        // miss `notify_waiters`.
+                        let waiter = Arc::clone(&notify).notified_owned();
+                        (notify, false, Some(waiter))
+                    } else {
+                        let notify = Arc::new(Notify::new());
+                        starting.insert(session.to_owned(), Arc::clone(&notify));
+                        (notify, true, None)
+                    }
+                };
+                if !owner {
+                    waiter.expect("shell waiter").await;
+                    continue;
+                }
+                if self.shell_sessions.lock().expect("shell lock").len() >= self.max_ptys {
+                    self.shell_starting.lock().expect("shell starting lock").remove(session);
+                    notify.notify_waiters();
+                    return Err(format!("this relay caps persistent shells at {}", self.max_ptys));
+                }
+                let mut reservation = ShellStartReservation {
+                    inner: Arc::clone(&self),
+                    session: session.to_owned(),
+                    notify,
+                    active: true,
+                };
+                {
+                    let shell = self.deps.shell();
+                    let mut handle = self
+                        .deps
+                        .spawn_pty(SpawnSpec {
+                            file: shell,
+                            args: Vec::new(),
+                            cols,
+                            rows,
+                            cwd: cwd.to_path_buf(),
+                            env: env.clone(),
+                        })
+                        .await;
+                    let control = Arc::clone(&handle.control);
+                    let output = Arc::clone(&handle.output);
+                    let banner = handle.banner.clone();
+                    handle.disarm_cleanup();
+                    let shell_session = Arc::new(ShellSession {
+                        control,
+                        resize_lock: Mutex::new(()),
+                        banner,
+                        inner: Mutex::new(ShellInner {
+                            ring: VecDeque::new(),
+                            ring_size: 0,
+                            alive: true,
+                            exit_code: None,
+                            viewers: Vec::new(),
+                            viewer_grids: HashMap::new(),
+                            applied_grid: Some(SizingGrid { cols, rows }),
+                        }),
+                    });
+                    // Session-level plumbing runs for the session's whole life:
+                    // the ring fills even while detached, and exit ends the
+                    // session for every attached viewer. One fanout sink is
+                    // subscribed to the session PTY; per-viewer sinks live in the
+                    // viewer set.
+                    let session_name = session.to_owned();
+                    let scrollback_limit = self.scrollback_limit;
+                    let data_session = Arc::clone(&shell_session);
+                    let exit_session = Arc::clone(&shell_session);
+                    let manager = Arc::clone(&self);
+                    let on_session_data: DataSink = Arc::new(move |chunk: Bytes| {
+                        let (viewers_to_drain, viewers_overflowed) = {
+                            let mut inner = data_session.inner.lock().expect("shell inner lock");
+                            inner.ring_size += chunk.len();
+                            inner.ring.push_back(chunk.clone());
+                            while inner.ring_size > scrollback_limit && inner.ring.len() > 1 {
+                                let Some(dropped) = inner.ring.pop_front() else { break };
+                                inner.ring_size -= dropped.len();
+                            }
+                            let mut viewers_to_drain = Vec::new();
+                            let mut viewers_overflowed = Vec::new();
+                            for viewer in &inner.viewers {
+                                match viewer.delivery.push_data(chunk.clone()) {
+                                    ViewerDeliveryAction::Drain => {
+                                        viewers_to_drain.push(Arc::clone(&viewer.delivery));
+                                    }
+                                    ViewerDeliveryAction::Overflow => {
+                                        viewers_overflowed.push(Arc::clone(&viewer.delivery));
+                                    }
+                                    ViewerDeliveryAction::None => {}
+                                }
+                            }
+                            (viewers_to_drain, viewers_overflowed)
+                        };
+                        for delivery in viewers_overflowed {
+                            delivery.notify_overflow();
+                        }
+                        for delivery in viewers_to_drain {
+                            delivery.drain();
+                        }
+                    });
+                    let on_session_exit: ExitSink = Arc::new(move |code: i64| {
+                        let (viewers_to_drain, viewers_overflowed) = {
+                            let mut inner = exit_session.inner.lock().expect("shell inner lock");
+                            if !inner.alive {
+                                return;
+                            }
+                            inner.alive = false;
+                            inner.exit_code = Some(code);
+                            inner.viewer_grids.clear();
+                            let mut viewers_to_drain = Vec::new();
+                            let mut viewers_overflowed = Vec::new();
+                            for viewer in std::mem::take(&mut inner.viewers) {
+                                match viewer.delivery.finish(code) {
+                                    ViewerDeliveryAction::Drain => {
+                                        viewers_to_drain.push(viewer.delivery);
+                                    }
+                                    ViewerDeliveryAction::Overflow => {
+                                        viewers_overflowed.push(viewer.delivery);
+                                    }
+                                    ViewerDeliveryAction::None => {}
+                                }
+                            }
+                            (viewers_to_drain, viewers_overflowed)
+                        };
+                        manager.remove_shell_session_if_current(&session_name, &exit_session);
+                        for delivery in viewers_overflowed {
+                            delivery.notify_overflow();
+                        }
+                        for delivery in viewers_to_drain {
+                            delivery.drain();
+                        }
+                    });
+                    self.shell_sessions
+                        .lock()
+                        .expect("shell lock")
+                        .insert(session.to_owned(), Arc::clone(&shell_session));
+                    // Register before subscribing so a synchronous buffered exit
+                    // can remove this session instead of being overwritten by a
+                    // later insertion.
+                    output.subscribe(on_session_data, on_session_exit);
+                    self.shell_starting.lock().expect("shell starting lock").remove(session);
+                    reservation.active = false;
+                    reservation.notify.notify_waiters();
+                    created = true;
+                    break shell_session;
                 }
             };
-            if !owner {
-                waiter.expect("shell waiter").await;
+
+            // A stable viewer id lets release remove exactly this sink. The
+            // liveness check and grid insertion share the resize lock and the
+            // session lock, so an already-exited session cannot be returned.
+            let viewer_id = next_viewer_id();
+            let released = Arc::new(AtomicBool::new(false));
+            if !shell_session.set_viewer_grid(viewer_id, SizingGrid { cols, rows }, &released) {
+                self.remove_shell_session_if_current(session, &shell_session);
                 continue;
             }
-            if self.shell_sessions.lock().expect("shell lock").len() >= self.max_ptys {
-                self.shell_starting.lock().expect("shell starting lock").remove(session);
-                notify.notify_waiters();
-                return Err(format!("this relay caps persistent shells at {}", self.max_ptys));
-            }
-            let mut reservation = ShellStartReservation {
-                inner: Arc::clone(&self),
-                session: session.to_owned(),
-                notify,
-                active: true,
-            };
+            if !created
+                && (context.local_roots.as_deref().is_some_and(|r| !r.is_empty())
+                    || server_roots.is_some_and(|r| !r.is_empty()))
             {
-                let shell = self.deps.shell();
-                let handle = self
-                    .deps
-                    .spawn_pty(SpawnSpec {
-                        file: shell,
-                        args: Vec::new(),
-                        cols,
-                        rows,
-                        cwd: cwd.to_path_buf(),
-                        env: env.clone(),
-                    })
-                    .await;
-                let PtyHandle { control, output, banner } = handle;
-                let shell_session = Arc::new(ShellSession {
-                    control,
-                    banner,
-                    inner: Mutex::new(ShellInner {
-                        ring: VecDeque::new(),
-                        ring_size: 0,
-                        alive: true,
-                        exit_code: None,
-                        viewers: Vec::new(),
-                    }),
-                });
-                // Session-level plumbing runs for the session's whole life:
-                // the ring fills even while detached, and exit ends the
-                // session for every attached viewer. One fanout sink is
-                // subscribed to the session PTY; per-viewer sinks live in the
-                // viewer set.
-                let session_name = session.to_owned();
-                let scrollback_limit = self.scrollback_limit;
-                let data_session = Arc::clone(&shell_session);
-                let exit_session = Arc::clone(&shell_session);
-                let manager = Arc::clone(&self);
-                let on_session_data: DataSink = Arc::new(move |chunk: Bytes| {
-                    let (viewers_to_drain, viewers_overflowed) = {
-                        let mut inner = data_session.inner.lock().expect("shell inner lock");
-                        inner.ring_size += chunk.len();
-                        inner.ring.push_back(chunk.clone());
-                        while inner.ring_size > scrollback_limit && inner.ring.len() > 1 {
-                            let Some(dropped) = inner.ring.pop_front() else { break };
-                            inner.ring_size -= dropped.len();
-                        }
-                        let mut viewers_to_drain = Vec::new();
-                        let mut viewers_overflowed = Vec::new();
-                        for viewer in &inner.viewers {
-                            match viewer.delivery.push_data(chunk.clone()) {
-                                ViewerDeliveryAction::Drain => {
-                                    viewers_to_drain.push(Arc::clone(&viewer.delivery));
-                                }
-                                ViewerDeliveryAction::Overflow => {
-                                    viewers_overflowed.push(Arc::clone(&viewer.delivery));
-                                }
-                                ViewerDeliveryAction::None => {}
-                            }
-                        }
-                        (viewers_to_drain, viewers_overflowed)
-                    };
-                    for delivery in viewers_overflowed {
-                        delivery.notify_overflow();
-                    }
-                    for delivery in viewers_to_drain {
-                        delivery.drain();
-                    }
-                });
-                let on_session_exit: ExitSink = Arc::new(move |code: i64| {
-                    let (viewers_to_drain, viewers_overflowed) = {
-                        let mut inner = exit_session.inner.lock().expect("shell inner lock");
-                        if !inner.alive {
-                            return;
-                        }
-                        inner.alive = false;
-                        inner.exit_code = Some(code);
-                        let mut viewers_to_drain = Vec::new();
-                        let mut viewers_overflowed = Vec::new();
-                        for viewer in std::mem::take(&mut inner.viewers) {
-                            match viewer.delivery.finish(code) {
-                                ViewerDeliveryAction::Drain => {
-                                    viewers_to_drain.push(viewer.delivery);
-                                }
-                                ViewerDeliveryAction::Overflow => {
-                                    viewers_overflowed.push(viewer.delivery);
-                                }
-                                ViewerDeliveryAction::None => {}
-                            }
-                        }
-                        (viewers_to_drain, viewers_overflowed)
-                    };
-                    manager.shell_sessions.lock().expect("shell lock").remove(&session_name);
-                    for delivery in viewers_overflowed {
-                        delivery.notify_overflow();
-                    }
-                    for delivery in viewers_to_drain {
-                        delivery.drain();
-                    }
-                });
-                self.shell_sessions
-                    .lock()
-                    .expect("shell lock")
-                    .insert(session.to_owned(), Arc::clone(&shell_session));
-                // Register before subscribing so a synchronous buffered exit
-                // can remove this session instead of being overwritten by a
-                // later insertion.
-                output.subscribe(on_session_data, on_session_exit);
-                self.shell_starting.lock().expect("shell starting lock").remove(session);
-                reservation.active = false;
-                reservation.notify.notify_waiters();
-                created = true;
-                break shell_session;
+                shell_session.release_viewer(viewer_id);
+                return Err("cannot reattach existing shell under scoped roots".to_owned());
             }
+            break (shell_session, viewer_id, released);
         };
-
-        // A stable viewer id lets release remove exactly this sink.
-        let viewer_id = next_viewer_id();
-        let released = Arc::new(AtomicBool::new(false));
         let closing = Arc::new(AtomicBool::new(false));
 
         // The per-attachment control proxies onto the session pty but its
@@ -1656,7 +2985,16 @@ impl Inner {
             }
         });
 
-        Ok(Opened { generation, gate, created, surface: None, control: proxy, closing, start })
+        Ok(Opened {
+            generation,
+            gate,
+            created,
+            surface: None,
+            control: proxy,
+            closing,
+            start: Some(start),
+            cleanup_armed: AtomicBool::new(true),
+        })
     }
 }
 
@@ -1667,12 +3005,68 @@ struct ShellViewerControl {
     delivery: OnceLock<Arc<ViewerDelivery>>,
 }
 
+impl ShellSession {
+    /// Register or update one viewer only while the session is alive.
+    /// Returns false when the process has already exited, so callers can
+    /// discard the stale map entry and acquire a replacement.
+    fn set_viewer_grid(&self, viewer_id: u64, grid: SizingGrid, released: &AtomicBool) -> bool {
+        // Serialize the state calculation with the actual PTY ioctl. Without
+        // this guard, concurrent callbacks can calculate 100x30 and 90x20,
+        // then deliver the older 100x30 resize last.
+        let _resize_guard = self.resize_lock.lock().expect("shell resize lock");
+        if released.load(Ordering::Acquire) {
+            return false;
+        }
+        let resize = {
+            let mut inner = self.inner.lock().expect("shell inner lock");
+            if !inner.alive {
+                return false;
+            }
+            inner.viewer_grids.insert(viewer_id, grid);
+            let next = smallest_shell_grid(&inner.viewer_grids);
+            if inner.applied_grid == next {
+                None
+            } else {
+                inner.applied_grid = next;
+                next
+            }
+        };
+        if let Some(grid) = resize {
+            self.control.resize(grid.cols, grid.rows);
+        }
+        true
+    }
+
+    fn release_viewer(&self, viewer_id: u64) {
+        let _resize_guard = self.resize_lock.lock().expect("shell resize lock");
+        let resize = {
+            let mut inner = self.inner.lock().expect("shell inner lock");
+            inner.viewers.retain(|viewer| viewer.id != viewer_id);
+            inner.viewer_grids.remove(&viewer_id);
+            if !inner.alive || inner.viewer_grids.is_empty() {
+                None
+            } else {
+                let next = smallest_shell_grid(&inner.viewer_grids);
+                if inner.applied_grid == next {
+                    None
+                } else {
+                    inner.applied_grid = next;
+                    next
+                }
+            }
+        };
+        if let Some(grid) = resize {
+            self.control.resize(grid.cols, grid.rows);
+        }
+    }
+}
+
 impl ShellViewerControl {
     fn release(&self) {
-        self.released.store(true, Ordering::SeqCst);
-        let mut inner = self.session.inner.lock().expect("shell inner lock");
-        inner.viewers.retain(|viewer| viewer.id != self.viewer_id);
-        drop(inner);
+        if self.released.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        self.session.release_viewer(self.viewer_id);
         // The viewer may already have exited and been removed from the shell
         // set. Release the delivery in either case so a queued handoff cannot
         // emit after the attachment has been closed.
@@ -1687,7 +3081,7 @@ impl PtyControl for ShellViewerControl {
         self.session.control.write(data);
     }
     fn resize(&self, cols: u16, rows: u16) {
-        self.session.control.resize(cols, rows);
+        self.session.set_viewer_grid(self.viewer_id, SizingGrid { cols, rows }, &self.released);
     }
     fn pause(&self) {
         self.session.control.pause();
@@ -1753,7 +3147,6 @@ impl TerminalStream {
             overflowed: AtomicBool::new(false),
         }
     }
-
     /// Mark the queue as owned by a drainer, if the live sinks are installed.
     fn start_delivery(state: &mut TerminalStreamState) -> bool {
         if state.delivering
@@ -1865,18 +3258,29 @@ impl TerminalStream {
 struct ControlTerminalControl {
     control: Arc<dyn ControlHandle>,
     surface_id: i64,
+    sizing: Option<Arc<TerminalSizingLease>>,
+    queue: Option<Arc<OrderedControlEndpoint>>,
+    ended: AtomicBool,
 }
 
 impl PtyControl for ControlTerminalControl {
     fn write(&self, data: &[u8]) {
-        self.control
-            .send("send", json!({ "surface": self.surface_id, "bytes": BASE64.encode(data) }));
+        if let Some(queue) = &self.queue {
+            queue.enqueue_input(data);
+        } else {
+            self.control
+                .send("send", json!({ "surface": self.surface_id, "bytes": BASE64.encode(data) }));
+        }
     }
     fn resize(&self, cols: u16, rows: u16) {
-        self.control.send(
-            "resize-surface",
-            json!({ "surface": self.surface_id, "cols": cols, "rows": rows }),
-        );
+        if let Some(sizing) = &self.sizing {
+            sizing.update(SizingGrid { cols, rows });
+        } else {
+            self.control.send(
+                "resize-surface",
+                json!({ "surface": self.surface_id, "cols": cols, "rows": rows }),
+            );
+        }
     }
     fn pause(&self) {
         self.control.pause();
@@ -1884,8 +3288,25 @@ impl PtyControl for ControlTerminalControl {
     fn resume(&self) {
         self.control.resume();
     }
+    fn release(&self) {
+        if self.ended.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        if let Some(sizing) = &self.sizing {
+            sizing.leave();
+        }
+        // End only this control socket. `end` detaches the relay connection;
+        // it does not terminate the daemon's session or send a process kill.
+        self.control.end();
+    }
     fn kill(&self) {
-        self.control.end(); // detach only; the daemon keeps the terminal
+        self.release();
+    }
+}
+
+impl Drop for ControlTerminalControl {
+    fn drop(&mut self) {
+        self.release();
     }
 }
 
@@ -2060,11 +3481,20 @@ impl Inner {
             .deps
             .ensure_daemon(cmux_tui, session, &socket_dir, cwd, env)
             .await
-            .map_err(|message| (RelayPtyErrorCode::Failed, message))?;
+            // Daemon setup errors can contain paths, command output, or other
+            // control-plane details. Keep those details on the machine side;
+            // the PTY wire only exposes a stable product-level failure.
+            .map_err(|_| {
+                (
+                    RelayPtyErrorCode::Failed,
+                    "terminal service could not prepare the session".to_owned(),
+                )
+            })?;
         let control = match self.deps.connect_control(&ensured.socket_path).await {
             Ok(control) => control,
             Err(_) => return Ok(None), // degrade to the whole-session attach
         };
+        let mut control_cleanup = ControlCleanupGuard::new(Arc::clone(&control));
 
         let identify = control.request("identify", json!({})).await;
         let info = identify.as_ref().filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true));
@@ -2074,7 +3504,6 @@ impl Inner {
             .and_then(Value::as_i64)
             .unwrap_or(0);
         if protocol < CONTROL_MIN_PROTOCOL {
-            control.end();
             return Ok(None);
         }
         let capabilities: Vec<String> = info
@@ -2093,27 +3522,23 @@ impl Inner {
         };
         if surface_id.is_none() {
             let Some(listed) = control.request("list-workspaces", json!({})).await else {
-                control.end();
                 return Err((
                     RelayPtyErrorCode::Failed,
-                    "cannot resolve terminal because list-workspaces failed".to_owned(),
+                    "terminal could not be resolved".to_owned(),
                 ));
             };
             if listed.get("ok").and_then(Value::as_bool) != Some(true) {
-                control.end();
                 return Err((
                     RelayPtyErrorCode::Failed,
-                    "cannot resolve terminal because list-workspaces returned an error".to_owned(),
+                    "terminal could not be resolved".to_owned(),
                 ));
             }
             let tabs = match collect_pty_tabs_strict(listed.get("data")) {
                 Ok(tabs) => tabs,
                 Err(()) => {
-                    control.end();
                     return Err((
                         RelayPtyErrorCode::Failed,
-                        "cannot resolve terminal because list-workspaces returned malformed data"
-                            .to_owned(),
+                        "terminal could not be resolved".to_owned(),
                     ));
                 }
             };
@@ -2123,15 +3548,12 @@ impl Inner {
                 .map(|tab| tab.surface_id);
         }
         let Some(surface_id) = surface_id else {
-            control.end();
             // Typed refusal: the terminal died with its process (or its tab
             // closed) — permanent, so clients render an ended state and
             // never offer a retry.
             return Err((
                 RelayPtyErrorCode::TerminalGone,
-                format!(
-                    "terminal \"{surface_ref}\" not found in session \"{session}\" (it may have been closed)"
-                ),
+                "requested terminal is no longer available".to_owned(),
             ));
         };
 
@@ -2146,14 +3568,12 @@ impl Inner {
                 .and_then(|v| v.get("cwd"))
                 .and_then(Value::as_str);
             if actual.is_none_or(|value| value.is_empty() || !Path::new(value).is_absolute()) {
-                control.end();
                 return Err((
                     RelayPtyErrorCode::Failed,
                     "cannot prove existing surface cwd is within allowed roots".to_owned(),
                 ));
             }
             let Some(actual) = actual else {
-                control.end();
                 return Err((
                     RelayPtyErrorCode::Failed,
                     "cannot prove existing surface cwd is within allowed roots".to_owned(),
@@ -2162,7 +3582,6 @@ impl Inner {
             if scoped_cwd(Some(actual), &self.home, context.local_roots.as_deref(), server_roots)
                 .is_err()
             {
-                control.end();
                 return Err((
                     RelayPtyErrorCode::Failed,
                     "existing surface cwd is outside allowed roots".to_owned(),
@@ -2170,8 +3589,20 @@ impl Inner {
             }
         }
 
+        let shared_sizing = protocol >= CLIENT_SIZING_MIN_PROTOCOL;
+        let sizing = shared_sizing.then(|| {
+            let viewer_id = self.next_sizing_id.fetch_add(1, Ordering::Relaxed);
+            TerminalSizingLease::new(
+                &self.sizing,
+                SizingKey { socket_path: ensured.socket_path.clone(), surface_id },
+                viewer_id,
+                surface_id,
+            )
+        });
         let stream = Arc::new(TerminalStream::new());
         let event_stream = Arc::clone(&stream);
+        let event_sizing = sizing.clone();
+        let event_control = Arc::downgrade(&control);
         control.on_event(Box::new(move |event| {
             if event.get("surface").and_then(Value::as_i64) != Some(surface_id) {
                 return;
@@ -2189,33 +3620,67 @@ impl Inner {
                         event_stream.push_output(Bytes::from(reset));
                     }
                 }
-                "detached" => event_stream.finish_exit(0),
+                "detached" => {
+                    if let Some(sizing) = &event_sizing {
+                        sizing.leave();
+                    }
+                    // A detached raw view no longer needs the control socket.
+                    // End it before handing the terminal exit to the relay so
+                    // a stale sizing request cannot race a surviving viewer.
+                    if let Some(control) = event_control.upgrade() {
+                        control.end();
+                    }
+                    event_stream.finish_exit(0);
+                }
                 _ => {}
             }
         }));
         let close_stream = Arc::clone(&stream);
-        control.on_close(Box::new(move || close_stream.finish_exit(0)));
+        let close_sizing = sizing.clone();
+        control.on_close(Box::new(move || {
+            if let Some(sizing) = &close_sizing {
+                sizing.leave();
+            }
+            close_stream.finish_exit(0);
+        }));
 
-        let attach_params = if capabilities.iter().any(|c| c == "attach-initial-size") {
+        let attach_initial_size = capabilities.iter().any(|c| c == "attach-initial-size");
+        let attach_params = if attach_initial_size {
             json!({ "surface": surface_id, "cols": cols, "rows": rows })
         } else {
             json!({ "surface": surface_id })
         };
         let attached = control.request("attach-surface", attach_params).await;
         if attached.as_ref().and_then(|v| v.get("ok")).and_then(Value::as_bool) != Some(true) {
-            control.end();
-            let reason = attached
-                .as_ref()
-                .and_then(|v| v.get("error"))
-                .and_then(Value::as_str)
-                .unwrap_or("no reply");
-            return Err((
-                RelayPtyErrorCode::Failed,
-                format!("attach-surface failed for terminal \"{surface_ref}\": {reason}"),
-            ));
+            return Err((RelayPtyErrorCode::Failed, "terminal attachment failed".to_owned()));
+        }
+        if let Some(sizing) = &sizing {
+            // A protocol-10+ attach size is only a retained report. Report
+            // once more through a verified request, then claim geometry
+            // authority before later resize frames can change the PTY grid.
+            // The worker is deliberately detached from open: a slow or
+            // unavailable control reply must not hold `pty_opened` for the
+            // full three-second request budget. Subsequent resize requests
+            // are coalesced by the same worker and converge the grid.
+            let _ = sizing.join(Arc::clone(&control), SizingGrid { cols, rows });
+        } else {
+            // The client sends one canonical resize after `pty_opened` for
+            // protocol 5-9. Do not send a second pre-open resize here: the
+            // post-open command is the ordering fence before pending input.
         }
 
-        let proxy = Arc::new(ControlTerminalControl { control, surface_id });
+        // The lease installs the queue before `pty_opened` is emitted. The
+        // proxy uses that exact queue for every later input so a resize that
+        // was accepted before open cannot be overtaken on the control FIFO.
+        let sizing_queue = sizing.as_ref().and_then(|lease| lease.queue());
+
+        let proxy = Arc::new(ControlTerminalControl {
+            control,
+            surface_id,
+            sizing,
+            queue: sizing_queue,
+            ended: AtomicBool::new(false),
+        });
         let proxy_control: Arc<dyn PtyControl> = proxy.clone();
         let control_identity = Arc::downgrade(&proxy_control);
         let (generation, gate, on_data, _) = self.sinks(pty_id, context, control_identity.clone());
@@ -2241,6 +3706,7 @@ impl Inner {
             }
         });
         let start_stream = Arc::clone(&stream);
+        control_cleanup.disarm();
         Ok(Some(Opened {
             generation,
             gate,
@@ -2248,7 +3714,8 @@ impl Inner {
             surface: Some(surface_ref.to_owned()),
             control: proxy,
             closing: Arc::new(AtomicBool::new(false)),
-            start: Box::new(move || start_stream.go_live(on_data, on_exit)),
+            start: Some(Box::new(move || start_stream.go_live(on_data, on_exit))),
+            cleanup_armed: AtomicBool::new(true),
         }))
     }
 
@@ -2419,6 +3886,8 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as StdMutex};
     use std::thread;
+    use std::time::Duration;
+    use tokio::sync::Notify as TestNotify;
 
     static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
@@ -2452,7 +3921,7 @@ mod tests {
     }
 
     /// A fake PTY: emit() calls the subscribed sink synchronously, like the
-    /// JS fakePty. Records writes/resizes/pause/kill for assertions.
+    /// JS fakePty. Records writes/resizes/pause/release/kill for assertions.
     #[derive(Default)]
     struct FakeState {
         on_data: Option<DataSink>,
@@ -2461,6 +3930,7 @@ mod tests {
         resized: Vec<(u16, u16)>,
         paused: bool,
         killed: bool,
+        released: bool,
     }
 
     #[derive(Clone)]
@@ -2469,6 +3939,45 @@ mod tests {
         spawn_file: String,
         spawn_cwd: PathBuf,
         spawn_term: String,
+    }
+
+    #[test]
+    fn strict_terminal_enumeration_rejects_more_than_the_cap() {
+        let tabs = (0..=MAX_ENUM_TERMINALS)
+            .map(|surface| {
+                serde_json::json!({
+                    "kind": "pty",
+                    "surface": surface,
+                    "dead": false,
+                    "name": format!("terminal-{surface}"),
+                })
+            })
+            .collect::<Vec<_>>();
+        let data = serde_json::json!({
+            "workspaces": [{
+                "name": "workspace",
+                "screens": [{
+                    "panes": [{"tabs": tabs}]
+                }]
+            }]
+        });
+        assert!(collect_pty_tabs_strict(Some(&data)).is_err());
+
+        let bounded = serde_json::json!({
+            "workspaces": [{
+                "name": "workspace",
+                "screens": [{
+                    "panes": [{"tabs": (0..MAX_ENUM_TERMINALS)
+                        .map(|surface| serde_json::json!({
+                            "kind": "pty",
+                            "surface": surface,
+                            "dead": false,
+                        }))
+                        .collect::<Vec<_>>() }]
+                }]
+            }]
+        });
+        assert_eq!(collect_pty_tabs_strict(Some(&bounded)).unwrap().len(), MAX_ENUM_TERMINALS);
     }
 
     impl FakePty {
@@ -2501,6 +4010,9 @@ mod tests {
         }
         fn resume(&self) {
             self.state.lock().unwrap().paused = false;
+        }
+        fn release(&self) {
+            self.state.lock().unwrap().released = true;
         }
         fn kill(&self) {
             self.state.lock().unwrap().killed = true;
@@ -2785,6 +4297,15 @@ mod tests {
                 local_roots: None,
                 owner_user_id: owner,
             }
+        }
+
+        fn context_with_version(
+            &self,
+            trust: &str,
+            owner: Option<String>,
+            negotiated_version: u64,
+        ) -> FrameContext {
+            self.context_at_version(negotiated_version, trust, owner)
         }
 
         async fn open(
@@ -3171,10 +4692,14 @@ mod tests {
     async fn session_exit_sends_exit_once_and_next_open_creates() {
         let h = harness(None, None);
         h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
-        h.spawned()[0].exit(3);
+        let pty = h.spawned()[0].clone();
+        pty.exit(3);
         let exit = &h.sent()[1];
         assert_eq!(exit["type"], "pty_exit");
         assert_eq!(exit["code"], 3);
+        let state = pty.state.lock().unwrap();
+        assert!(state.released, "PTY exit must release relay state");
+        assert!(!state.killed, "PTY exit must not kill a whole-session process");
         h.open("p2", "main", Value::Null, "supervised", h.owner.clone()).await;
         assert_eq!(h.sent()[2]["created"], true);
         assert_eq!(h.spawned().len(), 2);
@@ -3236,6 +4761,49 @@ mod tests {
             .collect();
         ids.sort();
         assert_eq!(ids, vec!["p1", "p2"]);
+    }
+
+    #[tokio::test]
+    async fn shell_viewers_use_smallest_grid_and_relax_after_release() {
+        let h = harness(None, None);
+        h.open(
+            "p1",
+            "main",
+            serde_json::json!({ "cols": 120, "rows": 40 }),
+            "supervised",
+            h.owner.clone(),
+        )
+        .await;
+        h.open(
+            "p2",
+            "main",
+            serde_json::json!({ "cols": 80, "rows": 24 }),
+            "supervised",
+            h.owner.clone(),
+        )
+        .await;
+        let pty = h.spawned()[0].clone();
+        assert_eq!(pty.state.lock().unwrap().resized, vec![(80, 24)]);
+
+        h.frame(serde_json::json!({
+            "type": "pty_resize",
+            "ptyId": "p2",
+            "cols": 100,
+            "rows": 30
+        }))
+        .await;
+        h.frame(serde_json::json!({
+            "type": "pty_resize",
+            "ptyId": "p1",
+            "cols": 90,
+            "rows": 20
+        }))
+        .await;
+        h.frame(serde_json::json!({ "type": "pty_close", "ptyId": "p1" })).await;
+        assert_eq!(
+            pty.state.lock().unwrap().resized,
+            vec![(80, 24), (100, 30), (90, 20), (100, 30)]
+        );
     }
 
     #[tokio::test]
@@ -3373,6 +4941,902 @@ mod tests {
         fn end(&self) {}
     }
 
+    #[derive(Clone)]
+    struct SizingControl {
+        state: TestArc<StdMutex<SizingControlState>>,
+        notify: TestArc<TestNotify>,
+        sizing_release: TestArc<TestNotify>,
+    }
+
+    struct SizingControlState {
+        protocol: i64,
+        capabilities: Vec<String>,
+        claim_ok: bool,
+        reject_next_resize: bool,
+        block_sizing: bool,
+        ended: bool,
+        requests: Vec<(String, Value)>,
+        sends: Vec<(String, Value)>,
+    }
+
+    impl SizingControl {
+        fn new(protocol: i64, capabilities: &[&str]) -> Self {
+            Self {
+                state: TestArc::new(StdMutex::new(SizingControlState {
+                    protocol,
+                    capabilities: capabilities.iter().map(|value| (*value).to_owned()).collect(),
+                    claim_ok: true,
+                    reject_next_resize: false,
+                    block_sizing: false,
+                    ended: false,
+                    requests: Vec::new(),
+                    sends: Vec::new(),
+                })),
+                notify: TestArc::new(TestNotify::new()),
+                sizing_release: TestArc::new(TestNotify::new()),
+            }
+        }
+
+        fn set_claim_ok(&self, value: bool) {
+            self.state.lock().unwrap().claim_ok = value;
+        }
+
+        fn reject_next_resize(&self) {
+            self.state.lock().unwrap().reject_next_resize = true;
+        }
+
+        fn block_sizing(&self) {
+            self.state.lock().unwrap().block_sizing = true;
+        }
+
+        fn release_sizing(&self) {
+            self.state.lock().unwrap().block_sizing = false;
+            self.sizing_release.notify_waiters();
+        }
+
+        fn requests(&self) -> Vec<(String, Value)> {
+            self.state.lock().unwrap().requests.clone()
+        }
+
+        fn sends(&self) -> Vec<(String, Value)> {
+            self.state.lock().unwrap().sends.clone()
+        }
+
+        fn ended(&self) -> bool {
+            self.state.lock().unwrap().ended
+        }
+
+        async fn wait_for_requests(&self, count: usize) {
+            let wait = async {
+                loop {
+                    let notified = self.notify.notified();
+                    if self.requests().len() >= count {
+                        return;
+                    }
+                    notified.await;
+                }
+            };
+            tokio::time::timeout(Duration::from_secs(2), wait)
+                .await
+                .expect("terminal sizing request worker did not settle");
+        }
+
+        async fn wait_for_sends(&self, count: usize) {
+            let wait = async {
+                loop {
+                    let notified = self.notify.notified();
+                    if self.sends().len() >= count {
+                        return;
+                    }
+                    notified.await;
+                }
+            };
+            tokio::time::timeout(Duration::from_secs(2), wait)
+                .await
+                .expect("terminal sizing send queue did not settle");
+        }
+    }
+
+    impl ControlHandle for SizingControl {
+        fn request(
+            &self,
+            cmd: &str,
+            params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
+            let (response, blocked) = {
+                let mut state = self.state.lock().unwrap();
+                state.requests.push((cmd.to_owned(), params));
+                let response = match cmd {
+                    "identify" => Some(json!({
+                        "ok": true,
+                        "data": {
+                            "protocol": state.protocol,
+                            "capabilities": state.capabilities.clone(),
+                        },
+                    })),
+                    "attach-surface" => Some(json!({ "ok": true, "data": {} })),
+                    "resize-surface" => {
+                        let accepted = !state.reject_next_resize;
+                        state.reject_next_resize = false;
+                        Some(json!({
+                            "ok": true,
+                            "data": { "accepted": accepted, "reservation_id": Value::Null },
+                        }))
+                    }
+                    "set-client-sizing" if state.claim_ok => {
+                        Some(json!({ "ok": true, "data": {} }))
+                    }
+                    "set-client-sizing" => Some(json!({ "ok": false, "error": "refused" })),
+                    _ => Some(json!({ "ok": true, "data": {} })),
+                };
+                let blocked =
+                    state.block_sizing && matches!(cmd, "resize-surface" | "set-client-sizing");
+                (response, blocked)
+            };
+            self.notify.notify_waiters();
+            let release = TestArc::clone(&self.sizing_release);
+            Box::pin(async move {
+                if blocked {
+                    release.notified().await;
+                }
+                response
+            })
+        }
+
+        fn send(&self, cmd: &str, params: Value) {
+            self.state.lock().unwrap().sends.push((cmd.to_owned(), params));
+            self.notify.notify_waiters();
+        }
+
+        fn on_event(&self, _handler: EventHandler) {}
+        fn on_close(&self, _handler: CloseHandler) {}
+        fn pause(&self) {}
+        fn resume(&self) {}
+        fn end(&self) {
+            self.state.lock().unwrap().ended = true;
+        }
+    }
+
+    #[tokio::test]
+    async fn terminal_sizing_retries_a_refused_claim_on_the_next_viewer_update() {
+        let control = SizingControl::new(12, &[]);
+        control.set_claim_ok(false);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey { socket_path: PathBuf::from("/tmp/cmux-sizing.sock"), surface_id: 7 };
+        let control_handle: Arc<dyn ControlHandle> = Arc::new(control.clone());
+        coordinator.join(key.clone(), 1, 7, control_handle, SizingGrid { cols: 80, rows: 24 });
+        control.wait_for_requests(2).await;
+        let initial = control.requests();
+        assert_eq!(initial[0].0, "resize-surface");
+        assert_eq!(initial[1].0, "set-client-sizing");
+
+        control.set_claim_ok(true);
+        coordinator.update(&key, 1, SizingGrid { cols: 81, rows: 25 });
+        control.wait_for_requests(4).await;
+        let requests = control.requests();
+        assert_eq!(requests[2].0, "resize-surface");
+        assert_eq!(requests[2].1["cols"], 81);
+        assert_eq!(requests[2].1["rows"], 25);
+        assert_eq!(requests[3].0, "set-client-sizing");
+        coordinator.leave(&key, 1);
+    }
+
+    #[tokio::test]
+    async fn terminal_sizing_claims_after_a_passive_report_is_not_accepted() {
+        let control = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key =
+            SizingKey { socket_path: PathBuf::from("/tmp/cmux-sizing-report.sock"), surface_id: 8 };
+        let control_handle: Arc<dyn ControlHandle> = Arc::new(control.clone());
+        // `accepted:false` on the passive report means that another client
+        // currently owns the geometry. It is not a claim failure; the next
+        // command must still be the exclusive claim request.
+        control.reject_next_resize();
+        coordinator.join(key.clone(), 1, 8, control_handle, SizingGrid { cols: 80, rows: 24 });
+        control.wait_for_requests(2).await;
+        let requests = control.requests();
+        assert_eq!(requests[0].0, "resize-surface");
+        assert_eq!(requests[1].0, "set-client-sizing");
+        coordinator.leave(&key, 1);
+    }
+
+    #[tokio::test]
+    async fn terminal_sizing_reclaims_after_owner_resize_is_rejected() {
+        let control = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-reclaim.sock"),
+            surface_id: 9,
+        };
+        let control_handle: Arc<dyn ControlHandle> = Arc::new(control.clone());
+        coordinator.join(key.clone(), 1, 9, control_handle, SizingGrid { cols: 80, rows: 24 });
+        control.wait_for_requests(2).await;
+
+        control.reject_next_resize();
+        coordinator.update(&key, 1, SizingGrid { cols: 100, rows: 40 });
+        control.wait_for_requests(5).await;
+        let requests = control.requests();
+        assert_eq!(requests[2].0, "resize-surface");
+        assert_eq!(requests[2].1["cols"], 100);
+        assert_eq!(requests[2].1["rows"], 40);
+        assert_eq!(requests[3].0, "resize-surface");
+        assert_eq!(requests[4].0, "set-client-sizing");
+        coordinator.leave(&key, 1);
+    }
+
+    #[tokio::test]
+    async fn terminal_sizing_uses_smallest_viewer_and_reclaims_after_owner_leaves() {
+        let first = SizingControl::new(12, &[]);
+        let second = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-multi-viewer.sock"),
+            surface_id: 10,
+        };
+        let first_handle: Arc<dyn ControlHandle> = Arc::new(first.clone());
+        let second_handle: Arc<dyn ControlHandle> = Arc::new(second.clone());
+
+        coordinator.join(key.clone(), 1, 10, first_handle, SizingGrid { cols: 120, rows: 40 });
+        first.wait_for_requests(2).await;
+
+        coordinator.join(key.clone(), 2, 10, second_handle, SizingGrid { cols: 80, rows: 24 });
+        first.wait_for_requests(3).await;
+        let first_requests = first.requests();
+        assert_eq!(first_requests[2].0, "resize-surface");
+        assert_eq!(first_requests[2].1["cols"], 80);
+        assert_eq!(first_requests[2].1["rows"], 24);
+        assert!(second.requests().is_empty(), "non-owner must not resize the surface");
+
+        // Removing the owner elects the remaining viewer and reapplies the
+        // current smallest grid through that viewer's control connection.
+        coordinator.leave(&key, 1);
+        second.wait_for_requests(2).await;
+        let second_requests = second.requests();
+        assert_eq!(second_requests[0].0, "resize-surface");
+        assert_eq!(second_requests[1].0, "set-client-sizing");
+        assert_eq!(second_requests[0].1["cols"], 80);
+        assert_eq!(second_requests[0].1["rows"], 24);
+
+        // A resize from the remaining viewer becomes the shared smallest
+        // grid and is sent by the newly elected owner.
+        coordinator.update(&key, 2, SizingGrid { cols: 100, rows: 30 });
+        second.wait_for_requests(3).await;
+        let second_requests = second.requests();
+        assert_eq!(second_requests[2].0, "resize-surface");
+        assert_eq!(second_requests[2].1["cols"], 100);
+        assert_eq!(second_requests[2].1["rows"], 30);
+        coordinator.leave(&key, 2);
+    }
+
+    #[tokio::test]
+    async fn non_owner_resize_is_fenced_before_owner_input_and_reclaims_after_disconnect() {
+        let owner = SizingControl::new(12, &[]);
+        let viewer = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-cross-viewer-order.sock"),
+            surface_id: 15,
+        };
+        let owner_handle: Arc<dyn ControlHandle> = Arc::new(owner.clone());
+        let viewer_handle: Arc<dyn ControlHandle> = Arc::new(viewer.clone());
+
+        let owner_joined = coordinator
+            .join(key.clone(), 1, 15, owner_handle.clone(), SizingGrid { cols: 120, rows: 40 })
+            .expect("owner sizing barrier");
+        owner.wait_for_requests(2).await;
+        owner_joined.await.expect("owner sizing worker");
+        let viewer_joined = coordinator
+            .join(key.clone(), 2, 15, viewer_handle, SizingGrid { cols: 120, rows: 40 })
+            .expect("viewer sizing barrier");
+        viewer_joined.await.expect("viewer sizing worker");
+        let owner_claims_before =
+            owner.requests().iter().filter(|(command, _)| command == "set-client-sizing").count();
+
+        // Hold the owner's request reply. The synchronous queue fence must
+        // still reach the wire before input from the owner can be accepted.
+        owner.block_sizing();
+        coordinator.update(&key, 2, SizingGrid { cols: 80, rows: 24 });
+        owner.wait_for_requests(3).await;
+        let owner_queue = coordinator.queue_for(&key, 1).expect("owner sizing queue");
+        let owner_proxy = ControlTerminalControl {
+            control: owner_handle,
+            surface_id: 15,
+            sizing: None,
+            queue: Some(owner_queue),
+            ended: AtomicBool::new(false),
+        };
+        owner_proxy.write(b"input-after-viewer-resize");
+        let sends = owner.sends();
+        let tail =
+            sends.iter().map(|(command, _)| command.as_str()).rev().take(2).collect::<Vec<_>>();
+        assert_eq!(tail, vec!["send", "resize-surface"]);
+
+        // Disconnect the owner while its direct resize request is blocked.
+        // The stale owner must not claim again; the remaining viewer must
+        // reclaim the surface through its own report/claim fence.
+        coordinator.leave(&key, 1);
+        owner.end();
+        owner.release_sizing();
+        viewer.wait_for_requests(2).await;
+        let viewer_requests = viewer.requests();
+        assert_eq!(viewer_requests[0].0, "resize-surface");
+        assert_eq!(viewer_requests[1].0, "set-client-sizing");
+        assert_eq!(viewer_requests[0].1["cols"], 80);
+        assert_eq!(viewer_requests[0].1["rows"], 24);
+        let viewer_endpoint = coordinator.queue_for(&key, 2).expect("survivor endpoint");
+        let viewer_proxy = ControlTerminalControl {
+            control: Arc::new(viewer.clone()),
+            surface_id: 15,
+            sizing: None,
+            queue: Some(viewer_endpoint),
+            ended: AtomicBool::new(false),
+        };
+        viewer_proxy.write(b"input-after-owner-reclaim");
+        let viewer_sends = viewer.sends();
+        assert_eq!(
+            viewer_sends.iter().map(|(command, _)| command.as_str()).collect::<Vec<_>>(),
+            vec!["resize-surface", "set-client-sizing", "send"],
+            "survivor input must follow the synchronous reclaim fence"
+        );
+        assert_eq!(
+            owner.requests().iter().filter(|(command, _)| command == "set-client-sizing").count(),
+            owner_claims_before,
+            "a disconnected owner must not emit a stale claim"
+        );
+        coordinator.leave(&key, 2);
+    }
+
+    #[tokio::test]
+    async fn shared_sizing_queue_orders_shrink_and_all_viewer_input() {
+        let control = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-shared-input-order.sock"),
+            surface_id: 16,
+        };
+        let control_handle: Arc<dyn ControlHandle> = Arc::new(control.clone());
+        let owner_joined = coordinator
+            .join(
+                key.clone(),
+                1,
+                16,
+                Arc::clone(&control_handle),
+                SizingGrid { cols: 120, rows: 40 },
+            )
+            .expect("owner sizing barrier");
+        owner_joined.await.expect("owner sizing worker");
+        let viewer_joined = coordinator
+            .join(key.clone(), 2, 16, control_handle, SizingGrid { cols: 120, rows: 40 })
+            .expect("viewer sizing barrier");
+        viewer_joined.await.expect("viewer sizing worker");
+
+        let owner_endpoint = coordinator.queue_for(&key, 1).expect("owner endpoint");
+        let viewer_endpoint = coordinator.queue_for(&key, 2).expect("viewer endpoint");
+        let owner_proxy = Arc::new(ControlTerminalControl {
+            control: Arc::new(control.clone()),
+            surface_id: 16,
+            sizing: None,
+            queue: Some(owner_endpoint),
+            ended: AtomicBool::new(false),
+        });
+        let viewer_proxy = Arc::new(ControlTerminalControl {
+            control: Arc::new(control.clone()),
+            surface_id: 16,
+            sizing: None,
+            queue: Some(viewer_endpoint),
+            ended: AtomicBool::new(false),
+        });
+
+        // The non-owner shrink is canonicalized on the shared session queue;
+        // input from that same viewer cannot appear before its resize fence.
+        coordinator.update(&key, 2, SizingGrid { cols: 80, rows: 24 });
+        viewer_proxy.write(b"viewer-after-shrink");
+
+        // Concurrent input from both viewers uses the same queue. The order of
+        // the two input frames may vary, but neither can overtake the resize.
+        let owner_thread = {
+            let owner_proxy = Arc::clone(&owner_proxy);
+            std::thread::spawn(move || owner_proxy.write(b"owner-concurrent"))
+        };
+        let viewer_thread = {
+            let viewer_proxy = Arc::clone(&viewer_proxy);
+            std::thread::spawn(move || viewer_proxy.write(b"viewer-concurrent"))
+        };
+        owner_thread.join().expect("owner input thread");
+        viewer_thread.join().expect("viewer input thread");
+
+        let sends = control.sends();
+        let commands: Vec<&str> = sends.iter().map(|(command, _)| command.as_str()).collect();
+        let resize_index = commands
+            .iter()
+            .rposition(|command| *command == "resize-surface")
+            .expect("canonical shrink resize");
+        assert!(
+            commands[resize_index..]
+                .iter()
+                .all(|command| *command == "resize-surface" || *command == "send")
+        );
+        assert_eq!(commands.len() - resize_index, 4);
+        let payloads: Vec<String> = sends[resize_index + 1..]
+            .iter()
+            .filter_map(|(command, params)| {
+                (command == "send").then(|| params["bytes"].as_str().unwrap_or_default().to_owned())
+            })
+            .map(|encoded| {
+                String::from_utf8(BASE64.decode(encoded).expect("base64 input"))
+                    .expect("utf8 input")
+            })
+            .collect();
+        assert_eq!(payloads.len(), 3);
+        assert!(payloads.iter().any(|payload| payload == "viewer-after-shrink"));
+        assert!(payloads.iter().any(|payload| payload == "owner-concurrent"));
+        assert!(payloads.iter().any(|payload| payload == "viewer-concurrent"));
+        coordinator.leave(&key, 1);
+        coordinator.leave(&key, 2);
+    }
+
+    #[tokio::test]
+    async fn refused_owner_resize_reserves_survivor_before_input() {
+        let owner = SizingControl::new(12, &[]);
+        let survivor = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-refused-owner-order.sock"),
+            surface_id: 17,
+        };
+        let owner_handle: Arc<dyn ControlHandle> = Arc::new(owner.clone());
+        let survivor_handle: Arc<dyn ControlHandle> = Arc::new(survivor.clone());
+        let owner_joined = coordinator
+            .join(key.clone(), 1, 17, owner_handle, SizingGrid { cols: 120, rows: 40 })
+            .expect("owner sizing barrier");
+        owner_joined.await.expect("owner sizing worker");
+        let survivor_joined = coordinator
+            .join(key.clone(), 2, 17, survivor_handle, SizingGrid { cols: 120, rows: 40 })
+            .expect("survivor sizing barrier");
+        survivor_joined.await.expect("survivor sizing worker");
+
+        owner.reject_next_resize();
+        owner.block_sizing();
+        coordinator.update(&key, 2, SizingGrid { cols: 80, rows: 24 });
+        owner.wait_for_requests(3).await;
+        owner.release_sizing();
+
+        // The accepted:false response clears ownership and synchronously
+        // reserves the survivor report/claim before the worker asks for its
+        // next round-trip. Input now has a deterministic queue fence.
+        survivor.wait_for_sends(2).await;
+        survivor.wait_for_requests(2).await;
+        assert_eq!(
+            coordinator.targets.lock().unwrap().get(&key).unwrap().state.lock().unwrap().owner,
+            Some(2),
+            "accepted:false must elect the survivor, not the refused owner"
+        );
+        assert_eq!(
+            owner.requests().iter().filter(|(command, _)| command == "set-client-sizing").count(),
+            1,
+            "the refused owner must not claim again"
+        );
+        let survivor_endpoint = coordinator.queue_for(&key, 2).expect("survivor endpoint");
+        let survivor_proxy = ControlTerminalControl {
+            control: Arc::new(survivor.clone()),
+            surface_id: 17,
+            sizing: None,
+            queue: Some(survivor_endpoint),
+            ended: AtomicBool::new(false),
+        };
+        survivor_proxy.write(b"input-after-refused-owner");
+        assert_eq!(
+            survivor.sends().iter().map(|(command, _)| command.as_str()).collect::<Vec<_>>(),
+            vec!["resize-surface", "set-client-sizing", "send"]
+        );
+        coordinator.leave(&key, 1);
+        coordinator.leave(&key, 2);
+    }
+
+    #[tokio::test]
+    async fn owner_leave_fences_survivor_input_with_reclaim() {
+        let owner = SizingControl::new(12, &[]);
+        let survivor = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-owner-leave-order.sock"),
+            surface_id: 18,
+        };
+        let owner_handle: Arc<dyn ControlHandle> = Arc::new(owner.clone());
+        let survivor_handle: Arc<dyn ControlHandle> = Arc::new(survivor.clone());
+        coordinator
+            .join(key.clone(), 1, 18, owner_handle, SizingGrid { cols: 120, rows: 40 })
+            .expect("owner sizing barrier")
+            .await
+            .expect("owner sizing worker");
+        coordinator
+            .join(key.clone(), 2, 18, survivor_handle, SizingGrid { cols: 100, rows: 30 })
+            .expect("survivor sizing barrier")
+            .await
+            .expect("survivor sizing worker");
+        assert_eq!(
+            coordinator.targets.lock().unwrap().get(&key).unwrap().state.lock().unwrap().owner,
+            Some(1)
+        );
+
+        let before = survivor.sends().len();
+        coordinator.leave(&key, 1);
+        let survivor_endpoint = coordinator.queue_for(&key, 2).expect("survivor endpoint");
+        survivor_endpoint.enqueue_input(b"after-owner-leave");
+        let suffix: Vec<String> =
+            survivor.sends()[before..].iter().map(|(command, _)| command.clone()).collect();
+        assert_eq!(suffix, vec!["resize-surface", "set-client-sizing", "send"]);
+        coordinator.leave(&key, 2);
+    }
+
+    #[tokio::test]
+    async fn non_owner_leave_fences_owner_grid_growth_before_input() {
+        let owner = SizingControl::new(12, &[]);
+        let viewer = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-viewer-leave-order.sock"),
+            surface_id: 21,
+        };
+        let owner_handle: Arc<dyn ControlHandle> = Arc::new(owner.clone());
+        let viewer_handle: Arc<dyn ControlHandle> = Arc::new(viewer.clone());
+        coordinator
+            .join(key.clone(), 1, 21, owner_handle, SizingGrid { cols: 120, rows: 40 })
+            .expect("owner sizing barrier")
+            .await
+            .expect("owner sizing worker");
+        coordinator
+            .join(key.clone(), 2, 21, viewer_handle, SizingGrid { cols: 80, rows: 24 })
+            .expect("viewer sizing barrier")
+            .await
+            .expect("viewer sizing worker");
+
+        let before = owner.sends().len();
+        coordinator.leave(&key, 2);
+        let owner_endpoint = coordinator.queue_for(&key, 1).expect("owner endpoint");
+        owner_endpoint.enqueue_input(b"after-viewer-leave");
+        let suffix: Vec<String> =
+            owner.sends()[before..].iter().map(|(command, _)| command.clone()).collect();
+        assert_eq!(suffix, vec!["resize-surface", "send"]);
+        coordinator.leave(&key, 1);
+    }
+
+    #[tokio::test]
+    async fn stale_owner_update_cannot_replace_survivor_claim_fence() {
+        let owner = SizingControl::new(12, &[]);
+        let survivor = SizingControl::new(12, &[]);
+        survivor.block_sizing();
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-stale-owner-update.sock"),
+            surface_id: 20,
+        };
+        let owner_handle: Arc<dyn ControlHandle> = Arc::new(owner.clone());
+        let survivor_handle: Arc<dyn ControlHandle> = Arc::new(survivor.clone());
+        let owner_joined = coordinator
+            .join(key.clone(), 1, 20, owner_handle, SizingGrid { cols: 120, rows: 40 })
+            .expect("owner sizing barrier");
+        owner_joined.await.expect("owner sizing worker");
+        let survivor_joined = coordinator
+            .join(key.clone(), 2, 20, survivor_handle, SizingGrid { cols: 120, rows: 40 })
+            .expect("survivor sizing barrier");
+        survivor_joined.await.expect("survivor sizing worker");
+
+        let target = coordinator.targets.lock().unwrap().get(&key).cloned().unwrap();
+        let owner_endpoint = coordinator.queue_for(&key, 1).expect("owner endpoint");
+        {
+            let mut state = target.state.lock().unwrap();
+            state.viewers.get_mut(&1).unwrap().grid = SizingGrid { cols: 80, rows: 24 };
+        }
+
+        assert!(coordinator.reserve_candidate_after_owner_loss(&target, 1));
+        // This is the delayed update captured before owner loss. The
+        // queue/state identity check must reject it after the survivor fence
+        // is reserved, even though the stale endpoint is still attached.
+        assert!(!coordinator.enqueue_update_if_current(
+            &target,
+            1,
+            Some(1),
+            &owner_endpoint,
+            SizingGrid { cols: 80, rows: 24 },
+            false,
+        ));
+
+        let survivor_endpoint = coordinator.queue_for(&key, 2).expect("survivor endpoint");
+        survivor_endpoint.enqueue_input(b"after-owner-loss");
+        assert_eq!(
+            survivor.sends().iter().map(|(command, _)| command.as_str()).collect::<Vec<_>>(),
+            vec!["resize-surface", "set-client-sizing", "send"]
+        );
+        survivor.release_sizing();
+        survivor.wait_for_requests(2).await;
+        coordinator.leave(&key, 1);
+        coordinator.leave(&key, 2);
+    }
+
+    #[test]
+    fn delayed_claim_fence_is_consumed_before_survivor_input() {
+        let control = SizingControl::new(12, &[]);
+        let queue = OrderedControlQueue::new(18);
+        let endpoint = queue.endpoint(2, Arc::new(control.clone()));
+
+        // Model an owner-loss transition while the sizing worker is between
+        // polls. The candidate pair is reserved but not yet drained.
+        {
+            let mut state = queue.state.lock().unwrap();
+            state.worker_running = true;
+            assert!(!queue.reserve_resize_locked(
+                &mut state,
+                &endpoint,
+                SizingGrid { cols: 80, rows: 24 },
+            ));
+        }
+
+        // An intervening same-grid candidate update must not consume the
+        // private marker. Input still flushes the reserved report/claim
+        // first; when the delayed worker reaches the candidate it consumes
+        // the marker instead of emitting a duplicate pair after this input.
+        {
+            let mut state = queue.state.lock().unwrap();
+            assert!(!queue.enqueue_resize_locked(
+                &mut state,
+                &endpoint,
+                SizingGrid { cols: 80, rows: 24 },
+                true,
+            ));
+        }
+        endpoint.enqueue_input(b"survivor-input");
+        assert!(queue.consume_claim_fence(&endpoint, SizingGrid { cols: 80, rows: 24 }));
+        let commands: Vec<&str> =
+            control.sends().iter().map(|(command, _)| command.as_str()).collect();
+        assert_eq!(commands, vec!["resize-surface", "set-client-sizing", "send"]);
+    }
+
+    #[tokio::test]
+    async fn busy_queue_flushes_resize_before_verified_request() {
+        let control = SizingControl::new(12, &[]);
+        let queue = OrderedControlQueue::new(19);
+        let endpoint = queue.endpoint(1, Arc::new(control.clone()));
+        {
+            let mut state = queue.state.lock().unwrap();
+            state.worker_running = true;
+            assert!(!queue.enqueue_resize_locked(
+                &mut state,
+                &endpoint,
+                SizingGrid { cols: 100, rows: 30 },
+                false,
+            ));
+        }
+
+        // A worker may be between drain polls. The verified request must not
+        // enter the control writer before the pending report.
+        endpoint.flush_before_request();
+        let _ = control
+            .request("resize-surface", json!({ "surface": 19, "cols": 100, "rows": 30 }))
+            .await;
+        assert_eq!(control.sends()[0].0, "resize-surface");
+        assert_eq!(control.requests()[0].0, "resize-surface");
+    }
+
+    #[test]
+    fn terminal_resize_does_not_wait_for_control_plane_barrier() {
+        let control = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-fire-and-forget.sock"),
+            surface_id: 14,
+        };
+        let lease = TerminalSizingLease::new(&coordinator, key, 1, 14);
+        let control_handle: Arc<dyn ControlHandle> = Arc::new(control.clone());
+        lease.join(Arc::clone(&control_handle), SizingGrid { cols: 80, rows: 24 });
+        let queue = lease.queue();
+        // This is the same operation used by the pty_resize ingress branch;
+        // it must only enqueue a coalesced worker request and return.
+        let proxy = ControlTerminalControl {
+            control: control_handle,
+            surface_id: 14,
+            sizing: Some(lease),
+            queue,
+            ended: AtomicBool::new(false),
+        };
+        proxy.resize(140, 50);
+        assert!(control.requests().is_empty());
+        proxy.write(b"input");
+        let sends = control.sends();
+        assert_eq!(
+            sends.iter().map(|(command, _)| command.as_str()).collect::<Vec<_>>(),
+            vec![
+                "resize-surface",
+                "set-client-sizing",
+                "resize-surface",
+                "set-client-sizing",
+                "send"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn raw_release_ends_only_control_socket_and_releases_sizing_lease() {
+        let control = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-release.sock"),
+            surface_id: 11,
+        };
+        let lease = TerminalSizingLease::new(&coordinator, key, 1, 11);
+        let control_handle: Arc<dyn ControlHandle> = Arc::new(control.clone());
+        lease.join(Arc::clone(&control_handle), SizingGrid { cols: 80, rows: 24 });
+        control.wait_for_requests(2).await;
+        let queue = lease.queue();
+
+        let proxy = ControlTerminalControl {
+            control: control_handle,
+            surface_id: 11,
+            sizing: Some(lease),
+            queue,
+            ended: AtomicBool::new(false),
+        };
+        proxy.release();
+        assert!(control.ended(), "release must close only the relay control socket");
+        assert!(coordinator.targets.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancelled_open_guard_releases_raw_control_before_attachment_insert() {
+        let control = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-cancel.sock"),
+            surface_id: 12,
+        };
+        let lease = TerminalSizingLease::new(&coordinator, key, 1, 12);
+        let control_handle: Arc<dyn ControlHandle> = Arc::new(control.clone());
+        lease.join(Arc::clone(&control_handle), SizingGrid { cols: 80, rows: 24 });
+        control.wait_for_requests(1).await;
+        let queue = lease.queue();
+        let proxy: Arc<dyn PtyControl> = Arc::new(ControlTerminalControl {
+            control: control_handle,
+            surface_id: 12,
+            sizing: Some(lease),
+            queue,
+            ended: AtomicBool::new(false),
+        });
+        let opened = Opened {
+            generation: 1,
+            gate: Arc::new(Mutex::new(())),
+            created: false,
+            surface: Some("12".to_owned()),
+            control: proxy,
+            closing: Arc::new(AtomicBool::new(false)),
+            start: None,
+            cleanup_armed: AtomicBool::new(true),
+        };
+        drop(opened);
+        assert!(control.ended(), "cancellation must close the raw control socket");
+        assert!(coordinator.targets.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn protocol_five_to_nine_without_initial_size_sends_one_post_open_resize() {
+        for protocol in 5..=9 {
+            let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
+            let control = SizingControl::new(protocol, &[]);
+            let h = harness_with_control(
+                Some(cmux),
+                None,
+                Some(PathBuf::from(format!("/tmp/cmux-sizing-v{protocol}.sock"))),
+                Some(Arc::new(control.clone())),
+            );
+            h.open_at_version(
+                PTY_OPERATIONAL_ERRORS_PROTOCOL_VERSION,
+                "p1",
+                "work",
+                serde_json::json!({ "surface": "7" }),
+                "supervised",
+                h.owner.clone(),
+            )
+            .await;
+            h.frame_as_at_version(
+                PTY_OPERATIONAL_ERRORS_PROTOCOL_VERSION,
+                serde_json::json!({
+                    "version": 4,
+                    "type": "pty_resize",
+                    "ptyId": "p1",
+                    "cols": 80,
+                    "rows": 24,
+                }),
+                "supervised",
+                h.owner.clone(),
+            )
+            .await;
+            let requests = control.requests();
+            let attach =
+                requests.iter().find(|(cmd, _)| cmd == "attach-surface").expect("attach request");
+            assert_eq!(attach.1["surface"], 7);
+            assert!(attach.1.get("cols").is_none());
+            assert_eq!(control.sends().len(), 1);
+            assert_eq!(control.sends()[0].0, "resize-surface");
+            assert_eq!(control.sends()[0].1["cols"], 80);
+            assert_eq!(control.sends()[0].1["rows"], 24);
+        }
+    }
+
+    #[tokio::test]
+    async fn protocol_nine_with_initial_size_capability_uses_attach_dimensions_once() {
+        let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
+        let control = SizingControl::new(9, &["attach-initial-size"]);
+        let h = harness_with_control(
+            Some(cmux),
+            None,
+            Some(PathBuf::from("/tmp/cmux-sizing-v9-cap.sock")),
+            Some(Arc::new(control.clone())),
+        );
+        h.open("p1", "work", serde_json::json!({ "surface": "7" }), "supervised", h.owner.clone())
+            .await;
+        let requests = control.requests();
+        let attach =
+            requests.iter().find(|(cmd, _)| cmd == "attach-surface").expect("attach request");
+        assert_eq!(attach.1["surface"], 7);
+        assert_eq!(attach.1["cols"], 80);
+        assert_eq!(attach.1["rows"], 24);
+        assert!(control.sends().is_empty());
+    }
+
+    #[tokio::test]
+    async fn raw_open_emits_before_a_slow_sizing_reply_and_converges_after_release() {
+        let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
+        let control = SizingControl::new(12, &[]);
+        control.block_sizing();
+        let h = harness_with_control(
+            Some(cmux),
+            None,
+            Some(PathBuf::from("/tmp/cmux-sizing-open-order.sock")),
+            Some(Arc::new(control.clone())),
+        );
+
+        // A hung set-client-sizing/resize reply must not delay pty_opened.
+        h.open("p1", "work", serde_json::json!({ "surface": "7" }), "supervised", h.owner.clone())
+            .await;
+        assert!(h.sent().iter().any(|frame| ty(frame) == "pty_opened"));
+        control.wait_for_requests(3).await;
+
+        control.release_sizing();
+        control.wait_for_requests(4).await;
+        let requests = control.requests();
+        assert_eq!(requests[2].0, "resize-surface");
+        assert_eq!(requests[3].0, "set-client-sizing");
+    }
+
+    #[tokio::test]
+    async fn raw_detach_cancels_pending_sizing_without_a_stale_claim() {
+        let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
+        let control = SizingControl::new(12, &[]);
+        control.block_sizing();
+        let h = harness_with_control(
+            Some(cmux),
+            None,
+            Some(PathBuf::from("/tmp/cmux-sizing-detach-order.sock")),
+            Some(Arc::new(control.clone())),
+        );
+        h.open("p1", "work", serde_json::json!({ "surface": "7" }), "supervised", h.owner.clone())
+            .await;
+        control.wait_for_requests(3).await;
+        let sends_before_close = control.sends().len();
+        h.frame(serde_json::json!({ "type": "pty_close", "ptyId": "p1" })).await;
+
+        control.release_sizing();
+        tokio::task::yield_now().await;
+        let requests = control.requests();
+        assert_eq!(
+            requests.iter().filter(|(command, _)| command == "resize-surface").count(),
+            1,
+            "the blocked report may complete, but no new resize is allowed after leave"
+        );
+        assert!(!requests.iter().any(|(command, _)| command == "set-client-sizing"));
+        assert_eq!(control.sends().len(), sends_before_close, "leave cancels pending wire work");
+        assert!(control.ended(), "detaching the raw viewer must close its control socket");
+    }
+
     #[tokio::test]
     async fn missing_surface_refuses_with_typed_terminal_gone() {
         let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
@@ -3393,7 +5857,7 @@ mod tests {
         let decoded: crate::relay_wire::RelayPtyError =
             serde_json::from_value(error.clone()).expect("generated pty_error fixture");
         assert_eq!(decoded.code, RelayPtyErrorCode::TerminalGone);
-        assert!(error["message"].as_str().unwrap_or_default().contains("not found in session"),);
+        assert_eq!(error["message"], "requested terminal is no longer available");
         // A gone terminal must NOT degrade to a whole-session attach.
         assert!(!sent.iter().any(|f| ty(f) == "pty_opened"));
     }
@@ -3416,6 +5880,42 @@ mod tests {
             send_pty_error(&context, "p1", code, "test");
             assert_eq!(harness.sent().pop().expect("error frame")["code"], expected);
         }
+    }
+
+    #[test]
+    fn pty_operational_errors_use_v7_codes_and_v6_safe_fallbacks() {
+        let harness = harness(None, None);
+        let old_context = harness.context_with_version(
+            "supervised",
+            harness.owner.clone(),
+            crate::wire::RELAY_PROTOCOL_PTY_OPERATIONAL_ERRORS_VERSION - 1,
+        );
+        send_operational_pty_error(
+            &old_context,
+            "p1",
+            RelayPtyErrorCode::Overflow,
+            "typed overflow detail",
+            "PTY output overflowed. Reattach to continue.",
+        );
+        let old_frame = harness.sent().pop().expect("legacy error frame");
+        assert_eq!(old_frame["code"], "failed");
+        assert_eq!(old_frame["message"], "PTY output overflowed. Reattach to continue.");
+
+        let new_context = harness.context_with_version(
+            "supervised",
+            harness.owner.clone(),
+            crate::wire::RELAY_PROTOCOL_PTY_OPERATIONAL_ERRORS_VERSION,
+        );
+        send_operational_pty_error(
+            &new_context,
+            "p1",
+            RelayPtyErrorCode::Overflow,
+            "typed overflow detail",
+            "PTY output overflowed. Reattach to continue.",
+        );
+        let new_frame = harness.sent().pop().expect("typed error frame");
+        assert_eq!(new_frame["code"], "overflow");
+        assert_eq!(new_frame["message"], "typed overflow detail");
     }
 
     struct InvalidListControl {
@@ -3464,6 +5964,9 @@ mod tests {
         .await;
         let error = h.sent().into_iter().find(|f| ty(f) == "pty_error").unwrap();
         assert_eq!(error["code"], "failed");
+        let message = error["message"].as_str().unwrap_or_default();
+        assert!(!message.contains("list-workspaces"));
+        assert!(!message.contains("response"));
     }
 
     #[tokio::test]
@@ -3640,7 +6143,7 @@ mod tests {
             &context,
             "p1",
             operational_pty_error_code(&context, RelayPtyErrorCode::Overflow),
-            "pty output backlog overflowed; reattach to continue receiving output",
+            "terminal output overflowed; reattach to continue receiving output",
         );
         let frame = harness.sent().pop().unwrap();
         assert_eq!(frame["type"], "pty_error");

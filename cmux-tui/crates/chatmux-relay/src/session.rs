@@ -14,6 +14,8 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+#[cfg(unix)]
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -35,15 +37,18 @@ use crate::pairing::websocket_url;
 use crate::pty::FrameContext;
 #[cfg(unix)]
 use crate::pty::PtyManager;
+#[cfg(unix)]
+use crate::relay_wire::RelayPtyErrorCode;
 use crate::trust::{
     DEFAULT_RELAY_TRUST, Trust, clear_invalid_yolo_confirmation, effective_local_trust,
     has_yolo_confirmation, relay_trust,
 };
 use crate::wire::{
-    CLI_VERSION, EXEC_PROTOCOL_VERSION, FRAME_VERSION, HelloFrame,
-    PTY_OPERATIONAL_ERRORS_PROTOCOL_VERSION, PTY_PROTOCOL_VERSION, ServerFrame,
-    advertised_protocol, heartbeat_frame, parse_server_frame, set_trust_frame,
+    CLI_VERSION, EXEC_PROTOCOL_VERSION, FRAME_VERSION, HelloFrame, PTY_PROTOCOL_VERSION,
+    ServerFrame, advertised_protocol, heartbeat_frame, parse_server_frame, set_trust_frame,
 };
+#[cfg(unix)]
+use crate::wire::{PTY_OPERATIONAL_ERRORS_PROTOCOL_VERSION, pty_operational_error_code};
 
 const MAX_OUTBOUND_FRAMES: usize = 256;
 const MAX_WATCH_OUTBOUND_FRAMES: usize = 64;
@@ -67,7 +72,6 @@ struct AuthSnapshot {
     trust: String,
     roots: Option<Vec<String>>,
     owner: Option<String>,
-    negotiated_version: u64,
 }
 
 pub(crate) struct OutboundFrame {
@@ -448,16 +452,28 @@ fn unsupported_platform_pty_reply(frame_type: &str, raw: &Value) -> Option<Value
 }
 
 /// Build a per-frame FrameContext reading the current reconciled auth.
-fn make_context(out: &OutboundSink, pending: &Arc<AtomicU64>, auth: &AuthSnapshot) -> FrameContext {
+#[cfg(unix)]
+fn make_context(
+    out: &OutboundSink,
+    pending: &Arc<AtomicU64>,
+    auth: &AuthSnapshot,
+    negotiated_relay_version: u64,
+    manager: &PtyManager,
+) -> FrameContext {
     let sender = out.clone();
     let pending_send = Arc::clone(pending);
     let pending_probe = Arc::clone(pending);
+    let reported_output_overflow = Arc::new(Mutex::new(HashSet::<String>::new()));
+    let overflow_reported = Arc::clone(&reported_output_overflow);
+    let overflow_manager = manager.clone();
     FrameContext {
         send: Arc::new(move |frame: Value| {
+            let frame_type = frame.get("type").and_then(Value::as_str).unwrap_or_default();
+            let pty_id = frame.get("ptyId").and_then(Value::as_str).map(str::to_owned);
             let size = serde_json::to_string(&frame).map(|text| text.len() as u64).unwrap_or(0);
             pending_send.fetch_add(size, Ordering::SeqCst);
             let critical = matches!(
-                frame.get("type").and_then(Value::as_str),
+                Some(frame_type),
                 Some(
                     "pty_opened" | "pty_error" | "pty_exit" | "pty_closed" | "surface_list_result"
                 )
@@ -468,15 +484,54 @@ fn make_context(out: &OutboundSink, pending: &Arc<AtomicU64>, auth: &AuthSnapsho
                 sender.try_watch_value(frame)
             };
             if result.is_err() {
+                if frame_type == "pty_output" {
+                    if let Some(pty_id) = pty_id {
+                        let first = overflow_reported
+                            .lock()
+                            .expect("PTY overflow report lock")
+                            .insert(pty_id.clone());
+                        if first {
+                            let code = pty_operational_error_code(
+                                negotiated_relay_version,
+                                RelayPtyErrorCode::Overflow,
+                            );
+                            let message = if negotiated_relay_version
+                                >= crate::wire::RELAY_PROTOCOL_PTY_OPERATIONAL_ERRORS_VERSION
+                            {
+                                "terminal output overflowed; reattach to continue receiving output"
+                            } else {
+                                "terminal output buffer is full; reattach to continue receiving output"
+                            };
+                            let overflow = serde_json::json!({
+                                "version": PTY_PROTOCOL_VERSION,
+                                "type": "pty_error",
+                                "ptyId": pty_id,
+                                "code": code,
+                                "message": message,
+                            });
+                            let overflow_size = serde_json::to_string(&overflow)
+                                .map(|text| text.len() as u64)
+                                .unwrap_or(0);
+                            pending_send.fetch_add(overflow_size, Ordering::SeqCst);
+                            if sender.try_critical_value(overflow).is_err() {
+                                pending_send.fetch_sub(
+                                    overflow_size.min(pending_send.load(Ordering::SeqCst)),
+                                    Ordering::SeqCst,
+                                );
+                            }
+                            overflow_manager.detach_on_output_overflow(&pty_id);
+                        }
+                    }
+                }
                 eprintln!(
-                    "Dropping relay outbound frame because its bounded queue is full; mandatory={critical}"
+                    "Dropping relay outbound frame because its bounded queue is full; mandatory={critical} type={frame_type}"
                 );
                 pending_send
                     .fetch_sub(size.min(pending_send.load(Ordering::SeqCst)), Ordering::SeqCst);
             }
         }),
         buffered_amount: Arc::new(move || pending_probe.load(Ordering::SeqCst)),
-        negotiated_version: auth.negotiated_version,
+        negotiated_version: negotiated_relay_version,
         trust: auth.trust.clone(),
         local_roots: auth.roots.clone(),
         owner_user_id: auth.owner.clone(),
@@ -543,6 +598,9 @@ async fn relay_session(
     // this child is also raised for ordinary reconnects.
     let connection_cancellation = cancellation.child_token();
     let mut connection_tasks = JoinSet::new();
+    // Shared with the ordered PTY worker so every frame gets the exact outer
+    // hello version negotiated on this connection.
+    let negotiated_version_shared = Arc::new(AtomicU64::new(0));
 
     // Ordered PTY frame dispatch on its own task so a slow open (daemon
     // spawn) never stalls heartbeats or other frames.
@@ -558,6 +616,7 @@ async fn relay_session(
         let pending = Arc::clone(&pending);
         let auth = Arc::clone(&auth);
         let cancellation = connection_cancellation.clone();
+        let negotiated_version = Arc::clone(&negotiated_version_shared);
         connection_tasks.spawn(async move {
             loop {
                 let frame = tokio::select! {
@@ -569,7 +628,13 @@ async fn relay_session(
                     }
                 };
                 let snapshot = auth.lock().expect("auth lock").clone();
-                let context = make_context(&out, &pending, &snapshot);
+                let context = make_context(
+                    &out,
+                    &pending,
+                    &snapshot,
+                    negotiated_version.load(Ordering::Acquire),
+                    &manager,
+                );
                 tokio::select! {
                     biased;
                     _ = cancellation.cancelled() => break,
@@ -706,6 +771,7 @@ async fn relay_session(
                     ServerFrame::HelloAccepted(hello) => {
                         connected = true;
                         negotiated_version = hello.relay_protocol_version;
+                        negotiated_version_shared.store(negotiated_version, Ordering::Release);
                         clear_invalid_yolo_confirmation(config);
                         let configured = relay_trust(
                             config.pending_trust.as_deref().or(config.trust.as_deref()),
@@ -794,7 +860,6 @@ async fn relay_session(
                             snapshot.trust = effective_trust;
                             snapshot.roots = local_roots.clone();
                             snapshot.owner = config.owner_user_id.clone();
-                            snapshot.negotiated_version = negotiated_version;
                             workspace.set_local_observe(local_observe);
                         }
                         let mut interval = tokio::time::interval(Duration::from_millis(
@@ -961,7 +1026,13 @@ async fn relay_session(
                                 // bounded work queue is saturated. The manager close path is
                                 // synchronous and short, so this cannot create an unbounded wait.
                                 let snapshot = auth_direct.lock().expect("auth lock").clone();
-                                let context = make_context(&out_tx, &pending, &snapshot);
+                                let context = make_context(
+                                    &out_tx,
+                                    &pending,
+                                    &snapshot,
+                                    negotiated_version,
+                                    &manager_direct,
+                                );
                                 tokio::select! {
                                     biased;
                                     _ = cancellation.cancelled() => break Ok(connected),

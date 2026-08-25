@@ -105,13 +105,11 @@ extension RemoteSessionCoordinator {
         set -C
         # Create the owner marker atomically after noclobber is enabled.
         if ! printf '%s\\n' "$$" > "$pid_path"; then
-          printf '%s\\n' 'cmux daemon upload could not create a unique owner marker' >&2
           exit 76
         fi
         # Open the payload once with noclobber, then write through the
         # descriptor. This refuses a pre-existing payload symlink or file.
         if ! exec 4> "$temp_path"; then
-          printf '%s\\n' 'cmux daemon upload could not create a unique temporary file' >&2
           exit 76
         fi
         cat <&3 >&4 &
@@ -135,8 +133,9 @@ extension RemoteSessionCoordinator {
               stall_checks=$((stall_checks + 1))
             fi
             if [ "$stall_checks" -ge \(Self.daemonUploadStallCheckLimit) ]; then
-              printf 'cmux daemon upload stalled after %ss without byte progress (received=%s expected=%s)\\n' \
-                \(Self.daemonUploadStallCheckIntervalSeconds * Self.daemonUploadStallCheckLimit) "$current_size" \(artifact.byteCount) >&2
+              # Abort silently. The local SSH result is mapped to a generic
+              # user error and bounded detail is retained in debugLog.
+              # without byte progress
               kill "$cat_pid" 2>/dev/null || true
               exit 0
             fi
@@ -256,19 +255,16 @@ extension RemoteSessionCoordinator {
         expected_size=\(expectedSize.shellSingleQuoted)
         expected_sha=\(expectedSHA256.shellSingleQuoted)
         if [ ! -s "$temp_path" ]; then
-          printf '%s\\n' 'cmux daemon verification failed: temporary payload is empty' >&2
           exit 74
         fi
         set -- $(wc -c < "$temp_path" 2>/dev/null)
         actual_size="${1:-}"
         case "$actual_size" in
           ''|*[!0-9]*)
-            printf '%s\\n' 'cmux daemon verification failed: could not read temporary payload size' >&2
             exit 74
             ;;
         esac
         if [ "$actual_size" != "$expected_size" ]; then
-          printf 'cmux daemon verification failed: size mismatch expected=%s actual=%s\\n' "$expected_size" "$actual_size" >&2
           exit 74
         fi
         actual_sha=
@@ -279,11 +275,9 @@ extension RemoteSessionCoordinator {
           set -- $(shasum -a 256 "$temp_path" 2>/dev/null)
           actual_sha="${1:-}"
         else
-          printf '%s\\n' 'cmux daemon verification failed: remote host has no SHA-256 utility (sha256sum or shasum)' >&2
           exit 75
         fi
         if [ "$actual_sha" != "$expected_sha" ]; then
-          printf 'cmux daemon verification failed: SHA-256 mismatch expected=%s actual=%s\\n' "$expected_sha" "${actual_sha:-missing}" >&2
           exit 74
         fi
         if chmod 755 "$temp_path" && mv -f "$temp_path" "$final_path"; then

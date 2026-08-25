@@ -94,6 +94,7 @@ mod unix {
         raw_fd: std::os::fd::RawFd,
         next_id: AtomicU64,
         timeout_ms: u64,
+        ended: AtomicBool,
     }
 
     /// Connect a JSON-lines control client to a cmux-tui session socket.
@@ -135,6 +136,7 @@ mod unix {
             raw_fd,
             next_id: AtomicU64::new(1),
             timeout_ms,
+            ended: AtomicBool::new(false),
         }))
     }
 
@@ -329,6 +331,9 @@ mod unix {
         }
 
         fn end(&self) {
+            if self.ended.swap(true, Ordering::SeqCst) {
+                return;
+            }
             self.shared.deliberate.store(true, Ordering::SeqCst);
             self.shared.settle_closed();
             // Shut both directions so the read loop sees EOF and any blocked
