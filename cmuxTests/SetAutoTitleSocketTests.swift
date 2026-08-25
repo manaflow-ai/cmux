@@ -228,6 +228,7 @@ import Testing
                     "panel_only_if_multiple": true,
                     "expected_workspace_title": "Earlier automatic topic",
                     "expected_panel_title": "Earlier automatic topic",
+                    "reconciliation_cas": true,
                     "title": "Earlier automatic topic",
                 ])["result"] as? [String: Any])
 
@@ -720,6 +721,7 @@ import Testing
                 "panel_only_if_multiple": true,
                 "expected_workspace_title": "Earlier automatic topic",
                 "expected_panel_title": "Earlier automatic topic",
+                "reconciliation_cas": true,
                 "title": "Earlier automatic topic",
                 "clear_status_on_apply": false,
             ])["result"] as? [String: Any])

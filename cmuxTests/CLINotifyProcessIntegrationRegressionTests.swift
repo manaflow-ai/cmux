@@ -2455,6 +2455,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             + String(repeating: "x", count: 2048)
         try expandedTranscript.write(to: transcriptURL, atomically: true, encoding: .utf8)
         let recoveryProbe = expectation(description: "reconciliation recovery detached probe")
+        recoveryProbe.isInverted = true
         let recoveryStart = startManualWorkspaceAutoNamingProbeServer(
             context: context,
             expectedProbeCount: 2,
@@ -2468,12 +2469,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertFalse(recovery.timedOut, recovery.stderr)
         XCTAssertEqual(recovery.status, 0, recovery.stderr)
-        wait(for: [recoveryProbe], timeout: 5)
+        wait(for: [recoveryProbe], timeout: 1)
         let recoveryCommands = Array(context.state.snapshot().dropFirst(recoveryStart))
-        XCTAssertGreaterThanOrEqual(
+        XCTAssertEqual(
             autoNamingProbeRequestCount(in: recoveryCommands),
-            2,
-            "New transcript progress must open a fresh reconciliation epoch"
+            1,
+            "Generic agents keep the bounded terminal state until a fresh compact event"
         )
     }
 
