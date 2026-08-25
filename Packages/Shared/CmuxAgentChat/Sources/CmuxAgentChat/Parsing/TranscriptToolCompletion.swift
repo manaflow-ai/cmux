@@ -19,6 +19,9 @@ struct TranscriptToolCompletion: Sendable {
     /// Whether source-specific positive evidence authorizes mutation provenance.
     let authorizesArtifactMutation: Bool
 
+    /// Whether the provider supplied positive completion evidence for display.
+    let hasPositiveSuccessEvidence: Bool
+
     /// Returns whether a tool result provides enough positive evidence to
     /// authorize a file mutation.
     ///
@@ -45,12 +48,8 @@ struct TranscriptToolCompletion: Sendable {
     var succeeded: Bool {
         guard isError != true else { return false }
         if let exitCode { return exitCode == 0 }
-        guard isError == false,
-              let output,
-              !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return false
-        }
-        return !reportsFailureWithoutExitStatus
+        if isError == false { return true }
+        return hasPositiveSuccessEvidence
     }
 
     /// Creates a completion.
@@ -66,13 +65,15 @@ struct TranscriptToolCompletion: Sendable {
         isError: Bool?,
         exitCode: Int? = nil,
         durationSeconds: Double? = nil,
-        authorizesArtifactMutation: Bool
+        authorizesArtifactMutation: Bool,
+        hasPositiveSuccessEvidence: Bool = false
     ) {
         self.output = output
         self.isError = isError
         self.exitCode = exitCode
         self.durationSeconds = durationSeconds
         self.authorizesArtifactMutation = authorizesArtifactMutation
+        self.hasPositiveSuccessEvidence = hasPositiveSuccessEvidence
     }
 
     /// Produces the completed copy of a pending tool message.

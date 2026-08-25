@@ -31,6 +31,8 @@ public final class ArtifactSidebarModel {
     private var bindingRequestRevision: UInt64 = 0
     private var bindingRevision: UInt64 = 0
     private var latestWorkspaceTitle: (id: String, title: String?)?
+    private var watcherReloadInFlight = false
+    private var watcherReloadPending = false
 
     /// Creates a sidebar model with injected filesystem and capture seams.
     ///
@@ -110,6 +112,8 @@ public final class ArtifactSidebarModel {
         bindingRequestRevision &+= 1
         bindingRevision &+= 1
         tasks.cancelAll()
+        watcherReloadInFlight = false
+        watcherReloadPending = false
         workspace = nil
         projectRoot = nil
         nodes = []
@@ -204,7 +208,15 @@ public final class ArtifactSidebarModel {
             Task { [weak self] in
                 for await _ in changes {
                     guard !Task.isCancelled else { break }
-                    await self?.reload(projectRoot: projectRoot, revision: revision)
+                    guard let self else { break }
+                    self.watcherReloadPending = true
+                    guard !self.watcherReloadInFlight else { continue }
+                    self.watcherReloadInFlight = true
+                    repeat {
+                        self.watcherReloadPending = false
+                        await self.reload(projectRoot: projectRoot, revision: revision)
+                    } while self.watcherReloadPending && !Task.isCancelled
+                    self.watcherReloadInFlight = false
                 }
             }
         }

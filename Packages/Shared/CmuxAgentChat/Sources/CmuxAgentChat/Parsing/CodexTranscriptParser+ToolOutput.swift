@@ -97,7 +97,9 @@ extension CodexTranscriptParser {
             authorizesArtifactMutation: authorizesArtifactMutation(
                 output: text,
                 exitCode: exitCode
-            )
+            ),
+            hasPositiveSuccessEvidence: exitCode != nil
+                || text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         )
     }
 
