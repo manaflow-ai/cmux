@@ -552,8 +552,20 @@ jobs:
           path: |
             dist/cmux-tui-x86_64-pc-windows-gnu.exe
             dist/cmux-tui-hook-x86_64-pc-windows-gnu.exe
-            dist/cmux-relay-x86_64-pc-windows-gnu.exe
-            dist/chatmux-relay-x86_64-pc-windows-gnu.exe
+          if-no-files-found: error
+
+      - name: Upload relay binary artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-relay-x86_64-pc-windows-gnu
+          path: dist/cmux-relay-x86_64-pc-windows-gnu.exe
+          if-no-files-found: error
+
+      - name: Upload chatmux relay binary artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chatmux-relay-x86_64-pc-windows-gnu
+          path: dist/chatmux-relay-x86_64-pc-windows-gnu.exe
           if-no-files-found: error
 
   package:
