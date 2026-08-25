@@ -218,6 +218,27 @@
         "ja": { "stringUnit": { "state": "translated", "value": "その他…" } }
       }
     },
+    "settings.betaFeatures.tuiTerminalBackendManualIO": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux-tui Manual-IO Data Path" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux-tui マニュアルIOデータパス" } }
+      }
+    },
+    "settings.betaFeatures.tuiTerminalBackendManualIO.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Daemon-backed terminals keep running the attach client as the surface command." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デーモン管理のターミナルは引き続きattachクライアントをサーフェスコマンドとして実行します。" } }
+      }
+    },
+    "settings.betaFeatures.tuiTerminalBackendManualIO.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Daemon-backed terminals feed bytes straight into the Ghostty surface (no attach subprocess in the pane). Requires the cmux-tui Terminal Backend toggle." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デーモン管理のターミナルがGhosttyサーフェスへ直接バイトを送ります（ペイン内にattachサブプロセスなし）。cmux-tuiターミナルバックエンドの有効化が必要です。" } }
+      }
+    },
     "terminal.notification.action.reply": {
       "extractionState": "manual",
       "localizations": {
@@ -247321,6 +247342,34 @@
             "value": "分割窗格"
           }
         }
+      }
+    },
+    "tui.overlay.ended.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The daemon-backed terminal has ended. Close the tab, or keep it to read the final screen." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デーモン管理のターミナルが終了しました。タブを閉じるか、最後の画面を確認するために残せます。" } }
+      }
+    },
+    "tui.overlay.ended.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal session ended" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルセッションが終了しました" } }
+      }
+    },
+    "tui.overlay.reconnecting.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The session daemon is unreachable (attempt %lld). The terminal shows its last state; input is paused." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッションデーモンに接続できません（試行 %lld 回目）。ターミナルは最後の状態を表示しており、入力は一時停止中です。" } }
+      }
+    },
+    "tui.overlay.reconnecting.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reconnecting to the terminal session" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルセッションに再接続中" } }
       }
     },
     "uiTest.bonsplit.action.title": {

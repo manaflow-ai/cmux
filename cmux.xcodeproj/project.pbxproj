@@ -2546,6 +2546,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		E30760000000000000000002 /* TmuxWorkspacePaneOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760000000000000000001 /* TmuxWorkspacePaneOverlayView.swift */; };
 		D3284001A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3284002A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift */; };
 		AB7C4D21E6F90810 /* TuiBridgeReattachMouseUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB7C4D21E6F90811 /* TuiBridgeReattachMouseUITests.swift */; };
+		7A15A1DE0000000000000008 /* TuiManualIOPump.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A15A1DE0000000000000007 /* TuiManualIOPump.swift */; };
+		7A15A1DE000000000000000A /* TuiManualIOPumpTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A15A1DE0000000000000009 /* TuiManualIOPumpTests.swift */; };
 		7A15A1DE0000000000000004 /* TuiTerminalAttachBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A15A1DE0000000000000003 /* TuiTerminalAttachBridge.swift */; };
 		7A15A1DE0000000000000002 /* TuiTerminalAttachPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A15A1DE0000000000000001 /* TuiTerminalAttachPolicy.swift */; };
 		7A15A1DE0000000000000006 /* TuiTerminalAttachSpikeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A15A1DE0000000000000005 /* TuiTerminalAttachSpikeTests.swift */; };
@@ -5323,6 +5325,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		E30760000000000000000001 /* TmuxWorkspacePaneOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlayView.swift; sourceTree = "<group>"; };
 		D3284002A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TraditionalChineseIMENumpadRegressionTests.swift; sourceTree = "<group>"; };
 		AB7C4D21E6F90811 /* TuiBridgeReattachMouseUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TuiBridgeReattachMouseUITests.swift; sourceTree = "<group>"; };
+		7A15A1DE0000000000000007 /* TuiManualIOPump.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TuiManualIOPump.swift; sourceTree = "<group>"; };
+		7A15A1DE0000000000000009 /* TuiManualIOPumpTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TuiManualIOPumpTests.swift; sourceTree = "<group>"; };
 		7A15A1DE0000000000000003 /* TuiTerminalAttachBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TuiTerminalAttachBridge.swift; sourceTree = "<group>"; };
 		7A15A1DE0000000000000001 /* TuiTerminalAttachPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TuiTerminalAttachPolicy.swift; sourceTree = "<group>"; };
 		7A15A1DE0000000000000005 /* TuiTerminalAttachSpikeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TuiTerminalAttachSpikeTests.swift; sourceTree = "<group>"; };
@@ -7428,6 +7432,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					50FE16F529BD6FBA4FBDECFC /* RemoteTmuxController.swift */,
 					7A15A1DE0000000000000001 /* TuiTerminalAttachPolicy.swift */,
 					7A15A1DE0000000000000003 /* TuiTerminalAttachBridge.swift */,
+					7A15A1DE0000000000000007 /* TuiManualIOPump.swift */,
 					740600000000000000000001 /* RemoteTmuxController+Attach.swift */,
 					740600000000000000000010 /* RemoteTmuxAttachWindowTarget.swift */,
 					736200000000000000000001 /* RemoteTmuxController+Decisions.swift */,
@@ -7825,6 +7830,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C13519000000000000000008 /* ClaudeConfigDirectoryPathTests.swift */,
 				C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */,
 				7A15A1DE0000000000000005 /* TuiTerminalAttachSpikeTests.swift */,
+				7A15A1DE0000000000000009 /* TuiManualIOPumpTests.swift */,
 				DEBDADADADADADADAD000004 /* DebugDogfoodCredentialResolverTests.swift */,
 				C135190000000000000000B2 /* SidebarWorkspaceGroupConfigOpenerTests.swift */,
 				A11EAE000000000000000001 /* WorkspaceAppearanceConfigResolutionTests.swift */,
@@ -10601,6 +10607,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B35751000000000000000002 /* TmuxResumeParser.swift in Sources */,
 				E30760050000000000000002 /* TmuxWorkspacePaneOverlayRenderState.swift in Sources */,
 				E30760000000000000000002 /* TmuxWorkspacePaneOverlayView.swift in Sources */,
+				7A15A1DE0000000000000008 /* TuiManualIOPump.swift in Sources */,
 				7A15A1DE0000000000000004 /* TuiTerminalAttachBridge.swift in Sources */,
 				7A15A1DE0000000000000002 /* TuiTerminalAttachPolicy.swift in Sources */,
 				A5001501 /* UITestRecorder.swift in Sources */,
@@ -11638,6 +11645,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F50030040000000000000001 /* TitlebarInteractiveControlTests.swift in Sources */,
 				E30760060000000000000002 /* TmuxWorkspacePaneOverlayModelTests.swift in Sources */,
 				D3284001A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift in Sources */,
+				7A15A1DE000000000000000A /* TuiManualIOPumpTests.swift in Sources */,
 				7A15A1DE0000000000000006 /* TuiTerminalAttachSpikeTests.swift in Sources */,
 				468100000000000000000003 /* TypingHotPathRegressionTests.swift in Sources */,
 				F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */,
