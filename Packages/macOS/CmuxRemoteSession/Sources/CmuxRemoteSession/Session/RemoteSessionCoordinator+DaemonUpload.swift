@@ -396,7 +396,11 @@ extension RemoteSessionCoordinator {
               continue
               ;;
             *)
-              if kill -0 "$cmux_pid" 2>/dev/null; then continue; fi
+              if kill -0 "$cmux_pid" 2>/dev/null; then
+                # A live PID can be reused after the original writer exits.
+                # Keep fresh markers, but reclaim aged ones without signaling.
+                if find "$cmux_pid_file" -mmin -30 2>/dev/null | grep . >/dev/null; then continue; fi
+              fi
               # Reclaim only markers that are older than the conservative
               # recovery window. This avoids PID-reuse races.
               if find "$cmux_pid_file" -mmin -30 2>/dev/null | grep . >/dev/null; then continue; fi

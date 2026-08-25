@@ -269,6 +269,20 @@ extension RemoteDaemonUploadTests {
         #expect(cleanup.terminationStatus == 0)
         #expect(fileManager.fileExists(atPath: temporaryPath))
         #expect(fileManager.fileExists(atPath: pidPath))
+        try Self.ageFile(atPath: pidPath)
+        try Self.ageFile(atPath: temporaryPath)
+        let agedLiveCleanup = Process()
+        agedLiveCleanup.executableURL = URL(fileURLWithPath: "/bin/sh")
+        agedLiveCleanup.arguments = ["-c", RemoteSessionCoordinator.remoteDaemonTemporaryCleanupScript(remotePath: remotePath)]
+        agedLiveCleanup.standardInput = FileHandle.nullDevice
+        agedLiveCleanup.standardOutput = FileHandle.nullDevice
+        agedLiveCleanup.standardError = FileHandle.nullDevice
+        try agedLiveCleanup.run()
+        agedLiveCleanup.waitUntilExit()
+        #expect(agedLiveCleanup.terminationStatus == 0)
+        #expect(writer.isRunning)
+        #expect(!fileManager.fileExists(atPath: temporaryPath))
+        #expect(!fileManager.fileExists(atPath: pidPath))
         writer.terminate()
         writer.waitUntilExit()
         try Self.ageFile(atPath: pidPath)
