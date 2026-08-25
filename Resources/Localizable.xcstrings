@@ -267545,6 +267545,23 @@
         }
       }
     },
+    "cli.identify.error.noCallerConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "identify: --no-caller cannot be combined with %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "identify: --no-caller は %@ と併用できません。"
+          }
+        }
+      }
+    },
     "cli.coderouter.aliases": {
       "extractionState": "manual",
       "localizations": {
