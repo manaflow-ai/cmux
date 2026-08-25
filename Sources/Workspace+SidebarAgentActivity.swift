@@ -103,10 +103,21 @@ extension Workspace {
                 }
                 let identity = selectedPIDKey.flatMap { agentPIDProcessIdentitiesByKey[$0] }
                 let exactProcessIsLive = selectedPIDKey.flatMap { livenessByPIDKey[$0] } ?? false
+                let hasDifferentRuntimeGeneration = matchingPIDKeys.contains { key in
+                    guard let runtimeIndexEntry,
+                          let runtimeIdentity = agentPIDProcessIdentitiesByKey[key] else {
+                        return false
+                    }
+                    return !Self.indexEntry(
+                        runtimeIndexEntry,
+                        containsProcessIdentity: runtimeIdentity
+                    )
+                }
                 let suppressStaleLifecycle = runtimeIndexEntry?.processLiveness == .exited
+                    && !hasDifferentRuntimeGeneration
                 // A definitively exited indexed generation suppresses a stale
-                // lifecycle map until a newly verified runtime generation takes
-                // its place. Unknown index state remains eligible for a live
+                // lifecycle map until a different cmux-bound generation is
+                // recorded. Unknown index state remains eligible for a live
                 // token-routed lifecycle signal.
                 let processLiveness: RestorableAgentProcessLiveness = if exactProcessIsLive {
                     .running

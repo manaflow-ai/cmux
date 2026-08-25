@@ -40,7 +40,7 @@ enum SidebarAgentResolvedState: String, Equatable, Sendable {
                 self = .unknown
             }
         case .idle:
-            self = .idle
+            self = processLiveness == .exited ? .unknown : .idle
         case .unknown, nil:
             self = .unknown
         }

@@ -6073,8 +6073,10 @@ struct ContentView: View {
             let exactMatch = commandPaletteForkableAgentActivePanelKey.map {
                 changedPanelKeys.contains($0)
             } == true
+            let aliasPanelIds = notification.userInfo?["panelIds"] as? Set<UUID>
+                ?? Set(panelIdsByWorkspaceId.values.joined())
             let panelAliasMatch = focusedPanelContext.map { context in
-                (notification.userInfo?["panelIds"] as? Set<UUID>)?.contains(context.panelId) == true
+                aliasPanelIds.contains(context.panelId)
             } == true
             guard exactMatch || panelAliasMatch else {
                 return

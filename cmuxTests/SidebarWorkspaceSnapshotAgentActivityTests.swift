@@ -571,6 +571,23 @@ struct SidebarWorkspaceAgentActivityTests {
     }
 
     @Test
+    func exitedIdleEvidenceBecomesUnknown() {
+        let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(
+                lifecycle: .idle,
+                processLiveness: .exited,
+                hasExactProcessIdentity: false,
+                isRuntimeBound: true,
+                hasLiveLifecycleSignal: true,
+                isHookBacked: false,
+                isExactProcessBinding: true
+            )
+        ])
+
+        #expect(activity.primaryState == .unknown)
+    }
+
+    @Test
     func runningWithoutStartAnchorHasNoElapsedText() {
         let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
             Self.evidence(lifecycle: .running, startedAt: nil)
