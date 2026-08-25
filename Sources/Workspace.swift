@@ -109,7 +109,11 @@ extension Workspace {
                         workspaceId: id,
                         panelId: panelId,
                         processIdentityProvider: currentAgentProcessIdentity,
-                        processPresenceProvider: agentProcessPresence
+                        processPresenceProvider: agentProcessPresence,
+                        // Snapshot projection already consumes one index result;
+                        // avoid synchronous sysctl/kill probes on the main actor
+                        // while autosaving or closing a workspace.
+                        revalidateProcessEvidence: false
                     ),
                     resumeBinding: effectiveSurfaceResumeBinding(
                         panelId: panelId,

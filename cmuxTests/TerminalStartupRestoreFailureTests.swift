@@ -263,6 +263,52 @@ struct TerminalStartupRestoreFailureTests {
         #expect(restored.restoredAgentSnapshotsByPanelId[restoredPanelID] == nil)
     }
 
+    @Test("Cancelling a binding-only deferred resume retires automatic ownership")
+    func cancellingBindingOnlyDeferredResumeRetiresAutomaticOwnership() throws {
+        let defaults = try makeAutoResumeDefaults()
+        defer { defaults.store.removePersistentDomain(forName: defaults.name) }
+        let workspace = Workspace(agentSessionAutoResumeDefaults: defaults.store)
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let sessionID = "binding-only-cancel-(UUID().uuidString)"
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Codex",
+            kind: "codex",
+            command: "codex resume (sessionID)",
+            cwd: "/tmp/binding-only-cancel",
+            checkpointId: sessionID,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_800_000_303
+        )
+        workspace.surfaceResumeBindingsByPanelId[panelID] = binding
+        let restore = DeferredAgentResumeRestore(
+            stablePanelID: panelID,
+            restorableAgent: nil,
+            resumeBinding: binding,
+            restoresRemoteWorkspaceTerminalSnapshot: false,
+            workingDirectory: binding.cwd,
+            resumeWorkingDirectory: binding.cwd
+        )
+        workspace.deferredAgentResumeRestoresByPanelId[panelID] = restore
+        workspace.restoredAgentLifecycle.setResumeState(
+            .awaitingAutoResumeCommand,
+            panelId: panelID
+        )
+
+        workspace.cancelDeferredAgentResumeRestore(
+            panelId: panelID,
+            restore: restore
+        )
+
+        #expect(workspace.deferredAgentResumeRestoresByPanelId[panelID] == nil)
+        #expect(
+            workspace.restoredAgentResumeStatesByPanelId[panelID]
+                == .manualResumeAvailable
+        )
+        #expect(workspace.surfaceResumeBindingsByPanelId[panelID]?.autoResume == false)
+    }
+
     private func makeAutoResumeDefaults() throws -> (store: UserDefaults, name: String) {
         let name = "cmux-terminal-startup-failure-\(UUID().uuidString)"
         let store = try #require(UserDefaults(suiteName: name))

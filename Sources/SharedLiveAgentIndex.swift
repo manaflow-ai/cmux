@@ -97,6 +97,10 @@ final class SharedLiveAgentIndex {
     // Floor between event-driven reloads so chatty hook stores cannot keep the
     // measured ~350ms-1.8s loader running at near-continuous duty cycle.
     private static let minEventReloadInterval: TimeInterval = 5.0
+    // Ownership-sensitive restore may retry once when a hook event lands during
+    // the first scan, but it must fail closed instead of waiting forever for a
+    // continuously changing hook store to become quiescent.
+    private static let maximumOwnershipSensitiveRefreshPasses = 2
 
     nonisolated static func forkExecutableWatchSourceCountBudget(
         softFileDescriptorLimit explicitSoftLimit: Int? = nil,
@@ -456,16 +460,24 @@ final class SharedLiveAgentIndex {
     /// Returns a freshly loaded index, coalescing with any refresh already in flight.
     func indexRefreshingNow() async -> RestorableAgentSessionIndex? {
         ensureWatchingHookStoreDirectory()
+        var completedRefreshPasses = 0
         while true {
             guard !Task.isCancelled else { return nil }
             if let refreshTask {
                 await refreshTask.value
                 guard !Task.isCancelled else { return nil }
+                completedRefreshPasses += 1
                 if self.refreshTask == nil,
                    forkAvailabilityRefreshTask == nil,
                    !changePending,
                    deferredReloadTimer == nil {
                     return index
+                }
+                guard completedRefreshPasses < Self.maximumOwnershipSensitiveRefreshPasses else {
+                    deferredReloadTimer?.cancel()
+                    deferredReloadTimer = nil
+                    changePending = false
+                    return nil
                 }
                 continue
             }

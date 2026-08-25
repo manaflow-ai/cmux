@@ -18,16 +18,13 @@ extension Workspace {
             guard let self, let terminalPanel,
                   let mountedTerminal = self.panels[terminalPanel.id] as? TerminalPanel,
                   mountedTerminal === terminalPanel,
-                  self.deferredAgentResumeRestoresByPanelId[terminalPanel.id] != nil else {
+                  let restore = self.deferredAgentResumeRestoresByPanelId[terminalPanel.id] else {
                 return
             }
-            self.removeDeferredAgentResumeRestore(panelId: terminalPanel.id)
-            if self.restoredAgentLifecycle.snapshotsByPanelId[terminalPanel.id] != nil {
-                self.restoredAgentLifecycle.setResumeState(
-                    .manualResumeAvailable,
-                    panelId: terminalPanel.id
-                )
-            }
+            self.cancelDeferredAgentResumeRestore(
+                panelId: terminalPanel.id,
+                restore: restore
+            )
         }
         terminalPanel.surface.onVisualBell = { [weak self, weak terminalPanel] in
             guard let self, let terminalPanel,

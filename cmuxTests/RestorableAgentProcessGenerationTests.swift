@@ -110,6 +110,40 @@ struct RestorableAgentProcessGenerationTests {
         #expect(loadCount.withLock { $0 } == 2)
     }
 
+    @Test("Cached stable-panel snapshot lookup does not probe the process table")
+    func cachedStablePanelSnapshotLookupAvoidsProcessProbes() throws {
+        let fixture = try makeFixture(prefix: "cmux-cached-stable-panel-lookup")
+        defer { cleanup(fixture) }
+        let index = loadRunningFixture(
+            fixture,
+            processArguments: codexProcessArguments(for: fixture),
+            processIdentity: AgentPIDProcessIdentity(
+                pid: pid_t(fixture.processID),
+                startSeconds: Int64(fixture.updatedAt),
+                startMicroseconds: 0
+            )
+        )
+        var identityProbeCount = 0
+        var presenceProbeCount = 0
+        let resolved = index.entryForStablePanel(
+            workspaceId: fixture.workspaceID,
+            panelId: fixture.panelID,
+            processIdentityProvider: { _ in
+                identityProbeCount += 1
+                return nil
+            },
+            processPresenceProvider: { _ in
+                presenceProbeCount += 1
+                return .unknown
+            },
+            revalidateProcessEvidence: false
+        )
+
+        #expect(resolved?.snapshot.sessionId == fixture.sessionID)
+        #expect(identityProbeCount == 0)
+        #expect(presenceProbeCount == 0)
+    }
+
     @Test("A later process generation cannot satisfy a stale hook PID")
     func laterProcessGenerationCannotSatisfyStaleHookPID() throws {
         let fixture = try makeFixture(prefix: "cmux-pid-generation")

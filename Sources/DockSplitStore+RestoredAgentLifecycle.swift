@@ -589,16 +589,16 @@ extension DockSplitStore {
         }
     }
 
-    private func cancelDeferredAgentResumeRestore(
+    func cancelDeferredAgentResumeRestore(
         panelId: UUID,
         restore: DeferredAgentResumeRestore
     ) {
         (panels[panelId] as? TerminalPanel)?.surface.cancelStartupRestoreAdmission()
         removeDeferredAgentResumeRestore(panelId: panelId)
-        restoredAgentLifecycle.setResumeState(
-            restore.restorableAgent == nil ? nil : .manualResumeAvailable,
-            panelId: panelId
-        )
+        if restore.restorableAgent == nil {
+            retireAgentHookResumeBinding(panelId: panelId)
+        }
+        restoredAgentLifecycle.setResumeState(.manualResumeAvailable, panelId: panelId)
     }
 
     func clearDeferredAgentResumeRestores() {

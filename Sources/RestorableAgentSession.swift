@@ -1220,6 +1220,10 @@ struct RestorableAgentSessionIndex: Sendable {
     /// authoritative when it still carries live process evidence; otherwise the panel-only
     /// index supplies the newest safe entry, with live process evidence taking precedence over
     /// stale hook history.
+    ///
+    /// Snapshot projection can pass ``revalidateProcessEvidence`` as `false` when it already
+    /// owns one coherent loader result. That preserves the loader's cached liveness ranking
+    /// without issuing synchronous process probes from the main actor.
     func entryForStablePanel(
         workspaceId: UUID,
         panelId: UUID,
@@ -1230,7 +1234,8 @@ struct RestorableAgentSessionIndex: Sendable {
         processPresenceProvider: (Int) -> PIDPresence = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
             return PIDPresence.current(pid: pid_t($0))
-        }
+        },
+        revalidateProcessEvidence: Bool = true
     ) -> Entry? {
         let candidates = candidatesByPanelId[panelId] ?? []
         guard !candidates.isEmpty else { return nil }
@@ -1240,11 +1245,13 @@ struct RestorableAgentSessionIndex: Sendable {
             (
                 key: key,
                 entry: entry,
-                evidence: Self.currentProcessEvidence(
-                    for: entry,
-                    processIdentityProvider: processIdentityProvider,
-                    processPresenceProvider: processPresenceProvider
-                )
+                evidence: revalidateProcessEvidence
+                    ? Self.currentProcessEvidence(
+                        for: entry,
+                        processIdentityProvider: processIdentityProvider,
+                        processPresenceProvider: processPresenceProvider
+                    )
+                    : Self.cachedProcessEvidence(for: entry)
             )
         }
         let liveCandidates = candidatesWithEvidence.filter { $0.evidence == .live }
@@ -2028,6 +2035,20 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         }
         return sawUnknown ? .unknown : .notLive
+    }
+
+    private static func cachedProcessEvidence(for entry: Entry) -> CurrentProcessEvidence {
+        guard !recordedProcessIDs(for: entry).isEmpty else {
+            return entry.processLiveness == .unknown ? .unknown : .notLive
+        }
+        switch entry.processLiveness {
+        case .running:
+            return .live
+        case .unknown:
+            return .unknown
+        case .exited:
+            return .notLive
+        }
     }
 
     private static func recordedProcessIDs(for entry: Entry) -> Set<Int> {

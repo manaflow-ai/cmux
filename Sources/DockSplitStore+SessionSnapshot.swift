@@ -59,7 +59,8 @@ extension DockSplitStore {
                         workspaceId: observationWorkspaceId,
                         panelId: panelId,
                         processIdentityProvider: currentAgentProcessIdentity,
-                        processPresenceProvider: agentProcessPresence
+                        processPresenceProvider: agentProcessPresence,
+                        revalidateProcessEvidence: false
                     ),
                     detectedResumeBinding: surfaceResumeBindingIndex?.bindingForStablePanel(
                         workspaceId: observationWorkspaceId,
@@ -164,7 +165,8 @@ extension DockSplitStore {
                         return .absent
                     }
                     return PIDPresence.current(pid: pid_t($0))
-                }
+                },
+                revalidateProcessEvidence: false
             ),
             detectedResumeBinding: nil,
             detectedResumeBindingIsAmbiguous:
