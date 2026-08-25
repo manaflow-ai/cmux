@@ -1,9 +1,9 @@
 # cmux-tui aggregate change log
 
 Current snapshot: 2026-08-25. Exact aggregate HEAD is
-[`0560bae72c`](https://github.com/manaflow-ai/cmux/commit/0560bae72c17ccf2da139fdf44f1907523fc82cc),
-763 commits ahead of `origin/main` at
-`7fdcfa583a3b708b523a08dfcbfac3b57ffbc627`. PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708)
+[`951db83c35`](https://github.com/manaflow-ai/cmux/commit/951db83c3545f9ad4fce67f420f6998d1832ba02),
+769 commits ahead of `origin/main` at
+`bdff60c67d8c30cd5d00890f569d22e5cc65fcc1`. PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708)
 is pushed at this SHA. Current hosted status and merge evidence belong in
 `PR-INTENT-BOARD.md`; do not claim review or hosted green until exact-head
 checks pass. The 2026-08-24 snapshot below is historical.
@@ -41,6 +41,11 @@ Intent-audit delta: local history added two deduplicated requests after the prio
 | [`702a0dcbc1`](https://github.com/manaflow-ai/cmux/commit/702a0dcbc1)`, [`4a50dd64b2`](https://github.com/manaflow-ai/cmux/commit/4a50dd64b2) | Reject invalid Go write counts and preserve dispatch after partial writes or write errors. | `git revert 702a0dcbc1 4a50dd64b2` |
 | [`3e85c7dd05`](https://github.com/manaflow-ai/cmux/commit/3e85c7dd05) | Cover Java path traversal rejection without narrowing the shared cross-language session-name contract. | `git revert 3e85c7dd05` |
 | [`7fdcfa583a`](https://github.com/manaflow-ai/cmux/commit/7fdcfa583a3b708b523a08dfcbfac3b57ffbc627) | Merge the web auth-cache determinism fix into `main` before the TUI merge. | Do not revert from this branch; it is already on `main`. |
+
+| [`bdff60c67d`](https://github.com/manaflow-ai/cmux/commit/bdff60c67d8c30cd5d00890f569d22e5cc65fcc1) | Include the current `main` journal-forwarder wire-identity fix. | Revert the aggregate merge as one unit if required. |
+| [`375daeb96e`](https://github.com/manaflow-ai/cmux/commit/375daeb96e229559532c534412276ee4bf19ba6f) | Remove stale PTY close races, make SSH staging ownership explicit, fix trait-object coercions, and remove an unused reader import. | `git revert 375daeb96e`; hosted Rust proof remains required. |
+| [`c4f1b62518`](https://github.com/manaflow-ai/cmux/commit/c4f1b62518edd3bf70c76923451bda77857944e1) | Bound shell viewer delivery by bytes and events, clear overflowed backlog, and emit one explicit overflow error. | `git revert c4f1b62518`; reconnect after overflow. |
+| [`951db83c35`](https://github.com/manaflow-ai/cmux/commit/951db83c3545f9ad4fce67f420f6998d1832ba02) | Merge current `main` while preserving aggregate TUI hardening and the dedicated relay publish lane. | `git revert -m 1 951db83c35`. |
 
 Focused checks for this tail: `cargo fmt --check`, actionlint, Bash syntax, 67 package/security/installer Python tests, 109 Python binding tests plus 421 subtests, Go tests, Java checks, generated-binding checks, C++ unit/package tests, and Swift parser syntax. Rust behavior and hosted lifecycle proof remain required on the pushed exact head.
 

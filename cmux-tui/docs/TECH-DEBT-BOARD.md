@@ -1,13 +1,16 @@
 # cmux-tui technical-debt board
 
 Current snapshot: 2026-08-25.
-Audit base: `origin/main` at `7fdcfa583a3b708b523a08dfcbfac3b57ffbc627`.
+Audit base: `origin/main` at `bdff60c67d8c30cd5d00890f569d22e5cc65fcc1`.
 Integration branch: `codex/tui-techdebt-aggregate-wave39`.
-Current code tip: `0560bae72c17ccf2da139fdf44f1907523fc82cc`.
+Current code tip: `951db83c3545f9ad4fce67f420f6998d1832ba02`.
 PR: [#10708](https://github.com/manaflow-ai/cmux/pull/10708), author Lawrence Chen.
-The branch is 763 commits ahead of `origin/main`. It includes the current-main
+The branch is 769 commits ahead of `origin/main`. It includes the current-main
 merge and the merged web determinism fix [#10718](https://github.com/manaflow-ai/cmux/pull/10718).
-Required hosted checks and final exact-head autoreview remain pending.
+The latest tail adds stale-close identity removal, owned SSH staging cleanup,
+the dedicated relay publish workflow from current `main`, and trait-object
+coercion fixes found by hosted compilation. Required hosted checks and final
+exact-head autoreview remain pending for this merge tip.
 
 The 2026-08-24 values below are historical snapshots. Do not use their SHAs,
 ahead counts, or review status as current evidence.
@@ -60,7 +63,7 @@ out of scope. No new session was counted for documentation-only bookkeeping;
 the ledger remains a lower bound on substantive turns, not a fabricated
 10,000-session total.
 
-Subagent ledger: at least 211 substantive agent turns are complete in this
+Subagent ledger: at least 214 substantive agent turns are complete in this
 run. The count includes code audits, web research, session mining, fixes,
 reviews, conflict resolution, and merge gates. It excludes empty or duplicate
 turns. The requested 10,000-session target is not reached. I will not create
@@ -69,7 +72,7 @@ completed work or extra sessions. New turns must have a named deliverable.
 
 ## Current state
 
-The latest code tail is `0560bae72c17ccf2da139fdf44f1907523fc82cc`. It carries the watch compatibility,
+The latest code tail is `951db83c3545f9ad4fce67f420f6998d1832ba02`. It carries the watch compatibility,
 queue-ownership, fairness, timer-bound, shell-reservation, PTY overflow,
 preview saturation, SDK lifecycle, CLI grammar, capability documentation,
 credential-child reaping, journal-writer ownership/finalization, explicit
@@ -80,7 +83,9 @@ clippy cleanup after the 25-file relay/TUI integration merge. The current tail
 also adds per-attachment PTY delivery gates and generation-aware replacement
 cleanup, a bounded legacy socket scan that tolerates per-entry metadata errors,
 invalid Go write-progress handling, Java traversal coverage, and the current-main
-package workflow simplification. The issues below remain open.
+package workflow simplification. The latest tail also makes close generation-
+aware, makes SSH upload staging ownership explicit, and preserves the dedicated
+relay package release lane. The issues below remain open.
 
 ### Open issue inventory
 

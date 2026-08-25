@@ -2,15 +2,16 @@
 
 Current snapshot: 2026-08-25. The aggregate branch is
 `codex/tui-techdebt-aggregate-wave39` at
-`0560bae72c17ccf2da139fdf44f1907523fc82cc`, based on `origin/main`
-`7fdcfa583a3b708b523a08dfcbfac3b57ffbc627`. PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708)
+`951db83c3545f9ad4fce67f420f6998d1832ba02`, based on `origin/main`
+`bdff60c67d8c30cd5d00890f569d22e5cc65fcc1`. PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708)
 now points to that exact head and is mergeable; required checks and the final
 exact-head autoreview are still pending. A mergeable label is not acceptance
 proof.
 
 The prior 2026-08-24 values are historical. The aggregate includes the
 cross-platform hardening, PTY generation and delivery gates, bounded readers,
-and the merged web determinism fix [#10718](https://github.com/manaflow-ai/cmux/pull/10718).
+stale-close identity checks, owned SSH staging cleanup, and the merged web
+determinism fix [#10718](https://github.com/manaflow-ai/cmux/pull/10718).
 All URLs point to `manaflow-ai/cmux`; authors are included for merge decisions.
 
 The dated snapshot recorded a clean in-scope autoreview with two remote-tmux
