@@ -103,6 +103,7 @@ struct WorkspaceListViewOptionsPopover: View {
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 14)
             .padding(.top, 8)
+            .padding(.bottom, 4)
             .accessibilityAddTraits(.isHeader)
             .accessibilityIdentifier("MobileWorkspaceSortTitle")
     }
