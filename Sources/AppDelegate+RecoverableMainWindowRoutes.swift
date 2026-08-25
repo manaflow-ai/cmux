@@ -266,7 +266,10 @@ extension AppDelegate {
             return nil
         }
 
-        // The frozen value owns the copied frame ring from this point onward.
+        // The frozen value is the authoritative, retryable persistence record from
+        // this point onward. It remains in the coordinator across queued-write
+        // failures, so a later autosave can retry without the live graph.
+        // It also owns the copied frame ring after the live resources are released.
         windowConfigFrames.removeValue(forKey: route.windowId)
         route.markForTeardown()
         tearDownWindowlessMainWindowRouteResources(
