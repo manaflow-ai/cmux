@@ -537,7 +537,7 @@ extension DockSocketLifecycleTests {
             launchCommand: nil
         )
         #expect(store.setSurfaceResumeBinding(binding, panelId: panel.id))
-        store.restoredAgentLifecycle.snapshotsByPanelId[panel.id] = agent
+        store.restoredAgentLifecycle.setSnapshot(agent, panelId: panel.id)
 
         let livePID = getpid()
         let liveIdentity = try #require(Workspace.agentPIDProcessIdentity(pid: livePID))
