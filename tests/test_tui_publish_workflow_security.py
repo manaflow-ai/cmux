@@ -1326,6 +1326,7 @@ def test_workflow_guard_runs_for_every_workflow_it_validates() -> None:
         "cmux-tui-release-cut.yml",
         "cmux-tui-release.yml",
         "cmux-tui-sdks.yml",
+        "relay-publish-npm.yml",
         "sdk-bootstrap-crates.yml",
         "sdk-publish-crates.yml",
         "sdk-publish-go.yml",
@@ -1469,6 +1470,67 @@ def test_stable_release_builds_and_tests_once_before_dispatching_publishers() ->
 
     for name in ("tui-publish-npm.yml", "tui-publish-pypi.yml"):
         assert "workflow_call:" not in workflow(name)
+
+
+def test_relay_publisher_owns_the_cmux_relay_dist_tags_exclusively() -> None:
+    # The chatmux machine relay publishes ONLY through the cmux-relay-v* tag
+    # family. If the coordinated TUI publish or the nightly lane ever grows a
+    # cmux-relay npm publish back, a routine TUI release could silently take
+    # over cmux-relay@latest from the shipping relay (chatmux relay Rust
+    # cutover, chatmux docs/RELAY-RUST.md).
+    for name in ("tui-publish-npm.yml", "cmux-tui-nightly.yml"):
+        text = workflow(name)
+        assert "npm publish --provenance dist/npm-packages/cmux-relay" not in text
+        assert (
+            "npm publish --provenance --tag nightly dist/npm-packages/cmux-relay"
+            not in text
+        )
+        publish_lists = re.findall(r"packages=\((.*?)\)", text, flags=re.DOTALL)
+        assert publish_lists
+        for block in publish_lists:
+            assert "cmux-relay" not in block
+
+
+def test_relay_publisher_is_tag_bound_rc_aware_and_attested() -> None:
+    text = workflow("relay-publish-npm.yml")
+
+    # Tag-only trigger: no workflow_dispatch bypass, tags pinned to the
+    # cmux-relay-v family, and the tag must be an ancestor of protected main.
+    triggers = workflow_triggers(text)
+    assert set(triggers) == {"push"}
+    assert triggers["push"] == {"tags": ["cmux-relay-v*"]}
+    assert (
+        '[[ "$GITHUB_REF_NAME" =~ ^cmux-relay-v[0-9]+\\.[0-9]+\\.[0-9]+(-rc\\.[0-9]+)?$ ]]'
+        in text
+    )
+    assert 'git merge-base --is-ancestor "$GITHUB_SHA" origin/main' in text
+
+    # Release candidates ride the next dist-tag; only stable versions take
+    # latest. Every publish passes the resolved tag explicitly.
+    assert 'dist_tag="next"' in text
+    assert 'dist_tag="latest"' in text
+    assert 'if [[ "$version" == *-rc.* ]]' in text
+    assert text.count('npm publish --provenance --tag "$DIST_TAG"') == 2
+    assert "npm publish --provenance dist/npm-packages" not in text
+
+    # Same provenance posture as the TUI publisher: trusted-publisher
+    # environment, OIDC-capable npm, github-hosted publish runner, contract
+    # revalidation, and non-self-hosted attestation verification of every
+    # relay binary against the reusable build workflow at this exact ref.
+    assert "name: npm-tui" in text
+    assert "npm install -g npm@11.5.1" in text
+    assert "runs-on: ubuntu-latest" in text
+    assert "uses: ./.github/workflows/cmux-tui-build-package.yml" in text
+    assert "attest_packages: true" in text
+    assert "include_windows: true" in text
+    assert "package_pypi: false" in text
+    assert "validate_package_contract.py" in text
+    assert "--install-npm-relay-package cmux-relay-linux-x64" in text
+    assert "gh attestation verify" in text
+    assert "--deny-self-hosted-runners" in text
+    assert '--source-digest "$GITHUB_SHA"' in text
+    assert '--source-ref "$GITHUB_REF"' in text
+    assert "persist-credentials: false" in text
 
 
 if __name__ == "__main__":
