@@ -42,6 +42,7 @@ final class CmuxPluginProcessSupervisor {
     }
 
     private var processes: [String: RunningProcess] = [:]
+    private var launchingPluginIDs: Set<String> = []
 
     init(snapshotter: CmuxPluginExecutionSnapshotter? = nil) {
         self.snapshotter = snapshotter ?? CmuxPluginExecutionSnapshotter()
@@ -90,55 +91,63 @@ final class CmuxPluginProcessSupervisor {
                 return
             }
             let pluginID = descriptor.plugin.manifest.id
-            guard processes[pluginID] == nil else { continue }
-            guard let sessionToken = sessionTokens[pluginID] else {
-                reportError(
-                    pluginID,
-                    String(
-                        localized: "settings.plugins.error.authorization",
-                        defaultValue: "The plugin session could not be authorized."
-                    )
-                )
-                continue
-            }
-            let executionSnapshot: CmuxPluginExecutionSnapshot
+            guard processes[pluginID] == nil,
+                  launchingPluginIDs.insert(pluginID).inserted else { continue }
             do {
-                executionSnapshot = try await snapshotter.makeSnapshot(for: descriptor.plugin)
-            } catch {
-                reportError(
-                    pluginID,
-                    String(
-                        localized: "settings.plugins.error.launch",
-                        defaultValue: "The plugin could not be launched."
+                // A second same-generation reconciliation can arrive while
+                // snapshot verification awaits disk. Claiming the id before
+                // that await keeps only one launch path eligible; the claim is
+                // released on every success, failure, or cancellation path.
+                defer { launchingPluginIDs.remove(pluginID) }
+                guard let sessionToken = sessionTokens[pluginID] else {
+                    reportError(
+                        pluginID,
+                        String(
+                            localized: "settings.plugins.error.authorization",
+                            defaultValue: "The plugin session could not be authorized."
+                        )
                     )
-                )
-                continue
-            }
-            guard executionSnapshot.fingerprint == descriptor.plugin.manifestFingerprint else {
-                await snapshotter.remove(executionSnapshot)
-                reportError(
-                    pluginID,
-                    String(
-                        localized: "settings.plugins.error.launch",
-                        defaultValue: "The plugin could not be launched."
+                    continue
+                }
+                let executionSnapshot: CmuxPluginExecutionSnapshot
+                do {
+                    executionSnapshot = try await snapshotter.makeSnapshot(for: descriptor.plugin)
+                } catch {
+                    reportError(
+                        pluginID,
+                        String(
+                            localized: "settings.plugins.error.launch",
+                            defaultValue: "The plugin could not be launched."
+                        )
                     )
+                    continue
+                }
+                guard executionSnapshot.fingerprint == descriptor.plugin.manifestFingerprint else {
+                    await snapshotter.remove(executionSnapshot)
+                    reportError(
+                        pluginID,
+                        String(
+                            localized: "settings.plugins.error.launch",
+                            defaultValue: "The plugin could not be launched."
+                        )
+                    )
+                    continue
+                }
+                guard !Task.isCancelled,
+                      runtime.processReconciliationIsAllowed(generation: generation) else {
+                    await snapshotter.remove(executionSnapshot)
+                    return
+                }
+                await launch(
+                    descriptor: descriptor,
+                    executionSnapshot: executionSnapshot,
+                    sessionToken: sessionToken,
+                    socketPath: socketPath,
+                    generation: generation,
+                    runtime: runtime,
+                    reportError: reportError
                 )
-                continue
             }
-            guard !Task.isCancelled,
-                  runtime.processReconciliationIsAllowed(generation: generation) else {
-                await snapshotter.remove(executionSnapshot)
-                return
-            }
-            await launch(
-                descriptor: descriptor,
-                executionSnapshot: executionSnapshot,
-                sessionToken: sessionToken,
-                socketPath: socketPath,
-                generation: generation,
-                runtime: runtime,
-                reportError: reportError
-            )
         }
     }
 
@@ -148,6 +157,7 @@ final class CmuxPluginProcessSupervisor {
             stop(pluginID: pluginID, running: running, runtime: runtime)
         }
         processes.removeAll()
+        launchingPluginIDs.removeAll()
     }
 
     private func launch(
@@ -160,6 +170,12 @@ final class CmuxPluginProcessSupervisor {
         reportError: @escaping @Sendable (String, String?) -> Void
     ) async {
         let pluginID = descriptor.plugin.manifest.id
+
+        guard !Task.isCancelled,
+              runtime.processReconciliationIsAllowed(generation: generation) else {
+            await snapshotter.remove(executionSnapshot)
+            return
+        }
 
         let snapshotVerifiedBeforeLaunch = await snapshotter.verify(executionSnapshot)
         guard snapshotVerifiedBeforeLaunch,
@@ -265,7 +281,8 @@ final class CmuxPluginProcessSupervisor {
         // confirms that owner-clearable filesystem flags were not bypassed
         // during process setup.
         let snapshotVerifiedAfterRun = await snapshotter.verify(executionSnapshot)
-        guard snapshotVerifiedAfterRun,
+        guard !Task.isCancelled,
+              snapshotVerifiedAfterRun,
               runtime.processReconciliationIsAllowed(generation: generation) else {
             try? launchGate.fileHandleForReading.close()
             try? launchGate.fileHandleForWriting.close()
@@ -298,7 +315,8 @@ final class CmuxPluginProcessSupervisor {
         )
         runtime.registerProcess(processID, for: pluginID)
         let snapshotVerifiedBeforeGate = await snapshotter.verify(executionSnapshot)
-        guard snapshotVerifiedBeforeGate,
+        guard !Task.isCancelled,
+              snapshotVerifiedBeforeGate,
               runtime.processReconciliationIsAllowed(generation: generation) else {
             processes.removeValue(forKey: pluginID)
             runtime.revokeProcess(processID)

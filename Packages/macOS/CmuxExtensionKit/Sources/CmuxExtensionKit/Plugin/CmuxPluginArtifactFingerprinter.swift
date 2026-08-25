@@ -18,6 +18,8 @@ enum CmuxPluginArtifactFingerprintError: Error {
 /// path-ordered parent digest, which keeps memory bounded for large binaries.
 struct CmuxPluginArtifactFingerprinter {
     private static let chunkSize = 64 * 1024
+    private static let maximumArtifactFiles = 4_096
+    private static let maximumArtifactBytes: UInt64 = 1 * 1024 * 1024 * 1024
     private static let maximumInterpreterBytes: UInt64 = 512 * 1024 * 1024
     private static let lowercaseHexDigits = Array("0123456789abcdef".utf8)
     private static let formatMarker = Data("cmux-plugin-artifact-v3".utf8)
@@ -55,6 +57,7 @@ struct CmuxPluginArtifactFingerprinter {
         }
 
         var hasher = SHA256()
+        var remainingArtifactBytes = Self.maximumArtifactBytes
         hasher.update(data: Self.formatMarker)
         updateLengthPrefixed(Data(entrypointDeclaration.utf8), into: &hasher)
 
@@ -62,13 +65,21 @@ struct CmuxPluginArtifactFingerprinter {
             updateLengthPrefixed(Data(file.relativePath.utf8), into: &hasher)
             let fileDigest: (byteCount: UInt64, digest: SHA256.Digest)
             if file.relativePath == manifestRelativePath {
+                let manifestByteCount = UInt64(currentManifestData.count)
+                guard manifestByteCount <= remainingArtifactBytes else {
+                    throw CmuxPluginArtifactFingerprintError.unreadableFile(manifestURL)
+                }
                 fileDigest = (
-                    UInt64(currentManifestData.count),
+                    manifestByteCount,
                     SHA256.hash(data: currentManifestData)
                 )
             } else {
-                fileDigest = try digestFile(at: file.url)
+                fileDigest = try digestFile(
+                    at: file.url,
+                    maximumBytes: remainingArtifactBytes
+                )
             }
+            remainingArtifactBytes -= fileDigest.byteCount
             updateUInt64(fileDigest.byteCount, into: &hasher)
             hasher.update(data: Data(fileDigest.digest))
         }
@@ -148,6 +159,7 @@ struct CmuxPluginArtifactFingerprinter {
                 .isDirectoryKey,
                 .isRegularFileKey,
                 .isSymbolicLinkKey,
+                .fileSizeKey,
             ],
             options: []
         ) else {
@@ -155,6 +167,7 @@ struct CmuxPluginArtifactFingerprinter {
         }
 
         var files: [(relativePath: String, url: URL)] = []
+        var totalArtifactBytes: UInt64 = 0
         for case let url as URL in enumerator {
             let values: URLResourceValues
             do {
@@ -162,6 +175,7 @@ struct CmuxPluginArtifactFingerprinter {
                     .isDirectoryKey,
                     .isRegularFileKey,
                     .isSymbolicLinkKey,
+                    .fileSizeKey,
                 ])
             } catch {
                 throw CmuxPluginArtifactFingerprintError.unreadableFile(url)
@@ -176,6 +190,17 @@ struct CmuxPluginArtifactFingerprinter {
             guard url.path.hasPrefix(root.path + "/") else {
                 throw CmuxPluginArtifactFingerprintError.symbolicLink(url)
             }
+            guard files.count < Self.maximumArtifactFiles,
+                  let fileSize = values.fileSize,
+                  fileSize >= 0 else {
+                throw CmuxPluginArtifactFingerprintError.unreadableFile(url)
+            }
+            let byteCount = UInt64(fileSize)
+            guard byteCount <= Self.maximumArtifactBytes,
+                  totalArtifactBytes <= Self.maximumArtifactBytes - byteCount else {
+                throw CmuxPluginArtifactFingerprintError.unreadableFile(url)
+            }
+            totalArtifactBytes += byteCount
             let relativePath = String(url.path.dropFirst(root.path.count + 1))
             files.append((relativePath: relativePath, url: url))
         }

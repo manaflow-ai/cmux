@@ -267,7 +267,22 @@ private enum CmuxPluginManifestValidation {
     }
 
     static func containsControlCharacters(_ value: String) -> Bool {
-        value.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
+        value.unicodeScalars.contains { scalar in
+            guard !CharacterSet.controlCharacters.contains(scalar) else { return true }
+            let value = scalar.value
+            // Format and bidi controls are not Cc characters, but they can
+            // reorder or hide user-visible manifest text. Reject them at the
+            // package boundary so every host consumer gets the same policy.
+            return value == 0x00AD
+                || (0x0600...0x0605).contains(value)
+                || value == 0x061C
+                || (0x200B...0x200F).contains(value)
+                || (0x202A...0x202E).contains(value)
+                || (0x2060...0x2064).contains(value)
+                || (0x2066...0x2069).contains(value)
+                || (0xFFF9...0xFFFB).contains(value)
+                || value == 0xFEFF
+        }
     }
 
     static func isRelativeEntrypoint(_ value: String) -> Bool {

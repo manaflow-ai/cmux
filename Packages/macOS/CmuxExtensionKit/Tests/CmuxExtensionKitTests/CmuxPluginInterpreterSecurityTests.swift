@@ -29,7 +29,7 @@ struct CmuxPluginInterpreterSecurityTests {
         try CmuxPluginSystemTests.writePlugin(
             manifest,
             to: root,
-            executableContents: "#!(interpreterURL.path)\n"
+            executableContents: "#!\(interpreterURL.path)\n"
         )
 
         let plugin = try #require(
@@ -73,7 +73,7 @@ struct CmuxPluginInterpreterSecurityTests {
         try CmuxPluginSystemTests.writePlugin(
             manifest,
             to: root,
-            executableContents: "#!(interpreterURL.path)\n"
+            executableContents: "#!\(interpreterURL.path)\n"
         )
 
         let loader = CmuxPluginDirectoryLoader(directoryURL: root)
@@ -96,6 +96,50 @@ struct CmuxPluginInterpreterSecurityTests {
             Issue.record("Changing an approved interpreter must invalidate its grant")
         } catch let error as CmuxPluginAuthorizationError {
             #expect(error == .disabled)
+        }
+    }
+
+    @Test
+    func nestedAndEnvInterpretersAreRejected() async throws {
+        let cases = [
+            ("nested", "nested-interpreter", "#!/bin/sh\nexit 0\n"),
+            ("env", "env", "#!/bin/sh\nexit 0\n"),
+        ]
+
+        for (idSuffix, interpreterName, interpreterContents) in cases {
+            let root = try CmuxPluginSystemTests.makeTemporaryDirectory()
+            let interpreterRoot = try CmuxPluginSystemTests.makeTemporaryDirectory()
+            let snapshotRoot = try CmuxPluginSystemTests.makeTemporaryDirectory()
+            defer {
+                try? FileManager.default.removeItem(at: root)
+                try? FileManager.default.removeItem(at: interpreterRoot)
+                try? FileManager.default.removeItem(at: snapshotRoot)
+            }
+
+            let interpreterURL = interpreterRoot.appendingPathComponent(interpreterName)
+            try writeInterpreter(interpreterContents, to: interpreterURL)
+            let manifest = CmuxExtensionManifest.plugin(
+                id: "dev.example.\(idSuffix)-interpreter",
+                displayName: "\(idSuffix) interpreter",
+                entrypoint: "bin/plugin"
+            )
+            try CmuxPluginSystemTests.writePlugin(
+                manifest,
+                to: root,
+                executableContents: "#!\(interpreterURL.path)\n"
+            )
+            let plugin = try #require(
+                (await CmuxPluginDirectoryLoader(directoryURL: root).load()).plugins.first
+            )
+            let snapshotter = CmuxPluginExecutionSnapshotter(rootDirectoryURL: snapshotRoot)
+
+            do {
+                let snapshot = try await snapshotter.makeSnapshot(for: plugin)
+                await snapshotter.remove(snapshot)
+                Issue.record("Interpreter indirection must be rejected: \(interpreterName)")
+            } catch let error as CmuxPluginExecutionSnapshotError {
+                #expect(error == .invalidInterpreter)
+            }
         }
     }
 

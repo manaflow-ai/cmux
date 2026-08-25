@@ -55,6 +55,10 @@ struct CmuxPluginInterpreterSnapshotter {
             throw CmuxPluginExecutionSnapshotError.invalidInterpreter
         }
         let data = try readAll(from: sourceDescriptor)
+        try validateFinalInterpreter(
+            path: resolvedInterpreterURL.path,
+            data: data
+        )
 
         let interpreterDirectory = stagingRoot
             .appendingPathComponent(".cmux-interpreter", isDirectory: true)
@@ -97,6 +101,26 @@ struct CmuxPluginInterpreterSnapshotter {
             throw CmuxPluginExecutionSnapshotError.fingerprintMismatch
         }
         return (executableDescriptor, data)
+    }
+
+    /// Rejects interpreter indirection that would resolve outside the pinned
+    /// descriptor. A script interpreter would follow its own shebang after the
+    /// descriptor is launched, and `/usr/bin/env` would resolve another command
+    /// through the inherited `PATH`; neither dependency is part of this sealed
+    /// snapshot, so fail closed instead of granting it a plugin token.
+    private func validateFinalInterpreter(path: String, data: Data) throws {
+        guard URL(fileURLWithPath: path).lastPathComponent != "env" else {
+            throw CmuxPluginExecutionSnapshotError.invalidInterpreter
+        }
+        do {
+            if try CmuxPluginShebang.parse(prefix: Data(data.prefix(4096))) != nil {
+                throw CmuxPluginExecutionSnapshotError.invalidInterpreter
+            }
+        } catch let error as CmuxPluginExecutionSnapshotError {
+            throw error
+        } catch {
+            throw CmuxPluginExecutionSnapshotError.invalidInterpreter
+        }
     }
 
     private func readPrefix(from descriptor: Int32) throws -> Data {

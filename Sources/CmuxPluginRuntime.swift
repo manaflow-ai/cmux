@@ -1,5 +1,6 @@
 import CmuxExtensionKit
 import CmuxControlSocket
+import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
 import Darwin
@@ -47,6 +48,8 @@ final class CmuxPluginRuntime: @unchecked Sendable {
     var pluginShortcutStore: CmuxPluginShortcutStore?
     var routablePluginShortcuts: [String: StoredShortcut] = [:]
     private var hasStarted = false
+    private var pluginDirectoryWatcher: FileWatcher?
+    private var pluginDirectoryWatchTask: Task<Void, Never>?
     private var socketListenerObserver: NSObjectProtocol?
     private var shortcutSettingsObserver: NSObjectProtocol?
     var registryUpdateTail: Task<Void, Never>?
@@ -68,6 +71,8 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         )
         socketListenerObserver = nil
         shortcutSettingsObserver = nil
+        pluginDirectoryWatcher = nil
+        pluginDirectoryWatchTask = nil
         registryUpdateTail = nil
         processReconciliationTask = nil
         socketListenerObserver = NotificationCenter.default.addObserver(
@@ -111,6 +116,10 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         if let shortcutSettingsObserver {
             NotificationCenter.default.removeObserver(shortcutSettingsObserver)
         }
+        pluginDirectoryWatchTask?.cancel()
+        if let pluginDirectoryWatcher {
+            Task { await pluginDirectoryWatcher.stop() }
+        }
     }
 
     /// Installs the app's shared JSON settings repository before plugin UI or
@@ -144,6 +153,19 @@ final class CmuxPluginRuntime: @unchecked Sendable {
             return
         }
         hasStarted = true
+        lock.unlock()
+        let watcher = FileWatcher(
+            path: CmuxPluginDirectoryLoader.defaultDirectoryURL.path,
+            throttle: .milliseconds(250)
+        )
+        lock.lock()
+        pluginDirectoryWatcher = watcher
+        pluginDirectoryWatchTask = Task { @MainActor [weak self, watcher] in
+            for await _ in watcher.events {
+                guard let self, !Task.isCancelled else { return }
+                self.reload()
+            }
+        }
         lock.unlock()
         reload()
     }
@@ -379,6 +401,10 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         isStopping = true
         registryUpdateTail?.cancel()
         processReconciliationTask?.cancel()
+        pluginDirectoryWatchTask?.cancel()
+        pluginDirectoryWatchTask = nil
+        let pluginDirectoryWatcher = self.pluginDirectoryWatcher
+        self.pluginDirectoryWatcher = nil
         let subscriptions = subscriptionsByPluginID.values.flatMap(\.values)
         subscriptionsByPluginID.removeAll()
         actionSubscriptionIDsByPluginID.removeAll()
@@ -389,6 +415,9 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         routablePluginShortcuts.removeAll()
         pluginErrors.removeAll()
         lock.unlock()
+        if let pluginDirectoryWatcher {
+            Task { await pluginDirectoryWatcher.stop() }
+        }
         processSupervisor.stopAll(runtime: self)
         subscriptions.forEach { $0.close() }
     }
