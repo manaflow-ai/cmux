@@ -13178,13 +13178,20 @@ class TerminalController {
         let parsed = parseOptions(trimmed)
         guard let tabOption = parsed.options["tab"],
               !tabOption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return "ERROR: Usage: clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+            let usage = String(
+                localized: "cli.error.clearNotificationsUsage",
+                defaultValue: "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+            )
+            return "ERROR: Usage: \(usage)"
         }
         let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: Tab not found"
         }
-        let usage = "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+        let usage = String(
+            localized: "cli.error.clearNotificationsUsage",
+            defaultValue: "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+        )
         let panelResolution = parseOptionalPanelIdOption(options: parsed.options, usage: usage)
         if let error = panelResolution.error {
             return error
@@ -13193,11 +13200,17 @@ class TerminalController {
         if let rawCorrelationKey = parsed.options["correlation-key"] {
             let normalized = rawCorrelationKey.trimmingCharacters(in: .whitespacesAndNewlines)
             guard let uuid = UUID(uuidString: normalized) else {
-                return "ERROR: Invalid notification correlation key"
+                return "ERROR: " + String(
+                    localized: "cli.error.clearNotificationsCorrelationKeyInvalid",
+                    defaultValue: "Invalid notification correlation key"
+                )
             }
             correlationKey = uuid.uuidString.lowercased()
             guard panelResolution.panelId != nil else {
-                return "ERROR: --correlation-key requires --panel"
+                return "ERROR: " + String(
+                    localized: "cli.error.clearNotificationsCorrelationKeyRequiresPanel",
+                    defaultValue: "--correlation-key requires --panel"
+                )
             }
         } else {
             correlationKey = nil

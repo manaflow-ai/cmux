@@ -240,7 +240,9 @@ struct ClaudeHookSessionRecord: Codable {
                 displayCommand = Self.redactedPreview(for: normalized)
             }
             toolUseId = try container.decodeIfPresent(String.self, forKey: .toolUseId)
-            notificationCorrelationKey = try container.decodeIfPresent(String.self, forKey: .notificationCorrelationKey)
+            let decodedCorrelationKey = try container.decodeIfPresent(String.self, forKey: .notificationCorrelationKey)
+            notificationCorrelationKey = decodedCorrelationKey.flatMap { UUID(uuidString: $0) != nil ? $0 : nil }
+                ?? UUID().uuidString.lowercased()
             createdAt = try container.decodeIfPresent(TimeInterval.self, forKey: .createdAt) ?? 0
             requiresToolUseId = try container.decodeIfPresent(Bool.self, forKey: .requiresToolUseId) ?? false
         }
@@ -33613,14 +33615,12 @@ export default CMUXSessionRestore;
                 // A sibling session may still own the surface's Needs input
                 // state. The approval clear above is identity-scoped, but the
                 // shared status must remain pending in that case.
-                if (try? store.hasPendingCursorShellApproval(
+                guard let hasOtherPending = try? store.hasPendingCursorShellApproval(
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     excludingSessionId: sessionId,
                     deadline: cursorShellDeadline
-                )) == true {
-                    return
-                }
+                ), !hasOtherPending else { return }
                 let runningStatus = failureRestoresRunning
                     ? String(localized: "agent.generic.status.running", defaultValue: "Running")
                     : String.localizedStringWithFormat(
@@ -33910,15 +33910,31 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             var cursorPromptApprovalNotificationKeys: [String] = []
+            var cursorPromptShouldPreservePendingState = false
             if def.name == "cursor", !sessionId.isEmpty {
                 guard acquireCursorLifecycleLease() else {
                     print("{}")
                     return
                 }
-                cursorPromptApprovalNotificationKeys = (try? store.clearCursorShellApprovals(
+                if let clearResult = try? store.clearCursorShellApprovals(
                     sessionId: sessionId,
                     deadline: cursorShellDeadline
-                ))?.notificationCorrelationKeys ?? []
+                ) {
+                    cursorPromptApprovalNotificationKeys = clearResult.notificationCorrelationKeys
+                } else {
+                    cursorPromptShouldPreservePendingState = true
+                }
+                if let hasOtherPending = try? store.hasPendingCursorShellApproval(
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    excludingSessionId: sessionId,
+                    deadline: cursorShellDeadline
+                ) {
+                    cursorPromptShouldPreservePendingState = cursorPromptShouldPreservePendingState || hasOtherPending
+                } else {
+                    cursorPromptShouldPreservePendingState = true
+                    telemetry.breadcrumb("cursor-hook.prompt-submit.pending-lookup-failed")
+                }
             }
             if def.name == "omp", let mapped {
                 clearSupersededAgentHookSessions(
@@ -34191,10 +34207,17 @@ export default CMUXSessionRestore;
                     stopStaleCodexPromptSubmit()
                     return
                 }
+                let promptJournalKind: AgentJournalEventKind = cursorPromptShouldPreservePendingState
+                    ? .stateChanged
+                    : .turnStarted
                 emitJournal(
-                    .turnStarted,
+                    promptJournalKind,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
+                    declaredPhase: cursorPromptShouldPreservePendingState ? .needsInput : nil,
+                    detail: cursorPromptShouldPreservePendingState
+                        ? "cursor-pending-approval-preserved"
+                        : nil,
                     responseTimeout: def.name == "cursor" ? cursorCriticalTimeout() : nil
                 )
                 if codexPromptTurnWentTerminal() {
@@ -34202,18 +34225,12 @@ export default CMUXSessionRestore;
                     return
                 }
                 if def.name == "cursor" {
-                    if cursorPromptApprovalNotificationKeys.isEmpty {
-                        sendCursorCriticalCommand(
-                            "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                    for correlationKey in cursorPromptApprovalNotificationKeys {
+                        clearCursorApprovalNotification(
+                            correlationKey: correlationKey,
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId
                         )
-                    } else {
-                        for correlationKey in cursorPromptApprovalNotificationKeys {
-                            clearCursorApprovalNotification(
-                                correlationKey: correlationKey,
-                                workspaceId: workspaceId,
-                                surfaceId: surfaceId
-                            )
-                        }
                     }
                 } else {
                     _ = try? sendV1Command(
@@ -34222,10 +34239,12 @@ export default CMUXSessionRestore;
                     )
                 }
                 let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
-                if def.name == "cursor" {
+                if def.name == "cursor", !cursorPromptShouldPreservePendingState {
                     sendCursorCriticalCommand(
                         "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
                     )
+                } else if def.name == "cursor" {
+                    telemetry.breadcrumb("cursor-hook.prompt-submit.pending-preserved")
                 } else {
                     _ = try sendV1Command(
                         "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
