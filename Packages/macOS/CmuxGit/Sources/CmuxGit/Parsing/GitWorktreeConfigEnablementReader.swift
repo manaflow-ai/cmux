@@ -167,7 +167,8 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
                             condition,
                             repository: repository,
                             configURL: configURL,
-                            branchContext: branchContext
+                            branchContext: branchContext,
+                            deadline: deadline
                         )
                     } else {
                         includeSection = false

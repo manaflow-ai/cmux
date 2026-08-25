@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 
 extension GitMetadataService {
@@ -337,7 +338,8 @@ extension GitMetadataService {
         _ condition: String,
         repository: ResolvedGitRepository,
         configURL: URL,
-        branchContext: GitConfigBranchContext = .fileBacked
+        branchContext: GitConfigBranchContext = .fileBacked,
+        deadline: DispatchTime? = nil
     ) -> Bool {
         let lowercasedCondition = condition.lowercased()
         if lowercasedCondition.hasPrefix("gitdir/i:") {
@@ -359,7 +361,7 @@ extension GitMetadataService {
             if pattern.hasSuffix("/") {
                 pattern.append("**")
             }
-            guard let branch = branchContext.branchName(for: repository) else { return false }
+            guard let branch = branchContext.branchName(for: repository, deadline: deadline) else { return false }
             return gitConfigGlobMatches(branch, pattern: pattern, caseInsensitive: false)
         }
         return false

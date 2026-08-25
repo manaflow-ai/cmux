@@ -216,10 +216,16 @@ public struct GitMetadataService: Sendable {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return []
         }
-        let branchContext = await gitReferenceBranchContext(repository: repository)
+        let deadline = DispatchTime.now()
+            + max(5, safetyConfiguration.gitStatusWallTime * 8)
+        let branchContext = await gitReferenceBranchContext(
+            repository: repository,
+            deadline: deadline
+        )
         let traversal = GitConfigBranchTraversal(
             repository: repository,
-            branchContext: branchContext
+            branchContext: branchContext,
+            deadline: deadline
         )
         let traversalResult = traversal.remoteVResult()
         let output: String?
@@ -228,7 +234,7 @@ public struct GitMetadataService: Sendable {
         } else if traversalResult.isUnsafe {
             output = nil
         } else {
-            output = await gitRemoteVFallback(repository: repository)
+            output = await gitRemoteVFallback(repository: repository, deadline: deadline)
         }
         guard let output else { return [] }
         return Self.githubRepositorySlugs(fromGitRemoteVOutput: output)

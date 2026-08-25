@@ -3,8 +3,16 @@ import Foundation
 
 extension GitMetadataService {
     /// Runs bounded remote fallback plumbing on the blocking-I/O lane.
-    nonisolated func gitRemoteVFallback(repository: ResolvedGitRepository) async -> String? {
-        guard await referenceSnapshotLimiter.acquire() else { return nil }
+    nonisolated func gitRemoteVFallback(
+        repository: ResolvedGitRepository,
+        deadline: DispatchTime? = nil
+    ) async -> String? {
+        let didAcquire = if let deadline {
+            await referenceSnapshotLimiter.acquire(until: deadline)
+        } else {
+            await referenceSnapshotLimiter.acquire()
+        }
+        guard didAcquire else { return nil }
         let cancellationSignal = WorkspaceChangesCancellationSignal()
         let wallTimeLimit = safetyConfiguration.gitStatusWallTime
         let output = await withTaskCancellationHandler {
@@ -12,7 +20,7 @@ extension GitMetadataService {
                 Self.blockingStatusQueue.async {
                     let output = cancellationSignal.withCurrentBinding {
                         let selector = GitReferenceRunnerSelector(wallTimeLimit: wallTimeLimit)
-                        let deadline = DispatchTime.now() + wallTimeLimit
+                        let deadline = deadline ?? (DispatchTime.now() + wallTimeLimit)
                         for runner in selector.candidateRunners.prefix(4) {
                             let now = DispatchTime.now()
                             guard deadline > now else { break }
@@ -60,9 +68,10 @@ extension GitMetadataService {
 
     /// Resolves the branch context for config traversal on the blocking-I/O lane.
     nonisolated func gitReferenceBranchContext(
-        repository: ResolvedGitRepository
+        repository: ResolvedGitRepository,
+        deadline: DispatchTime? = nil
     ) async -> GitConfigBranchContext {
-        .resolved((await gitReferenceSnapshot(repository: repository)).branchName)
+        .resolved((await gitReferenceSnapshot(repository: repository, deadline: deadline)).branchName)
     }
 
     /// Probes backend metadata on the same blocking lane as the eventual read.

@@ -388,7 +388,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         if pattern.hasSuffix("/") {
             pattern.append("**")
         }
-        guard let branch = branchContext.branchName(for: repository) else { return false }
+        guard let branch = branchContext.branchName(for: repository, deadline: deadline) else { return false }
         return GitMetadataService.gitConfigGlobMatches(
             branch,
             pattern: pattern,
