@@ -7,8 +7,8 @@ public enum CmuxPluginEntrypointExecution: Equatable, Sendable {
     case executable
     /// The entrypoint is a shebang script and must be passed to its interpreter.
     ///
-    /// The arguments contain the interpreter path followed by any arguments from
-    /// the shebang line. The pinned file descriptor is appended by the host.
+    /// The arguments contain the shebang options after the interpreter path.
+    /// The pinned interpreter and script descriptors are supplied separately.
     case interpreter([String])
 }
 
@@ -31,6 +31,9 @@ public struct CmuxPluginExecutionSnapshot: Equatable, Sendable {
     /// Whether the descriptor is launched directly or through a shebang
     /// interpreter.
     public let entrypointExecution: CmuxPluginEntrypointExecution
+    /// An open descriptor for the pinned shebang interpreter, when needed.
+    /// The snapshotter owns and closes it with the snapshot.
+    public let interpreterFileDescriptor: Int32?
 
     /// Creates an execution snapshot value.
     public init(
@@ -39,7 +42,8 @@ public struct CmuxPluginExecutionSnapshot: Equatable, Sendable {
         entrypointURL: URL,
         fingerprint: String,
         entrypointFileDescriptor: Int32 = -1,
-        entrypointExecution: CmuxPluginEntrypointExecution = .executable
+        entrypointExecution: CmuxPluginEntrypointExecution = .executable,
+        interpreterFileDescriptor: Int32? = nil
     ) {
         self.directoryURL = directoryURL
         self.manifestURL = manifestURL
@@ -47,6 +51,7 @@ public struct CmuxPluginExecutionSnapshot: Equatable, Sendable {
         self.fingerprint = fingerprint
         self.entrypointFileDescriptor = entrypointFileDescriptor
         self.entrypointExecution = entrypointExecution
+        self.interpreterFileDescriptor = interpreterFileDescriptor
     }
 }
 
@@ -127,62 +132,62 @@ public actor CmuxPluginExecutionSnapshotter {
             removeStagingRoot(stagingRoot)
             throw CmuxPluginExecutionSnapshotError.missingEntrypoint
         }
-        let pinnedEntrypoint: (descriptor: Int32, execution: CmuxPluginEntrypointExecution)
-        do {
-            pinnedEntrypoint = try openEntrypoint(at: provisionalEntrypointURL)
-            openEntrypointDescriptors.insert(pinnedEntrypoint.descriptor)
-        } catch let error as CmuxPluginExecutionSnapshotError {
-            removeStagingRoot(stagingRoot)
-            throw error
-        } catch {
-            removeStagingRoot(stagingRoot)
-            throw CmuxPluginExecutionSnapshotError.entrypointDescriptorFailed
-        }
-
         let report = await CmuxPluginDirectoryLoader(directoryURL: stagingRoot).load()
         guard report.failures.isEmpty,
               let copiedPlugin = report.plugins.first(where: {
                   $0.manifest.id == plugin.manifest.id
               }) else {
-            closeEntrypointDescriptor(pinnedEntrypoint.descriptor)
             removeStagingRoot(stagingRoot)
             throw CmuxPluginExecutionSnapshotError.validationFailed
         }
         guard copiedPlugin.manifestFingerprint == plugin.manifestFingerprint else {
-            closeEntrypointDescriptor(pinnedEntrypoint.descriptor)
             removeStagingRoot(stagingRoot)
             throw CmuxPluginExecutionSnapshotError.fingerprintMismatch
         }
         guard let entrypointURL = copiedPlugin.entrypointURL else {
-            closeEntrypointDescriptor(pinnedEntrypoint.descriptor)
             removeStagingRoot(stagingRoot)
             throw CmuxPluginExecutionSnapshotError.missingEntrypoint
         }
 
         guard entrypointURL.standardizedFileURL == provisionalEntrypointURL else {
-            closeEntrypointDescriptor(pinnedEntrypoint.descriptor)
             removeStagingRoot(stagingRoot)
             throw CmuxPluginExecutionSnapshotError.missingEntrypoint
         }
 
         do {
             try sealSnapshot(at: stagingRoot)
-            guard Darwin.fchflags(pinnedEntrypoint.descriptor, UInt32(UF_IMMUTABLE)) == 0 else {
-                throw CmuxPluginExecutionSnapshotError.entrypointDescriptorFailed
-            }
         } catch let error as CmuxPluginExecutionSnapshotError {
-            closeEntrypointDescriptor(pinnedEntrypoint.descriptor)
             removeStagingRoot(stagingRoot)
             throw error
         } catch {
-            closeEntrypointDescriptor(pinnedEntrypoint.descriptor)
             removeStagingRoot(stagingRoot)
             throw CmuxPluginExecutionSnapshotError.entrypointDescriptorFailed
         }
 
-        // Seal the descriptor before the final artifact read. A write that
-        // raced the first validation is therefore either observed here and
-        // rejected, or prevented from changing the bytes used at launch.
+        // Open only after the complete staging tree is immutable. A malicious
+        // same-user process can race the first pathname scan, but it cannot
+        // substitute the inode selected here after the root directory is sealed.
+        let pinnedEntrypoint: (
+            descriptor: Int32,
+            execution: CmuxPluginEntrypointExecution,
+            interpreterDescriptor: Int32?
+        )
+        do {
+            pinnedEntrypoint = try openEntrypoint(at: provisionalEntrypointURL)
+            openEntrypointDescriptors.insert(pinnedEntrypoint.descriptor)
+            if let interpreterDescriptor = pinnedEntrypoint.interpreterDescriptor {
+                openEntrypointDescriptors.insert(interpreterDescriptor)
+            }
+        } catch let error as CmuxPluginExecutionSnapshotError {
+            removeStagingRoot(stagingRoot)
+            throw error
+        } catch {
+            removeStagingRoot(stagingRoot)
+            throw CmuxPluginExecutionSnapshotError.entrypointDescriptorFailed
+        }
+
+        // Re-read after opening the descriptors. The immutable root means the
+        // descriptor and this final pathname projection cannot diverge.
         let finalReport = await CmuxPluginDirectoryLoader(directoryURL: stagingRoot).load()
         guard finalReport.failures.isEmpty,
               let finalPlugin = finalReport.plugins.first(where: {
@@ -190,8 +195,15 @@ public actor CmuxPluginExecutionSnapshotter {
               }),
               finalPlugin.manifestFingerprint == plugin.manifestFingerprint else {
             closeEntrypointDescriptor(pinnedEntrypoint.descriptor)
+            closeEntrypointDescriptor(pinnedEntrypoint.interpreterDescriptor ?? -1, clearImmutable: false)
             removeStagingRoot(stagingRoot)
             throw CmuxPluginExecutionSnapshotError.fingerprintMismatch
+        }
+        guard Darwin.fchflags(pinnedEntrypoint.descriptor, UInt32(UF_IMMUTABLE)) == 0 else {
+            closeEntrypointDescriptor(pinnedEntrypoint.descriptor)
+            closeEntrypointDescriptor(pinnedEntrypoint.interpreterDescriptor ?? -1, clearImmutable: false)
+            removeStagingRoot(stagingRoot)
+            throw CmuxPluginExecutionSnapshotError.entrypointDescriptorFailed
         }
 
         return CmuxPluginExecutionSnapshot(
@@ -201,19 +213,25 @@ public actor CmuxPluginExecutionSnapshotter {
             entrypointURL: entrypointURL,
             fingerprint: copiedPlugin.manifestFingerprint,
             entrypointFileDescriptor: pinnedEntrypoint.descriptor,
-            entrypointExecution: pinnedEntrypoint.execution
+            entrypointExecution: pinnedEntrypoint.execution,
+            interpreterFileDescriptor: pinnedEntrypoint.interpreterDescriptor
         )
     }
 
     /// Removes a previously-created snapshot.
     public func remove(_ snapshot: CmuxPluginExecutionSnapshot) {
         closeEntrypointDescriptor(snapshot.entrypointFileDescriptor)
+        closeEntrypointDescriptor(snapshot.interpreterFileDescriptor ?? -1, clearImmutable: false)
         removeStagingRoot(snapshot.directoryURL.deletingLastPathComponent())
     }
 
     private func openEntrypoint(
         at url: URL
-    ) throws -> (descriptor: Int32, execution: CmuxPluginEntrypointExecution) {
+    ) throws -> (
+        descriptor: Int32,
+        execution: CmuxPluginEntrypointExecution,
+        interpreterDescriptor: Int32?
+    ) {
         let executableDescriptor = Darwin.open(url.path, O_EXEC)
         guard executableDescriptor >= 0 else {
             throw CmuxPluginExecutionSnapshotError.entrypointDescriptorFailed
@@ -227,11 +245,22 @@ public actor CmuxPluginExecutionSnapshotter {
 
         do {
             if let interpreterArguments = try shebangArguments(from: readableDescriptor) {
+                guard let interpreterPath = interpreterArguments.first else {
+                    throw CmuxPluginExecutionSnapshotError.invalidInterpreter
+                }
+                let interpreterDescriptor = Darwin.open(interpreterPath, O_EXEC)
+                guard interpreterDescriptor >= 0 else {
+                    throw CmuxPluginExecutionSnapshotError.invalidInterpreter
+                }
                 Darwin.close(executableDescriptor)
-                return (readableDescriptor, .interpreter(interpreterArguments))
+                return (
+                    readableDescriptor,
+                    .interpreter(Array(interpreterArguments.dropFirst())),
+                    interpreterDescriptor
+                )
             }
             Darwin.close(readableDescriptor)
-            return (executableDescriptor, .executable)
+            return (executableDescriptor, .executable, nil)
         } catch {
             Darwin.close(executableDescriptor)
             Darwin.close(readableDescriptor)
@@ -268,9 +297,11 @@ public actor CmuxPluginExecutionSnapshotter {
         return arguments
     }
 
-    private func closeEntrypointDescriptor(_ descriptor: Int32) {
+    private func closeEntrypointDescriptor(_ descriptor: Int32, clearImmutable: Bool = true) {
         guard descriptor >= 0, openEntrypointDescriptors.remove(descriptor) != nil else { return }
-        _ = Darwin.fchflags(descriptor, UInt32(0))
+        if clearImmutable {
+            _ = Darwin.fchflags(descriptor, UInt32(0))
+        }
         Darwin.close(descriptor)
     }
 
@@ -332,6 +363,9 @@ public actor CmuxPluginExecutionSnapshotter {
         var directories: [URL] = []
         for case let url as URL in enumerator {
             let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            if values?.isSymbolicLink == true {
+                continue
+            }
             if values?.isDirectory == true {
                 directories.append(url)
                 continue
@@ -360,6 +394,12 @@ public actor CmuxPluginExecutionSnapshotter {
         let root = rootDirectoryURL.standardizedFileURL
         let candidate = stagingRoot.standardizedFileURL
         guard candidate.path.hasPrefix(root.path + "/") else { return }
+        guard let values = try? candidate.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+              values.isDirectory == true,
+              values.isSymbolicLink != true else {
+            try? fileManager.removeItem(at: candidate)
+            return
+        }
         clearImmutableFlags(at: candidate)
         try? fileManager.removeItem(at: candidate)
     }

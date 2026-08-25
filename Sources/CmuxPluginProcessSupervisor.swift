@@ -163,6 +163,9 @@ final class CmuxPluginProcessSupervisor {
             fileDescriptor: executionSnapshot.entrypointFileDescriptor,
             closeOnDealloc: false
         )
+        let pinnedInterpreter = executionSnapshot.interpreterFileDescriptor.map {
+            FileHandle(fileDescriptor: $0, closeOnDealloc: false)
+        }
         process.executableURL = URL(fileURLWithPath: "/bin/sh", isDirectory: false)
         process.currentDirectoryURL = executionSnapshot.directoryURL
         // The shell blocks on stdin until the parent has registered its PID.
@@ -186,7 +189,7 @@ final class CmuxPluginProcessSupervisor {
         process.environment = environment
         process.standardInput = launchGate
         process.standardOutput = pinnedEntrypoint
-        process.standardError = FileHandle.nullDevice
+        process.standardError = pinnedInterpreter ?? FileHandle.nullDevice
 
         // Install the callback before `run()`: a short-lived plugin can exit
         // between process creation and the first supervisor bookkeeping step.
@@ -347,18 +350,18 @@ final class CmuxPluginProcessSupervisor {
     private static func launchArguments(
         for execution: CmuxPluginEntrypointExecution
     ) -> [String] {
-        let gate = "read -r cmuxLaunchGate || true; [ \"$cmuxLaunchGate\" = cmux-ready ] || exit 126; exec 3>&1; exec 1>/dev/null 2>/dev/null;"
+        let gate = "read -r cmuxLaunchGate || true; [ \"$cmuxLaunchGate\" = cmux-ready ] || exit 126; exec 3>&1;"
         switch execution {
         case .executable:
             return [
                 "-c",
-                "\(gate) exec /dev/fd/3",
+                "\(gate) exec 1>/dev/null 2>/dev/null; exec /dev/fd/3",
                 "cmux-plugin-launch-gate",
             ]
         case .interpreter(let interpreterArguments):
             return [
                 "-c",
-                "\(gate) exec \"$@\" /dev/fd/3",
+                "\(gate) exec 4>&2; exec 1>/dev/null 2>/dev/null; exec /dev/fd/4 \"$@\" /dev/fd/3",
                 "cmux-plugin-launch-gate",
             ] + interpreterArguments
         }

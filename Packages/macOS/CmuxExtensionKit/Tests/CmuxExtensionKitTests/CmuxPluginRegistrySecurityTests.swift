@@ -224,7 +224,8 @@ struct CmuxPluginRegistrySecurityTests {
         let plugin = try #require((await loader.load()).plugins.first)
         let snapshotter = CmuxPluginExecutionSnapshotter(rootDirectoryURL: snapshotRoot)
         let snapshot = try await snapshotter.makeSnapshot(for: plugin)
-        #expect(snapshot.entrypointExecution == .interpreter(["/bin/sh"]))
+        #expect(snapshot.entrypointExecution == .interpreter([]))
+        #expect(snapshot.interpreterFileDescriptor != nil)
 
         let markerURL = root.appendingPathComponent("launch-marker", isDirectory: false)
         // An attacker may try either an atomic pathname replacement or an
@@ -253,9 +254,8 @@ struct CmuxPluginRegistrySecurityTests {
         process.executableURL = URL(fileURLWithPath: "/bin/sh", isDirectory: false)
         process.arguments = [
             "-c",
-            "read -r cmuxLaunchGate || true; [ \"$cmuxLaunchGate\" = cmux-ready ] || exit 126; exec 3>&1; exec 1>/dev/null 2>/dev/null; exec \"$@\" /dev/fd/3",
+            "read -r cmuxLaunchGate || true; [ \"$cmuxLaunchGate\" = cmux-ready ] || exit 126; exec 3>&1; exec 4>&2; exec 1>/dev/null 2>/dev/null; exec /dev/fd/4 \"$@\" /dev/fd/3",
             "cmux-plugin-launch-gate",
-            "/bin/sh",
         ]
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_TEST_MARKER"] = markerURL.path
@@ -265,7 +265,10 @@ struct CmuxPluginRegistrySecurityTests {
             fileDescriptor: snapshot.entrypointFileDescriptor,
             closeOnDealloc: false
         )
-        process.standardError = FileHandle.nullDevice
+        process.standardError = FileHandle(
+            fileDescriptor: try #require(snapshot.interpreterFileDescriptor),
+            closeOnDealloc: false
+        )
         try process.run()
         try gate.fileHandleForReading.close()
         try gate.fileHandleForWriting.write(contentsOf: Data("cmux-ready\n".utf8))
