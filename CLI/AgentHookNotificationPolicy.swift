@@ -364,6 +364,9 @@ enum AgentHookNotificationPolicy {
 
     /// Redacts credentials before a command reaches durable hook state or UI.
     static func redactSensitiveCommand(_ value: String) -> String {
+        let boundedValue = value.count > 8_192
+            ? String(value.prefix(8_191)) + "…"
+            : value
         let patterns: [(pattern: String, replacement: String)] = [
             (#"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#, "<email>"),
             (#"(?:~|/)[^\s\"']+"#, "<path>"),
@@ -371,6 +374,7 @@ enum AgentHookNotificationPolicy {
             (#"\b(?:sk|rk|sess|token|key|secret|api[_-]?key)[A-Za-z0-9._:-]{8,}\b"#, "<token>"),
             (#"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{12,}"#, "Bearer <token>"),
             (#"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"#, "<token>"),
+            (#"(?i)\b(?:authorization|proxy-authorization)\s*:\s*[^\s'\";&|]+(?:\s+[^\s'\";&|]+)*"#, "<credential>:<token>"),
             (#"(?i)\b(?:x[-_])?(?:api[-_]?key|password|secret|token|authorization|cookie)\s*:\s*(?:Bearer\s+)?(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, "<credential>:<token>"),
             (#"(?i)--?(?:api[-_]?key|password|secret|token|authorization|cookie)(?:=|\s+)(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, "<credential>=<token>"),
             (#"(?i)(?:^|\s)(?:-u|--user)(?:=|\s+)(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, " <credential>"),
@@ -379,7 +383,7 @@ enum AgentHookNotificationPolicy {
             (#"(?i)\b(?:api[_-]?key|password|secret|token|authorization|cookie)\s*=\s*[^\s;&|]+"#, "<credential>=<token>"),
             (#"\b[A-Za-z0-9_-]{24,}\b"#, "<token>"),
         ]
-        return patterns.reduce(value) { partial, entry in
+        return patterns.reduce(boundedValue) { partial, entry in
             partial.replacingOccurrences(
                 of: entry.pattern,
                 with: entry.replacement,

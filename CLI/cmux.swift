@@ -34716,7 +34716,9 @@ export default CMUXSessionRestore;
         }
         if let cwd = parsedInput.cwd { event["cwd"] = cwd }
         let cursorShellCommand = source == "cursor"
-            ? firstString(in: fallbackObject, keys: ["command"])
+            ? firstString(in: fallbackObject, keys: ["command"]).map {
+                truncate(normalizedSingleLine($0), maxLength: 8_192)
+            }
             : nil
         let toolName = parsedInput.object?["tool_name"] as? String
             ?? (cursorShellCommand == nil ? nil : "Shell")
@@ -34775,7 +34777,9 @@ export default CMUXSessionRestore;
         guard var toolInput = value as? [String: Any] else { return value }
         for key in ["command", "cmd"] {
             guard let command = toolInput[key] as? String else { continue }
-            toolInput[key] = redactClaudeSensitiveSpans(normalizedSingleLine(command))
+            toolInput[key] = redactClaudeSensitiveSpans(
+                truncate(normalizedSingleLine(command), maxLength: 8_192)
+            )
         }
         return toolInput
     }
