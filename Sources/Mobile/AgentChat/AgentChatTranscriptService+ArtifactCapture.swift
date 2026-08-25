@@ -14,7 +14,8 @@ extension AgentChatTranscriptService {
         guard hasSubscribers || observesTranscriptsForAutomaticArtifactCapture else { return }
         ensureTailer(
             for: record,
-            ownership: hasSubscribers ? .mobileSubscriber : .automaticArtifactCapture
+            ownership: hasSubscribers ? .mobileSubscriber : .automaticArtifactCapture,
+            resolvePath: { resolver.boundedTranscriptPath(for: record) }
         )
     }
 

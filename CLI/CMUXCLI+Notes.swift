@@ -130,6 +130,19 @@ extension CMUXCLI {
             throw CLIError(message: terminalText.sanitize(noteErrorMessage(error)), exitCode: 2)
         } catch let error as ArtifactStoreError {
             throw CLIError(message: terminalText.sanitize(noteArtifactErrorMessage(error)), exitCode: 2)
+        } catch let error as CLIError {
+            throw CLIError(
+                message: terminalText.sanitize(error.message),
+                exitCode: error.exitCode,
+                v2Code: error.v2Code,
+                vmBackendCode: error.vmBackendCode,
+                socketFailureKind: error.socketFailureKind
+            )
+        } catch {
+            throw CLIError(
+                message: terminalText.sanitize(String(describing: error)),
+                exitCode: 2
+            )
         }
     }
 

@@ -120,6 +120,19 @@ extension CMUXCLI {
                 message: terminalText.sanitize(artifactErrorMessage(error)),
                 exitCode: 2
             )
+        } catch let error as CLIError {
+            throw CLIError(
+                message: terminalText.sanitize(error.message),
+                exitCode: error.exitCode,
+                v2Code: error.v2Code,
+                vmBackendCode: error.vmBackendCode,
+                socketFailureKind: error.socketFailureKind
+            )
+        } catch {
+            throw CLIError(
+                message: terminalText.sanitize(String(describing: error)),
+                exitCode: 2
+            )
         }
     }
 
