@@ -82,7 +82,7 @@ struct IrohTransportDebugMenuButtons: View {
 /// next-transport host. Off by default; state is visible inline.
 struct NextTransportDebugMenuButtons: View {
     @AppStorage(MobileHostNextTransportRuntime.debugDefaultsKey)
-    private var enabled = false
+    private var enabled = true
 
     var body: some View {
         // State rides the submenu title: a plain Text row inside a Menu

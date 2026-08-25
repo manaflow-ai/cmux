@@ -14,7 +14,7 @@ struct NextTransportDevScreen: View {
     @State private var ticketJSON = ""
     @State private var grantJSON = ""
     @AppStorage(NextTransportGraduationFacade.routeTrafficDefaultsKey)
-    private var routeAppTraffic = false
+    private var routeAppTraffic = true
 
     var body: some View {
         NavigationStack {

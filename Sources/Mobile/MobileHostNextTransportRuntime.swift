@@ -43,8 +43,14 @@ final class MobileHostNextTransportRuntime {
     private var renewTask: Task<Void, Never>?
     private var credentialClient: BrokerCredentialClient?
 
+    /// Default ON in dev builds: the parallel host is how a dev Mac
+    /// advertises next-transport support to probing phones. The Debug menu
+    /// toggle remains the kill switch.
     var isEnabled: Bool {
-        UserDefaults.standard.bool(forKey: Self.debugDefaultsKey)
+        if UserDefaults.standard.object(forKey: Self.debugDefaultsKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: Self.debugDefaultsKey)
     }
 
     func setEnabled(_ enabled: Bool) {

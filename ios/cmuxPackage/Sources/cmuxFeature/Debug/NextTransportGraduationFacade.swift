@@ -34,9 +34,18 @@ final class NextTransportGraduationFacade {
     private var clients: [String: NextTransportDialClient] = [:]
     private var acceptors: [ObjectIdentifier: BridgeLaneAcceptor] = [:]
     private var bootstrapsInFlight: Set<String> = []
+    /// Macs probed this app run whose probe failed (no support, host off):
+    /// stay legacy without re-probing until the next launch.
+    private var probedThisRun: Set<String> = []
 
+    /// Default ON in dev builds: support is negotiated per Mac (the pair
+    /// probe is the capability check — unsupported Macs simply stay legacy),
+    /// so the toggle is a kill switch, not an opt-in.
     var isEnabled: Bool {
-        UserDefaults.standard.bool(forKey: Self.routeTrafficDefaultsKey)
+        if UserDefaults.standard.object(forKey: Self.routeTrafficDefaultsKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: Self.routeTrafficDefaultsKey)
     }
 
     func setEnabled(_ enabled: Bool) {
@@ -99,7 +108,8 @@ final class NextTransportGraduationFacade {
     ) {
         guard isEnabled, let macID = request.expectedPeerDeviceID else { return }
         guard storedBootstrap(macID: macID) == nil else { return }
-        guard !bootstrapsInFlight.contains(macID) else { return }
+        guard !bootstrapsInFlight.contains(macID), !probedThisRun.contains(macID) else { return }
+        probedThisRun.insert(macID)
         bootstrapsInFlight.insert(macID)
         let identity = bootstrapIdentity()
         Task { [weak self] in
