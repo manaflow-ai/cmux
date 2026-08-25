@@ -1178,9 +1178,26 @@ impl OrderedControlQueue {
             };
             self.clear_dispatch_reservation(reservation);
             if failed {
-                self.fail_endpoint(&endpoint);
+                if is_close {
+                    // A failed close is a target-wide ordering failure. Any
+                    // replacement admitted behind that close must be
+                    // detached before it can become a stuck live viewer.
+                    self.fail_target_after_close();
+                } else {
+                    self.fail_endpoint(&endpoint);
+                }
             }
         }
+    }
+
+    fn fail_target_after_close(&self) {
+        let (Some(coordinator), Some(target)) = (
+            self.coordinator.get().and_then(Weak::upgrade),
+            self.target.get().and_then(Weak::upgrade),
+        ) else {
+            return;
+        };
+        coordinator.fail_target_after_close(&target);
     }
 
     async fn ordered_request_at(
@@ -2634,6 +2651,53 @@ impl TerminalSizing {
             target.queue.close_locked(&mut queue_state);
             targets.remove(&target.key);
         }
+    }
+
+    /// A failed close proves that no later command can be ordered against the
+    /// old daemon socket. Detach every viewer that was admitted behind that
+    /// close, including a replacement that joined while the close was in
+    /// flight. Mark the target retired and end those controls outside the
+    /// coordinator locks; no replacement may remain active but permanently
+    /// unable to send input.
+    fn fail_target_after_close(&self, target: &Arc<SizingTarget>) {
+        let controls = {
+            let targets = self.targets.lock().expect("terminal sizing targets lock");
+            let Some(current) = targets.get(&target.key) else { return };
+            if !Arc::ptr_eq(current, target) {
+                return;
+            }
+            let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
+            if !queue_state.closing_failed {
+                return;
+            }
+            let mut state = target.state.lock().expect("terminal sizing state lock");
+            if state.retired && state.viewers.is_empty() {
+                return;
+            }
+            let viewers = std::mem::take(&mut state.viewers);
+            for viewer in viewers.values() {
+                viewer.endpoint.active.store(false, Ordering::Release);
+            }
+            state.owner = None;
+            state.claim_requested = None;
+            state.retired = true;
+            // Invalidate every queued mutation generation. The wire actor
+            // will reject already-enqueued commands while the failed close
+            // remains the permanent ordering barrier.
+            self.advance_generation(target);
+            queue_state.pending_resize = None;
+            queue_state.last_resize = None;
+            queue_state.claim_fence = None;
+            queue_state.owner_resize_fence = None;
+            viewers.into_values().map(|viewer| viewer.control).collect::<Vec<_>>()
+        };
+        for control in controls {
+            // The daemon ordering is already failed closed. This local end
+            // releases the replacement control without issuing a new daemon
+            // mutation through the queue.
+            control.end();
+        }
+        self.complete_waiters(target);
     }
 
     /// Enqueue a viewer update only if the owner/endpoint snapshot is still
@@ -7567,6 +7631,57 @@ mod tests {
             "failed close must not revive a retired target"
         );
         assert!(target.state.lock().unwrap().viewers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn failed_close_detaches_replacement_admitted_behind_barrier() {
+        let owner = SizingControl::new(12, &[]);
+        owner.block_end();
+        owner.set_end_ok(false);
+        let replacement = SizingControl::new(12, &[]);
+        let coordinator = TerminalSizing::new();
+        let key = SizingKey {
+            socket_path: PathBuf::from("/tmp/cmux-sizing-close-replacement-failure.sock"),
+            surface_id: 43,
+        };
+        coordinator
+            .join(key.clone(), 1, 43, Arc::new(owner.clone()), SizingGrid { cols: 80, rows: 24 })
+            .expect("initial sizing barrier")
+            .await
+            .expect("initial sizing worker");
+        let target = coordinator.targets.lock().unwrap().get(&key).cloned().unwrap();
+
+        coordinator.leave(&key, 1);
+        owner.wait_for_end_started().await;
+        let (joined, replacement_endpoint) = coordinator
+            .join_with_endpoint(
+                key.clone(),
+                2,
+                43,
+                Arc::new(replacement.clone()),
+                SizingGrid { cols: 80, rows: 24 },
+            )
+            .expect("replacement is admitted behind the in-flight close");
+        drop(joined);
+        assert!(replacement_endpoint.is_active());
+
+        owner.release_end();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if target.state.lock().unwrap().retired
+                    && target.state.lock().unwrap().viewers.is_empty()
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("failed close did not detach the replacement");
+        assert!(!replacement_endpoint.is_active());
+        assert!(replacement.ended(), "replacement control was left live after close failure");
+        assert!(target.queue.state.lock().unwrap().closing_failed);
+        assert!(coordinator.queue_for(&key, 2).is_none());
     }
 
     #[tokio::test]
