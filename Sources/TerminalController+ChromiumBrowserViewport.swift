@@ -96,7 +96,7 @@ extension TerminalController {
                 data: nil
             )
         }
-        v2MainSync {
+        _ = v2MainSync {
             resolvedPanel.viewportModel.setViewport(requestedViewport)
         }
         return .ok([

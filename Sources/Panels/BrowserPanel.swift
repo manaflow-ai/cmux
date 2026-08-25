@@ -1995,8 +1995,8 @@ final class BrowserPanel: Panel, ObservableObject {
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
 
-    @Published internal(set) var profileID: UUID
-    @Published internal(set) var historyStore: BrowserHistoryStore
+    @Published var profileID: UUID
+    @Published var historyStore: BrowserHistoryStore
 
     /// Renderer selected when this pane was created. Changing the default in
     /// Settings affects future panes only; an existing pane never changes
@@ -2037,8 +2037,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Monotonic identity for the current WKWebView instance.
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
-    @Published internal(set) var webViewInstanceID: UUID = UUID()
-    internal(set) var hasRecoverableWebContentTermination = false {
+    @Published var webViewInstanceID: UUID = UUID()
+    var hasRecoverableWebContentTermination = false {
         willSet {
             if newValue != hasRecoverableWebContentTermination {
                 objectWillChange.send()
@@ -2069,7 +2069,7 @@ final class BrowserPanel: Panel, ObservableObject {
     )
 
     /// Published URL being displayed
-    @Published internal(set) var currentURL: URL? {
+    @Published var currentURL: URL? {
         didSet {
             guard oldValue != currentURL else { return }
             applyConfiguredWebViewBackground()
@@ -2145,7 +2145,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     /// Published page title
-    @Published internal(set) var pageTitle: String = "" {
+    @Published var pageTitle: String = "" {
         didSet {
             guard oldValue != pageTitle else { return }
             mobileBrowserStreamStateDidChange(markDirty: true)
@@ -2156,7 +2156,7 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var faviconPNGData: Data?
 
     /// Published loading state
-    @Published internal(set) var isLoading: Bool = false {
+    @Published var isLoading: Bool = false {
         didSet {
             guard oldValue != isLoading else { return }
             mobileBrowserStreamStateDidChange(markDirty: true)
@@ -2179,7 +2179,7 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var isMuted: Bool = false
 
     /// Published can go back state
-    @Published internal(set) var canGoBack: Bool = false {
+    @Published var canGoBack: Bool = false {
         didSet {
             guard oldValue != canGoBack else { return }
             mobileBrowserStreamStateDidChange()
@@ -2187,7 +2187,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     /// Published can go forward state
-    @Published internal(set) var canGoForward: Bool = false {
+    @Published var canGoForward: Bool = false {
         didSet {
             guard oldValue != canGoForward else { return }
             mobileBrowserStreamStateDidChange()
