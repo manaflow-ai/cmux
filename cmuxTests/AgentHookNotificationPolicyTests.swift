@@ -220,6 +220,13 @@ struct AgentHookNotificationPolicyTests {
             AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
                 payload: payload,
                 approvalMode: "allowlist",
+                deniedShellCommands: ["Shell(git)"]
+            ) == false
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: payload,
+                approvalMode: "allowlist",
                 allowedShellCommands: ["Shell(ls)"]
             ) == true
         )

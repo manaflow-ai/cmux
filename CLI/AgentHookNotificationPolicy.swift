@@ -248,13 +248,14 @@ enum AgentHookNotificationPolicy {
     /// state (Cursor's allowlist and Run Everything decisions are internal).
     /// Missing or malformed values remain telemetry-only. Completion/failure
     /// handlers must correlate against the pending command record.
-    /// Known local Run Everything and Shell(...) allowlist entries are filtered
-    /// before this fallback because team/server policy and smart-mode decisions
-    /// are not present in the hook payload.
+    /// Known local Run Everything, Shell(...) allow, and Shell(...) deny
+    /// entries are filtered before this fallback because team/server policy and
+    /// smart-mode decisions are not present in the hook payload.
     static func shouldRequestCursorNativeApproval(
         payload: [String: Any]?,
         approvalMode: String? = nil,
-        allowedShellCommands: [String] = []
+        allowedShellCommands: [String] = [],
+        deniedShellCommands: [String] = []
     ) -> Bool {
         guard payload?["sandbox"] as? Bool == false else { return false }
         // Without a locally known allowlist mode there is no authoritative
@@ -263,6 +264,11 @@ enum AgentHookNotificationPolicy {
         guard approvalMode == "allowlist",
               let command = payload?["command"] as? String,
               !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        guard !deniedShellCommands.contains(where: {
+            cursorShellAllowlistEntryMatches($0, command: command)
+        }) else {
             return false
         }
         return !allowedShellCommands.contains {
