@@ -668,6 +668,25 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    /// Whether another Cursor approval remains pending on the same surface.
+    /// Used to keep a late completion from clearing a newer session's wait.
+    func hasPendingCursorShellApproval(
+        workspaceId: String,
+        surfaceId: String,
+        excludingSessionId: String?,
+        deadline: Date? = nil
+    ) throws -> Bool {
+        let excluded = excludingSessionId.map(normalizeSessionId)
+        return try withLockedState(deadline: deadline, persist: false) { state in
+            state.sessions.contains { sessionId, record in
+                guard excluded.map({ $0 != sessionId }) ?? true,
+                      record.workspaceId == workspaceId,
+                      record.surfaceId == surfaceId else { return false }
+                return record.pendingCursorShellApprovals?.isEmpty == false
+            }
+        }
+    }
+
     private func normalizedCursorShellCommand(_ command: String) -> String? {
         let normalized = command
             .replacingOccurrences(of: "\r\n", with: "\n")
@@ -32811,6 +32830,12 @@ export default CMUXSessionRestore;
                         client: client
                     )
                 }
+                if def.name == "cursor" {
+                    sendAgentFeedTelemetry(
+                        workspaceId: consumed.workspaceId,
+                        surfaceId: consumed.surfaceId
+                    )
+                }
             }
         }
         func runtimeStatus(for notificationStatus: AgentHookNotificationStatus?) -> AgentHookRuntimeStatus? {
@@ -33351,7 +33376,12 @@ export default CMUXSessionRestore;
                 guard resolution.matched || (resolution.expired && !resolution.hasRemaining) else {
                     return
                 }
-                guard cursorApprovalNotificationIsCurrent() else { return }
+                guard (try? store.hasPendingCursorShellApproval(
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    excludingSessionId: sessionId,
+                    deadline: cursorShellDeadline
+                )) != true else { return }
                 sendCursorCriticalCommand(
                     "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
                 )
@@ -33359,22 +33389,6 @@ export default CMUXSessionRestore;
                 sendCursorCriticalCommand(
                     "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
                 )
-            }
-
-            func cursorApprovalNotificationIsCurrent() -> Bool {
-                guard let response = try? client.send(
-                    command: "list_notifications",
-                    responseTimeout: cursorCriticalTimeout(),
-                    deadline: cursorShellDeadline
-                ) else { return false }
-                return response.split(separator: "\n", omittingEmptySubsequences: true).contains { line in
-                    let fields = line.split(separator: "|", omittingEmptySubsequences: false)
-                    guard fields.count >= 7 else { return false }
-                    return String(fields[2]) == surfaceId
-                        && fields[4] == "Cursor"
-                        && fields[5] == "Permission"
-                        && fields[6] == "Approval needed"
-                }
             }
 
             // Hold the session-scoped lease through resume publication and
@@ -35020,9 +35034,6 @@ export default CMUXSessionRestore;
             if def.name == "cursor" {
                 cursorLifecycleLease?.release()
                 cursorLifecycleLease = nil
-                if let ending = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
-                    sendAgentFeedTelemetry(workspaceId: ending.workspaceId, surfaceId: ending.surfaceId)
-                }
             }
 
         case .sessionFinalize:
