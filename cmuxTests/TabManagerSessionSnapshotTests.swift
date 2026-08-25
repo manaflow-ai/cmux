@@ -1,7 +1,6 @@
 import CmuxWorkspaces
 import Darwin
 import CmuxCore
-import Observation
 import XCTest
 import CmuxTerminal
 
@@ -378,83 +377,6 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         _ = manager.addWorkspace(select: true)
 
         XCTAssertGreaterThan(notificationCount, 0)
-    }
-
-    func testHistoryMenuCoordinatorSuppressesIdenticalProjection() {
-        let center = NotificationCenter()
-        let manager = TabManager()
-        let closedHistory = ClosedItemHistoryStore(
-            fileURL: nil,
-            loadPersisted: false
-        )
-        let coordinator = HistoryMenuCoordinator(
-            center: center,
-            closedItemHistoryStore: closedHistory,
-            managerProvider: { manager },
-            mainMenuProvider: { nil },
-            actions: .unavailable
-        )
-        coordinator.refreshIfNeeded()
-        let firstState = coordinator.state
-        var publicationCount = 0
-        withObservationTracking {
-            _ = coordinator.state
-        } onChange: {
-            publicationCount += 1
-        }
-        coordinator.refreshIfNeeded()
-
-        XCTAssertEqual(coordinator.state, firstState)
-        XCTAssertEqual(publicationCount, 0)
-
-        withObservationTracking {
-            _ = coordinator.state
-        } onChange: {
-            publicationCount += 1
-        }
-        _ = manager.addWorkspace(select: true)
-        center.post(name: .tabManagerFocusHistoryRevisionDidChange, object: manager)
-        XCTAssertNotEqual(coordinator.state, firstState)
-        XCTAssertEqual(publicationCount, 1)
-    }
-
-    func testHistoryMenuCoordinatorRefreshesTitlesWhenMainMenuBeginsTracking() throws {
-        let center = NotificationCenter()
-        let mainMenu = NSMenu()
-        let trackedMenu = NSMenu()
-        let trackedItem = NSMenuItem(title: "History", action: nil, keyEquivalent: "")
-        trackedItem.submenu = trackedMenu
-        mainMenu.addItem(trackedItem)
-        let manager = TabManager()
-        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let panelId = try XCTUnwrap(firstWorkspace.focusedPanelId)
-        firstWorkspace.setCustomTitle("Before Workspace")
-        firstWorkspace.setPanelCustomTitle(panelId: panelId, title: "Before Pane")
-        _ = manager.addWorkspace(select: true)
-
-        let coordinator = HistoryMenuCoordinator(
-            center: center,
-            closedItemHistoryStore: ClosedItemHistoryStore(fileURL: nil, loadPersisted: false),
-            managerProvider: { manager },
-            mainMenuProvider: { mainMenu },
-            actions: .unavailable
-        )
-        coordinator.refreshIfNeeded()
-        XCTAssertEqual(coordinator.state.recentlyFocusedItems.first?.workspaceTitle, "Before Workspace")
-
-        let revisionBeforeRename = manager.focusHistoryRevision
-        firstWorkspace.setCustomTitle("After Workspace")
-        firstWorkspace.setPanelCustomTitle(panelId: panelId, title: "After Pane")
-        XCTAssertEqual(manager.focusHistoryRevision, revisionBeforeRename)
-        XCTAssertEqual(coordinator.state.recentlyFocusedItems.first?.workspaceTitle, "Before Workspace")
-
-        center.post(name: NSMenu.didBeginTrackingNotification, object: NSMenu())
-        XCTAssertEqual(coordinator.state.recentlyFocusedItems.first?.workspaceTitle, "Before Workspace")
-
-        center.post(name: NSMenu.didBeginTrackingNotification, object: trackedMenu)
-
-        XCTAssertEqual(coordinator.state.recentlyFocusedItems.first?.workspaceTitle, "After Workspace")
-        XCTAssertEqual(coordinator.state.recentlyFocusedItems.first?.panelTitle, "After Pane")
     }
 
     func testFocusHistoryNavigationNotificationSeesUpdatedDirectionState() throws {

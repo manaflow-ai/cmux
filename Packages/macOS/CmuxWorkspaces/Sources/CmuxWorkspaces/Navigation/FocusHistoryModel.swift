@@ -394,16 +394,10 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
         let currentEntry = currentFocusHistoryEntry
         let scope = navigationScope()
 
-        struct Candidate {
-            let index: Int
-            let record: FocusHistoryRecord
-            let direction: FocusHistoryMenuDirection
-        }
-
         // Filter consecutive workspace duplicates in each direction before
         // sorting. The final sort is by the stored timestamp rather than index:
         // recordFocusInHistory can rewrite a mid-stack timestamp in place.
-        var candidates: [Candidate] = []
+        var candidates: [(index: Int, record: FocusHistoryRecord, direction: FocusHistoryMenuDirection)] = []
         var previousBackWorkspaceId: UUID?
         if historyIndex > 0 {
             for index in stride(from: historyIndex - 1, through: 0, by: -1) {
@@ -413,7 +407,7 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
                     continue
                 }
                 previousBackWorkspaceId = record.entry.workspaceId
-                candidates.append(Candidate(index: index, record: record, direction: .back))
+                candidates.append((index: index, record: record, direction: .back))
             }
         }
 
@@ -426,7 +420,7 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
                     continue
                 }
                 previousForwardWorkspaceId = record.entry.workspaceId
-                candidates.append(Candidate(index: index, record: record, direction: .forward))
+                candidates.append((index: index, record: record, direction: .forward))
             }
         }
 
