@@ -34,6 +34,15 @@ extension AppDelegate {
         )
     }
 
+    /// SwiftUI `KeyPress` and `.keyboardShortcut` callbacks do not carry their
+    /// originating `NSEvent`; while AppKit is delivering one, `currentEvent`
+    /// still identifies the same pass-through marker. Local view handlers use
+    /// this read-only bridge before matching their own shortcuts.
+    func shouldBypassPrefixChordPassThroughForCurrentEvent() -> Bool {
+        guard let event = NSApp.currentEvent else { return false }
+        return shouldBypassPrefixChordPassThrough(event)
+    }
+
     /// Offers the event to the optional leader layer. `nil` means ordinary
     /// shortcut routing should continue; a Boolean is the local-monitor return
     /// value for an event that was consumed or must be passed through without

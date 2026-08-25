@@ -206,6 +206,40 @@ final class ShortcutPrefixChordCoordinator {
         hud.hide()
     }
 
+    /// Rechecks that a binding selected at the leader stroke is still the
+    /// unique winner for the current focus/action table before AppDelegate
+    /// dispatches it. Focus can change while the suffix is pending; a fresh
+    /// router probe prevents a newly eligible action from stealing the event
+    /// through the generic dispatcher.
+    func bindingStillWins(
+        _ binding: ShortcutPrefixChordBinding,
+        event: NSEvent
+    ) -> Bool {
+        guard let owner else { return false }
+        let now = ProcessInfo.processInfo.systemUptime
+        let eventWindowID = windowID(for: event)
+        let eligible = bindings(for: event, owner: owner)
+        var verifier = ShortcutPrefixChordRouter(
+            prefix: binding.firstStroke,
+            timeout: ShortcutPrefixChordRouter.defaultTimeout
+        )
+        guard case .armed = verifier.handle(
+            stroke: binding.firstStroke,
+            now: now,
+            windowID: eventWindowID,
+            bindings: eligible
+        ) else {
+            return false
+        }
+        let result = verifier.handle(
+            stroke: binding.secondStroke,
+            now: now + 0.001,
+            windowID: eventWindowID,
+            bindings: eligible
+        )
+        return result == .executed(binding)
+    }
+
     private func scheduleExpiry(at deadline: TimeInterval) {
         let delay = max(deadline - ProcessInfo.processInfo.systemUptime, 0.001)
         if expiryTimer == nil {

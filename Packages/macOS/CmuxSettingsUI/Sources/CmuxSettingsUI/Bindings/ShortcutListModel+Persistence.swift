@@ -5,6 +5,16 @@ extension ShortcutListModel {
         case chordConflict
     }
 
+    private struct RebasedChordSnapshot {
+        struct Entry {
+            let actionID: String
+            let original: StoredShortcut?
+        }
+
+        let entries: [Entry]
+        let migratedLegacyActionIDs: Set<String>
+    }
+
     /// Enqueues one settings mutation behind every earlier shortcut mutation.
     /// The operation closure is MainActor-isolated so the model's optimistic
     /// state and its persistence side effects share one ordering boundary.
@@ -60,10 +70,10 @@ extension ShortcutListModel {
         rebasingChordsTo firstStroke: ShortcutStroke?,
         rebasingGeneration: Int?
     ) async {
-        var rebasedOriginals: [String: StoredShortcut]?
+        var rebasedSnapshot: RebasedChordSnapshot?
         do {
             if let firstStroke, let rebasingGeneration {
-                rebasedOriginals = try await persistRebasedChordBindings(
+                rebasedSnapshot = try await persistRebasedChordBindings(
                     to: firstStroke,
                     generation: rebasingGeneration
                 )
@@ -74,6 +84,9 @@ extension ShortcutListModel {
                 await jsonStore.value(for: catalog.shortcuts.prefix)
             ) ?? .unbound
             guard prefixWriteGeneration == generation else { return }
+            if let rebasedSnapshot {
+                await finalizeLegacyRebasedChords(rebasedSnapshot)
+            }
             prefix = committed
             onShortcutsChanged()
         } catch {
@@ -84,8 +97,8 @@ extension ShortcutListModel {
                 return
             }
             guard prefixWriteGeneration == generation else { return }
-            if let rebasedOriginals {
-                await restoreRebasedChordBindings(rebasedOriginals)
+            if let rebasedSnapshot {
+                await restoreRebasedChordBindings(rebasedSnapshot)
             }
             let committed = ShortcutPrefixPolicy().normalized(
                 await jsonStore.value(for: catalog.shortcuts.prefix)
@@ -132,12 +145,18 @@ extension ShortcutListModel {
     private func persistRebasedChordBindings(
         to firstStroke: ShortcutStroke,
         generation: Int
-    ) async throws -> [String: StoredShortcut]? {
+    ) async throws -> RebasedChordSnapshot? {
         // Read the snapshot at execution time, after all earlier queued
         // mutations have landed. The model cache may still be cold or waiting
         // for a coalesced file-watch event, so it is not a safe rebase source.
         let persisted = await jsonStore.value(for: catalog.shortcuts.bindingSnapshot)
-        let current = persisted.bindings
+        var current = persisted.bindings
+        var migratedLegacyActionIDs = Set<String>()
+        for (actionID, shortcut) in legacyBindings where
+            !persisted.managedActionIDs.contains(actionID) && shortcut.hasChord {
+            current[actionID] = shortcut
+            migratedLegacyActionIDs.insert(actionID)
+        }
         var rebased = current
         for (actionID, shortcut) in current where shortcut.hasChord {
             guard let second = shortcut.second else { continue }
@@ -163,13 +182,15 @@ extension ShortcutListModel {
             )
             return nil
         }
-        let originals = Dictionary(
-            uniqueKeysWithValues: rebased.compactMap { actionID, shortcut in
+        let originalEntries = rebased.compactMap { actionID, shortcut in
                 guard shortcut != current[actionID], let original = current[actionID] else {
                     return nil
                 }
-                return (actionID, original)
+                return RebasedChordSnapshot.Entry(actionID: actionID, original: original)
             }
+        let rebasedSnapshot = RebasedChordSnapshot(
+            entries: originalEntries,
+            migratedLegacyActionIDs: migratedLegacyActionIDs
         )
         var appliedActionIDs: [String] = []
 
@@ -192,6 +213,7 @@ extension ShortcutListModel {
             pendingBindings = rebased
             bindings = rebased
             managedBindingActionIDs = persisted.managedActionIDs
+                .union(migratedLegacyActionIDs)
         }
         do {
             // Each leaf write preserves malformed or unknown sibling entries
@@ -205,7 +227,7 @@ extension ShortcutListModel {
                 try await jsonStore.set(rebased[actionID] ?? .unbound, for: key)
                 appliedActionIDs.append(actionID)
             }
-            guard pendingWriteGeneration == generation else { return originals }
+            guard pendingWriteGeneration == generation else { return rebasedSnapshot }
             let committed = await jsonStore.value(for: catalog.shortcuts.bindingSnapshot)
             bindings = committed.bindings
             managedBindingActionIDs = committed.managedActionIDs
@@ -216,11 +238,11 @@ extension ShortcutListModel {
                 changedActionIds: Set(current.keys).union(committed.bindings.keys)
                     .filter { current[$0] != committed.bindings[$0] }
             )
-            return originals
+            return rebasedSnapshot
         } catch {
             if !appliedActionIDs.isEmpty {
                 await restoreRebasedChordBindings(
-                    originals,
+                    rebasedSnapshot,
                     actionIDs: appliedActionIDs
                 )
             }
@@ -239,17 +261,35 @@ extension ShortcutListModel {
     /// transient; a rollback failure is intentionally retained as the original
     /// settings error so the user still gets one actionable alert.
     private func restoreRebasedChordBindings(
-        _ originals: [String: StoredShortcut],
+        _ snapshot: RebasedChordSnapshot,
         actionIDs: [String]? = nil
     ) async {
-        let ids = actionIDs ?? originals.keys.sorted()
+        let entriesByID = Dictionary(
+            uniqueKeysWithValues: snapshot.entries.map { ($0.actionID, $0) }
+        )
+        let ids = actionIDs ?? snapshot.entries.map(\.actionID).sorted()
         for actionID in ids.reversed() {
-            guard let original = originals[actionID] else { continue }
+            guard let entry = entriesByID[actionID] else { continue }
             let key = JSONKey<StoredShortcut>(
                 id: "\(catalog.shortcuts.bindings.id).\(actionID)",
                 defaultValue: .unbound
             )
-            try? await jsonStore.set(original, for: key)
+            if let original = entry.original {
+                try? await jsonStore.set(original, for: key)
+            } else {
+                try? await jsonStore.reset(key)
+            }
+        }
+    }
+
+    /// Removes legacy overrides only after the JSON rebase and its new prefix
+    /// have both committed successfully. Keeping the old value until then
+    /// makes a failed prefix write fully recoverable.
+    private func finalizeLegacyRebasedChords(_ snapshot: RebasedChordSnapshot) async {
+        for actionID in snapshot.migratedLegacyActionIDs {
+            guard let action = ShortcutAction(rawValue: actionID) else { continue }
+            await userDefaultsStore?.resetLegacyShortcutBinding(for: action)
+            legacyBindings.removeValue(forKey: actionID)
         }
     }
 

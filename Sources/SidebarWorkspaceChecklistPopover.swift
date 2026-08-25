@@ -463,6 +463,9 @@ struct SidebarWorkspaceChecklistPopover: View {
         let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleChecklistItemComplete)
         if let key = shortcut.keyEquivalent {
             Button {
+                guard AppDelegate.shared?.shouldBypassPrefixChordPassThroughForCurrentEvent() != true else {
+                    return
+                }
                 toggleHighlighted(in: visible)
             } label: { Color.clear.frame(width: 0, height: 0) }
                 .buttonStyle(.plain)
@@ -474,6 +477,9 @@ struct SidebarWorkspaceChecklistPopover: View {
     /// Return/configured shortcut toggles the highlighted item; no-op when nothing is
     /// highlighted.
     private func toggleHighlighted(in visible: [WorkspaceChecklistItem]) {
+        guard AppDelegate.shared?.shouldBypassPrefixChordPassThroughForCurrentEvent() != true else {
+            return
+        }
         guard let target = PrefixChordChecklistToggleTarget(
             items: visible,
             highlightedItemID: highlightedItemId,

@@ -23,6 +23,9 @@ extension AppDelegate {
         guard prefixChordBindingIsStillCurrent(binding, event: event) else {
             return false
         }
+        guard shortcutPrefixChordCoordinator.bindingStillWins(binding, event: event) else {
+            return false
+        }
 
         // Config-defined actions have their own resolved executor (including
         // trust prompts and workspace/terminal command targets). Dispatch

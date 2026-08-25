@@ -405,6 +405,9 @@ private struct WorkspaceTodoPaneContent: View {
         _ press: KeyPress,
         ordered: [WorkspaceChecklistItem]
     ) -> KeyPress.Result {
+        if AppDelegate.shared?.shouldBypassPrefixChordPassThroughForCurrentEvent() == true {
+            return .ignored
+        }
         if editingItemId != nil {
             return .ignored
         }
