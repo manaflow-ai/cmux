@@ -1,9 +1,20 @@
 import Darwin
 import Foundation
 
-/// Runs `/usr/bin/git` with optional locking disabled.
+/// Runs `/usr/bin/git` with optional locking disabled and repository scope isolated.
 struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
     private static let readChunkByteCount = 64 * 1024
+    /// Ambient variables that can redirect Git away from the requested directory.
+    private static let repositorySelectionEnvironmentKeys: Set<String> = [
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_CEILING_DIRECTORIES",
+        "GIT_COMMON_DIR",
+        "GIT_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_NAMESPACE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_WORK_TREE",
+    ]
 
     private let executableURL: URL
     private let environment: [String: String]
@@ -15,9 +26,12 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         boundedCommandWallTimeLimit: TimeInterval = 30
     ) {
         self.executableURL = executableURL
-        var nonLockingEnvironment = environment
-        nonLockingEnvironment["GIT_OPTIONAL_LOCKS"] = "0"
-        self.environment = nonLockingEnvironment
+        var scopedEnvironment = environment
+        for key in Self.repositorySelectionEnvironmentKeys {
+            scopedEnvironment.removeValue(forKey: key)
+        }
+        scopedEnvironment["GIT_OPTIONAL_LOCKS"] = "0"
+        self.environment = scopedEnvironment
         self.boundedCommandWallTimeLimit = max(0, boundedCommandWallTimeLimit)
     }
 

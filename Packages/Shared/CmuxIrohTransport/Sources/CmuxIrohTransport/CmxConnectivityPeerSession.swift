@@ -581,12 +581,12 @@ actor CmxConnectivityPeerSession {
     }
 
     private func expireRetiredDialWait(id: UUID) {
+        guard !Task.isCancelled else { return } // Recheck after the actor hop.
         retiredDialDrains.removeAll()
         let waiters = retiredDialWaiters.values
         retiredDialWaiters.removeAll()
         if waiters.isEmpty {
-            // The timeout raced waiter registration; retain the result for
-            // that continuation instead of losing the only wake-up.
+            // Retain a timeout that won before its continuation registered.
             expiredRetiredDialWaiters.insert(id)
         } else {
             for continuation in waiters {
