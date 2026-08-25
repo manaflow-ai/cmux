@@ -11516,10 +11516,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     private func autoNamingGrowthMetric(_ transcriptURL: URL) throws -> Int {
+        let contents = try String(contentsOf: transcriptURL, encoding: .utf8)
+        let lineCount = contents.split(separator: "\n", omittingEmptySubsequences: false).count
         let size = try XCTUnwrap(
             try FileManager.default.attributesOfItem(atPath: transcriptURL.path)[.size] as? NSNumber
         ).intValue
-        return size / 128
+        return max(lineCount, size / 128)
     }
 
     private func autoNamingApplyRequests(in context: ClaudeHookContext) -> [[String: Any]] {

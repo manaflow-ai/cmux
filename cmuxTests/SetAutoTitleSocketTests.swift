@@ -819,6 +819,24 @@ import Testing
         }
     }
 
+    @Test func missingPanelIsAResolvedTerminalSkip() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                let result = try #require(call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "panel_id": UUID().uuidString,
+                    "panel_only_if_multiple": true,
+                    "title": "Stale panel topic",
+                ]) ["result"] as? [String: Any])
+
+                #expect(result["workspace_applied"] as? Bool == false)
+                #expect(result["workspace_apply_skipped"] as? Bool == true)
+                #expect(result["panel_applied"] is NSNull || result["panel_applied"] == nil)
+                #expect(result["panel_apply_skipped"] as? Bool == true)
+            }
+        }
+    }
+
     @Test func malformedParamsProduceCleanErrors() throws {
         try withAutoNamingSetting(true) {
             try withManager { _, workspace in
