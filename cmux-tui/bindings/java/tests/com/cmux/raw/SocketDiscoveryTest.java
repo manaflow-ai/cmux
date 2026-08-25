@@ -58,6 +58,11 @@ public final class SocketDiscoveryTest {
             SocketDiscovery.resolve(null, "main", env, "501").equals(Path.of("/legacy.sock")),
             "legacy inherited socket"
         );
+        env.put("CMUX_TUI_SOCKET", "   ");
+        check(
+            SocketDiscovery.resolve(null, "main", env, "501").equals(Path.of("   ")),
+            "whitespace socket value is preserved"
+        );
         env.remove("CMUX_MUX_SOCKET");
         check(
             SocketDiscovery.resolve(null, "main", env, "501")

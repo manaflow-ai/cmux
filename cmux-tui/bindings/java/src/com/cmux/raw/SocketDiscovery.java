@@ -144,6 +144,8 @@ public final class SocketDiscovery {
     }
 
     private static String nonBlank(String value) {
-        return value == null || value.isBlank() ? null : value;
+        // Match Go, C++, Python, and Zig discovery: only an unset or empty
+        // variable is absent. Whitespace can be a deliberate socket path.
+        return value == null || value.isEmpty() ? null : value;
     }
 }
