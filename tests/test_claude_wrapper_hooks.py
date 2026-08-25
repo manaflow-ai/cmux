@@ -603,7 +603,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     task_sync_groups = [
         group
         for group in post_tool_use_groups
-        if group.get("matcher") == "TaskCreate|TaskUpdate|TaskGet|TaskList|TeamDelete"
+        if group.get("matcher") == "TaskCreate|TaskUpdate|TeamDelete"
     ]
     expect(
         task_sync_groups,

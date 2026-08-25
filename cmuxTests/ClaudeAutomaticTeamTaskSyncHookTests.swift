@@ -524,6 +524,18 @@ struct ClaudeAutomaticTeamTaskSyncHookTests {
         #expect(FileManager.default.fileExists(
             atPath: taskDirectory.appendingPathComponent("1.json").path
         ))
+
+        let reconciliationCountAfterCleanup = reconcileRequests(in: context).count
+        let lateResult = runHook(
+            context: context,
+            environment: environment,
+            sessionId: "late-personal-session",
+            toolName: "TaskUpdate",
+            standardInput: #"{"session_id":"late-personal-session","hook_event_name":"PostToolUse","tool_name":"TaskUpdate","tool_input":{"taskId":"1","status":"in_progress"},"tool_response":{"task":{"id":"1","subject":"Orphaned task"}}}"#
+        )
+        #expect(!lateResult.timedOut, Comment(rawValue: lateResult.stderr))
+        #expect(lateResult.status == 0, Comment(rawValue: lateResult.stderr))
+        #expect(reconcileRequests(in: context).count == reconciliationCountAfterCleanup)
     }
 
     @Test("Closed workspaces are retired from a durable team binding")
