@@ -17,6 +17,19 @@ struct ClosedItemHistoryCapacityPolicy {
         var result = records
         trimTotalCapacity(in: &result, preserving: protectedRecordId)
         trimWorkspaceCapacity(in: &result, preserving: protectedRecordId)
+        if result.count != records.count {
+            // The eviction rules use closedAt as the recency source of truth.
+            // Keep the retained array in that same order because menuSnapshot()
+            // presents it by reversing the stored sequence.
+            result = result.enumerated()
+                .sorted { lhs, rhs in
+                    if lhs.element.closedAt != rhs.element.closedAt {
+                        return lhs.element.closedAt < rhs.element.closedAt
+                    }
+                    return lhs.offset < rhs.offset
+                }
+                .map(\.element)
+        }
         return result
     }
 
