@@ -579,6 +579,18 @@ extension Workspace {
         }
     }
 
+    /// Records whether this pane's last turn left background work outstanding.
+    func setAgentBackgroundWorkPending(_ pending: Bool, panelId: UUID) {
+        let changed = pending
+            ? panelIdsWithPendingAgentBackgroundWork.insert(panelId).inserted
+            : panelIdsWithPendingAgentBackgroundWork.remove(panelId) != nil
+        guard changed else { return }
+        AgentHibernationController.shared.recordAgentLifecycleChange(
+            workspaceId: id,
+            panelId: panelId
+        )
+    }
+
     func agentHibernationLifecycleState(
         panelId: UUID,
         fallback: AgentHibernationLifecycleState?
@@ -589,6 +601,10 @@ extension Workspace {
         guard !states.isEmpty else {
             return fallback ?? .unknown
         }
+        // Outstanding background work keeps the pane out of the hibernatable
+        // `.idle` state without the pane itself having to claim the agent is
+        // still working: the planner sees `running`, the border sees `idle`.
+        if panelIdsWithPendingAgentBackgroundWork.contains(panelId) { return .running }
         if states.contains(.running) { return .running }
         if states.contains(.needsInput) { return .needsInput }
         if states.contains(.error) { return .error }

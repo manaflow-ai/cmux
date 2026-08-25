@@ -69,9 +69,11 @@ public struct AgentLifecycleReducer: Sendable {
             phase: transition.phase,
             ended: transition.ended,
             lastSequence: event.sequence,
-            lastOccurredAtMs: event.draft.occurredAtMs
+            lastOccurredAtMs: event.draft.occurredAtMs,
+            pendingWork: event.draft.pendingWork
         )
         let combinedBefore = state.combinedPhase(surfaceId: surfaceId, agentKey: agentKey)
+        let pendingBefore = state.combinedPendingWork(surfaceId: surfaceId, agentKey: agentKey)
         state.updateSession(
             surfaceId: surfaceId,
             agentKey: agentKey,
@@ -79,7 +81,8 @@ public struct AgentLifecycleReducer: Sendable {
             state: next
         )
         let combinedAfter = state.combinedPhase(surfaceId: surfaceId, agentKey: agentKey)
-        return combinedBefore != combinedAfter
+        let pendingAfter = state.combinedPendingWork(surfaceId: surfaceId, agentKey: agentKey)
+        return combinedBefore != combinedAfter || pendingBefore != pendingAfter
     }
 
     private func transition(
@@ -92,7 +95,10 @@ public struct AgentLifecycleReducer: Sendable {
         case .turnStarted:
             return (.running, false)
         case .turnCompleted:
-            return (draft.pendingWork ? .running : .idle, false)
+            // Always idle: the turn is over. Outstanding background work is
+            // carried as `pendingWork` so hibernation can still refuse the
+            // pane, instead of the pane claiming the agent is still working.
+            return (.idle, false)
         case .approvalRequested, .questionRequested, .planReviewRequested:
             return (.needsInput, false)
         case .errorReported:

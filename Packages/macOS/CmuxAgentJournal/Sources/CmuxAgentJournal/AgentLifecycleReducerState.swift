@@ -47,12 +47,25 @@ public struct AgentLifecycleReducerState: Sendable, Equatable {
         return live.map(\.phase).max { $0.combinePrecedence < $1.combinePrecedence }
     }
 
+    /// Whether any live session for this agent on this surface still has
+    /// outstanding background work.
+    ///
+    /// - Parameters:
+    ///   - surfaceId: The surface.
+    ///   - agentKey: The agent key.
+    /// - Returns: `true` when at least one live session reported pending work.
+    public func combinedPendingWork(surfaceId: String, agentKey: String) -> Bool {
+        guard let bySession = sessions[surfaceId]?[agentKey] else { return false }
+        return bySession.values.contains { !$0.ended && $0.pendingWork }
+    }
+
     /// Full combined snapshot across all surfaces and agents.
     ///
     /// - Returns: The snapshot the projection layer diffs and applies.
     public func snapshot() -> AgentLifecycleSnapshot {
         var phases: [String: [String: AgentLifecyclePhase]] = [:]
         var newestOccurredAtMs: [String: [String: Int64]] = [:]
+        var pendingWork: [String: [String: Bool]] = [:]
         for (surfaceId, byAgent) in sessions {
             for (agentKey, bySession) in byAgent {
                 let live = bySession.values.filter { !$0.ended }
@@ -62,9 +75,16 @@ public struct AgentLifecycleReducerState: Sendable, Equatable {
                 phases[surfaceId, default: [:]][agentKey] = phase
                 newestOccurredAtMs[surfaceId, default: [:]][agentKey] =
                     live.map(\.lastOccurredAtMs).max() ?? 0
+                if live.contains(where: \.pendingWork) {
+                    pendingWork[surfaceId, default: [:]][agentKey] = true
+                }
             }
         }
-        return AgentLifecycleSnapshot(phases: phases, newestOccurredAtMs: newestOccurredAtMs)
+        return AgentLifecycleSnapshot(
+            phases: phases,
+            newestOccurredAtMs: newestOccurredAtMs,
+            pendingWork: pendingWork
+        )
     }
 
     mutating func recordUnattributed(_ event: AgentJournalEvent) {

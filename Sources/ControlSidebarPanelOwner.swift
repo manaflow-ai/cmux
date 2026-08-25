@@ -84,6 +84,23 @@ enum ControlSidebarPanelOwner {
         }
     }
 
+    /// Records whether a pane's last turn left background work outstanding.
+    ///
+    /// Separate from the lifecycle so a finished turn can read as finished on
+    /// the pane while hibernation still refuses to reclaim the pane out from
+    /// under a running task or a scheduled cron.
+    func setAgentBackgroundWorkPending(_ pending: Bool, panelId: UUID?) {
+        guard let panelId else { return }
+        switch self {
+        case .workspace(let workspace):
+            workspace.setAgentBackgroundWorkPending(pending, panelId: panelId)
+        case .dock:
+            // Dock panes are not hibernation candidates, so there is nothing
+            // for the flag to protect there.
+            break
+        }
+    }
+
     @discardableResult
     func clearAgentLifecycle(key: String, panelId: UUID?) -> Bool {
         switch self {

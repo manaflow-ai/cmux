@@ -67,6 +67,64 @@ struct AgentJournalLifecycleCenterTests {
         #expect(Set(projected).count == AgentLifecyclePhase.allCases.count)
     }
 
+    /// A completed turn is idle even when background work outstands.
+    ///
+    /// It used to reduce to `running`, because that was the only way to keep
+    /// the pane out of the hibernatable `.idle` state - so a pane whose agent
+    /// had plainly finished sat on the working colour indefinitely, and a
+    /// scheduled cron with no follow-up turn left it there forever. The phase
+    /// and the hibernation veto are now separate values.
+    @Test func aCompletedTurnIsIdleAndCarriesPendingWorkSeparately() {
+        let reducer = AgentLifecycleReducer()
+        var state = AgentLifecycleReducerState()
+        let surface = UUID().uuidString
+
+        func completedTurn(sequence: Int64, pendingWork: Bool) -> AgentJournalEvent {
+            AgentJournalEvent(
+                sequence: sequence,
+                committedAtMs: sequence,
+                draft: AgentJournalEventDraft(
+                    eventId: "event-\(sequence)",
+                    kind: .turnCompleted,
+                    occurredAtMs: sequence,
+                    source: "claude",
+                    agentKey: "claude_code",
+                    sessionId: "session-1",
+                    workspaceId: UUID().uuidString,
+                    surfaceId: surface,
+                    pendingWork: pendingWork
+                )
+            )
+        }
+
+        reducer.apply(completedTurn(sequence: 1, pendingWork: true), to: &state)
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .idle)
+        #expect(state.combinedPendingWork(surfaceId: surface, agentKey: "claude_code"))
+
+        // And it clears once a later turn completes with nothing outstanding.
+        reducer.apply(completedTurn(sequence: 2, pendingWork: false), to: &state)
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .idle)
+        #expect(!state.combinedPendingWork(surfaceId: surface, agentKey: "claude_code"))
+    }
+
+    /// The pending bit alone must produce an assignment: it is what vetoes
+    /// hibernation, so a snapshot diff that only moves it cannot be dropped.
+    @Test func aPendingWorkChangeAloneStillProducesAnAssignment() {
+        let surface = UUID().uuidString
+        let before = AgentLifecycleSnapshot(
+            phases: [surface: ["claude_code": .idle]],
+            pendingWork: [surface: ["claude_code": true]]
+        )
+        let after = AgentLifecycleSnapshot(
+            phases: [surface: ["claude_code": .idle]],
+            pendingWork: [:]
+        )
+        let assignments = after.assignments(since: before)
+        #expect(assignments.count == 1)
+        #expect(assignments.first?.phase == .idle)
+        #expect(assignments.first?.pendingWork == false)
+    }
+
     @Test func guessedTargetsAreRejectedAtAdmission() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent-journal-center-\(UUID().uuidString)", isDirectory: true)

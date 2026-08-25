@@ -11,6 +11,14 @@ public struct AgentSessionLifecycleState: Sendable, Equatable {
     public var lastSequence: Int64
     /// Producer timestamp of the newest applied event (ms since Unix epoch).
     public var lastOccurredAtMs: Int64
+    /// Whether the session's last turn ended with work still outstanding (a
+    /// running background task or a scheduled cron).
+    ///
+    /// Carried beside the phase rather than folded into it: the turn is over,
+    /// which is what the pane shows, but hibernation must still not reclaim the
+    /// pane out from under the outstanding work. Encoding it as `running`
+    /// instead made the pane claim the agent was working when it had finished.
+    public var pendingWork: Bool
 
     /// Creates a session state.
     ///
@@ -19,15 +27,18 @@ public struct AgentSessionLifecycleState: Sendable, Equatable {
     ///   - ended: Whether the session has ended.
     ///   - lastSequence: Sequence of the newest applied event.
     ///   - lastOccurredAtMs: Producer timestamp of the newest applied event.
+    ///   - pendingWork: Whether outstanding work survives the last turn.
     public init(
         phase: AgentLifecyclePhase,
         ended: Bool,
         lastSequence: Int64,
-        lastOccurredAtMs: Int64
+        lastOccurredAtMs: Int64,
+        pendingWork: Bool = false
     ) {
         self.phase = phase
         self.ended = ended
         self.lastSequence = lastSequence
         self.lastOccurredAtMs = lastOccurredAtMs
+        self.pendingWork = pendingWork
     }
 }

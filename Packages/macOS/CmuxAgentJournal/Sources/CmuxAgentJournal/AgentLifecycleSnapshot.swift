@@ -9,18 +9,24 @@ public struct AgentLifecycleSnapshot: Sendable, Equatable {
     /// Producer timestamp (ms since Unix epoch) of the newest live event
     /// behind each entry; used by replay policy decisions.
     public var newestOccurredAtMs: [String: [String: Int64]]
+    /// Whether outstanding background work survives the last turn, per surface
+    /// and agent. Absent means none.
+    public var pendingWork: [String: [String: Bool]]
 
     /// Creates a snapshot.
     ///
     /// - Parameters:
     ///   - phases: Combined phase per surface and agent key.
     ///   - newestOccurredAtMs: Newest producer timestamp behind each entry.
+    ///   - pendingWork: Outstanding background work per surface and agent.
     public init(
         phases: [String: [String: AgentLifecyclePhase]] = [:],
-        newestOccurredAtMs: [String: [String: Int64]] = [:]
+        newestOccurredAtMs: [String: [String: Int64]] = [:],
+        pendingWork: [String: [String: Bool]] = [:]
     ) {
         self.phases = phases
         self.newestOccurredAtMs = newestOccurredAtMs
+        self.pendingWork = pendingWork
     }
 
     /// Computes the assignments needed to move the sidebar from `previous`
@@ -32,9 +38,18 @@ public struct AgentLifecycleSnapshot: Sendable, Equatable {
     public func assignments(since previous: AgentLifecycleSnapshot) -> [AgentLifecycleAssignment] {
         var result: [AgentLifecycleAssignment] = []
         for (surfaceId, byAgent) in phases {
-            for (agentKey, phase) in byAgent where previous.phases[surfaceId]?[agentKey] != phase {
+            for (agentKey, phase) in byAgent {
+                let pending = pendingWork[surfaceId]?[agentKey] ?? false
+                let previousPending = previous.pendingWork[surfaceId]?[agentKey] ?? false
+                guard previous.phases[surfaceId]?[agentKey] != phase
+                    || previousPending != pending else { continue }
                 result.append(
-                    AgentLifecycleAssignment(surfaceId: surfaceId, agentKey: agentKey, phase: phase)
+                    AgentLifecycleAssignment(
+                        surfaceId: surfaceId,
+                        agentKey: agentKey,
+                        phase: phase,
+                        pendingWork: pending
+                    )
                 )
             }
         }

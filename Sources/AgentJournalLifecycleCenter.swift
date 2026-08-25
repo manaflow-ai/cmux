@@ -441,8 +441,13 @@ final class AgentJournalLifecycleCenter: Sendable {
                 panelId: panelId,
                 lifecycle: Self.lifecycle(for: phase)
             )
+            // Recorded beside the phase, not folded into it: the pane shows a
+            // finished turn as finished, while hibernation still refuses a pane
+            // whose background task or scheduled cron is outstanding.
+            owner.setAgentBackgroundWorkPending(assignment.pendingWork, panelId: panelId)
         } else {
             owner.clearAgentLifecycle(key: assignment.agentKey, panelId: panelId)
+            owner.setAgentBackgroundWorkPending(false, panelId: panelId)
         }
 #if DEBUG
         cmuxDebugLog(

@@ -2529,6 +2529,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
     var restoredUnreadPanelIds: Set<UUID> { Set(restoredUnreadPanelIndicators.keys) }
 
+    /// Panes whose last agent turn ended with background work still
+    /// outstanding (a running task or a scheduled cron).
+    ///
+    /// Deliberately not part of the lifecycle map the pane border reads: the
+    /// turn is over, so the pane shows finished, while
+    /// `agentHibernationLifecycleState` reports `running` for these panes so
+    /// the planner cannot reclaim one out from under live work.
+    var panelIdsWithPendingAgentBackgroundWork: Set<UUID> = []
+
     var hasAnyRestoredUnreadPanelIndicator: Bool { !restoredUnreadPanelIndicators.isEmpty }
     @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
     @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
