@@ -94,7 +94,10 @@ struct TerminalNotificationOpenPanelFallbackTests {
             isRead: false
         )
 
-        #expect(appDelegate.openTerminalNotification(notification))
+        #expect(appDelegate.notificationNavigation.openNotification(
+            notification.notificationNavigationSnapshot,
+            preferredWindowId: originWindowId
+        ))
         #expect(managerA.selectedTabId == originWorkspace.id)
         #expect(managerB.selectedTabId == destinationWorkspace.id)
     }

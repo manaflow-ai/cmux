@@ -162,6 +162,62 @@ struct NativeNotificationFallbackCommandTests {
     }
 
     @Test
+    func nativeNotificationSerializesOriginatingWindowId() async {
+        await AppContextSerialGate.withExclusiveAppContext {
+            let store = TerminalNotificationStore.shared
+            let previousShared = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            let previousNotificationStore = appDelegate.notificationStore
+            let previousFocusOverride = AppFocusState.overrideIsFocused
+            let manager = TabManager()
+            let windowId = UUID()
+
+            AppDelegate.shared = appDelegate
+            appDelegate.notificationStore = store
+            let workspace = manager.addWorkspace(title: "Origin", select: true)
+            appDelegate.registerMainWindowContextForTesting(
+                windowId: windowId,
+                tabManager: manager
+            )
+            AppFocusState.overrideIsFocused = false
+            defer {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                for workspace in manager.tabs {
+                    manager.closeWorkspace(workspace)
+                }
+                appDelegate.notificationStore = previousNotificationStore
+                AppFocusState.overrideIsFocused = previousFocusOverride
+                AppDelegate.shared = previousShared
+                resetState(originalAppFocusOverride: previousFocusOverride)
+            }
+
+            store.configureNotificationAuthorizationHandlerForTesting { completion in
+                completion(true, .authorized)
+            }
+            store.configureNotificationCommandRunnerForTesting { _, _, _ in }
+
+            let serializedWindowId: String? = await withCheckedContinuation { continuation in
+                store.configureUserNotificationSchedulerForTesting { request, completion in
+                    completion(nil)
+                    continuation.resume(
+                        returning: request.content.userInfo[TerminalNotificationStore.windowIdUserInfoKey]
+                            as? String
+                    )
+                }
+                store.addNotification(
+                    tabId: workspace.id,
+                    surfaceId: nil,
+                    title: "Origin window",
+                    subtitle: "",
+                    body: "Window provenance"
+                )
+            }
+
+            #expect(serializedWindowId == windowId.uuidString)
+        }
+    }
+
+    @Test
     func sharedNativeUnavailableFeedbackSuppressesCommandRunner() {
         var effects = TerminalNotificationPolicyEffects()
         effects.sound = false

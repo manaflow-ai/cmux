@@ -11,6 +11,7 @@ public protocol NotificationDeliveryTerminalNavigating: AnyObject {
 
     /// Opens a stored terminal notification, preserving any app-side context
     /// that was not included in the delivered OS notification payload. The
+    /// fallback window id anchors a banner click to its originating window;
     /// fallback provenance controls whether a missing stored notification may
     /// follow its surface into another workspace.
     @discardableResult
@@ -18,6 +19,7 @@ public protocol NotificationDeliveryTerminalNavigating: AnyObject {
         id: UUID,
         fallbackTabId: UUID,
         fallbackSurfaceId: UUID?,
+        fallbackWindowId: UUID?,
         fallbackRetargetsToLiveSurfaceOwner: Bool
     ) -> Bool
 

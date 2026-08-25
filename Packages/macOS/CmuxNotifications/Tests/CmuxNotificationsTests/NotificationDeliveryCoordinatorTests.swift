@@ -82,6 +82,7 @@ private final class FakeTerminalNavigation: NotificationDeliveryTerminalNavigati
         id: UUID,
         fallbackTabId: UUID,
         fallbackSurfaceId: UUID?,
+        fallbackWindowId: UUID?,
         fallbackRetargetsToLiveSurfaceOwner: Bool
     )] = []
     private(set) var performedClickActions: [NotificationNavClickAction] = []
@@ -96,9 +97,10 @@ private final class FakeTerminalNavigation: NotificationDeliveryTerminalNavigati
         id: UUID,
         fallbackTabId: UUID,
         fallbackSurfaceId: UUID?,
+        fallbackWindowId: UUID?,
         fallbackRetargetsToLiveSurfaceOwner: Bool
     ) -> Bool {
-        storedOpens.append((id, fallbackTabId, fallbackSurfaceId, fallbackRetargetsToLiveSurfaceOwner))
+        storedOpens.append((id, fallbackTabId, fallbackSurfaceId, fallbackWindowId, fallbackRetargetsToLiveSurfaceOwner))
         return openSucceeds
     }
 
@@ -550,6 +552,7 @@ struct NotificationDeliveryCoordinatorTests {
         let tabId = UUID()
         let surfaceId = UUID()
         let notificationId = UUID()
+        let windowId = UUID()
         let coordinator = makeCoordinator(terminalNavigation: terminal)
 
         coordinator.handle(NotificationDeliveryResponse(
@@ -560,6 +563,7 @@ struct NotificationDeliveryCoordinatorTests {
                 "tabId": tabId.uuidString,
                 "surfaceId": surfaceId.uuidString,
                 "notificationId": notificationId.uuidString,
+                "CMUX_NOTIFICATION_WINDOW_ID": windowId.uuidString,
                 "retargetsToLiveSurfaceOwner": false,
             ]
         ))
@@ -568,6 +572,7 @@ struct NotificationDeliveryCoordinatorTests {
         #expect(terminal.storedOpens.first?.id == notificationId)
         #expect(terminal.storedOpens.first?.fallbackTabId == tabId)
         #expect(terminal.storedOpens.first?.fallbackSurfaceId == surfaceId)
+        #expect(terminal.storedOpens.first?.fallbackWindowId == windowId)
         #expect(terminal.storedOpens.first?.fallbackRetargetsToLiveSurfaceOwner == false)
         #expect(terminal.opens.isEmpty)
         #expect(terminal.markedReadIds.isEmpty)

@@ -740,7 +740,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             textReplyCategoryIdentifier: TerminalNotificationStore.textReplyCategoryIdentifier,
             showActionIdentifier: TerminalNotificationStore.actionShowIdentifier,
             replyActionIdentifier: TerminalNotificationStore.actionReplyIdentifier,
-            retargetsToLiveSurfaceOwnerUserInfoKey: TerminalNotificationStore.retargetsToLiveSurfaceOwnerUserInfoKey
+            retargetsToLiveSurfaceOwnerUserInfoKey: TerminalNotificationStore.retargetsToLiveSurfaceOwnerUserInfoKey,
+            windowIdUserInfoKey: TerminalNotificationStore.windowIdUserInfoKey
         ),
         actionTitles: notificationDeliveryActionTitles
     )

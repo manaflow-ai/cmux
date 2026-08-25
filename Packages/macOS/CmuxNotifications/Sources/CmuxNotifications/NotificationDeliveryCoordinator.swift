@@ -368,7 +368,12 @@ public final class NotificationDeliveryCoordinator {
 
     private func openTerminalNotification(
         _ response: NotificationDeliveryResponse,
-        target: (tabId: UUID, surfaceId: UUID?, retargetsToLiveSurfaceOwner: Bool)
+        target: (
+            tabId: UUID,
+            surfaceId: UUID?,
+            windowId: UUID?,
+            retargetsToLiveSurfaceOwner: Bool
+        )
     ) {
             let notificationId = notificationId(response)
             if let clickAction = NotificationNavClickAction(userInfo: response.userInfo) {
@@ -383,6 +388,7 @@ public final class NotificationDeliveryCoordinator {
                     id: notificationId,
                     fallbackTabId: target.tabId,
                     fallbackSurfaceId: target.surfaceId,
+                    fallbackWindowId: target.windowId,
                     fallbackRetargetsToLiveSurfaceOwner: target.retargetsToLiveSurfaceOwner
                 )
             } else {
@@ -392,14 +398,21 @@ public final class NotificationDeliveryCoordinator {
 
     private func terminalTarget(
         _ response: NotificationDeliveryResponse
-    ) -> (tabId: UUID, surfaceId: UUID?, retargetsToLiveSurfaceOwner: Bool)? {
+    ) -> (
+        tabId: UUID,
+        surfaceId: UUID?,
+        windowId: UUID?,
+        retargetsToLiveSurfaceOwner: Bool
+    )? {
         guard let tabIdString = response.userInfo["tabId"] as? String,
               let tabId = UUID(uuidString: tabIdString) else { return nil }
         let surfaceId = (response.userInfo["surfaceId"] as? String).flatMap(UUID.init(uuidString:))
+        let windowId = (response.userInfo[terminalIdentifiers.windowIdUserInfoKey] as? String)
+            .flatMap(UUID.init(uuidString:))
         let retargets = response.userInfo[
             terminalIdentifiers.retargetsToLiveSurfaceOwnerUserInfoKey
         ] as? Bool ?? true
-        return (tabId, surfaceId, retargets)
+        return (tabId, surfaceId, windowId, retargets)
     }
 
     private func notificationId(_ response: NotificationDeliveryResponse) -> UUID? {

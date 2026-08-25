@@ -11,22 +11,31 @@ extension AppDelegate {
         panelId: UUID? = nil,
         retargetsToLiveSurfaceOwner: Bool = true,
         notificationId: UUID?,
-        scrollPosition: TerminalNotificationScrollPosition? = nil
+        scrollPosition: TerminalNotificationScrollPosition? = nil,
+        preferredWindowId: UUID? = nil
     ) -> Bool {
         // Resolve move provenance at click time. Trusted local notifications
-        // follow the pane's live owner; source-confined notifications open only
-        // their authorized workspace and drop a surface that moved elsewhere.
+        // follow the pane's live owner; OS banner clicks additionally carry an
+        // originating window anchor so a moved pane cannot jump across windows.
         var tabId = tabId
         var surfaceId = surfaceId
         var panelId = panelId
         var scrollPosition = scrollPosition
+        let anchoredContext = preferredWindowId.flatMap { windowId in
+            mainWindowContexts.values.first {
+                $0.windowId == windowId && $0.tabManager.workspacesById[tabId] != nil
+            }
+        }
+        let anchoredWindowId = preferredWindowId
         let liveOwner = surfaceId.flatMap {
             notificationSurfaceOwner(surfaceID: $0, preferredTabID: tabId)
         } ?? panelId.flatMap {
             notificationSurfaceOwner(surfaceID: $0, preferredTabID: tabId)
         }
         if let owner = liveOwner {
-            if owner.tabID != tabId, !retargetsToLiveSurfaceOwner {
+            let ownerWindowId = owner.windowDock?.workspaceId ?? windowId(for: owner.tabManager)
+            let crossesAnchoredWindow = anchoredWindowId.map { $0 != ownerWindowId } ?? false
+            if crossesAnchoredWindow || (owner.tabID != tabId && !retargetsToLiveSurfaceOwner) {
                 surfaceId = nil
                 panelId = nil
                 scrollPosition = nil
@@ -53,7 +62,7 @@ extension AppDelegate {
             ])
         }
 #endif
-        guard let context = contextContainingTabId(tabId) else {
+        guard let context = anchoredContext ?? contextContainingTabId(tabId) else {
 #if DEBUG
             recordMultiWindowNotificationOpenFailureIfNeeded(
                 tabId: tabId,
@@ -70,7 +79,8 @@ extension AppDelegate {
                 surfaceId: surfaceId,
                 panelId: panelId,
                 notificationId: notificationId,
-                scrollPosition: scrollPosition
+                scrollPosition: scrollPosition,
+                preferredWindowId: preferredWindowId
             )
 #if DEBUG
             if isJumpUnreadUITest {
@@ -208,9 +218,13 @@ extension AppDelegate {
         surfaceId: UUID?,
         panelId: UUID? = nil,
         notificationId: UUID?,
-        scrollPosition: TerminalNotificationScrollPosition? = nil
+        scrollPosition: TerminalNotificationScrollPosition? = nil,
+        preferredWindowId: UUID? = nil
     ) -> Bool {
-        guard let tabManager else {
+        let preferredContext = preferredWindowId.flatMap { windowId in
+            mainWindowContexts.values.first(where: { $0.windowId == windowId })
+        }
+        guard let tabManager = preferredContext?.tabManager ?? self.tabManager else {
 #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
                 writeJumpUnreadTestData(["jumpUnreadFallbackFail": "missing_tabManager"])
@@ -226,7 +240,10 @@ extension AppDelegate {
 #endif
             return false
         }
-        guard let window = (NSApp.keyWindow ?? NSApp.windows.first(where: { isMainTerminalWindow($0) })) else {
+        let preferredWindow = preferredContext?.window
+        guard let window = (preferredWindow
+            ?? NSApp.keyWindow
+            ?? NSApp.windows.first(where: { isMainTerminalWindow($0) })) else {
 #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
                 writeJumpUnreadTestData(["jumpUnreadFallbackFail": "missing_window"])
