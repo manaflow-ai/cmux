@@ -184,10 +184,17 @@ final class NextTransportGraduationFacade {
     /// this phone's next-transport credentials. Once per Mac per run; a Mac
     /// that answers method_not_found (old build) stays legacy silently.
     private func probeBootstrap(client: MobileCoreRPCClient, macID: String) async {
-        guard isEnabled, storedBootstrap(macID: macID) == nil,
-            routing(macID: macID) != .legacy,
+        guard isEnabled, routing(macID: macID) != .legacy,
             !bootstrapsInFlight.contains(macID), !probedThisRun.contains(macID)
         else { return }
+        if storedBootstrap(macID: macID) != nil {
+            // Stored credentials ARE a capability verdict (upgrade path):
+            // adopt them; if the Mac re-minted its signer since, the denial
+            // cycle drops them and re-probes automatically.
+            setRouting(.next, macID: macID)
+            ensureClient(macID: macID)
+            return
+        }
         probedThisRun.insert(macID)
         bootstrapsInFlight.insert(macID)
         defer { bootstrapsInFlight.remove(macID) }
