@@ -17,6 +17,16 @@ extension SocketControlServer {
         source.setCancelHandler { @Sendable [weak self] in
             close(listenerSocket)
             guard let self else { return }
+            let snapshot = self.listenerStateSnapshot()
+            if snapshot.pendingRearmGeneration == generation {
+                self.events.breadcrumb(
+                    "socket.listener.rearm.socket_closed",
+                    self.socketListenerEventData(
+                        stage: "accept_rearm_socket_closed",
+                        extra: ["generation": generation]
+                    )
+                )
+            }
             Task { @MainActor in
                 self.finishAcceptSourceCancel(listenerSocket: listenerSocket, generation: generation)
             }

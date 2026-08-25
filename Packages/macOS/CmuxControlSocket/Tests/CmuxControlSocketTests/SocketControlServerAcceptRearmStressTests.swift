@@ -268,6 +268,11 @@ struct SocketControlServerAcceptRearmStressTests {
         #expect(rearm.delayMs == 8)
         #expect(FileManager.default.fileExists(atPath: harness.socketPath))
 
+        let didCloseListener = await waitForRearmCondition {
+            recorder.breadcrumbs.contains { $0.message == "socket.listener.rearm.socket_closed" }
+        }
+        #expect(didCloseListener)
+
         // Model the issue's 100 concurrent Codex hook connections against the
         // exact pinned path while the listener is parked for rearm.
         let burst = await concurrentConnectBurst(to: harness.socketPath, count: 100)
