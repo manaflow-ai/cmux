@@ -13,7 +13,7 @@ import Foundation
 ///
 /// Pure value type: the reduction is synchronous and deterministic, so frame
 /// application is unit-testable without any transport or view.
-public struct HiveTerminalGridModel: Equatable, Sendable {
+public nonisolated struct HiveTerminalGridModel: Equatable, Sendable {
     /// One styled run of text within a row.
     public struct Span: Equatable, Sendable {
         /// Zero-based start column.
@@ -71,26 +71,38 @@ public struct HiveTerminalGridModel: Equatable, Sendable {
     /// A full frame replaces the whole grid; a delta clears its cleared rows
     /// plus every row it repaints, then applies the spans. A delta arriving
     /// before any full frame is ignored (the viewer requests a replay on
-    /// attach, so a full frame always precedes meaningful deltas).
-    public mutating func apply(_ frame: MobileTerminalRenderGridFrame) {
+    /// attach, so a full frame always precedes meaningful deltas). Full frames
+    /// older than the current sequence are rejected unless the caller marks a
+    /// new session epoch with allowingFullReset.
+    ///
+    /// - Parameter allowingFullReset: Accept a replay from a new host/session
+    ///   epoch even when its producer sequence is lower.
+    @discardableResult
+    public mutating func apply(
+        _ frame: MobileTerminalRenderGridFrame,
+        allowingFullReset: Bool = false
+    ) -> Bool {
         let stylesByID = Dictionary(
             frame.styles.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
         if frame.full {
+            guard allowingFullReset || !hasContent || frame.stateSeq >= stateSeq else {
+                return false
+            }
             columns = max(frame.columns, 1)
             rows = max(frame.rows, 1)
             rowSpans = Array(repeating: [], count: rows)
             hasContent = true
         } else {
-            guard hasContent else { return }
+            guard hasContent, frame.stateSeq > stateSeq else { return false }
             if frame.columns > 0, frame.rows > 0,
                frame.columns != columns || frame.rows != rows {
                 resize(columns: frame.columns, rows: frame.rows)
             }
             for row in Set(frame.clearedRows).union(frame.rowSpans.map(\.row)) {
                 guard rowSpans.indices.contains(row) else { continue }
-                rowSpans[row] = []
+                rowSpans[row].removeAll(keepingCapacity: true)
             }
         }
         for span in frame.rowSpans {
@@ -114,6 +126,7 @@ public struct HiveTerminalGridModel: Equatable, Sendable {
         if let background = frame.terminalBackground { terminalBackground = background }
         if let cursorColor = frame.terminalCursorColor { terminalCursorColor = cursorColor }
         stateSeq = frame.stateSeq
+        return true
     }
 
     /// The plain text of one row (spans joined with gap-filling spaces), for

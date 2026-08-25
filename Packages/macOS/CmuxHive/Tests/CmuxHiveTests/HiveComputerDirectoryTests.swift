@@ -181,7 +181,7 @@ private func makeDirectory(
         #expect(await directory.pair(deviceID: "self-device") == .loopbackRejected)
         #expect(await directory.pair(deviceID: "routeless-mac") == .noRoutes)
         #expect(await directory.pair(deviceID: "phone") == .noRoutes)
-        let persisted = try await store.loadAll(stackUserID: nil, teamID: nil)
+        let persisted = try await store.loadAll(stackUserID: "user-1", teamID: "team-1")
         #expect(persisted.isEmpty)
     }
 
@@ -204,7 +204,7 @@ private func makeDirectory(
         _ = await directory.pair(deviceID: "registry-mac")
 
         #expect(await directory.unpair(deviceID: "registry-mac"))
-        let persisted = try await store.loadAll(stackUserID: nil, teamID: nil)
+        let persisted = try await store.loadAll(stackUserID: "user-1", teamID: "team-1")
         #expect(persisted.isEmpty)
         // The registry row stays visible, just unpaired.
         let row = try #require(directory.computers.first { $0.deviceID == "registry-mac" })
@@ -226,14 +226,21 @@ private func makeDirectory(
         await directory.refresh()
         #expect(directory.computers.count == 1)
 
-        // Swap in a failing registry by building a new directory is not
-        // possible mid-flight, so assert the failure path on a fresh
-        // directory that has never seen the registry: rows stay local-only
-        // and the failure flag is set.
-        let failing = makeDirectory(registry: .transientFailure, store: store)
-        await failing.refresh()
-        #expect(failing.lastRefreshFailed)
-        #expect(failing.computers.isEmpty)
+        let scripted = SequencedRegistry([.ok([device]), .transientFailure])
+        let warm = HiveComputerDirectory(
+            registry: scripted,
+            pairedStore: store,
+            presence: nil,
+            ownDeviceID: "self-device",
+            scopeProvider: { HiveAccountScope(stackUserID: "user-1", teamID: "team-1") },
+            linkDecoder: HivePairingLinkDecoder(allowsLoopbackRoutes: false),
+            now: { Date(timeIntervalSince1970: 1_000) },
+            presenceRetryDelay: { _ in }
+        )
+        await warm.refresh()
+        await warm.refresh()
+        #expect(warm.lastRefreshFailed)
+        #expect(warm.computers.count == 1)
     }
 
     @MainActor
@@ -287,11 +294,10 @@ private func makeDirectory(
             lastSeenAt: Date(timeIntervalSince1970: 800),
             instances: []
         )
-        let rows = HiveComputerDirectory.mergedComputers(
+        let rows = HiveComputerRowBuilder(ownDeviceID: "self-device").makeRows(
             registry: [registryDevice, offlineDevice],
             paired: [],
-            presence: map,
-            ownDeviceID: "self-device"
+            presence: map
         )
         let online = try #require(rows.first { $0.deviceID == "registry-mac" })
         #expect(online.presence == .online)

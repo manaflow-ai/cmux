@@ -31,6 +31,10 @@ public struct HiveComputer: Equatable, Sendable, Identifiable {
 
     public var id: String { deviceID }
 
+    /// Whether this row has authenticated registry provenance. Local-only
+    /// pasted-link records deliberately return false and stay loopback-trusted.
+    public var isRegistryBacked: Bool { platform != nil }
+
     /// Creates a merged computer row.
     public init(
         deviceID: String,

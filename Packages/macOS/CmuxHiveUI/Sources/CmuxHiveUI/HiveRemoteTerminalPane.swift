@@ -20,7 +20,7 @@ public struct HiveRemoteTerminalPane: View {
                     sendSpecial: { [weak terminal] in terminal?.send(specialKey: $0, modifiers: $1) },
                     sendControl: { [weak terminal] in terminal?.send(controlCharacter: $0) }
                 ),
-                isFocused: true
+                isFocused: terminal.phase == .live
             )
             statusOverlay
         }

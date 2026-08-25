@@ -17,7 +17,7 @@ struct HiveSidebarConnectionStatusView: View {
         /// No attach attempt has been observed yet.
         case neverAttempted
         case connecting
-        case failed(message: String)
+        case failed
         /// The session is connected but the remote genuinely has zero
         /// workspaces (or the user closed every mirrored one locally).
         case connectedEmpty
@@ -30,8 +30,8 @@ struct HiveSidebarConnectionStatusView: View {
                 self = .connecting
             case .connected:
                 self = .connectedEmpty
-            case .failed(let message):
-                self = .failed(message: message)
+            case .failed:
+                self = .failed
             }
         }
     }
@@ -52,13 +52,16 @@ struct HiveSidebarConnectionStatusView: View {
                 Text(String(localized: "hive.viewer.connecting", defaultValue: "Connecting…"))
                     .font(.callout)
                     .foregroundStyle(.secondary)
-            case .failed(let message):
+            case .failed:
                 Image(systemName: "wifi.exclamationmark")
                     .font(.title2)
                     .foregroundStyle(.secondary)
                 Text(String(localized: "hive.viewer.failed.title", defaultValue: "Couldn't Connect"))
                     .font(.callout)
-                Text(message)
+                Text(String(
+                    localized: "hive.viewer.error.connection",
+                    defaultValue: "The other Mac couldn't be reached. Check that it is online and paired, then try again."
+                ))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

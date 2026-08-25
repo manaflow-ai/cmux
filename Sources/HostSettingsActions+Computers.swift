@@ -60,7 +60,7 @@ extension HostSettingsActions {
     func unpairComputer(deviceID: String) async {
         guard let directory = computersDirectory else { return }
         await directory.unpair(deviceID: deviceID)
-        await HiveComputersService.shared.discardEmbeddedSession(deviceID: deviceID)
+        await HiveComputerMirrorController.shared.detach(deviceID: deviceID)
     }
 
     func openComputerViewer(deviceID: String) {

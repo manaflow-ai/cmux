@@ -35,17 +35,6 @@ enum HiveSidebarScope: Equatable {
 final class HiveSidebarScopeModel: ObservableObject {
     @Published var scope: HiveSidebarScope = .thisMac
 
-    private static var modelsByTabManager: [ObjectIdentifier: HiveSidebarScopeModel] = [:]
-
-    /// The scope model for one window's TabManager (created on first use).
-    static func scopeModel(for tabManager: TabManager) -> HiveSidebarScopeModel {
-        let key = ObjectIdentifier(tabManager)
-        if let existing = modelsByTabManager[key] { return existing }
-        let model = HiveSidebarScopeModel()
-        modelsByTabManager[key] = model
-        return model
-    }
-
     /// Whether `workspace` is visible under the current scope, given the
     /// device that owns it (`nil` for local workspaces).
     nonisolated static func isVisible(deviceID: String?, scope: HiveSidebarScope) -> Bool {

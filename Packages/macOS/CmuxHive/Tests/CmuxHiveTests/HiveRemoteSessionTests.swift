@@ -85,7 +85,8 @@ private func jsonObject(_ string: String) -> [String: Any] {
             macDeviceID: "mac-b",
             displayName: "Studio",
             routes: [try tailscaleRoute()],
-            retryDelay: { _ in }
+            retryDelay: { _ in },
+            stackAuthChannelTrust: .loopbackAndTailscaleTunnel
         )
         session.connect()
         await transport.waitForMethod("mobile.events.subscribe")
@@ -134,7 +135,8 @@ private func jsonObject(_ string: String) -> [String: Any] {
             macDeviceID: "mac-b",
             displayName: "Studio",
             routes: [try tailscaleRoute()],
-            retryDelay: { _ in }
+            retryDelay: { _ in },
+            stackAuthChannelTrust: .loopbackAndTailscaleTunnel
         )
         macSession.connect()
         try await waitUntil { macSession.phase == .connected }
@@ -174,12 +176,17 @@ private func jsonObject(_ string: String) -> [String: Any] {
         #expect(terminal.grid.plainRow(2) == "")
 
         // Typing reaches the host's PTY via terminal.input.
-        terminal.send(text: "ls\r")
-        await transport.waitForMethod("mobile.terminal.input")
+        terminal.send(text: "a")
+        terminal.send(text: "b")
+        terminal.send(text: "c")
+        await transport.waitForMethod("mobile.terminal.input", count: 3)
         let inputs = await transport.sentInputTexts
-        #expect(inputs == ["ls\r"])
+        #expect(inputs == ["a", "b", "c"])
 
         terminal.detach()
+        terminal.send(text: "late")
+        await Task.yield()
+        #expect(await transport.sentInputTexts == ["a", "b", "c"])
         await macSession.disconnect()
     }
 
@@ -210,7 +217,8 @@ private func jsonObject(_ string: String) -> [String: Any] {
             macDeviceID: "mac-b",
             displayName: "Studio",
             routes: [try tailscaleRoute()],
-            retryDelay: { _ in }
+            retryDelay: { _ in },
+            stackAuthChannelTrust: .loopbackAndTailscaleTunnel
         )
         macSession.connect()
         try await waitUntil { macSession.phase == .connected }

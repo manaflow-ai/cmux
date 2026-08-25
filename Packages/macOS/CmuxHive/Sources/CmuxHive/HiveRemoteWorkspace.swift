@@ -1,9 +1,9 @@
 /// One workspace on a remote Mac, as reported by `workspace.list`.
 ///
 /// Value snapshot for the viewer's workspace list (rows never observe stores).
-public struct HiveRemoteWorkspace: Equatable, Sendable, Identifiable {
+public nonisolated struct HiveRemoteWorkspace: Equatable, Sendable, Identifiable {
     /// One terminal within the workspace.
-    public struct Terminal: Equatable, Sendable, Identifiable {
+    public nonisolated struct Terminal: Equatable, Sendable, Identifiable {
         /// Stable terminal (surface) identifier on the host.
         public let id: String
         /// User-facing terminal title.

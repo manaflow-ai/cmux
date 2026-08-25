@@ -2,6 +2,7 @@ import CmuxHive
 import CmuxMobileRPC
 import CmuxSettings
 import CmuxTerminal
+import AppKit
 import Foundation
 
 /// Presents a paired remote Mac's cmux workspaces as NATIVE local mirror
@@ -26,6 +27,7 @@ final class HiveComputerMirrorController {
         var computerName: String = ""
         weak var tabManager: TabManager?
         var reconcileTask: Task<Void, Never>?
+        var windowCloseObserver: NSObjectProtocol?
         /// Local mirror workspace id per remote workspace id.
         var workspaceIdByRemoteID: [String: UUID] = [:]
         /// Terminal streams per remote terminal id.
@@ -115,6 +117,7 @@ final class HiveComputerMirrorController {
                 // Native mirrors: the computer's workspaces join the main
                 // sidebar as real workspaces.
                 context.sidebarSelectionState.selection = .tabs
+                context.tabManager.hiveSidebarScopeModel.scope = .device(deviceID)
                 _ = await HiveComputerMirrorController.shared.attach(
                     deviceID: deviceID,
                     into: context.tabManager
@@ -125,18 +128,12 @@ final class HiveComputerMirrorController {
                 // window, scope its sidebar to the device, attach mirrors.
                 guard let appDelegate = AppDelegate.shared else { return }
                 let windowId = appDelegate.createMainWindow(shouldActivate: true)
-                var context = appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }
-                var attempts = 0
-                while context == nil, attempts < 20 {
-                    try? await Task.sleep(for: .milliseconds(100))
-                    context = appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }
-                    attempts += 1
-                }
+                let context = appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }
                 guard let context else {
                     cmuxDebugLog("hive.presentViewer.windowContextMissing windowId=\(windowId)")
                     return
                 }
-                HiveSidebarScopeModel.scopeModel(for: context.tabManager).scope = .device(deviceID)
+                context.tabManager.hiveSidebarScopeModel.scope = .device(deviceID)
                 let attached = await HiveComputerMirrorController.shared.attach(
                     deviceID: deviceID,
                     into: context.tabManager
@@ -157,7 +154,7 @@ final class HiveComputerMirrorController {
                 tabManager.selectWorkspace(workspace)
                 return firstId
             }
-            existing.reconcileTask?.cancel()
+            await teardownMirror(deviceID: deviceID, mirror: existing)
             mirrorsByDeviceID.removeValue(forKey: deviceID)
         }
         guard let session = await HiveComputersService.shared.embeddedSession(deviceID: deviceID) else {
@@ -170,6 +167,18 @@ final class HiveComputerMirrorController {
             .first(where: { $0.deviceID == deviceID })?.displayName
             ?? session.displayName
         mirrorsByDeviceID[deviceID] = mirror
+        if let window = tabManager.window {
+            mirror.windowCloseObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification,
+                object: window,
+                queue: .main
+            ) { [weak self, weak tabManager] _ in
+                Task { @MainActor [weak self, weak tabManager] in
+                    guard let self, let tabManager else { return }
+                    await self.detach(deviceID: deviceID, from: tabManager)
+                }
+            }
+        }
 
         mirror.reconcileTask = Task { @MainActor [weak self, weak mirror] in
             for await workspaces in session.workspaceUpdates() {
@@ -182,7 +191,11 @@ final class HiveComputerMirrorController {
         // a mirror workspace; reconciliation keeps running either way.
         var attempts = 0
         while mirror.workspaceIdByRemoteID.isEmpty, attempts < 40 {
-            try? await Task.sleep(for: .milliseconds(250))
+            do {
+                try await ContinuousClock().sleep(for: .milliseconds(250))
+            } catch is CancellationError {
+                return nil
+            }
             attempts += 1
         }
         if let firstId = mirror.workspaceIdByRemoteID.values.first,
@@ -195,14 +208,45 @@ final class HiveComputerMirrorController {
 
     /// Detaches a computer's mirrors: stops the streams and closes the
     /// mirror workspaces.
-    func detach(deviceID: String, from tabManager: TabManager) {
+    func detach(deviceID: String, from _: TabManager) async {
         guard let mirror = mirrorsByDeviceID.removeValue(forKey: deviceID) else { return }
-        mirror.reconcileTask?.cancel()
-        for (_, terminal) in mirror.terminalsByRemoteID { terminal.detach() }
-        for (_, workspaceId) in mirror.workspaceIdByRemoteID {
-            guard let workspace = tabManager.workspacesById[workspaceId] else { continue }
-            tabManager.closeWorkspace(workspace)
+        await teardownMirror(deviceID: deviceID, mirror: mirror)
+    }
+
+    /// Tear down every embedded mirror, used when account auth ends.
+    func detachAll() async {
+        let mirrors = mirrorsByDeviceID
+        mirrorsByDeviceID.removeAll()
+        for (deviceID, mirror) in mirrors {
+            await teardownMirror(deviceID: deviceID, mirror: mirror)
         }
+    }
+
+    /// Tear down one device's mirror regardless of which window owns it.
+    func detach(deviceID: String) async {
+        guard let mirror = mirrorsByDeviceID.removeValue(forKey: deviceID) else { return }
+        await teardownMirror(deviceID: deviceID, mirror: mirror)
+    }
+
+    private func teardownMirror(deviceID: String, mirror: DeviceMirror) async {
+        mirror.reconcileTask?.cancel()
+        mirror.reconcileTask = nil
+        if let observer = mirror.windowCloseObserver {
+            NotificationCenter.default.removeObserver(observer)
+            mirror.windowCloseObserver = nil
+        }
+        for (_, terminal) in mirror.terminalsByRemoteID { terminal.detach() }
+        if let tabManager = mirror.tabManager {
+            for (_, workspaceId) in mirror.workspaceIdByRemoteID {
+                guard let workspace = tabManager.workspacesById[workspaceId] else { continue }
+                tabManager.closeWorkspace(workspace)
+            }
+        }
+        mirror.terminalsByRemoteID.removeAll()
+        mirror.workspaceIdByRemoteID.removeAll()
+        mirror.panelIdByRemoteTerminalID.removeAll()
+        mirror.terminalIDsByRemoteWorkspaceID.removeAll()
+        await HiveComputersService.shared.discardEmbeddedSession(deviceID: deviceID)
     }
 
     // MARK: - Reconcile

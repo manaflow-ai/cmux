@@ -105,7 +105,7 @@ extension TerminalController: ControlMobileHostContext {
         let contexts = AppDelegate.shared.map { Array($0.mainWindowContexts.values) } ?? []
         for context in contexts {
             let tabManager = context.tabManager
-            let scope = HiveSidebarScopeModel.scopeModel(for: tabManager).scope
+            let scope = tabManager.hiveSidebarScopeModel.scope
             let allTabs = tabManager.tabs
             let visibleTabs = scope == .allComputers
                 ? allTabs

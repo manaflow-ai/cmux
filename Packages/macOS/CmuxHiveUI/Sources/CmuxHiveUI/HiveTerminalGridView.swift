@@ -1,5 +1,6 @@
 public import CmuxHive
 import CMUXMobileCore
+import AppKit
 public import SwiftUI
 
 /// Draws one ``HiveTerminalGridModel`` snapshot as a fixed-cell text grid.
@@ -11,6 +12,7 @@ public import SwiftUI
 /// remote grid's columns × rows.
 public struct HiveTerminalGridView: View {
     private let grid: HiveTerminalGridModel
+    @State private var cachedMetrics: HiveTerminalGridMetricsCache?
 
     /// Creates a grid view over one immutable grid snapshot.
     public init(grid: HiveTerminalGridModel) {
@@ -18,17 +20,35 @@ public struct HiveTerminalGridView: View {
     }
 
     public var body: some View {
-        GeometryReader { proxy in
-            let metrics = HiveTerminalGridMetrics(
-                columns: grid.columns,
-                rows: grid.rows,
-                available: proxy.size
-            )
-            Canvas { context, _ in
-                draw(in: &context, metrics: metrics)
+        Canvas { context, size in
+            let metrics: HiveTerminalGridMetrics
+            if let cachedMetrics,
+               cachedMetrics.matches(columns: grid.columns, rows: grid.rows, available: size) {
+                metrics = cachedMetrics.metrics
+            } else {
+                metrics = HiveTerminalGridMetrics(
+                    columns: grid.columns,
+                    rows: grid.rows,
+                    available: size
+                )
             }
+            draw(in: &context, metrics: metrics)
         }
         .background(HiveTerminalColor.parse(grid.terminalBackground) ?? HiveTerminalColor.fallbackBackground)
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+            cachedMetrics = HiveTerminalGridMetricsCache(
+                columns: grid.columns,
+                rows: grid.rows,
+                available: size,
+                metrics: HiveTerminalGridMetrics(
+                    columns: grid.columns,
+                    rows: grid.rows,
+                    available: size
+                )
+            )
+        }
+        .onChange(of: grid.columns) { _, _ in cachedMetrics = nil }
+        .onChange(of: grid.rows) { _, _ in cachedMetrics = nil }
     }
 
     private func draw(in context: inout GraphicsContext, metrics: HiveTerminalGridMetrics) {
@@ -69,7 +89,6 @@ public struct HiveTerminalGridView: View {
             background = foreground
             foreground = swappedForeground
         }
-        if style.invisible { return }
         let origin = metrics.origin(row: row, column: span.column)
         if let background {
             let rect = CGRect(
@@ -80,6 +99,7 @@ public struct HiveTerminalGridView: View {
             )
             context.fill(Path(rect), with: .color(background))
         }
+        if style.invisible { return }
         var attributes = AttributeContainer()
         attributes.font = metrics.font(bold: style.bold, italic: style.italic)
         attributes.foregroundColor = style.faint ? foreground.opacity(0.6) : foreground
@@ -142,40 +162,5 @@ public struct HiveTerminalGridView: View {
         guard let rect = cursorRect(metrics: metrics), grid.cursor?.style == .blockHollow else { return }
         context.stroke(Path(rect), with: .color(cursorColor), lineWidth: 1)
     }
-}
 
-/// Cell geometry: fits the remote grid's columns × rows into the available
-/// size by scaling one monospaced font.
-struct HiveTerminalGridMetrics {
-    let cellWidth: CGFloat
-    let lineHeight: CGFloat
-    let fontSize: CGFloat
-
-    init(columns: Int, rows: Int, available: CGSize) {
-        let columns = max(columns, 1)
-        let rows = max(rows, 1)
-        // Measure the reference font once; monospaced advances scale linearly
-        // with point size, so one measurement fits any target size.
-        let referenceSize: CGFloat = 13
-        let referenceFont = NSFont.monospacedSystemFont(ofSize: referenceSize, weight: .regular)
-        let referenceAdvance = ("0" as NSString).size(withAttributes: [.font: referenceFont]).width
-        let referenceLineHeight = NSLayoutManager().defaultLineHeight(for: referenceFont)
-        let widthLimited = available.width / (CGFloat(columns) * referenceAdvance / referenceSize)
-        let heightLimited = available.height / (CGFloat(rows) * referenceLineHeight / referenceSize)
-        let size = max(min(widthLimited, heightLimited, 20), 4)
-        fontSize = size
-        cellWidth = referenceAdvance * size / referenceSize
-        lineHeight = referenceLineHeight * size / referenceSize
-    }
-
-    func origin(row: Int, column: Int) -> CGPoint {
-        CGPoint(x: CGFloat(column) * cellWidth, y: CGFloat(row) * lineHeight)
-    }
-
-    func font(bold: Bool, italic: Bool) -> Font {
-        var font = Font.system(size: fontSize, design: .monospaced)
-        if bold { font = font.bold() }
-        if italic { font = font.italic() }
-        return font
-    }
 }

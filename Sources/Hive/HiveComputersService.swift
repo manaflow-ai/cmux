@@ -1,6 +1,7 @@
 import CmuxAuthRuntime
 import CmuxHive
 import Foundation
+import OSLog
 
 /// App-side owner of the hive computers directory (the merged registry +
 /// pairings + presence list behind Settings › Computers).
@@ -45,7 +46,8 @@ final class HiveComputersService {
         do {
             directory = try composition.makeDirectory()
         } catch {
-            NSLog("cmux.hive paired-computer store unavailable: %@", String(describing: error))
+            Logger(subsystem: "com.cmux.app", category: "HiveComputersService")
+                .error("Paired-computer store unavailable: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -79,7 +81,14 @@ final class HiveComputersService {
             routes: best.routes,
             retryDelay: { @Sendable attempt in
                 await HiveReconnectBackoff().delay(attempt: attempt)
-            }
+            },
+            // Only registry-backed rows have authenticated device provenance
+            // for the encrypted Tailscale trust mode. Manual/pasted links keep
+            // the safe loopback-only policy, so they can never receive a Stack
+            // bearer token over an arbitrary tailnet endpoint.
+            stackAuthChannelTrust: computer.isRegistryBacked
+                ? .loopbackAndTailscaleTunnel
+                : .loopbackOnly
         )
     }
 
@@ -108,6 +117,17 @@ final class HiveComputersService {
     func discardEmbeddedSession(deviceID: String) async {
         guard let session = embeddedSessions.removeValue(forKey: deviceID) else { return }
         await session.disconnect()
+    }
+
+    /// Tear down all remote viewer sessions when the account is signed out.
+    func disconnectAll() async {
+        await HiveComputerMirrorController.shared.detachAll()
+        await HiveViewerWindowController.shared.closeAll()
+        let sessions = embeddedSessions.values
+        embeddedSessions.removeAll()
+        for session in sessions {
+            await session.disconnect()
+        }
     }
 
     /// The live connection phase for a device's embedded viewer session

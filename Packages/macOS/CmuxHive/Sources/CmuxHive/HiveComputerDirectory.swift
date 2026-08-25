@@ -1,7 +1,7 @@
 internal import CMUXMobileCore
 public import CmuxMobilePairedMac
 public import CmuxMobileShell
-public import CmuxMobileShellModel
+internal import CmuxMobileShellModel
 public import Foundation
 public import Observation
 
@@ -34,12 +34,19 @@ public final class HiveComputerDirectory {
     @ObservationIgnored private let linkDecoder: HivePairingLinkDecoder
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private let presenceRetryDelay: @Sendable (_ attempt: Int) async -> Void
+    @ObservationIgnored private let rowBuilder: HiveComputerRowBuilder
 
     @ObservationIgnored private var presenceMap = PresenceMap()
     @ObservationIgnored private var registryDevices: [RegistryDevice] = []
     @ObservationIgnored private var pairedRecords: [MobilePairedMac] = []
+    @ObservationIgnored private var registryByID: [String: RegistryDevice] = [:]
+    @ObservationIgnored private var pairedByID: [String: MobilePairedMac] = [:]
+    @ObservationIgnored private var pairedRecordsByID: [String: [MobilePairedMac]] = [:]
+    @ObservationIgnored private var loadedScope: HiveAccountScope?
+    @ObservationIgnored private var scopeGeneration = 0
     @ObservationIgnored private var listeners: [UUID: AsyncStream<[HiveComputer]>.Continuation] = [:]
     @ObservationIgnored private var presenceTask: Task<Void, Never>?
+    @ObservationIgnored private var presenceGeneration = 0
 
     /// Creates a directory over injected source seams.
     ///
@@ -75,6 +82,7 @@ public final class HiveComputerDirectory {
         self.linkDecoder = linkDecoder
         self.now = now
         self.presenceRetryDelay = presenceRetryDelay
+        self.rowBuilder = HiveComputerRowBuilder(ownDeviceID: ownDeviceID)
     }
 
     // MARK: - Observation
@@ -104,8 +112,10 @@ public final class HiveComputerDirectory {
     private func removeListener(id: UUID) {
         listeners.removeValue(forKey: id)
         if listeners.isEmpty {
+            presenceGeneration &+= 1
             presenceTask?.cancel()
             presenceTask = nil
+            invalidatePresence()
         }
     }
 
@@ -119,17 +129,28 @@ public final class HiveComputerDirectory {
         isRefreshing = true
         defer { isRefreshing = false }
         let scope = await scopeProvider()
+        let generation = activateScope(scope)
         switch await registry.listDevices() {
         case .ok(let devices):
+            guard await isCurrentScope(scope, generation: generation) else { return }
             registryDevices = devices
+            registryByID = Dictionary(
+                devices.map { ($0.deviceId, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
             lastRefreshFailed = false
         case .authRejected:
+            guard await isCurrentScope(scope, generation: generation) else { return }
             registryDevices = []
+            registryByID = [:]
             lastRefreshFailed = false
         case .transientFailure:
+            guard await isCurrentScope(scope, generation: generation) else { return }
             lastRefreshFailed = true
         }
+        guard await isCurrentScope(scope, generation: generation) else { return }
         await reloadPairedRecords(scope: scope)
+        guard await isCurrentScope(scope, generation: generation) else { return }
         rebuild()
     }
 
@@ -139,10 +160,44 @@ public final class HiveComputerDirectory {
                 stackUserID: scope.stackUserID,
                 teamID: scope.teamID
             )
+            pairedByID = rowBuilder.indexPairedRecords(pairedRecords)
+            pairedRecordsByID = Dictionary(grouping: pairedRecords, by: \.macDeviceID)
         } catch {
             // Keep the previous local list; a store read failure must not
             // wipe rows the registry no longer needs to confirm.
         }
+    }
+
+    private func activateScope(_ scope: HiveAccountScope) -> Int {
+        guard loadedScope != scope else { return scopeGeneration }
+        loadedScope = scope
+        scopeGeneration &+= 1
+        registryDevices = []
+        pairedRecords = []
+        registryByID = [:]
+        pairedByID = [:]
+        pairedRecordsByID = [:]
+        presenceMap = PresenceMap()
+        presenceGeneration &+= 1
+        presenceTask?.cancel()
+        presenceTask = nil
+        computers = []
+        lastRefreshFailed = false
+        for (_, continuation) in listeners {
+            continuation.yield(computers)
+        }
+        startPresenceIfNeeded()
+        return scopeGeneration
+    }
+
+    private func isCurrentScope(_ scope: HiveAccountScope, generation: Int) async -> Bool {
+        guard generation == scopeGeneration, loadedScope == scope else { return false }
+        let latest = await scopeProvider()
+        guard latest == scope else {
+            _ = activateScope(latest)
+            return false
+        }
+        return true
     }
 
     // MARK: - Pairing
@@ -150,6 +205,11 @@ public final class HiveComputerDirectory {
     /// Pair a computer from its registry row: persist its best instance's
     /// routes into the local paired store.
     public func pair(deviceID: String) async -> HivePairOutcome {
+        let scope = await scopeProvider()
+        if loadedScope != scope {
+            await refresh()
+            guard loadedScope == scope else { return .noRoutes }
+        }
         // Pairing with the computer you are sitting at is always a mistake
         // (dev builds advertise loopback routes, so it would even "work").
         guard deviceID != ownDeviceID else { return .loopbackRejected }
@@ -162,7 +222,8 @@ public final class HiveComputerDirectory {
             macDeviceID: deviceID,
             displayName: computer.displayName,
             routes: best.routes,
-            instanceTag: best.instanceTag
+            instanceTag: best.instanceTag,
+            scope: scope
         )
     }
 
@@ -182,6 +243,8 @@ public final class HiveComputerDirectory {
             return .codeNotFound
         }
         await refresh()
+        let scope = await scopeProvider()
+        guard loadedScope == scope else { return .codeNotFound }
         let claimTime = now()
         let matches = registryDevices.flatMap { device in
             device.instances
@@ -196,13 +259,20 @@ public final class HiveComputerDirectory {
             macDeviceID: match.device.deviceId,
             displayName: match.device.displayName,
             routes: match.instance.routes,
-            instanceTag: match.instance.tag
+            instanceTag: match.instance.tag,
+            scope: scope
         )
     }
 
     /// Pair from a pasted pairing link (the QR payload another Mac shows).
     public func pair(link rawLink: String) async -> HivePairOutcome {
         let scope = await scopeProvider()
+        if loadedScope == nil {
+            _ = activateScope(scope)
+        } else if loadedScope != scope {
+            await refresh()
+            return .accountMismatch
+        }
         switch linkDecoder.decode(rawLink, currentStackUserID: scope.stackUserID) {
         case .invalidLink:
             return .invalidLink
@@ -230,7 +300,8 @@ public final class HiveComputerDirectory {
                 macDeviceID: macDeviceID,
                 displayName: ticket.macDisplayName ?? Self.endpointLabel(for: ticket.routes),
                 routes: ticket.routes,
-                instanceTag: nil
+                instanceTag: nil,
+                scope: scope
             )
         }
     }
@@ -256,6 +327,7 @@ public final class HiveComputerDirectory {
     @discardableResult
     public func unpair(deviceID: String) async -> Bool {
         let scope = await scopeProvider()
+        guard loadedScope == scope else { return false }
         do {
             try await pairedStore.remove(
                 macDeviceID: deviceID,
@@ -274,10 +346,10 @@ public final class HiveComputerDirectory {
         macDeviceID: String,
         displayName: String?,
         routes: [CmxAttachRoute],
-        instanceTag: String?
+        instanceTag: String?,
+        scope: HiveAccountScope
     ) async -> HivePairOutcome {
         guard !routes.isEmpty else { return .noRoutes }
-        let scope = await scopeProvider()
         do {
             try await pairedStore.upsert(
                 macDeviceID: macDeviceID,
@@ -301,25 +373,32 @@ public final class HiveComputerDirectory {
 
     private func startPresenceIfNeeded() {
         guard presenceTask == nil, let presence else { return }
+        presenceGeneration &+= 1
+        let generation = presenceGeneration
         presenceTask = Task { [weak self] in
-            await self?.runPresenceLoop(presence: presence)
+            await self?.runPresenceLoop(presence: presence, generation: generation)
         }
     }
 
-    private func runPresenceLoop(presence: any PresenceSubscribing) async {
+    private func runPresenceLoop(
+        presence: any PresenceSubscribing,
+        generation: Int
+    ) async {
         var consecutiveFailures = 0
-        while !Task.isCancelled {
+        while !Task.isCancelled, generation == presenceGeneration {
             do {
                 let stream = try await presence.subscribe()
                 for try await update in stream {
+                    guard generation == presenceGeneration else { return }
                     consecutiveFailures = 0
                     presenceMap.apply(update)
-                    rebuild()
+                    rebuild(affectedDeviceIDs: affectedDeviceIDs(for: update))
                 }
             } catch {
                 consecutiveFailures += 1
             }
             if Task.isCancelled { return }
+            invalidatePresence()
             // The presence stream ended (server deadline) or failed; the
             // injected delay bounds the resubscribe backoff and is cancelled
             // with this task.
@@ -329,118 +408,49 @@ public final class HiveComputerDirectory {
 
     // MARK: - Merge
 
-    private func rebuild() {
-        computers = Self.mergedComputers(
-            registry: registryDevices,
-            paired: pairedRecords,
-            presence: presenceMap,
-            ownDeviceID: ownDeviceID
-        )
+    private func invalidatePresence() {
+        presenceMap = PresenceMap()
+        rebuild()
+    }
+
+    private func rebuild(affectedDeviceIDs: Set<String>? = nil) {
+        if let affectedDeviceIDs {
+            for deviceID in affectedDeviceIDs {
+                if let oldIndex = computers.firstIndex(where: { $0.deviceID == deviceID }) {
+                    computers.remove(at: oldIndex)
+                }
+                guard let row = rowBuilder.makeRow(
+                    registry: registryByID[deviceID],
+                    paired: pairedByID[deviceID],
+                    pairedRecords: pairedRecordsByID[deviceID] ?? [],
+                    presence: presenceMap
+                ) else { continue }
+                let insertionIndex = computers.firstIndex {
+                    rowBuilder.comesBefore(row, $0)
+                } ?? computers.endIndex
+                computers.insert(row, at: insertionIndex)
+            }
+        } else {
+            computers = rowBuilder.makeRows(
+                registry: registryDevices,
+                paired: pairedRecords,
+                presence: presenceMap
+            )
+        }
         for (_, continuation) in listeners {
             continuation.yield(computers)
         }
     }
 
-    /// Pure merge of the three sources into sorted rows. Exposed for tests.
-    public static func mergedComputers(
-        registry: [RegistryDevice],
-        paired: [MobilePairedMac],
-        presence: PresenceMap,
-        ownDeviceID: String
-    ) -> [HiveComputer] {
-        let pairedByID = Dictionary(uniqueKeysWithValues: paired.map { ($0.macDeviceID, $0) })
-        var rows: [HiveComputer] = registry.map { device in
-            let record = pairedByID[device.deviceId]
-            return HiveComputer(
-                deviceID: device.deviceId,
-                displayName: record?.customName?.nonEmpty
-                    ?? device.displayName?.nonEmpty
-                    ?? record?.displayName?.nonEmpty
-                    ?? String(device.deviceId.prefix(8)),
-                platform: device.platform,
-                isThisComputer: device.deviceId == ownDeviceID,
-                isPaired: record != nil,
-                presence: Self.presenceState(
-                    for: device.deviceId,
-                    presence: presence,
-                    fallbackLastSeen: device.lastSeenAt
-                ),
-                buildLabel: presence.deviceSummary(deviceId: device.deviceId)?.buildLabel,
-                instances: device.instances.map { instance in
-                    HiveComputerInstance(
-                        tag: instance.tag,
-                        routes: instance.routes,
-                        lastSeenAt: presence.instanceSummary(
-                            deviceId: device.deviceId,
-                            tag: instance.tag
-                        ).map { max($0.lastSeenAt, instance.lastSeenAt) } ?? instance.lastSeenAt,
-                        isOnline: presence.instanceSummary(
-                            deviceId: device.deviceId,
-                            tag: instance.tag
-                        )?.online ?? false
-                    )
-                }
-            )
-        }
-        let registryIDs = Set(registry.map(\.deviceId))
-        for record in paired where !registryIDs.contains(record.macDeviceID) {
-            rows.append(
-                HiveComputer(
-                    deviceID: record.macDeviceID,
-                    displayName: record.resolvedName,
-                    platform: nil,
-                    isThisComputer: record.macDeviceID == ownDeviceID,
-                    isPaired: true,
-                    presence: Self.presenceState(
-                        for: record.macDeviceID,
-                        presence: presence,
-                        fallbackLastSeen: record.lastSeenAt
-                    ),
-                    buildLabel: presence.deviceSummary(deviceId: record.macDeviceID)?.buildLabel,
-                    instances: [
-                        HiveComputerInstance(
-                            tag: record.instanceTag ?? "default",
-                            routes: record.routes,
-                            lastSeenAt: record.lastSeenAt,
-                            isOnline: false
-                        )
-                    ]
-                )
-            )
-        }
-        return rows.sorted { lhs, rhs in
-            if lhs.isThisComputer != rhs.isThisComputer { return lhs.isThisComputer }
-            if lhs.presence.isOnline != rhs.presence.isOnline { return lhs.presence.isOnline }
-            let lhsSeen = lhs.presence.lastSeenAt ?? .distantPast
-            let rhsSeen = rhs.presence.lastSeenAt ?? .distantPast
-            if lhs.presence.isOnline == rhs.presence.isOnline, lhsSeen != rhsSeen {
-                return lhsSeen > rhsSeen
-            }
-            return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+    private func affectedDeviceIDs(for update: PresenceUpdate) -> Set<String>? {
+        switch update {
+        case .snapshot:
+            return nil
+        case .online(let instance), .routes(let instance), .offline(let instance, _):
+            return [instance.deviceId]
+        case .seen(let deviceID, _, _):
+            return [deviceID]
         }
     }
 
-    private static func presenceState(
-        for deviceID: String,
-        presence: PresenceMap,
-        fallbackLastSeen: Date?
-    ) -> HiveComputerPresence {
-        guard let summary = presence.deviceSummary(deviceId: deviceID) else {
-            return .unknown(lastSeenAt: fallbackLastSeen)
-        }
-        if summary.online { return .online }
-        let lastSeen = [summary.lastSeenAt, fallbackLastSeen]
-            .compactMap { $0 }
-            .max()
-        return .offline(lastSeenAt: lastSeen)
-    }
-}
-
-extension String {
-    /// The string itself when non-empty after trimming, else `nil`; merge
-    /// helper for picking the first usable display name.
-    fileprivate var nonEmpty: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
 }

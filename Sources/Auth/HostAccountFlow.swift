@@ -80,6 +80,7 @@ final class HostAccountFlow: AccountFlow {
 
     func signOut() async {
         await browserSignIn.signOut()
+        await HiveComputersService.shared.disconnectAll()
         isProActive = false
         canManageBilling = false
     }

@@ -83,7 +83,11 @@ public struct ComputersSection: View {
             // button; a bounded cadence delay cancelled with the view's task,
             // not condition-polling.
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(30))
+                do {
+                    try await ContinuousClock().sleep(for: .seconds(30))
+                } catch is CancellationError {
+                    break
+                }
                 guard !Task.isCancelled else { break }
                 hostActions.refreshComputers()
             }
@@ -431,6 +435,7 @@ private struct ComputersSectionRow: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+            .disabled(isPending)
             .accessibilityIdentifier("SettingsComputersOpenButton-\(computer.deviceID)")
 
             Button(String(localized: "settings.computers.row.unpair", defaultValue: "Unpair")) {

@@ -15,10 +15,18 @@ public struct HiveReconnectBackoff: Sendable {
     }
 
     /// Await the backoff for the given consecutive-failure attempt count.
+    @concurrent
     public func delay(attempt: Int) async {
         let seconds = min(maximumSeconds, pow(2.0, Double(min(max(attempt - 1, 0), 6))))
-        // Bounded, cancellable delay — the intended behavior, per the
-        // Clock.sleep carve-out.
-        try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+        // This is a bounded retry delay, not a state-settling sleep. The
+        // continuous clock observes task cancellation without blocking a
+        // thread or inheriting the caller's actor.
+        do {
+            try await ContinuousClock().sleep(for: .seconds(seconds))
+        } catch is CancellationError {
+            return
+        } catch {
+            return
+        }
     }
 }

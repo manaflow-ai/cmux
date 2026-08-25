@@ -76,6 +76,7 @@ actor ScriptedHostTransport: CmxByteTransport {
 
     /// Simulate the connection dying host-side (EOF to the client's reader).
     func killConnection() {
+        isClosed = true
         let waiters = receiveWaiters
         receiveWaiters.removeAll()
         for waiter in waiters {

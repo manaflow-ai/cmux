@@ -1609,7 +1609,7 @@ struct ContentView: View {
                 )
             },
             observedWindow: observedWindow,
-            hiveScope: HiveSidebarScopeModel.scopeModel(for: tabManager),
+            hiveScope: tabManager.hiveSidebarScopeModel,
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
         )

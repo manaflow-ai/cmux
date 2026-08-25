@@ -110203,6 +110203,23 @@
         }
       }
     },
+    "hive.viewer.error.connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The other Mac couldn't be reached. Check that it is online and paired, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続先の Mac に到達できませんでした。オンラインでペアリング済みか確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
     "hive.viewer.failed.title": {
       "extractionState": "manual",
       "localizations": {

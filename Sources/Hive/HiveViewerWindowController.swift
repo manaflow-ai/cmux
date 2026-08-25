@@ -79,4 +79,14 @@ final class HiveViewerWindowController: NSObject, NSWindowDelegate {
             await session.disconnect()
         }
     }
+
+    /// Close every standalone viewer and stop its RPC session during sign-out.
+    func closeAll() async {
+        let entries = viewersByDeviceID
+        viewersByDeviceID.removeAll()
+        for entry in entries.values {
+            entry.window.close()
+            await entry.session.disconnect()
+        }
+    }
 }

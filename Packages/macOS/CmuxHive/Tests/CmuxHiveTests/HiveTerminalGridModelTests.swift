@@ -62,7 +62,7 @@ import Testing
         #expect(grid.plainRow(2) == "")
         #expect(grid.cursor?.row == 1)
         #expect(grid.cursor?.column == 7)
-        #expect(grid.rowSpans[1].first?.style.bold == true)
+        #expect(grid.rowSpans.dropFirst().first?.first?.style.bold == true)
         #expect(grid.terminalBackground == "#000000")
         #expect(grid.stateSeq == 1)
     }
@@ -103,6 +103,37 @@ import Testing
         ))
         #expect(!grid.hasContent)
         #expect(grid.rows == 0)
+    }
+
+    @Test func staleDeltaAfterNewerFrameIsIgnored() throws {
+        var grid = HiveTerminalGridModel()
+        grid.apply(try fullFrame(stateSeq: 10, rowSpans: [
+            .init(row: 0, column: 0, styleID: 0, text: "new")
+        ]))
+        grid.apply(try deltaFrame(
+            stateSeq: 9,
+            rowSpans: [.init(row: 0, column: 0, styleID: 0, text: "old")]
+        ))
+
+        #expect(grid.plainRow(0) == "new")
+        #expect(grid.stateSeq == 10)
+    }
+
+    @Test func staleFullFrameNeedsAnExplicitSessionReset() throws {
+        var grid = HiveTerminalGridModel()
+        grid.apply(try fullFrame(stateSeq: 10, rowSpans: [
+            .init(row: 0, column: 0, styleID: 0, text: "current")
+        ]))
+        let stale = try fullFrame(stateSeq: 9, rowSpans: [
+            .init(row: 0, column: 0, styleID: 0, text: "stale")
+        ])
+
+        let rejected = grid.apply(stale)
+        #expect(!rejected)
+        #expect(grid.plainRow(0) == "current")
+        let reset = grid.apply(stale, allowingFullReset: true)
+        #expect(reset)
+        #expect(grid.plainRow(0) == "stale")
     }
 
     @Test func deltaWithNewGeometryResizesGrid() throws {

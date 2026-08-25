@@ -56,6 +56,7 @@ extension ContentView {
             }
             Task { @MainActor in
                 await auth.browserSignIn.signOut()
+                await HiveComputersService.shared.disconnectAll()
             }
         }
     }

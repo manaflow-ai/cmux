@@ -1,5 +1,6 @@
 public import CMUXMobileCore
 public import CmuxMobileRPC
+public import CmuxMobileShellModel
 import Foundation
 public import Observation
 
@@ -43,6 +44,8 @@ public final class HiveRemoteMacSession {
     @ObservationIgnored private let runtime: any MobileSyncRuntime
     @ObservationIgnored private let routes: [CmxAttachRoute]
     @ObservationIgnored private let retryDelay: @Sendable (_ attempt: Int) async -> Void
+    @ObservationIgnored private let workspaceDecoder: HiveRemoteWorkspaceDecoder
+    @ObservationIgnored private let stackAuthChannelTrust: MobileShellRouteAuthPolicy.StackAuthChannelTrust
     /// The connected RPC client terminal sessions share, `nil` until the
     /// first successful connect.
     @ObservationIgnored public private(set) var client: MobileCoreRPCClient?
@@ -61,18 +64,23 @@ public final class HiveRemoteMacSession {
     ///   - retryDelay: Awaited between reconnect attempts with the
     ///     consecutive-failure count; production passes a bounded backoff
     ///     sleep, tests a recorder that returns immediately.
+    ///   - stackAuthChannelTrust: The route provenance trusted to carry the
+    ///     account token. Manual links default to loopback-only.
     public init(
         runtime: any MobileSyncRuntime,
         macDeviceID: String,
         displayName: String,
         routes: [CmxAttachRoute],
-        retryDelay: @escaping @Sendable (_ attempt: Int) async -> Void
+        retryDelay: @escaping @Sendable (_ attempt: Int) async -> Void,
+        stackAuthChannelTrust: MobileShellRouteAuthPolicy.StackAuthChannelTrust = .loopbackOnly
     ) {
         self.runtime = runtime
         self.macDeviceID = macDeviceID
         self.displayName = displayName
         self.routes = routes
         self.retryDelay = retryDelay
+        self.workspaceDecoder = HiveRemoteWorkspaceDecoder()
+        self.stackAuthChannelTrust = stackAuthChannelTrust
     }
 
     /// Start (or restart) the session: dial routes, fetch the workspace list,
@@ -89,9 +97,13 @@ public final class HiveRemoteMacSession {
 
     /// Tear down the session (window closed).
     public func disconnect() async {
-        connectTask?.cancel()
+        let pendingConnect = connectTask
+        pendingConnect?.cancel()
+        await pendingConnect?.value
         connectTask = nil
-        eventTask?.cancel()
+        let pendingEvents = eventTask
+        pendingEvents?.cancel()
+        await pendingEvents?.value
         eventTask = nil
         if let client {
             await client.disconnect()
@@ -104,7 +116,7 @@ public final class HiveRemoteMacSession {
     public func refreshWorkspaces() async {
         guard let client else { return }
         do {
-            setWorkspaces(try await Self.fetchWorkspaces(client: client))
+            setWorkspaces(try await fetchWorkspaces(client: client))
         } catch {
             // Keep the stale list; the event loop's stream death drives the
             // visible reconnect state.
@@ -145,6 +157,7 @@ public final class HiveRemoteMacSession {
             .filter { supported.contains($0.kind) }
             .sorted { $0.priority < $1.priority }
         guard !candidates.isEmpty else {
+            guard !Task.isCancelled else { return }
             phase = .failed(message: Self.noRouteMessage)
             return
         }
@@ -164,10 +177,16 @@ public final class HiveRemoteMacSession {
                 route: route,
                 ticket: ticket,
                 allowsStackAuthFallback: true,
-                stackAuthChannelTrust: .loopbackAndTailscaleTunnel
+                stackAuthChannelTrust: stackAuthChannelTrust
             )
             do {
-                let workspaces = try await Self.fetchWorkspaces(client: candidate)
+                let workspaces = try await fetchWorkspaces(client: candidate)
+                // disconnect() can cancel this task while the RPC is
+                // suspended. Do not resurrect a session after teardown.
+                guard !Task.isCancelled else {
+                    await candidate.disconnect()
+                    return
+                }
                 if let previous = client { await previous.disconnect() }
                 client = candidate
                 setWorkspaces(workspaces)
@@ -179,9 +198,13 @@ public final class HiveRemoteMacSession {
                 await candidate.disconnect()
             }
         }
-        phase = .failed(message: (lastError as? MobileShellConnectionError)?.localizedDescription
-            ?? lastError.map(String.init(describing:))
-            ?? Self.noRouteMessage)
+        guard !Task.isCancelled else { return }
+        // Upstream transport/decoding errors can contain addresses, request
+        // ids, or other implementation details. Keep the viewer's failure
+        // state product-facing and localized instead of exposing them.
+        phase = .failed(message: lastError == nil
+            ? Self.noRouteMessage
+            : Self.connectionFailedMessage)
     }
 
     /// A route-carrier ticket for the viewer. It authorizes nothing (no
@@ -201,20 +224,13 @@ public final class HiveRemoteMacSession {
         )
     }
 
-    private static func fetchWorkspaces(client: MobileCoreRPCClient) async throws -> [HiveRemoteWorkspace] {
+    private func fetchWorkspaces(client: MobileCoreRPCClient) async throws -> [HiveRemoteWorkspace] {
         let request = try MobileCoreRPCClient.requestData(method: "mobile.workspace.list")
         let data = try await client.sendRequest(request)
-        let response = try MobileSyncWorkspaceListResponse.decode(data)
-        return response.workspaces.map { workspace in
-            HiveRemoteWorkspace(
-                id: workspace.id,
-                title: workspace.title,
-                isSelected: workspace.isSelected,
-                terminals: workspace.terminals.map {
-                    HiveRemoteWorkspace.Terminal(id: $0.id, title: $0.title, isFocused: $0.isFocused)
-                }
-            )
-        }
+        let decoder = workspaceDecoder
+        return try await Task.detached(priority: .userInitiated) {
+            try decoder.decode(data)
+        }.value
     }
 
     // MARK: - Events
@@ -239,8 +255,10 @@ public final class HiveRemoteMacSession {
                 )
                 _ = try await client.sendRequest(subscribe)
                 consecutiveFailures = 0
+                guard !Task.isCancelled else { return }
                 phase = .connected
                 await refreshWorkspaces()
+                guard !Task.isCancelled else { return }
             } catch is CancellationError {
                 return
             } catch {
@@ -265,6 +283,13 @@ public final class HiveRemoteMacSession {
         String(
             localized: "hive.viewer.error.noRoute",
             defaultValue: "This computer hasn't advertised a reachable address. Make sure Tailscale is running on both Macs."
+        )
+    }
+
+    private static var connectionFailedMessage: String {
+        String(
+            localized: "hive.viewer.error.connection",
+            defaultValue: "The other Mac couldn't be reached. Check that it is online and paired, then try again."
         )
     }
 }
