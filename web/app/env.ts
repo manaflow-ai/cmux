@@ -1,10 +1,5 @@
 import { createEnv } from "@t3-oss/env-nextjs";
 import { z } from "zod";
-import {
-  insecureLoopbackMinterAllowed,
-  parseIrohMinterUrl,
-  type IrohMinterUrlPolicy,
-} from "../services/iroh/minterUrlPolicy";
 
 // Trim at the runtimeEnv source so every consumer — including paths that
 // run when validation is skipped (VERCEL_ENV === "preview") — sees clean
@@ -31,13 +26,6 @@ const isVercelProductionDeployment =
   process.env.VERCEL === "1" &&
   process.env.VERCEL_ENV === "production" &&
   !isDocsZone;
-const irohMinterUrlPolicy: IrohMinterUrlPolicy = {
-  allowInsecureLoopback:
-    trimEnv(process.env.CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER) === "1",
-  deploymentEnvironment:
-    process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "development",
-  isVercelDeployment: process.env.VERCEL === "1",
-};
 const requireVercelNonPreviewValue = (
   name: string,
   schema: z.ZodType<string> = z.string().min(1),
@@ -116,32 +104,6 @@ const publicEnvValidationIssues = (issues: readonly unknown[]): readonly unknown
   }
   return publicIssues;
 };
-const localDevelopmentOptIn = (name: string) =>
-  z.enum(["0", "1"]).optional().superRefine((value, context) => {
-    if (
-      value === "1" &&
-      !insecureLoopbackMinterAllowed({
-        ...irohMinterUrlPolicy,
-        allowInsecureLoopback: true,
-      })
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `${name} is only allowed in local development`,
-      });
-    }
-  });
-const irohMinterUrl = z.string().url().superRefine((value, context) => {
-  try {
-    parseIrohMinterUrl(value, irohMinterUrlPolicy);
-  } catch {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      message:
-        "CMUX_IROH_MINT_URL must use HTTPS, except for an opted-in local loopback development minter",
-    });
-  }
-});
 const irohBindingLimit = z.string().regex(/^[1-9][0-9]{0,3}$/).superRefine((value, context) => {
   if (Number(value) > 4_096) {
     context.addIssue({
@@ -280,11 +242,6 @@ export const env = createEnv({
       "CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON",
       z.string().min(2).max(32_768),
     ),
-    // Optional compatibility path for n0-hosted relay credentials. The
-    // self-hosted fleet mints endpoint-bound JWTs through /api/relay/token.
-    CMUX_IROH_MINT_URL: irohMinterUrl.optional(),
-    CMUX_IROH_MINT_HMAC_SECRET_B64:
-      z.string().max(512).regex(/^[A-Za-z0-9+/]{43,}={0,2}$/).optional(),
     // Optional: leave unset to disable iroh rate limiting entirely. When unset,
     // the firewall gate in routeHandler.ts is skipped. Matches the other
     // optional rate-limit IDs (for example
@@ -297,9 +254,6 @@ export const env = createEnv({
     // Server-to-worker authentication for revision publication. Native clients
     // hold only their Stack access token and can never mint invalidations.
     CMUX_CONNECTIVITY_INVALIDATION_SECRET: z.string().min(32).max(512).optional(),
-    CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: localDevelopmentOptIn(
-      "CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER",
-    ),
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENABLED: z.enum(["0", "1"]).optional(),
     CMUX_IROH_DEV_BINDING_OVERRIDE_USER_IDS: z.string().max(8_192).optional(),
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS: z.string().max(256).optional(),
@@ -399,15 +353,10 @@ export const env = createEnv({
     CMUX_IROH_GRANT_SIGNING_KEY_P8: trimEnv(process.env.CMUX_IROH_GRANT_SIGNING_KEY_P8),
     CMUX_IROH_GRANT_SIGNING_KID: trimEnv(process.env.CMUX_IROH_GRANT_SIGNING_KID),
     CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON: trimEnv(process.env.CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON),
-    CMUX_IROH_MINT_URL: trimEnv(process.env.CMUX_IROH_MINT_URL),
-    CMUX_IROH_MINT_HMAC_SECRET_B64: trimEnv(process.env.CMUX_IROH_MINT_HMAC_SECRET_B64),
     CMUX_IROH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_IROH_RATE_LIMIT_ID),
     CMUX_PRESENCE_BASE_URL: trimEnv(process.env.CMUX_PRESENCE_BASE_URL),
     CMUX_CONNECTIVITY_INVALIDATION_SECRET: trimEnv(
       process.env.CMUX_CONNECTIVITY_INVALIDATION_SECRET,
-    ),
-    CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: trimEnv(
-      process.env.CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER,
     ),
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENABLED: trimEnv(process.env.CMUX_IROH_DEV_BINDING_OVERRIDE_ENABLED),
     CMUX_IROH_DEV_BINDING_OVERRIDE_USER_IDS: trimEnv(process.env.CMUX_IROH_DEV_BINDING_OVERRIDE_USER_IDS),

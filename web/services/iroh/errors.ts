@@ -27,18 +27,12 @@ export class IrohConfigurationError extends Data.TaggedError("IrohConfigurationE
     | "grant_signing"
     | "grant_verification"
     | "account_subject"
-    | "lan_discovery"
-    | "relay_minter";
+    | "lan_discovery";
 }> {}
 
 export class IrohDatabaseError extends Data.TaggedError("IrohDatabaseError")<{
   readonly operation: string;
   readonly cause: unknown;
-}> {}
-
-export class IrohRelayMintError extends Data.TaggedError("IrohRelayMintError")<{
-  readonly code: string;
-  readonly cause?: unknown;
 }> {}
 
 export type IrohExpectedError =
@@ -48,8 +42,7 @@ export type IrohExpectedError =
   | IrohConflictError
   | IrohQuotaExceededError
   | IrohConfigurationError
-  | IrohDatabaseError
-  | IrohRelayMintError;
+  | IrohDatabaseError;
 
 export function irohExpectedError(error: unknown): IrohExpectedError | null {
   if (!error || typeof error !== "object") return null;
@@ -88,5 +81,4 @@ const IROH_ERROR_TAGS = new Set([
   "IrohQuotaExceededError",
   "IrohConfigurationError",
   "IrohDatabaseError",
-  "IrohRelayMintError",
 ]);

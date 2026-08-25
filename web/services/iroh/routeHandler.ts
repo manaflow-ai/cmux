@@ -358,9 +358,6 @@ function expectedErrorResponse(error: ReturnType<typeof irohExpectedError> & obj
       { "retry-after": String(quota.retryAfterSeconds) },
     );
   }
-  if (tag === "IrohConfigurationError" || tag === "IrohRelayMintError") {
-    return jsonResponse({ error: "iroh_service_unavailable" }, 503);
-  }
   return jsonResponse({ error: "iroh_service_unavailable" }, 503);
 }
 

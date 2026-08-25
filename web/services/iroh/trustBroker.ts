@@ -42,8 +42,6 @@ import {
   IROH_ENDPOINT_ATTESTATION_VERSION,
   IROH_PAIR_GRANT_LIFETIME_SECONDS,
   IROH_PAIR_SCOPE,
-  IROH_RELAY_TOKEN_LIFETIME_SECONDS,
-  IROH_RELAY_TOKEN_REFRESH_SECONDS,
   assertChallengeMatchesPayload,
   decodeRegistrationPayload,
   parseBindingIdBody,
@@ -52,7 +50,6 @@ import {
   parseIrohPathHint,
   parsePairGrantRequest,
   parseRegisterRequest,
-  sha256,
   type IrohPathHint,
 } from "./model";
 import { canIOSBindingUseMac } from "./buildCompatibility";
@@ -67,11 +64,6 @@ import {
   legacyIrohDiscoveryRequest,
   parseIrohDiscoveryRequest,
 } from "./discoveryPagination";
-import {
-  IrohRelayMinter,
-  IrohRelayMinterLive,
-  type IrohRelayMinterShape,
-} from "./relayMinter";
 import {
   defaultRelayPreference,
   type RelayPreference,
@@ -154,7 +146,6 @@ export class IrohTrustBroker extends Context.Tag("cmux/IrohTrustBroker")<
 
 export function makeIrohTrustBroker(
   repository: IrohRepositoryShape,
-  relayMinter: IrohRelayMinterShape,
   config: IrohTrustBrokerConfigShape,
   relayPreferences: Pick<RelayRepositoryShape, "getPreference"> = {
     getPreference: () => Effect.succeed({
@@ -201,54 +192,6 @@ export function makeIrohTrustBroker(
       nowSeconds: Math.floor(now.getTime() / 1_000),
     }));
     return binding;
-  });
-
-  const issueRelayTokenForBinding = (
-    userId: string,
-    binding: IrohBindingRecord,
-    now: Date,
-  ): Effect.Effect<unknown, IrohExpectedError> => Effect.gen(function* () {
-    const reservation = yield* repository.reserveRelayIssuance({
-      userId,
-      bindingId: binding.id,
-      clientNamespace: binding.clientNamespace,
-      now,
-    });
-    const minted = yield* relayMinter.mint({
-      endpointId: reservation.binding.endpointId,
-      lifetimeSeconds: IROH_RELAY_TOKEN_LIFETIME_SECONDS,
-      now,
-    }).pipe(
-      Effect.matchEffect({
-        onFailure: (error) => repository.failRelayIssuance({
-          userId,
-          issuanceId: reservation.issuanceId,
-          completedAt: new Date(),
-          failureCode: error._tag === "IrohRelayMintError" ? error.code : "not_configured",
-        }).pipe(
-          Effect.catchAll(() => Effect.void),
-          Effect.flatMap(() => Effect.fail(error)),
-        ),
-        onSuccess: Effect.succeed,
-      }),
-    );
-    const completedAt = new Date();
-    const completed = yield* repository.completeRelayIssuance({
-      userId,
-      issuanceId: reservation.issuanceId,
-      bindingId: reservation.binding.id,
-      endpointId: reservation.binding.endpointId,
-      tokenHash: sha256(minted.token),
-      completedAt,
-      expiresAt: minted.expiresAt,
-    });
-    if (!completed) return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
-    return {
-      token: minted.token,
-      expires_at: minted.expiresAt.toISOString(),
-      refresh_after: new Date(now.getTime() + IROH_RELAY_TOKEN_REFRESH_SECONDS * 1_000).toISOString(),
-      relay_fleet: MANAGED_RELAY_URLS,
-    };
   });
 
   const discover = (
@@ -470,18 +413,13 @@ export function makeIrohTrustBroker(
         now,
       });
 
-      // New registration is already committed before relay minting starts.
-      // Refreshes keep their existing credential and use the dedicated relay
-      // route when it expires, so path-hint churn cannot consume mint quotas.
+      // Registration never mints a relay credential: clients obtain
+      // endpoint-bound credentials for the self-hosted fleet from
+      // /api/relay/token after registering. "unavailable" preserves the
+      // response shape the pre-registry bootstrap produced when the removed
+      // n0-hosted minter was unconfigured, which production always was.
       const relay = registration.created
-        ? yield* issueRelayTokenForBinding(
-          userId,
-          registration.binding,
-          now,
-        ).pipe(
-          Effect.map((value) => ({ status: "issued" as const, ...value as object })),
-          Effect.catchAll(() => Effect.succeed({ status: "unavailable" as const })),
-        )
+        ? { status: "unavailable" as const }
         : { status: "not_requested" as const };
       const discovery = request.discoveryScope
         ? (yield* discoverScoped(
@@ -704,15 +642,10 @@ export const IrohTrustBrokerLive = Layer.effect(
   Effect.gen(function* () {
     return makeIrohTrustBroker(
       yield* IrohRepository,
-      yield* IrohRelayMinter,
       yield* IrohTrustBrokerConfig,
       yield* RelayRepository,
     );
   }),
-);
-
-const IrohRelayMinterWithConfig = IrohRelayMinterLive.pipe(
-  Layer.provide(IrohTrustBrokerConfigLive),
 );
 
 export const IrohTrustBrokerRuntime = IrohTrustBrokerLive.pipe(
@@ -720,7 +653,6 @@ export const IrohTrustBrokerRuntime = IrohTrustBrokerLive.pipe(
     IrohRepositoryLive,
     RelayRepositoryLive,
     IrohTrustBrokerConfigLive,
-    IrohRelayMinterWithConfig,
   )),
 );
 

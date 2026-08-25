@@ -15,10 +15,8 @@ import {
   IrohConflictError,
   IrohForbiddenError,
   IrohNotFoundError,
-  IrohRelayMintError,
 } from "../services/iroh/errors";
 import {
-  IROH_RELAY_TOKEN_LIFETIME_SECONDS,
   MANAGED_RELAY_URLS,
   sha256,
   type IrohRegistrationPayload,
@@ -33,7 +31,6 @@ import {
   type IrohChallengeRecord,
   type IrohRepositoryShape,
 } from "../services/iroh/repository";
-import type { IrohRelayMinterShape } from "../services/iroh/relayMinter";
 import { makeIrohTrustBroker } from "../services/iroh/trustBroker";
 import { bindingMatchesDiscoveryScope } from "../services/iroh/discoveryScope";
 import type { RelayPreference } from "../services/relay/model";
@@ -206,13 +203,13 @@ describe("Iroh build compatibility", () => {
 });
 
 describe("Iroh trust broker registration", () => {
-  test("registers a valid endpoint proof and mints relay credentials after commit", async () => {
+  test("registers a valid endpoint proof and reports the relay credential unavailable", async () => {
     const fixture = makeFixture();
     const request = await fixture.signedRegistration();
     const result = await Effect.runPromise(fixture.broker.register(USER_A, request, NOW)) as {
       revision: number;
       binding: { endpoint_id: string };
-      relay: { status: string; token: string };
+      relay: { status: string };
       discovery_complete: boolean;
       discovery: {
         revision: number;
@@ -220,7 +217,7 @@ describe("Iroh trust broker registration", () => {
       };
     };
     expect(result.binding.endpoint_id).toBe(fixture.endpointId);
-    expect(result.relay.status).toBe("issued");
+    expect(result.relay.status).toBe("unavailable");
     expect(result.discovery.revision).toBe(result.revision);
     expect(result.discovery_complete).toBe(true);
     expect(result.discovery.bindings.map((binding) => binding.binding_id))
@@ -234,7 +231,6 @@ describe("Iroh trust broker registration", () => {
       observed_at: "2026-07-09T19:55:00.000Z",
       expires_at: "2026-07-09T20:45:00.000Z",
     }]);
-    expect(fixture.minter.calls).toBe(1);
   });
 
   test("persists and publishes signed family-specific direct ports to the same account", async () => {
@@ -345,16 +341,7 @@ describe("Iroh trust broker registration", () => {
     ]);
   });
 
-  test("relay failure cannot roll back an authenticated registration", async () => {
-    const fixture = makeFixture({ minterFailure: true });
-    const result = await Effect.runPromise(
-      fixture.broker.register(USER_A, await fixture.signedRegistration(), NOW),
-    ) as { relay: { status: string } };
-    expect(result.relay.status).toBe("unavailable");
-    expect(fixture.repository.bindings).toHaveLength(1);
-  });
-
-  test("does not mint another relay token when refreshing the same binding", async () => {
+  test("reports not_requested when refreshing the same binding", async () => {
     const fixture = makeFixture();
     await Effect.runPromise(fixture.broker.register(
       USER_A,
@@ -369,7 +356,6 @@ describe("Iroh trust broker registration", () => {
     )) as { relay: { status: string } };
 
     expect(refreshed.relay.status).toBe("not_requested");
-    expect(fixture.minter.calls).toBe(1);
   });
 
   test("marks a truncated registration discovery page incomplete", async () => {
@@ -1722,7 +1708,6 @@ describe("Iroh discovery and grants", () => {
     ), "IrohNotFoundError");
 
     expect(internal.revokedAt).toBeNull();
-    expect(fixture.minter.calls).toBe(0);
     expect(fixture.repository.pairGrantAudits).toHaveLength(0);
   });
 
@@ -1823,13 +1808,13 @@ describe("Iroh discovery and grants", () => {
     const fixture = makeFixture();
     const active = binding({ userId: USER_A, platform: "ios" });
     fixture.repository.bindings.push(active);
-    const noVerificationKeys = makeIrohTrustBroker(fixture.repository, fixture.minter, {
+    const noVerificationKeys = makeIrohTrustBroker(fixture.repository, {
       ...fixture.config,
       grantVerificationKeysJson: undefined,
     });
     await expectEffectFailure(noVerificationKeys.discover(USER_A, NOW), "IrohConfigurationError");
 
-    const noAccountSubject = makeIrohTrustBroker(fixture.repository, fixture.minter, {
+    const noAccountSubject = makeIrohTrustBroker(fixture.repository, {
       ...fixture.config,
       accountSubjectSecretBase64: undefined,
     });
@@ -2298,26 +2283,8 @@ class MemoryRepository implements IrohRepositoryShape {
   }
 }
 
-class FakeMinter implements IrohRelayMinterShape {
-  calls = 0;
-  afterMint: (() => void) | undefined;
-  constructor(private readonly fail: boolean) {}
-
-  mint(input: Parameters<IrohRelayMinterShape["mint"]>[0]) {
-    this.calls += 1;
-    if (this.fail) return Effect.fail(new IrohRelayMintError({ code: "test_failure" }));
-    const result = {
-      token: `relay-token-${this.calls}-with-safe-length`,
-      expiresAt: new Date(input.now.getTime() + IROH_RELAY_TOKEN_LIFETIME_SECONDS * 1_000),
-    };
-    this.afterMint?.();
-    return Effect.succeed(result);
-  }
-}
-
 function makeFixture(options: {
   repository?: MemoryRepository;
-  minterFailure?: boolean;
   appInstanceId?: string;
   deviceId?: string;
   identityGeneration?: number;
@@ -2336,7 +2303,6 @@ function makeFixture(options: {
   const endpointPublicDer = endpointKeys.publicKey.export({ format: "der", type: "spki" });
   const endpointId = Buffer.from(endpointPublicDer).subarray(-32).toString("hex");
   const repository = options.repository ?? new MemoryRepository();
-  const minter = new FakeMinter(options.minterFailure ?? false);
   const appInstanceId = options.appInstanceId ?? randomUUID();
   const deviceId = options.deviceId ?? randomUUID();
   const identityGeneration = options.identityGeneration ?? 1;
@@ -2361,22 +2327,18 @@ function makeFixture(options: {
         },
       ],
     }),
-    relayMinterInsecureLoopbackOptIn: false,
-    deploymentEnvironment: "test",
-    isVercelDeployment: false,
   };
   let relayPreference = options.relayPreference ?? {
     mode: "automatic" as const,
     selectedManagedRelayIds: [],
     customRelays: [],
   };
-  const broker = makeIrohTrustBroker(repository, minter, config, {
+  const broker = makeIrohTrustBroker(repository, config, {
     getPreference: () => Effect.succeed({ preference: relayPreference, revision: 0 }),
   });
 
   return {
     repository,
-    minter,
     broker,
     config,
     endpointId,

@@ -162,7 +162,6 @@ function connectivityExpectedErrorResponse(
       });
     case "IrohConfigurationError":
     case "IrohDatabaseError":
-    case "IrohRelayMintError":
       return connectivityJsonResponse({ error: "connectivity_service_unavailable" }, 503);
   }
 }
