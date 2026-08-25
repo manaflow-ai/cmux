@@ -1,16 +1,16 @@
 import Foundation
 import Testing
-import XCTest
 
-extension CMUXCLIErrorOutputRegressionTests {
+@Suite(.serialized) struct CMUXCLIEventsStreamErrorTests: Sendable {
     @Test func testEventsCommandSurfacesPlainTextStreamSocketError() throws {
-        let cliPath = try bundledCLIPath()
+        let support = CMUXCLIErrorOutputRegressionTests()
+        let cliPath = try support.bundledCLIPath()
         let socketPath = "/tmp/cmux-events-stream-error-\(UUID().uuidString).sock"
         let accessDeniedMessage = "ERROR: Access denied - only processes started inside cmux can connect"
         let responder = try UnixSocketResponder(path: socketPath, response: accessDeniedMessage)
         defer { responder.stop() }
 
-        let result = runProcess(
+        let result = support.runProcess(
             executablePath: cliPath,
             arguments: ["events", "--category", "workspace", "--after", "0", "--limit", "1"],
             environment: [
@@ -23,14 +23,20 @@ extension CMUXCLIErrorOutputRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.diagnostics)
-        XCTAssertEqual(result.status, 1, result.diagnostics)
-        XCTAssertEqual(result.stdout, "", result.diagnostics)
-        XCTAssertEqual(result.stderr, "Error: \(accessDeniedMessage)\n", result.diagnostics)
-        XCTAssertFalse(result.stderr.contains("NSCocoaErrorDomain"), result.diagnostics)
-        XCTAssertTrue(
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status == 1, Comment(rawValue: result.diagnostics))
+        #expect(result.stdout.isEmpty, Comment(rawValue: result.diagnostics))
+        #expect(
+            result.stderr == "Error: \(accessDeniedMessage)\n",
+            Comment(rawValue: result.diagnostics)
+        )
+        #expect(
+            !result.stderr.contains("NSCocoaErrorDomain"),
+            Comment(rawValue: result.diagnostics)
+        )
+        #expect(
             responder.receivedRequests.contains { $0.contains("\"method\":\"events.stream\"") },
-            result.diagnostics
+            Comment(rawValue: result.diagnostics)
         )
     }
 }
