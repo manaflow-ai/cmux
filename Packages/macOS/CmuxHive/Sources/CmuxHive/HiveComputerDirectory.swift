@@ -313,6 +313,7 @@ public final class HiveComputerDirectory {
         // Exactly one live match may claim; a 6-digit collision inside one
         // team is ambiguous and reports not-found rather than guessing.
         guard matches.count == 1, let match = matches.first else { return .codeNotFound }
+        guard match.device.isControllableHost else { return .noRoutes }
         guard match.device.deviceId != ownDeviceID else { return .loopbackRejected }
         return await persistPairing(
             macDeviceID: match.device.deviceId,
