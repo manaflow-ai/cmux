@@ -106,6 +106,7 @@ struct WorkspaceOuterPaneSplitTests {
         case canvas
         case remoteTmuxMirror
 
+        @MainActor
         func apply(to workspace: Workspace) {
             switch self {
             case .canvas:
