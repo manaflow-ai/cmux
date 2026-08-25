@@ -3105,7 +3105,7 @@ class GhosttyApp {
                let actionSurfaceId = callbackSurfaceId,
                let callbackContext {
                 enqueueTerminalPointerStyleEvent(
-                    .runtimeEnded(callbackContext.runtimeLifetimeId),
+                    .runtimeReset(callbackContext.runtimeLifetimeId),
                     surfaceView: surfaceView,
                     surfaceId: actionSurfaceId,
                     callbackContext: callbackContext
@@ -3242,6 +3242,18 @@ class GhosttyApp {
             let url = GhosttySurfaceScrollView.linkHoverURL(from: action.action.mouse_over_link)
             let terminalSurface = surfaceView.terminalSurface
             DispatchQueue.main.async { guard surfaceView.terminalSurface === terminalSurface, surfaceView.isVisibleInUI else { return }; terminalSurface?.hostedView.setLinkHoverURL(url) }
+            if let actionSurfaceId = callbackSurfaceId,
+               let callbackContext {
+                enqueueTerminalPointerStyleEvent(
+                    .ghosttyLinkHoverChanged(
+                        action.action.mouse_over_link.len > 0,
+                        runtimeLifetimeId: callbackContext.runtimeLifetimeId
+                    ),
+                    surfaceView: surfaceView,
+                    surfaceId: actionSurfaceId,
+                    callbackContext: callbackContext
+                )
+            }
             return true
         case GHOSTTY_ACTION_SCROLLBAR:
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
