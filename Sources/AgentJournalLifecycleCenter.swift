@@ -449,10 +449,17 @@ final class AgentJournalLifecycleCenter: Sendable {
                 key: assignment.agentKey,
                 panelId: panelId
             ) != nil
-        guard !owner.hasLiveAgentProcess(
+        let hasLiveAgentProcess = owner.hasLiveAgentProcess(
             statusKey: assignment.agentKey,
             panelId: panelId
-        ), !hasRemoteLifecycleEvidence else {
+        )
+        // A journaled completion is the one unbound assignment that remains
+        // valid while a long-lived agent process stays registered between
+        // turns. The reducer's per-session precedence still prevents an idle
+        // older session from replacing a newer running session.
+        let isCompletionAssignment = assignment.phase == .idle
+        guard (!hasLiveAgentProcess || isCompletionAssignment),
+              !hasRemoteLifecycleEvidence else {
             CmuxEventBus.shared.publish(
                 name: "agent.journal.apply_skipped",
                 category: "agent",

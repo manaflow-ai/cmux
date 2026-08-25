@@ -1222,6 +1222,27 @@ extension FeedCoordinator {
                 )
             }
             : nil
+        if let suppliedSurfaceId = resolved.surfaceId {
+            // A surface UUID is only valid inside the workspace/window supplied
+            // by the native observer. Never re-home a stale or cross-workspace
+            // message to whichever panel currently has focus.
+            if let dockOwner {
+                guard dockOwner.workspaceId == resolved.workspaceId else {
+                    return nil
+                }
+            } else if let directOwner {
+                guard directOwner.id == resolved.workspaceId else {
+                    return nil
+                }
+            } else if let tab {
+                guard Self.resolvePanelId(
+                    surfaceId: suppliedSurfaceId,
+                    tab: tab
+                ) != nil else {
+                    return nil
+                }
+            }
+        }
         let panelId: UUID?
         if let dockOwner {
             let candidate = resolved.surfaceId ?? dockOwner.focusedPanelId

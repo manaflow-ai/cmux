@@ -31,6 +31,23 @@ extension TerminalController: ControlFeedContext {
     ) -> V2CallResult {
         let observationEpochValue = params["observation_epoch"]
         let observationEpoch = agentAttentionEpoch(observationEpochValue)
+        let surfaceIdValue = params["surface_id"]
+        let surfaceId: UUID?
+        if let surfaceIdValue {
+            guard let parsedSurfaceId = agentAttentionUUID(surfaceIdValue) else {
+                return .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "agent_attention.invalid_parameters",
+                        defaultValue: "Invalid agent attention parameters."
+                    ),
+                    data: nil
+                )
+            }
+            surfaceId = parsedSurfaceId
+        } else {
+            surfaceId = nil
+        }
         guard let source = agentAttentionSource(params["source"]),
               let sessionId = agentAttentionOpaqueID(params["session_id"]),
               let observationId = agentAttentionOpaqueID(
@@ -55,7 +72,7 @@ extension TerminalController: ControlFeedContext {
             observationId: observationId,
             scopeId: scopeId,
             workspaceId: workspaceId,
-            surfaceId: agentAttentionUUID(params["surface_id"]),
+            surfaceId: surfaceId,
             processGeneration: generation,
             observationEpoch: observationEpoch
         )

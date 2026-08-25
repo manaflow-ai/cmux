@@ -398,9 +398,10 @@ final class ClaudeHookSessionStore {
             } ?? false
             switch eventName {
             case "SubagentStart":
-                if let normalizedWorkId,
-                   terminalWorkIds.contains(normalizedWorkId)
-                    || turnIsTerminal {
+                if turnIsTerminal
+                    || (normalizedWorkId.map {
+                        terminalWorkIds.contains($0)
+                    } == true) {
                     return AgentStructuredBackgroundWorkUpdate(
                         activeWorkCount: structuredBackgroundWorkCount(
                             record,
