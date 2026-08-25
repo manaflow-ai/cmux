@@ -233,6 +233,11 @@ private struct OnboardingIPhoneScreenshotFrame<Screen: View>: View {
             OnboardingMaskedDeviceScreen(mask: screenMask) {
                 screen
             }
+            // Slide the screen slightly under the opaque bezel ring: the
+            // mask's antialiased border otherwise lets the page background
+            // ring through, which is invisible on light captures but reads
+            // as a bright bleed around dark ones.
+            .scaleEffect(1.02)
             OnboardingDeviceFrameImage(image: deviceFrame)
         }
     }

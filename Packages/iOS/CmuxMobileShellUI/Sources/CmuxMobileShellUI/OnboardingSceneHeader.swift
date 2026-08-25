@@ -46,6 +46,21 @@ struct OnboardingSceneHeader: View {
         }
         .overlay {
             OnboardingProgressIndicator(stage: stage)
+                .background {
+                    // Washes the animated backdrop cells out behind the page
+                    // dots so they never read as extra pages; tracks the
+                    // indicator wherever the header lands. Backgrounds do not
+                    // affect layout, so the oversized fade is free.
+                    EllipticalGradient(
+                        colors: [
+                            PlatformPalette.systemBackground,
+                            PlatformPalette.systemBackground,
+                            PlatformPalette.systemBackground.opacity(0),
+                        ],
+                        center: .center
+                    )
+                    .frame(width: 220, height: 110)
+                }
         }
         .padding(.horizontal, 16)
         .padding(.top, 4)
