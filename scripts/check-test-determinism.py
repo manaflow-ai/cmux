@@ -161,6 +161,7 @@ class _FluentClientBinding:
     name: str
     kind: str
     binding_indent: str
+    binding_brace_depth: Optional[int]
     constructor_end: int
     base_target_bounds: Optional[tuple[int, int]]
     scope_start: int
@@ -1784,6 +1785,14 @@ def _evaluated_source_argument_bounds(
         if argument == "--":
             return None
 
+        attached_flag = _attached_source_flag_length(argument, spec)
+        if attached_flag is not None:
+            source_start = argument_bounds[0] + attached_flag
+            return _quoted_argument_bounds(line, source_start) or (
+                source_start,
+                argument_bounds[1],
+            )
+
         flag, separator, _ = argument.partition("=")
         if spec.source_flag_pattern.fullmatch(flag):
             if separator:
@@ -1803,6 +1812,20 @@ def _evaluated_source_argument_bounds(
             continue
         return None
     return None
+
+
+def _attached_source_flag_length(
+    argument: str,
+    spec: _InterpreterSourceSpec,
+) -> Optional[int]:
+    """Return the prefix length for an interpreter flag glued to its source."""
+    if spec is _SHELL_SOURCE_SPEC:
+        match = re.match(r"^-[A-Za-z]*c[A-Za-z]*(?=['\"`])", argument)
+    elif spec is _PYTHON_SOURCE_SPEC:
+        match = re.match(r"^-c(?=['\"`])", argument)
+    else:
+        match = re.match(r"^(?:-e|--eval|-p|--print)(?=['\"`])", argument)
+    return len(match.group(0)) if match is not None else None
 
 
 def _interpreter_source_spec(executable: str) -> Optional[_InterpreterSourceSpec]:
@@ -2445,6 +2468,23 @@ def _javascript_assignment_is_instance_field(
     return bool(re.search(r"\bclass\b[^{};]*$", declaration))
 
 
+def _javascript_brace_depth_at(
+    source: str,
+    offset: int,
+    executable: bytes,
+) -> int:
+    """Return the executable-brace nesting at a JavaScript source offset."""
+    depth = 0
+    for index in range(min(offset, len(source))):
+        if not executable[index]:
+            continue
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth = max(0, depth - 1)
+    return depth
+
+
 def _fluent_assignment_binding(
     source: str,
     constructor_start: int,
@@ -2710,6 +2750,15 @@ def _stored_fluent_client_bindings(
                 name=name,
                 kind=kind,
                 binding_indent=binding_indent,
+                binding_brace_depth=(
+                    _javascript_brace_depth_at(
+                        source,
+                        constructor.start(),
+                        executable,
+                    )
+                    if path_suffix in _JAVASCRIPT_SUFFIXES
+                    else None
+                ),
                 constructor_end=constructor_end,
                 base_target_bounds=(
                     base_target.value_bounds if base_target is not None else None
@@ -2801,6 +2850,7 @@ def _has_executable_match(
     end: int,
     executable: bytes,
     scope_indent: Optional[str] = None,
+    scope_brace_depth: Optional[int] = None,
 ) -> bool:
     for match in pattern.finditer(source, start, end):
         if not executable[match.start()]:
@@ -2810,6 +2860,12 @@ def _has_executable_match(
             line_indent = re.match(r"[ \t]*", source[line_start:])
             if line_indent is None or line_indent.group(0) != scope_indent:
                 continue
+        if scope_brace_depth is not None and _javascript_brace_depth_at(
+            source,
+            match.start(),
+            executable,
+        ) != scope_brace_depth:
+            continue
         return True
     return False
 
@@ -2848,6 +2904,9 @@ def _stored_fluent_client_verb_offsets(
                 binding.binding_indent
                 if path_suffix == ".py" and not binding.is_instance_property
                 else None,
+                binding.binding_brace_depth
+                if path_suffix in _JAVASCRIPT_SUFFIXES and not binding.is_instance_property
+                else None,
             )
         )
         for call in method_pattern.finditer(
@@ -2881,10 +2940,18 @@ def _stored_fluent_client_verb_offsets(
                 binding.binding_indent
                 if path_suffix == ".py"
                 else None,
+                binding.binding_brace_depth
+                if path_suffix in _JAVASCRIPT_SUFFIXES and not binding.is_instance_property
+                else None,
             ):
                 break
             if not executable[call.start()]:
                 continue
+            if path_suffix == ".py" and not binding.is_instance_property:
+                line_start = source.rfind("\n", 0, call.start()) + 1
+                line_indent = re.match(r"[ \t]*", source[line_start:])
+                if line_indent is None or line_indent.group(0) != binding.binding_indent:
+                    continue
             target = _fluent_method_target(
                 source,
                 call.end() - 1,
