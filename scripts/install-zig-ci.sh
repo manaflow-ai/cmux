@@ -119,32 +119,59 @@ ZIG_INDEX_ARCH="${ZIG_ARCH}-${ZIG_OS}"
 download_file() {
   local url="$1"
   local output="$2"
-  curl \
-    --fail \
-    --location \
-    --show-error \
-    --connect-timeout 20 \
-    --max-time 300 \
-    --retry 8 \
-    --retry-all-errors \
-    --retry-delay 10 \
-    --retry-max-time 300 \
-    "$url" \
-    --output "$output"
+  local partial_output="${3:-${output}.part}"
+  if ! curl \
+      --fail \
+      --location \
+      --show-error \
+      --continue-at - \
+      --connect-timeout 20 \
+      --max-time 300 \
+      --retry 8 \
+      --retry-all-errors \
+      --retry-delay 10 \
+      --retry-max-time 300 \
+      "$url" \
+      --output "$partial_output"; then
+    return 1
+  fi
+  mv -f "$partial_output" "$output"
 }
 
 download_zig_artifact() {
   local suffix="$1"
   local output="$2"
-  if download_file "${ZIG_MIRROR_URL}${suffix}" "$output"; then
-    return 0
-  fi
-  echo "Primary mirror download failed; retrying from ${ZIG_SECONDARY_MIRROR_URL}${suffix}" >&2
-  if download_file "${ZIG_SECONDARY_MIRROR_URL}${suffix}" "$output"; then
-    return 0
-  fi
-  echo "Secondary mirror download failed; retrying from ${ZIG_OFFICIAL_URL}${suffix}" >&2
-  download_file "${ZIG_OFFICIAL_URL}${suffix}" "$output"
+  local mirror_name
+  local mirror_url
+  local partial_output
+
+  # Each mirror gets its own resumable file. A failed transfer can therefore
+  # resume from the same mirror, while a fallback starts with that mirror's
+  # own bytes instead of appending to a partial response from another source.
+  rm -f "$output"
+  for mirror_name in primary secondary official; do
+    case "$mirror_name" in
+      primary) mirror_url="$ZIG_MIRROR_URL" ;;
+      secondary) mirror_url="$ZIG_SECONDARY_MIRROR_URL" ;;
+      official) mirror_url="$ZIG_OFFICIAL_URL" ;;
+    esac
+    partial_output="${output}.${mirror_name}.part"
+    if download_file "${mirror_url}${suffix}" "$output" "$partial_output"; then
+      return 0
+    fi
+    case "$mirror_name" in
+      primary)
+        echo "Primary mirror download failed; retrying from ${ZIG_SECONDARY_MIRROR_URL}${suffix}" >&2
+        ;;
+      secondary)
+        echo "Secondary mirror download failed; retrying from ${ZIG_OFFICIAL_URL}${suffix}" >&2
+        ;;
+      official)
+        echo "Official Zig download failed: ${mirror_url}${suffix}" >&2
+        ;;
+    esac
+  done
+  return 1
 }
 
 resolve_zig_sha256() {
