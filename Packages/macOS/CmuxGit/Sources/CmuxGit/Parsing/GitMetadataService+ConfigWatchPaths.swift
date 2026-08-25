@@ -65,7 +65,13 @@ extension GitMetadataService {
               ) else {
             return (pathsByRepository, indexSnapshotsByRepository, visitedRoots, remainingRepositoryCount)
         }
-        indexSnapshotsByRepository[repository.workTreeRoot] = indexSnapshot
+        // Reuse the root parse in the descriptor itself. Child snapshots are
+        // only needed to discover their gitlinks and are intentionally released
+        // after recursion so a large submodule tree cannot retain millions of
+        // entries at once.
+        if depth == 0 {
+            indexSnapshotsByRepository[repository.workTreeRoot] = indexSnapshot
+        }
 
         guard depth < safetyConfiguration.submoduleDepth else {
             return (

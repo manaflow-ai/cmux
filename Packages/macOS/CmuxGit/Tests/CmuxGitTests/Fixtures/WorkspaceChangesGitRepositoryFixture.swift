@@ -3,7 +3,7 @@ import Foundation
 final class WorkspaceChangesGitRepositoryFixture {
     let root: URL
     let home: URL
-    let gitExecutableURL: URL
+    private(set) var gitExecutableURL: URL
     private let gitExecutableURLs: [URL]
 
     init(initializeRepository: Bool = true, gitExecutableURL: URL? = nil) throws {
@@ -85,6 +85,7 @@ final class WorkspaceChangesGitRepositoryFixture {
             let errorData = error.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
             if acceptedExitCodes.contains(process.terminationStatus) {
+                gitExecutableURL = executableURL
                 return outputData
             }
             lastFailure = .gitFailed(
