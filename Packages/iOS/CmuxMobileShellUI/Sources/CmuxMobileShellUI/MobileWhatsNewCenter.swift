@@ -58,10 +58,19 @@ public final class MobileWhatsNewCenter {
             ?? "0"
         self.defaults = defaults
         self.loader = loader ?? Self.urlSessionLoader
-        if let cached = defaults.data(forKey: Self.cacheKey),
+        if let cached = defaults.data(forKey: environmentCacheKey),
            let list = try? JSONDecoder().decode(MobileWhatsNewRemoteList.self, from: cached) {
             remoteList = list
         }
+    }
+
+    /// The cache key scoped to the configured API host, so a build that
+    /// switches environments (production, staging, localhost dev) never
+    /// consumes another environment's visibility list from the cache. A
+    /// never-populated environment simply fails open to binary pages until
+    /// its first fetch.
+    private var environmentCacheKey: String {
+        Self.cacheKey + "." + (requestURL?.host?.lowercased() ?? "none")
     }
 
     /// Fetches the remote list, replacing the device cache on success. Any
@@ -74,7 +83,7 @@ public final class MobileWhatsNewCenter {
             let list = try JSONDecoder().decode(MobileWhatsNewRemoteList.self, from: data)
             remoteList = list
             lastRefreshSucceeded = true
-            defaults.set(data, forKey: Self.cacheKey)
+            defaults.set(data, forKey: environmentCacheKey)
             pruneAcknowledgedAnnouncements(against: list)
         } catch {
             // Keep the cached list; no cache ever fetched means binary
@@ -194,17 +203,14 @@ public final class MobileWhatsNewCenter {
         Set(defaults.stringArray(forKey: Self.acknowledgedAnnouncementsKey) ?? [])
     }
 
+    /// Resolves an announcement to renderable content. A referenced native
+    /// body never renders through an announcement: when the referenced entry
+    /// is remotely visible the announcement is dropped upstream as a
+    /// duplicate, and when it is hidden the operator retracted that content,
+    /// so resurfacing it here would bypass the remote hide switch. Only the
+    /// announcement's own fallback content (webpage, then inline feature
+    /// rows) renders.
     private func page(for announcement: MobileWhatsNewRemoteAnnouncement) -> MobileWhatsNewPage? {
-        if let nativeID = announcement.nativeEntryId,
-           let native = MobileWhatsNewCatalog.entry(withID: nativeID) {
-            return MobileWhatsNewPage(
-                id: announcement.id,
-                releaseLabel: announcement.releaseLabel ?? native.releaseLabel,
-                title: announcement.title ?? native.title,
-                body: native.body,
-                isAnnouncement: true
-            )
-        }
         guard let title = announcement.title, !title.isEmpty else { return nil }
         if let web = allowlistedWebURL(announcement.webUrl) {
             return MobileWhatsNewPage(

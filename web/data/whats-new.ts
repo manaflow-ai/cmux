@@ -11,12 +11,13 @@
  * `announcements` are remote-only entries (service announcements, backend
  * news). `minVersion`/`maxVersion` are REQUIRED inclusive bounds compared
  * against the app's short version string (dotted-numeric compare). Content
- * resolution on device, in order:
- * 1. `nativeEntryId` present in the installed binary's catalog: rendered
- *    natively.
- * 2. `webUrl` (cmux-owned https host only): rendered in an in-app webview,
- *    the fallback for binaries that predate the native page.
- * 3. Inline `features` rows (requires `title`).
+ * resolution on device:
+ * 1. `nativeEntryId` marks the announcement as a duplicate of that binary
+ *    page: devices where the page is remotely visible drop the announcement
+ *    (the content already shows natively), all others use the fallbacks.
+ * 2. `webUrl` (cmux-owned https host only): rendered in an in-app webview.
+ * 3. Inline `features` rows. A `title` is required whenever fallback
+ *    content exists.
  *
  * Edits to this file are code-reviewed; the route validates it at module
  * load so a malformed entry fails the build, never the client.
