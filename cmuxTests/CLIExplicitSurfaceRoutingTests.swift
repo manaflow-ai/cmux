@@ -96,6 +96,75 @@ struct CLIExplicitSurfaceRoutingTests {
         #expect(readParams["surface_id"] as? String == Self.numericSurfaceId)
     }
 
+    @Test func sendAtomicPreservesPresentationFlagsAndPromptText() throws {
+        let socketPath = Self.makeSocketPath("send-atomic-json")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = Self.requestID(from: payload),
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            guard method == "workspace.agent_submit" else {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "submitted": true,
+                    "queued": false,
+                    "message_id": "11111111-2222-3333-4444-555555555555",
+                    "delivery_state": "accepted",
+                    "workspace_id": Self.targetWorkspaceId,
+                    "surface_id": Self.targetSurfaceId,
+                ]
+            )
+        }
+
+        // "--agent" collides with the value-taking `hooks setup --agent
+        // <name>` option, so "--atomic" is the only addressed-delivery
+        // flag for `send`. Presentation flags after it must keep working.
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: [
+                "send",
+                "--workspace", Self.targetWorkspaceId,
+                "--atomic", "--json",
+                "ship", "the", "change",
+            ],
+            environment: cliEnvironment(socketPath: socketPath),
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty)
+        #expect(!result.timedOut)
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+
+        let requests = try state.requestObjects()
+        #expect(requests.count == 1)
+        let request = try #require(requests.first)
+        #expect(request["method"] as? String == "workspace.agent_submit")
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.targetWorkspaceId)
+        #expect(params["text"] as? String == "ship the change")
+
+        // --json survived flag parsing: stdout is the payload object.
+        let stdoutJSON = Self.jsonObject(result.stdout)
+        #expect(stdoutJSON?["message_id"] as? String == "11111111-2222-3333-4444-555555555555")
+    }
+
     @Test func agentSubmitUsesAtomicWorkspaceMethodAndPreservesPromptText() throws {
         let socketPath = Self.makeSocketPath("agent-submit")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
@@ -148,6 +217,7 @@ struct CLIExplicitSurfaceRoutingTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
 
         let requests = try state.requestObjects()
+        #expect(requests.count == 1)
         let request = try #require(requests.first)
         #expect(request["method"] as? String == "workspace.agent_submit")
         let params = try #require(request["params"] as? [String: Any])
@@ -242,6 +312,9 @@ struct CLIExplicitSurfaceRoutingTests {
             submitParams["workspace_id"] as? String
                 != Self.callerWorkspaceId
         )
+        // The caller's CMUX_SURFACE_ID must never leak into a request that
+        // targets another workspace.
+        #expect(submitParams["surface_id"] == nil)
         #expect(
             submitParams["text"] as? String
                 == "review the other workspace"

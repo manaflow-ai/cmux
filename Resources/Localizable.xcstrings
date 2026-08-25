@@ -8,121 +8,121 @@
           "ar": {
             "stringUnit": {
               "state": "translated",
-              "value": "--agent، --atomic  استخدم تسليم الوكيل الموجّه وأعد message_id"
+              "value": "--atomic  استخدم تسليم الوكيل الموجّه وأعد message_id"
             }
           },
           "bs": {
             "stringUnit": {
               "state": "translated",
-              "value": "--agent, --atomic  Koristite adresiranu isporuku agenta i vratite message_id"
+              "value": "--atomic  Koristite adresiranu isporuku agenta i vratite message_id"
             }
           },
           "da": {
             "stringUnit": {
               "state": "translated",
-              "value": "--agent, --atomic  Brug adresseret agentlevering og returnér message_id"
+              "value": "--atomic  Brug adresseret agentlevering og returnér message_id"
             }
           },
           "de": {
             "stringUnit": {
               "state": "translated",
-              "value": "--agent, --atomic  Adressierte Agent-Zustellung mit message_id verwenden"
+              "value": "--atomic  Adressierte Agent-Zustellung mit message_id verwenden"
             }
           },
           "en": {
             "stringUnit": {
               "state": "translated",
-              "value": "--agent, --atomic            Use addressed atomic agent delivery and return a message_id"
+              "value": "--atomic                     Use addressed atomic agent delivery and return a message_id"
             }
           },
           "es": {
             "stringUnit": {
               "state": "translated",
-              "value": "--agent, --atomic  Usa la entrega atómica al agente y devuelve message_id"
+              "value": "--atomic  Usa la entrega atómica al agente y devuelve message_id"
             }
           },
           "fr": {
             "stringUnit": {
               "state": "translated",
-              "value": "--agent, --atomic  Utiliser la livraison atomique adressée et renvoyer message_id"
+              "value": "--atomic  Utiliser la livraison atomique adressée et renvoyer message_id"
             }
           },
           "it": {
             "stringUnit": {
               "state": "translated",
-              "value": "--agent, --atomic  Usa la consegna atomica indirizzata e restituisci message_id"
+              "value": "--atomic  Usa la consegna atomica indirizzata e restituisci message_id"
             }
           },
           "ja": {
             "stringUnit": {
               "state": "translated",
-              "value": "--agent, --atomic            アドレス指定のアトミック配信を使い message_id を返します"
+              "value": "--atomic                     アドレス指定のアトミック配信を使い message_id を返します"
             }
           },
           "km": {
             "stringUnit": {
               "state": "translated",
-              "value": "--agent, --atomic  ប្រើការបញ្ជូនភ្នាក់ងារជាឯកតា ហើយត្រឡប់ message_id"
+              "value": "--atomic  ប្រើការបញ្ជូនភ្នាក់ងារជាឯកតា ហើយត្រឡប់ message_id"
             }
           },
           "ko": {
             "stringUnit": {
               "state": "translated",
-              "value": "--agent, --atomic            주소 지정 원자적 에이전트 전달을 사용하고 message_id를 반환합니다"
+              "value": "--atomic                     주소 지정 원자적 에이전트 전달을 사용하고 message_id를 반환합니다"
             }
           },
           "nb": {
             "stringUnit": {
               "state": "translated",
-              "value": "--agent, --atomic  Bruk adressert atomisk agentlevering og returner message_id"
+              "value": "--atomic  Bruk adressert atomisk agentlevering og returner message_id"
             }
           },
           "pl": {
             "stringUnit": {
               "state": "translated",
-              "value": "--agent, --atomic  Użyj adresowanego dostarczania atomowego i zwróć message_id"
+              "value": "--atomic  Użyj adresowanego dostarczania atomowego i zwróć message_id"
             }
           },
           "pt-BR": {
             "stringUnit": {
               "state": "translated",
-              "value": "--agent, --atomic  Use entrega atômica endereçada e retorne message_id"
+              "value": "--atomic  Use entrega atômica endereçada e retorne message_id"
             }
           },
           "ru": {
             "stringUnit": {
               "state": "translated",
-              "value": "--agent, --atomic  Использовать адресную атомарную доставку и вернуть message_id"
+              "value": "--atomic  Использовать адресную атомарную доставку и вернуть message_id"
             }
           },
           "th": {
             "stringUnit": {
               "state": "translated",
-              "value": "--agent, --atomic  ใช้การส่งไปยังเอเจนต์แบบอะตอมิกและส่งคืน message_id"
+              "value": "--atomic  ใช้การส่งไปยังเอเจนต์แบบอะตอมิกและส่งคืน message_id"
             }
           },
           "tr": {
             "stringUnit": {
               "state": "translated",
-              "value": "--agent, --atomic  Adresli atomik aracı teslimini kullan ve message_id döndür"
+              "value": "--atomic  Adresli atomik aracı teslimini kullan ve message_id döndür"
             }
           },
           "uk": {
             "stringUnit": {
               "state": "translated",
-              "value": "--agent, --atomic  Використати адресну атомарну доставку й повернути message_id"
+              "value": "--atomic  Використати адресну атомарну доставку й повернути message_id"
             }
           },
           "zh-Hans": {
             "stringUnit": {
               "state": "translated",
-              "value": "--agent, --atomic            使用定向原子代理传递并返回 message_id"
+              "value": "--atomic                     使用定向原子代理传递并返回 message_id"
             }
           },
           "zh-Hant": {
             "stringUnit": {
               "state": "translated",
-              "value": "--agent, --atomic            使用定址原子代理傳遞並返回 message_id"
+              "value": "--atomic                     使用定址原子代理傳遞並返回 message_id"
             }
           }
         }
@@ -373,6 +373,131 @@
             "stringUnit": {
               "state": "translated",
               "value": "在 cmux 工作區外使用 agent-submit 需要 --workspace"
+            }
+          }
+        }
+      },
+      "cli.agentSubmit.error.missingWorkspaceSend": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "يتطلب send --atomic هدف مساحة عمل"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "send --atomic zahtijeva ciljni radni prostor"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "send --atomic kræver et workspace-mål"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "send --atomic benötigt ein Workspace-Ziel"
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "send --atomic requires a workspace target"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "send --atomic requiere un espacio de trabajo de destino"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "send --atomic nécessite un espace de travail cible"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "send --atomic richiede un workspace di destinazione"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "send --atomic にはワークスペースの指定が必要です"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "send --atomic ត្រូវការ workspace គោលដៅ"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "send --atomic에는 대상 워크스페이스가 필요합니다"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "send --atomic krever et workspace-mål"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "send --atomic wymaga docelowego workspace"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "send --atomic requer um workspace de destino"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "send --atomic требует целевое рабочее пространство"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "send --atomic ต้องระบุเวิร์กสเปซเป้าหมาย"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "send --atomic için hedef çalışma alanı gerekir"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "send --atomic потребує цільовий робочий простір"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "send --atomic 需要目标工作区"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "send --atomic 需要目標工作區"
             }
           }
         }

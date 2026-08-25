@@ -5850,8 +5850,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // If not (e.g. `ignore` keybind), fall through to interpretKeyEvents
             // so the IME gets a chance to process this event.
             if handled {
+                // sendGhosttyKey already reported didAcceptExplicitInput()
+                // for this handled press/repeat.
                 recordPromptOwnershipAfterAcceptedGhosttyKey(keyEvent)
-                terminalSurface?.didAcceptExplicitInput()
                 return
             }
         }

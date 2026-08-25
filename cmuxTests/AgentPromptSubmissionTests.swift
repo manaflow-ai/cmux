@@ -82,6 +82,97 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
+    @Test func unconfirmedAcceptedPromptStopsBlockingTheWorkspaceFIFO() throws {
+        let service = AgentPromptSubmissionService(maximumPendingRequests: 8)
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+
+        func accepting() -> AgentPromptSubmissionResult {
+            .submitted(workspaceID: workspaceID, surfaceID: surfaceID, queued: false)
+        }
+
+        let first = service.submit(
+            workspaceID: workspaceID,
+            requestedSurfaceID: surfaceID,
+            text: "first",
+            delivery: accepting
+        )
+        guard case .submitted = first.result else {
+            Issue.record("Expected the first prompt to be accepted")
+            return
+        }
+
+        // The agent never emits a matching hook: no confirm() arrives.
+        let second = service.submit(
+            workspaceID: workspaceID,
+            requestedSurfaceID: surfaceID,
+            text: "second",
+            delivery: accepting
+        )
+        #expect(second.result == .queued(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            reason: "prior_prompt_in_flight"
+        ))
+        // Inside the confirmation window the barrier holds.
+        #expect(service.drain(workspaceID: workspaceID).isEmpty)
+
+        // Past the window the barrier expires and drain advances the FIFO.
+        let expired = service.expireStaleInFlight(
+            workspaceID: workspaceID,
+            now: Date().addingTimeInterval(service.confirmationTimeout + 1)
+        )
+        #expect(expired == first.messageID)
+        let drained = service.drain(workspaceID: workspaceID)
+        #expect(drained.map(\.messageID) == [second.messageID])
+
+        // A late hook still matches the first accepted message.
+        #expect(service.confirm(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            message: "first"
+        ) == first.messageID)
+    }
+
+    @MainActor
+    @Test func zeroConfirmationWindowNeverWedgesLaterSubmissions() throws {
+        let service = AgentPromptSubmissionService(
+            maximumPendingRequests: 8,
+            confirmationTimeout: 0
+        )
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+
+        func accepting() -> AgentPromptSubmissionResult {
+            .submitted(workspaceID: workspaceID, surfaceID: surfaceID, queued: false)
+        }
+
+        let first = service.submit(
+            workspaceID: workspaceID,
+            requestedSurfaceID: surfaceID,
+            text: "first",
+            delivery: accepting
+        )
+        guard case .submitted = first.result else {
+            Issue.record("Expected the first prompt to be accepted")
+            return
+        }
+        // The stale barrier expires during admission, so the second prompt
+        // delivers instead of queueing behind a hook that never comes.
+        let second = service.submit(
+            workspaceID: workspaceID,
+            requestedSurfaceID: surfaceID,
+            text: "second",
+            delivery: accepting
+        )
+        guard case .submitted = second.result else {
+            Issue.record("Expected the second prompt to be accepted")
+            return
+        }
+        #expect(first.messageID != second.messageID)
+    }
+
+    @MainActor
     @Test func addressedDeliveryDoesNotSelectOrFocusTargetWorkspace() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = previousAppDelegate ?? AppDelegate()
@@ -211,6 +302,97 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
+    @Test func hookObservedTurnGatesDeliveryInsteadOfShellActivity() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
+        let previousTabManager = appDelegate.tabManager
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        var created: [Workspace] = []
+        defer {
+            for workspace in created {
+                workspace.panels.values.forEach {
+                    ($0 as? TerminalPanel)?.surface.releaseSurfaceForTesting()
+                }
+                if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                    tabManager.closeWorkspace(workspace)
+                }
+            }
+            appDelegate.tabManager = previousTabManager
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        func makeAgentWorkspace() throws -> (Workspace, UUID) {
+            let workspace = tabManager.addWorkspace(select: false)
+            created.append(workspace)
+            let surfaceID = try #require(workspace.focusedPanelId)
+            let panel = try #require(
+                workspace.terminalInputTarget(forPanelID: surfaceID)?.panel
+            )
+            workspace.recordAgentPID(
+                key: "codex.turn-gate",
+                pid: getpid(),
+                panelId: surfaceID,
+                refreshPorts: false
+            )
+            panel.surface.releaseSurfaceForTesting()
+            // A TUI agent keeps the shell in commandRunning even while its
+            // composer is idle; that alone must not gate addressed delivery.
+            workspace.panelShellActivityStates[surfaceID] = .commandRunning
+            return (workspace, surfaceID)
+        }
+
+        func firstSubmissionReason(
+            workspace: Workspace,
+            surfaceID: UUID,
+            text: String
+        ) throws -> String? {
+            let result = TerminalController.shared.v2WorkspaceAgentSubmit(params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "text": text,
+            ])
+            guard case .ok(let payloadAny) = result,
+                  let payload = payloadAny as? [String: Any] else {
+                Issue.record("Expected admission for \(text)")
+                return nil
+            }
+            #expect(payload["delivery_state"] as? String == "queued")
+            return payload["queue_reason"] as? String
+        }
+
+        // Idle composer under a running TUI: queued only because the test
+        // surface is cold, never because of shell activity.
+        let (idleWorkspace, idleSurface) = try makeAgentWorkspace()
+        #expect(try firstSubmissionReason(
+            workspace: idleWorkspace,
+            surfaceID: idleSurface,
+            text: "deliver while composer is idle"
+        ) == "agent_not_ready")
+
+        // A hook-observed turn owns the composer and takes precedence.
+        let (busyWorkspace, busySurface) = try makeAgentWorkspace()
+        busyWorkspace.recordAgentTurnStart(panelId: busySurface)
+        #expect(try firstSubmissionReason(
+            workspace: busyWorkspace,
+            surfaceID: busySurface,
+            text: "queued behind the active turn"
+        ) == "agent_turn_active")
+
+        // A stale hook-observed turn expires so one missed stop hook cannot
+        // wedge addressed delivery; a stop hook clears it explicitly.
+        let past = Date().addingTimeInterval(
+            Workspace.activeAgentTurnMaximumAge + 1
+        )
+        #expect(!busyWorkspace.hasActiveAgentTurn(panelId: busySurface, now: past))
+        #expect(!busyWorkspace.hasActiveAgentTurn(panelId: busySurface))
+        busyWorkspace.recordAgentTurnStart(panelId: busySurface)
+        busyWorkspace.recordAgentTurnEnd(panelId: nil)
+        #expect(!busyWorkspace.hasActiveAgentTurn(panelId: busySurface))
+    }
+
+    @MainActor
     @Test func nativeHumanDraftDoesNotMakeTerminalComposerBusy() {
         let panel = TerminalPanel(workspaceId: UUID())
         defer { panel.surface.releaseSurfaceForTesting() }
@@ -320,7 +502,7 @@ struct AgentPromptSubmissionTests {
             return
         }
         let agentResponse = try #require(agentPayload as? [String: Any])
-        #expect(agentResponse["message_id"] as? String != nil)
+        #expect(agentResponse["message_id"] is String)
         #expect(agentResponse["queued"] as? Bool == true)
         #expect(agentResponse["delivery_state"] as? String == "queued")
 
@@ -524,10 +706,12 @@ struct AgentPromptSubmissionTests {
         let otherPanel = TerminalPanel(workspaceId: workspace.id)
         workspace.panels[otherPanel.id] = otherPanel
         defer {
+            workspace.panels.values.forEach {
+                ($0 as? TerminalPanel)?.surface.releaseSurfaceForTesting()
+            }
             if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
                 tabManager.closeWorkspace(workspace)
             }
-            otherPanel.surface.releaseSurfaceForTesting()
             appDelegate.tabManager = previousTabManager
             AppDelegate.shared = previousAppDelegate
         }
@@ -977,7 +1161,7 @@ struct AgentPromptSubmissionTests {
             return
         }
         let data = try #require(rawPayload as? [String: Any])
-        #expect(data["message_id"] as? String != nil)
+        #expect(data["message_id"] is String)
         #expect(data["queued"] as? Bool == true)
         #expect(data["delivery_state"] as? String == "queued")
         #expect(panel.surface.pendingSocketInputSnapshotForTests.items == 0)
@@ -1006,7 +1190,7 @@ struct AgentPromptSubmissionTests {
             return
         }
         let busyResponse = try #require(busyPayload as? [String: Any])
-        #expect(busyResponse["message_id"] as? String != nil)
+        #expect(busyResponse["message_id"] is String)
         #expect(busyResponse["queued"] as? Bool == true)
         #expect(panel.surface.pendingSocketInputSnapshotForTests.items == 0)
         #expect(panel.surface.hasUnconfirmedHumanPromptInput)

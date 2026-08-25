@@ -139,7 +139,7 @@ Environment:
 | `rename-workspace`, `rename-window` | Rename a workspace. `rename-window` is a compatibility alias. |
 | `current-workspace` | Print current workspace information. |
 | `read-screen` | Read terminal text from a surface. |
-| `send` | Send text to a terminal surface. Add `--agent` (or `--atomic`) to use addressed agent delivery and receive a `message_id`; without it this remains the raw input path. |
+| `send` | Send text to a terminal surface. Add `--atomic` to use addressed agent delivery and receive a `message_id`; without it this remains the raw input path. (`--agent` is reserved by `hooks setup --agent <name>` and is not a `send` flag.) |
 | `agent-submit` | Queue one complete prompt for a workspace's agent terminal. Admission is serialized per workspace, the text and submit key are one terminal transaction, and the response includes a `message_id`. A human terminal draft is left untouched; the message remains queued until the agent composer is safe. Subscribe to `workspace.agent_prompt.delivery` events for `queued`, `accepted`, `confirmed`, and terminal `failed` states. `agent_scope_unavailable` and `agent_busy` are retryable when called through the low-level socket path. Use `--surface` when a workspace has multiple agent terminals. |
 | `send-key` | Send one key to a terminal surface. |
 | `send-panel` | Send text to a panel/surface. |

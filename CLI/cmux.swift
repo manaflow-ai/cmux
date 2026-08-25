@@ -5636,11 +5636,14 @@ struct CMUXCLI {
             let (windowOpt, rem2) = parseOption(rem1, name: "--window")
             let terminatorIndex = rem2.firstIndex(of: "--") ?? rem2.endIndex
             let leadingArgs = rem2.prefix(upTo: terminatorIndex)
-            let addressedAgentDelivery = leadingArgs.contains("--agent")
-                || leadingArgs.contains("--atomic")
-            let addressedArgs = rem2.enumerated().compactMap { index, argument in
-                if index < terminatorIndex,
-                   argument == "--agent" || argument == "--atomic" {
+            // "--agent" is registered in commandOptionsWithValues for
+            // `hooks setup --agent <name>`, so parsePresentationOptions
+            // swallows the token after it before this parser runs. Only
+            // "--atomic" selects addressed delivery; `cmux agent-submit`
+            // is the named form.
+            let addressedAgentDelivery = leadingArgs.contains("--atomic")
+            let addressedArgs = rem2.enumerated().compactMap { index, argument -> String? in
+                if index < terminatorIndex, argument == "--atomic" {
                     return nil
                 }
                 return argument
@@ -5657,8 +5660,8 @@ struct CMUXCLI {
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
             if addressedAgentDelivery, wsId == nil {
                 throw CLIError(message: String(
-                    localized: "cli.agentSubmit.error.missingWorkspace",
-                    defaultValue: "send --agent requires a workspace target"
+                    localized: "cli.agentSubmit.error.missingWorkspaceSend",
+                    defaultValue: "send --atomic requires a workspace target"
                 ))
             }
             if let wsId { params["workspace_id"] = wsId }
@@ -5677,8 +5680,8 @@ struct CMUXCLI {
                     idFormat: idFormat,
                     fallbackText: String(
                         localized: "cli.agentSubmit.success",
-                        defaultValue: "Prompt"
-                    ) + " \(state)" + (messageID.isEmpty ? "" : " message_id=\(messageID)")
+                        defaultValue: "Prompt submitted"
+                    ) + (messageID.isEmpty ? "" : " message_id=\(messageID) state=\(state)")
                 )
             } else {
                 printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
@@ -17769,12 +17772,13 @@ struct CMUXCLI {
             Usage: cmux send [flags] [--] <text>
 
             Send text to a terminal surface. Escape sequences: \\n and \\r send Enter, \\t sends Tab.
+            With --atomic the text is delivered verbatim as one prompt; escape sequences are not translated.
 
             Flags:
               --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)
               --window <id|ref|index>      Window context for workspace/surface refs and indexes
-              \(String(localized: "cli.agentSubmit.agentFlag", defaultValue: "--agent, --atomic            Use addressed atomic agent delivery and return a message_id"))
+              \(String(localized: "cli.agentSubmit.agentFlag", defaultValue: "--atomic                     Use addressed atomic agent delivery and return a message_id"))
 
             Example:
               cmux send "echo hello"
