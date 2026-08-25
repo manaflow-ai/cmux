@@ -116,12 +116,13 @@ struct TerminalPointerStyleViewTests {
 
         #expect(view.effectiveTerminalPointerCursor == NSCursor.iBeam)
 
-        view.applyTerminalPointerStyle(
+        let didInvalidateCursorRects = view.applyTerminalPointerStyle(
             .ghosttyShape(
                 GHOSTTY_MOUSE_SHAPE_POINTER,
                 runtimeLifetimeId: replacementRuntimeLifetimeId
             )
         )
+        #expect(didInvalidateCursorRects)
         #expect(view.effectiveTerminalPointerCursor == NSCursor.pointingHand)
     }
 }

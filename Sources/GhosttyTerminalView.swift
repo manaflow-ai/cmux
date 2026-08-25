@@ -3679,14 +3679,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var suppressGhosttyPointerUntilFreshShape = false
     private var pointerStyleFocusGeneration: UInt64 = 0
 
+    @discardableResult
     func applyTerminalPointerStyle(
         _ event: TerminalPointerStyleEvent,
         focusGeneration: UInt64? = nil
-    ) {
+    ) -> Bool {
         if case .ghosttyShape = event,
            let focusGeneration,
            focusGeneration != pointerStyleFocusGeneration {
-            return
+            return false
         }
         if case .focusChanged(let focused) = event {
             let didChangeFocus = terminalPointerStyle.focused != focused
@@ -3700,12 +3701,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 pointerStyleIngress?.focusChanged(focused)
             }
         }
+        let wasSuppressingGhosttyPointer = suppressGhosttyPointerUntilFreshShape
         if case .ghosttyShape(_, let runtimeLifetimeId) = event,
            runtimeLifetimeId == pointerStyleRuntimeLifetimeId {
             suppressGhosttyPointerUntilFreshShape = false
         }
-        guard terminalPointerStyle.apply(event) else { return }
+        let didClearGhosttyPointerSuppression =
+            wasSuppressingGhosttyPointer &&
+            !suppressGhosttyPointerUntilFreshShape
+        guard terminalPointerStyle.apply(event) ||
+              didClearGhosttyPointerSuppression else { return false }
         window?.invalidateCursorRects(for: self)
+        return true
     }
 
     var effectiveTerminalPointerCursor: NSCursor {

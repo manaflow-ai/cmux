@@ -96,23 +96,33 @@ actor GhosttyPointerStyleIngress {
         runtimeLifetimeId: UUID?,
         generation: UInt64
     ) {
-        guard generation >= state.activeRuntimeGeneration else { return }
         guard let runtimeLifetimeId else {
             return
         }
-        guard state.activeRuntimeLifetimeId == runtimeLifetimeId,
+        if state.activeRuntimeLifetimeId != runtimeLifetimeId {
+            rememberRetiredRuntime(runtimeLifetimeId)
+            state.activeRuntimeGeneration = max(
+                state.activeRuntimeGeneration,
+                generation
+            )
+            return
+        }
+        guard generation >= state.activeRuntimeGeneration,
               state.activeRuntimeGeneration == generation else {
             return
         }
-        let retiredID = runtimeLifetimeId
         state.activeRuntimeLifetimeId = nil
         state.activeRuntimeGeneration = generation
-        state.retiredRuntimeLifetimeIds.insert(retiredID)
+        rememberRetiredRuntime(runtimeLifetimeId)
+    }
+
+    private func rememberRetiredRuntime(_ runtimeLifetimeId: UUID) {
+        state.retiredRuntimeLifetimeIds.insert(runtimeLifetimeId)
         if state.retiredRuntimeLifetimeIds.count > 8,
            let oldest = state.retiredRuntimeLifetimeIds.first {
             state.retiredRuntimeLifetimeIds.remove(oldest)
         }
-        state.byRuntime.removeValue(forKey: retiredID)
+        state.byRuntime.removeValue(forKey: runtimeLifetimeId)
     }
 
     private func receive(_ incoming: GhosttyPointerStyleIngressRequest) {
@@ -131,6 +141,11 @@ actor GhosttyPointerStyleIngress {
             let retiredID: UUID
             if let requestedID {
                 guard state.activeRuntimeLifetimeId == requestedID else {
+                    rememberRetiredRuntime(requestedID)
+                    state.activeRuntimeGeneration = max(
+                        state.activeRuntimeGeneration,
+                        request.runtimeGeneration
+                    )
                     return
                 }
                 retiredID = requestedID
@@ -141,12 +156,11 @@ actor GhosttyPointerStyleIngress {
                 retiredID = activeRuntimeLifetimeId
             }
             state.activeRuntimeLifetimeId = nil
-            state.retiredRuntimeLifetimeIds.insert(retiredID)
-            if state.retiredRuntimeLifetimeIds.count > 8,
-               let oldest = state.retiredRuntimeLifetimeIds.first {
-                state.retiredRuntimeLifetimeIds.remove(oldest)
-            }
-            state.byRuntime.removeValue(forKey: retiredID)
+            state.activeRuntimeGeneration = max(
+                state.activeRuntimeGeneration,
+                request.runtimeGeneration
+            )
+            rememberRetiredRuntime(retiredID)
             return
 
         case .runtimeReset, .runtimeEnded, .shape, .linkHover:
