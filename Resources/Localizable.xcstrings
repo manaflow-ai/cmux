@@ -56673,6 +56673,23 @@
         }
       }
     },
+    "cli.vm.open.delegatedToHostApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening the Cloud VM workspace on your Mac. Switch to the cmux window to use it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 上で Cloud VM ワークスペースを開いています。cmux のウィンドウに切り替えて使用してください。"
+          }
+        }
+      }
+    },
     "cli.workspace.create.error.envFileRequiresValue": {
       "extractionState": "manual",
       "localizations": {

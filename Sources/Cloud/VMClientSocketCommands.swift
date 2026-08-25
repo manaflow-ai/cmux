@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxFoundation
 import Foundation
 
 extension TerminalController {
@@ -35,6 +36,26 @@ extension TerminalController {
             return v2VmCall(id: id) {
                 let vm = try await VMClient.shared.openBase(name: name)
                 return Self.socketWorkerVMSummaryPayload(vm)
+            }
+        case CloudVMHostAppOpenCommand.method:
+            guard let command = CloudVMHostAppOpenCommand.from(socketParameters: params) else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: "\(CloudVMHostAppOpenCommand.method) requires `id` to be a Cloud VM identifier. Run `cmux vm ls` to find one."
+                )
+            }
+            let outcome = v2MainSync(commandKey: CloudVMHostAppOpenCommand.method) {
+                Self.startCloudVMOpenOnHostApp(command)
+            }
+            switch outcome {
+            case .started(let workspaceID):
+                return v2Ok(id: id, result: [
+                    "ok": true,
+                    "workspace_id": workspaceID.map { $0.uuidString as Any } ?? NSNull(),
+                ])
+            case .failed(let message):
+                return v2Error(id: id, code: "internal_error", message: message)
             }
         case "vm.base_reset":
             let name = Self.socketWorkerString(params["name"])

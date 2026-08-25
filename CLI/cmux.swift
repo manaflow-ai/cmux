@@ -3163,7 +3163,9 @@ struct CMUXCLI {
 
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
-    private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
+    // Internal (not private): the relay-delegation path in
+    // CMUXCLI+CloudVMHostAppOpen.swift reuses this attach timeout.
+    static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let sshPTYTerminalConnectedResponseTimeoutSeconds: TimeInterval = 0.5
     private static let sshPTYTerminalConnectedRetryDelaySeconds: TimeInterval = 0.1
     private static let sshPTYTerminalConnectedMaximumRetryDelaySeconds: TimeInterval = 2
@@ -3176,7 +3178,9 @@ struct CMUXCLI {
     // reconnect, session restore, and mobile attach targets the same provider VM once
     // creation succeeds. Do not rotate it without a migration.
     private static let persistentCloudVMSlotID = "cmux-default-freestyle-sshd-v1"
-    private static let persistentCloudVMWorkspaceName = "sshd"
+    // Internal (not private): CMUXCLI+CloudVMHostAppOpen.swift compares
+    // against it to tell a Base open from a per-VM attach.
+    static let persistentCloudVMWorkspaceName = "sshd"
     private static let claudeCodeStatusKey = "claude_code"
 
     init(
@@ -11157,6 +11161,24 @@ struct CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
+        // Every branch below builds a shell command out of values that only
+        // mean something on this machine (this CLI's executable path, its
+        // socket path, the credential it mints) and hands that command to a
+        // Mac-hosted pane. Over the remote relay this process runs on the
+        // remote host, so those values point at files the Mac does not have
+        // and the workspace opens onto a dead pane. Ask the app to run the
+        // attach on the Mac instead.
+        if client.isRelayBacked {
+            try openCloudVMOnHostApp(
+                id: id,
+                workspaceName: workspaceName,
+                forceSSH: forceSSH,
+                client: client,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+
         if forceSSH {
             let sshInfoStartedAt = Date()
             let response = try client.sendV2(
