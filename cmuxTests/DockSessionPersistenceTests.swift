@@ -401,6 +401,133 @@ struct DockSessionPersistenceTests {
         #expect(!startupPayload.contains(staleSessionID), Comment(rawValue: startupPayload))
     }
 
+    @Test(
+        "Dock stable-panel lookup prefers live process state over stale owner hook",
+        arguments: [DockScope.global, DockScope.workspace]
+    )
+    @MainActor
+    func stablePanelLookupPrefersLiveProcessStateOverStaleOwnerHook(
+        scope: DockScope
+    ) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-dock-live-process-fallback-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let hookStateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
+        let previousHookStateDirectory = getenv("CMUX_AGENT_HOOK_STATE_DIR").map {
+            String(cString: $0)
+        }
+        setenv("CMUX_AGENT_HOOK_STATE_DIR", hookStateDirectory.path, 1)
+        defer {
+            if let previousHookStateDirectory {
+                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDirectory, 1)
+            } else {
+                unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
+            }
+        }
+        let staleOwnerID = UUID()
+        let liveOwnerID = UUID()
+        let panelID = UUID()
+        let stableSurfaceID = UUID()
+        let workingDirectory = root.appendingPathComponent("repo", isDirectory: true)
+        let staleSessionID = UUID().uuidString
+        let liveSessionID = UUID().uuidString
+        try fileManager.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        try writeCodexHookStore(
+            directory: hookStateDirectory,
+            sessions: [
+                staleSessionID: codexHookRecord(
+                    sessionID: staleSessionID,
+                    workspaceID: staleOwnerID,
+                    panelID: panelID,
+                    workingDirectory: workingDirectory.path,
+                    updatedAt: 200
+                ),
+            ]
+        )
+
+        let processID = 42_001
+        let processIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(processID),
+            startSeconds: 10,
+            startMicroseconds: 20
+        )
+        let liveKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: liveOwnerID,
+            panelId: panelID
+        )
+        let agentIndex = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                liveKey: (
+                    snapshot: SessionRestorableAgentSnapshot(
+                        kind: .codex,
+                        sessionId: liveSessionID,
+                        workingDirectory: workingDirectory.path,
+                        launchCommand: nil
+                    ),
+                    updatedAt: 0,
+                    processIDs: [processID],
+                    agentProcessIDs: [processID],
+                    sessionIDSource: .explicit
+                ),
+            ],
+            processArgumentsProvider: { _ in nil },
+            processIdentityProvider: { pid in
+                pid == processID ? processIdentity : nil
+            }
+        )
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            .init(workspaceId: staleOwnerID, panelId: panelID): codexResumeBinding(
+                sessionID: staleSessionID,
+                workingDirectory: workingDirectory.path,
+                updatedAt: 200
+            ),
+            .init(workspaceId: liveOwnerID, panelId: panelID): codexProcessDetectedResumeBinding(
+                sessionID: liveSessionID,
+                workingDirectory: workingDirectory.path,
+                updatedAt: 1
+            ),
+        ])
+
+        let store = DockSplitStore(
+            workspaceId: staleOwnerID,
+            scope: scope,
+            baseDirectoryProvider: { workingDirectory.path }
+        )
+        defer { store.closeAllPanels() }
+        store.restoreSessionSnapshot(emptyTerminalDockSnapshot(
+            panelID: panelID,
+            stableSurfaceID: stableSurfaceID,
+            workingDirectory: workingDirectory.path
+        ))
+        store.updatePanelShellActivityState(panelId: panelID, state: .commandRunning)
+
+        let snapshot = store.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: agentIndex,
+            surfaceResumeBindingIndex: bindingIndex,
+            currentAgentProcessIdentity: { pid in
+                pid == processID ? processIdentity : nil
+            },
+            agentProcessPresence: { _ in .present }
+        )
+        let terminal = try #require(snapshot.panels.first?.terminal)
+
+        #expect(terminal.agent?.sessionId == liveSessionID)
+        #expect(terminal.resumeBinding?.checkpointId == liveSessionID)
+        #expect(terminal.wasAgentRunning == true)
+        #expect(terminal.agent?.sessionId != staleSessionID)
+        #expect(terminal.resumeBinding?.checkpointId != staleSessionID)
+    }
+
     @Test("Dock file-preview session round-trip preserves path, kind, and binding")
     @MainActor
     func filePreviewSessionRoundTripPreservesPathKindAndBinding() throws {
@@ -1017,6 +1144,23 @@ struct DockSessionPersistenceTests {
             cwd: workingDirectory,
             checkpointId: sessionID,
             source: "agent-hook",
+            autoResume: true,
+            updatedAt: updatedAt
+        )
+    }
+
+    private func codexProcessDetectedResumeBinding(
+        sessionID: String,
+        workingDirectory: String,
+        updatedAt: TimeInterval
+    ) -> SurfaceResumeBindingSnapshot {
+        SurfaceResumeBindingSnapshot(
+            name: "Codex",
+            kind: "codex",
+            command: "codex resume \(sessionID)",
+            cwd: workingDirectory,
+            checkpointId: sessionID,
+            source: "process-detected",
             autoResume: true,
             updatedAt: updatedAt
         )
