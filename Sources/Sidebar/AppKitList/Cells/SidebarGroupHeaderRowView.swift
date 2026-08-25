@@ -320,7 +320,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     /// preview never changes this header's model — without an explicit clear
     /// the painted treatment would linger indefinitely.
     func clearOptimisticAnchorActive() {
-        guard let model, !model.isAnchorActive else { return }
+        guard let model else { return }
         applyModel(model)
     }
 
