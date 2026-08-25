@@ -118,6 +118,52 @@ struct CLICallerWorkspaceDefaultTests {
         }
     }
 
+    /// `--no-caller` and an explicit caller selector are contradictory. The CLI must
+    /// reject the invocation before opening a socket instead of silently discarding
+    /// the selector and returning an indistinguishable identity response.
+    @Test func identifyNoCallerRejectsWorkspaceSelector() throws {
+        let socketPath = Self.makeSocketPath("identify-conflict")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        _ = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line), let id = payload["id"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            return Self.v2Response(id: id, ok: true, result: [
+                "socket_path": socketPath,
+                "focused": NSNull(),
+                "caller": NSNull(),
+            ])
+        }
+
+        var environment = cliEnvironment(
+            socketPath: socketPath,
+            callerWorkspaceId: Self.callerWorkspaceId
+        )
+        environment["CMUX_CLI_TTY_NAME"] = "/dev/ttys9999999"
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: [
+                "identify", "--json", "--workspace", Self.otherWorkspaceId, "--no-caller",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr + result.stdout))
+        #expect(result.status == 2, Comment(rawValue: result.stderr + result.stdout))
+        #expect(try state.requestObjects().isEmpty)
+        let output = result.stderr + result.stdout
+        #expect(output.contains("--no-caller"), Comment(rawValue: output))
+        #expect(output.contains("--workspace"), Comment(rawValue: output))
+    }
+
     private func runIdentify(
         arguments: [String],
         callerWorkspaceId: String?
