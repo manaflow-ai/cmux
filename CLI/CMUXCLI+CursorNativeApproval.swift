@@ -377,6 +377,12 @@ extension CMUXCLI {
               processIdentity.liveness == .live else {
             return
         }
+        // The observer may have been cancelled while it waited for Cursor's
+        // log record. Revalidate ownership at the mutation boundary so a late
+        // approval cannot resurrect Needs Input for a completed turn.
+        guard observerLease.isCurrent else {
+            return
+        }
 
         var params: [String: Any] = [
             "source": BuiltInAgentIntegration.cursor.feedSourceName,

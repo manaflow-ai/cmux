@@ -72,13 +72,16 @@ public nonisolated struct AgentTurnSettlementReconciler: Sendable {
         if terminalTurnIds.contains(incomingTurnId) {
             return .superseded
         }
+        // A legacy depth can describe more active turns than the exact ID
+        // list retained in the record. That partial snapshot cannot establish
+        // whether an untracked stop is stale, even when one ID is present.
+        if max(0, activeTurnDepth ?? 0) > activeTurnIds.count {
+            return .unknown
+        }
         if !activeTurnIds.isEmpty {
             return activeTurnIds.contains(incomingTurnId)
                 ? .current
                 : .superseded
-        }
-        if max(0, activeTurnDepth ?? 0) > activeTurnIds.count {
-            return .unknown
         }
         if let latestTurnId = normalizedTurnId(latestTurnId) {
             return latestTurnId == incomingTurnId
