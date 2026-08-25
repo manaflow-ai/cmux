@@ -584,6 +584,16 @@ struct ClaimFence {
     endpoint_ptr: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ClaimRequest {
+    /// Generation and token identify the exact explicit claim attempt. A
+    /// stale worker must not clear a newer request from the same endpoint.
+    generation: u64,
+    viewer_id: u64,
+    token: Option<u64>,
+    endpoint_ptr: usize,
+}
+
 struct OwnerResizeFence {
     generation: u64,
     owner_id: u64,
@@ -1384,7 +1394,13 @@ impl OrderedControlQueue {
             // report/claim pair, fail this attachment instead of letting
             // bytes overtake an authority transition that can never run.
             let claim_requested = self.target.get().and_then(Weak::upgrade).is_some_and(|target| {
-                target.state.lock().expect("terminal sizing state lock").claim_requested.is_some()
+                let generation = target.generation.load(Ordering::Acquire);
+                target
+                    .state
+                    .lock()
+                    .expect("terminal sizing state lock")
+                    .claim_requested
+                    .is_some_and(|request| request.generation == generation)
             });
             let claim_without_fence = claim_requested
                 && state.claim_fence.is_none()
@@ -1845,7 +1861,7 @@ struct SizingTargetState {
     /// another attachment joins. The relay never elects an existing survivor
     /// by itself because the core daemon has no generation token for that
     /// cross-socket hand-off.
-    claim_requested: Option<(u64, usize)>,
+    claim_requested: Option<ClaimRequest>,
     applied: Option<SizingGrid>,
     retired: bool,
 }
@@ -1888,10 +1904,38 @@ struct SizingTarget {
 /// Existing survivors are never selected implicitly: the core daemon does not
 /// provide a generation token that could order a cross-socket hand-off.
 fn candidate_viewer_id(state: &SizingTargetState) -> Option<u64> {
-    let (viewer_id, requested_endpoint_ptr) = state.claim_requested?;
-    state.viewers.get(&viewer_id).and_then(|viewer| {
-        (endpoint_ptr(&viewer.endpoint) == requested_endpoint_ptr).then_some(viewer_id)
+    let request = state.claim_requested?;
+    state.viewers.get(&request.viewer_id).and_then(|viewer| {
+        (endpoint_ptr(&viewer.endpoint) == request.endpoint_ptr).then_some(request.viewer_id)
     })
+}
+
+fn candidate_viewer_id_at_generation(state: &SizingTargetState, generation: u64) -> Option<u64> {
+    state
+        .claim_requested
+        .filter(|request| request.generation == generation)
+        .and_then(|_| candidate_viewer_id(state))
+}
+
+fn sync_claim_request_locked(
+    state: &mut SizingTargetState,
+    queue_state: &OrderedControlQueueState,
+    generation: u64,
+    viewer_id: u64,
+    endpoint: &Arc<OrderedControlEndpoint>,
+) {
+    let Some(fence) = queue_state.claim_fence else { return };
+    if fence.generation == generation
+        && fence.viewer_id == viewer_id
+        && fence.endpoint_ptr == endpoint_ptr(endpoint)
+    {
+        state.claim_requested = Some(ClaimRequest {
+            generation,
+            viewer_id,
+            token: Some(fence.token),
+            endpoint_ptr: fence.endpoint_ptr,
+        });
+    }
 }
 
 /// Coordinates geometry ownership for all raw terminal viewers on this relay.
@@ -1948,10 +1992,12 @@ impl TerminalSizing {
         {
             queue_state.claim_fence = None;
         }
-        if state
-            .claim_requested
-            .is_some_and(|(id, ptr)| id == viewer_id && ptr == endpoint_ptr(endpoint))
-        {
+        if state.claim_requested.is_some_and(|request| {
+            request.generation == generation
+                && request.viewer_id == viewer_id
+                && request.endpoint_ptr == endpoint_ptr(endpoint)
+                && request.token.is_none_or(|request_token| request_token == token)
+        }) {
             state.claim_requested = None;
         }
     }
@@ -1979,7 +2025,7 @@ impl TerminalSizing {
         Self::current_generation(target) == generation
             && !state.retired
             && state.owner.is_none()
-            && candidate_viewer_id(&state) == Some(viewer_id)
+            && candidate_viewer_id_at_generation(&state, generation) == Some(viewer_id)
             && smallest_sizing_grid(&state.viewers) == Some(grid)
             && state.viewers.get(&viewer_id).is_some_and(|viewer| {
                 viewer.endpoint.is_active() && Arc::ptr_eq(&viewer.endpoint, endpoint)
@@ -2108,7 +2154,12 @@ impl TerminalSizing {
             // explicit claim. Existing survivors are not selected after an
             // owner loss or refusal.
             let immediate_claim = state.owner.is_none();
-            state.claim_requested = immediate_claim.then_some((viewer_id, endpoint_ptr(&endpoint)));
+            state.claim_requested = immediate_claim.then_some(ClaimRequest {
+                generation,
+                viewer_id,
+                token: None,
+                endpoint_ptr: endpoint_ptr(&endpoint),
+            });
             let owner_grid = smallest_sizing_grid(&state.viewers);
             let owner_id =
                 if !immediate_claim && state.applied != owner_grid { state.owner } else { None };
@@ -2139,7 +2190,7 @@ impl TerminalSizing {
             }
             if immediate_claim {
                 if let Some(grid) = owner_grid {
-                    let (_, start) = self.enqueue_update_locked(
+                    let (valid, start) = self.enqueue_update_locked(
                         &target,
                         &mut queue_state,
                         &state,
@@ -2150,6 +2201,15 @@ impl TerminalSizing {
                         true,
                         generation,
                     );
+                    if valid {
+                        sync_claim_request_locked(
+                            &mut state,
+                            &queue_state,
+                            generation,
+                            viewer_id,
+                            &endpoint,
+                        );
+                    }
                     should_start |= start;
                 }
             }
@@ -2207,7 +2267,9 @@ impl TerminalSizing {
                 return;
             }
             let owner = state.owner;
-            let candidate = owner.is_none() && candidate_viewer_id(&state) == Some(viewer_id);
+            let candidate = owner.is_none()
+                && candidate_viewer_id_at_generation(&state, Self::current_generation(&target))
+                    == Some(viewer_id);
             let endpoint_matches = state.viewers.get(&viewer_id).is_some_and(|viewer| {
                 expected_endpoint.is_none_or(|expected| Arc::ptr_eq(&viewer.endpoint, expected))
             });
@@ -2233,7 +2295,7 @@ impl TerminalSizing {
             let generation = self.advance_generation(&target);
             let endpoint_viewer_id = owner.unwrap_or(viewer_id);
             let should_start = endpoint.map_or(false, |endpoint| {
-                self.enqueue_update_locked(
+                let (valid, should_start) = self.enqueue_update_locked(
                     &target,
                     &mut queue_state,
                     &state,
@@ -2243,8 +2305,17 @@ impl TerminalSizing {
                     effective_grid,
                     claim,
                     generation,
-                )
-                .1
+                );
+                if claim && valid {
+                    sync_claim_request_locked(
+                        &mut state,
+                        &queue_state,
+                        generation,
+                        endpoint_viewer_id,
+                        &endpoint,
+                    );
+                }
+                should_start
             });
             (target, should_start)
         };
@@ -2318,10 +2389,10 @@ impl TerminalSizing {
             // here: the core daemon freezes its current grid until a new
             // attachment makes an explicit claim.
             let removed_owner = state.owner == Some(viewer_id);
-            if state
-                .claim_requested
-                .is_some_and(|(id, ptr)| id == viewer_id && ptr == endpoint_ptr(&removed.endpoint))
-            {
+            if state.claim_requested.is_some_and(|request| {
+                request.viewer_id == viewer_id
+                    && request.endpoint_ptr == endpoint_ptr(&removed.endpoint)
+            }) {
                 state.claim_requested = None;
             }
             if removed_owner {
@@ -2562,8 +2633,9 @@ impl TerminalSizing {
             return (false, false);
         }
         let candidate = if state.owner.is_none() {
-            smallest_sizing_grid(&state.viewers)
-                .and_then(|current_grid| candidate_viewer_id(state).map(|id| (id, current_grid)))
+            smallest_sizing_grid(&state.viewers).and_then(|current_grid| {
+                candidate_viewer_id_at_generation(state, generation).map(|id| (id, current_grid))
+            })
         } else {
             None
         };
@@ -2580,8 +2652,8 @@ impl TerminalSizing {
             viewer.endpoint.is_active() && Arc::ptr_eq(&viewer.endpoint, endpoint)
         });
         let grid_current = smallest_sizing_grid(&state.viewers) == Some(grid);
-        let candidate_current =
-            expected_owner.is_none() && candidate_viewer_id(state) == Some(viewer_id);
+        let candidate_current = expected_owner.is_none()
+            && candidate_viewer_id_at_generation(state, generation) == Some(viewer_id);
         let queue_reserved_for_candidate = !claim && queue_state.claim_fence.is_some();
         let valid = endpoint_current
             && grid_current
@@ -2767,10 +2839,10 @@ impl TerminalSizing {
     ) -> CandidatePrepareOutcome {
         let (should_start, token, wire_ready) = {
             let mut queue_state = target.queue.state.lock().expect("ordered control queue lock");
-            let state = target.state.lock().expect("terminal sizing state lock");
+            let mut state = target.state.lock().expect("terminal sizing state lock");
             let generation_current = Self::current_generation(target) == generation;
             let endpoint_current = state.owner.is_none()
-                && candidate_viewer_id(&state) == Some(viewer_id)
+                && candidate_viewer_id_at_generation(&state, generation) == Some(viewer_id)
                 && state.viewers.get(&viewer_id).is_some_and(|viewer| {
                     viewer.endpoint.is_active() && Arc::ptr_eq(&viewer.endpoint, endpoint)
                 })
@@ -2838,6 +2910,13 @@ impl TerminalSizing {
                             token,
                             endpoint_ptr: endpoint_ptr(endpoint),
                         });
+                        sync_claim_request_locked(
+                            &mut state,
+                            &queue_state,
+                            generation,
+                            viewer_id,
+                            endpoint,
+                        );
                         (should_start, CandidatePrepareOutcome::Ready(token), true)
                     } else {
                         // A bounded queue cannot represent a partial claim
@@ -2879,24 +2958,27 @@ impl TerminalSizing {
         let current = !queue_state.closing_failed
             && !state.retired
             && state.owner.is_none()
-            && candidate_viewer_id(&state) == Some(viewer_id)
+            && candidate_viewer_id_at_generation(&state, generation) == Some(viewer_id)
             && smallest_sizing_grid(&state.viewers) == Some(grid)
             && generation_current
             && state.viewers.get(&viewer_id).is_some_and(|viewer| {
                 viewer.endpoint.is_active() && Arc::ptr_eq(&viewer.endpoint, endpoint)
             });
-        if queue_state.claim_fence
+        // The queue token is part of the same claim identity as generation,
+        // viewer, grid, and endpoint. A retry can reuse all other fields in
+        // one generation; an old response must not finish that newer retry.
+        let fence_current = queue_state.claim_fence
             == Some(ClaimFence {
                 generation,
                 viewer_id,
                 grid,
                 token,
                 endpoint_ptr: endpoint_ptr(endpoint),
-            })
-        {
+            });
+        if fence_current {
             queue_state.claim_fence = None;
         }
-        if success && current {
+        if success && current && fence_current {
             state.owner = Some(viewer_id);
             state.claim_requested = None;
             state.applied = Some(grid);
@@ -2904,10 +2986,12 @@ impl TerminalSizing {
         } else {
             // A refused explicit claim freezes the current core geometry. Do
             // not schedule a replacement or retry from an existing viewer.
-            if state
-                .claim_requested
-                .is_some_and(|(id, ptr)| id == viewer_id && ptr == endpoint_ptr(endpoint))
-            {
+            if state.claim_requested.is_some_and(|request| {
+                request.generation == generation
+                    && request.viewer_id == viewer_id
+                    && request.endpoint_ptr == endpoint_ptr(endpoint)
+                    && request.token.is_none_or(|request_token| request_token == token)
+            }) {
                 state.claim_requested = None;
             }
             false
@@ -2972,7 +3056,8 @@ impl TerminalSizing {
                 }
                 (state.surface_id, grid, Some(owner_id), Some(Arc::clone(&viewer.endpoint)), None)
             } else {
-                let Some(viewer_id) = candidate_viewer_id(&state) else {
+                let generation = Self::current_generation(target);
+                let Some(viewer_id) = candidate_viewer_id_at_generation(&state, generation) else {
                     return;
                 };
                 let Some(viewer) = state.viewers.get(&viewer_id) else { return };
@@ -7200,7 +7285,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stale_candidate_reply_does_not_detach_current_endpoint() {
+    async fn stale_candidate_reply_does_not_clear_same_endpoint_update_claim() {
         let control = SizingControl::new(12, &[]);
         control.block_claim_dispatch();
         let coordinator = TerminalSizing::new();
@@ -7216,15 +7301,35 @@ mod tests {
         let target = coordinator.targets.lock().unwrap().get(&key).cloned().unwrap();
         let endpoint = coordinator.queue_for(&key, 1).expect("candidate endpoint");
         let old_generation = TerminalSizing::current_generation(&target);
+        let old_token =
+            target.queue.state.lock().unwrap().claim_fence.expect("initial claim fence").token;
 
-        // Simulate a newer viewer transition while the old claim request is
-        // waiting for its daemon response. The generation change is the
-        // ordering fence; the endpoint itself remains attached and healthy.
+        // Simulate the same endpoint receiving a newer update while the old
+        // claim request is waiting for its daemon response. The generation
+        // and queue token are the ordering fence; the endpoint itself remains
+        // attached and healthy.
         {
-            let _queue_state = target.queue.state.lock().unwrap();
-            let _state = target.state.lock().unwrap();
+            let mut queue_state = target.queue.state.lock().unwrap();
+            let mut state = target.state.lock().unwrap();
             assert_eq!(TerminalSizing::current_generation(&target), old_generation);
-            coordinator.advance_generation(&target);
+            let new_generation = coordinator.advance_generation(&target);
+            // Reserve a newer claim for the same endpoint before the old
+            // response is released. The stale worker must not clear this
+            // marker merely because viewer id and endpoint pointer match.
+            let new_token = 99;
+            queue_state.claim_fence = Some(ClaimFence {
+                generation: new_generation,
+                viewer_id: 1,
+                grid: SizingGrid { cols: 80, rows: 24 },
+                token: new_token,
+                endpoint_ptr: endpoint_ptr(&endpoint),
+            });
+            state.claim_requested = Some(ClaimRequest {
+                generation: new_generation,
+                viewer_id: 1,
+                token: Some(new_token),
+                endpoint_ptr: endpoint_ptr(&endpoint),
+            });
         }
         control.release_claim_dispatch();
         tokio::time::timeout(Duration::from_secs(2), async {
@@ -7241,6 +7346,27 @@ mod tests {
         let current = coordinator.queue_for(&key, 1).expect("current endpoint");
         assert!(Arc::ptr_eq(&current, &endpoint), "stale reply detached the live endpoint");
         assert!(current.is_active(), "stale reply deactivated the live endpoint");
+        assert!(target.state.lock().unwrap().claim_requested.is_some_and(|request| {
+            request.generation > old_generation
+                && request.viewer_id == 1
+                && request.token == Some(99)
+                && request.endpoint_ptr == endpoint_ptr(&endpoint)
+        }));
+        assert!(
+            !coordinator.finish_candidate_request(
+                &target,
+                1,
+                &endpoint,
+                SizingGrid { cols: 80, rows: 24 },
+                TerminalSizing::current_generation(&target),
+                old_token,
+                true,
+            ),
+            "an old retry token must not finish the newer same-endpoint claim"
+        );
+        assert!(target.state.lock().unwrap().claim_requested.is_some_and(|request| {
+            request.token == Some(99) && request.endpoint_ptr == endpoint_ptr(&endpoint)
+        }));
         assert_eq!(
             target.state.lock().unwrap().owner,
             None,
