@@ -670,6 +670,8 @@ final class ClaudeHookSessionStore {
             let matchedNotificationCorrelationKey = pending[matchIndex].notificationCorrelationKey
             pending.remove(at: matchIndex)
             let hasRemaining = !pending.isEmpty
+            let previousWorkspaceId = record.workspaceId
+            let previousSurfaceId = record.surfaceId
             let lifecycle = failureWasError
                 ? AgentHibernationLifecycleState.needsInput
                 : (hasRemaining ? .needsInput : .running)
@@ -698,6 +700,14 @@ final class ClaudeHookSessionStore {
                 now: now
             )
             record.pendingCursorShellApprovals = hasRemaining ? pending : nil
+            if previousWorkspaceId != record.workspaceId || previousSurfaceId != record.surfaceId {
+                removeCursorPendingIndex(
+                    &state,
+                    sessionId: normalizedSession,
+                    workspaceId: previousWorkspaceId,
+                    surfaceId: previousSurfaceId
+                )
+            }
             if hasRemaining {
                 addCursorPendingIndex(
                     &state,
@@ -2403,7 +2413,14 @@ final class ClaudeHookSessionStore {
         var next: [String: [String]] = [:]
         for (key, sessions) in state.pendingCursorApprovalSessionsBySurface {
             let valid = sessions.filter { sessionId in
-                state.sessions[sessionId]?.pendingCursorShellApprovals?.isEmpty == false
+                guard let record = state.sessions[sessionId],
+                      record.pendingCursorShellApprovals?.isEmpty == false else {
+                    return false
+                }
+                return cursorPendingSurfaceKey(
+                    workspaceId: record.workspaceId,
+                    surfaceId: record.surfaceId
+                ) == key
             }
             if !valid.isEmpty {
                 next[key] = Array(valid.suffix(Self.maxPendingCursorApprovalIndexEntriesPerSurface))
