@@ -224,6 +224,7 @@ struct ControlCommandExecutionPolicyTests {
         // in-process callers stay safe.
         for command in [
             "notify", "notify_surface", "notify_target", "notify_target_async",
+            "notify_target_authorized", "notify_target_async_authorized",
             "list_notifications", "clear_notifications",
         ] {
             let policy = ControlCommandExecutionPolicy(forV1Command: command)
@@ -304,6 +305,7 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy.sidebarTelemetryV1Commands == telemetry)
         let notification: Set<String> = [
             "notify", "notify_surface", "notify_target", "notify_target_async",
+            "notify_target_authorized", "notify_target_async_authorized",
             "list_notifications", "clear_notifications",
         ]
         #expect(ControlCommandExecutionPolicy.notificationV1Commands == notification)

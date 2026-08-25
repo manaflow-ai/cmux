@@ -29,6 +29,8 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
     /// Whether automatic resume is requested (already gated: `true` only for the
     /// `agent-hook` source with `auto_resume == true`).
     public let autoResume: Bool
+    /// Immutable hook-session start time used to order runtime ownership.
+    public let runtimeGeneration: TimeInterval?
     /// The relay-claimed remote workspace, authenticated by the app context.
     public let remoteWorkspaceID: UUID?
     /// Raw relay parameters retained to authenticate their provenance.
@@ -58,6 +60,7 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
         launchCommand: ControlAgentLaunchCommand?,
         permissionMode: String?,
         autoResume: Bool,
+        runtimeGeneration: TimeInterval?,
         remoteWorkspaceID: UUID?,
         remoteRelayParameters: [String: JSONValue]?
     ) {
@@ -71,6 +74,7 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
         self.launchCommand = launchCommand
         self.permissionMode = permissionMode
         self.autoResume = autoResume
+        self.runtimeGeneration = runtimeGeneration
         self.remoteWorkspaceID = remoteWorkspaceID
         self.remoteRelayParameters = remoteRelayParameters
     }

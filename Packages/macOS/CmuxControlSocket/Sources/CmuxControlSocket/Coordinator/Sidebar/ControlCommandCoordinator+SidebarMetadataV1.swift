@@ -71,6 +71,8 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
+        let runtimeGeneration = sidebarRuntimeGeneration(options: parsed.options)
+        if let error = runtimeGeneration.error { return error }
 
         let pidValue: Int32? = {
             if let rawPid = sidebarNormalizedOptionValue(parsed.options["pid"]),
@@ -90,7 +92,9 @@ extension ControlCommandCoordinator {
             priority: priority,
             format: format,
             panelID: panelResolution.panelId,
-            pid: pidValue
+            pid: pidValue,
+            runtimeKey: sidebarNormalizedOptionValue(parsed.options["runtime-key"]),
+            runtimeGeneration: runtimeGeneration.value
         )
         return "OK"
     }
@@ -339,11 +343,15 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
+        let runtimeGeneration = sidebarRuntimeGeneration(options: parsed.options)
+        if let error = runtimeGeneration.error { return error }
         context?.controlSidebarScheduleAgentPIDRecord(
             target: target,
             key: key,
             pid: pid,
-            panelID: panelResolution.panelId
+            panelID: panelResolution.panelId,
+            runtimeKey: sidebarNormalizedOptionValue(parsed.options["runtime-key"]),
+            runtimeGeneration: runtimeGeneration.value
         )
         return "OK"
     }
@@ -372,6 +380,8 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
+        let runtimeGeneration = sidebarRuntimeGeneration(options: parsed.options)
+        if let error = runtimeGeneration.error { return error }
         guard context?.controlSidebarIsAllowedAgentLifecycleKey(
             key,
             target: target,
@@ -383,7 +393,9 @@ extension ControlCommandCoordinator {
             target: target,
             key: key,
             lifecycleRawValue: lifecycleRawValue,
-            panelID: panelResolution.panelId
+            panelID: panelResolution.panelId,
+            runtimeKey: sidebarNormalizedOptionValue(parsed.options["runtime-key"]),
+            runtimeGeneration: runtimeGeneration.value
         )
         return "OK"
     }
@@ -425,14 +437,38 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
+        let runtimeGeneration = sidebarRuntimeGeneration(options: parsed.options)
+        if let error = runtimeGeneration.error { return error }
         context?.controlSidebarScheduleAgentPIDClear(
             target: target,
             key: key,
             panelID: panelResolution.panelId,
             clearStatus: parsed.options["clear-status"] != nil,
-            requireOwnedKey: parsed.options["require-owned-key"] != nil
+            requireOwnedKey: parsed.options["require-owned-key"] != nil,
+            runtimeKey: sidebarNormalizedOptionValue(parsed.options["runtime-key"]),
+            runtimeGeneration: runtimeGeneration.value
         )
         return "OK"
+    }
+
+    private nonisolated func sidebarRuntimeGeneration(
+        options: [String: String]
+    ) -> (value: TimeInterval?, error: String?) {
+        guard let rawValue = sidebarNormalizedOptionValue(
+            options["runtime-generation"]
+        ) else {
+            return (nil, nil)
+        }
+        guard let value = TimeInterval(rawValue), value.isFinite, value > 0 else {
+            return (
+                nil,
+                String(
+                    localized: "socket.agentRuntime.error.invalidGeneration",
+                    defaultValue: "Invalid runtime generation; expected a finite positive number"
+                )
+            )
+        }
+        return (value, nil)
     }
 
     // MARK: - Log / progress

@@ -59,7 +59,9 @@ public protocol ControlSidebarContext: AnyObject {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval?
     )
 
     /// Enqueues the `clear_status`/`clear_meta` removal mutation.
@@ -74,7 +76,9 @@ public protocol ControlSidebarContext: AnyObject {
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
-        panelID: UUID?
+        panelID: UUID?,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval?
     )
 
     /// Parses an agent lifecycle CLI token, returning the canonical raw value
@@ -94,7 +98,9 @@ public protocol ControlSidebarContext: AnyObject {
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval?
     )
 
     /// Workspace-scoped manual loading toggle for `workspace_loading`. `on`
@@ -118,7 +124,9 @@ public protocol ControlSidebarContext: AnyObject {
         key: String,
         panelID: UUID?,
         clearStatus: Bool,
-        requireOwnedKey: Bool
+        requireOwnedKey: Bool,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval?
     )
 
     /// Enqueues the `report_meta_block` upsert mutation.

@@ -58,7 +58,9 @@ extension ControlSidebarContext {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval?
     ) {}
 
     nonisolated func controlSidebarScheduleStatusClear(
@@ -71,7 +73,9 @@ extension ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
-        panelID: UUID?
+        panelID: UUID?,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval?
     ) {}
 
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? { nil }
@@ -86,7 +90,9 @@ extension ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval?
     ) {}
 
     func controlSidebarSetWorkspaceLoading(
@@ -102,7 +108,9 @@ extension ControlSidebarContext {
         key: String,
         panelID: UUID?,
         clearStatus: Bool,
-        requireOwnedKey: Bool
+        requireOwnedKey: Bool,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval?
     ) {}
 
     nonisolated func controlSidebarScheduleMetadataBlockUpsert(

@@ -10,13 +10,87 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         key: String,
         panelID: UUID?
     )?
+    nonisolated(unsafe) var statusUpsertCall: (
+        target: ControlSidebarTabTarget,
+        key: String,
+        panelID: UUID?,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval?
+    )?
+    nonisolated(unsafe) var agentLifecycleCall: (
+        target: ControlSidebarTabTarget,
+        key: String,
+        panelID: UUID?,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval?
+    )?
     nonisolated(unsafe) var agentPIDClearCall: (
         target: ControlSidebarTabTarget,
         key: String,
         panelID: UUID?,
         clearStatus: Bool,
-        requireOwnedKey: Bool
+        requireOwnedKey: Bool,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval?
     )?
+    nonisolated(unsafe) var agentPIDRecordCall: (
+        target: ControlSidebarTabTarget,
+        key: String,
+        panelID: UUID?,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval?
+    )?
+
+    nonisolated func controlSidebarScheduleStatusUpsert(
+        target: ControlSidebarTabTarget,
+        key: String,
+        value: String,
+        icon: String?,
+        color: String?,
+        url: URL?,
+        priority: Int,
+        format: ControlSidebarMetadataFormat,
+        panelID: UUID?,
+        pid: Int32?,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval?
+    ) {
+        statusUpsertCall = (target, key, panelID, runtimeKey, runtimeGeneration)
+    }
+
+    nonisolated func controlSidebarScheduleAgentPIDRecord(
+        target: ControlSidebarTabTarget,
+        key: String,
+        pid: Int32,
+        panelID: UUID?,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval?
+    ) {
+        agentPIDRecordCall = (target, key, panelID, runtimeKey, runtimeGeneration)
+    }
+
+    nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? {
+        raw == "running" ? raw : nil
+    }
+
+    nonisolated func controlSidebarIsAllowedAgentLifecycleKey(
+        _ key: String,
+        target: ControlSidebarTabTarget,
+        panelID: UUID?
+    ) -> Bool {
+        true
+    }
+
+    nonisolated func controlSidebarScheduleAgentLifecycle(
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        panelID: UUID?,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval?
+    ) {
+        agentLifecycleCall = (target, key, panelID, runtimeKey, runtimeGeneration)
+    }
 
     nonisolated func controlSidebarScheduleStatusClear(
         target: ControlSidebarTabTarget,
@@ -31,9 +105,19 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         key: String,
         panelID: UUID?,
         clearStatus: Bool,
-        requireOwnedKey: Bool
+        requireOwnedKey: Bool,
+        runtimeKey: String?,
+        runtimeGeneration: TimeInterval?
     ) {
-        agentPIDClearCall = (target, key, panelID, clearStatus, requireOwnedKey)
+        agentPIDClearCall = (
+            target,
+            key,
+            panelID,
+            clearStatus,
+            requireOwnedKey,
+            runtimeKey,
+            runtimeGeneration
+        )
     }
 
     func controlSidebarSetWorkspaceLoading(

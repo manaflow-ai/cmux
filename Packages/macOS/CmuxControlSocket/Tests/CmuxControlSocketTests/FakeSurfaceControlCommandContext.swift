@@ -8,7 +8,10 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var surfaceListSnapshot: ControlSurfaceListSnapshot?
     var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
     var resumeSetInputs: ControlSurfaceResumeSetInputs?
+    var resumeGetRuntimeStatusKey: String?
     var resumeClearAgentSessionEnded: Bool?
+    var resumeClearRuntimeStatusKey: String?
+    var resumeClearRuntimeGeneration: TimeInterval?
     var resumeStrings = ControlSurfaceResumeStrings(
         agentSessionEndedMustBeBoolean: "agent_session_ended must be a boolean",
         launchCommandMustBeValid: "launch_command must be valid"
@@ -67,9 +70,11 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     func controlSurfaceResumeGet(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
-        hasResolvedWindowID: Bool
+        hasResolvedWindowID: Bool,
+        runtimeStatusKey: String?
     ) -> ControlSurfaceResumeResolution {
-        resumeResolution
+        resumeGetRuntimeStatusKey = runtimeStatusKey
+        return resumeResolution
     }
 
     func controlSurfaceResumeClear(
@@ -78,9 +83,13 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
         expectedSource: String?,
+        runtimeStatusKey: String?,
+        runtimeGeneration: TimeInterval?,
         agentSessionEnded: Bool
     ) -> ControlSurfaceResumeResolution {
         resumeClearAgentSessionEnded = agentSessionEnded
+        resumeClearRuntimeStatusKey = runtimeStatusKey
+        resumeClearRuntimeGeneration = runtimeGeneration
         return resumeResolution
     }
 

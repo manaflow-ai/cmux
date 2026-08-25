@@ -14,7 +14,9 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         let response = coordinator.handleSidebarV1(
             command: "clear_agent_pid",
             args: "omp.stale --tab=\(workspaceID.uuidString) --panel=\(panelID.uuidString) "
-                + "--clear-status --require-owned-key"
+                + "--clear-status --require-owned-key "
+                + "--runtime-key=omp.~cmux-session-v1~.c2Vzc2lvbi1h "
+                + "--runtime-generation=123.5"
         )
 
         #expect(response == "OK")
@@ -23,6 +25,72 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(context.agentPIDClearCall?.panelID == panelID)
         #expect(context.agentPIDClearCall?.clearStatus == true)
         #expect(context.agentPIDClearCall?.requireOwnedKey == true)
+        #expect(
+            context.agentPIDClearCall?.runtimeKey
+                == "omp.~cmux-session-v1~.c2Vzc2lvbi1h"
+        )
+        #expect(context.agentPIDClearCall?.runtimeGeneration == 123.5)
+    }
+
+    @Test func agentStatusAndLifecycleForwardRuntimeAuthority() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let runtimeKey = "omp.~cmux-session-v1~.c2Vzc2lvbi1h"
+
+        let statusResponse = coordinator.handleSidebarV1(
+            command: "set_status",
+            args: "omp Running --tab=\(workspaceID.uuidString) "
+                + "--panel=\(panelID.uuidString) --runtime-key=\(runtimeKey) "
+                + "--runtime-generation=123.5"
+        )
+        let pidResponse = coordinator.handleSidebarV1(
+            command: "set_agent_pid",
+            args: "\(runtimeKey) 123 --tab=\(workspaceID.uuidString) "
+                + "--panel=\(panelID.uuidString) --runtime-key=\(runtimeKey) "
+                + "--runtime-generation=123.5"
+        )
+        let lifecycleResponse = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args: "omp running --tab=\(workspaceID.uuidString) "
+                + "--panel=\(panelID.uuidString) --runtime-key=\(runtimeKey) "
+                + "--runtime-generation=123.5"
+        )
+
+        #expect(statusResponse == "OK")
+        #expect(context.statusUpsertCall?.target == .workspace(workspaceID))
+        #expect(context.statusUpsertCall?.key == "omp")
+        #expect(context.statusUpsertCall?.panelID == panelID)
+        #expect(context.statusUpsertCall?.runtimeKey == runtimeKey)
+        #expect(context.statusUpsertCall?.runtimeGeneration == 123.5)
+        #expect(pidResponse == "OK")
+        #expect(context.agentPIDRecordCall?.target == .workspace(workspaceID))
+        #expect(context.agentPIDRecordCall?.key == runtimeKey)
+        #expect(context.agentPIDRecordCall?.panelID == panelID)
+        #expect(context.agentPIDRecordCall?.runtimeKey == runtimeKey)
+        #expect(context.agentPIDRecordCall?.runtimeGeneration == 123.5)
+        #expect(lifecycleResponse == "OK")
+        #expect(context.agentLifecycleCall?.target == .workspace(workspaceID))
+        #expect(context.agentLifecycleCall?.key == "omp")
+        #expect(context.agentLifecycleCall?.panelID == panelID)
+        #expect(context.agentLifecycleCall?.runtimeKey == runtimeKey)
+        #expect(context.agentLifecycleCall?.runtimeGeneration == 123.5)
+    }
+
+    @Test(arguments: ["0", "-1", "nan", "inf"])
+    func agentRuntimeCommandsRejectInvalidGeneration(rawGeneration: String) {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_agent_pid",
+            args: "omp.session 123 --runtime-key=omp.session "
+                + "--runtime-generation=\(rawGeneration)"
+        )
+
+        #expect(response == "Invalid runtime generation; expected a finite positive number")
+        #expect(context.agentPIDRecordCall == nil)
     }
 
     @Test func statusClearForwardsPanelScope() {

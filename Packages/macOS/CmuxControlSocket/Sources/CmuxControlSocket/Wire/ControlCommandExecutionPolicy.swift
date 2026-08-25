@@ -390,6 +390,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "notify_surface",
         "notify_target",
         "notify_target_async",
+        "notify_target_authorized",
+        "notify_target_async_authorized",
         "list_notifications",
         "clear_notifications",
     ]
@@ -518,6 +520,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "notify_surface",
         "notify_target",
         "notify_target_async",
+        "notify_target_authorized",
+        "notify_target_async_authorized",
         "list_notifications",
         "clear_notifications",
         // The v1 resolution reads (tranche D): non-blocking single-hop

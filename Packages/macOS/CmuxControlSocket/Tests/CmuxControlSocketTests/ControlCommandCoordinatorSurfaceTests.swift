@@ -328,6 +328,7 @@ struct ControlCommandCoordinatorSurfaceTests {
                 "command": .string("codex resume legacy"),
                 "kind": .string("codex"),
                 "permission_mode": .string("never"),
+                "runtime_generation": .double(123.5),
                 "launch_command": .object([
                     "launcher": .string("codex"),
                     "executable_path": .string("/opt/Codex Tools/codex"),
@@ -346,6 +347,7 @@ struct ControlCommandCoordinatorSurfaceTests {
 
         let inputs = try #require(context.resumeSetInputs)
         #expect(inputs.permissionMode == "never")
+        #expect(inputs.runtimeGeneration == 123.5)
         #expect(inputs.launchCommand == ControlAgentLaunchCommand(
             launcher: "codex",
             executablePath: "/opt/Codex Tools/codex",
@@ -432,14 +434,15 @@ struct ControlCommandCoordinatorSurfaceTests {
                 preparedArgumentsWorkingDirectory: "/tmp/日本語",
                 permissionMode: nil,
                 legacyCommand: nil
-            )
+            ),
+            runtimeGenerationFloor: 987
         ))
         let coordinator = ControlCommandCoordinator(context: context)
 
         let result = coordinator.handle(ControlRequest(
             id: .int(1),
             method: "surface.resume.get",
-            params: [:]
+            params: ["runtime_status_key": .string("codex")]
         ))
         guard case .ok(.object(let payload)) = result,
               case .object(let record)? = payload["restore_record"],
@@ -454,6 +457,8 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(record["prepared_arguments_working_directory"] == .string("/tmp/日本語"))
         #expect(launch["arguments"] == .array(command.arguments.map(JSONValue.string)))
         #expect(record["legacy_command"] == .null)
+        #expect(context.resumeGetRuntimeStatusKey == "codex")
+        #expect(payload["runtime_generation_floor"] == .double(987))
     }
 
     @Test func surfaceResumeClearForwardsManagedSessionEndProvenance() {
@@ -463,9 +468,15 @@ struct ControlCommandCoordinatorSurfaceTests {
         _ = coordinator.handle(ControlRequest(
             id: .int(1),
             method: "surface.resume.clear",
-            params: ["agent_session_ended": .bool(true)]
+            params: [
+                "agent_session_ended": .bool(true),
+                "runtime_status_key": .string("codex"),
+                "runtime_generation": .double(123.5),
+            ]
         ))
         #expect(context.resumeClearAgentSessionEnded == true)
+        #expect(context.resumeClearRuntimeStatusKey == "codex")
+        #expect(context.resumeClearRuntimeGeneration == 123.5)
 
         _ = coordinator.handle(ControlRequest(
             id: .int(2),
@@ -473,6 +484,44 @@ struct ControlCommandCoordinatorSurfaceTests {
             params: [:]
         ))
         #expect(context.resumeClearAgentSessionEnded == false)
+        #expect(context.resumeClearRuntimeStatusKey == nil)
+        #expect(context.resumeClearRuntimeGeneration == nil)
+    }
+
+    @Test(arguments: [
+        JSONValue.double(0),
+        .double(-1),
+        .double(.nan),
+        .double(.infinity),
+        .string("123.5"),
+    ])
+    func surfaceResumeCommandsRejectInvalidRuntimeGeneration(value: JSONValue) {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let setResult = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.set",
+            params: [
+                "command": .string("codex resume session-1"),
+                "runtime_generation": value,
+            ]
+        ))
+        let clearResult = coordinator.handle(ControlRequest(
+            id: .int(2),
+            method: "surface.resume.clear",
+            params: ["runtime_generation": value]
+        ))
+        let expected = ControlCallResult.err(
+            code: "invalid_params",
+            message: "Invalid runtime generation; expected a finite positive number",
+            data: nil
+        )
+
+        #expect(setResult == expected)
+        #expect(clearResult == expected)
+        #expect(context.resumeSetInputs == nil)
+        #expect(context.resumeClearAgentSessionEnded == nil)
     }
 
     @Test(

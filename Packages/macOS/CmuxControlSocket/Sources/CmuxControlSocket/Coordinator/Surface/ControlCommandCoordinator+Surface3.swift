@@ -46,6 +46,22 @@ extension ControlCommandCoordinator {
         }
 
         let source = publicResumeSource(params)
+        let runtimeGeneration: TimeInterval?
+        if hasNonNull(params, "runtime_generation") {
+            guard let value = validatedRuntimeGeneration(params) else {
+                return .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.agentRuntime.error.invalidGeneration",
+                        defaultValue: "Invalid runtime generation; expected a finite positive number"
+                    ),
+                    data: nil
+                )
+            }
+            runtimeGeneration = value
+        } else {
+            runtimeGeneration = nil
+        }
         let remoteWorkspaceID = uuid(params, "_cmux_remote_workspace_id")
         if hasNonNull(params, "_cmux_remote_workspace_id"), remoteWorkspaceID == nil {
             return .err(
@@ -83,6 +99,7 @@ extension ControlCommandCoordinator {
             launchCommand: launchCommand,
             permissionMode: optionalTrimmedRawString(params, "permission_mode"),
             autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false,
+            runtimeGeneration: runtimeGeneration,
             remoteWorkspaceID: remoteWorkspaceID,
             remoteRelayParameters: remoteWorkspaceID == nil ? nil : params
         )
@@ -115,7 +132,8 @@ extension ControlCommandCoordinator {
             context?.controlSurfaceResumeGet(
                 routing: routing,
                 explicitTargetID: surfaceResumeExplicitTargetID(params),
-                hasResolvedWindowID: uuid(params, "window_id") != nil
+                hasResolvedWindowID: uuid(params, "window_id") != nil,
+                runtimeStatusKey: requestedRuntimeStatusKey(params)
             ) ?? .surfaceNotFound
         )
     }
@@ -142,6 +160,22 @@ extension ControlCommandCoordinator {
                 data: nil
             )
         }
+        let runtimeGeneration: TimeInterval?
+        if hasNonNull(params, "runtime_generation") {
+            guard let value = validatedRuntimeGeneration(params) else {
+                return .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.agentRuntime.error.invalidGeneration",
+                        defaultValue: "Invalid runtime generation; expected a finite positive number"
+                    ),
+                    data: nil
+                )
+            }
+            runtimeGeneration = value
+        } else {
+            runtimeGeneration = nil
+        }
         let resolution = context?.controlSurfaceResumeClear(
             routing: routing,
             explicitTargetID: surfaceResumeExplicitTargetID(params),
@@ -149,6 +183,8 @@ extension ControlCommandCoordinator {
             expectedCheckpointID: optionalTrimmedRawString(params, "checkpoint_id")
                 ?? optionalTrimmedRawString(params, "checkpointId"),
             expectedSource: optionalTrimmedRawString(params, "source"),
+            runtimeStatusKey: requestedRuntimeStatusKey(params),
+            runtimeGeneration: runtimeGeneration,
             agentSessionEnded: agentSessionEnded
         ) ?? .surfaceNotFound
         return surfaceResumeResult(resolution)
@@ -182,7 +218,7 @@ extension ControlCommandCoordinator {
         case .setFailed:
             return .err(code: "internal_error", message: "Failed to set resume binding", data: nil)
         case .result(let snapshot):
-            return .ok(.object([
+            var payload: [String: JSONValue] = [
                 "window_id": orNull(snapshot.windowID?.uuidString),
                 "window_ref": ref(.window, snapshot.windowID),
                 "workspace_id": .string(snapshot.workspaceID.uuidString),
@@ -194,8 +230,39 @@ extension ControlCommandCoordinator {
                 "cleared": .bool(snapshot.cleared),
                 "resume_binding": surfaceResumeBindingPayload(snapshot.binding),
                 "restore_record": surfaceRestoreRecordPayload(snapshot.restoreRecord),
-            ]))
+            ]
+            if let runtimeGenerationFloor = snapshot.runtimeGenerationFloor {
+                payload["runtime_generation_floor"] = .double(runtimeGenerationFloor)
+            }
+            return .ok(.object(payload))
         }
+    }
+
+    /// A present-but-invalid value remains a non-matching guard rather than
+    /// degrading `surface.resume.clear` into its legacy unguarded form.
+    private func requestedRuntimeStatusKey(
+        _ params: [String: JSONValue]
+    ) -> String? {
+        optionalTrimmedRawString(params, "runtime_status_key")
+            ?? (hasNonNull(params, "runtime_status_key") ? "" : nil)
+    }
+
+    /// Runtime generations are protocol numbers, not the legacy numeric-string
+    /// coercion accepted by the coordinator's general `double` helper.
+    private func validatedRuntimeGeneration(
+        _ params: [String: JSONValue]
+    ) -> TimeInterval? {
+        let generation: TimeInterval
+        switch params["runtime_generation"] {
+        case .double(let value):
+            generation = value
+        case .int(let value):
+            generation = TimeInterval(value)
+        default:
+            return nil
+        }
+        guard generation.isFinite, generation > 0 else { return nil }
+        return generation
     }
 
     /// The byte-faithful twin of `v2SurfaceResumeBindingPayload`: a `null` binding

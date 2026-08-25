@@ -22,6 +22,9 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
     public let binding: ControlSurfaceResumeBinding?
     /// Structured process data used by `cmux restore`.
     public let restoreRecord: ControlSurfaceRestoreRecord?
+    /// The app-owned generation floor for the requested runtime status key.
+    /// This remains available after the corresponding binding is cleared.
+    public let runtimeGenerationFloor: TimeInterval?
 
     /// Creates a resume snapshot.
     ///
@@ -32,6 +35,9 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
     ///   - surfaceID: The surface's identifier.
     ///   - cleared: Whether the binding was cleared.
     ///   - binding: The resulting resume binding.
+    ///   - restoreRecord: Structured process data used by `cmux restore`.
+    ///   - runtimeGenerationFloor: The app-owned floor for the requested
+    ///     runtime status key, or `nil` when no key was requested or observed.
     public init(
         windowID: UUID?,
         workspaceID: UUID,
@@ -39,7 +45,8 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
         surfaceID: UUID,
         cleared: Bool,
         binding: ControlSurfaceResumeBinding?,
-        restoreRecord: ControlSurfaceRestoreRecord?
+        restoreRecord: ControlSurfaceRestoreRecord?,
+        runtimeGenerationFloor: TimeInterval? = nil
     ) {
         self.windowID = windowID
         self.workspaceID = workspaceID
@@ -48,5 +55,6 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
         self.cleared = cleared
         self.binding = binding
         self.restoreRecord = restoreRecord
+        self.runtimeGenerationFloor = runtimeGenerationFloor
     }
 }

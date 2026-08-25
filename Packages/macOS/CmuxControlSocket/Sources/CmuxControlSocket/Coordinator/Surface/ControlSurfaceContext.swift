@@ -266,7 +266,8 @@ public protocol ControlSurfaceContext: AnyObject {
     func controlSurfaceResumeGet(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
-        hasResolvedWindowID: Bool
+        hasResolvedWindowID: Bool,
+        runtimeStatusKey: String?
     ) -> ControlSurfaceResumeResolution
 
     /// Clears the resume binding for `surface.resume.clear`, honoring the optional
@@ -276,6 +277,7 @@ public protocol ControlSurfaceContext: AnyObject {
     ///   - routing: The routing selectors (with the surface-resume precedence).
     ///   - expectedCheckpointID: The optional expected checkpoint guard.
     ///   - expectedSource: The optional expected source guard.
+    ///   - runtimeStatusKey: The optional exact agent/status ownership guard.
     ///   - agentSessionEnded: Whether a managed hook is clearing the binding as
     ///     part of authoritative session teardown.
     /// - Returns: The resume resolution.
@@ -285,6 +287,8 @@ public protocol ControlSurfaceContext: AnyObject {
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
         expectedSource: String?,
+        runtimeStatusKey: String?,
+        runtimeGeneration: TimeInterval?,
         agentSessionEnded: Bool
     ) -> ControlSurfaceResumeResolution
 
