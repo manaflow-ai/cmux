@@ -71,7 +71,11 @@ extension AppDelegate {
     private func recoverableMainWindowRouteSnapshot(
         for route: RecoverableMainWindowRoute
     ) -> MainWindowRouteSnapshot? {
-        guard let window = route.window ?? windowForMainWindowId(route.windowId) else { return nil }
+        guard let manager = route.tabManager,
+              tabManagerCanOwnRecoverableMainWindowRoute(manager),
+              let window = route.window ?? windowForMainWindowId(route.windowId) else {
+            return nil
+        }
         route.window = window
         return storedRecoverableMainWindowRouteSnapshot(for: route, window: window)
     }
@@ -135,7 +139,7 @@ extension AppDelegate {
     }
 
     private func recoverableMainWindowRouteSnapshot(windowId: UUID) -> MainWindowRouteSnapshot? {
-        guard let route = mainWindowLifecycleCoordinator.orphanedRoute(windowId: windowId) else {
+        guard let route = recoverableMainWindowRoute(windowId: windowId) else {
             return nil
         }
         return recoverableMainWindowRouteSnapshot(for: route)
@@ -712,13 +716,13 @@ extension AppDelegate {
     }
 
     func forgetRecoverableMainWindowRoute(windowId: UUID) {
-        let hadRoute = mainWindowLifecycleCoordinator.teardownRoute(windowId: windowId) != nil
-        mainWindowLifecycleCoordinator.removeRecoverableRoute(windowId: windowId)
-        if hadRoute {
-#if DEBUG
-            cmuxDebugLog("recoverableRoute.forget windowId=\(String(windowId.uuidString.prefix(8)))")
-#endif
+        guard let route = mainWindowLifecycleCoordinator.teardownRoute(windowId: windowId) else {
+            return
         }
+        retireRecoverableMainWindowRouteIfCurrent(route, reason: "forget")
+#if DEBUG
+        cmuxDebugLog("recoverableRoute.forget windowId=\(String(windowId.uuidString.prefix(8)))")
+#endif
     }
 
     /// Compatibility entrypoint for value-only recoverable route callers.
@@ -769,12 +773,13 @@ extension AppDelegate {
         _ route: RecoverableMainWindowRoute,
         reason: String
     ) {
-        guard mainWindowLifecycleCoordinator.orphanedRoute(windowId: route.windowId) === route else {
+        guard mainWindowLifecycleCoordinator.teardownRoute(windowId: route.windowId) === route else {
             return
         }
-        let workspaceIds = route.tabManager?.tabs.map(\.id) ?? []
+        let workspaceIds = recoverableRouteWorkspaceIdsForRemoteTeardown(route)
         mainWindowLifecycleCoordinator.removeRecoverableRoute(windowId: route.windowId)
-        route.tabManager?.clearRecoverableMainWindowRouteOwnerRegistration(for: route)
+        let manager = route.tabManager
+        manager?.clearRecoverableMainWindowRouteOwnerRegistration(for: route)
         route.markForTeardown()
         remoteTmuxController.handleWindowWorkspacesClosed(workspaceIds: workspaceIds)
 #if DEBUG
@@ -782,6 +787,22 @@ extension AppDelegate {
             "recoverableRoute.retire reason=\(reason) windowId=\(String(route.windowId.uuidString.prefix(8)))"
         )
 #endif
+    }
+
+    /// Filters the route's creation-time workspace identities against current
+    /// ownership before detaching remote mirrors. A workspace can move into a
+    /// replacement window while the original route remains recoverable; that
+    /// moved workspace must not be torn down when the stale route retires.
+    private func recoverableRouteWorkspaceIdsForRemoteTeardown(
+        _ route: RecoverableMainWindowRoute
+    ) -> [UUID] {
+        let routeManager = route.tabManager
+        return route.workspaceIds.filter { workspaceId in
+            guard let currentOwner = tabManagerFor(tabId: workspaceId) else {
+                return routeManager == nil
+            }
+            return currentOwner === routeManager
+        }
     }
 
     /// A route consumed by the lifecycle coordinator is already adopted. This
@@ -896,7 +917,21 @@ extension AppDelegate {
     }
 
     func recoverableMainWindowRoute(windowId: UUID) -> RecoverableMainWindowRoute? {
-        mainWindowLifecycleCoordinator.orphanedRoute(windowId: windowId)
+        guard let route = mainWindowLifecycleCoordinator.orphanedRoute(windowId: windowId) else {
+            return nil
+        }
+        // Frozen routes are persistence-only records and intentionally have no
+        // live manager. Keep them available until a snapshot consumes or
+        // explicitly retires the record.
+        if route.frozenWindowSnapshot != nil {
+            return route
+        }
+        guard let manager = route.tabManager,
+              tabManagerCanOwnRecoverableMainWindowRoute(manager) else {
+            retireRecoverableMainWindowRouteIfCurrent(route, reason: "routeAccess")
+            return nil
+        }
+        return route
     }
 
     func recoverableMainWindowRoutes() -> [RecoverableMainWindowRoute] {

@@ -249,7 +249,30 @@ final class MainWindowLifecycleCoordinator {
     func replaceRegisteredContextLookups(
         _ contexts: [ObjectIdentifier: AppDelegate.MainWindowContext]
     ) {
+        var lookupKeysByWindowId: [UUID: ObjectIdentifier] = [:]
+        for (lookupKey, context) in contexts {
+            // A repaired index must still have one exact lookup identity per
+            // stable window id. Refuse an ambiguous replacement rather than
+            // making the record/index pair disagree again.
+            guard lookupKeysByWindowId[context.windowId] == nil else { return }
+            lookupKeysByWindowId[context.windowId] = lookupKey
+        }
+
+        var updatedRecords = recordsByWindowId
+        for (windowId, record) in recordsByWindowId {
+            guard case .registered = record.phase else { continue }
+            guard let lookupKey = lookupKeysByWindowId[windowId] else {
+                // Keep the existing index untouched when a caller attempts to
+                // drop a registered context without first transitioning it.
+                return
+            }
+            var updatedRecord = record
+            updatedRecord.phase = .registered(lookupKey: lookupKey)
+            updatedRecords[windowId] = updatedRecord
+        }
+
         registeredContextsByLookupKey = contexts
+        recordsByWindowId = updatedRecords
     }
 
     /// Inserts a standalone recoverable route for legacy callers that do not

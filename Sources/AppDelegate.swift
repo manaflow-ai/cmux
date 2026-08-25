@@ -5234,6 +5234,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.close()
             return
         }
+        guard !tabManager.isFinalizedForWindowClose else {
+            mainWindowVisibilityController.commitClose(window)
+            window.orderOut(nil)
+            window.close()
+            return
+        }
+        guard !mainWindowVisibilityController.hasCommittedClose(for: window) else {
+            // SwiftUI can invoke the window accessor once more while dismantling
+            // a retained NSWindow. A committed close is authoritative: never
+            // recreate its context or give its terminal graph a respawn route.
+            finalizeRejectedMainWindowRegistrationIfUnowned(tabManager)
+            return
+        }
+        let recoverableRoute = recoverableMainWindowRoute(windowId: windowId)
+        if let recoverableRoute,
+           recoverableRoute.tabManager !== tabManager {
+#if DEBUG
+            cmuxDebugLog(
+                "mainWindow.register.recoverableOwnerMismatch windowId=\(String(windowId.uuidString.prefix(8)))"
+            )
+#endif
+            finalizeRejectedMainWindowRegistrationIfUnowned(tabManager)
+            window.orderOut(nil)
+            window.close()
+            return
+        }
         if let tabManagerOwnerWindowId = self.windowId(for: tabManager),
            tabManagerOwnerWindowId != windowId {
 #if DEBUG
@@ -5250,7 +5276,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let priorManagerToken = debugManagerToken(self.tabManager)
         #endif
-        let recoverableRoute = recoverableMainWindowRoute(windowId: windowId)
         if let existing = mainWindowContexts[key] {
             tabManager.window = window
             tabManager.windowId = existing.windowId
@@ -5329,6 +5354,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "window={\(debugWindowToken(window))}"
                 )
 #endif
+                finalizeRejectedMainWindowRegistrationIfUnowned(tabManager)
                 window.orderOut(nil)
                 window.close()
                 return
