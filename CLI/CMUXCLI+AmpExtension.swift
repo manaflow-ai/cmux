@@ -275,6 +275,7 @@ function statusEnvironment(): NodeJS.ProcessEnv {
     "TMPDIR",
     "CMUX_TAG",
     "CMUX_BUNDLE_ID",
+    "CMUX_WORKSPACE_ID",
     "CMUX_SOCKET",
     "CMUX_SOCKET_PATH",
     "CMUX_CLI_SENTRY_DISABLED",
