@@ -7,8 +7,9 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     /// Configs above this bound use Git plumbing instead of an unbounded scan.
     private static let maximumReferenceStorageConfigByteCount = 1 * 1_024 * 1_024
 
-    /// The bounded process runner used only for non-files reference storage.
-    private let runner: any WorkspaceChangesGitRunning
+    /// Candidate runners used only for non-files reference storage.
+    private let runners: [any WorkspaceChangesGitRunning]
+    private let probesReferenceFormat: Bool
     private let storageProbe: any GitReferenceStorageProbing
     private let configReader: GitConfigFileReader
 
@@ -20,12 +21,14 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
         let executableResolver = SystemGitExecutableResolver(environment: environment)
-        runner = SystemWorkspaceChangesGitRunner(
-            executableURLs: executableResolver.referenceExecutableURLs(),
-            environment: environment,
-            boundedCommandWallTimeLimit: boundedCommandWallTimeLimit,
-            allowsExecutableFallback: true
-        )
+        self.runners = executableResolver.referenceExecutableURLs().map { executableURL in
+            SystemWorkspaceChangesGitRunner(
+                executableURL: executableURL,
+                environment: environment,
+                boundedCommandWallTimeLimit: boundedCommandWallTimeLimit
+            ) as any WorkspaceChangesGitRunning
+        }
+        self.probesReferenceFormat = true
         self.storageProbe = storageProbe ?? SystemGitReferenceStorageProbe()
         self.configReader = configReader
     }
@@ -36,7 +39,22 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         storageProbe: (any GitReferenceStorageProbing)? = nil,
         configReader: GitConfigFileReader = GitConfigFileReader()
     ) {
-        self.runner = runner
+        self.runners = [runner]
+        self.probesReferenceFormat = runner is SystemWorkspaceChangesGitRunner
+        self.storageProbe = storageProbe ?? SystemGitReferenceStorageProbe()
+        self.configReader = configReader
+    }
+
+    /// Creates a reader with ordered injected runners for behavior tests.
+    init(
+        runners: [any WorkspaceChangesGitRunning],
+        storageProbe: (any GitReferenceStorageProbing)? = nil,
+        configReader: GitConfigFileReader = GitConfigFileReader()
+    ) {
+        self.runners = runners.isEmpty
+            ? [SystemWorkspaceChangesGitRunner()]
+            : runners
+        self.probesReferenceFormat = true
         self.storageProbe = storageProbe ?? SystemGitReferenceStorageProbe()
         self.configReader = configReader
     }
@@ -80,16 +98,32 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
 
     /// Builds a snapshot from Git's storage-independent plumbing commands.
     private func plumbingSnapshot(repository: ResolvedGitRepository) -> GitReferenceSnapshot {
+        guard let runner = referenceRunner(repository: repository) else {
+            return GitReferenceSnapshot(
+                checkedOutBranch: .unreadable,
+                headSignature: nil,
+                currentCommit: nil
+            )
+        }
+        return plumbingSnapshot(repository: repository, runner: runner)
+    }
+
+    private func plumbingSnapshot(
+        repository: ResolvedGitRepository,
+        runner: any WorkspaceChangesGitRunning
+    ) -> GitReferenceSnapshot {
         let symbolicReference = output(
             arguments: ["symbolic-ref", "--quiet", "HEAD"],
             repository: repository,
-            maximumByteCount: Self.maximumSymbolicReferenceByteCount
+            maximumByteCount: Self.maximumSymbolicReferenceByteCount,
+            runner: runner
         )
 
         if let symbolicReference, symbolicReference.hasPrefix("refs/heads/") {
             guard let stableReference = stableBranchReference(
                 initialSymbolicReference: symbolicReference,
-                repository: repository
+                repository: repository,
+                runner: runner
             ),
             let branch = GitMetadataService.normalizedBranchName(
                 String(stableReference.symbolicReference.dropFirst("refs/heads/".count))
@@ -110,7 +144,8 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         let currentCommit = output(
             arguments: ["rev-parse", "--verify", "HEAD^{commit}"],
             repository: repository,
-            maximumByteCount: Self.maximumObjectIDByteCount
+            maximumByteCount: Self.maximumObjectIDByteCount,
+            runner: runner
         ).flatMap { normalizedObjectID($0) }
 
         let checkedOutBranch: GitCheckedOutBranch
@@ -133,37 +168,59 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         )
     }
 
+    /// Selects one executable whose reference-format probe succeeds.
+    private func referenceRunner(
+        repository: ResolvedGitRepository
+    ) -> (any WorkspaceChangesGitRunning)? {
+        guard probesReferenceFormat else { return runners.first }
+        for runner in runners {
+            guard case .value(let format) = commandOutput(
+                arguments: ["rev-parse", "--show-ref-format"],
+                repository: repository,
+                maximumByteCount: Self.maximumSymbolicReferenceByteCount,
+                runner: runner
+            ) else { continue }
+            if format == "files" || format == "reftable" {
+                return runner
+            }
+        }
+        return nil
+    }
+
     /// Resolves a branch ref and verifies that HEAD still names it afterward.
     private func stableBranchReference(
         initialSymbolicReference: String,
-        repository: ResolvedGitRepository
+        repository: ResolvedGitRepository,
+        runner: any WorkspaceChangesGitRunning
     ) -> (symbolicReference: String, currentCommit: String?)? {
         var symbolicReference = initialSymbolicReference
         for _ in 0..<2 {
             let currentCommit = resolvedCommit(
                 for: symbolicReference,
-                repository: repository
+                repository: repository,
+                runner: runner
             )
-            guard currentCommit != nil || isLegitimateUnbornReference(symbolicReference) else {
-                return nil
-            }
+            if case .failed = currentCommit { return nil }
             guard let verifiedSymbolicReference = output(
                 arguments: ["symbolic-ref", "--quiet", "HEAD"],
                 repository: repository,
-                maximumByteCount: Self.maximumSymbolicReferenceByteCount
+                maximumByteCount: Self.maximumSymbolicReferenceByteCount,
+                runner: runner
             ) else {
                 return nil
             }
             let verifiedCommit = resolvedCommit(
                 for: verifiedSymbolicReference,
-                repository: repository
+                repository: repository,
+                runner: runner
             )
             if verifiedSymbolicReference == symbolicReference {
-                if let currentCommit, currentCommit == verifiedCommit {
-                    return (symbolicReference, currentCommit)
+                if case let (.value(current), .value(verified)) = (currentCommit, verifiedCommit),
+                   current == verified {
+                    return (symbolicReference, current)
                 }
-                if currentCommit == nil,
-                   verifiedCommit == nil,
+                if currentCommit == .missing,
+                   verifiedCommit == .missing,
                    isLegitimateUnbornReference(symbolicReference) {
                     // Git's reftable worktree compatibility HEAD uses the
                     // `.invalid` sentinel; never publish that value. A named
@@ -183,40 +240,60 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         return String(symbolicReference.dropFirst("refs/heads/".count)) != ".invalid"
     }
 
-    /// Resolves one branch ref to a complete object ID, or nil when plumbing
-    /// cannot prove a commit (including an unborn or unsupported ref backend).
+    /// Resolves one branch ref while preserving missing-vs-failed outcomes.
     private func resolvedCommit(
         for symbolicReference: String,
-        repository: ResolvedGitRepository
-    ) -> String? {
-        output(
-            arguments: [
-                "rev-parse",
-                "--verify",
-                "\(symbolicReference)^{commit}",
-            ],
+        repository: ResolvedGitRepository,
+        runner: any WorkspaceChangesGitRunning
+    ) -> GitReferenceCommandResult {
+        let result = commandOutput(
+            arguments: ["rev-parse", "--verify", "\(symbolicReference)^{commit}"],
             repository: repository,
-            maximumByteCount: Self.maximumObjectIDByteCount
-        ).flatMap { normalizedObjectID($0) }
+            maximumByteCount: Self.maximumObjectIDByteCount,
+            runner: runner
+        )
+        guard case .value(let value) = result else { return result }
+        guard let normalized = normalizedObjectID(value) else { return .failed }
+        return .value(normalized)
     }
 
     /// Runs one bounded plumbing command and returns trimmed UTF-8 output.
     private func output(
         arguments: [String],
         repository: ResolvedGitRepository,
-        maximumByteCount: Int
+        maximumByteCount: Int,
+        runner: any WorkspaceChangesGitRunning
     ) -> String? {
+        guard case .value(let value) = commandOutput(
+            arguments: arguments,
+            repository: repository,
+            maximumByteCount: maximumByteCount,
+            runner: runner
+        ) else { return nil }
+        return value
+    }
+
+    /// Runs one bounded command and preserves missing-vs-failed outcomes.
+    private func commandOutput(
+        arguments: [String],
+        repository: ResolvedGitRepository,
+        maximumByteCount: Int,
+        runner: any WorkspaceChangesGitRunning
+    ) -> GitReferenceCommandResult {
         guard let result = try? runner.run(
             arguments: arguments,
             in: URL(fileURLWithPath: repository.workTreeRoot, isDirectory: true),
             maximumOutputByteCount: maximumByteCount
         ),
-        result.exitCode == 0,
         !result.standardOutputWasTruncated,
         let output = String(data: result.output, encoding: .utf8) else {
-            return nil
+            return .failed
         }
-        return GitMetadataService.normalizedBranchName(output)
+        guard result.exitCode == 0 else { return .missing }
+        guard let normalized = GitMetadataService.normalizedBranchName(output) else {
+            return .failed
+        }
+        return .value(normalized)
     }
 
     /// Reads the local extensions.refStorage value, if one is declared.

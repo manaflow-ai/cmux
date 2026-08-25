@@ -569,7 +569,11 @@ actor CmxConnectivityPeerSession {
         }
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                if retiredDialDrains.isEmpty {
+                if Task.isCancelled {
+                    expiredRetiredDialWaiters.remove(waiterID)
+                    retiredDialWaiterGenerations.removeValue(forKey: waiterID)
+                    continuation.resume()
+                } else if retiredDialDrains.isEmpty {
                     continuation.resume()
                 } else if expiredRetiredDialWaiters.remove(waiterID) != nil {
                     continuation.resume()
@@ -585,9 +589,12 @@ actor CmxConnectivityPeerSession {
     }
 
     private func resumeRetiredDialWaiter(id: UUID) {
+        guard let continuation = retiredDialWaiters.removeValue(forKey: id) else {
+            return
+        }
         expiredRetiredDialWaiters.remove(id)
         retiredDialWaiterGenerations.removeValue(forKey: id)
-        retiredDialWaiters.removeValue(forKey: id)?.resume()
+        continuation.resume()
     }
 
     private func expireRetiredDialWait(id: UUID) {
