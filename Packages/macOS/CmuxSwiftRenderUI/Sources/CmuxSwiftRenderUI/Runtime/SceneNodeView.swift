@@ -45,8 +45,10 @@ extension EnvironmentValues {
 
     /// Whether the nearest hover-tracking ancestor (a node with a
     /// hoverBackground) is hovered. Drives `.showOnHover()`/`.hideOnHover()`
-    /// children like a row's close button, entirely host-side.
-    var sceneHovered: Bool {
+    /// children like a row's close button, entirely host-side. Package
+    /// visibility so reorder-lab can force it (tracking areas ignore
+    /// synthesized events, so hover is otherwise undrivable in the lab).
+    package var sceneHovered: Bool {
         get { self[SceneHoveredKey.self] }
         set { self[SceneHoveredKey.self] = newValue }
     }
@@ -569,7 +571,8 @@ private struct SceneMarqueeText: View {
     private var overflow: CGFloat { max(0, fullWidth - visibleWidth) }
 
     var body: some View {
-        Text(text)
+        let _ = marqueeLog("body hovered=\(hovered) scrolling=\(scrolling) overflow=\(overflow)")
+        return Text(text)
             .opacity(scrolling && overflow > 1 ? 0 : 1)
             .background(
                 GeometryReader { geo in
@@ -595,13 +598,29 @@ private struct SceneMarqueeText: View {
                 }
             }
             .clipped()
+            // While the marquee is running, text extends past both clipped
+            // edges, so both edges fade instead of hard-clipping. The strips
+            // collapse to zero width at rest.
+            .mask {
+                let active = scrolling && overflow > 1
+                HStack(spacing: 0) {
+                    LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: active ? 12 : 0)
+                    Rectangle()
+                    LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: active ? 12 : 0)
+                }
+                .animation(.easeOut(duration: 0.12), value: active)
+            }
             .task(id: hovered) {
                 guard hovered else {
                     stopScroll()
                     return
                 }
+                marqueeLog("hover start, waiting \(delay)s")
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 guard !Task.isCancelled else { return }
+                marqueeLog("delay elapsed, scrolling on")
                 scrolling = true
             }
             .onChange(of: scrolling) { _, _ in updateScrollAnimation() }
@@ -609,13 +628,18 @@ private struct SceneMarqueeText: View {
     }
 
     /// ~30pt/s out-and-back, with a short dwell before departure. Runs only
-    /// once the clone has been measured (overflow known).
+    /// once the clone has been measured (overflow known) - until then it
+    /// must WAIT, not stop: when `scrolling` first flips on, the clone has
+    /// not rendered yet and overflow is still 0 for one frame. (Calling
+    /// stopScroll() here killed the marquee the same frame it started.)
     private func updateScrollAnimation() {
         guard scrolling, overflow > 1 else {
-            stopScroll()
+            marqueeLog("waiting/reset (scrolling=\(scrolling) overflow=\(overflow) full=\(fullWidth) visible=\(visibleWidth))")
+            resetPhase()
             return
         }
         let duration = max(0.5, Double(overflow) / 30.0)
+        marqueeLog("animating overflow=\(overflow) duration=\(duration)")
         withAnimation(.linear(duration: duration).delay(0.4).repeatForever(autoreverses: true)) {
             phase = 1
         }
@@ -623,8 +647,17 @@ private struct SceneMarqueeText: View {
 
     private func stopScroll() {
         scrolling = false
+        resetPhase()
+    }
+
+    private func resetPhase() {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) { phase = 0 }
+    }
+
+    private func marqueeLog(_ message: String) {
+        guard ProcessInfo.processInfo.environment["CMUX_SIDEBAR_MARQUEE_DEBUG"] == "1" else { return }
+        FileHandle.standardError.write(Data("marquee[\(text.prefix(12))]: \(message)\n".utf8))
     }
 }

@@ -60,7 +60,12 @@ public struct JSSidebarHostView: View {
     }
 
     private func errorView(_ message: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        // Surface program errors on stderr for lab/debug runs, where the
+        // error view itself can't be seen.
+        if ProcessInfo.processInfo.environment["CMUX_SIDEBAR_MARQUEE_DEBUG"] == "1" {
+            FileHandle.standardError.write(Data("sidebar error: \(message)\n".utf8))
+        }
+        return VStack(alignment: .leading, spacing: 6) {
             Label(
                 String(localized: "sidebar.custom.error", defaultValue: "Sidebar error", bundle: .module),
                 systemImage: "exclamationmark.triangle.fill"

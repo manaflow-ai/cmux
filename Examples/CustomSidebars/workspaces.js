@@ -445,11 +445,14 @@ function workspaceRow(w, entry) {
         .font(8).color("tertiary")
         .opacity(() => (w()?.pinned && !(w()?.unread > 0) ? 1 : 0))
         .hideOnHover(),
+      // Circular close: uniform padding around the glyph + full-round corner
+      // (the background hugs content+padding, so padding IS the circle size).
       Image("xmark")
         .font(9).weight("semibold").color("secondary")
-        .paddingHorizontal(4).paddingVertical(3)
-        .cornerRadius(5)
-        .hoverBackground("#7f7f7f38")
+        .padding(4)
+        .cornerRadius(9)
+        .background("#7f7f7f30")
+        .hoverBackground("#7f7f7f4a")
         .showOnHover()
         .onTap(() => closeWorkspace(w().id)),
     ]),

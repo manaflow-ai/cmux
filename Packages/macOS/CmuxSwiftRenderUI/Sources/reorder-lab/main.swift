@@ -33,7 +33,7 @@ sidebar(() =>
               .onTap(() => log("tapped header " + w().id))
           : HStack({ spacing: 8 }, [
               Circle({ size: 7 }).fill("accent"),
-              Text(() => w().title).font(13).lineLimit(1).truncation("tail"),
+              Text(() => w().title).font(13).lineLimit(1).truncation("tail").marquee(0.5),
               Spacer(),
               Text("42").font("caption2").color("tertiary"),
             ])
@@ -51,7 +51,8 @@ sidebar(() =>
 """
 
 let items: SwiftValue = .array(
-    (1...3).map { i in
+    [.object(["id": .string("long"), "title": .string("An extremely long workspace title that certainly overflows the lab window width")])]
+    + (1...3).map { i in
         .object(["id": .string("row\(i)"), "title": .string("Row \(i) with some text")])
     } + [.object(["id": .string("hdr"), "title": .string("Section"), "header": .bool(true), "block": .string("hdr")])]
     + (4...5).map { i in
@@ -64,6 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        FileHandle.standardError.write(Data("lab launched forceHover=\(ProcessInfo.processInfo.environment["CMUX_LAB_FORCE_HOVER"] ?? "0")\n".utf8))
         let dispatch = SidebarActionDispatch { action in
             FileHandle.standardError.write(Data("lab action: \(action)\n".utf8))
         }
@@ -191,6 +193,10 @@ struct LabRoot: View {
     let source: String
     let dispatch: SidebarActionDispatch
     @State private var reduced = false
+    /// CMUX_LAB_FORCE_HOVER=1 publishes sceneHovered=true to the whole tree:
+    /// NSTrackingArea ignores synthesized events, so hover-gated behavior
+    /// (marquee, fadeOnHover, showOnHover) is otherwise undrivable here.
+    private let forceHover = ProcessInfo.processInfo.environment["CMUX_LAB_FORCE_HOVER"] == "1"
 
     private var context: [String: SwiftValue] {
         guard reduced, case let .array(all) = items else { return ["items": items] }
@@ -212,6 +218,7 @@ struct LabRoot: View {
                     dispatch: dispatch
                 )
                 .padding(12)
+                .environment(\.sceneHovered, forceHover)
             }
         }
         .task {
