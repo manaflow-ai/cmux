@@ -15,7 +15,7 @@ enum WorkspaceConnectionStatusLine: Equatable {
 /// Reauth renders the banner because Sign Out is the only useful action — the
 /// Mac REJECTED the connection, so retrying cannot help and blocking chrome is
 /// honest. Initial-connection restore renders the status row because there may
-/// be no cached content to show and it carries the Retry / Add Computer
+/// be no cached content to show and it carries the available recovery
 /// actions. Every other degraded state is transient: content stays, and the
 /// only chrome is the status line under the computers picker.
 enum WorkspaceListConnectionChrome: Equatable {
@@ -30,17 +30,32 @@ enum WorkspaceListConnectionChrome: Equatable {
         connectionRecoveryFailed: Bool,
         isRecoveringConnection: Bool,
         connectionStatus: MobileMacConnectionStatus,
+        tailscalePairingRequired: Bool = false,
         isInitialConnectionLoading: Bool = false,
-        initialConnectionTimedOut: Bool = false
+        initialConnectionTimedOut: Bool = false,
+        hasLiveTransportPath: Bool = false
     ) {
         if hasStore && connectionRequiresReauth {
             self = .recoveryBanner
+        } else if hasStore && tailscalePairingRequired && !hasLiveTransportPath {
+            // Keep the workspace content visible while directing the user to
+            // the scanner from the existing reconnect action. Tailscale setup
+            // guidance belongs in the empty state, not in blocking chrome.
+            self = .statusLine(.notConnected)
         } else if isInitialConnectionLoading || initialConnectionTimedOut {
             self = .macStatusRow
         } else if connectionStatus == .reconnecting || (hasStore && isRecoveringConnection) {
             self = .statusLine(.reconnecting)
-        } else if connectionStatus == .unavailable || (hasStore && connectionRecoveryFailed) {
-            self = .statusLine(.notConnected)
+        } else if connectionStatus == .unavailable
+            || (hasStore && connectionRecoveryFailed && connectionStatus != .connected) {
+            // Status truthfulness: while any live path still serves (an
+            // established control session or a terminal lane delivering
+            // output), the app must never claim Not Connected. The truthful
+            // degraded state is Reconnecting: control recovery keeps its
+            // automatic retries armed. A stale recovery-failed flag also
+            // must not override a connected aggregate (a healthy secondary
+            // Mac keeps the visible list healthy).
+            self = .statusLine(hasLiveTransportPath ? .reconnecting : .notConnected)
         } else {
             self = .none
         }

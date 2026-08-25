@@ -237,12 +237,12 @@ final class MobileHostService {
     /// are never on this unauthenticated surface.
     nonisolated static func publicStatusPayload(routes: [CmxAttachRoute], now: Date = Date()) -> [String: Any] {
         // The Mac's resolved terminal theme is caller-independent, so it rides
-        // the public payload (identity merges on top). `GhosttyConfig.load()`
-        // resolves named ghostty themes, cmux's managed defaults, and explicit
-        // color overrides into a complete effective palette; the phone applies
-        // it so its embedded terminal renders with the Mac's colors instead of
-        // the built-in Monokai default.
-        let theme = TerminalTheme(ghosttyConfig: GhosttyConfig.load())
+        // the public payload (identity merges on top). `GhosttyConfig.loadForCmux()`
+        // resolves named Ghostty themes, Ghostty's built-in defaults or cmux's
+        // managed fresh-config defaults, and explicit color settings into a complete
+        // effective palette; the phone applies it so its embedded terminal
+        // renders with the Mac's colors instead of the built-in Monokai default.
+        let theme = TerminalTheme(ghosttyConfig: GhosttyConfig.loadForCmux())
         return [
             "routes": routes.mobileHostJSONObjects(for: .publicStatus, at: now),
             "terminal_fidelity": "render_grid",
@@ -280,6 +280,11 @@ final class MobileHostService {
         payload["terminal_theme_revision_epoch"] = terminalThemeRevisionEpoch
         payload["mac_device_id"] = MobileHostIdentity.deviceID()
         payload["mac_instance_tag"] = MobileHostIdentity.instanceTag()
+        if let clientNamespace = CmxIrohMacBundleNamespace(
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        )?.rawValue {
+            payload["mac_client_namespace"] = clientNamespace
+        }
         payload["phone_push"] = [
             "forwarding_enabled": PhonePushConfiguration.forwardingEnabled(
                 in: phonePushDefaults
@@ -381,6 +386,10 @@ final class MobileHostService {
     private var activeConnections: [UUID: MobileHostConnection] = [:]
     private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
     private var lastErrorDescription: String?
+    /// Whether the managed-policy teardown already ran, so the frequent
+    /// `syncToSettings()` calls (every `UserDefaults` change) do not repeat
+    /// the full `stop()` while the policy stays enforced.
+    private var remoteControlPolicyStopApplied = false
     /// Watches for network path changes while the listener is bound, so the
     /// advertised route set (and the team device registry that
     /// ``DeviceRegistryClient`` mirrors it into) refreshes when the Mac moves
@@ -614,8 +623,7 @@ final class MobileHostService {
                 )
             }
             #endif
-            if topic == MobileHostEventTopicPolicy.simulatorFrameTopic,
-               !result.simulatorFrameShedPanelIDs.isEmpty {
+            if !result.simulatorFrameShedPanelIDs.isEmpty {
                 MobileSimulatorDiagnostics.recordFrameQueueShed(
                     panelIDStrings: result.simulatorFrameShedPanelIDs,
                     shedByteCount: result.shedByteCount
@@ -754,11 +762,20 @@ final class MobileHostService {
     /// Iroh is an account-authenticated transport and starts for every signed-in
     /// Mac. The legacy listener remains opt-in so existing Tailscale and private
     /// network users keep their route without making it a prerequisite for Iroh.
+    /// An MDM-managed remote-control disable overrides both: no transport may
+    /// host while the policy is enforced.
     nonisolated static func startupPlan(
+        remoteControlDisabledByPolicy: Bool,
         legacyListenerEnabled: Bool,
         legacyListenerRunning: Bool
     ) -> MobileHostStartupPlan {
-        MobileHostStartupPlan(
+        guard !remoteControlDisabledByPolicy else {
+            return MobileHostStartupPlan(
+                activatesIroh: false,
+                startsLegacyListener: false
+            )
+        }
+        return MobileHostStartupPlan(
             activatesIroh: true,
             startsLegacyListener: legacyListenerEnabled && !legacyListenerRunning
         )
@@ -803,8 +820,12 @@ final class MobileHostService {
     /// since it persists to and rebinds the live singleton listener.
     func applyConfiguredPort(_ port: Int) async -> MobileHostPortApplyOutcome {
         let defaults = UserDefaults.standard
+        // Under a managed remote-control disable no listener may bind:
+        // classify as "saved while disabled" so the preference persists but
+        // no socket opens and no routes publish while the policy is enforced.
         if let preBind = Self.portApplyPreBindOutcome(
-            enabled: Self.isListeningEnabled(defaults: defaults),
+            enabled: Self.isListeningEnabled(defaults: defaults)
+                && MobileRemoteControlPolicy.isEnabled,
             currentBoundPort: listenerPort,
             requestedPort: port
         ) {
@@ -935,9 +956,13 @@ final class MobileHostService {
 
     func start() {
         let plan = Self.startupPlan(
+            remoteControlDisabledByPolicy: MobileRemoteControlPolicy.isDisabled,
             legacyListenerEnabled: Self.isListeningEnabled,
             legacyListenerRunning: listener != nil
         )
+        if MobileRemoteControlPolicy.isDisabled {
+            mobileHostLog.info("mobile host disabled by managed policy; not starting")
+        }
         guard plan.startsLegacyListener else {
             #if DEBUG
             if Self.canPublishRoutesWithoutListenerForXCTest(defaults: .standard) {
@@ -1176,6 +1201,18 @@ final class MobileHostService {
     /// against the app's real store; `start`/`restart` do the same, so there is
     /// no caller-supplied store to honor here.
     func syncToSettings() {
+        // An MDM-managed remote-control disable overrides every transport:
+        // tear down the Iroh runtime, the legacy listener, and every live
+        // connection, and refuse to re-arm until the policy is lifted.
+        guard MobileRemoteControlPolicy.isEnabled else {
+            if !remoteControlPolicyStopApplied {
+                remoteControlPolicyStopApplied = true
+                mobileHostLog.info("remote control disabled by managed policy; stopping mobile host")
+                stop()
+            }
+            return
+        }
+        remoteControlPolicyStopApplied = false
         let defaults = UserDefaults.standard
         // Settings control only the legacy TCP/Tailscale listener. Account-
         // authenticated Iroh stays available for signed-in Macs.
@@ -1256,12 +1293,23 @@ final class MobileHostService {
         artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         promoteUsableSession: @escaping @Sendable () async -> Bool = { true },
+        remoteControlDisabledByPolicy: @escaping @Sendable () -> Bool = {
+            MobileRemoteControlPolicy.isDisabled
+        },
         isCurrent: @escaping @Sendable () async -> Bool
     ) async -> CmxIrohAdmittedConnectionExit {
         let expectedExit = CmxIrohAdmittedConnectionExit(
             lifecycle: .explicitlyInvalidated,
             failure: .none
         )
+        // Universal admission funnel for every transport (Iroh and the legacy
+        // TCP listener): refuse here too, so races and already-open listeners
+        // cannot admit a connection while the managed policy is enforced.
+        guard !remoteControlDisabledByPolicy() else {
+            mobileHostLog.info("mobile host refused transport: remote control disabled by managed policy")
+            await transport.close()
+            return expectedExit
+        }
         MobileHostRequestActivity.beginConnection()
         guard await isCurrent() else {
             mobileHostLog.info("mobile host rejected stale transport")
@@ -1327,6 +1375,12 @@ final class MobileHostService {
                 await MobileHostService.shared.mobileSimulatorStreamCoordinator.connectionClosed(id)
                 MobileHostConnectionRegistry.shared.remove(id: id)
                 await MobileHostService.shared.removeConnection(id: id)
+            },
+            requestSimulatorFrameReplay: { connectionID, panelIDs in
+                await MobileHostService.shared.mobileSimulatorStreamCoordinator.requestFrameReplay(
+                    connectionID: connectionID,
+                    panelIDStrings: panelIDs
+                )
             }
         )
         guard await isCurrent() else {
@@ -1402,7 +1456,9 @@ final class MobileHostService {
         routeID: String? = nil,
         routeKind: String? = nil,
         routeDisclosureMode: CmxPairingRouteDisclosureMode = .legacyPrivateNetworkCompatibility,
-        target: MobileAttachTarget? = nil
+        target: MobileAttachTarget? = nil,
+        pairingURLScheme: CmxPairingURLScheme? =
+            CmxPairingURLSchemeResolver().resolved
     ) async throws -> [String: Any] {
         let routes = MobileHostPublicStatusCache.snapshot()
         let filteredRoutes = try Self.filteredRoutes(
@@ -1425,7 +1481,8 @@ final class MobileHostService {
         return try ticketStore.payload(
             for: ticket,
             routeDisclosureMode: routeDisclosureMode,
-            target: target
+            target: target,
+            pairingURLScheme: pairingURLScheme
         )
     }
 
@@ -1957,11 +2014,12 @@ actor MobileHostConnection {
     private let onUsableSession: @Sendable () async -> Bool
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     private let onClose: @Sendable (UUID) async -> Void
+    private let requestSimulatorFrameReplay: @Sendable (UUID, Set<String>) async -> Void
     private let responseWorkQuota = MobileHostRPCWorkQuota()
     /// Bounded pre-write mailbox with synchronous admission from the event
     /// fan-out. Nonisolated so ``MobileHostService/emitEvent(topic:payload:)``
     /// admits events without scheduling any per-event actor work.
-    nonisolated let eventQueue = MobileHostConnectionEventQueue()
+    nonisolated let eventQueue: MobileHostConnectionEventQueue
     private let eventSendStallTimeoutNanoseconds: UInt64
     /// Invalidates the pending event-send stall deadline: bumped when a send
     /// starts and again when it settles, so a deadline armed for send N can
@@ -1996,6 +2054,7 @@ actor MobileHostConnection {
     init(
         id: UUID,
         connection: NWConnection,
+        eventQueue: MobileHostConnectionEventQueue = MobileHostConnectionEventQueue(),
         firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
         idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
         eventSendStallTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultEventSendStallTimeoutNanoseconds,
@@ -2004,7 +2063,8 @@ actor MobileHostConnection {
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         onUsableSession: @escaping @Sendable () async -> Bool = { true },
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
-        onClose: @escaping @Sendable (UUID) async -> Void
+        onClose: @escaping @Sendable (UUID) async -> Void,
+        requestSimulatorFrameReplay: @escaping @Sendable (UUID, Set<String>) async -> Void = { _, _ in }
     ) {
         let transport = CmxNetworkByteTransport(acceptedConnection: connection)
         self.id = id
@@ -2019,11 +2079,14 @@ actor MobileHostConnection {
         self.onUsableSession = onUsableSession
         self.handleRequest = handleRequest
         self.onClose = onClose
+        self.requestSimulatorFrameReplay = requestSimulatorFrameReplay
+        self.eventQueue = eventQueue
     }
 
     init(
         id: UUID,
         transport: any CmxByteTransport,
+        eventQueue: MobileHostConnectionEventQueue = MobileHostConnectionEventQueue(),
         firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
         idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
         eventSendStallTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultEventSendStallTimeoutNanoseconds,
@@ -2032,7 +2095,8 @@ actor MobileHostConnection {
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         onUsableSession: @escaping @Sendable () async -> Bool = { true },
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
-        onClose: @escaping @Sendable (UUID) async -> Void
+        onClose: @escaping @Sendable (UUID) async -> Void,
+        requestSimulatorFrameReplay: @escaping @Sendable (UUID, Set<String>) async -> Void = { _, _ in }
     ) {
         self.id = id
         self.transport = transport
@@ -2046,6 +2110,8 @@ actor MobileHostConnection {
         self.onUsableSession = onUsableSession
         self.handleRequest = handleRequest
         self.onClose = onClose
+        self.requestSimulatorFrameReplay = requestSimulatorFrameReplay
+        self.eventQueue = eventQueue
     }
 
     /// Runs the receive loop for the complete transport lifetime.
@@ -2539,7 +2605,7 @@ actor MobileHostConnection {
             } else {
                 selectedTransport = .control
             }
-            subscribe(
+            await subscribe(
                 streamID: streamID,
                 topics: topics,
                 transport: selectedTransport,
@@ -2682,7 +2748,7 @@ actor MobileHostConnection {
         topics: Set<String>,
         transport: MobileHostEventTransport = .control,
         clientID: String? = nil
-    ) {
+    ) async {
         let previousTopics = subscriptions[streamID]?.topics
         subscriptions[streamID] = EventSubscription(
             topics: topics,
@@ -2701,6 +2767,9 @@ actor MobileHostConnection {
         )
         idleTimeoutTask?.cancel()
         idleTimeoutTask = nil
+        if currentSubscribedTopics().contains(MobileHostEventTopicPolicy.simulatorFrameTopic) {
+            await dispatchPendingSimulatorFrameReplay()
+        }
     }
 
     /// Remove a subscription by id. Returns true if it existed.
@@ -2777,8 +2846,7 @@ actor MobileHostConnection {
                 surfaceIDStrings: result.renderGridResyncSurfaceIDs
             )
         }
-        if topic == MobileHostEventTopicPolicy.simulatorFrameTopic,
-           !result.simulatorFrameShedPanelIDs.isEmpty {
+        if !result.simulatorFrameShedPanelIDs.isEmpty {
             MobileSimulatorDiagnostics.recordFrameQueueShed(
                 panelIDStrings: result.simulatorFrameShedPanelIDs,
                 shedByteCount: result.shedByteCount
@@ -2902,6 +2970,24 @@ actor MobileHostConnection {
                     surfaceIDStrings: resyncSurfaceIDs
                 )
             }
+            await dispatchPendingSimulatorFrameReplay()
+        }
+    }
+
+    /// Dispatches replay debt only while this connection still owns a frame
+    /// subscription. Actor reentrancy can run unsubscribe during the awaited
+    /// producer callback, so debt is restored unless ownership survives it.
+    private func dispatchPendingSimulatorFrameReplay() async {
+        let topic = MobileHostEventTopicPolicy.simulatorFrameTopic
+        let panelIDs = eventQueue.takeSimulatorFrameReplayAfterDrainRequests()
+        guard !panelIDs.isEmpty else { return }
+        guard isSubscribed(to: topic) else {
+            eventQueue.requeueSimulatorFrameReplayAfterDrainRequests(panelIDs)
+            return
+        }
+        await requestSimulatorFrameReplay(id, panelIDs)
+        if !isSubscribed(to: topic) {
+            eventQueue.requeueSimulatorFrameReplayAfterDrainRequests(panelIDs)
         }
     }
 

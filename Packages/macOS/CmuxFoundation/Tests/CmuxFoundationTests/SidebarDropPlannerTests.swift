@@ -97,4 +97,34 @@ import Testing
                 planner.workspaceAction(for: point, targets: targets)
         )
     }
+
+    @Test func ownGapIndicatorPaintsWhenNoOpSuppressionIsDisabled() {
+        let ids = (0..<5).map { _ in UUID() }
+        let planner = SidebarDropPlanner()
+
+        // The gap directly below the dragged row is a no-op for the row
+        // alone: suppressed by default, painted when the caller knows the
+        // drag carries a noncontiguous block that coalesces there.
+        let suppressed = planner.indicator(
+            draggedTabId: ids[1],
+            targetTabId: ids[1],
+            tabIds: ids,
+            pinnedTabIds: [],
+            pointerY: 30,
+            targetHeight: 32,
+            suppressesNoOp: true
+        )
+        let painted = planner.indicator(
+            draggedTabId: ids[1],
+            targetTabId: ids[1],
+            tabIds: ids,
+            pinnedTabIds: [],
+            pointerY: 30,
+            targetHeight: 32,
+            suppressesNoOp: false
+        )
+
+        #expect(suppressed == nil)
+        #expect(painted != nil)
+    }
 }

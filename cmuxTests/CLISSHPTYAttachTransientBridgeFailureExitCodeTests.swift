@@ -223,6 +223,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 token: "foreground-auth-token"
             )
         )
+        XCTAssertTrue(generatedCommand.contains("/usr/bin/ssh"), generatedCommand)
         let command = generatedCommand.replacingOccurrences(
             of: "/usr/bin/ssh",
             with: fakeSSH.path
@@ -297,6 +298,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let generatedScript = try persistentSSHInitialStartupScriptForReconnectTest()
         let bundledCLI = try bundledCLIPath()
+        XCTAssertTrue(generatedScript.contains("/usr/bin/ssh"), generatedScript)
         let scriptWithFakeCLI = generatedScript.replacingOccurrences(
             of: bundledCLI,
             with: fakeAttach.path

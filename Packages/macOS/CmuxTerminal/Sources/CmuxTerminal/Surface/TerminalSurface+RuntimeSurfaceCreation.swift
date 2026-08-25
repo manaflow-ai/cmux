@@ -34,6 +34,8 @@ extension TerminalSurface {
         let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(
             surfaceHost: view,
             surfaceController: self,
+            terminalLifecycleID: terminalLifecycleId,
+            titleOverride: agentPanelTitle,
             rendererMailboxDidDrain: { surfaceID in
                 Task { @MainActor in
                     rendererRealization.scheduleRendererPresentationRepair(surfaceID: surfaceID)
@@ -42,6 +44,7 @@ extension TerminalSurface {
         ))
         surfaceConfig.userdata = callbackContext.toOpaque()
         surfaceConfig.renderer_event_cb = terminalRendererEventCallback
+        invalidateRuntimeClipboardRequests(in: surfaceCallbackContext, completingNativeRequests: surface != nil)
         surfaceCallbackContext?.release()
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
@@ -273,7 +276,6 @@ extension TerminalSurface {
                 }
             }
         }
-
         return (createdSurface, runtimeInitialInput)
     }
 

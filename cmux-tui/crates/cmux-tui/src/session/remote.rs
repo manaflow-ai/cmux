@@ -40,7 +40,7 @@ use super::tree::parse_tree;
 use super::tree::{TreeCapabilities, TreeView, parse_tree_with_capabilities};
 use super::{AgentInfo, CLEAR_HISTORY_UNSUPPORTED_ERROR};
 
-const SUPPORTED_PROTOCOL_VERSION: u64 = 11;
+const SUPPORTED_PROTOCOL_VERSION: u64 = 12;
 const SURFACE_OVERFLOW_RETRY_DELAYS: [Duration; 3] =
     [Duration::from_millis(250), Duration::from_millis(500), Duration::from_secs(1)];
 const SURFACE_OVERFLOW_STABLE: Duration = Duration::from_secs(5);
@@ -73,9 +73,22 @@ const INTERACTIVE_LATENCY_BUCKET_UPPER_US: [u64; 18] = [
     u64::MAX,
 ];
 #[cfg(not(test))]
-const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+fn remote_write_timeout() -> Duration {
+    Duration::from_secs(2)
+}
+
 #[cfg(test)]
-const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
+fn remote_write_timeout() -> Duration {
+    static TIMEOUT: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *TIMEOUT.get_or_init(|| {
+        let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .filter(|scale| *scale > 0)
+            .unwrap_or(1);
+        Duration::from_millis(100).saturating_mul(scale)
+    })
+}
 #[cfg(not(test))]
 const REMOTE_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 #[cfg(test)]
@@ -1298,7 +1311,7 @@ impl InteractiveWriter {
 
     fn close(&self) {
         self.request_close();
-        let deadline = Instant::now() + REMOTE_WRITE_TIMEOUT;
+        let deadline = Instant::now() + remote_write_timeout();
         let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
         while !state.writer_closed {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -1552,7 +1565,7 @@ impl RemoteTransport {
     }
 
     pub fn json_lines(stream: Box<dyn transport::Stream>) -> io::Result<Self> {
-        stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT))?;
+        stream.set_write_timeout(Some(remote_write_timeout()))?;
         let read_half = stream.try_clone_box()?;
         let abort_stream = stream.try_clone_box()?;
         Ok(Self {
@@ -2300,10 +2313,8 @@ impl RemoteSession {
                             surface: id,
                             title: Arc::<str>::from(title),
                         });
-                    } else {
-                        if self.invalidate_tree_once() {
-                            self.emit(MuxEvent::TreeChanged);
-                        }
+                    } else if self.invalidate_tree_once() {
+                        self.emit(MuxEvent::TreeChanged);
                     }
                 }
             }
@@ -2519,6 +2530,12 @@ impl RemoteSession {
 
     pub fn request(&self, cmd: Value) -> anyhow::Result<Value> {
         self.request_with_deadline(cmd, RequestDeadline::Standard)
+    }
+
+    /// Fire-and-forget command: enqueued in order with interactive traffic,
+    /// never awaited. Used for best-effort reporting such as client focus.
+    pub(crate) fn notify(&self, cmd: Value) -> anyhow::Result<()> {
+        self.request_no_wait(cmd)
     }
 
     fn request_with_deadline(
@@ -2775,6 +2792,10 @@ impl RemoteSession {
         })
     }
 
+    pub fn is_shut_down(&self) -> bool {
+        self.shutdown.load(Ordering::Acquire)
+    }
+
     pub fn begin_shutdown(&self) {
         self.shutdown.store(true, Ordering::Release);
         self.provider_workspaces_guarded.store(false, Ordering::Release);
@@ -2788,7 +2809,7 @@ impl RemoteSession {
     }
 
     fn wait_for_ordered_write(&self, sequence: u64) -> io::Result<()> {
-        match self.interactive_writer.wait_until_written(sequence, REMOTE_WRITE_TIMEOUT) {
+        match self.interactive_writer.wait_until_written(sequence, remote_write_timeout()) {
             Ok(()) => Ok(()),
             Err(error) => {
                 if error.kind() == io::ErrorKind::TimedOut {
@@ -4172,8 +4193,8 @@ mod tests {
     }
 
     #[test]
-    fn protocol_11_identity_without_browser_capability_keeps_pty_sessions_compatible() {
-        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 11})).unwrap();
+    fn protocol_12_identity_without_browser_capability_keeps_pty_sessions_compatible() {
+        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 12})).unwrap();
     }
 
     #[test]
@@ -4194,20 +4215,20 @@ mod tests {
     }
 
     #[test]
-    fn protocol_10_identity_is_rejected_before_workspace_loading() {
+    fn protocol_11_identity_is_rejected_before_workspace_loading() {
         let error =
-            validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 10})).unwrap_err();
+            validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 11})).unwrap_err();
         assert_eq!(
             error.to_string(),
-            "unsupported cmux-tui protocol 10; this client requires protocol 11; restart the cmux-tui server"
+            "unsupported cmux-tui protocol 11; this client requires protocol 12; restart the cmux-tui server"
         );
     }
 
     #[test]
-    fn protocol_11_identity_with_guarded_pointer_capability_is_accepted() {
+    fn protocol_12_identity_with_guarded_pointer_capability_is_accepted() {
         validate_remote_identity(&json!({
             "app": "cmux-tui",
-            "protocol": 11,
+            "protocol": 12,
             "capabilities": ["browser-pointer-frame-guard-v1"],
         }))
         .unwrap();
@@ -4241,8 +4262,8 @@ mod tests {
     }
 
     #[test]
-    fn protocol_11_identity_is_accepted() {
-        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 11})).unwrap();
+    fn protocol_12_identity_is_accepted() {
+        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 12})).unwrap();
     }
 
     #[test]
@@ -5436,6 +5457,318 @@ mod tests {
         }
     }
 
+    /// A session whose every workspace lost its screens (the outcome of the
+    /// startup repair that prunes dead terminals) must get a shell in the
+    /// active workspace at attach, not render pure emptiness. The writer
+    /// refuses `new-workspace`, so this also pins that startup must not bolt
+    /// an extra workspace onto a session that already has four.
+    struct BareWorkspacesTreeWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+        created_in: Arc<Mutex<Option<String>>>,
+    }
+
+    impl RemoteMessageWriter for BareWorkspacesTreeWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+            let bare = |key: &str, id: u64, active: bool| json!({"id": id, "key": key, "active": active, "screens": []});
+            let populated = json!({
+                "id": 5,
+                "key": "ws-active",
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [{"surface": 4, "kind": "pty"}],
+                    }],
+                }],
+            });
+            let data = match request.get("cmd").and_then(Value::as_str) {
+                Some("list-workspaces") => {
+                    if self.created_in.lock().unwrap().is_some() {
+                        json!({"generation": "gen-1", "terminal_revision": 8, "workspaces": [
+                            bare("ws-0", 1, false),
+                            populated,
+                            bare("ws-2", 9, false),
+                        ]})
+                    } else {
+                        json!({"generation": "gen-1", "terminal_revision": 7, "workspaces": [
+                            bare("ws-0", 1, false),
+                            bare("ws-active", 5, true),
+                            bare("ws-2", 9, false),
+                        ]})
+                    }
+                }
+                Some("list-agents") => json!({"agents": []}),
+                Some("create-terminal") => {
+                    let key = request.get("key").and_then(Value::as_str).ok_or_else(|| {
+                        io::Error::other("create-terminal omitted the workspace key")
+                    })?;
+                    if request.get("mutation_id").and_then(Value::as_str).is_none()
+                        || request.get("expected_revision").and_then(Value::as_u64) != Some(7)
+                        || request.get("expected_generation").and_then(Value::as_str)
+                            != Some("gen-1")
+                    {
+                        return Err(io::Error::other(
+                            "bootstrap create arrived without its concurrency guard",
+                        ));
+                    }
+                    *self.created_in.lock().unwrap() = Some(key.to_string());
+                    json!({"surface": 4})
+                }
+                command => {
+                    return Err(io::Error::other(format!(
+                        "bare-workspace attach must not send {command:?}"
+                    )));
+                }
+            };
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let response = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            response
+                .response
+                .send(json!({"id": id, "ok": true, "data": data}))
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// The losing side of a concurrent bare-session attach: its guarded
+    /// create is rejected because the winner already moved the terminal
+    /// revision, and the follow-up tree read shows the winner's shell.
+    /// Attach must treat that as success, not as a startup failure.
+    struct LostBootstrapRaceWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+        list_requests: usize,
+    }
+
+    impl RemoteMessageWriter for LostBootstrapRaceWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+            let populated = json!({
+                "id": 5,
+                "key": "ws-active",
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [{"surface": 4, "kind": "pty"}],
+                    }],
+                }],
+            });
+            let response = match request.get("cmd").and_then(Value::as_str) {
+                Some("list-workspaces") => {
+                    self.list_requests += 1;
+                    let data = if self.list_requests <= 2 {
+                        json!({"generation": "gen-1", "terminal_revision": 7, "workspaces": [
+                            {"id": 5, "key": "ws-active", "active": true, "screens": []},
+                        ]})
+                    } else {
+                        json!({"generation": "gen-1", "terminal_revision": 8, "workspaces": [
+                            populated,
+                        ]})
+                    };
+                    json!({"id": id, "ok": true, "data": data})
+                }
+                Some("list-agents") => json!({"id": id, "ok": true, "data": {"agents": []}}),
+                Some("create-terminal") => json!({
+                    "id": id,
+                    "ok": false,
+                    "error": "expected terminal revision 7 does not match 8",
+                }),
+                command => {
+                    return Err(io::Error::other(format!(
+                        "lost bootstrap race must not send {command:?}"
+                    )));
+                }
+            };
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let pending = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            pending
+                .response
+                .send(response)
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn winner_between_snapshots_still_lands_in_the_cache() {
+        // The other attach creates the shell between the first tree read and
+        // the raw snapshot: no create runs here, and the final refresh must
+        // still deliver the winner's tree to this client's cache.
+        let session_slot = Arc::new(Mutex::new(None));
+        let remote = test_session(Box::new(LostBootstrapRaceWriter {
+            session: session_slot.clone(),
+            list_requests: 1, // skip one bare read: the snapshot is populated
+        }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&remote));
+        let session = crate::session::Session::Remote(remote);
+
+        session.ensure_initial(Some((80, 24))).unwrap();
+
+        assert_eq!(
+            session.tree().active_surface(),
+            Some(4),
+            "the stale bare tree survived in the cache"
+        );
+    }
+
+    #[test]
+    fn losing_the_bare_session_bootstrap_race_is_not_a_startup_failure() {
+        let session_slot = Arc::new(Mutex::new(None));
+        let remote = test_session(Box::new(LostBootstrapRaceWriter {
+            session: session_slot.clone(),
+            list_requests: 0,
+        }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&remote));
+        let session = crate::session::Session::Remote(remote);
+
+        session.ensure_initial(Some((80, 24))).unwrap();
+
+        assert_eq!(
+            session.tree().active_surface(),
+            Some(4),
+            "the loser must adopt the winner's shell instead of failing attach"
+        );
+    }
+
+    /// A daemon too old to report revision metadata cannot enforce the
+    /// bootstrap guard, so the client must not send an unguarded create at
+    /// all: the writer refuses `create-terminal`, and attach must still
+    /// succeed with the session left bare, exactly as before the bootstrap
+    /// existed.
+    struct UnguardableTreeWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+    }
+
+    impl RemoteMessageWriter for UnguardableTreeWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+            let data = match request.get("cmd").and_then(Value::as_str) {
+                Some("list-workspaces") => json!({"workspaces": [
+                    {"id": 5, "key": "ws-active", "active": true, "screens": []},
+                ]}),
+                Some("list-agents") => json!({"agents": []}),
+                command => {
+                    return Err(io::Error::other(format!(
+                        "an unguardable daemon must not receive {command:?}"
+                    )));
+                }
+            };
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let pending = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            pending
+                .response
+                .send(json!({"id": id, "ok": true, "data": data}))
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn bootstrap_stays_home_when_the_daemon_cannot_enforce_its_guard() {
+        let session_slot = Arc::new(Mutex::new(None));
+        let remote =
+            test_session(Box::new(UnguardableTreeWriter { session: session_slot.clone() }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&remote));
+        let session = crate::session::Session::Remote(remote);
+
+        session.ensure_initial(Some((80, 24))).unwrap();
+
+        assert!(
+            session.tree().workspaces.iter().all(|workspace| workspace.screens.is_empty()),
+            "an unguarded create must never run"
+        );
+    }
+
+    #[test]
+    fn ensure_initial_creates_a_shell_when_every_restored_workspace_is_bare() {
+        let session_slot = Arc::new(Mutex::new(None));
+        let created_in = Arc::new(Mutex::new(None));
+        let remote = test_session(Box::new(BareWorkspacesTreeWriter {
+            session: session_slot.clone(),
+            created_in: created_in.clone(),
+        }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&remote));
+        let session = crate::session::Session::Remote(remote);
+
+        session.ensure_initial(Some((80, 24))).unwrap();
+
+        assert_eq!(
+            created_in.lock().unwrap().as_deref(),
+            Some("ws-active"),
+            "attach did not create a shell in the active bare workspace"
+        );
+        assert_eq!(
+            session.tree().active_surface(),
+            Some(4),
+            "startup returned before the client could route input to its created terminal"
+        );
+    }
+
     #[test]
     fn ensure_initial_populates_remote_cache_after_creating_first_workspace() {
         let session_slot = Arc::new(Mutex::new(None));
@@ -5632,7 +5965,7 @@ mod tests {
 
     #[cfg(unix)]
     fn socket_test_session(stream: UnixStream) -> Arc<RemoteSession> {
-        stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT)).unwrap();
+        stream.set_write_timeout(Some(remote_write_timeout())).unwrap();
         test_session(Box::new(JsonLineWriter { inner: Box::new(stream) }))
     }
 
@@ -6104,10 +6437,13 @@ mod tests {
         peer.join().unwrap();
 
         let error = result.unwrap_err();
-        assert!(matches!(
-            error.downcast_ref::<RemoteRequestError>(),
-            Some(RemoteRequestError::Shutdown)
-        ));
+        assert!(
+            matches!(
+                error.downcast_ref::<RemoteRequestError>(),
+                Some(RemoteRequestError::Shutdown)
+            ),
+            "expected shutdown after EOF canceled the request, got {error:?}"
+        );
         assert!(started.elapsed() < Duration::from_secs(2));
         assert!(session.shutdown.load(Ordering::Acquire));
         assert!(session.pending.lock().unwrap().is_empty());
@@ -6166,11 +6502,14 @@ mod tests {
 
         control.release();
         resume_wait_tx.send(()).unwrap();
-        let error = finished_rx.recv_timeout(Duration::from_secs(2)).unwrap().unwrap_err();
-        assert!(matches!(
-            error.downcast_ref::<RemoteRequestError>(),
-            Some(RemoteRequestError::Shutdown)
-        ));
+        let error = finished_rx.recv_timeout(remote_write_timeout() * 2).unwrap().unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<RemoteRequestError>(),
+                Some(RemoteRequestError::Shutdown)
+            ),
+            "expected shutdown after the ordered write completed, got {error:?}"
+        );
         release.join().unwrap();
         let writer_state = session.interactive_writer.shared.state.lock().unwrap();
         assert!(writer_state.last_written_sequence >= sequence);
@@ -6204,7 +6543,7 @@ mod tests {
 
         control.release();
         resume_wait_tx.send(()).unwrap();
-        finished_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        finished_rx.recv_timeout(remote_write_timeout() * 2).unwrap();
         shutdown.join().unwrap();
         let writer_state = session.interactive_writer.shared.state.lock().unwrap();
         assert!(writer_state.last_written_sequence >= sequence);
@@ -6225,8 +6564,8 @@ mod tests {
         let started = Instant::now();
         let error = session.wait_for_ordered_write(sequence).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::TimedOut);
-        assert!(started.elapsed() < REMOTE_WRITE_TIMEOUT * 5);
-        let deadline = Instant::now() + REMOTE_WRITE_TIMEOUT;
+        assert!(started.elapsed() < remote_write_timeout() * 5);
+        let deadline = Instant::now() + remote_write_timeout();
         loop {
             let state = session.interactive_writer.shared.state.lock().unwrap();
             if state.writer_closed {
@@ -6256,7 +6595,7 @@ mod tests {
 
         drop(session);
 
-        let deadline = Instant::now() + REMOTE_WRITE_TIMEOUT;
+        let deadline = Instant::now() + remote_write_timeout();
         loop {
             let state = control.state.0.lock().unwrap();
             if state.aborted {
@@ -6278,7 +6617,7 @@ mod tests {
         let started = Instant::now();
         session.disconnect_transport();
 
-        assert!(started.elapsed() < REMOTE_WRITE_TIMEOUT * 5);
+        assert!(started.elapsed() < remote_write_timeout() * 5);
         let state = control.state.0.lock().unwrap();
         assert!(state.aborted);
         drop(state);
@@ -6308,7 +6647,7 @@ mod tests {
                     .send(
                         session
                             .interactive_writer
-                            .wait_until_written(sequence, REMOTE_WRITE_TIMEOUT * 2),
+                            .wait_until_written(sequence, remote_write_timeout() * 2),
                     )
                     .unwrap();
             }));
@@ -6317,7 +6656,7 @@ mod tests {
         control.fail();
         for _ in 0..2 {
             let error = finished_rx
-                .recv_timeout(REMOTE_WRITE_TIMEOUT * 2)
+                .recv_timeout(remote_write_timeout() * 2)
                 .expect("write failure did not wake a waiter")
                 .unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);

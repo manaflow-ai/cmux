@@ -455,16 +455,13 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         XCTAssertEqual(themeBackground.alphaComponent, 1.0, accuracy: 0.001)
     }
 
-    func testBrowserChromeColorSchemeAccountsForTranslucentBackground() {
-        let darkTranslucentBackground = NSColor(srgbRed: 0.02, green: 0.03, blue: 0.04, alpha: 0.05)
-
+    func testBrowserChromeColorSchemeUsesExplicitSurfaceAuthority() {
         XCTAssertEqual(
             resolvedBrowserChromeColorScheme(
                 for: .dark,
-                themeBackgroundColor: darkTranslucentBackground,
-                windowBackgroundColor: .white
+                ambientColorScheme: .light
             ),
-            .light
+            .dark
         )
     }
 
@@ -1031,11 +1028,11 @@ final class BrowserPanelProfileIsolationTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
-    func testRequestPersistsUntilAcknowledged() {
+    func testRequestPersistsUntilAcknowledged() throws {
         let panel = BrowserPanel(workspaceId: UUID())
         XCTAssertNil(panel.pendingAddressBarFocusRequestId)
 
-        let requestId = panel.requestAddressBarFocus()
+        let requestId = try XCTUnwrap(panel.requestAddressBarFocus())
         XCTAssertEqual(panel.pendingAddressBarFocusRequestId, requestId)
         XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .preserveFieldEditorSelection)
         XCTAssertTrue(panel.shouldSuppressWebViewFocus())
@@ -1071,11 +1068,11 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
         XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .selectAll)
     }
 
-    func testStaleAcknowledgementDoesNotClearNewestRequest() {
+    func testStaleAcknowledgementDoesNotClearNewestRequest() throws {
         let panel = BrowserPanel(workspaceId: UUID())
-        let firstRequest = panel.requestAddressBarFocus()
+        let firstRequest = try XCTUnwrap(panel.requestAddressBarFocus())
         panel.acknowledgeAddressBarFocusRequest(firstRequest)
-        let secondRequest = panel.requestAddressBarFocus()
+        let secondRequest = try XCTUnwrap(panel.requestAddressBarFocus())
 
         XCTAssertNotEqual(firstRequest, secondRequest)
         XCTAssertEqual(panel.pendingAddressBarFocusRequestId, secondRequest)
@@ -1117,6 +1114,23 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         XCTAssertTrue(panel.isOmnibarVisible)
         XCTAssertEqual(panel.pendingAddressBarFocusRequestId, requestId)
         XCTAssertEqual(panel.preferredFocusIntent, .addressBar)
+    }
+
+    func testChromelessAddressBarRestoreFallsBackToWebViewFocus() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            chromeVisibility: .chromeless
+        )
+        panel.prepareFocusIntentForActivation(.browser(.addressBar))
+
+        XCTAssertTrue(panel.shouldSuppressWebViewFocus())
+        XCTAssertTrue(
+            panel.restoreFocusIntent(.browser(.addressBar))
+        )
+        XCTAssertFalse(panel.shouldSuppressWebViewFocus())
+        XCTAssertEqual(panel.preferredFocusIntent, .webView)
+        XCTAssertNil(panel.pendingAddressBarFocusRequestId)
+        XCTAssertEqual(panel.chromeVisibility, .chromeless)
     }
 
     func testCopySuccessPostsPastebackNotificationAndClearsPendingTarget() throws {

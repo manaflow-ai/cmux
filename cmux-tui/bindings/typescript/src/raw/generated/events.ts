@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 11, IR 6c7f42663c8059b5e8c1cb0a1df201c1949665b925845653e46f5ef7f5742eb3. */
+/* cmux-tui mux protocol 12, IR b4e69e774777172ac0198454e7f068e53f7a74501dc787b58f3ead05d17b4af6. */
 
 
 import type * as T from "./types.js";
@@ -391,7 +391,7 @@ export interface UnknownEvent {
   [key: string]: unknown;
 }
 
-/** Every event emitted by protocol v11. */
+/** Every event emitted by protocol v12. */
 export type KnownCmuxEvent =
   | AgentChangedEvent
   | BellEvent

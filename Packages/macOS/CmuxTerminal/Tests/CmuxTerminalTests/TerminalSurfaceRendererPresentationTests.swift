@@ -386,6 +386,7 @@ private func rendererReleaseWasOccluded() -> Bool
         let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(
             surfaceHost: surface.surfaceView,
             surfaceController: surface,
+            terminalLifecycleID: surface.terminalLifecycleId,
             rendererMailboxDidDrain: { surfaceID in
                 MainActor.assumeIsolated {
                     scheduler.scheduleRendererPresentationRepair(surfaceID: surfaceID)

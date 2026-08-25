@@ -4,28 +4,57 @@ import Foundation
 
 @MainActor
 extension RemoteTmuxSessionMirror {
+    /// Bounded handoff shared by every mirror, mirroring how the Ghostty OSC
+    /// callback funnels into ``GhosttyDesktopNotificationIngress`` (same
+    /// delivery, retargeting, and flood policy).
+    static let paneNotificationIngress = GhosttyDesktopNotificationIngress()
+
     func routeOutput(paneId: Int, data: Data) {
         // Strip the screen/tmux `ESC k <title> ST` window-title escape that a remote
         // shell (TERM=screen*/tmux*) emits. Per-pane state survives chunk splits.
         var filter = titleFilters[paneId] ?? RemoteTmuxScreenTitleFilter()
         let cleaned = filter.filter(data)
         titleFilters[paneId] = filter
-        routeOrQueueCleanedOutput(paneId: paneId, data: cleaned)
+        // Intercept OSC 777/9 desktop-notification escapes (issue #833): the
+        // mirror surface has no local process TTY to attribute them by, so the
+        // mirror strips the sequence and delivers the notification itself,
+        // attributed to this pane's surface + workspace.
+        var notificationFilter = notificationFilters[paneId] ?? RemoteTmuxNotificationOSCFilter()
+        let denotified = notificationFilter.filter(cleaned) { [weak self] title, body in
+            self?.deliverPaneNotification(paneId: paneId, title: title, body: body)
+        }
+        notificationFilters[paneId] = notificationFilter
+        routeOrQueueCleanedOutput(paneId: paneId, data: denotified)
     }
 
     /// Applies an authoritative snapshot independently from the logical live
     /// escape stream, then catches that stream up across the capture boundary.
     func routeSeed(paneId: Int, seed: RemoteTmuxPaneSeed) {
         var liveFilter = titleFilters[paneId] ?? RemoteTmuxScreenTitleFilter()
-        for data in seed.discardedOutput { _ = liveFilter.filter(data) }
+        var liveNotificationFilter = notificationFilters[paneId]
+            ?? RemoteTmuxNotificationOSCFilter()
+        // Seed bytes replay history (or bytes the snapshot already covers), so a
+        // notification escape found here is stripped but NOT delivered — a
+        // reconnect's full-history reseed must not re-fire old notifications.
+        let suppressed: (String, String) -> Void = { _, _ in }
+        for data in seed.discardedOutput {
+            _ = liveNotificationFilter.filter(liveFilter.filter(data), onNotification: suppressed)
+        }
 
         var snapshotFilter = RemoteTmuxScreenTitleFilter()
-        var renderedBytes = snapshotFilter.filter(seed.snapshot)
+        var snapshotNotificationFilter = RemoteTmuxNotificationOSCFilter()
+        var renderedBytes = snapshotNotificationFilter.filter(
+            snapshotFilter.filter(seed.snapshot),
+            onNotification: suppressed
+        )
         renderedBytes.append(seed.state)
         for data in seed.catchUpOutput {
-            renderedBytes.append(liveFilter.filter(data))
+            renderedBytes.append(
+                liveNotificationFilter.filter(liveFilter.filter(data), onNotification: suppressed)
+            )
         }
         titleFilters[paneId] = liveFilter
+        notificationFilters[paneId] = liveNotificationFilter
 
         guard let target = authoritativeGrid(forPane: paneId) else {
             if seed.kind == .fullHistory { deferredFullPaneReseeds.remove(paneId) }
@@ -191,6 +220,26 @@ extension RemoteTmuxSessionMirror {
         guard let windowId = windowIdContaining(pane: paneId),
               let mirror = windowMirrorByWindowId[windowId] else { return }
         mirror.routeOutput(paneId: paneId, data: data)
+    }
+
+    /// Delivers an intercepted OSC 777/9 notification through the same bounded
+    /// ingress the Ghostty desktop-notification callback uses, attributed to the
+    /// pane's mirror surface and workspace (issue #833). An empty title falls
+    /// back to the workspace title downstream (`TerminalNotificationStore`).
+    func deliverPaneNotification(paneId: Int, title: String, body: String) {
+        guard !(title.isEmpty && body.isEmpty),
+              let workspaceId = mirroredWorkspaceId else { return }
+        let surfaceId = windowIdContaining(pane: paneId)
+            .flatMap { windowMirrorByWindowId[$0]?.panel(forPane: paneId)?.id }
+        Self.paneNotificationIngress.submit(GhosttyDesktopNotificationRequest(
+            tabId: workspaceId,
+            surfaceId: surfaceId,
+            // No hook directory: the emitting process runs on the remote host,
+            // so a local project-hook lookup would resolve the wrong config.
+            hookDirectory: nil,
+            title: title,
+            body: body
+        ))
     }
 
     private func authoritativeGrid(forPane paneId: Int) -> (columns: Int, rows: Int)? {

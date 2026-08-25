@@ -184,6 +184,69 @@ describe("CodeRouter team metrics", () => {
     expect(result).toEqual({ kind: "unavailable" });
   });
 
+  test("reports endpoint failures without including the team identity", async () => {
+    const failures: Array<{ reason: string; status?: number }> = [];
+    const result = await metricsTest.queryCoderouterTeamMetrics("team-private", {
+      config: () => config,
+      fetch: mock(async () =>
+        new Response(null, { status: 503 })) as typeof fetch,
+      now: () => new Date("2026-08-08T12:00:00.000Z"),
+      reportFailure: (reason, status) => failures.push({ reason, status }),
+    });
+
+    expect(result).toEqual({ kind: "unavailable" });
+    expect(failures).toEqual([{ reason: "endpoint_status", status: 503 }]);
+    expect(JSON.stringify(failures)).not.toContain("team-private");
+  });
+
+  test("classifies invalid endpoint JSON as a malformed response", async () => {
+    const failures: string[] = [];
+    const result = await metricsTest.queryCoderouterTeamMetrics("team-private", {
+      config: () => config,
+      fetch: mock(async () =>
+        new Response("{", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })) as typeof fetch,
+      now: () => new Date("2026-08-08T12:00:00.000Z"),
+      reportFailure: (reason) => failures.push(reason),
+    });
+
+    expect(result).toEqual({ kind: "unavailable" });
+    expect(failures).toEqual(["malformed_response"]);
+  });
+
+  test("classifies endpoint body stream failures as request failures", async () => {
+    const failures: string[] = [];
+    const result = await metricsTest.queryCoderouterTeamMetrics("team-private", {
+      config: () => config,
+      fetch: mock(async () =>
+        new Response(new ReadableStream({
+          start(controller) {
+            controller.error(new Error("stream failed"));
+          },
+        }), { status: 200 })) as typeof fetch,
+      now: () => new Date("2026-08-08T12:00:00.000Z"),
+      reportFailure: (reason) => failures.push(reason),
+    });
+
+    expect(result).toEqual({ kind: "unavailable" });
+    expect(failures).toEqual(["request_failed"]);
+  });
+
+  test("classifies a null endpoint JSON root as a malformed response", async () => {
+    const failures: string[] = [];
+    const result = await metricsTest.queryCoderouterTeamMetrics("team-private", {
+      config: () => config,
+      fetch: mock(async () => Response.json(null)) as typeof fetch,
+      now: () => new Date("2026-08-08T12:00:00.000Z"),
+      reportFailure: (reason) => failures.push(reason),
+    });
+
+    expect(result).toEqual({ kind: "unavailable" });
+    expect(failures).toEqual(["malformed_response"]);
+  });
+
   test("rejects a 31st UTC day instead of silently truncating", async () => {
     const result = await metricsTest.queryCoderouterTeamMetrics("team-1", {
       config: () => config,

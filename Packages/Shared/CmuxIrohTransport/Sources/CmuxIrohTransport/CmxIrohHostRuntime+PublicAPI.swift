@@ -173,7 +173,7 @@ extension CmxIrohHostRuntime {
                 return .failed(.superseded)
             }
             if CmxIrohTrustBrokerClientError
-                .preservesVerifiedPolicyDuringRefresh(error) {
+                .preservesVerifiedStateDuringRefresh(error) {
                 return .failed(DiagnosticFailureKind.classify(error))
             }
             lifecyclePhase = .stopping
@@ -232,6 +232,14 @@ extension CmxIrohHostRuntime {
                 bindingID: binding.bindingID
             )
         }
+        let bindingAuthorization = localBinding.flatMap { binding in
+            try? CmxIrohBindingRequestAuthorization(
+                bindingID: binding.bindingID,
+                clientNamespace: binding.clientNamespace,
+                identity: configuration.identity,
+                endpointID: binding.endpointID
+            )
+        }
         lifecyclePhase = .signingOut
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
@@ -244,6 +252,7 @@ extension CmxIrohHostRuntime {
         let operation = Task {
             await self.performSignOut(
                 pendingRevocation: pendingRevocation,
+                bindingAuthorization: bindingAuthorization,
                 requiresNetworkDeactivation: requiresNetworkDeactivation,
                 revision: revision
             )

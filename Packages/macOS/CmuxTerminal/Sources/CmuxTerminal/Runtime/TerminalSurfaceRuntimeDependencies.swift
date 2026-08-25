@@ -30,7 +30,7 @@ public struct TerminalSurfaceRuntimeDependencies {
     /// The agent-hibernation input recorder.
     public let hibernationRecorder: any AgentHibernationRecording
 
-    /// The serialized native-surface free queue.
+    /// The bounded native-surface teardown coordinator.
     public let runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
 
     /// The paced native-surface creation queue for restored terminal sessions.

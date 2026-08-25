@@ -17,9 +17,9 @@ extension WorkspaceListView {
     /// selection stays in its dedicated title picker). The icon fills while a
     /// narrowing filter is active, mirroring Mail.
     @ViewBuilder
-    func viewOptionsButton() -> some View {
+    func viewOptionsButton(orderMachines: [WorkspaceFilterMachine]) -> some View {
         Button {
-            showingViewOptionsPopover = true
+            viewOptionsPresentation.present()
         } label: {
             Image(systemName: filter.isActive
                 ? "line.3.horizontal.decrease.circle.fill"
@@ -34,18 +34,19 @@ extension WorkspaceListView {
             if ProcessInfo.processInfo.environment[
                 "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_VIEW_OPTIONS"
             ] == "1" {
-                showingViewOptionsPopover = true
+                viewOptionsPresentation.present()
             }
             #endif
         }
-        .popover(isPresented: $showingViewOptionsPopover) {
+        .popover(isPresented: viewOptionsPresentation.isPresented) {
             WorkspaceListViewOptionsPopover(
                 filter: filter,
                 sortMode: workspaceSortMenuMode,
-                orderMachines: computerOrderSheetMachines,
+                orderMachines: orderMachines,
                 saveComputerOrder: setWorkspaceComputerPriority,
                 actions: workspaceListFilterMenuActions
             )
+            .onDisappear(perform: viewOptionsPresentation.didDismiss)
         }
     }
     #endif
@@ -57,9 +58,15 @@ extension WorkspaceListView {
         filterMachines: [WorkspaceFilterMachine]
     ) -> some View {
         #if os(iOS)
-            if showsNavigationToolbar {
-                content
-                    .toolbar {
+            // The toolbar-visibility flip (off while a workspace is pushed on
+            // the compact stack, back on at exit) must stay inside the toolbar
+            // content builder. Branching the whole subtree on it changes the
+            // list's structural identity on every workspace enter/exit, which
+            // dismantles the represented workspace table and resets its scroll
+            // position to the top (issue #10481).
+            content
+                .toolbar {
+                    if showsNavigationToolbar {
                         if !usesExternalSharedToolbar {
                             ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
                                 settingsMenu
@@ -82,15 +89,17 @@ extension WorkspaceListView {
                                     dismiss: dismissMacUpdateHint
                                 )
                             }
-                            viewOptionsButton()
+                            viewOptionsButton(
+                                orderMachines: computerOrderSheetMachines(
+                                    machineSnapshots: machineSnapshots
+                                )
+                            )
                             if canCreateWorkspace {
                                 newWorkspaceButton.equatable()
                             }
                         }
                     }
-            } else {
-                content
-            }
+                }
         #else
             content
                 .toolbar {
