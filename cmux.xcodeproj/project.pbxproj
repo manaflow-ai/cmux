@@ -19,6 +19,7 @@
 		A9E020000000000000000007 /* agent-session-solid in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000007 /* agent-session-solid */; };
 		C7AF10000000000000000005 /* AgentChatArtifactGalleryBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7AF10000000000000000006 /* AgentChatArtifactGalleryBuilder.swift */; };
 		C7AF10000000000000000001 /* AgentChatArtifactIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7AF10000000000000000002 /* AgentChatArtifactIndex.swift */; };
+		5FAC71D5AC71D5AC71D50001 /* AgentChatChildRunTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FAC71D5AC71D5AC71D50002 /* AgentChatChildRunTests.swift */; };
 		C7A52E000000000000000002 /* AgentChatEndedTranscriptListabilityCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52E000000000000000001 /* AgentChatEndedTranscriptListabilityCache.swift */; };
 		C7A53F000000000000000002 /* AgentChatFallbackTranscriptResolutionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A53F000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinator.swift */; };
 		C7A540000000000000000002 /* AgentChatFallbackTranscriptResolutionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A540000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinatorTests.swift */; };
@@ -2887,6 +2888,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9E010000000000000000007 /* agent-session-solid */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-solid"; sourceTree = "<group>"; };
 		C7AF10000000000000000006 /* AgentChatArtifactGalleryBuilder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatArtifactGalleryBuilder.swift"; sourceTree = "<group>"; };
 		C7AF10000000000000000002 /* AgentChatArtifactIndex.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatArtifactIndex.swift"; sourceTree = "<group>"; };
+		5FAC71D5AC71D5AC71D50002 /* AgentChatChildRunTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatChildRunTests.swift; sourceTree = "<group>"; };
 		C7A52E000000000000000001 /* AgentChatEndedTranscriptListabilityCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatEndedTranscriptListabilityCache.swift"; sourceTree = "<group>"; };
 		C7A53F000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatFallbackTranscriptResolutionCoordinator.swift"; sourceTree = "<group>"; };
 		C7A540000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatFallbackTranscriptResolutionCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -8281,6 +8283,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				5F5553CA5553CA5553CA0002 /* RemoteTmuxCapabilitiesTests.swift */,
 				C57570010000000000000001 /* RightSidebarPanelViewTestSupport.swift */,
 				5F5553CB5553CB5553CB0002 /* RightSidebarRemoteCommandTests.swift */,
+				5FAC71D5AC71D5AC71D50002 /* AgentChatChildRunTests.swift */,
 				3F704ED4F177122D7DCD0BCC /* RemoteTmuxSessionListParserTests.swift */,
 					0A17C0DE0A17C0DE0A17CA01 /* RemoteTmuxVersionTests.swift */,
 					3F704ED4F177122D7DCD0B01 /* RemoteTmuxSessionRenameTitleTests.swift */,
@@ -10984,6 +10987,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			files = (
 				A11CE0010000000000000001 /* AboutLicensesResourceTests.swift in Sources */,
 				A5C01700000000000000000F /* AccountSignInModelTests.swift in Sources */,
+				5FAC71D5AC71D5AC71D50001 /* AgentChatChildRunTests.swift in Sources */,
 				C7A540000000000000000002 /* AgentChatFallbackTranscriptResolutionCoordinatorTests.swift in Sources */,
 				99230001992300019923000C /* AgentChatResumeIntentRecorder.swift in Sources */,
 				C7A51F000000000000000002 /* AgentChatSessionRegistryClaudeObservationTests.swift in Sources */,

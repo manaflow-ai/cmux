@@ -166,11 +166,31 @@ public struct CustomSidebarDataContextBuilder {
         if let directory = agent.workingDirectory, !directory.isEmpty {
             fields["directory"] = .string(directory)
         }
+        if !agent.children.isEmpty {
+            fields["children"] = .array(agent.children.map(agentChildValue(_:)))
+        }
         if let transcriptPath = agent.transcriptPath, !transcriptPath.isEmpty {
             fields["transcriptPath"] = .string(transcriptPath)
         }
         if let pid = agent.pid {
             fields["pid"] = .int(pid)
+        }
+        return .object(fields)
+    }
+
+    /// Projects one child agent run into the interpreter value tree
+    /// (`agents[j].children[k]`). Optional fields are omitted when absent.
+    public func agentChildValue(_ child: CustomSidebarAgentChildSnapshot) -> SwiftValue {
+        var fields: [String: SwiftValue] = [
+            "id": .string(child.id),
+            "running": .bool(child.isRunning),
+            "startedEpoch": .int(Int(child.startedAt.timeIntervalSince1970)),
+        ]
+        if let label = child.label, !label.isEmpty {
+            fields["label"] = .string(label)
+        }
+        if let endedAt = child.endedAt {
+            fields["endedEpoch"] = .int(Int(endedAt.timeIntervalSince1970))
         }
         return .object(fields)
     }

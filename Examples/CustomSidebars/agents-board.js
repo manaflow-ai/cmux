@@ -48,7 +48,10 @@ function row(e, strong) {
       Text(() => e().a.title || e().a.name)
         .font(12).weight(strong ? "semibold" : "regular")
         .lineLimit(1).truncation("tail"),
-      Text(() => e().ws.title)
+      Text(() => {
+        const running = (e().a.children ?? []).filter((c) => c.running).length;
+        return e().ws.title + (running ? " · " + running + " sub" : "");
+      })
         .font(10).color("tertiary").lineLimit(1).truncation("tail"),
     ]),
     Spacer({ minLength: 0 }),

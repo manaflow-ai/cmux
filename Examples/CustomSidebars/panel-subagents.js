@@ -99,7 +99,22 @@ const entries = computed(() => {
       wsSelected: w.selected,
       dots: rows.map((r) => statusOf(r.agent).color),
     });
-    out.push(...rows);
+    // Each agent expands into its row plus one indented row per child
+    // (Claude Task spawns / Codex subagent runs), running children first.
+    for (const r of rows) {
+      out.push(r);
+      const children = [...(r.agent.children ?? [])];
+      children.sort((x, y) => (x.running === y.running ? (x.startedEpoch ?? 0) - (y.startedEpoch ?? 0) : x.running ? -1 : 1));
+      for (const c of children) {
+        out.push({
+          key: "c:" + w.id + ":" + r.agent.id + ":" + c.id,
+          kind: "child",
+          wsId: w.id,
+          agent: r.agent,
+          child: c,
+        });
+      }
+    }
   }
   return out;
 });
@@ -184,6 +199,35 @@ function agentRow(entry) {
     .onTap(() => jump(entry()));
 }
 
+// Child (subagent) row: indented under its parent with a tree tick. Running
+// children tick a live elapsed; settled ones show their total, muted.
+function childRow(entry) {
+  const c = () => entry().child;
+  return HStack({ spacing: 6 }, [
+    Text("└").font(10).monospaced().color("tertiary"),
+    Circle({ size: 5 })
+      .fill(() => (c().running ? "#0A84FF" : "#7f7f7f55")),
+    Text(() => c().label || "subagent")
+      .font(11).lineLimit(1).truncation("tail")
+      .color(() => (c().running ? "secondary" : "tertiary")),
+    Spacer(),
+    Text(() => {
+      const epoch = data.clock()?.epoch ?? 0;
+      const end = c().running ? epoch : (c().endedEpoch ?? epoch);
+      const s = Math.max(0, Math.floor(end - (c().startedEpoch ?? end)));
+      if (s < 60) return s + "s";
+      const m = Math.floor(s / 60);
+      return m < 60 ? m + "m " + String(s % 60).padStart(2, "0") + "s" : Math.floor(m / 60) + "h " + String(m % 60).padStart(2, "0") + "m";
+    })
+      .font(10).monospaced().color("tertiary"),
+  ])
+    .paddingLeading(24).paddingTrailing(10).paddingVertical(3)
+    .cornerRadius(7)
+    .hoverBackground("#7f7f7f1c")
+    .frame({ maxWidth: "infinity" })
+    .onTap(() => jump(entry()));
+}
+
 sidebar(() =>
   VStack({ spacing: 8 }, [
     HStack({ spacing: 6 }, [
@@ -218,7 +262,9 @@ sidebar(() =>
       { items: entries, key: (e) => e.key },
       (e) => {
         const entry = e(); // kind is stable per key
-        return entry.kind === "header" ? headerRow(e) : agentRow(e);
+        if (entry.kind === "header") return headerRow(e);
+        if (entry.kind === "child") return childRow(e);
+        return agentRow(e);
       }
     ),
 

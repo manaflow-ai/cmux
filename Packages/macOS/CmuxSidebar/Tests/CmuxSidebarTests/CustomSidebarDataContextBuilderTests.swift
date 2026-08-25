@@ -345,6 +345,58 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(value.member("directory") == .string("/repo"))
         #expect(value.member("transcriptPath") == .string("/tmp/sess-1.jsonl"))
         #expect(value.member("pid") == .int(4242))
+        // No children -> the key is omitted entirely.
+        #expect(value.member("children") == nil)
+    }
+
+    @Test("Agent children project running and settled runs")
+    func agentChildrenProject() {
+        let builder = CustomSidebarDataContextBuilder()
+        let agent = CustomSidebarAgentSnapshot(
+            sessionId: "sess-3",
+            kind: "claude",
+            name: "Claude",
+            status: "working",
+            stateSince: Date(timeIntervalSince1970: 100),
+            lastActivityAt: Date(timeIntervalSince1970: 160),
+            title: nil,
+            panelId: nil,
+            surfaceId: nil,
+            workingDirectory: nil,
+            transcriptPath: nil,
+            pid: nil,
+            children: [
+                CustomSidebarAgentChildSnapshot(
+                    id: "task-1",
+                    label: "Explore the pipeline",
+                    isRunning: true,
+                    startedAt: Date(timeIntervalSince1970: 120),
+                    endedAt: nil
+                ),
+                CustomSidebarAgentChildSnapshot(
+                    id: "task-2",
+                    label: nil,
+                    isRunning: false,
+                    startedAt: Date(timeIntervalSince1970: 110),
+                    endedAt: Date(timeIntervalSince1970: 150)
+                ),
+            ]
+        )
+
+        let value = builder.agentValue(agent)
+        guard case let .array(children)? = value.member("children") else {
+            Issue.record("children missing")
+            return
+        }
+        #expect(children.count == 2)
+        #expect(children[0].member("id") == .string("task-1"))
+        #expect(children[0].member("label") == .string("Explore the pipeline"))
+        #expect(children[0].member("running") == .bool(true))
+        #expect(children[0].member("startedEpoch") == .int(120))
+        #expect(children[0].member("endedEpoch") == nil)
+        #expect(children[1].member("label") == nil)
+        #expect(children[1].member("running") == .bool(false))
+        #expect(children[1].member("endedEpoch") == .int(150))
     }
 
     @Test("Agent optional fields are omitted when absent")

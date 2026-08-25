@@ -223,6 +223,21 @@ struct CustomSidebarValidationTests {
                         "directory": .string("/Users/me/src/cmux"),
                         "transcriptPath": .string("/Users/me/.claude/projects/cmux/session-claude-1.jsonl"),
                         "pid": .int(4242),
+                        "children": .array([
+                            .object([
+                                "id": .string("task-1"),
+                                "label": .string("Explore the render pipeline"),
+                                "running": .bool(true),
+                                "startedEpoch": .int(1_779_999_930),
+                            ]),
+                            .object([
+                                "id": .string("task-2"),
+                                "label": .string("Audit tests"),
+                                "running": .bool(false),
+                                "startedEpoch": .int(1_779_999_905),
+                                "endedEpoch": .int(1_779_999_950),
+                            ]),
+                        ]),
                     ]),
                     .object([
                         "id": .string("session-codex-1"),

@@ -111,7 +111,16 @@ extension Workspace {
                     surfaceId: panelId.flatMap { surfaceIdByPanelId[$0] },
                     workingDirectory: record.workingDirectory,
                     transcriptPath: record.transcriptPath,
-                    pid: record.pid
+                    pid: record.pid,
+                    children: record.children.map { child in
+                        CustomSidebarAgentChildSnapshot(
+                            id: child.id,
+                            label: child.label,
+                            isRunning: child.isRunning,
+                            startedAt: child.startedAt,
+                            endedAt: child.endedAt
+                        )
+                    }
                 )
             )
             if agents.count >= Self.customSidebarAgentLimit { break }

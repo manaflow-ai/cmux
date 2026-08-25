@@ -75,6 +75,10 @@ sidebar(() =>
               .lineLimit(1).truncation("tail"),
             Text(() => (e().a.directory ? "· " + tail(e().a.directory) : ""))
               .font(10).color("tertiary").lineLimit(1),
+            Text(() => {
+              const running = (e().a.children ?? []).filter((c) => c.running).length;
+              return running ? "· " + running + " sub" : "";
+            }).font(10).color("#0A84FF").lineLimit(1),
             Spacer({ minLength: 0 }),
           ]),
         ]).paddingLeading(9),

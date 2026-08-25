@@ -39,6 +39,9 @@ public struct CustomSidebarAgentSnapshot: Sendable, Equatable {
     public let transcriptPath: String?
     /// The agent process id, when known (`agents[j].pid`).
     public let pid: Int?
+    /// Child agent runs (Claude Task spawns, Codex subagent runs) observed
+    /// under this session (`agents[j].children`).
+    public let children: [CustomSidebarAgentChildSnapshot]
 
     /// Creates an agent snapshot from already-resolved leaf values.
     public init(
@@ -53,7 +56,8 @@ public struct CustomSidebarAgentSnapshot: Sendable, Equatable {
         surfaceId: UUID?,
         workingDirectory: String?,
         transcriptPath: String?,
-        pid: Int?
+        pid: Int?,
+        children: [CustomSidebarAgentChildSnapshot] = []
     ) {
         self.sessionId = sessionId
         self.kind = kind
@@ -67,5 +71,30 @@ public struct CustomSidebarAgentSnapshot: Sendable, Equatable {
         self.workingDirectory = workingDirectory
         self.transcriptPath = transcriptPath
         self.pid = pid
+        self.children = children
+    }
+}
+
+/// One child agent run under a parent session
+/// (`workspaces[i].agents[j].children[k]`).
+public struct CustomSidebarAgentChildSnapshot: Sendable, Equatable {
+    /// Correlation id, stable for the child's lifetime (`children[k].id`).
+    public let id: String
+    /// Human label - the Task description or subagent type, when known
+    /// (`children[k].label`).
+    public let label: String?
+    /// Whether the child is still running (`children[k].running`).
+    public let isRunning: Bool
+    /// When the child started (`children[k].startedEpoch`).
+    public let startedAt: Date
+    /// When the child settled; `nil` while running (`children[k].endedEpoch`).
+    public let endedAt: Date?
+
+    public init(id: String, label: String?, isRunning: Bool, startedAt: Date, endedAt: Date?) {
+        self.id = id
+        self.label = label
+        self.isRunning = isRunning
+        self.startedAt = startedAt
+        self.endedAt = endedAt
     }
 }
