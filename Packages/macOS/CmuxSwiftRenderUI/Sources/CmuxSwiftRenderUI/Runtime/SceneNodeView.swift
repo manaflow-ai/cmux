@@ -564,14 +564,20 @@ private struct SceneMarqueeText: View {
     @Environment(\.sceneHovered) private var hovered
     @State private var visibleWidth: CGFloat = 0
     @State private var fullWidth: CGFloat = 0
+    /// Debounced hover: enter is immediate; an exit only counts if it
+    /// SURVIVES 0.4s. The marquee's own animation frames make the row's
+    /// tracking area flicker (exit+re-enter within a frame or two), which
+    /// used to stop the scroll and re-arm it in a visible loop. A flicker's
+    /// re-enter now cancels the pending exit and the arm timer keeps its
+    /// elapsed time, because its task id (stableHovered) never changed.
+    @State private var stableHovered = false
     @State private var scrolling = false
     @State private var phase: CGFloat = 0
 
     private var overflow: CGFloat { max(0, fullWidth - visibleWidth) }
 
     var body: some View {
-        let _ = marqueeLog("body hovered=\(hovered) scrolling=\(scrolling) overflow=\(overflow)")
-        return Text(text)
+        Text(text)
             .opacity(scrolling && overflow > 1 ? 0 : 1)
             .background(
                 GeometryReader { geo in
@@ -596,33 +602,21 @@ private struct SceneMarqueeText: View {
                         .opacity(overflow > 1 ? 1 : 0)
                 }
             }
+            // Plain clip, no fade masks: fades popping in with the scroll
+            // read as a glitch, and the mask churn re-rendered the row.
             .clipped()
-            // While the marquee is running, text extends past both clipped
-            // edges, so both edges fade instead of hard-clipping. The strips
-            // collapse to zero width at rest.
-            .mask {
-                // Static strips (no animation - mask churn re-renders the row
-                // mid-hover and flickers the tracking area): leading fade only
-                // while text has scrolled past the left edge.
-                let active = scrolling && overflow > 1
-                HStack(spacing: 0) {
-                    LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
-                        .frame(width: active ? 12 : 0)
-                    Rectangle()
-                    LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
-                        .frame(width: active ? 12 : 0)
+            .task(id: hovered) {
+                if hovered {
+                    stableHovered = true
+                } else {
+                    try? await Task.sleep(nanoseconds: 400_000_000)
+                    guard !Task.isCancelled else { return }
+                    stableHovered = false
                 }
             }
-            .task(id: hovered) {
-                guard hovered else {
-                    // Exit debounce: tracking areas report a momentary exit
-                    // when the row re-renders under a stationary pointer (this
-                    // is what kept cancelling the arm delay). Only an exit
-                    // that SURVIVES 0.15s stops the marquee; a flicker's
-                    // re-enter cancels this task before it acts.
-                    try? await Task.sleep(nanoseconds: 150_000_000)
-                    guard !Task.isCancelled else { return }
-                    stopScroll()
+            .task(id: stableHovered) {
+                guard stableHovered else {
+                    settleBack()
                     return
                 }
                 guard !scrolling else { return }
@@ -636,33 +630,32 @@ private struct SceneMarqueeText: View {
             .onChange(of: overflow) { _, _ in updateScrollAnimation() }
     }
 
-    /// ~30pt/s out-and-back, with a short dwell before departure. Runs only
-    /// once the clone has been measured (overflow known) - until then it
-    /// must WAIT, not stop: when `scrolling` first flips on, the clone has
-    /// not rendered yet and overflow is still 0 for one frame. (Calling
-    /// stopScroll() here killed the marquee the same frame it started.)
+    /// ~30pt/s out-and-back. Runs only once the clone has been measured
+    /// (overflow known) - until then it must WAIT, not stop: when
+    /// `scrolling` first flips on, the clone has not rendered yet and
+    /// overflow is still 0 for one frame. (Calling a stop here killed the
+    /// marquee the same frame it started.)
     private func updateScrollAnimation() {
-        guard scrolling, overflow > 1 else {
-            marqueeLog("waiting/reset (scrolling=\(scrolling) overflow=\(overflow) full=\(fullWidth) visible=\(visibleWidth))")
-            resetPhase()
-            return
-        }
+        guard scrolling, overflow > 1 else { return }
         let duration = max(0.5, Double(overflow) / 30.0)
         marqueeLog("animating overflow=\(overflow) duration=\(duration)")
-        withAnimation(.linear(duration: duration).delay(0.4).repeatForever(autoreverses: true)) {
+        withAnimation(.linear(duration: duration).repeatForever(autoreverses: true)) {
             phase = 1
         }
     }
 
-    private func stopScroll() {
-        scrolling = false
-        resetPhase()
-    }
-
-    private func resetPhase() {
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { phase = 0 }
+    /// Mouse-up/leave: glide the text back to its resting position, THEN
+    /// swap the truncated layout text back in (at phase 0 they are pixel
+    /// identical, so the swap is invisible). A hard phase reset here read
+    /// as the text teleporting.
+    private func settleBack() {
+        guard scrolling else { return }
+        marqueeLog("settling back")
+        withAnimation(.easeOut(duration: 0.25)) {
+            phase = 0
+        } completion: {
+            scrolling = false
+        }
     }
 
     private func marqueeLog(_ message: String) {

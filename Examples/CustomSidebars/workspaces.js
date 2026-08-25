@@ -413,9 +413,9 @@ function workspaceMenu(w) {
 function workspaceRow(w, entry) {
   // The title owns the FULL row width; badge, pin, and close button FLOAT
   // over its trailing edge (ZStack trailing) instead of reserving layout.
-  // A constant .fade replaces trailing padding: the title's last points
-  // dissolve where accessories float, no reservation, no hover animation.
-  // A title too long to fit starts marqueeing after the hover holds 0.5s.
+  // No fades anywhere (they read as glitches when they appear); overflow
+  // truncates with a plain ellipsis, and a title too long to fit starts
+  // marqueeing after the hover holds 0.5s.
   return ZStack({ alignment: "trailing" }, [
     HStack({ spacing: 0 }, [
       Text(() => displayTitle(w()))
@@ -426,7 +426,6 @@ function workspaceRow(w, entry) {
         .color(() => (isSelected(w()) ? "primary" : "secondary")),
       Spacer({ minLength: 0 }),
     ])
-      .fade(30)
       .frame({ maxWidth: "infinity" }),
     ZStack({}, [
       // Unread badge at rest; on hover it yields to the close button.
