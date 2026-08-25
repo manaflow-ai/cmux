@@ -2,6 +2,59 @@ import XCTest
 import Darwin
 
 extension CLINotifyProcessIntegrationRegressionTests {
+    func testVMNewFailsWithAnActionableAuthErrorBeforeProvisioning() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-new-auth-required")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "vm.create")
+            return self.v2Response(
+                id: id,
+                ok: false,
+                error: [
+                    "code": "auth_required",
+                    "message": "Cloud VM access requires sign-in. Run `cmux auth login`, then retry.",
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "new", "--detach"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stdout + result.stderr)
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(
+            (result.stdout + result.stderr).contains("cmux auth login"),
+            result.stdout + result.stderr
+        )
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["vm.create"]
+        )
+    }
+
     func testVMNewDefaultCreatesPinnedSSHDWorkspaceOverFreestyleSSH() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-new-sshd")

@@ -116,4 +116,25 @@ final class MachinesPanelModelTests: XCTestCase {
             [.files, .find, .sessions]
         )
     }
+
+    func testCloudMachinesNeverExposeFleetWhileSignedOut() {
+        XCTAssertEqual(
+            CloudVMPanelAuthState.resolve(isAuthenticated: false, isWorkingOnAuth: true),
+            .checking
+        )
+        XCTAssertEqual(
+            CloudVMPanelAuthState.resolve(isAuthenticated: false, isWorkingOnAuth: false),
+            .signedOut
+        )
+        XCTAssertEqual(
+            CloudVMPanelAuthState.resolve(isAuthenticated: true, isWorkingOnAuth: false),
+            .signedIn
+        )
+        XCTAssertFalse(
+            CloudVMPanelAuthState.signedOut.allowsAuthenticatedOperation
+        )
+        XCTAssertTrue(
+            CloudVMPanelAuthState.signedIn.allowsAuthenticatedOperation
+        )
+    }
 }

@@ -133,7 +133,9 @@ final class MachinesPanelViewModel: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.clearForAuthTransition()
+            Task { @MainActor [weak self] in
+                self?.resetForAuthTransition()
+            }
         }
     }
 
@@ -197,7 +199,11 @@ final class MachinesPanelViewModel: ObservableObject {
         statsTask = nil
     }
 
-    private func clearForAuthTransition() {
+    /// Drop every locally cached machine and in-flight sample when auth ends.
+    /// This is intentionally callable by the panel as well as the sign-out
+    /// notification observer so a signed-out panel can never render a stale
+    /// fleet while SwiftUI is catching up with the auth projection.
+    func resetForAuthTransition() {
         refreshTask?.cancel()
         refreshTask = nil
         statsTask?.cancel()
@@ -226,6 +232,21 @@ final class MachinesPanelViewModel: ObservableObject {
             refreshStats()
             plan = MachineSnapshotBuilder.planSnapshot(activeCount: snapshots.count, limits: page.limits)
             lastErrorDescription = nil
+        } catch let error as VMClientError {
+            if case .notSignedIn = error {
+                // A request can race sign-out before the auth observation or
+                // notification arrives. Clear the authoritative-looking
+                // snapshot immediately; signed-out users must never see the
+                // previous account's machines during that race.
+                machines = []
+                plan = nil
+                activeOperation = nil
+                lastErrorDescription = nil
+                hasLoadedOnce = false
+                isLoading = false
+                return
+            }
+            lastErrorDescription = String(describing: error)
         } catch {
             lastErrorDescription = String(describing: error)
         }
