@@ -2432,7 +2432,7 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             cwd: capturedDirectory,
             checkpointId: sessionId,
             source: "agent-hook",
-            environment: ["CMUX_REMOTE_FLAG": "kept"],
+            environment: ["CODEX_HOME": "/tmp/remote-codex-home"],
             launchCommand: agent.launchCommand,
             autoResume: true,
             launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
@@ -2458,7 +2458,7 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
 
         #expect(constrainedStartupInput.contains(trustedRemoteDirectory))
         #expect(!constrainedStartupInput.contains(capturedDirectory))
-        #expect(constrainedStartupInput.contains("CMUX_REMOTE_FLAG=kept"), Comment(rawValue: constrainedStartupInput))
+        #expect(constrainedStartupInput.contains("CODEX_HOME=/tmp/remote-codex-home"), Comment(rawValue: constrainedStartupInput))
         #expect(remoteCommand.contains(constrainedPayload), Comment(rawValue: remoteCommand))
         #expect(!remoteCommand.contains(unsafePayload), Comment(rawValue: remoteCommand))
 
