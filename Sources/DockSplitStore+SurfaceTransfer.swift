@@ -398,7 +398,15 @@ extension DockSplitStore {
         } else if let browser = panel as? BrowserPanel {
             browser.updateWorkspaceId(workspaceId)
         } else if let filePreview = panel as? FilePreviewPanel {
-            filePreview.updateWorkspaceId(workspaceId)
+            filePreview.updateWorkspaceId(
+                workspaceId,
+                fileContentChangeCoordinator: fileContentChangeCoordinator
+            )
+        } else if let markdown = panel as? MarkdownPanel {
+            markdown.updateWorkspaceId(
+                workspaceId,
+                fileContentChangeCoordinator: fileContentChangeCoordinator
+            )
         }
     }
 

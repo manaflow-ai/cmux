@@ -413,7 +413,11 @@ extension DockSplitStore {
         excludingStableIdentities: Set<UUID>
     ) -> UUID? {
         guard let filePath = snapshot.filePreview?.filePath else { return nil }
-        let panel = FilePreviewPanel(workspaceId: workspaceId, filePath: filePath)
+        let panel = FilePreviewPanel(
+            workspaceId: workspaceId,
+            filePath: filePath,
+            fileContentChangeCoordinator: fileContentChangeCoordinator
+        )
         guard attachSessionRestoredPanel(
             panel,
             snapshot: snapshot,

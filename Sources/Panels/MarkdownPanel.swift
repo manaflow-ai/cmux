@@ -75,9 +75,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     // MARK: - File watching
 
-    // Watches `filePath` (file + ancestor-directory recovery) via CmuxFileWatch.
-    private var fileWatcher: FileWatcher?
-    private var fileWatchTask: Task<Void, Never>?
+    private var fileContentChangeCoordinator: FileContentChangeCoordinator
+    private var fileContentObservationID: UUID?
+    private var lastObservedFileState: FilePreviewFileState?
     private var originalTextContent: String = ""
     private var textEncoding: String.Encoding = .utf8
     private var saveGeneration: Int = 0
@@ -99,7 +99,12 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// - Parameter fontSize: Initial body font size in points. When `nil`, the
     ///   panel uses the persistent `markdown.fontSize` default. The value is
     ///   clamped to the supported range.
-    init(workspaceId: UUID, filePath: String, fontSize: Double? = nil) {
+    init(
+        workspaceId: UUID,
+        filePath: String,
+        fontSize: Double? = nil,
+        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil
+    ) {
         let defaultSize = MarkdownFontSizeSettings.resolvedDefault()
         let defaultFamily = MarkdownFontFamily.resolvedDefault()
         let defaultMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
@@ -113,6 +118,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         self.followedFontFamily = defaultFamily
         self.followedMaxContentWidth = defaultMaxWidth
         self.displayTitle = (filePath as NSString).lastPathComponent
+        self.fileContentChangeCoordinator =
+            fileContentChangeCoordinator ?? .shared
 
         loadFileContent()
         startWatching()
@@ -254,6 +261,21 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         }
     }
 
+    func updateWorkspaceId(
+        _ workspaceId: UUID,
+        fileContentChangeCoordinator: FileContentChangeCoordinator
+    ) {
+        self.workspaceId = workspaceId
+        guard self.fileContentChangeCoordinator !== fileContentChangeCoordinator else {
+            return
+        }
+        stopWatching()
+        self.fileContentChangeCoordinator = fileContentChangeCoordinator
+        if !isClosed {
+            startWatching()
+        }
+    }
+
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         _ = reason
         guard NotificationPaneFlashSettings.isEnabled() else { return }
@@ -325,9 +347,26 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
         let fileURL = URL(fileURLWithPath: filePath)
         let encoding = textEncoding
+        let fileContentChangeCoordinator = fileContentChangeCoordinator
+        let fileContentObservationID = fileContentObservationID
 
-        return Task { [weak self, currentContent, fileURL, encoding, generation] in
-            let result = await FilePreviewTextSaver.save(content: currentContent, to: fileURL, encoding: encoding)
+        return Task {
+            [weak self, currentContent, fileURL, encoding, generation,
+             fileContentChangeCoordinator, fileContentObservationID] in
+            let result = await fileContentChangeCoordinator.saveTextContent(
+                currentContent,
+                to: fileURL,
+                encoding: encoding,
+                excluding: fileContentObservationID
+            )
+            if let self {
+                fileContentChangeCoordinator.republishSuccessfulSaveIfNeeded(
+                    result,
+                    to: self.fileContentChangeCoordinator,
+                    at: fileURL.path,
+                    excluding: self.fileContentObservationID
+                )
+            }
             guard let self, self.activeSaveGeneration == generation else { return }
             self.activeSaveGeneration = nil
             self.isSaving = false
@@ -341,12 +380,14 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
                 self.isFileUnavailable = !fileExists
                 GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
             }
+            self.loadFileContent(replacingDirtyContent: false)
         }
     }
 
     // MARK: - File I/O
 
     private func loadFileContent(replacingDirtyContent: Bool = true) {
+        lastObservedFileState = .capture(path: filePath)
         switch Self.loadMarkdownFile(at: filePath) {
         case .loaded(let newContent, let encoding):
             applyLoadedContent(newContent, encoding: encoding, replacingDirtyContent: replacingDirtyContent)
@@ -426,31 +467,36 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     // MARK: - File watcher
 
-    /// Watches ``filePath`` for changes via ``CmuxFileWatch/FileWatcher``, which
-    /// handles inode reattachment and nearest-existing-ancestor recovery
-    /// internally; each change reloads the content.
+    /// Subscribes through the workspace's shared file-content change service.
     private func startWatching() {
         stopWatching()
-        let watcher = FileWatcher(path: filePath)
-        fileWatcher = watcher
-        let events = watcher.events
-        fileWatchTask = Task { @MainActor [weak self] in
-            for await _ in events {
-                guard let self, !self.isClosed else { break }
-                self.loadFileContent(replacingDirtyContent: false)
-            }
+        fileContentObservationID = fileContentChangeCoordinator.observe(
+            path: filePath
+        ) { [weak self] in
+            guard let self, !self.isClosed else { return }
+            self.handleObservedFileChange()
         }
     }
 
+    /// Reloads only when the on-disk fingerprint moved past the last load, so
+    /// the coordinator's registration-time reconciliation callback is free
+    /// (`loadFileContent` already ran) and unchanged-file retargets skip the
+    /// redundant read. A change observed mid-save is deferred to the save
+    /// task's trailing reconciliation load.
+    private func handleObservedFileChange() {
+        let state = FilePreviewFileState.capture(path: filePath)
+        guard state != lastObservedFileState else { return }
+        guard !isSaving else { return }
+        loadFileContent(replacingDirtyContent: false)
+    }
+
     private func stopWatching() {
-        fileWatchTask?.cancel()
-        fileWatchTask = nil
-        // Dropping the watcher runs its deinit, cancelling the DispatchSources.
-        fileWatcher = nil
+        guard let fileContentObservationID else { return }
+        self.fileContentObservationID = nil
+        fileContentChangeCoordinator.removeObservation(fileContentObservationID)
     }
 
     deinit {
-        fileWatchTask?.cancel()
         if let typographyDefaultsObserver {
             NotificationCenter.default.removeObserver(typographyDefaultsObserver)
         }

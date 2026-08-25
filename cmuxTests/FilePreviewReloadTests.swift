@@ -45,6 +45,89 @@ struct FilePreviewReloadTests {
         #expect(!panel.isDirty)
     }
 
+    @Test("Saving a text editor refreshes an adjacent Markdown preview")
+    func editorSaveRefreshesMarkdownPreview() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-markdown-editor-save-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let fileURL = directoryURL.appending(path: "live.md")
+        let originalContent = "# Before\n"
+        let updatedContent = "# After saving\n"
+        try originalContent.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let workspaceID = UUID()
+        let fileChanges = FileContentChangeCoordinator(makeFileWatcher: { _ in nil })
+        let editor = FilePreviewPanel(
+            workspaceId: workspaceID,
+            filePath: fileURL.path,
+            fileContentChangeCoordinator: fileChanges
+        )
+        let preview = MarkdownPanel(
+            workspaceId: workspaceID,
+            filePath: fileURL.path,
+            fileContentChangeCoordinator: fileChanges
+        )
+        defer {
+            editor.close()
+            preview.close()
+        }
+        await editor.loadTextContent().value
+        #expect(editor.textContent == originalContent)
+        #expect(preview.content == originalContent)
+
+        let (contentChanges, continuation) = AsyncStream.makeStream(of: String.self)
+        let observation = preview.$content.sink { continuation.yield($0) }
+        defer {
+            observation.cancel()
+            continuation.finish()
+        }
+
+        editor.updateTextContent(updatedContent)
+        let save = try #require(editor.saveTextContent())
+        await save.value
+
+        #expect(await firstMatch(updatedContent, in: contentChanges))
+        #expect(preview.content == updatedContent)
+        #expect(!preview.isDirty)
+    }
+
+    @Test("Starting file observation reconciles a change missed before subscription")
+    func startingObservationReconcilesMissedChange() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-subscription-gap-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let originalContent = "before observing\n"
+        let updatedContent = "changed before observing\n"
+        try originalContent.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let fileChanges = FileContentChangeCoordinator(makeFileWatcher: { _ in nil })
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false,
+            fileContentChangeCoordinator: fileChanges
+        )
+        defer { panel.close() }
+        await panel.loadTextContent().value
+        #expect(panel.textContent == originalContent)
+
+        try updatedContent.write(to: fileURL, atomically: true, encoding: .utf8)
+        let (contentChanges, continuation) = AsyncStream.makeStream(of: String.self)
+        let observation = panel.$textContent.sink { continuation.yield($0) }
+        defer {
+            observation.cancel()
+            continuation.finish()
+        }
+
+        panel.startWatchingForFileChanges()
+
+        #expect(await firstMatch(updatedContent, in: contentChanges))
+        #expect(panel.textContent == updatedContent)
+        #expect(!panel.isDirty)
+    }
+
     @Test("Observed sibling changes do not reload a file preview")
     func observedSiblingChangeDoesNotReloadPreview() async throws {
         let directoryURL = FileManager.default.temporaryDirectory
@@ -373,11 +456,26 @@ struct FilePreviewReloadTests {
         }
     }
 
-    private func firstMatch(_ expected: String, in changes: AsyncStream<String>) async -> Bool {
-        for await content in changes where content == expected {
-            return true
+    private func firstMatch(
+        _ expected: String,
+        in changes: AsyncStream<String>,
+        timeout: Duration = .seconds(5)
+    ) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await content in changes where content == expected {
+                    return true
+                }
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+            let matched = await group.next() ?? false
+            group.cancelAll()
+            return matched
         }
-        return false
     }
 }
 
