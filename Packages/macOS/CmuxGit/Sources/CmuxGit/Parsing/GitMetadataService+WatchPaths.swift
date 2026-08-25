@@ -7,11 +7,13 @@ extension GitMetadataService {
     /// not inside a repository.
     nonisolated static func workspaceGitMetadataWatchedPaths(
         for directory: String,
-        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration()
+        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String]? {
         workspaceGitMetadataWatchDescriptor(
             for: directory,
-            safetyConfiguration: safetyConfiguration
+            safetyConfiguration: safetyConfiguration,
+            environment: environment
         )?.watchedPaths
     }
 
@@ -27,7 +29,8 @@ extension GitMetadataService {
         watchOnlyPathsByRepository: [String: [String]]? = nil,
         metadataSentinelPathsByRepository: [String: [String]]? = nil,
         indexSnapshotsByRepository: [String: GitIndexSnapshot]? = nil,
-        deadline: DispatchTime? = nil
+        deadline: DispatchTime? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> GitWorkspaceMetadataWatchDescriptor? {
         guard let repository = resolvedRepository
             ?? resolveGitRepository(containing: directory, deadline: deadline) else {
@@ -48,7 +51,8 @@ extension GitMetadataService {
         )
         let gitMetadataPaths = gitRepositoryMetadataWatchPaths(
             repository: repository,
-            configPathsByRepository: configPathsByRepository
+            configPathsByRepository: configPathsByRepository,
+            environment: environment
         ) + gitlinkMetadataWatchPaths(
             repository: repository,
             safetyConfiguration: safetyConfiguration,
@@ -163,14 +167,15 @@ extension GitMetadataService {
     /// every reachable `config`) for a single resolved repository.
     nonisolated static func gitRepositoryMetadataWatchPaths(
         repository: ResolvedGitRepository,
-        configPathsByRepository: [String: [String]]? = nil
+        configPathsByRepository: [String: [String]]? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String] {
         let configPaths: [String]
         if let configPathsByRepository {
             configPaths = configPathsByRepository[repository.workTreeRoot]
-                ?? gitRootConfigURLs(repository: repository).map(\.path)
+                ?? gitRootConfigURLs(repository: repository, environment: environment).map(\.path)
         } else {
-            configPaths = gitConfigURLs(repository: repository).map(\.path)
+            configPaths = gitConfigURLs(repository: repository, environment: environment).map(\.path)
         }
         return [
             joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),
