@@ -9196,17 +9196,6 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(backgroundView, to: bounds)
         let contentFrame = sessionContentFrame
         _ = setFrameIfNeeded(scrollView, to: contentFrame)
-        let targetSize = scrollView.bounds.size
-#if DEBUG
-        logLayoutDuringActiveDrag(targetSize: targetSize)
-#endif
-        let targetSurfaceFrame = CGRect(origin: contentFrame.origin, size: targetSize)
-        _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
-        let targetDocumentFrame = CGRect(
-            origin: documentView.frame.origin,
-            size: CGSize(width: scrollView.bounds.width, height: documentView.frame.height)
-        )
-        _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
         _ = setFrameIfNeeded(mobileViewportBorderOverlayView, to: contentFrame)
         _ = setFrameIfNeeded(inactiveOverlayView, to: bounds)
         _ = setFrameIfNeeded(paneDropTargetView, to: bounds)
@@ -9246,6 +9235,19 @@ final class GhosttySurfaceScrollView: NSView {
             scrollView.tile()
         }
         scrollView.layoutSubtreeIfNeeded()
+        // Size the sibling renderer from the clip view, not the outer scroll view:
+        // legacy scrollers reserve a gutter that must stay outside the terminal grid.
+        let targetSize = scrollView.contentView.bounds.size
+#if DEBUG
+        logLayoutDuringActiveDrag(targetSize: targetSize)
+#endif
+        let targetSurfaceFrame = CGRect(origin: contentFrame.origin, size: targetSize)
+        _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
+        let targetDocumentFrame = CGRect(
+            origin: documentView.frame.origin,
+            size: CGSize(width: scrollView.contentView.bounds.width, height: documentView.frame.height)
+        )
+        _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
         updateNotificationRingPath()
         updateFlashPath(style: lastFlashStyle)
         updateFlashAppearance(style: lastFlashStyle)

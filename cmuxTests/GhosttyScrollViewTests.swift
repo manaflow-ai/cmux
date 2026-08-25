@@ -37,6 +37,10 @@ struct GhosttyScrollViewTests {
             hostedView.subviews.compactMap { $0 as? GhosttyScrollView }.first
         )
         let documentView = try #require(scrollView.documentView)
+        scrollView.scrollerStyle = .legacy
+        scrollView.autohidesScrollers = false
+        scrollView.tile()
+        hostedView.layoutSubtreeIfNeeded()
         surfaceView.cellSize = CGSize(width: 8, height: 10)
         let rendererFrame = surfaceView.frame
 
@@ -57,6 +61,14 @@ struct GhosttyScrollViewTests {
                 abs(scrollView.contentView.documentVisibleRect.origin.y - 200) <= 0.5
         }
         #expect(didApplyScrollbar, "the production scrollbar notification must settle before assertions")
+        #expect(
+            abs(surfaceView.frame.width - scrollView.contentView.bounds.width) <= 0.5,
+            "the renderer must stop at the clip view's content edge before a legacy scrollbar gutter"
+        )
+        #expect(
+            abs(documentView.frame.width - scrollView.contentView.bounds.width) <= 0.5,
+            "virtual scrollbar geometry must use the same content width as the renderer"
+        )
         #expect(
             surfaceView.frame == rendererFrame,
             "scrollback must not relocate the viewport-sized Metal renderer"
