@@ -554,6 +554,7 @@ final class TaskManagerResourcesTests: XCTestCase {
         let cases: [(processName: String, expectedId: String)] = [
             ("claude_code", "claude"),
             ("codex", "codex"),
+            ("atomcode", "atomcode"),
             ("opencode", "opencode"),
             ("pi", "pi"),
             ("pi-coding-agent", "pi"),

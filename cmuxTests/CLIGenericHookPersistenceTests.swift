@@ -1244,6 +1244,213 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil(cmuxGroup["Notification"])
     }
 
+    func testAtomcodeHookInstallUsesNamedClaudeCodeShapeAndPreservesUserHooks() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-atomcode-hook-install-\(UUID().uuidString)", isDirectory: true)
+        let atomcodeHome = root.appendingPathComponent("atomcode-home", isDirectory: true)
+        try FileManager.default.createDirectory(at: atomcodeHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let initialJSON: [String: Any] = [
+            "hooks": [
+                "user_session_start": [
+                    "event": "SessionStart",
+                    "command": "echo user-owned",
+                ] as [String: Any],
+            ] as [String: Any],
+            "keep": "untouched",
+        ]
+        let hookURL = atomcodeHome.appendingPathComponent("hooks.json", isDirectory: false)
+        let initialData = try JSONSerialization.data(withJSONObject: initialJSON, options: [.prettyPrinted, .sortedKeys])
+        try initialData.write(to: hookURL, options: .atomic)
+
+        let environment = [
+            "HOME": root.path,
+            "ATOMCODE_HOME": atomcodeHome.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        let install = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "atomcode", "install", "--yes"],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(install.timedOut, install.stderr)
+        XCTAssertEqual(install.status, 0, install.stderr)
+
+        let installed = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any]
+        )
+        XCTAssertEqual(installed["keep"] as? String, "untouched")
+        let hooks = try XCTUnwrap(installed["hooks"] as? [String: Any])
+        let userEntry = try XCTUnwrap(hooks["user_session_start"] as? [String: Any])
+        XCTAssertEqual(userEntry["command"] as? String, "echo user-owned")
+
+        let expectedEvents: Set<String> = [
+            "SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "SessionEnd",
+            "PreToolUse", "PostToolUse", "PostToolUseFailure",
+        ]
+        let cmuxEntries = hooks.compactMap { key, value -> (String, [String: Any])? in
+            guard key != "user_session_start", let entry = value as? [String: Any] else {
+                return nil
+            }
+            return (key, entry)
+        }
+        XCTAssertEqual(cmuxEntries.count, expectedEvents.count)
+        XCTAssertEqual(Set(cmuxEntries.compactMap { $0.1["event"] as? String }), expectedEvents)
+        XCTAssertTrue(
+            cmuxEntries.allSatisfy { _, entry in
+                guard let command = entry["command"] as? String,
+                      let timeout = entry["timeout_ms"] as? Int else {
+                    return false
+                }
+                return (command.contains("hooks atomcode") || command.contains("hooks feed --source atomcode"))
+                    && timeout > 0
+            },
+            "AtomCode hooks must be named objects with cmux commands and timeouts: \(cmuxEntries)"
+        )
+
+        let secondInstall = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "atomcode", "install", "--yes"],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(secondInstall.timedOut, secondInstall.stderr)
+        XCTAssertEqual(secondInstall.status, 0, secondInstall.stderr)
+        let reinstalled = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any]
+        )
+        let reinstalledHooks = try XCTUnwrap(reinstalled["hooks"] as? [String: Any])
+        XCTAssertEqual(reinstalledHooks.count, hooks.count, "Installing twice must not duplicate AtomCode hooks")
+
+        let uninstall = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "atomcode", "uninstall"],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(uninstall.timedOut, uninstall.stderr)
+        XCTAssertEqual(uninstall.status, 0, uninstall.stderr)
+        let removed = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any]
+        )
+        let remainingHooks = removed["hooks"] as? [String: Any] ?? [:]
+        XCTAssertEqual((remainingHooks["user_session_start"] as? [String: Any])?["command"] as? String, "echo user-owned")
+        XCTAssertFalse(
+            remainingHooks.values.contains { value in
+                guard let entry = value as? [String: Any],
+                      let command = entry["command"] as? String else {
+                    return false
+                }
+                return command.contains("hooks atomcode")
+            },
+            "Uninstall must remove only cmux-owned AtomCode entries"
+        )
+    }
+
+    func testAtomcodeStopFailurePublishesErrorSummaryAndStatus() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("atomcode-stop-failure")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-atomcode-stop-failure-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "atomcode-session-123"
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return "OK"
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        func runAtomcodeHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "atomcode", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+        }
+
+        let start = runAtomcodeHook(
+            "session-start",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+        XCTAssertEqual(start.stdout, "{}\n")
+
+        let completedStopCommandStart = state.commands.count
+        let completedStop = runAtomcodeHook(
+            "stop",
+            input: #"{"session_id":"\#(sessionId)","transcript_path":null,"hook_event_name":"Stop","stop_hook_active":false,"stop_reason":"Completed","cwd":"\#(root.path)"}"#
+        )
+        XCTAssertFalse(completedStop.timedOut, completedStop.stderr)
+        XCTAssertEqual(completedStop.status, 0, completedStop.stderr)
+        XCTAssertEqual(completedStop.stdout, "{}\n")
+        let completedStopCommands = Array(state.commands.dropFirst(completedStopCommandStart))
+        XCTAssertTrue(
+            completedStopCommands.contains { $0.contains("notify_target_async \(workspaceId) \(surfaceId) AtomCode|Completed in ") },
+            "AtomCode Stop must publish the shared completion summary, saw \(completedStopCommands)"
+        )
+        XCTAssertTrue(
+            completedStopCommands.contains { $0.contains("set_status atomcode Idle") },
+            "AtomCode Stop must leave the pane idle, saw \(completedStopCommands)"
+        )
+
+        let stopCommandStart = state.commands.count
+        let stopFailure = runAtomcodeHook(
+            "stop",
+            input: #"{"session_id":"\#(sessionId)","transcript_path":null,"hook_event_name":"StopFailure","stop_hook_active":false,"stop_reason":"ProviderError","cwd":"\#(root.path)"}"#
+        )
+        XCTAssertFalse(stopFailure.timedOut, stopFailure.stderr)
+        XCTAssertEqual(stopFailure.status, 0, stopFailure.stderr)
+        XCTAssertEqual(stopFailure.stdout, "{}\n")
+
+        let stopCommands = Array(state.commands.dropFirst(stopCommandStart))
+        XCTAssertTrue(
+            stopCommands.contains { $0.contains("notify_target_async \(workspaceId) \(surfaceId) AtomCode|Error|ProviderError") },
+            "AtomCode StopFailure must publish an error summary, saw \(stopCommands)"
+        )
+        XCTAssertTrue(
+            stopCommands.contains { $0.contains("set_status atomcode AtomCode error") },
+            "AtomCode StopFailure must leave an error status, saw \(stopCommands)"
+        )
+    }
+
     func testKiroHookInstallUsesAgentConfigShapeAndPreservesDenyExit() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
